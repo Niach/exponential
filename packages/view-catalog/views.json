@@ -994,12 +994,14 @@
       },
       "notes": {
         "web": "EXP-740 gave a session its own full-page route \u2014 the dock below is the tab strip alone, so there is no recipe to expand: `$sessionId` resolves to DEMO_STEERED_SESSION_ID (apps/web/scripts/screenshot-demo.ts), the id the seed stamps on the demo user's running showcase run. Needs `bun run screenshots:desktop` running: the feed is relay-fed, and an unreachable relay photographs a Reconnecting state instead. The anchor is the tail fragment of DEMO_FEED_QUESTION.",
-        "desktop": "The owning desktop app HOSTS and RENDERS the session since EXP-746: a `Screen::Session` tab in the center panel, not a dock. `EXP_DEV_SCREEN=session:<coding_sessions row id>` opens that tab, but the transcript only fills while an agent is actually running, so the shot stays a hand capture: `bun run shots -- --manual steering` with a live session on screen."
+        "desktop": "A session is a `Screen::Session` tab in the center panel since EXP-746, not a dock, and `session:$steeredSession` opens the seeded showcase run in it. With no engine of its own the tab dials the relay as a VIEWER (owner-only ticket via `steer.mintTicket`), so it renders the same relay-fed feed the web shot photographs \u2014 which makes `bun run screenshots:desktop` and the steer-relay container prerequisites here too, exactly as they are for web. Without them the tab photographs a Reconnecting / steering-unavailable state, so `--skip-relay` skips this view instead."
       },
       "desktop": {
         "drive": {
-          "kind": "manual"
-        }
+          "kind": "screen",
+          "value": "session:$steeredSession"
+        },
+        "anchorDelayMs": 2500
       }
     },
     {

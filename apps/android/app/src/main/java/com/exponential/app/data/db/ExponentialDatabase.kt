@@ -215,9 +215,14 @@ import androidx.room.RoomDatabase
     //      off) + comments.source (user | mcp, the "via MCP" caption). New
     //      columns on the comments shape allowlist; destructive fallback
     //      wipes + resyncs so every comment row arrives carrying them.
+    // v48 (EXP-749): devices.acp_agents — the agents a machine runs through
+    //      the in-process ACP engine, NULL when it never said (assume every
+    //      runnable agent is ACP-ready). New column on the devices shape
+    //      allowlist; destructive fallback wipes + resyncs so every device row
+    //      arrives carrying it.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 47,
+    version = 48,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

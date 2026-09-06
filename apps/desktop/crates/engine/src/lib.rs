@@ -38,6 +38,9 @@ pub mod local;
 pub mod mapper;
 pub mod session;
 pub mod sink;
+// EXP-750: the ACP `terminal/*` capability. Session-owned, host-local: the
+// registry lives on `SessionCtx` and nothing it produces leaves the machine.
+mod terminals;
 pub mod transport;
 
 pub use adapters::{Adapter, AdapterKind, AdapterSpec};

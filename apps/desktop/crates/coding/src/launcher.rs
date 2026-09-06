@@ -934,21 +934,20 @@ fn agent_kind(options: &LaunchOptions) -> AgentKind {
 /// ([`CodingDeps::acp_available`]). An external agent is ACP by definition;
 /// it only needs the host.
 ///
-/// One agent-shaped exception: pi's plan mode IS the injected
-/// `.exp-pi-plan.ts` extension gated on `EXP_PI_PLAN_MODE` (EXP-441), and pi's
-/// rpc mode has no equivalent — so a pi launch that asked for plan mode falls
-/// back to the terminal rather than silently dropping the mode.
+/// EXP-752: plan mode is NOT an exception any more. pi's plan mode is still
+/// the injected `.exp-pi-plan.ts` extension gated on `EXP_PI_PLAN_MODE`
+/// (EXP-441), but both transports now write the file and set the env, and the
+/// rpc adapter advertises it as an ACP session mode — so a plan-mode pi
+/// launch resolves its transport exactly like claude's.
 fn acp_ready(
     report: &crate::doctor::DoctorReport,
     agent: &AgentKind,
-    plan_mode: bool,
     deps: &CodingDeps,
 ) -> bool {
     if !deps.acp_available {
         return false;
     }
     match agent.builtin() {
-        Some(CodingAgent::Pi) if plan_mode => false,
         Some(agent) => report.check_for(agent).acp == Some(true),
         None => true,
     }
@@ -1087,13 +1086,17 @@ fn wire_agent_mcp(
                 // static file, inert without the EXP_OBSERVER_* env — but its
                 // absence with the env set would fail the `-e` load, so a write
                 // failure is only logged when no observer is wired anyway.
+                // It stays PTY-only: the rpc stream IS the ACP arm's
+                // observation channel.
                 write_pi_observer(cwd)
                     .map_err(|e| CodingError::Io(format!("write .exp-pi-observer.ts: {e}")))?;
-                // Same posture for the plan-mode extension (EXP-441): always on
-                // the argv, inert without EXP_PI_PLAN_MODE.
-                write_pi_plan(cwd)
-                    .map_err(|e| CodingError::Io(format!("write .exp-pi-plan.ts: {e}")))?;
             }
+            // EXP-752: the plan-mode extension is written on BOTH transports —
+            // it is pi's plan mode either way (the rpc adapter loads it with
+            // `-e` and drives it through `/exp-plan`). Same posture as ever:
+            // static file, inert without EXP_PI_PLAN_MODE.
+            write_pi_plan(cwd)
+                .map_err(|e| CodingError::Io(format!("write .exp-pi-plan.ts: {e}")))?;
             Ok(AgentMcp::PiExtension)
         }
     }
@@ -1101,7 +1104,8 @@ fn wire_agent_mcp(
 
 /// The spawn-env gate of the pi plan-mode extension (EXP-441): a pi launch
 /// with plan mode on sets [`crate::argv::PI_PLAN_MODE_ENV`]; without it the
-/// always-written `.exp-pi-plan.ts` returns immediately.
+/// always-written `.exp-pi-plan.ts` returns immediately. EXP-752: applied on
+/// BOTH transports — the rpc adapter runs the same extension.
 fn apply_pi_plan_env(spawn: SpawnSpec, agent: CodingAgent, plan_mode: bool) -> SpawnSpec {
     if agent == CodingAgent::Pi && plan_mode {
         spawn.env(crate::argv::PI_PLAN_MODE_ENV, "1")
@@ -1289,7 +1293,7 @@ pub fn prepare_with_hooks(
         &deps.settings,
         &agent_kind,
         false,
-        acp_ready(&report, &agent_kind, options.plan_mode, deps),
+        acp_ready(&report, &agent_kind, deps),
         None,
     );
 
@@ -1744,14 +1748,15 @@ pub fn prepare_with_hooks(
         Some(&session.id),
         transport,
     );
-    // EXP-746: every sidecar env is PTY-era wiring (the hook curl config, the
-    // pi observer, the pi plan-mode gate) and stays off the ACP arm; the MCP
-    // env above is NOT — it is how codex and pi reach `/api/mcp` either way.
+    // EXP-746: the hook curl config and the pi observer are PTY-era wiring
+    // and stay off the ACP arm; the MCP env above is NOT — it is how codex
+    // and pi reach `/api/mcp` either way. EXP-752: neither is the pi
+    // plan-mode gate, which is pi's plan mode on BOTH transports.
     if transport == LaunchTransport::Terminal {
         spawn = apply_hook_env(spawn, hooks, hook_settings.as_ref());
         spawn = apply_observer_env(spawn, agent, observer);
-        spawn = apply_pi_plan_env(spawn, agent, options.plan_mode);
     }
+    spawn = apply_pi_plan_env(spawn, agent, options.plan_mode);
     if let Some(originator) = &codex_originator {
         spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
     }
@@ -1956,7 +1961,7 @@ fn prepare_action(
         &deps.settings,
         &agent_kind,
         false,
-        acp_ready(&report, &agent_kind, options.plan_mode, deps),
+        acp_ready(&report, &agent_kind, deps),
         None,
     );
 
@@ -2376,12 +2381,13 @@ fn prepare_action(
         Some(&session.id),
         transport,
     );
-    // EXP-746: PTY-era sidecar env only (see the session skeleton).
+    // EXP-746: PTY-era sidecar env only (see the session skeleton); EXP-752's
+    // plan-mode gate rides both transports.
     if transport == LaunchTransport::Terminal {
         spawn = apply_hook_env(spawn, hooks, hook_settings.as_ref());
         spawn = apply_observer_env(spawn, agent, observer);
-        spawn = apply_pi_plan_env(spawn, agent, options.plan_mode);
     }
+    spawn = apply_pi_plan_env(spawn, agent, options.plan_mode);
     if let Some(originator) = &codex_originator {
         spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
     }
@@ -2672,7 +2678,7 @@ fn prepare_resume_run(
         &deps.settings,
         &agent_kind,
         false,
-        acp_ready(&report, &agent_kind, options.plan_mode, deps),
+        acp_ready(&report, &agent_kind, deps),
         Some(record.transport()),
     );
 
@@ -3667,11 +3673,12 @@ mod tests {
         assert_eq!(LaunchTransport::parse("quantum"), None);
     }
 
-    /// EXP-746: pi's plan mode is the injected `.exp-pi-plan.ts` extension
-    /// (EXP-441) and rpc mode has no equivalent, so a pi launch that asked
-    /// for it prepares on the TERMINAL — never silently without the mode.
+    /// EXP-752: pi's plan mode is the injected `.exp-pi-plan.ts` extension
+    /// (EXP-441) on BOTH transports now — the rpc adapter loads it with `-e`
+    /// and advertises it as an ACP session mode — so a plan-mode pi launch is
+    /// as ACP-ready as claude's, and nothing about the mode picks a transport.
     #[test]
-    fn pi_plan_mode_is_not_acp_ready() {
+    fn pi_plan_mode_is_acp_ready_like_claudes() {
         let dir = temp_dir("pi-plan-acp");
         let base = canned_server(Vec::new());
         let worktrees = Arc::new(FakeWorktrees {
@@ -3697,18 +3704,25 @@ mod tests {
             git: ready(crate::doctor::Tool::Git),
         };
         let pi = AgentKind::Builtin(CodingAgent::Pi);
-        assert!(acp_ready(&report, &pi, false, &deps));
-        assert!(!acp_ready(&report, &pi, true, &deps), "pi plan mode is PTY-only");
-        // Only pi: claude's plan mode is a native ACP mode.
         let claude = AgentKind::Builtin(CodingAgent::Claude);
-        assert!(acp_ready(&report, &claude, true, &deps));
-        // And a host with no engine is never ready, whatever the agent says.
+        assert!(acp_ready(&report, &pi, &deps));
+        assert!(acp_ready(&report, &claude, &deps));
+        // A host with no engine is never ready, whatever the agent says.
         let mut hostless = make_deps(&base, &dir.0, Arc::new(FakeWorktrees {
             worktree: dir.0.join("unused"),
             seen: Default::default(),
         }));
         hostless.acp_available = false;
-        assert!(!acp_ready(&report, &claude, false, &hostless));
+        assert!(!acp_ready(&report, &pi, &hostless));
+        assert!(!acp_ready(&report, &claude, &hostless));
+        // And the transport a plan-mode pi launch resolves to is the ACP one:
+        // the mode is no longer part of the decision at all (the settings
+        // default has `pi_plan_mode` ON, so this is the common launch).
+        assert!(LaunchOptions::defaults_for(&deps.settings, CodingAgent::Pi).plan_mode);
+        assert_eq!(
+            resolve_transport(&deps.settings, &pi, false, acp_ready(&report, &pi, &deps), None),
+            LaunchTransport::Acp
+        );
     }
 
     /// A stub `claude` that answers `--version` with an ACP-ready version and

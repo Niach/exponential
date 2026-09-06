@@ -19,6 +19,18 @@
 //! a chatty worktree cannot evict the whole transcript. EXP-746 put
 //! `config_state` and `usage` under the same rule — they are latest-wins
 //! STATE on every client, not transcript rows.
+//!
+//! EXP-748 adds the other pressure valve, the relay's `hub.ts` rule mirrored
+//! here: a SUBAGENT's tool calls are second-class transcript. One fan-out of
+//! parallel agents publishes thousands of them, and every client collapses
+//! them to a "N tool calls" caption anyway, so they must never push the main
+//! line (the user's messages, the narration, the questions) out of a replay.
+//! Two tiers: each subagent keeps at most [`JOURNAL_SUBAGENT_TOOL_CAP`] tool
+//! entries, and once the journal is over its count cap the OLDEST subagent
+//! tool entry goes before any main-line row does. The byte budget stays the
+//! plain oldest-first hard bound underneath both.
+
+use std::collections::HashMap;
 
 use crate::frames::ActivityEvent;
 
@@ -26,12 +38,19 @@ use crate::frames::ActivityEvent;
 pub const JOURNAL_EVENT_CAP: usize = 2000;
 /// Byte budget over the serialized events — mirrors `ACTIVITY_BYTE_CAP`.
 pub const JOURNAL_BYTE_CAP: usize = 4 * 1024 * 1024;
+/// How many tool entries ONE subagent may hold — mirrors the relay's
+/// `SUBAGENT_TOOL_CAP` (EXP-748). Past it the subagent drops its own oldest
+/// call rather than anything else's.
+pub const JOURNAL_SUBAGENT_TOOL_CAP: usize = 50;
 
 struct Entry {
     event: ActivityEvent,
     bytes: usize,
     /// Question id while the card is still answerable (pin key).
     pinned_question: Option<String>,
+    /// EXP-748: the subagent this tool call was attributed to — the
+    /// second-class-transcript key. `None` on every main-line entry.
+    subagent_tool: Option<String>,
 }
 
 /// The replay buffer described in the module docs.
@@ -39,6 +58,14 @@ struct Entry {
 pub struct ActivityJournal {
     entries: Vec<Entry>,
     bytes: usize,
+    /// Live tool-entry count per subagent (an id with none left is removed).
+    subagent_tool_counts: HashMap<String, usize>,
+    /// How many entries carry a `subagent_tool` — the "is there one to drop"
+    /// test the count tier asks on every push.
+    subagent_tool_entries: usize,
+    /// Scan hint: an index at or below the OLDEST subagent tool entry, so a
+    /// long main-line head is not re-walked on every eviction.
+    subagent_scan_from: usize,
 }
 
 impl ActivityJournal {
@@ -61,8 +88,7 @@ impl ActivityJournal {
                 if let Some(pos) = self.entries.iter().position(|entry| {
                     std::mem::discriminant(&entry.event) == std::mem::discriminant(&event)
                 }) {
-                    self.bytes -= self.entries[pos].bytes;
-                    self.entries.remove(pos);
+                    self.remove_entry(pos);
                 }
             }
             ActivityEvent::QuestionResolved { id, ask_id, .. } => {
@@ -89,6 +115,7 @@ impl ActivityJournal {
                 event,
                 bytes,
                 pinned_question,
+                subagent_tool: None,
             };
             self.evict();
             return;
@@ -98,12 +125,50 @@ impl ActivityJournal {
             ActivityEvent::Question { id, .. } => id.clone(),
             _ => None,
         };
+        // EXP-748: a tool call the agent attributed to a subagent — the only
+        // kind of entry the two-tier rule may drop early.
+        let subagent_tool = match &event {
+            ActivityEvent::Tool {
+                subagent_id: Some(id),
+                ..
+            } if !id.is_empty() => Some(id.clone()),
+            _ => None,
+        };
         self.entries.push(Entry {
             event,
             bytes,
             pinned_question,
+            subagent_tool: subagent_tool.clone(),
         });
         self.bytes += bytes;
+        if let Some(subagent_id) = subagent_tool {
+            if self.subagent_tool_entries == 0 {
+                self.subagent_scan_from = self.entries.len() - 1;
+            }
+            self.subagent_tool_entries += 1;
+            let held = self
+                .subagent_tool_counts
+                .entry(subagent_id.clone())
+                .or_insert(0);
+            *held += 1;
+            // Tier one: this subagent alone is over its share — it drops its
+            // OWN oldest call, so a runaway fan-out never costs anyone else a
+            // row (nor the main line one).
+            while self
+                .subagent_tool_counts
+                .get(&subagent_id)
+                .is_some_and(|held| *held > JOURNAL_SUBAGENT_TOOL_CAP)
+            {
+                let Some(pos) = self
+                    .entries
+                    .iter()
+                    .position(|entry| entry.subagent_tool.as_deref() == Some(subagent_id.as_str()))
+                else {
+                    break;
+                };
+                self.remove_entry(pos);
+            }
+        }
         self.evict();
     }
 
@@ -142,19 +207,73 @@ impl ActivityJournal {
         }
     }
 
+    /// Drop one entry, keeping every index-, byte- and subagent-count book
+    /// exact. The ONE removal path — nothing else touches `entries`.
+    fn remove_entry(&mut self, pos: usize) {
+        let entry = self.entries.remove(pos);
+        self.bytes -= entry.bytes;
+        if let Some(subagent_id) = entry.subagent_tool {
+            self.subagent_tool_entries -= 1;
+            if let Some(held) = self.subagent_tool_counts.get_mut(&subagent_id) {
+                *held -= 1;
+                if *held == 0 {
+                    self.subagent_tool_counts.remove(&subagent_id);
+                }
+            }
+        }
+        // The hint is a LOWER bound: everything after `pos` shifted down one.
+        if pos < self.subagent_scan_from {
+            self.subagent_scan_from -= 1;
+        }
+        self.subagent_scan_from = self.subagent_scan_from.min(self.entries.len());
+    }
+
+    /// The oldest second-class row: a subagent's tool call. Advances the scan
+    /// hint past the main-line head it just walked.
+    fn oldest_subagent_tool(&mut self) -> Option<usize> {
+        if self.subagent_tool_entries == 0 {
+            return None;
+        }
+        let from = self.subagent_scan_from.min(self.entries.len());
+        let found = self.entries[from..]
+            .iter()
+            .position(|entry| entry.subagent_tool.is_some())
+            .map(|offset| from + offset)
+            // A stale hint (never observed, but the bound is only ever
+            // maintained downwards) falls back to the full scan.
+            .or_else(|| {
+                self.entries
+                    .iter()
+                    .position(|entry| entry.subagent_tool.is_some())
+            })?;
+        self.subagent_scan_from = found;
+        Some(found)
+    }
+
+    fn first_unpinned(&self) -> Option<usize> {
+        self.entries
+            .iter()
+            .position(|entry| entry.pinned_question.is_none())
+    }
+
     fn evict(&mut self) {
-        while self.entries.len() > JOURNAL_EVENT_CAP
-            || (self.bytes > JOURNAL_BYTE_CAP && self.entries.len() > 1)
-        {
-            let Some(pos) = self
-                .entries
-                .iter()
-                .position(|entry| entry.pinned_question.is_none())
-            else {
+        // Tier two (EXP-748): over the count cap, a subagent's tool call goes
+        // before any main-line row — the mobile UIs render it as one line of a
+        // "N tool calls" caption, while a dropped user_message/narration/
+        // question is history no viewer can ever get back.
+        while self.entries.len() > JOURNAL_EVENT_CAP {
+            let Some(pos) = self.oldest_subagent_tool().or_else(|| self.first_unpinned()) else {
                 return; // only live question cards left — never drop those
             };
-            self.bytes -= self.entries[pos].bytes;
-            self.entries.remove(pos);
+            self.remove_entry(pos);
+        }
+        // The byte budget is the hard bound underneath: plain oldest-first,
+        // pinned cards excepted, whatever the row is.
+        while self.bytes > JOURNAL_BYTE_CAP && self.entries.len() > 1 {
+            let Some(pos) = self.first_unpinned() else {
+                return;
+            };
+            self.remove_entry(pos);
         }
     }
 }
@@ -167,7 +286,43 @@ fn serialized_bytes(event: &ActivityEvent) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::frames::{ConfigOption, QuestionOption};
+    use crate::frames::{ConfigOption, QuestionOption, SubagentStatus};
+
+    /// One tool call attributed to a subagent — second-class transcript.
+    fn subagent_tool(subagent_id: &str, detail: &str) -> ActivityEvent {
+        ActivityEvent::Tool {
+            name: "Read".to_string(),
+            detail: Some(detail.to_string()),
+            subagent_id: Some(subagent_id.to_string()),
+            at: None,
+        }
+    }
+
+    fn subagent_marker(id: &str) -> ActivityEvent {
+        ActivityEvent::Subagent {
+            id: id.to_string(),
+            agent_type: "explore".to_string(),
+            status: SubagentStatus::Started,
+            detail: None,
+            at: None,
+            tool_calls: None,
+        }
+    }
+
+    /// What [`ActivityJournal::bytes`] must equal at all times.
+    fn replayed_bytes(journal: &ActivityJournal) -> usize {
+        journal.replay().map(serialized_bytes).sum()
+    }
+
+    fn tool_details(journal: &ActivityJournal) -> Vec<String> {
+        journal
+            .replay()
+            .filter_map(|event| match event {
+                ActivityEvent::Tool { detail, .. } => detail.clone(),
+                _ => None,
+            })
+            .collect()
+    }
 
     fn question(id: &str) -> ActivityEvent {
         ActivityEvent::Question {
@@ -322,6 +477,124 @@ mod tests {
         assert!(!journal
             .replay()
             .any(|event| matches!(event, ActivityEvent::Question { .. })));
+    }
+
+    /// EXP-748: one fan-out of parallel agents used to publish 2000 tool
+    /// calls and leave a rejoining viewer with NOTHING else — no prompt, no
+    /// narration, no card. The main line now outlives every one of them.
+    #[test]
+    fn subagent_tool_calls_evict_before_the_main_transcript() {
+        let mut journal = ActivityJournal::new();
+        for i in 0..100 {
+            journal.push(ActivityEvent::narration(format!("line {i}")));
+        }
+        journal.push(subagent_marker("a0"));
+        for i in 0..2_000 {
+            journal.push(subagent_tool(&format!("a{}", i % 8), &format!("call {i}")));
+        }
+
+        assert!(journal.len() <= JOURNAL_EVENT_CAP, "{}", journal.len());
+        let main_line: Vec<&ActivityEvent> = journal
+            .replay()
+            .filter(|event| !matches!(event, ActivityEvent::Tool { .. }))
+            .collect();
+        let expected: Vec<ActivityEvent> = (0..100)
+            .map(|i| ActivityEvent::narration(format!("line {i}")))
+            .chain(std::iter::once(subagent_marker("a0")))
+            .collect();
+        assert_eq!(
+            main_line,
+            expected.iter().collect::<Vec<_>>(),
+            "every narration and the subagent marker replay, in order"
+        );
+        // Each of the eight subagents kept its own tail, nothing more.
+        assert_eq!(
+            tool_details(&journal).len(),
+            8 * JOURNAL_SUBAGENT_TOOL_CAP,
+            "tier one bounded every subagent before the count cap was reached"
+        );
+        assert_eq!(journal.bytes(), replayed_bytes(&journal));
+    }
+
+    #[test]
+    fn a_subagent_keeps_at_most_fifty_tool_calls() {
+        let mut journal = ActivityJournal::new();
+        for i in 0..60 {
+            journal.push(subagent_tool("a1", &format!("call {i}")));
+        }
+        assert_eq!(journal.len(), JOURNAL_SUBAGENT_TOOL_CAP);
+        let details = tool_details(&journal);
+        assert_eq!(details.first().unwrap(), "call 10", "the oldest ten are gone");
+        assert_eq!(details.last().unwrap(), "call 59");
+        assert_eq!(journal.bytes(), replayed_bytes(&journal));
+    }
+
+    #[test]
+    fn pinned_questions_survive_subagent_eviction() {
+        let mut journal = ActivityJournal::new();
+        journal.push(question("toolu_1#0"));
+        // 60 subagents keep 50 calls each — 3000 tool entries, well past the
+        // count cap, so the second tier runs on them and only them.
+        for i in 0..3_000 {
+            journal.push(subagent_tool(&format!("a{}", i % 60), &format!("call {i}")));
+        }
+        assert_eq!(journal.len(), JOURNAL_EVENT_CAP);
+        assert_eq!(
+            journal.replay().next().unwrap(),
+            &question("toolu_1#0"),
+            "the unresolved card is still pinned at the head"
+        );
+        assert_eq!(journal.bytes(), replayed_bytes(&journal));
+    }
+
+    #[test]
+    fn main_line_eviction_resumes_once_no_subagent_tools_remain() {
+        let mut journal = ActivityJournal::new();
+        for i in 0..40 {
+            journal.push(subagent_tool("a1", &format!("call {i}")));
+        }
+        for i in 0..JOURNAL_EVENT_CAP + 100 {
+            journal.push(ActivityEvent::narration(format!("line {i}")));
+        }
+        assert_eq!(journal.len(), JOURNAL_EVENT_CAP);
+        assert!(
+            !journal
+                .replay()
+                .any(|event| matches!(event, ActivityEvent::Tool { .. })),
+            "all 40 subagent calls went first"
+        );
+        // …and then the oldest narration lines did, as they always have.
+        assert_eq!(
+            journal.replay().next().unwrap(),
+            &ActivityEvent::narration("line 100")
+        );
+        assert_eq!(journal.bytes(), replayed_bytes(&journal));
+    }
+
+    /// The byte book is exact through BOTH tiers plus a latest-wins slot —
+    /// a drift there would silently shrink (or blow) the replay budget.
+    #[test]
+    fn bytes_stay_exact_across_two_tier_eviction() {
+        let mut journal = ActivityJournal::new();
+        journal.push(question("toolu_1#0"));
+        for i in 0..JOURNAL_EVENT_CAP {
+            journal.push(ActivityEvent::narration(format!("line {i}")));
+            journal.push(subagent_tool(&format!("a{}", i % 5), &format!("call {i}")));
+        }
+        journal.push(ActivityEvent::diff("--- v1"));
+        journal.push(ActivityEvent::diff("--- v2"));
+
+        assert_eq!(journal.len(), JOURNAL_EVENT_CAP);
+        assert_eq!(journal.bytes(), replayed_bytes(&journal));
+        assert!(journal.bytes() <= JOURNAL_BYTE_CAP);
+        assert_eq!(
+            journal
+                .replay()
+                .filter(|event| matches!(event, ActivityEvent::Diff { .. }))
+                .collect::<Vec<_>>(),
+            vec![&ActivityEvent::diff("--- v2")],
+            "the latest-wins slot is untouched by the subagent tier"
+        );
     }
 
     #[test]

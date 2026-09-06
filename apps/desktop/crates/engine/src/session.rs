@@ -306,6 +306,13 @@ impl EngineSession {
         self.send(EngineCommand::LoadHistory);
     }
 
+    /// EXP-750: stop one live `terminal/*` command without touching the run
+    /// — what the Stop button on a running output card does. Unknown ids are
+    /// a no-op: the card may be older than the terminal's release.
+    pub fn kill_terminal(&self, terminal_id: &str) {
+        self.0.ctx.terminals.kill(terminal_id);
+    }
+
     /// Interrupt the running turn without ending the session.
     pub fn cancel_turn(&self) {
         self.send(EngineCommand::Cancel);
@@ -521,6 +528,7 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
         sink: OnceLock::new(),
         feed: LocalFeed::default(),
         asks: PendingAsks::default(),
+        terminals: Default::default(),
         ids: Mutex::new(SessionIds::default()),
         needs_input: AtomicBool::new(false),
         exit: ExitState::default(),

@@ -4,7 +4,9 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  deviceAcpAgentIds,
   deviceAgentLaunchDefaults,
+  deviceAgentRunsInTerminal,
   deviceDefaultAgent,
   deviceIsMine,
   deviceStartsInTerminal,
@@ -244,6 +246,7 @@ function deviceRow(overrides: Partial<Device> = {}): Device {
     agents: [`claude`],
     caps: [`actions`, `resume`, `worktrees`, `launch-defaults`],
     unauthedAgents: [],
+    acpAgents: null,
     launchDefaults: null,
     launchDefaultsUpdatedAt: null,
     lastSeenAt: NOW,
@@ -562,5 +565,40 @@ describe(`agent status mapping (EXP-484)`, () => {
     )
     expect(deviceCanAgentLogin({ caps: [`worktrees`] })).toBe(false)
     expect(deviceCanAgentLogin({})).toBe(false)
+  })
+})
+
+// EXP-749: a machine reports WHICH of its runnable agents its ACP engine can
+// drive. NULL is an older build that never reported — assume every runnable
+// agent is ACP-ready (the old behaviour), never a terminal claim.
+describe(`acp agents (EXP-749)`, () => {
+  it(`a row that never reported reads unknown, and claims no terminal run`, () => {
+    const mapped = steerDeviceFromRow(
+      deviceRow({ agents: [`claude`, `codex`], acpAgents: null }),
+      { now: NOW, currentUserId: `me` }
+    )
+    expect(deviceAcpAgentIds(mapped)).toBeNull()
+    expect(deviceAgentRunsInTerminal(mapped, `codex`)).toBe(false)
+    expect(deviceAgentRunsInTerminal(mapped, `claude`)).toBe(false)
+  })
+
+  it(`a runnable agent outside the reported ACP set runs in a terminal`, () => {
+    const mapped = steerDeviceFromRow(
+      deviceRow({ agents: [`claude`, `codex`], acpAgents: [`claude`] }),
+      { now: NOW, currentUserId: `me` }
+    )
+    expect(deviceAcpAgentIds(mapped)).toEqual([`claude`])
+    expect(deviceAgentRunsInTerminal(mapped, `codex`)).toBe(true)
+    expect(deviceAgentRunsInTerminal(mapped, `claude`)).toBe(false)
+    // Not runnable there at all = not a terminal claim either.
+    expect(deviceAgentRunsInTerminal(mapped, `pi`)).toBe(false)
+  })
+
+  it(`filters values outside the contract, like deviceAgentIds`, () => {
+    const mapped = steerDeviceFromRow(
+      deviceRow({ agents: [`claude`], acpAgents: [`claude`, `bogus`] }),
+      { now: NOW, currentUserId: `me` }
+    )
+    expect(deviceAcpAgentIds(mapped)).toEqual([`claude`])
   })
 })

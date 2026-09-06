@@ -1,0 +1,2 @@
+{"sessionId":"acp-1","update":{"sessionUpdate":"tool_call","toolCallId":"tc-7","title":"Run the tests","kind":"execute","status":"in_progress","content":[{"type":"terminal","terminalId":"term-1"}],"locations":[],"rawInput":{"command":"bun run test --token expu_supersecretkey"}}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"tool_call_update","toolCallId":"tc-7","status":"completed","content":[{"type":"terminal","terminalId":"term-1"}]}}

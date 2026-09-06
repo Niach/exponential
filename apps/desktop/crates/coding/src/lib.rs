@@ -95,9 +95,9 @@ pub use batch_prompt::{render_batch_prompt, BatchPromptArgs};
 pub use clone_manager::{AutoSyncOutcome, CloneEvent};
 pub use codex_sessions::default_codex_sessions_root;
 pub use doctor::{
-    device_caps, parse_claude_version, run_doctor, AgentAdvertisement, AgentLaunchDefaults,
-    ClaudeAuthStatus, DoctorReport, Tool, ToolCheck, ACTION_CAPS, DEVICE_CAPS,
-    MIN_CLAUDE_ACP_VERSION, MIN_CLAUDE_VERSION,
+    device_caps, parse_claude_version, run_doctor, run_doctor_deep, AgentAdvertisement,
+    AgentLaunchDefaults, ClaudeAuthStatus, DoctorDepth, DoctorReport, Tool, ToolCheck, ACTION_CAPS,
+    DEVICE_CAPS, MIN_CLAUDE_ACP_VERSION, MIN_CLAUDE_VERSION,
 };
 pub use agent_accounts::{now_iso, AgentAccount, AgentAccounts};
 pub use agent_login::{login_plan, LoginPhase, LoginPlan, LoginProgress};

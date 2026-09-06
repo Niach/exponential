@@ -44,7 +44,8 @@ use crate::agent_accounts::{now_iso, pi_account, AgentAccount, AgentAccounts};
 use crate::settings::Settings;
 use std::collections::BTreeMap;
 use std::fmt;
-use std::time::Duration;
+use std::sync::Mutex;
+use std::time::{Duration, SystemTime};
 use terminal::process::background_command;
 
 /// EXP-414: the deadline for every probe shell-out. The CLI daemon re-runs
@@ -147,14 +148,6 @@ impl Tool {
             Tool::Codex => Some(CodingAgent::Codex),
             Tool::Pi => Some(CodingAgent::Pi),
             Tool::Git => None,
-        }
-    }
-
-    fn for_agent(agent: CodingAgent) -> Tool {
-        match agent {
-            CodingAgent::Claude => Tool::Claude,
-            CodingAgent::Codex => Tool::Codex,
-            CodingAgent::Pi => Tool::Pi,
         }
     }
 
@@ -370,10 +363,12 @@ pub struct AgentAdvertisement {
     /// wire serialization (the steer frames are byte-locked in tests).
     pub launch_defaults: BTreeMap<String, AgentLaunchDefaults>,
     /// EXP-746: the runnable agents that also speak ACP ([`ToolCheck::acp`]).
-    /// LOCAL use only for now — it is deliberately NOT on the
-    /// `devices.register` payload (that needs a `devices` column + shape
-    /// change; filed as a follow-up), so remote pickers still offer every
-    /// runnable agent and a not-ready one simply starts in a terminal tab.
+    /// EXP-749 puts it on the `devices.register` payload and the synced
+    /// `devices.acp_agents` column, so remote pickers can SAY which agents
+    /// would start in a terminal tab on that machine. They never filter on
+    /// it: a not-ready agent still runs there, on the PTY path. An empty
+    /// list is a real answer ("none of them"); only a NULL column — an older
+    /// build's row — means "unknown, assume all".
     pub acp_agents: Vec<String>,
 }
 
@@ -397,11 +392,40 @@ impl AgentAdvertisement {
     }
 }
 
+/// How thorough a doctor pass is (EXP-755). It changes exactly ONE check:
+/// pi's rpc handshake ([`probe_pi_rpc`]), the only probe that spawns a real
+/// protocol conversation instead of a millisecond `--version` shell-out.
+///
+/// * [`DoctorDepth::Quick`] — every HOT caller: desktop launch, every
+///   `prepare` (§7.1 step 0), the CLI daemon's 5-minute recheck, the account
+///   status pass. An UNCHANGED pi reuses the last verdict.
+/// * [`DoctorDepth::Deep`] — `exponential doctor` alone: a hand-typed
+///   command can afford the handshake, and "I just reinstalled it, tell me
+///   now" is exactly what it is for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DoctorDepth {
+    Quick,
+    Deep,
+}
+
 /// Run every check: each agent's resolved program
 /// ([`Settings::resolved_path_for`]) — claude version-gated against
 /// [`MIN_CLAUDE_VERSION`], every agent sign-in-gated (EXP-409) — and plain
 /// `git` from PATH.
+///
+/// [`DoctorDepth::Quick`]: this is the launch/daemon path, so pi's rpc
+/// handshake is only paid once per pi binary ([`run_doctor_deep`] forces it).
 pub fn run_doctor(settings: &Settings) -> DoctorReport {
+    run_doctor_with_depth(settings, DoctorDepth::Quick)
+}
+
+/// [`run_doctor`] with every deep probe forced (EXP-755) — `exponential
+/// doctor`'s pass.
+pub fn run_doctor_deep(settings: &Settings) -> DoctorReport {
+    run_doctor_with_depth(settings, DoctorDepth::Deep)
+}
+
+fn run_doctor_with_depth(settings: &Settings, depth: DoctorDepth) -> DoctorReport {
     // EXP-419: a Windows installer edits the registry PATH, which a running
     // process never sees — re-read it so "Check tools" (and every later
     // spawn) finds a just-installed git/agent without an app restart.
@@ -417,32 +441,13 @@ pub fn run_doctor(settings: &Settings) -> DoctorReport {
     apply_codex_acp(&mut codex);
     let mut pi = check_tool(Tool::Pi, &pi_program);
     apply_auth_gate(&mut pi, &pi_program);
-    probe_pi_rpc(&mut pi);
+    probe_pi_rpc(&mut pi, settings, depth);
     DoctorReport {
         claude,
         codex,
         pi,
         git: check_tool(Tool::Git, "git"),
     }
-}
-
-/// The check for ONE agent (launch step 0 re-checks only the selected agent
-/// + git via [`run_doctor`]'s full report; presence probes use the full one).
-pub fn check_agent(settings: &Settings, agent: CodingAgent) -> ToolCheck {
-    terminal::process::refresh_windows_path();
-    let program = settings.resolved_path_for(agent);
-    let mut check = check_tool(Tool::for_agent(agent), &program);
-    if agent == CodingAgent::Claude {
-        apply_version_gate(&mut check);
-    }
-    apply_auth_gate(&mut check, &program);
-    // EXP-746: the same non-fatal ACP stamps [`run_doctor`] applies.
-    match agent {
-        CodingAgent::Codex => apply_codex_acp(&mut check),
-        CodingAgent::Pi => probe_pi_rpc(&mut check),
-        CodingAgent::Claude => {}
-    }
-    check
 }
 
 /// Flip a GREEN claude check red when its version parses BELOW
@@ -500,25 +505,52 @@ pub fn probe_codex_acp(program: &str, path_env: &str) -> bool {
     crate::codex_app_server::probe(program, path_env, PROBE_TIMEOUT).is_ok()
 }
 
+/// The copy a pi build without the rpc mode gets (EXP-746).
+const PI_NO_RPC_MODE_NOTE: &str = "This pi build has no rpc mode. Update pi for the session \
+screen; sessions run in a terminal tab until then.";
+
+/// EXP-755: the last `pi --mode rpc` verdict, per resolved program path.
+///
+/// IN-PROCESS on purpose. [`run_doctor`] takes no `data_dir` — it runs from
+/// the launcher, the daemon loop and the settings pane alike — and the one
+/// on-disk cache in this crate ([`crate::usage_cache`]) is a file because two
+/// PROCESSES share one token budget there. Nothing is shared here: the cost
+/// is a local spawn, and a fresh process paying it once is correct.
+///
+/// Keyed by PATH rather than held in one slot so probes of two different pi
+/// binaries (a settings edit, the test suite's parallel stubs) never evict
+/// each other.
+static PI_RPC_CACHE: Mutex<BTreeMap<String, PiRpcVerdict>> = Mutex::new(BTreeMap::new());
+
+/// What identifies "the same pi": the resolved program, the version it
+/// printed and its mtime. A bare name whose metadata does not resolve (a
+/// shim, a `pi` the OS finds on PATH) keys on path + version ALONE — an
+/// in-place update of such a build keeps the old verdict until its version
+/// string moves or `exponential doctor` re-probes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PiRpcStamp {
+    program: String,
+    version: Option<String>,
+    modified: Option<SystemTime>,
+}
+
+#[derive(Clone, Debug)]
+struct PiRpcVerdict {
+    stamp: PiRpcStamp,
+    acp: bool,
+    note: Option<String>,
+}
+
 /// EXP-746: pi's ACP readiness — a real `pi --mode rpc` handshake, bounded
 /// by [`PROBE_TIMEOUT`] and killed on every exit path.
 ///
-/// It has to be a handshake: `pi --mode <anything>` parses leniently and
-/// exits 0 with no output on stdin EOF, so PRESENCE proves nothing and only
-/// an answered `get_state` distinguishes a build that has the rpc mode from
-/// one that does not. That also rules out [`output_with_timeout`], which
-/// pins `Stdio::null()` on stdin; the recipe below is the same otherwise
-/// (own process group, drained pipes, killed at the deadline).
-///
-/// Fails OPEN in every ambiguous case (no spawn, no PATH match, a wedged
-/// child): the engine's own handshake is the authoritative one, and a false
-/// negative here silently demotes a working install to the terminal
-/// transport. Same never-block-the-launch posture as the two above.
-fn probe_pi_rpc(check: &mut ToolCheck) {
-    use std::io::{Read as _, Write as _};
-    use std::process::Stdio;
-    use wait_timeout::ChildExt as _;
-
+/// EXP-755 wraps it in two things it lacked. The program comes from the
+/// CALLER's `settings` (it used to resolve a DEFAULT `Settings`, so a
+/// hand-configured `pi_path` was never the binary probed — the spawn failed
+/// and the check stayed green by fail-open), and a [`DoctorDepth::Quick`]
+/// pass reuses the cached verdict for an unchanged pi instead of paying the
+/// handshake on every launch, every prepare and every daemon recheck.
+fn probe_pi_rpc(check: &mut ToolCheck, settings: &Settings, depth: DoctorDepth) {
     if !check.ok {
         check.acp = Some(false);
         check.acp_note = Some("pi is not available".to_string());
@@ -526,12 +558,67 @@ fn probe_pi_rpc(check: &mut ToolCheck) {
     }
     check.acp = Some(true);
 
-    // The probe runs from `run_doctor`, which has no settings in hand here,
-    // so it resolves pi the standard way. A pi installed at a hand-configured
-    // path simply does not resolve, the spawn fails, and the check stays
-    // green — never wrong, only uninformative.
-    let program = Settings::default().resolved_path_for(CodingAgent::Pi);
-    let mut cmd = background_command(&program);
+    let program = settings.resolved_path_for(CodingAgent::Pi);
+    let stamp = PiRpcStamp {
+        modified: std::fs::metadata(&program)
+            .and_then(|meta| meta.modified())
+            .ok(),
+        version: check.version.clone(),
+        program,
+    };
+    if depth == DoctorDepth::Quick {
+        if let Some(cached) = cached_pi_rpc(&stamp) {
+            check.acp = Some(cached.acp);
+            check.acp_note = cached.note;
+            return;
+        }
+    }
+    let supported = pi_rpc_handshake(&stamp.program);
+    let note = (!supported).then(|| PI_NO_RPC_MODE_NOTE.to_string());
+    check.acp = Some(supported);
+    check.acp_note = note.clone();
+    if let Ok(mut cache) = PI_RPC_CACHE.lock() {
+        cache.insert(
+            stamp.program.clone(),
+            PiRpcVerdict {
+                stamp,
+                acp: supported,
+                note,
+            },
+        );
+    }
+}
+
+/// The cached verdict for exactly this pi, or `None` when the binary moved,
+/// changed version or changed on disk since it was taken.
+fn cached_pi_rpc(stamp: &PiRpcStamp) -> Option<PiRpcVerdict> {
+    let cache = PI_RPC_CACHE.lock().ok()?;
+    cache
+        .get(&stamp.program)
+        .filter(|verdict| &verdict.stamp == stamp)
+        .cloned()
+}
+
+/// The handshake itself: spawn `<program> --mode rpc`, ask one `get_state`
+/// and close stdin. `true` = this build speaks rpc.
+///
+/// It HAS to be a handshake: `pi --mode <anything>` parses leniently and
+/// exits 0 with no output on stdin EOF, so PRESENCE proves nothing and only
+/// an answered `get_state` distinguishes a build that has the rpc mode from
+/// one that does not. That also rules out [`output_with_timeout`], which
+/// pins `Stdio::null()` on stdin; the recipe below is the same otherwise
+/// (own process group, drained pipes, killed at the deadline).
+///
+/// Fails OPEN (`true`) in every ambiguous case (no spawn, no PATH match, a
+/// wedged child): the engine's own handshake is the authoritative one, and a
+/// false negative here silently demotes a working install to the terminal
+/// transport. Same never-block-the-launch posture as the two checks above.
+fn pi_rpc_handshake(program: &str) -> bool {
+    use std::io::{Read as _, Write as _};
+    use std::process::Stdio;
+    use wait_timeout::ChildExt as _;
+
+    let mut cmd = background_command(program);
     cmd.env("PATH", terminal::pty::login_path())
         .args(["--mode", "rpc"])
         .stdin(Stdio::piped())
@@ -542,9 +629,15 @@ fn probe_pi_rpc(check: &mut ToolCheck) {
         use std::os::unix::process::CommandExt as _;
         cmd.process_group(0);
     }
-    let Ok(mut child) = cmd.spawn() else { return };
-    let Some(mut stdin) = child.stdin.take() else { return };
-    let Some(mut stdout) = child.stdout.take() else { return };
+    let Ok(mut child) = cmd.spawn() else {
+        return true;
+    };
+    let Some(mut stdin) = child.stdin.take() else {
+        return true;
+    };
+    let Some(mut stdout) = child.stdout.take() else {
+        return true;
+    };
     // One command, then EOF: pi's rpc loop ends with its stdin, so the child
     // reaps itself and the deadline below is only the wedged-child guard.
     let asked = stdin
@@ -555,7 +648,7 @@ fn probe_pi_rpc(check: &mut ToolCheck) {
     if !asked {
         let _ = child.kill();
         let _ = child.wait();
-        return;
+        return true;
     }
     // Drain on a thread: a child that fills the pipe buffer would never exit.
     let reader = std::thread::spawn(move || {
@@ -571,18 +664,9 @@ fn probe_pi_rpc(check: &mut ToolCheck) {
         }
         let _ = child.kill();
         let _ = child.wait();
-        return;
+        return true;
     }
-    let answer = reader.join().unwrap_or_default();
-    if answered_get_state(&answer) {
-        return;
-    }
-    check.acp = Some(false);
-    check.acp_note = Some(
-        "This pi build has no rpc mode. Update pi for the session screen; \
-sessions run in a terminal tab until then."
-            .to_string(),
-    );
+    answered_get_state(&reader.join().unwrap_or_default())
 }
 
 /// Did the child answer our `get_state` on its rpc stream? Line-delimited
@@ -1749,6 +1833,230 @@ mod tests {
         assert!(report.first_failure_for(CodingAgent::Codex).is_some());
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-746: a `get_state` answer only counts when it is a SUCCESSFUL
+    /// response to that very command — anything else leaves the build
+    /// unproven (and, from the probe, marked not supported).
+    #[test]
+    fn answered_get_state_needs_a_successful_get_state_response() {
+        assert!(answered_get_state(
+            "{\"id\":\"1\",\"type\":\"response\",\"command\":\"get_state\",\"success\":true}"
+        ));
+        // Line-delimited: log noise around the answer is fine.
+        assert!(answered_get_state(
+            "starting pi\n{\"id\":\"1\",\"type\":\"response\",\"command\":\"get_state\",\"success\":true}\nbye"
+        ));
+        for answer in [
+            "",
+            "not json",
+            // The right command, but it failed.
+            "{\"type\":\"response\",\"command\":\"get_state\",\"success\":false}",
+            // Success, but a different command.
+            "{\"type\":\"response\",\"command\":\"ping\",\"success\":true}",
+            // An event, not a response.
+            "{\"type\":\"event\",\"command\":\"get_state\",\"success\":true}",
+            // No success flag at all.
+            "{\"type\":\"response\",\"command\":\"get_state\"}",
+        ] {
+            assert!(!answered_get_state(answer), "{answer}");
+        }
+    }
+
+    /// A stub `pi` that counts its rpc invocations: `--version` prints a
+    /// version, every other invocation reads one line off stdin, appends to
+    /// a log and (with `rpc`) answers the `get_state`.
+    #[cfg(unix)]
+    struct PiStub {
+        dir: std::path::PathBuf,
+        path: std::path::PathBuf,
+        log: std::path::PathBuf,
+    }
+
+    #[cfg(unix)]
+    impl PiStub {
+        fn new(tag: &str, rpc: bool) -> Self {
+            use std::fs;
+            use std::os::unix::fs::PermissionsExt;
+
+            let mut dir = std::env::temp_dir();
+            dir.push(format!(
+                "exp-coding-doctor-pi-{tag}-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            fs::create_dir_all(&dir).unwrap();
+            let log = dir.join("runs.log");
+            let path = dir.join("pi");
+            let answer = match rpc {
+                true => "echo '{\"id\":\"1\",\"type\":\"response\",\"command\":\"get_state\",\"success\":true}'",
+                // A build WITHOUT the rpc mode: it parses the flag, says
+                // nothing on stdout and exits 0 (the real degradation).
+                false => "echo 'pi: unknown mode' >&2",
+            };
+            fs::write(
+                &path,
+                format!(
+                    "#!/bin/sh\ncase \"$1\" in\n--version) echo '0.80.10';;\n*) read line\necho run >> '{}'\n{answer};;\nesac\n",
+                    log.display()
+                ),
+            )
+            .unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+            Self { dir, path, log }
+        }
+
+        fn settings(&self) -> Settings {
+            Settings {
+                pi_path: self.path.to_string_lossy().into_owned(),
+                ..Settings::default()
+            }
+        }
+
+        /// How many rpc handshakes actually reached the binary.
+        fn runs(&self) -> usize {
+            std::fs::read_to_string(&self.log)
+                .map(|text| text.lines().filter(|line| !line.trim().is_empty()).count())
+                .unwrap_or(0)
+        }
+
+        /// Forget this stub's cached verdict (test-only, see below).
+        fn forget(&self) {
+            PI_RPC_CACHE
+                .lock()
+                .unwrap()
+                .remove(&self.path.to_string_lossy().into_owned());
+        }
+
+        /// Move the binary's mtime forward — an in-place `pi` update.
+        fn bump_mtime(&self, secs: i64) {
+            let modified = std::fs::metadata(&self.path)
+                .unwrap()
+                .modified()
+                .unwrap()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap();
+            let when = libc::timeval {
+                tv_sec: modified.as_secs() as libc::time_t + secs as libc::time_t,
+                tv_usec: 0,
+            };
+            let times = [when, when];
+            let path = std::ffi::CString::new(self.path.to_string_lossy().as_bytes()).unwrap();
+            assert_eq!(unsafe { libc::utimes(path.as_ptr(), times.as_ptr()) }, 0);
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for PiStub {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    /// One probe that DID reach the stub. Exec'ing a just-written script can
+    /// hit ETXTBSY while a concurrent test's fork holds the write fd; that
+    /// spawn failure fails OPEN and caches a verdict the assertions must not
+    /// read, so drop it and retry (see run_doctor_gates_on_the_stub_version).
+    #[cfg(unix)]
+    fn probe_expecting_a_run(stub: &PiStub, depth: DoctorDepth) -> ToolCheck {
+        let before = stub.runs();
+        let settings = stub.settings();
+        for _ in 0..20 {
+            let mut check = green(Tool::Pi, "0.80.10");
+            probe_pi_rpc(&mut check, &settings, depth);
+            if stub.runs() > before {
+                return check;
+            }
+            stub.forget();
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("pi stub never ran");
+    }
+
+    /// EXP-755: the probe uses the CALLER's configured `pi_path` (it used to
+    /// resolve a default `Settings`, so a hand-configured pi was never the
+    /// binary probed), and a second QUICK pass over the unchanged binary
+    /// reuses the verdict instead of paying the handshake again — this runs
+    /// on every launch, every prepare and the daemon's 5-minute recheck.
+    #[cfg(unix)]
+    #[test]
+    fn probe_pi_rpc_uses_the_configured_path_and_reuses_the_verdict_per_stamp() {
+        let stub = PiStub::new("reuse", true);
+        let check = probe_expecting_a_run(&stub, DoctorDepth::Quick);
+        assert_eq!(check.acp, Some(true), "{:?}", check.acp_note);
+        assert_eq!(check.acp_note, None);
+        assert_eq!(stub.runs(), 1, "the configured path must be the one probed");
+
+        let mut again = green(Tool::Pi, "0.80.10");
+        probe_pi_rpc(&mut again, &stub.settings(), DoctorDepth::Quick);
+        assert_eq!(again.acp, Some(true));
+        assert_eq!(stub.runs(), 1, "an unchanged pi is never re-probed");
+    }
+
+    /// The stamp covers the binary's mtime: an in-place `pi` update re-probes
+    /// on the very next quick pass, so a build that GAINED the rpc mode is
+    /// picked up without an app restart.
+    #[cfg(unix)]
+    #[test]
+    fn a_touched_pi_binary_re_probes() {
+        let stub = PiStub::new("touched", true);
+        probe_expecting_a_run(&stub, DoctorDepth::Quick);
+        assert_eq!(stub.runs(), 1);
+
+        stub.bump_mtime(2);
+        let check = probe_expecting_a_run(&stub, DoctorDepth::Quick);
+        assert_eq!(check.acp, Some(true));
+        assert_eq!(stub.runs(), 2, "a changed binary invalidates its verdict");
+    }
+
+    /// `exponential doctor` re-runs the handshake even when the stamp still
+    /// matches — the command exists to answer "is it ready NOW".
+    #[cfg(unix)]
+    #[test]
+    fn a_deep_doctor_re_probes_the_same_stamp() {
+        let stub = PiStub::new("deep", true);
+        probe_expecting_a_run(&stub, DoctorDepth::Quick);
+        assert_eq!(stub.runs(), 1);
+
+        let check = probe_expecting_a_run(&stub, DoctorDepth::Deep);
+        assert_eq!(check.acp, Some(true));
+        assert_eq!(stub.runs(), 2, "a deep pass ignores the cache");
+    }
+
+    /// A pi that answers nothing on its rpc stream is marked not supported,
+    /// with the note the doctor rows and the session screen render — and the
+    /// verdict caches like any other (the note rides the cache too).
+    #[cfg(unix)]
+    #[test]
+    fn a_pi_without_rpc_mode_is_marked_not_supported() {
+        let stub = PiStub::new("norpc", false);
+        let check = probe_expecting_a_run(&stub, DoctorDepth::Quick);
+        assert_eq!(check.acp, Some(false));
+        assert_eq!(check.acp_note.as_deref(), Some(PI_NO_RPC_MODE_NOTE));
+        assert!(check
+            .acp_note
+            .as_deref()
+            .is_some_and(|note| note.contains("no rpc mode")
+                && note.contains("terminal tab")));
+
+        let mut again = green(Tool::Pi, "0.80.10");
+        probe_pi_rpc(&mut again, &stub.settings(), DoctorDepth::Quick);
+        assert_eq!(again.acp, Some(false));
+        assert_eq!(again.acp_note.as_deref(), Some(PI_NO_RPC_MODE_NOTE));
+        assert_eq!(stub.runs(), 1);
+    }
+
+    /// A pi that is not installed at all never reaches the handshake — the
+    /// row is red already, and the note says so.
+    #[test]
+    fn a_missing_pi_is_not_probed_at_all() {
+        let mut check = red(Tool::Pi);
+        probe_pi_rpc(&mut check, &Settings::default(), DoctorDepth::Deep);
+        assert_eq!(check.acp, Some(false));
+        assert_eq!(check.acp_note.as_deref(), Some("pi is not available"));
     }
 
     /// EXP-414: a wedged probe is killed at the deadline instead of stalling

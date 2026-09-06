@@ -295,8 +295,26 @@ fn text(body: &str) -> ContentBlock {
 // Tests
 // ---------------------------------------------------------------------------
 
+/// EXP-754: every `CodexAgent` attaches a session to the PROCESS-GLOBAL live
+/// usage registry (`coding::agent_usage::live`), so the tests run one at a
+/// time — the session count a test reads is then its own.
+static SESSION_LOCK: Mutex<()> = Mutex::new(());
+
+fn one_session_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+    match SESSION_LOCK.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+/// What this machine's codex sessions have published so far.
+fn live_usage() -> coding::agent_usage::live::LiveUsage {
+    coding::agent_usage::live::snapshot(coding::CodingAgent::Codex).unwrap_or_default()
+}
+
 #[tokio::test]
 async fn a_turn_becomes_tool_calls_narration_a_plan_and_usage() {
+    let _session = one_session_at_a_time();
     let (fake, connection) =
         FakeServer::new(vec![frames("turn.jsonl")], Vec::new(), Vec::new());
     let agent = CodexAgent::with_connection(spec(), connection);
@@ -397,6 +415,7 @@ async fn a_turn_becomes_tool_calls_narration_a_plan_and_usage() {
 
 #[tokio::test]
 async fn an_approval_becomes_a_permission_request_and_its_answer_reaches_codex() {
+    let _session = one_session_at_a_time();
     let (fake, connection) = FakeServer::new(
         vec![frames("approval.jsonl")],
         Vec::new(),
@@ -468,6 +487,7 @@ async fn an_approval_becomes_a_permission_request_and_its_answer_reaches_codex()
 
 #[tokio::test]
 async fn a_cancelled_turn_drops_every_frame_that_arrives_after_it() {
+    let _session = one_session_at_a_time();
     let (fake, connection) = FakeServer::new(
         vec![frames("interrupt.jsonl"), frames("second-turn.jsonl")],
         frames("interrupt-late.jsonl"),
@@ -539,6 +559,7 @@ async fn a_cancelled_turn_drops_every_frame_that_arrives_after_it() {
 
 #[tokio::test]
 async fn a_request_for_user_input_becomes_one_elicitation_with_a_property_per_question() {
+    let _session = one_session_at_a_time();
     let (fake, connection) = FakeServer::new(
         vec![frames("question.jsonl")],
         Vec::new(),
@@ -610,6 +631,7 @@ async fn a_request_for_user_input_becomes_one_elicitation_with_a_property_per_qu
 
 #[tokio::test]
 async fn steering_supersedes_the_live_turn_and_resolves_both_prompts() {
+    let _session = one_session_at_a_time();
     let (fake, connection) = FakeServer::new(
         vec![frames("interrupt.jsonl"), frames("steer.jsonl")],
         Vec::new(),
@@ -669,6 +691,7 @@ async fn steering_supersedes_the_live_turn_and_resolves_both_prompts() {
 
 #[tokio::test]
 async fn the_app_server_going_away_closes_the_connection() {
+    let _session = one_session_at_a_time();
     // The crash path: codex is gone (OOM, `kill -9`, the reaper) while the
     // client still holds the connection. Nothing but this close ends the run —
     // the bye, the heartbeat and `coding::end_session` all hang off it, so a
@@ -714,4 +737,79 @@ async fn the_app_server_going_away_closes_the_connection() {
         .await
         .expect("the dead app-server closes the connection")
         .expect("the session runs");
+}
+
+/// EXP-754 — a live codex session IS this machine's usage source: every
+/// `account/rateLimits/updated` frame publishes into
+/// `coding::agent_usage::live` (which is what lets the usage poller skip
+/// spawning a second `codex app-server`), and the run's END releases the
+/// session slot even though the host still holds the handle — a dead session
+/// must stop answering for numbers it can no longer refresh.
+#[tokio::test]
+async fn a_codex_session_publishes_live_usage_and_detaches_on_end() {
+    let _session = one_session_at_a_time();
+    let (fake, connection) = FakeServer::new(vec![frames("turn.jsonl")], Vec::new(), Vec::new());
+    let agent = CodexAgent::with_connection(spec(), connection);
+    // The handle a host keeps for the whole run: releasing the registry slot
+    // is the SESSION's end, not this handle's drop.
+    let usage = agent.usage();
+    let during = Arc::new(Mutex::new(None));
+    let recorded = during.clone();
+    let ending = fake.clone();
+
+    let driven = Client
+        .builder()
+        .on_receive_notification(
+            async move |_notification: SessionNotification, _cx| Ok(()),
+            agent_client_protocol::on_receive_notification!(),
+        )
+        .connect_with(agent, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(ClientCapabilities::new()),
+            )
+            .block_task()
+            .await?;
+            let session = cx
+                .send_request(NewSessionRequest::new(PathBuf::from("/work/tree")))
+                .block_task()
+                .await?;
+            cx.send_request(PromptRequest::new(
+                session.session_id.clone(),
+                vec![text("run the tests")],
+            ))
+            .block_task()
+            .await?;
+            settle(|| !live_usage().windows.is_empty()).await;
+            if let Ok(mut slot) = recorded.lock() {
+                *slot = Some(live_usage());
+            }
+            // The session ends the way every run ends: the app-server goes.
+            ending.crash();
+            cx.incoming_closed().await;
+            Ok(())
+        });
+
+    tokio::time::timeout(Duration::from_secs(30), driven)
+        .await
+        .expect("the session ends")
+        .expect("the session runs");
+
+    let during = during
+        .lock()
+        .expect("the recorded snapshot")
+        .clone()
+        .expect("a live snapshot");
+    assert_eq!(during.windows.first().map(|window| window.percent), Some(4));
+    assert_eq!(
+        during.windows,
+        usage.windows(),
+        "the adapter's own slot and the machine registry agree"
+    );
+    assert!(during.sessions >= 1, "a running session holds a slot");
+
+    // Ended: the slot is back even though `usage` is still alive, and the
+    // numbers stay (the collector ages them out by their own stamp).
+    settle(|| live_usage().sessions == 0).await;
+    assert_eq!(live_usage().windows, usage.windows());
 }

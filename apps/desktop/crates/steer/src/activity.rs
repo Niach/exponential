@@ -3208,6 +3208,7 @@ impl SteerState {
                     status: SubagentStatus::Started,
                     detail,
                     at: None,
+                    tool_calls: None,
                 });
                 flush_forced_subagent_completions(&mut self.subagents, sender);
             }
@@ -3250,6 +3251,7 @@ impl SteerState {
                     status: SubagentStatus::Started,
                     detail: None,
                     at: None,
+                    tool_calls: None,
                 });
                 flush_forced_subagent_completions(&mut self.subagents, sender);
             }
@@ -3282,6 +3284,7 @@ impl SteerState {
                     status: SubagentStatus::Completed,
                     detail,
                     at: None,
+                    tool_calls: None,
                 });
             }
             HookEventKind::PermissionPrompt { message, tool } => {
@@ -4285,6 +4288,7 @@ fn flush_forced_subagent_completions(subagents: &mut Subagents, sender: &Activit
             status: SubagentStatus::Completed,
             detail,
             at: None,
+            tool_calls: None,
         });
     }
 }
@@ -5236,6 +5240,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
                             status: SubagentStatus::Completed,
                             detail,
                             at: None,
+                            tool_calls: None,
                         });
                     }
                 }
@@ -5259,6 +5264,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
                     status: SubagentStatus::Completed,
                     detail,
                     at: None,
+                    tool_calls: None,
                 });
             }
         }
@@ -5332,6 +5338,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
                             status: SubagentStatus::Started,
                             detail,
                             at: None,
+                            tool_calls: None,
                         });
                     }
                     flush_forced_subagent_completions(&mut steer.subagents, &sender);

@@ -163,6 +163,11 @@ export type ActivityEvent =
       agentType: string
       status: `started` | `completed`
       detail?: string
+      // EXP-748: the tool calls the publisher attributed to the subagent,
+      // stamped on the COMPLETED edge. Authoritative over the tool rows the
+      // feed can see — a replay buffer evicts subagent tool rows first, so
+      // the visible ones undercount. Absent on older publishers.
+      toolCalls?: number
       at?: number
     }
   | { kind: `permission`; tool: string; detail?: string; at?: number }
@@ -254,6 +259,10 @@ export type FeedItem =
       agentType: string
       status: `started` | `completed`
       detail?: string
+      /** EXP-748: the publisher's own tool-call count for the subagent (the
+       *  completed edge carries it); absent on the started edge and on older
+       *  publishers. `summarizeSubagentRow` prefers it over the visible rows. */
+      toolCalls?: number
     }
   | {
       id: number
@@ -657,6 +666,8 @@ export function createSteerSessionStore(
           agentType: event.agentType,
           status: event.status === `completed` ? `completed` : `started`,
           detail: event.detail?.trim() ? event.detail : undefined,
+          toolCalls:
+            typeof event.toolCalls === `number` ? event.toolCalls : undefined,
         })
         return
       }

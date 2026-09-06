@@ -15,6 +15,8 @@
 //!   confirmation (D4);
 //! - the child going away ends the run exactly once, with `exit:<code>`;
 //! - an error response does not tear the connection down;
+//! - EXP-750: a `terminal/*` round trip streams into the LOCAL feed and
+//!   settles its exit, and a Stop kills the child;
 //! - `start` never touches the launch hold the host took (EXP-478).
 //!
 //! No network: `publish: false` with a recording sink in its place.
@@ -26,16 +28,17 @@ use std::time::{Duration, Instant};
 
 use agent_client_protocol::schema::v1::{
     AvailableCommand, AvailableCommandsUpdate, ContentBlock, ContentChunk,
-    CreateElicitationRequest, ElicitationAction, ElicitationContentValue, ElicitationFormMode,
-    ElicitationPropertySchema, ElicitationSchema, ElicitationSessionScope, InitializeRequest,
-    InitializeResponse, LoadSessionRequest, LoadSessionResponse, NewSessionRequest,
-    NewSessionResponse, PermissionOption, PermissionOptionId, PermissionOptionKind, PromptRequest,
-    PromptResponse, ReadTextFileRequest, RequestPermissionOutcome, RequestPermissionRequest,
+    CreateElicitationRequest, CreateTerminalRequest, ElicitationAction, ElicitationContentValue,
+    ElicitationFormMode, ElicitationPropertySchema, ElicitationSchema, ElicitationSessionScope,
+    InitializeRequest, InitializeResponse, LoadSessionRequest, LoadSessionResponse,
+    NewSessionRequest, NewSessionResponse, PermissionOption, PermissionOptionId,
+    PermissionOptionKind, PromptRequest, PromptResponse, ReadTextFileRequest,
+    ReleaseTerminalRequest, RequestPermissionOutcome, RequestPermissionRequest,
     SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectOption, SessionId,
     SessionMode, SessionModeId, SessionModeState, SessionNotification, SessionUpdate,
     SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, SetSessionModeRequest,
-    SetSessionModeResponse, StopReason, StringPropertySchema, TextContent, ToolCall, ToolCallId,
-    ToolKind,
+    SetSessionModeResponse, StopReason, StringPropertySchema, Terminal, TerminalOutputRequest,
+    TextContent, ToolCall, ToolCallContent, ToolCallId, ToolKind, WaitForTerminalExitRequest,
 };
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{
@@ -70,6 +73,12 @@ struct FakeState {
     read_failed: AtomicBool,
     config_set: Mutex<Option<(String, String)>>,
     mode_set: Mutex<Option<String>>,
+    /// EXP-750: what the client answered the `terminal/*` round trip with.
+    terminal_id: Mutex<Option<String>>,
+    terminal_output: Mutex<Option<String>>,
+    /// The exit code `terminal/wait_for_exit` reported (`-1` = a signal
+    /// death, which is what a Stop looks like from here).
+    terminal_exit: Mutex<Option<i32>>,
 }
 
 struct FakeAgent {
@@ -376,6 +385,67 @@ async fn run_turn(
                 .block_task()
                 .await;
             state.read_failed.store(result.is_err(), Ordering::SeqCst);
+            StopReason::EndTurn
+        }
+        // EXP-750 — the terminal round trip: create, publish the tool call
+        // that EMBEDS the terminal (which is what binds it to a card), wait
+        // for the exit, read the retained output, release.
+        "terminal" | "terminal-sleep" => {
+            let command = if text == "terminal" {
+                "printf a; printf b; exit 3"
+            } else {
+                "sleep 30"
+            };
+            let created = cx
+                .send_request(
+                    CreateTerminalRequest::new(session_id.clone(), "sh")
+                        .args(vec!["-c".to_string(), command.to_string()])
+                        .output_byte_limit(64u64 * 1024),
+                )
+                .block_task()
+                .await;
+            let Ok(created) = created else {
+                return StopReason::EndTurn;
+            };
+            let terminal_id = created.terminal_id.clone();
+            *state.terminal_id.lock().expect("the terminal slot is not poisoned") =
+                Some(terminal_id.0.to_string());
+            let _ = cx.send_notification(SessionNotification::new(
+                session_id.clone(),
+                SessionUpdate::ToolCall(
+                    ToolCall::new(ToolCallId::new("tc-term"), "Run the tests")
+                        .kind(ToolKind::Execute)
+                        .content(vec![ToolCallContent::Terminal(Terminal::new(
+                            terminal_id.clone(),
+                        ))]),
+                ),
+            ));
+            if let Ok(exit) = cx
+                .send_request(WaitForTerminalExitRequest::new(
+                    session_id.clone(),
+                    terminal_id.clone(),
+                ))
+                .block_task()
+                .await
+            {
+                *state.terminal_exit.lock().expect("the exit slot is not poisoned") =
+                    Some(exit.exit_status.exit_code.map_or(-1, |code| code as i32));
+            }
+            if let Ok(output) = cx
+                .send_request(TerminalOutputRequest::new(
+                    session_id.clone(),
+                    terminal_id.clone(),
+                ))
+                .block_task()
+                .await
+            {
+                *state.terminal_output.lock().expect("the output slot is not poisoned") =
+                    Some(output.output);
+            }
+            let _ = cx
+                .send_request(ReleaseTerminalRequest::new(session_id.clone(), terminal_id))
+                .block_task()
+                .await;
             StopReason::EndTurn
         }
         "quit" => {
@@ -884,6 +954,130 @@ fn an_error_response_does_not_tear_the_connection_down() {
     });
     until("its tool event", || {
         kinds(&harness.sink).iter().any(|kind| kind == "tool")
+    });
+    harness.session.kill("killed");
+}
+
+/// EXP-750: the whole `terminal/*` round trip through the REAL host. The
+/// terminal is created BEFORE the tool call that embeds it exists, so the
+/// binding edge is what makes its output renderable — and everything the
+/// command wrote before it lands on the card anyway.
+#[cfg(unix)]
+#[test]
+fn a_terminal_round_trip_streams_into_the_local_feed_and_settles_the_exit() {
+    let harness = start_fake("terminal");
+    let feed = harness.session.subscribe();
+    harness.session.send_prompt("terminal".to_string());
+
+    until("the agent's terminal exit", || {
+        harness
+            .state
+            .terminal_exit
+            .lock()
+            .expect("the exit slot is not poisoned")
+            .is_some()
+    });
+    // The agent read back exactly what the command wrote, and its exit.
+    assert_eq!(
+        harness
+            .state
+            .terminal_output
+            .lock()
+            .expect("the output slot is not poisoned")
+            .as_deref(),
+        Some("ab")
+    );
+    assert_eq!(
+        *harness
+            .state
+            .terminal_exit
+            .lock()
+            .expect("the exit slot is not poisoned"),
+        Some(3)
+    );
+
+    // The local feed: the bind first, then the output chunks of that call,
+    // the last one carrying the exit code that closes the card.
+    let mut bound: Option<String> = None;
+    let mut chunks = String::new();
+    let mut closed = false;
+    let deadline = Instant::now() + BUDGET;
+    while Instant::now() < deadline && !closed {
+        match feed.recv_timeout(Duration::from_millis(100)) {
+            Ok(LocalFeedEvent::TerminalBound {
+                tool_call_id,
+                terminal_id,
+            }) => {
+                assert_eq!(tool_call_id, "tc-term");
+                bound = Some(terminal_id);
+            }
+            Ok(LocalFeedEvent::Output {
+                tool_call_id,
+                chunk,
+                exit_code,
+            }) => {
+                assert_eq!(tool_call_id, "tc-term");
+                assert!(bound.is_some(), "no output before the terminal is bound");
+                chunks.push_str(&chunk);
+                closed |= exit_code == Some(3);
+            }
+            Ok(_) => {}
+            Err(_) => {}
+        }
+    }
+    assert_eq!(
+        bound.as_deref(),
+        harness
+            .state
+            .terminal_id
+            .lock()
+            .expect("the terminal slot is not poisoned")
+            .as_deref()
+    );
+    assert_eq!(chunks, "ab");
+    assert!(closed, "the exit code closes the card");
+
+    // Nothing of the command reached the relay (rule 1).
+    let published = serde_json::to_string(&harness.sink.snapshot())
+        .expect("the published events serialize");
+    assert!(
+        !published.contains("printf"),
+        "no command may reach the relay: {published}"
+    );
+    harness.session.kill("killed");
+}
+
+/// EXP-750: the Stop button on a live output card — the child dies and the
+/// agent's `wait_for_exit` answers instead of hanging for half a minute.
+#[cfg(unix)]
+#[test]
+fn kill_terminal_ends_a_running_command() {
+    let harness = start_fake("terminal-kill");
+    harness.session.send_prompt("terminal-sleep".to_string());
+    until("the created terminal", || {
+        harness
+            .state
+            .terminal_id
+            .lock()
+            .expect("the terminal slot is not poisoned")
+            .is_some()
+    });
+    let terminal_id = harness
+        .state
+        .terminal_id
+        .lock()
+        .expect("the terminal slot is not poisoned")
+        .clone()
+        .expect("the terminal id is recorded");
+
+    harness.session.kill_terminal(&terminal_id);
+    until("the killed command's exit", || {
+        harness
+            .state
+            .terminal_exit
+            .lock()
+            .expect("the exit slot is not poisoned")
+            .is_some()
     });
     harness.session.kill("killed");
 }

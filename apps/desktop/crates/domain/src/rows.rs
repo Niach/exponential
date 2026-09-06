@@ -706,6 +706,11 @@ pub struct DeviceRow {
     pub caps: Option<serde_json::Value>,
     #[serde(default, deserialize_with = "tolerant_opt_json")]
     pub unauthed_agents: Option<serde_json::Value>,
+    /// EXP-749 jsonb string[] — the subset of `agents` that speaks ACP on
+    /// that machine. NULL (an older build's row) means UNKNOWN: assume every
+    /// runnable agent. Never a filter, only a label ([`Self::agent_runs_in_terminal`]).
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub acp_agents: Option<serde_json::Value>,
     /// jsonb `{defaultAgent?, agents?: {..}}` — camelCase inner keys.
     #[serde(default, deserialize_with = "tolerant_opt_json")]
     pub launch_defaults: Option<serde_json::Value>,
@@ -764,6 +769,33 @@ impl DeviceRow {
 
     pub fn unauthed_agent_ids(&self) -> Vec<String> {
         Self::string_list(&self.unauthed_agents)
+    }
+
+    /// EXP-749: the machine's ACP-ready agents, or `None` when the column is
+    /// NULL/unparseable — an older build registered this row and said
+    /// nothing, so nothing may be inferred from it. Deliberately NOT folded
+    /// into an empty `Vec`: "none of them" and "we do not know" are opposite
+    /// answers here.
+    pub fn acp_agent_ids(&self) -> Option<Vec<String>> {
+        let list = self.acp_agents.as_ref()?.as_array()?;
+        Some(
+            list.iter()
+                .filter_map(|item| item.as_str().map(str::to_string))
+                .collect(),
+        )
+    }
+
+    /// Whether starting `agent` on this machine lands in a terminal tab
+    /// rather than the session screen: it is runnable there, but absent from
+    /// the ACP-ready list. Unknown readiness reads as ready (the pickers
+    /// stay quiet rather than warning about a machine they know nothing
+    /// about), and so does an agent this device cannot run at all — the
+    /// launch gate names that failure instead.
+    pub fn agent_runs_in_terminal(&self, agent: &str) -> bool {
+        let Some(acp) = self.acp_agent_ids() else {
+            return false;
+        };
+        self.agent_ids().iter().any(|id| id == agent) && !acp.iter().any(|id| id == agent)
     }
 
     pub fn cap_ids(&self) -> Vec<String> {
@@ -921,6 +953,54 @@ mod tests {
         .unwrap();
         assert_eq!(narrow.agent_account("claude"), None);
         assert_eq!(narrow.agent_usage_for("claude"), None);
+    }
+
+    /// EXP-749: the ACP-ready subset. A LIST is authoritative (an agent
+    /// missing from it starts in a terminal tab there); a NULL column is an
+    /// older build's row and means unknown, so nothing is claimed about it.
+    #[test]
+    fn device_row_reads_acp_agents_and_null_means_unknown() {
+        // TEXT-stored jsonb, like every other list column.
+        let row: DeviceRow = serde_json::from_value(json!({
+            "id": "row-1",
+            "agents": "[\"claude\",\"codex\",\"pi\"]",
+            "acp_agents": "[\"claude\",\"codex\"]",
+        }))
+        .unwrap();
+        assert_eq!(
+            row.acp_agent_ids(),
+            Some(vec!["claude".to_string(), "codex".to_string()])
+        );
+        assert!(!row.agent_runs_in_terminal("claude"));
+        assert!(row.agent_runs_in_terminal("pi"));
+        // An agent the machine cannot run at all is the launch gate's
+        // business, not a terminal-tab note.
+        assert!(!row.agent_runs_in_terminal("nope"));
+
+        // An EMPTY list is a real answer: nothing there speaks ACP.
+        let none_ready: DeviceRow = serde_json::from_value(json!({
+            "id": "row-2",
+            "agents": ["claude"],
+            "acp_agents": [],
+        }))
+        .unwrap();
+        assert_eq!(none_ready.acp_agent_ids(), Some(Vec::new()));
+        assert!(none_ready.agent_runs_in_terminal("claude"));
+
+        // NULL / absent / garbage = unknown: assume every runnable agent.
+        for column in [json!(null), json!("not json"), json!(7)] {
+            let row: DeviceRow = serde_json::from_value(json!({
+                "id": "row-3",
+                "agents": ["claude"],
+                "acp_agents": column,
+            }))
+            .unwrap();
+            assert_eq!(row.acp_agent_ids(), None);
+            assert!(!row.agent_runs_in_terminal("claude"));
+        }
+        let missing: DeviceRow = serde_json::from_value(json!({"id": "row-4"})).unwrap();
+        assert_eq!(missing.acp_agent_ids(), None);
+        assert!(!missing.agent_runs_in_terminal("claude"));
     }
 
     #[test]

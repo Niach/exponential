@@ -239,6 +239,20 @@ internal fun LaunchOptionsSection(
             accountSlot()
         }
     }
+
+    // EXP-749: the picked machine runs this agent on a terminal tab rather
+    // than through the ACP session screen. A caption, never a filter — the run
+    // starts either way, and a surprise is only a surprise before the tap.
+    // Absent for the Device variant, which names its own machine and owns the
+    // "Start in terminal" toggle.
+    if (device != null && agent.isNotEmpty() && device.agentRunsInTerminal(agent)) {
+        Text(
+            "Runs in a terminal tab on ${device.deviceLabel.ifBlank { device.deviceId }}.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+        )
+    }
 }
 
 // The agents a desktop can launch, in contract order. No device settled yet

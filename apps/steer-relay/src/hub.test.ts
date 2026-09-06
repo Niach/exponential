@@ -101,8 +101,12 @@ const activity = (hub: Hub, pub: FakeSocket, event: unknown) =>
   hub.onMessage(pub, JSON.stringify({ t: `activity`, event }))
 
 interface RoomInternals {
-  activityLog: { framed: string; bytes: number }[]
+  activityLog: { framed: string; bytes: number; subagentTool?: string }[]
   activityBytes: number
+  /** EXP-748: the two-tier count cap's bookkeeping. */
+  subagentToolCounts: Map<string, number>
+  subagentToolEntries: number
+  subagentScanFrom: number
   /** EXP-746: the latest-wins state slots (`diff`, `config_state`, `usage`). */
   lastByKind: Map<string, { framed: string }>
   lastPublisherActivity: number
@@ -1554,6 +1558,166 @@ describe(`activity log caps (EXP-249)`, () => {
     expect(room(hub).activityBytes).toBe(0)
     expect(room(hub).activityLog.length).toBe(0)
     expect(room(hub).lastByKind.get(`diff`)).toBeDefined()
+  })
+})
+
+// EXP-748: a parallelising agent spends a long run inside subagents, so the
+// flat count cap used to evict the narration a viewer actually reads to make
+// room for a fan-out's tool spam. The cap now spends subagent tool headlines
+// first, and no single subagent may hold more than 50 of them.
+describe(`two-tier activity eviction (EXP-748)`, () => {
+  const toolCall = (
+    hub: Hub,
+    pub: ReturnType<typeof connectPublisher>,
+    detail: string,
+    subagentId: string
+  ) => activity(hub, pub, { kind: `tool`, name: `Read`, detail, subagentId })
+
+  test(`the count cap evicts subagent tool calls before the main transcript (EXP-748)`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const mainLine: string[] = []
+    for (let i = 0; i < 100; i++) {
+      activity(hub, pub, { kind: `narration`, text: `n${i}` })
+      activity(hub, pub, {
+        kind: `subagent`,
+        id: `sa${i}`,
+        agentType: `explore`,
+        status: `started`,
+      })
+      mainLine.push(`n${i}`, `sa${i}`)
+    }
+    // 2000 tool calls fanned across those 100 subagents — 20 each, under the
+    // per-subagent tier, so this is purely the count tier at work.
+    for (let i = 0; i < 2000; i++) {
+      toolCall(hub, pub, `t${i}`, `sa${i % 100}`)
+    }
+
+    const state = room(hub)
+    expect(state.activityLog.length).toBeLessThanOrEqual(2000)
+
+    const member = connectMember(hub)
+    const kept = member
+      .events()
+      .filter((e) => e.kind !== `tool`)
+      .map((e) => (e.kind === `narration` ? e.text : e.id))
+    // Every narration and every subagent marker survived, in order.
+    expect(kept).toEqual(mainLine)
+    // The 200 overflowing appends took subagent tool calls instead.
+    expect(state.subagentToolEntries).toBe(1800)
+  })
+
+  test(`a subagent keeps at most 50 tool calls`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    activity(hub, pub, { kind: `narration`, text: `head` })
+    for (let i = 0; i < 200; i++) toolCall(hub, pub, `t${i}`, `sa`)
+
+    const state = room(hub)
+    expect(state.subagentToolCounts.get(`sa`)).toBe(50)
+    expect(state.subagentToolEntries).toBe(50)
+    expect(state.activityLog.length).toBe(51)
+
+    const member = connectMember(hub)
+    const events = member.events()
+    expect(events[0]!.text).toBe(`head`)
+    // The newest 50 are the ones kept.
+    expect(events.slice(1).map((e) => e.detail)).toEqual(
+      Array.from({ length: 50 }, (_, i) => `t${150 + i}`)
+    )
+
+    // A second subagent has its own allowance.
+    for (let i = 0; i < 3; i++) toolCall(hub, pub, `u${i}`, `sb`)
+    expect(state.subagentToolCounts.get(`sa`)).toBe(50)
+    expect(state.subagentToolCounts.get(`sb`)).toBe(3)
+  })
+
+  test(`main-line eviction resumes once no subagent tool calls remain`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    for (let i = 0; i < 30; i++) toolCall(hub, pub, `t${i}`, `sa`)
+    for (let i = 0; i < 2100; i++) {
+      activity(hub, pub, { kind: `narration`, text: `n${i}` })
+    }
+
+    const state = room(hub)
+    expect(state.activityLog.length).toBe(2000)
+    expect(state.subagentToolEntries).toBe(0)
+    expect(state.subagentToolCounts.size).toBe(0)
+
+    // 30 appends spent the subagent tool calls, the next 100 dropped the head.
+    const member = connectMember(hub)
+    const texts = member.events().map((e) => e.text)
+    expect(texts.length).toBe(2000)
+    expect(texts[0]).toBe(`n100`)
+    expect(texts.at(-1)).toBe(`n2099`)
+  })
+
+  test(`a toolCalls count above u32 drops the whole completed edge`, () => {
+    // The desktop wire type is `Option<u32>`, so a bigger count makes the
+    // Rust viewer's frame parse fail and swallow the entire activity frame.
+    // The relay rejects it here instead, exactly as it does every other
+    // out-of-bounds activity field.
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const member = connectMember(hub)
+    const edge = (toolCalls: number) => ({
+      kind: `subagent`,
+      id: `sa`,
+      agentType: `explore`,
+      status: `completed`,
+      toolCalls,
+    })
+
+    activity(hub, pub, edge(4_294_967_295))
+    activity(hub, pub, edge(4_294_967_296))
+    activity(hub, pub, edge(1e21))
+
+    // Only the in-bounds edge survived, with its count intact.
+    expect(member.events()).toEqual([edge(4_294_967_295)] as never)
+    expect(room(hub).activityLog.length).toBe(1)
+  })
+
+  test(`activity_reset clears the subagent bookkeeping`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    for (let i = 0; i < 5; i++) toolCall(hub, pub, `t${i}`, `sa`)
+    expect(room(hub).subagentToolEntries).toBe(5)
+
+    hub.onMessage(pub, JSON.stringify({ t: `activity_reset` }))
+    const state = room(hub)
+    expect(state.activityLog.length).toBe(0)
+    expect(state.activityBytes).toBe(0)
+    expect(state.subagentToolEntries).toBe(0)
+    expect(state.subagentToolCounts.size).toBe(0)
+    expect(state.subagentScanFrom).toBe(0)
+  })
+
+  test(`the byte accumulator and the counts stay exact across mixed eviction`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const big = `x`.repeat(16 * 1024 - 16)
+    // 300 × 16KB narrations blow the byte budget while every subagent blows
+    // its own 50-call allowance: all three tiers touch the same log.
+    for (let i = 0; i < 300; i++) {
+      activity(hub, pub, { kind: `narration`, text: `${i}:${big}` })
+      for (let j = 0; j < 4; j++) toolCall(hub, pub, `${i}-${j}`, `sa${i % 3}`)
+    }
+
+    const state = room(hub)
+    expect(state.activityBytes).toBe(
+      state.activityLog.reduce((n, e) => n + e.bytes, 0)
+    )
+    expect(state.activityBytes).toBeLessThanOrEqual(4 * 1024 * 1024)
+    expect(state.subagentToolEntries).toBe(
+      state.activityLog.filter((e) => e.subagentTool).length
+    )
+    for (const [id, count] of state.subagentToolCounts) {
+      expect(count).toBe(
+        state.activityLog.filter((e) => e.subagentTool === id).length
+      )
+      expect(count).toBeLessThanOrEqual(50)
+    }
   })
 })
 

@@ -270,9 +270,14 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     case userMessage(id: Int, text: String)
     case question(AgentQuestion)
     /// A subagent started or finished (protocol v2).
+    ///
+    /// EXP-748: `toolCalls` is the publisher's own count of this subagent's
+    /// tool calls, stamped on the completed edge. The replay log evicts
+    /// subagent tool events first, so the visible rows can undercount — the
+    /// run renders `max(visible rows, toolCalls)`.
     case subagent(
         id: Int, subagentId: String, agentType: String,
-        status: AgentSubagentStatus, detail: String?
+        status: AgentSubagentStatus, detail: String?, toolCalls: Int? = nil
     )
     /// A permission prompt the agent hit (protocol v2) — INFORMATIONAL: the
     /// desktop's own TUI owns the approval, there is nothing to answer here.
@@ -288,7 +293,7 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
         case let .tool(id, _, _, _): id
         case let .userMessage(id, _): id
         case let .question(value): value.id
-        case let .subagent(id, _, _, _, _): id
+        case let .subagent(id, _, _, _, _, _): id
         case let .permission(id, _, _): id
         case let .compaction(id): id
         }
@@ -314,7 +319,7 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     public var subagentKey: String? {
         switch self {
         case let .tool(_, _, _, subagentId): return subagentId
-        case let .subagent(_, subagentId, _, _, _): return subagentId
+        case let .subagent(_, subagentId, _, _, _, _): return subagentId
         default: return nil
         }
     }
@@ -332,9 +337,13 @@ public struct AgentSubagentRun: Equatable, Sendable, Identifiable {
     public let done: Bool
     /// The tool calls published under this subagent.
     public let items: [AgentFeedItem]
+    /// EXP-748: the highest count the subagent's own markers reported, if any.
+    /// Replay evicts subagent tool events first, so `items` can undercount.
+    public let reportedToolCalls: Int?
 
     public var id: Int { anchorId }
-    public var toolCount: Int { items.count }
+    /// The reported count wins whenever it is higher than what is visible.
+    public var toolCount: Int { max(items.count, reportedToolCalls ?? 0) }
     /// Whether the row has anything behind its chevron — the detail is always
     /// visible collapsed, so only tool calls justify an expand affordance
     /// (EXP-350: a chevron on an empty group expanded to nothing).
@@ -346,7 +355,8 @@ public struct AgentSubagentRun: Equatable, Sendable, Identifiable {
         agentType: String,
         detail: String?,
         done: Bool,
-        items: [AgentFeedItem]
+        items: [AgentFeedItem],
+        reportedToolCalls: Int? = nil
     ) {
         self.anchorId = anchorId
         self.subagentId = subagentId
@@ -354,6 +364,7 @@ public struct AgentSubagentRun: Equatable, Sendable, Identifiable {
         self.detail = detail
         self.done = done
         self.items = items
+        self.reportedToolCalls = reportedToolCalls
     }
 }
 
@@ -870,11 +881,16 @@ public enum AgentFeed {
             var types: [String] = []
             var detail: String?
             var done = false
+            // EXP-748: the highest count any marker reported — a re-emitted
+            // edge must never shrink the row's "N tool calls".
+            var reported: Int?
             for item in builder.items {
-                guard case let .subagent(_, _, type, status, markerDetail) = item else { continue }
+                guard case let .subagent(_, _, type, status, markerDetail, toolCalls) = item
+                else { continue }
                 if !type.isEmpty { types.append(type) }
                 if status == .completed { done = true }
                 if let markerDetail { detail = markerDetail }
+                if let toolCalls { reported = max(reported ?? 0, toolCalls) }
             }
             // First marker with a REAL type wins — "agent" is the desktop's
             // fallback sentinel, and old builds stamp it onto the completed
@@ -888,7 +904,8 @@ public enum AgentFeed {
                 agentType: agentType,
                 detail: detail,
                 done: done,
-                items: builder.items.filter(\.isTool)
+                items: builder.items.filter(\.isTool),
+                reportedToolCalls: reported
             ))
         }
     }

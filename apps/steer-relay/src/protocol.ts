@@ -206,6 +206,12 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
     status: z.enum([`started`, `completed`]),
     detail: z.string().max(1024).optional(),
     at: z.number().optional(),
+    // EXP-748: the publisher's count of this subagent's tool calls, stamped
+    // on the completed edge. The replay log evicts subagent tool events
+    // first, so this is what keeps "N tool calls" honest after eviction.
+    // Bounded by u32: the desktop wire type is `Option<u32>`, and a larger
+    // value makes `ViewerFrame::parse` drop the WHOLE activity frame.
+    toolCalls: z.number().int().nonnegative().max(4294967295).optional(),
   }),
   z.object({
     kind: z.literal(`permission`),

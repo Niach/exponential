@@ -485,6 +485,8 @@ pub const SHAPES: [ShapeSpec; 20] = [
             "agents",
             "caps",
             "unauthed_agents",
+            // EXP-749: the ACP-ready subset of `agents` (NULL = assume all).
+            "acp_agents",
             "launch_defaults",
             "launch_defaults_updated_at",
             // EXP-484: the read-only per-agent status the machine reports —
@@ -795,6 +797,17 @@ mod tests {
         // And the session row names the agent whose windows those are.
         let sessions = shape_by_name("coding_sessions").unwrap();
         assert!(sessions.columns.contains(&"agent"));
+    }
+
+    #[test]
+    fn devices_sync_the_acp_agents_column() {
+        // EXP-749: without it every remote picker loses the "runs in a
+        // terminal tab" note and silently claims the session screen.
+        let spec = shape_by_name("devices").unwrap();
+        assert!(spec.columns.contains(&"acp_agents"));
+        // It is a SUBSET of the runnable list, so both have to sync.
+        assert!(spec.columns.contains(&"agents"));
+        assert!(spec.columns.contains(&"unauthed_agents"));
     }
 
     #[test]

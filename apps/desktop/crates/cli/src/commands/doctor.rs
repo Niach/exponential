@@ -7,6 +7,10 @@
 //! whether a session runs on the session screen or in a terminal tab
 //! (`coding::resolve_transport`) and never touches the exit code — a
 //! not-supported agent still codes, just on the PTY path.
+//!
+//! EXP-755: this command is the ONE deep pass (`coding::run_doctor_deep` plus
+//! the codex handshake below). Every other caller runs the quick doctor, which
+//! reuses pi's last rpc verdict for an unchanged binary.
 
 use std::process::ExitCode;
 
@@ -20,7 +24,9 @@ pub fn run(args: &[String]) -> CommandResult {
     reject_unknown_flags(args)?;
     let data_dir = context::data_dir();
     let settings = coding::Settings::load(&coding::Settings::default_path(&data_dir));
-    let mut report = coding::run_doctor(&settings);
+    // EXP-755: the DEEP pass — pi's `--mode rpc` handshake runs for real here
+    // instead of reusing the cached verdict every hot caller reads.
+    let mut report = coding::run_doctor_deep(&settings);
     // EXP-746: `run_doctor` also runs on the launch path and inline in the
     // daemon every 5 minutes, so it takes codex's readiness on presence. A
     // hand-typed `exponential doctor` can afford the real handshake, and it

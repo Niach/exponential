@@ -170,6 +170,47 @@ fn command_output_and_edit_diffs_stay_local() {
     );
 }
 
+/// EXP-750: a `ToolCallContent::Terminal` is a LOCAL binding edge — the
+/// terminal id names the live command the card renders, and neither the id
+/// nor the command line it came from may reach the relay.
+#[test]
+fn a_terminal_tool_call_binds_locally_and_never_reaches_the_wire() {
+    let bindings: Vec<(String, String)> = local("terminal.jsonl")
+        .iter()
+        .filter_map(|event| match event {
+            engine::LocalFeedEvent::TerminalBound {
+                tool_call_id,
+                terminal_id,
+            } => Some((tool_call_id.clone(), terminal_id.clone())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        bindings,
+        vec![
+            ("tc-7".to_string(), "term-1".to_string()),
+            // The completion repeats the embed; binding is idempotent
+            // downstream (the engine flushes once).
+            ("tc-7".to_string(), "term-1".to_string()),
+        ]
+    );
+
+    let wire = wire("terminal.jsonl");
+    assert_eq!(
+        wire,
+        vec![json!({"kind": "tool", "name": "Bash", "detail": "bun"})]
+    );
+    let serialized = serde_json::to_string(&wire).expect("the vector serializes");
+    assert!(
+        !serialized.contains("term-1"),
+        "a terminal id is local plumbing: {serialized}"
+    );
+    assert!(
+        !serialized.contains("expu_"),
+        "no secret may reach the relay: {serialized}"
+    );
+}
+
 /// D3 + the four clients' "Plan ready" card: `planMode` plus the plan
 /// markdown as `text` is what makes an ExitPlanMode approval render as a plan
 /// instead of a generic question. Byte-exact per `frames.rs` conventions
@@ -485,4 +526,31 @@ fn every_wire_string_is_capped() {
             other => panic!("unexpected event {other:?}"),
         }
     }
+}
+
+
+/// EXP-753 — a subagent's edge and the rows it produced name the SAME id.
+///
+/// The claude adapter rides the edge on a no-op patch of the Task call that
+/// spawned the subagent and stamps `subagentId` on everything that subagent
+/// did, so a client can nest the rows under the card without a second
+/// lookup; this replays that shape through the mapper and locks the wire.
+#[test]
+fn subagent_edges_and_their_tool_rows_carry_the_parent_id() {
+    assert_eq!(
+        wire("subagent.jsonl"),
+        vec![
+            // The Task call itself is an ordinary tool row: the edge that
+            // follows is what turns it into a subagent card.
+            json!({"kind": "tool", "name": "Find the failing test"}),
+            json!({"kind": "subagent", "id": "tc-parent", "agentType": "explore", "status": "started"}),
+            // What the subagent ran, attributed to the card, never a top-level
+            // row of its own.
+            json!({"kind": "tool", "name": "Bash", "detail": "bun", "subagentId": "tc-parent"}),
+            // EXP-748: the completed edge carries the tool-call count — the
+            // mapper's own count of attributed calls, or the adapter's
+            // `toolCalls` meta when that is larger.
+            json!({"kind": "subagent", "id": "tc-parent", "agentType": "explore", "status": "completed", "toolCalls": 1}),
+        ]
+    );
 }

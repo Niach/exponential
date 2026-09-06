@@ -40,12 +40,23 @@ pub enum LocalFeedEvent {
         new_text: String,
     },
     /// Output of an `Execute` tool call, streamed. `exit_code` arrives with
-    /// the final chunk. Never `ToolCallContent::Terminal`: the client
-    /// advertises `terminal: false` (D5).
+    /// the final chunk. Two producers: `ToolCallContent::Content` on an
+    /// `Execute` call, and a live `terminal/*` one (EXP-750), whose chunks
+    /// start flowing at the [`LocalFeedEvent::TerminalBound`] below.
     Output {
         tool_call_id: String,
         chunk: String,
         exit_code: Option<i32>,
+    },
+    /// EXP-750 — `ToolCallContent::Terminal`: the tool call `tool_call_id`
+    /// renders the terminal the client created as `terminal_id`. The engine
+    /// intercepts this to flush what the command already wrote (the agent
+    /// creates the terminal BEFORE it publishes the call embedding it), and
+    /// the renderer turns the card live until an `Output` carrying an
+    /// `exit_code` closes it.
+    TerminalBound {
+        tool_call_id: String,
+        terminal_id: String,
     },
     /// ACP `Plan` — the pinned plan card, replaced wholesale each time.
     Plan { entries: Vec<PlanEntryView> },
@@ -143,14 +154,18 @@ pub const SUBAGENT_ID_META_KEY: &str = "subagentId";
 pub const COMPACTION_TRIGGER_META_KEY: &str = "trigger";
 
 /// One subagent lifecycle edge. Deliberately tiny: the relay vocabulary has
-/// exactly `{id, agentType, status, detail?}` and nothing an adapter adds
-/// beyond that could be rendered anywhere.
+/// exactly `{id, agentType, status, detail?, toolCalls?}` and nothing an
+/// adapter adds beyond that could be rendered anywhere.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SubagentEdge {
     pub id: String,
     pub agent_type: String,
     pub status: SubagentEdgeStatus,
     pub detail: Option<String>,
+    /// EXP-748: an adapter-side tool-call count, when the adapter knows it.
+    /// The mapper keeps its own count from the attributed tool calls and
+    /// prefers the larger of the two on the completed edge.
+    pub tool_calls: Option<u32>,
 }
 
 /// A local mirror of `steer::SubagentStatus`, so an adapter never has to
@@ -187,6 +202,12 @@ impl SubagentEdge {
                 serde_json::Value::String(detail.clone()),
             );
         }
+        if let Some(tool_calls) = self.tool_calls {
+            edge.insert(
+                "toolCalls".to_string(),
+                serde_json::Value::from(tool_calls),
+            );
+        }
         meta.insert(SUBAGENT_META_KEY.to_string(), serde_json::Value::Object(edge));
         meta
     }
@@ -221,6 +242,10 @@ impl SubagentEdge {
                 .get("detail")
                 .and_then(serde_json::Value::as_str)
                 .map(str::to_string),
+            tool_calls: edge
+                .get("toolCalls")
+                .and_then(serde_json::Value::as_u64)
+                .and_then(|n| u32::try_from(n).ok()),
         })
     }
 }
@@ -236,6 +261,7 @@ mod tests {
             agent_type: "explore".to_string(),
             status: SubagentEdgeStatus::Completed,
             detail: Some("found it".to_string()),
+            tool_calls: Some(3),
         };
         assert_eq!(SubagentEdge::from_meta(&edge.to_meta()), Some(edge));
     }

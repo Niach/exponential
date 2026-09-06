@@ -826,6 +826,8 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
     expect(columns).toContain(`agent_usage`)
     expect(columns).toContain(`agent_usage_at`)
     expect(columns).toContain(`unauthed_agents`)
+    // EXP-749: the ACP-ready subset rides the same shape.
+    expect(columns).toContain(`acp_agents`)
     expect(columns).toContain(`last_seen_at`)
     expect(columns).toContain(`caps`)
 

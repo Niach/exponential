@@ -235,6 +235,38 @@ final class SteerDeviceDecodingTests: XCTestCase {
         XCTAssertNil(old.launchDefaults?.startInTerminal)
     }
 
+    /// EXP-749: `acpAgents` names which runnable agents the machine's ACP
+    /// engine can drive. ABSENT is UNKNOWN — every agent is assumed ACP-ready,
+    /// exactly the pre-EXP-749 behaviour — so `agentRunsInTerminal` may only
+    /// be true when the machine actually reported.
+    func testAgentRunsInTerminalOnlyWhenAcpAgentsAreKnown() throws {
+        let result = try decode("""
+        {"devices":[
+        {"deviceId":"d12","deviceLabel":"macbook","agents":["claude","codex","pi"],
+        "acpAgents":["claude","codex","bogus"],"caps":["acp"],"online":true},
+        {"deviceId":"d13","deviceLabel":"old-box","agents":["claude","codex"],
+        "caps":[],"online":true},
+        {"deviceId":"d14","deviceLabel":"terminal-box","agents":["claude"],
+        "acpAgents":[],"caps":["acp"],"online":true}]}
+        """)
+        let reported = try XCTUnwrap(result.devices.first)
+        // Values outside the contract never reach the UI copy.
+        XCTAssertEqual(reported.acpAgentIds, ["claude", "codex"])
+        XCTAssertFalse(reported.agentRunsInTerminal("claude"))
+        XCTAssertTrue(reported.agentRunsInTerminal("pi"))
+
+        let unknown = result.devices[1]
+        XCTAssertNil(unknown.acpAgentIds)
+        XCTAssertFalse(unknown.agentRunsInTerminal("claude"))
+        XCTAssertFalse(unknown.agentRunsInTerminal("codex"))
+
+        // Reported EMPTY is knowledge, not ignorance: nothing runs over ACP
+        // there, so every agent lands in a terminal tab.
+        let none = result.devices[2]
+        XCTAssertEqual(none.acpAgentIds, [])
+        XCTAssertTrue(none.agentRunsInTerminal("claude"))
+    }
+
     /// settings) must not preselect it, or the sheet offers an agent the
     /// launcher would refuse.
     func testDefaultLaunchAgentClampsToRunnableAgents() throws {

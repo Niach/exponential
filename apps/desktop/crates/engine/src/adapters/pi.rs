@@ -2,17 +2,25 @@
 //! lane E4.
 //!
 //! Shape (E4): `pi --mode rpc [--model] [--thinking] [--session <file>] -e
-//! ./.exp-pi-mcp.ts`. The observer and plan extensions are DROPPED on this
-//! path (the rpc stream is the observation channel); the MCP bridge stays
-//! because pi has no native MCP. Non-obvious invariants: the stream is
-//! strict LF-only JSONL and mixes four shapes discriminated only by `type`,
-//! unknown types are ignorable rather than fatal; `agent_settled` is the true
-//! idle edge; pi is the one agent that reports COST; and pi is FILE-PATH
-//! keyed, not id-keyed, so its resume handle is a path.
+//! ./.exp-pi-mcp.ts [-e ./.exp-pi-plan.ts]`. The OBSERVER extension is
+//! dropped on this path (the rpc stream is the observation channel); the MCP
+//! bridge stays because pi has no native MCP. Non-obvious invariants: the
+//! stream is strict LF-only JSONL and mixes four shapes discriminated only by
+//! `type`, unknown types are ignorable rather than fatal; `agent_settled` is
+//! the true idle edge; pi is the one agent that reports COST; and pi is
+//! FILE-PATH keyed, not id-keyed, so its resume handle is a path.
 //!
-//! Plan mode is deliberately absent here: pi's plan mode IS the injected
-//! `.exp-pi-plan.ts` extension, so `coding::resolve_transport` sends a
-//! plan-mode pi launch down the terminal transport instead.
+//! EXP-752 — plan mode. pi has NO native modes, so this adapter builds one
+//! out of the same `.exp-pi-plan.ts` extension the PTY transport uses: the
+//! extension is loaded with `-e` only when the launch asked for plan mode,
+//! and only then does the session advertise the ACP modes `plan` + `default`.
+//! Switching is a `prompt` carrying `/exp-plan on|off` — pi dispatches a
+//! registered extension command instead of prompting the model — and it is
+//! refused mid-turn, because a queued command would land in the wrong turn.
+//! Approving a plan is the extension's `confirm` dialog: the one confirm
+//! titled [`coding::pi_bridge::PI_PLAN_CONFIRM_TITLE`] IS a mode switch, so
+//! its permission card is a `SwitchMode` and an approval moves the session to
+//! `default` (the extension has stopped planning by then).
 //!
 //! Two structural rules, both load-bearing:
 //!
@@ -34,16 +42,18 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use agent_client_protocol::schema::v1::{
     AgentCapabilities, AgentResponse, AvailableCommand, AvailableCommandInput, ClientNotification,
     ClientRequest, CompactionId, CompactionStatus, CompactionUpdate, ConfigOptionUpdate, Content,
-    ContentBlock, ContentChunk, Cost, CreateElicitationRequest, ElicitationAction,
+    ContentBlock, ContentChunk, Cost, CreateElicitationRequest, CurrentModeUpdate, ElicitationAction,
     ElicitationFormMode, ElicitationSchema, ElicitationSessionScope, InitializeRequest,
     InitializeResponse, LoadSessionRequest, LoadSessionResponse, NewSessionRequest,
     NewSessionResponse, PermissionOption, PermissionOptionKind, PromptCapabilities, PromptRequest,
     PromptResponse, RequestPermissionOutcome, RequestPermissionRequest,
     SessionConfigBoolean, SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory,
-    SessionConfigSelect, SessionConfigSelectOption, SessionId, SessionInfoUpdate, SessionNotification,
-    SessionUpdate, SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, StopReason,
-    StringPropertySchema, ToolCall, ToolCallContent, ToolCallLocation, ToolCallStatus,
-    ToolCallUpdate, ToolCallUpdateFields, ToolKind, UnstructuredCommandInput, UsageUpdate,
+    SessionConfigSelect, SessionConfigSelectOption, SessionId, SessionInfoUpdate, SessionMode,
+    SessionModeId, SessionModeState, SessionNotification, SessionUpdate,
+    SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, SetSessionModeRequest,
+    SetSessionModeResponse, StopReason, StringPropertySchema, ToolCall, ToolCallContent,
+    ToolCallLocation, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, ToolKind,
+    UnstructuredCommandInput, UsageUpdate,
 };
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{Agent, Client, ConnectTo, ConnectionTo, Error, Responder};
@@ -80,6 +90,11 @@ const CONFIG_STEERING: &str = "steering_mode";
 const CONFIG_FOLLOW_UP: &str = "follow_up_mode";
 const CONFIG_AUTO_COMPACTION: &str = "auto_compaction";
 
+/// The two mode ids a plan-mode pi session advertises. Same strings claude
+/// uses, so every client's mode picker renders them identically.
+const MODE_PLAN: &str = "plan";
+const MODE_DEFAULT: &str = "default";
+
 /// A tool's streamed output is a LOCAL card, but it still crosses a channel
 /// and lands in a `Vec` — cap it so a runaway `bash` cannot grow the session
 /// without bound. (The renderer caps again at 200 lines.)
@@ -113,15 +128,24 @@ fn pi_argv_for(spec: &AdapterSpec) -> Vec<String> {
     let model = spec.options.model.trim();
     let thinking = spec.options.effort.trim();
     let session_file = resume_session_file(spec.resume.as_ref());
-    // pi has no native MCP: the bridge extension IS the MCP wiring, and it is
-    // the ONLY extension this path loads (the observer and plan extensions
-    // belong to the PTY transport).
-    let extensions: Vec<PathBuf> = match spec.mcp {
+    // pi has no native MCP: the bridge extension IS the MCP wiring. The
+    // OBSERVER extension belongs to the PTY transport (the rpc stream is this
+    // path's observation channel); the PLAN extension (EXP-752) is loaded
+    // only when the launch asked for plan mode — the launcher writes it on
+    // both transports and gates it on `EXP_PI_PLAN_MODE`, but an extension
+    // that is not on the argv can never register its `/exp-plan` command.
+    let mut extensions: Vec<PathBuf> = match spec.mcp {
         coding::AgentMcp::PiExtension => {
             vec![PathBuf::from(format!("./{}", coding::pi_bridge::PI_BRIDGE_FILE))]
         }
         _ => Vec::new(),
     };
+    if spec.options.plan_mode {
+        extensions.push(PathBuf::from(format!(
+            "./{}",
+            coding::pi_bridge::PI_PLAN_FILE
+        )));
+    }
     pi_wire::pi_argv(&PiArgs {
         model: (!model.is_empty()).then_some(model),
         thinking: (!thinking.is_empty()).then_some(thinking),
@@ -215,6 +239,11 @@ struct PiSession {
     session_id: Mutex<SessionId>,
     state: Mutex<PiState>,
     models: Mutex<Vec<PiModel>>,
+    /// EXP-752: the session's ACP mode, and the only record that plan mode
+    /// was requested at all. `None` = no plan extension on the argv, so this
+    /// session has NO modes (pi's own answer); `Some` starts at
+    /// [`MODE_PLAN`] because the extension starts planning.
+    mode: Mutex<Option<String>>,
     tools: Mutex<HashMap<String, ToolEntry>>,
     compactions: AtomicU64,
     open_compaction: Mutex<Option<String>>,
@@ -256,6 +285,7 @@ impl PiSession {
             session_id: Mutex::new(SessionId::new("")),
             state: Mutex::new(PiState::default()),
             models: Mutex::new(Vec::new()),
+            mode: Mutex::new(initial_mode(spec.options.plan_mode)),
             tools: Mutex::new(HashMap::new()),
             compactions: AtomicU64::new(0),
             open_compaction: Mutex::new(None),
@@ -332,6 +362,32 @@ impl PiSession {
             SessionUpdate::ConfigOptionUpdate(ConfigOptionUpdate::new(options.clone())),
         );
         options
+    }
+
+    /// EXP-752: the mode state a plan-mode session advertises on `session/new`
+    /// and `session/load`. `None` for every other pi session — pi has no
+    /// native modes, and a mode picker over nothing is worse than none.
+    fn mode_state(&self) -> Option<SessionModeState> {
+        mode_state(&guard(&self.mode))
+    }
+
+    /// Take the session to `mode` and tell the client. Callers own the pi
+    /// round-trip; this is the bookkeeping half, shared by `session/set_mode`
+    /// and the approved plan confirm. A session with NO modes stays that way:
+    /// a `current_mode_update` for a mode set the client never saw would be
+    /// undeliverable state.
+    fn enter_mode(&self, cx: &ConnectionTo<Client>, mode: &str) {
+        {
+            let mut slot = guard(&self.mode);
+            if slot.is_none() {
+                return;
+            }
+            *slot = Some(mode.to_string());
+        }
+        self.notify(
+            cx,
+            SessionUpdate::CurrentModeUpdate(CurrentModeUpdate::new(SessionModeId::new(mode))),
+        );
     }
 
     /// Register a waiter for the running turn and say whether this message
@@ -637,11 +693,20 @@ async fn ask_client(
 ) -> Value {
     match request {
         PiUi::Confirm { title, message } => {
+            // EXP-752: the plan extension's approval dialog is the one confirm
+            // that is really a MODE SWITCH — the card says so, and an approval
+            // moves the session to `default` (the extension has stopped
+            // planning by the time it returns).
+            let is_plan = title == coding::pi_bridge::PI_PLAN_CONFIRM_TITLE;
             let tool_call = ToolCallUpdate::new(
                 format!("pi-confirm-{}", session.next_id()),
                 ToolCallUpdateFields::new()
                     .title(Some(title.clone()))
-                    .kind(Some(ToolKind::Other))
+                    .kind(Some(if is_plan {
+                        ToolKind::SwitchMode
+                    } else {
+                        ToolKind::Other
+                    }))
                     .status(Some(ToolCallStatus::Pending))
                     .content(Some(vec![ToolCallContent::Content(Content::new(
                         ContentBlock::from(message.clone()),
@@ -657,7 +722,11 @@ async fn ask_client(
                 .await;
             match outcome.map(|response| response.outcome) {
                 Ok(RequestPermissionOutcome::Selected(selected)) => {
-                    json!({ "confirmed": selected.option_id.0.as_ref() == "allow" })
+                    let confirmed = selected.option_id.0.as_ref() == "allow";
+                    if is_plan && confirmed {
+                        session.enter_mode(cx, MODE_DEFAULT);
+                    }
+                    json!({ "confirmed": confirmed })
                 }
                 _ => json!({ "cancelled": true }),
             }
@@ -787,11 +856,17 @@ fn handle_request(
                     .map(AgentResponse::SetSessionConfigOptionResponse)
             })
         }
-        // pi has NO session modes (D3) — the config options are the whole
-        // switchable surface, so this is a client bug, not a silent no-op.
-        ClientRequest::SetSessionModeRequest(_) => responder.respond_with_error(
-            Error::invalid_request().data(json!("pi has no session modes")),
-        ),
+        // EXP-752: the ONE mode pi can be given — and only when the launch
+        // loaded the plan extension. Without it the config options are still
+        // the whole switchable surface, so this stays a client bug rather
+        // than a silent no-op.
+        ClientRequest::SetSessionModeRequest(request) => {
+            spawn_answer(session, &cx, responder, move |session, cx| async move {
+                set_mode(&session, &cx, request)
+                    .await
+                    .map(AgentResponse::SetSessionModeResponse)
+            })
+        }
         other => responder.respond_with_error(
             Error::method_not_found().data(json!(format!("pi does not implement {}", other.method()))),
         ),
@@ -890,6 +965,7 @@ async fn new_session(
     let mut meta = serde_json::Map::new();
     meta.insert(NATIVE_SESSION_META_KEY.to_string(), json!(identity.clone()));
     Ok(NewSessionResponse::new(SessionId::new(identity))
+        .modes(session.mode_state())
         .config_options(options)
         .meta(meta))
 }
@@ -919,7 +995,9 @@ async fn load_session(
     }
     let options = session.config_options();
     publish_commands(session, cx).await;
-    Ok(LoadSessionResponse::new().config_options(options))
+    Ok(LoadSessionResponse::new()
+        .modes(session.mode_state())
+        .config_options(options))
 }
 
 async fn prompt(
@@ -931,6 +1009,16 @@ async fn prompt(
     // A `/` command the agent owns is a VERB, not a message: sending it as
     // text would put the literal `/compact` into the conversation.
     if let Some((name, args)) = slash_command(&text) {
+        // EXP-752: `/exp-plan` is the MODE SWITCH, and `publish_commands`
+        // hides it from the picker — but free text (the composer, a remote
+        // steer message) still reaches here. pi runs a registered extension
+        // command and starts NO turn, so forwarding it as an ordinary prompt
+        // would park this request on a turn that never settles: take the same
+        // route `session/set_mode` takes, refusals included.
+        if name == coding::pi_bridge::PI_PLAN_COMMAND {
+            switch_plan_mode(session, cx, plan_argument(args)).await?;
+            return Ok(PromptResponse::new(StopReason::EndTurn));
+        }
         if let Some(result) = run_command(session, cx, name, args).await {
             result?;
             return Ok(PromptResponse::new(StopReason::EndTurn));
@@ -953,6 +1041,75 @@ async fn prompt(
     Ok(PromptResponse::new(
         receiver.await.unwrap_or(StopReason::EndTurn),
     ))
+}
+
+/// EXP-752: `session/set_mode`. pi has no mode verb, so the switch is the
+/// plan extension's `/exp-plan on|off` sent as a `prompt` — pi runs a
+/// registered extension command instead of prompting the model with it.
+///
+/// Two refusals, both deliberate: a session that never loaded the extension
+/// has no modes at all, and a switch MID-TURN would be queued into the
+/// running turn (pi's own streaming rules) and take effect at the wrong
+/// moment — the caller waits for the turn instead. Both live in
+/// [`switch_plan_mode`], which a TYPED `/exp-plan` takes too.
+async fn set_mode(
+    session: &Arc<PiSession>,
+    cx: &ConnectionTo<Client>,
+    request: SetSessionModeRequest,
+) -> Result<SetSessionModeResponse, Error> {
+    if guard(&session.mode).is_none() {
+        return Err(Error::invalid_request().data(json!("pi has no session modes")));
+    }
+    let requested = request.mode_id.0.to_string();
+    let argument = match requested.as_str() {
+        MODE_PLAN => "on",
+        MODE_DEFAULT => "off",
+        other => {
+            return Err(Error::invalid_params()
+                .data(json!(format!("pi has no session mode {other}"))))
+        }
+    };
+    switch_plan_mode(session, cx, argument).await?;
+    Ok(SetSessionModeResponse::new())
+}
+
+/// The ONE plan switch, shared by `session/set_mode` and a typed
+/// `/exp-plan`: send the extension command as a `prompt` (pi runs it and
+/// starts no turn), then take the session to the mode it leaves behind and
+/// tell the client. `argument` is pi's own `on`/`off`.
+async fn switch_plan_mode(
+    session: &Arc<PiSession>,
+    cx: &ConnectionTo<Client>,
+    argument: &str,
+) -> Result<(), Error> {
+    if guard(&session.mode).is_none() {
+        return Err(Error::invalid_request().data(json!("pi has no session modes")));
+    }
+    if guard(&session.turn).active {
+        return Err(Error::invalid_request()
+            .data(json!("pi plan mode switches between turns only")));
+    }
+    session
+        .request(
+            "prompt",
+            json!({
+                "message": format!("/{} {argument}", coding::pi_bridge::PI_PLAN_COMMAND),
+            }),
+        )
+        .await?;
+    session.enter_mode(cx, if argument == "off" { MODE_DEFAULT } else { MODE_PLAN });
+    Ok(())
+}
+
+/// The `on`/`off` a typed `/exp-plan <args>` means, by the extension's OWN
+/// rule (`.trim() !== "off"` turns planning on), so a bare `/exp-plan` and
+/// anything unrecognised land where pi would put them.
+fn plan_argument(args: &str) -> &'static str {
+    if args.trim() == "off" {
+        "off"
+    } else {
+        "on"
+    }
 }
 
 async fn set_config_option(
@@ -1096,6 +1253,12 @@ async fn publish_commands(session: &Arc<PiSession>, cx: &ConnectionTo<Client>) {
         if commands.iter().any(|known| known.name == command.name) {
             continue;
         }
+        // EXP-752: `/exp-plan` is OUR mode switch, not a command a person
+        // should type — the mode picker owns it, and typing it would leave
+        // the advertised mode lying.
+        if command.name == coding::pi_bridge::PI_PLAN_COMMAND {
+            continue;
+        }
         commands.push(AvailableCommand::new(command.name, command.description));
     }
     session.notify(
@@ -1109,6 +1272,34 @@ async fn publish_commands(session: &Arc<PiSession>, cx: &ConnectionTo<Client>) {
 // ---------------------------------------------------------------------------
 // Pure helpers (the testable half)
 // ---------------------------------------------------------------------------
+
+/// EXP-752: a session's starting mode — `plan` when the launch loaded the
+/// plan extension, and NO modes at all otherwise.
+fn initial_mode(plan_mode: bool) -> Option<String> {
+    plan_mode.then(|| MODE_PLAN.to_string())
+}
+
+/// The advertised mode state for a mode slot (`None` = this session has no
+/// modes; see [`initial_mode`]).
+fn mode_state(mode: &Option<String>) -> Option<SessionModeState> {
+    let current = mode.clone()?;
+    Some(SessionModeState::new(
+        SessionModeId::new(current),
+        available_modes(),
+    ))
+}
+
+/// EXP-752: the two modes a plan-mode pi session offers. `default` is pi's
+/// ordinary posture (pi has no permission system of its own), `plan` is the
+/// extension's gate; the ids match claude's so one picker renders both.
+fn available_modes() -> Vec<SessionMode> {
+    vec![
+        SessionMode::new(SessionModeId::new(MODE_DEFAULT), "Manual")
+            .description("Run without the plan gate"),
+        SessionMode::new(SessionModeId::new(MODE_PLAN), "Plan")
+            .description("Create a plan before making changes"),
+    ]
+}
 
 /// The full config snapshot for a state + model list.
 fn config_options(state: &PiState, models: &[PiModel]) -> Vec<SessionConfigOption> {
@@ -1495,6 +1686,21 @@ mod tests {
     }
 
     #[test]
+    fn a_typed_plan_command_reads_as_the_extensions_own_argument() {
+        // The extension turns planning on for ANYTHING but `off`, so a bare
+        // `/exp-plan` (and a typo) has to land the same way here.
+        assert_eq!(plan_argument(""), "on");
+        assert_eq!(plan_argument(" on "), "on");
+        assert_eq!(plan_argument("please"), "on");
+        assert_eq!(plan_argument(" off "), "off");
+        // The switch is reached through `slash_command`, which trims the line.
+        assert_eq!(
+            slash_command("  /exp-plan off  "),
+            Some((coding::pi_bridge::PI_PLAN_COMMAND, "off"))
+        );
+    }
+
+    #[test]
     fn a_resume_handle_only_resolves_to_a_path() {
         assert_eq!(
             resume_session_file(Some(&ResumeHandle::PiSessionFile(PathBuf::from(
@@ -1590,13 +1796,13 @@ mod tests {
         assert!(trigger_meta(None).is_none());
     }
 
-    #[test]
-    fn the_rpc_argv_drops_the_observer_and_plan_extensions() {
+    fn pi_spec(plan_mode: bool) -> AdapterSpec {
         let mut options = coding::LaunchOptions::defaults(&coding::Settings::default());
         options.agent = coding::CodingAgent::Pi;
         options.model = "openai-codex/gpt-5.4".to_string();
         options.effort = "high".to_string();
-        let spec = AdapterSpec {
+        options.plan_mode = plan_mode;
+        AdapterSpec {
             kind: super::super::AdapterKind::Pi,
             agent: coding::AgentKind::Builtin(coding::CodingAgent::Pi),
             spawn: terminal::pty::SpawnSpec::new("pi"),
@@ -1609,9 +1815,13 @@ mod tests {
             personal_key: None,
             reaper_settings_path: None,
             exit: crate::ChildExitLink::new(),
-        };
+        }
+    }
+
+    #[test]
+    fn the_rpc_argv_drops_the_observer_and_plan_extensions() {
         assert_eq!(
-            pi_argv_for(&spec),
+            pi_argv_for(&pi_spec(false)),
             vec![
                 "--mode",
                 "rpc",
@@ -1625,5 +1835,35 @@ mod tests {
                 "./.exp-pi-mcp.ts",
             ]
         );
+    }
+
+    /// EXP-752: the plan extension is pi's plan mode on this transport too —
+    /// but only when the launch asked for it. Its absence is what makes an
+    /// ordinary rpc session mode-less.
+    #[test]
+    fn the_rpc_argv_adds_the_plan_extension_only_in_plan_mode() {
+        let planning = pi_argv_for(&pi_spec(true));
+        assert_eq!(
+            planning.iter().rev().take(4).rev().collect::<Vec<_>>(),
+            vec!["-e", "./.exp-pi-mcp.ts", "-e", "./.exp-pi-plan.ts"]
+        );
+        assert!(!pi_argv_for(&pi_spec(false))
+            .iter()
+            .any(|arg| arg.contains(coding::pi_bridge::PI_PLAN_FILE)));
+    }
+
+    /// The mode surface exists ONLY for a plan-mode launch: pi has no native
+    /// modes, so a picker over nothing would be a lie.
+    #[test]
+    fn only_a_plan_mode_launch_advertises_modes() {
+        let state = mode_state(&initial_mode(true)).expect("a plan launch has modes");
+        assert_eq!(state.current_mode_id.0.as_ref(), "plan");
+        let ids: Vec<String> = state
+            .available_modes
+            .iter()
+            .map(|mode| mode.id.0.to_string())
+            .collect();
+        assert_eq!(ids, vec!["default", "plan"]);
+        assert!(mode_state(&initial_mode(false)).is_none());
     }
 }

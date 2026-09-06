@@ -8,8 +8,8 @@
 // remove/prune) delivered on the heartbeat plus a best-effort relay
 // `check_in` nudge. Clients read the shapes and derive online-ness from
 // last_seen_at freshness (EXP-639 retired the `list` procedure). Since
-// EXP-485 `register` is the SOLE agents/caps/unauthedAgents writer (the relay
-// online frame no longer advertises them).
+// EXP-485 `register` is the SOLE agents/caps/unauthedAgents/acpAgents writer
+// (the relay online frame no longer advertises them).
 // EXP-432 bends the per-user rule exactly once: a server device may be SHARED
 // with one team (`shared_team_id`, owner-toggled via `setShared`) so members
 // can remote-start on it.
@@ -284,6 +284,12 @@ export const devicesRouter = router({
         // EXP-481: persisted since the shapes landed (the Rust clients sent
         // it all along; the old zod silently stripped it).
         unauthedAgents: agentsInput.optional(),
+        // EXP-749: the subset of `agents` this build can drive over ACP.
+        // ABSENT WRITES NULL on purpose — register is the sole writer, so an
+        // older build re-registering must return the row to "unknown" (every
+        // runnable agent assumed ACP-ready) rather than keep a newer build's
+        // stale list.
+        acpAgents: agentsInput.optional(),
         // EXP-481: the device's local defaults, applied ONLY as a first-ever
         // seed (row column NULL) — after that the server copy is
         // authoritative and the setLaunchDefaults CAS decides.
@@ -310,6 +316,7 @@ export const devicesRouter = router({
           agents: input.agents ?? [],
           caps: input.caps ?? [],
           unauthedAgents: input.unauthedAgents ?? [],
+          acpAgents: input.acpAgents ?? null,
           launchDefaults: input.launchDefaults
             ? clampLaunchDefaults(input.launchDefaults)
             : null,
@@ -328,6 +335,7 @@ export const devicesRouter = router({
             agents: input.agents ?? [],
             caps: input.caps ?? [],
             unauthedAgents: input.unauthedAgents ?? [],
+            acpAgents: input.acpAgents ?? null,
             // Seed-only-when-NULL: a re-register must never stomp
             // server-side edits (the device converges via heartbeat instead).
             ...(input.launchDefaults

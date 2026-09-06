@@ -264,7 +264,10 @@ pub struct SystemMsg {
     pub permission_mode: Option<String>,
     pub effort: Option<String>,
     /// `system/task_started`: the subagent id that a later `can_use_tool`
-    /// carries as `agent_id`.
+    /// carries as `agent_id` — MEASURED end to end against the CLI, not
+    /// inferred (EXP-753, `tests/fixtures/claude/subagent/`). The frame also
+    /// carries the `tool_use_id` of the Task call that spawned it, which is
+    /// what the adapter attributes nested rows to.
     pub task_id: Option<String>,
     pub parent_tool_use_id: Option<String>,
     pub compact_metadata: Option<CompactMetadata>,
@@ -433,7 +436,10 @@ pub struct ControlReq {
     pub input: Value,
     pub tool_use_id: Option<String>,
     /// Subagent attribution: equals the `task_id` of an earlier
-    /// `system/task_started` frame.
+    /// `system/task_started` frame (EXP-753, measured). The adapter resolves
+    /// it back to that task's spawning tool call, so a permission raised
+    /// INSIDE a subagent carries the same `subagentId` its nested chunks and
+    /// tool calls do.
     pub agent_id: Option<String>,
     pub permission_suggestions: Value,
     /// `rule` | `mode` | `safetyCheck` | `classifier` | … — `safetyCheck` is

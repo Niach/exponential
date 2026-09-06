@@ -1185,6 +1185,13 @@ export const devices = pgTable(
       .$type<string[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
+    // EXP-749: the subset of `agents` the machine's ACP engine can drive
+    // (the doctor's per-agent `acp` verdict), refreshed on register. NULL =
+    // the build never reported (pre-EXP-749) and clients assume every
+    // runnable agent, exactly the old behaviour; an agent listed in
+    // `agents` but not here starts in a terminal tab, and remote pickers
+    // say so instead of falling back silently.
+    acpAgents: jsonb(`acp_agents`).$type<string[]>(),
     // EXP-481: server-authoritative launch defaults (see the doc block on
     // DeviceLaunchDefaults above). NULL = the device never reported and no
     // client ever edited — clients seed static contract defaults.
@@ -2255,6 +2262,7 @@ export const selectDeviceSchema = createSelectSchema(devices, {
   agents: z.array(z.string()),
   caps: z.array(z.string()),
   unauthedAgents: z.array(z.string()),
+  acpAgents: z.array(z.string()).nullable(),
   launchDefaults: deviceLaunchDefaultsSchema.nullable(),
   agentAccounts: deviceAgentAccountsSchema.nullable(),
   agentUsage: deviceAgentUsageSchema.nullable(),

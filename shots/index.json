@@ -1498,6 +1498,13 @@
         "bytes": 89884,
         "sha256": "bb6bb5a274a62a80d80896e8900ad73d5ab6f78024cc9b9b56be5278a49aad2b"
       },
+      "desktop": {
+        "file": "shots/steering/desktop.webp",
+        "width": 1800,
+        "height": 1126,
+        "bytes": 131560,
+        "sha256": "4ff9ae702528505ba895af7a8c89441737fb002daf9ad988225deda1b433e577"
+      },
       "ios": {
         "file": "shots/steering/ios.webp",
         "width": 828,
