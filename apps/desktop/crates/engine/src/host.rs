@@ -86,6 +86,15 @@ pub const NATIVE_SESSION_META_KEY: &str = "exponentialNativeSessionId";
 /// evicting them leaves a reopened tab unsteerable (EXP-746 review UI-2).
 pub const BACKLOG_CAP: usize = 4096;
 
+/// How large ONE coalesced `Output` row in the backlog may grow before the
+/// next chunk starts a fresh row. A live terminal (EXP-750) reads in 8 KB
+/// chunks — thousands of rows for one `bun dev` — and a ring of nothing but
+/// those evicts the transcript a reopened tab needs (the tool rows, the
+/// `TerminalBound` edge, the questions). Consecutive chunks of the same
+/// still-running call merge instead; this cap keeps a merged row from
+/// becoming one unbounded string.
+pub const MERGED_OUTPUT_CAP: usize = 256 * 1024;
+
 /// Why the run must stop. Produced by the host's own kill source: the
 /// desktop's Electric `sync::kill_watch`, the CLI's 15 s tRPC poll.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -408,6 +417,35 @@ impl FeedState {
             _ => None,
         }
     }
+
+    /// Append a streaming terminal chunk onto the row it continues, instead
+    /// of pushing a row per PTY read. Only the LAST row qualifies, only for
+    /// the same tool call, and only while neither carries an exit code (the
+    /// closing event stays its own row, so a card still ends where it did).
+    /// `true` = merged, nothing to push.
+    fn coalesce(&mut self, event: &LocalFeedEvent) -> bool {
+        let LocalFeedEvent::Output {
+            tool_call_id,
+            chunk,
+            exit_code: None,
+        } = event
+        else {
+            return false;
+        };
+        let Some(LocalFeedEvent::Output {
+            tool_call_id: last_id,
+            chunk: last_chunk,
+            exit_code: None,
+        }) = self.backlog.back_mut()
+        else {
+            return false;
+        };
+        if last_id != tool_call_id || last_chunk.len() + chunk.len() > MERGED_OUTPUT_CAP {
+            return false;
+        }
+        last_chunk.push_str(chunk);
+        true
+    }
 }
 
 impl LocalFeed {
@@ -424,7 +462,7 @@ impl LocalFeed {
             state.phase = Some(*phase);
         } else if let Some(slot) = state.slot(&event) {
             *slot = Some(event.clone());
-        } else {
+        } else if !state.coalesce(&event) {
             if state.backlog.len() >= BACKLOG_CAP {
                 state.backlog.pop_front();
             }
@@ -1493,6 +1531,112 @@ mod tests {
                 ..
             } if *context_used == 1_234
         )));
+    }
+
+    fn output(tool_call_id: &str, chunk: &str, exit_code: Option<i32>) -> LocalFeedEvent {
+        LocalFeedEvent::Output {
+            tool_call_id: tool_call_id.to_string(),
+            chunk: chunk.to_string(),
+            exit_code,
+        }
+    }
+
+    fn outputs(events: &[LocalFeedEvent]) -> Vec<(String, String, Option<i32>)> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                LocalFeedEvent::Output {
+                    tool_call_id,
+                    chunk,
+                    exit_code,
+                } => Some((tool_call_id.clone(), chunk.clone(), *exit_code)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The bug this guards (EXP-750 review C5): a live terminal pushes ONE
+    /// row per 8 KB PTY read, so a dev server left running evicted the whole
+    /// transcript — tool rows, the `TerminalBound` edge, the questions — from
+    /// what a reopened tab replays, leaving the output chunks with no card to
+    /// hang off.
+    #[test]
+    fn streaming_terminal_chunks_coalesce_instead_of_evicting_the_transcript() {
+        let feed = LocalFeed::default();
+        feed.emit(None, LocalFeedEvent::Phase(EnginePhase::Live));
+        feed.emit(None, narration("running the dev server"));
+        feed.emit(
+            None,
+            LocalFeedEvent::TerminalBound {
+                tool_call_id: "tc-1".into(),
+                terminal_id: "term-1".into(),
+            },
+        );
+        // 10k reads of a chatty server, 64 bytes each.
+        let chunk = "x".repeat(64);
+        let total = 10_000 * chunk.len();
+        for _ in 0..10_000 {
+            feed.emit(None, output("tc-1", &chunk, None));
+        }
+
+        let replay = drain(&feed.subscribe());
+        assert_eq!(narrations(&replay), vec!["running the dev server"]);
+        assert!(replay
+            .iter()
+            .any(|event| matches!(event, LocalFeedEvent::TerminalBound { .. })));
+        // Merged rows, not 10k of them, and the cap is the only thing that
+        // starts a new one — with every byte still there.
+        let rows = outputs(&replay);
+        assert_eq!(rows.len(), total / MERGED_OUTPUT_CAP + 1);
+        assert!(rows
+            .iter()
+            .all(|(id, chunk, code)| id == "tc-1" && chunk.len() <= MERGED_OUTPUT_CAP && code.is_none()));
+        assert_eq!(
+            rows.iter().map(|(_, chunk, _)| chunk.len()).sum::<usize>(),
+            total
+        );
+    }
+
+    /// What must NOT merge: another call's chunks, and the closing event —
+    /// the exit code stays its own row so the card still ends on it.
+    #[test]
+    fn coalescing_stops_at_another_call_and_at_the_exit_code() {
+        let feed = LocalFeed::default();
+        feed.emit(None, output("tc-1", "a", None));
+        feed.emit(None, output("tc-1", "b", None));
+        feed.emit(None, output("tc-2", "c", None));
+        feed.emit(None, output("tc-1", "d", None));
+        feed.emit(None, output("tc-1", "", Some(0)));
+        feed.emit(None, output("tc-1", "e", None));
+
+        assert_eq!(
+            outputs(&drain(&feed.subscribe())),
+            vec![
+                ("tc-1".to_string(), "ab".to_string(), None),
+                ("tc-2".to_string(), "c".to_string(), None),
+                ("tc-1".to_string(), "d".to_string(), None),
+                ("tc-1".to_string(), String::new(), Some(0)),
+                ("tc-1".to_string(), "e".to_string(), None),
+            ]
+        );
+    }
+
+    /// Coalescing is a BACKLOG concern: a live subscriber still gets every
+    /// chunk as it happens, or the card would stop streaming.
+    #[test]
+    fn a_live_subscriber_sees_every_terminal_chunk() {
+        let feed = LocalFeed::default();
+        let rx = feed.subscribe();
+        feed.emit(None, output("tc-1", "a", None));
+        feed.emit(None, output("tc-1", "b", None));
+
+        assert_eq!(
+            outputs(&drain(&rx)),
+            vec![
+                ("tc-1".to_string(), "a".to_string(), None),
+                ("tc-1".to_string(), "b".to_string(), None),
+            ]
+        );
     }
 
     #[test]
