@@ -671,26 +671,22 @@ pub(crate) fn resume_run(
     // EXP-662: an issue/batch resume registers under its SUBJECT, so the
     // header's Coding…/Stop flip and the launch guards see it.
     let subject_of = record.clone();
-    let request = ResumeRunRequest {
+    let request = PrepareRequest::ResumeRun(ResumeRunRequest {
         record,
         device_label: coding::default_device_label(),
         origin,
         model: None,
         effort: None,
-    };
-    let hooks = crate::steer_wiring::hook_setup(cx);
-    let observer = crate::steer_wiring::observer_setup(cx);
+    });
+    // EXP-758: a resume re-enters its RECORDED transport, so this starts the
+    // PTY sidecars only for a run that was on the terminal to begin with.
+    let (hooks, observer) = crate::steer_wiring::pty_sidecars(&request, cx);
     cx.spawn(async move |cx| {
         let _reservation = reservation;
         let prepared = cx
             .background_executor()
             .spawn(async move {
-                coding::prepare_with_hooks(
-                    &PrepareRequest::ResumeRun(request),
-                    &deps,
-                    hooks.as_ref(),
-                    observer.as_ref(),
-                )
+                coding::prepare_with_hooks(&request, &deps, hooks.as_ref(), observer.as_ref())
             })
             .await;
         let _ = window.update(cx, |_, window, cx| match prepared {
@@ -731,7 +727,11 @@ pub(crate) fn resume_run(
 /// so a remote "Fix merge conflicts" that resolved to nothing looked, from the
 /// phone that sent it, exactly like a start that was never picked up. Fall
 /// back to the shell window every other refusal in this file already uses.
-fn notify_target_error(target: Option<gpui::AnyWindowHandle>, message: &str, cx: &mut App) {
+pub(crate) fn notify_target_error(
+    target: Option<gpui::AnyWindowHandle>,
+    message: &str,
+    cx: &mut App,
+) {
     if let Some(window) = target.or_else(|| crate::steer_wiring::find_team_window(cx)) {
         let message = SharedString::from(message.to_string());
         let _ = window.update(cx, |_, window, cx| {
@@ -758,19 +758,15 @@ fn launch_action(
         fire_settled(&mut on_settled, false, cx);
         return;
     };
-    let hooks = crate::steer_wiring::hook_setup(cx);
-    let observer = crate::steer_wiring::observer_setup(cx);
+    let request = PrepareRequest::Action(request);
+    // EXP-758: an ACP action run binds no loopback sidecar port.
+    let (hooks, observer) = crate::steer_wiring::pty_sidecars(&request, cx);
     cx.spawn(async move |cx| {
         let _reservation = reservation;
         let prepared = cx
             .background_executor()
             .spawn(async move {
-                coding::prepare_with_hooks(
-                    &PrepareRequest::Action(request),
-                    &deps,
-                    hooks.as_ref(),
-                    observer.as_ref(),
-                )
+                coding::prepare_with_hooks(&request, &deps, hooks.as_ref(), observer.as_ref())
             })
             .await;
         let _ = target.update(cx, |_, window, cx| match prepared {

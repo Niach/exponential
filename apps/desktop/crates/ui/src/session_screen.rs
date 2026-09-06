@@ -87,9 +87,14 @@ fn resumed_from_id(session_id: &str, cx: &App) -> Option<String> {
 
 /// Mark every open screen for `session_id` ended (the engine's `on_exit` edge,
 /// which can precede the synced row's flip by a round trip). The tab stays.
-pub(crate) fn mark_ended(session_id: &str, cx: &mut App) {
+///
+/// EXP-758: `error` is `EngineExit::error`, a handshake or transport failure.
+/// It used to be logged and dropped, so a run that never got past
+/// `initialize` was an empty tab whose only word was "ended".
+pub(crate) fn mark_ended(session_id: &str, error: Option<String>, cx: &mut App) {
     for view in crate::screens::session_views(session_id, cx) {
-        view.update(cx, |view, cx| view.mark_ended(cx));
+        let error = error.clone();
+        view.update(cx, |view, cx| view.mark_ended(error, cx));
     }
 }
 
@@ -331,12 +336,17 @@ impl SessionScreenView {
     /// the synced row and the engine's own feed closing; the transcript is
     /// told directly so its composer goes at the same moment the header's
     /// affordances do.
-    pub(crate) fn mark_ended(&mut self, cx: &mut gpui::Context<Self>) {
-        if self.ended {
+    ///
+    /// EXP-758: a second call carrying an `error` is NOT a no-op. The feed
+    /// closing can beat the host's exit, so the plain end can land first and
+    /// the reason second.
+    pub(crate) fn mark_ended(&mut self, error: Option<String>, cx: &mut gpui::Context<Self>) {
+        if self.ended && error.is_none() {
             return;
         }
         self.ended = true;
-        self.inner.update(cx, |view, cx| view.note_run_ended(cx));
+        self.inner
+            .update(cx, |view, cx| view.note_run_ended(error, cx));
         cx.notify();
     }
 

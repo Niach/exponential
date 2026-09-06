@@ -126,18 +126,17 @@ pub fn install(cx: &mut App) {
     let _ = PublisherRegistry::global(cx);
     let _ = ControlChannels::global(cx);
 
-    // EXP-249: the claude hooks sidecar — one loopback server per process,
-    // its port/token handed to every launch through `hook_setup`.
-    match HookSidecar::start() {
-        Some(sidecar) => cx.set_global(HookSidecarGlobal(sidecar)),
-        None => log::warn!("steer: hooks sidecar unavailable — grid-only detection"),
-    }
-
-    // EXP-383: the pi observer sidecar — same one-server-per-process shape,
-    // its port/token handed to every launch through `observer_setup`.
-    match steer::pi_observer::ObserverServer::start() {
-        Ok(server) => cx.set_global(PiObserverGlobal(Arc::new(server))),
-        Err(err) => log::warn!("steer: pi observer sidecar failed to bind: {err}"),
+    // EXP-758: the two PTY sidecars (EXP-249 claude hooks, EXP-383 pi
+    // observer) used to bind a loopback port each in EVERY desktop process,
+    // whether or not a single run ever landed on the terminal transport,
+    // and since EXP-746 the default run is ACP, so on most machines they
+    // bound, listened and were never spoken to. They are lazy now
+    // ([`ensure_pty_sidecars`], off the first launch that resolves to
+    // Terminal). The one case that still starts them here is the device
+    // having already chosen the PTY: `start_in_terminal` makes every launch
+    // a terminal launch, so waiting buys nothing.
+    if terminal_first(cx) {
+        ensure_pty_sidecars(cx);
     }
 
     // §8.3 #4: relay `start_session` → foreground launcher.
@@ -175,7 +174,10 @@ struct HookSidecar {
     _server: HookServer,
 }
 
-struct HookSidecarGlobal(Arc<HookSidecar>);
+/// EXP-758: `None` records a start that was ATTEMPTED and failed. The
+/// global's presence is the "we already tried" flag, so a bind failure is
+/// logged once instead of retried on every launch.
+struct HookSidecarGlobal(Option<Arc<HookSidecar>>);
 impl Global for HookSidecarGlobal {}
 
 impl HookSidecar {
@@ -294,7 +296,21 @@ fn route_hook_event(subscribers: &Arc<Mutex<Vec<HookSubscriber>>>, event: HookEv
 /// and the session runs on grid-only detection.
 pub fn hook_setup(cx: &App) -> Option<coding::HookSetup> {
     cx.try_global::<HookSidecarGlobal>()
-        .map(|global| global.0.setup.clone())
+        .and_then(|global| global.0.as_ref())
+        .map(|sidecar| sidecar.setup.clone())
+}
+
+/// EXP-758: start the hooks sidecar if this process has not tried yet.
+/// Idempotent, and a failed start is remembered as a failure.
+fn ensure_hook_sidecar(cx: &mut App) {
+    if cx.has_global::<HookSidecarGlobal>() {
+        return;
+    }
+    let sidecar = HookSidecar::start();
+    if sidecar.is_none() {
+        log::warn!("steer: hooks sidecar unavailable — grid-only detection");
+    }
+    cx.set_global(HookSidecarGlobal(sidecar));
 }
 
 // ---------------------------------------------------------------------------
@@ -304,7 +320,8 @@ pub fn hook_setup(cx: &App) -> Option<coding::HookSetup> {
 /// The process-wide pi observer server ([`steer::pi_observer`]). Routing to
 /// sessions lives inside the server itself (by canonicalized worktree), so
 /// unlike the hooks sidecar there is no router thread here.
-struct PiObserverGlobal(Arc<steer::pi_observer::ObserverServer>);
+/// EXP-758: lazily started, exactly like [`HookSidecarGlobal`].
+struct PiObserverGlobal(Option<Arc<steer::pi_observer::ObserverServer>>);
 impl Global for PiObserverGlobal {}
 
 /// The observer wiring every launch site passes to
@@ -312,10 +329,117 @@ impl Global for PiObserverGlobal {}
 /// session then runs with the observer extension inert (diffs-only feed).
 pub fn observer_setup(cx: &App) -> Option<coding::ObserverSetup> {
     cx.try_global::<PiObserverGlobal>()
-        .map(|global| coding::ObserverSetup {
-            port: global.0.port(),
-            token: global.0.token().to_string(),
+        .and_then(|global| global.0.as_ref())
+        .map(|server| coding::ObserverSetup {
+            port: server.port(),
+            token: server.token().to_string(),
         })
+}
+
+/// EXP-758: start the pi observer server if this process has not tried yet.
+fn ensure_pi_observer(cx: &mut App) {
+    if cx.has_global::<PiObserverGlobal>() {
+        return;
+    }
+    let server = match steer::pi_observer::ObserverServer::start() {
+        Ok(server) => Some(Arc::new(server)),
+        Err(err) => {
+            log::warn!("steer: pi observer sidecar failed to bind: {err}");
+            None
+        }
+    };
+    cx.set_global(PiObserverGlobal(server));
+}
+
+// ---------------------------------------------------------------------------
+// The PTY sidecars, on demand (EXP-758)
+// ---------------------------------------------------------------------------
+
+/// Bring both PTY sidecars up (idempotent). They are only ever needed by a
+/// run on the terminal transport: claude's `--settings` hooks feed the first,
+/// pi's injected extension the second, and an ACP run speaks neither.
+pub fn ensure_pty_sidecars(cx: &mut App) {
+    ensure_hook_sidecar(cx);
+    ensure_pi_observer(cx);
+}
+
+/// Is this device on the terminal transport by settings? Read off the
+/// settings FILE rather than [`crate::coding_flow::CodingHub`], because
+/// [`install`] runs before anything else has touched the hub and creating it
+/// there would kick the doctor's `--version` probes into app startup.
+fn terminal_first(cx: &App) -> bool {
+    let data_dir = crate::coding_flow::coding_data_dir(cx);
+    coding::Settings::load(&coding::Settings::default_path(&data_dir)).start_in_terminal
+}
+
+/// EXP-758: does `request` resolve to the terminal transport, i.e. does it
+/// need the PTY sidecars? The decision is `coding::resolve_transport` itself,
+/// never a second copy of its rules: the two must not drift, because
+/// answering "ACP" for a launch that lands on a PTY silently degrades it to
+/// grid-only detection.
+///
+/// `acp_ready` is the caller's read of the doctor report; an absent report
+/// (the first launch of a cold process) reads as NOT ready, which resolves to
+/// Terminal and starts the sidecars. Erring that way costs two loopback
+/// sockets; erring the other way costs the run its question identity.
+pub(crate) fn launch_needs_pty_sidecars(
+    settings: &coding::Settings,
+    agent: &coding::AgentKind,
+    acp_ready: bool,
+    recorded: Option<coding::LaunchTransport>,
+) -> bool {
+    // `login_flow: false`: an agent login never comes through here (it runs
+    // on `agent_login`'s own PTY driver, which takes no sidecar setup).
+    coding::resolve_transport(settings, agent, false, acp_ready, recorded)
+        == coding::LaunchTransport::Terminal
+}
+
+/// The `(hooks, observer)` setups for `request`, starting the servers the
+/// first time a launch actually needs them (EXP-758). Every launch site takes
+/// its wiring from here.
+pub fn pty_sidecars(
+    request: &PrepareRequest,
+    cx: &mut App,
+) -> (Option<coding::HookSetup>, Option<coding::ObserverSetup>) {
+    let (agent, recorded) = match request {
+        PrepareRequest::Issue(request) => (agent_kind(&request.options), None),
+        PrepareRequest::Batch(request) => (agent_kind(&request.options), None),
+        PrepareRequest::Action(request) => (agent_kind(&request.options), None),
+        // A resume re-enters the transport it RECORDED (launcher D8), so the
+        // agent is not consulted at all.
+        PrepareRequest::ResumeRun(request) => (
+            coding::AgentKind::Builtin(request.record.agent),
+            Some(request.record.transport()),
+        ),
+    };
+    let hub = coding_flow::CodingHub::global(cx);
+    let (settings, acp_ready) = {
+        let hub = hub.read(cx);
+        let ready = match agent.builtin() {
+            Some(builtin) => hub
+                .doctor
+                .report
+                .as_ref()
+                .is_some_and(|report| report.check_for(builtin).acp == Some(true)),
+            // An external agent is ACP by definition.
+            None => true,
+        };
+        // …and the HOST half of `CodingDeps::acp_available`.
+        (hub.settings.clone(), ready && runtime(cx).is_some())
+    };
+    if launch_needs_pty_sidecars(&settings, &agent, acp_ready, recorded) {
+        ensure_pty_sidecars(cx);
+    }
+    (hook_setup(cx), observer_setup(cx))
+}
+
+/// `coding`'s own `agent_kind`, which it keeps private: the picked external
+/// agent, else the builtin the options name.
+fn agent_kind(options: &LaunchOptions) -> coding::AgentKind {
+    match &options.external {
+        Some(spec) => coding::AgentKind::External(spec.clone()),
+        None => coding::AgentKind::Builtin(options.agent),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -728,6 +852,15 @@ fn remote_action_start(
         log::info!(
             "steer: remote action start for {action_id} ignored — a start holding it is already in flight"
         );
+        // EXP-758: and SAY so. A duplicate delivery is invisible either way,
+        // but a person pressing Run twice (or a schedule firing while they
+        // do) got nothing at all back from this machine, the same silence a
+        // start that was never picked up produces.
+        crate::action_run::notify_target_error(
+            None,
+            "That action is already starting on this machine.",
+            cx,
+        );
         return;
     };
     let settings = coding_flow::CodingHub::global(cx).read(cx).settings.clone();
@@ -905,8 +1038,9 @@ fn remote_issue_start(issue_id: String, start: &steer::RemoteStart, cx: &mut App
         return;
     };
 
-    let hooks = hook_setup(cx);
-    let observer = observer_setup(cx);
+    // EXP-758: the PTY sidecars start here, and only if this launch is one
+    // that will actually use them.
+    let (hooks, observer) = pty_sidecars(&prepare_request, cx);
     cx.spawn(async move |cx| {
         let prepared = cx
             .background_executor()
@@ -1058,18 +1192,14 @@ fn remote_batch_start(
         return;
     };
 
-    let hooks = hook_setup(cx);
-    let observer = observer_setup(cx);
+    let prepare_request = PrepareRequest::Batch(request);
+    // EXP-758: as above, the sidecars are this launch's, or nobody's.
+    let (hooks, observer) = pty_sidecars(&prepare_request, cx);
     cx.spawn(async move |cx| {
         let prepared = cx
             .background_executor()
             .spawn(async move {
-                prepare_with_hooks(
-                    &PrepareRequest::Batch(request),
-                    &deps,
-                    hooks.as_ref(),
-                    observer.as_ref(),
-                )
+                prepare_with_hooks(&prepare_request, &deps, hooks.as_ref(), observer.as_ref())
             })
             .await;
         let _ = target.update(cx, |_, window, cx| match prepared {
@@ -1357,7 +1487,8 @@ pub fn attach_publisher_pty(
     let pi_observer = (session_agent == steer::activity::SessionAgent::Pi)
         .then(|| {
             cx.try_global::<PiObserverGlobal>()
-                .map(|global| global.0.subscribe(&worktree))
+                .and_then(|global| global.0.as_ref())
+                .map(|server| server.subscribe(&worktree))
         })
         .flatten();
     let (pi_events, pi_steer) = match pi_observer {
@@ -1455,7 +1586,8 @@ pub fn attach_publisher_pty(
     let hook_events = is_claude
         .then(|| {
             cx.try_global::<HookSidecarGlobal>()
-                .map(|global| global.0.subscribe(&worktree, claude_session_id.as_deref()))
+                .and_then(|global| global.0.as_ref())
+                .map(|sidecar| sidecar.subscribe(&worktree, claude_session_id.as_deref()))
         })
         .flatten();
     // EXP-444/EXP-432: a relay start whose requester is NOT this signed-in
@@ -1726,6 +1858,42 @@ mod tests {
     }
 
     use super::*;
+
+    /// EXP-758: the two loopback sidecars used to bind in EVERY desktop
+    /// process, even when every run was ACP. They start on the first launch
+    /// that resolves to the terminal transport, and the resolution is
+    /// `coding::resolve_transport` itself; a second copy of its rules would
+    /// drift and silently downgrade a PTY run to grid-only detection.
+    #[test]
+    fn only_a_terminal_launch_starts_the_pty_sidecars() {
+        use coding::{AgentKind, CodingAgent, LaunchTransport};
+        let settings = coding::Settings::default();
+        let claude = AgentKind::Builtin(CodingAgent::Claude);
+        // The ACP default: no sidecars.
+        assert!(!launch_needs_pty_sidecars(&settings, &claude, true, None));
+        // An agent whose ACP probe has not answered (or failed) falls back to
+        // the PTY, so the sidecars have to be there.
+        assert!(launch_needs_pty_sidecars(&settings, &claude, false, None));
+        // The device-global escape hatch makes every launch a PTY launch.
+        let terminal = coding::Settings {
+            start_in_terminal: true,
+            ..coding::Settings::default()
+        };
+        assert!(launch_needs_pty_sidecars(&terminal, &claude, true, None));
+        // A resume re-enters its RECORDED transport, whatever the rest says.
+        assert!(launch_needs_pty_sidecars(
+            &settings,
+            &claude,
+            true,
+            Some(LaunchTransport::Terminal)
+        ));
+        assert!(!launch_needs_pty_sidecars(
+            &terminal,
+            &claude,
+            false,
+            Some(LaunchTransport::Acp)
+        ));
+    }
 
     fn subscriber(
         subscribers: &Arc<Mutex<Vec<HookSubscriber>>>,

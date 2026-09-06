@@ -404,8 +404,13 @@ impl SteerSessionView {
             // built over a run that has been live for an hour is steerable on
             // its FIRST paint rather than after the replay reaches it.
             if let Some(phase) = session.phase() {
+                // EXP-758: a view attached AFTER the run failed seeds the
+                // reason too: `Failed` is as terminal as `Ended` here.
+                this.connected = !matches!(
+                    phase,
+                    engine::EnginePhase::Ended | engine::EnginePhase::Failed(_)
+                );
                 this.phase = viewer_phase(phase.clone());
-                this.connected = phase != engine::EnginePhase::Ended;
             }
             // `subscribe` replays the buffered backlog first, so a view built
             // long after the run started (a reopened tab, a rebuilt screen)
@@ -423,7 +428,9 @@ impl SteerSessionView {
                 // The engine dropped its sender: the run is over, whether or
                 // not a `Phase(Ended)` made it out first.
                 let _ = this.update(cx, |this, cx| {
-                    this.note_run_ended(cx);
+                    // The reason, if there was one, already arrived as
+                    // `Phase(Failed)` (EXP-758); this edge only closes.
+                    this.note_run_ended(None, cx);
                 });
             });
         }
@@ -744,11 +751,18 @@ impl SteerSessionView {
                 self.note_compaction(was_compacting, cx);
             }
             engine::LocalFeedEvent::Phase(phase) => {
-                self.phase = viewer_phase(phase.clone());
+                // EXP-758: `Failed` is terminal too, and it arrives BEFORE
+                // the `Ended` that used to be the only end edge here, so the
+                // merge keeps its reason when that one lands.
+                let over = matches!(
+                    phase,
+                    engine::EnginePhase::Ended | engine::EnginePhase::Failed(_)
+                );
+                self.phase = merge_ended_phase(&self.phase, viewer_phase(phase.clone()));
                 // There is no socket on this path — "connected" is simply
                 // whether the engine is still talking to us.
-                self.connected = phase != engine::EnginePhase::Ended;
-                if phase == engine::EnginePhase::Ended {
+                self.connected = !over;
+                if over {
                     // EXP-724: nothing is coming to close an open strip.
                     self.feed.clear_compaction();
                     // …and nothing is coming to close a terminal card that
@@ -766,10 +780,22 @@ impl SteerSessionView {
     /// which can land a round trip before the synced row flips. A composer
     /// over a dead engine would silently swallow every message, so this is
     /// deliberately idempotent and never waits for the row.
-    pub(crate) fn note_run_ended(&mut self, cx: &mut gpui::Context<Self>) {
+    ///
+    /// EXP-758: `failure` is the host's `EngineExit::error`. It is the one
+    /// thing that may overwrite an end already recorded: the feed closing
+    /// can beat the exit callback, and an empty transcript that only says
+    /// "ended" is exactly the report this fixes.
+    pub(crate) fn note_run_ended(
+        &mut self,
+        failure: Option<String>,
+        cx: &mut gpui::Context<Self>,
+    ) {
         self.connected = false;
-        if !matches!(self.phase, ViewerPhase::Ended { .. }) {
-            self.phase = ViewerPhase::Ended { outcome: None };
+        if !matches!(self.phase, ViewerPhase::Ended { .. }) || failure.is_some() {
+            let next = ViewerPhase::Ended {
+                outcome: failure.as_deref().map(failure_banner),
+            };
+            self.phase = merge_ended_phase(&self.phase, next);
             self.feed.clear_compaction();
         }
         // The same edge as the engine's `Phase(Ended)`, on the path where no
@@ -1603,11 +1629,44 @@ pub(crate) fn viewer_phase(phase: engine::EnginePhase) -> ViewerPhase {
     match phase {
         engine::EnginePhase::Connecting => ViewerPhase::Connecting,
         engine::EnginePhase::Live => ViewerPhase::Live,
-        // EXP-758: the failure banner is rendered off `EngineExit::error` by
-        // the session screen; the viewer's own phase reads it as ended.
-        engine::EnginePhase::Failed(_) | engine::EnginePhase::Ended => {
-            ViewerPhase::Ended { outcome: None }
+        // EXP-758: a failed run is ended, and says WHY. The same text the
+        // host's `EngineExit::error` produces, so a view that only ever saw
+        // the feed reads exactly like one the host told directly.
+        engine::EnginePhase::Failed(error) => ViewerPhase::Ended {
+            outcome: Some(failure_banner(&error)),
+        },
+        engine::EnginePhase::Ended => ViewerPhase::Ended { outcome: None },
+    }
+}
+
+/// The longest a failure reason may run in the banner. One line: a stderr
+/// dump behind a `Failed` phase would push the composer off the screen.
+const FAILURE_BANNER_MAX: usize = 200;
+
+/// EXP-758: the banner an ACP run that DIED renders in place of the plain
+/// [`ENDED_BANNER`]. Pure so the shaping (one line, capped) is unit-tested;
+/// an empty/blank reason degrades to the plain ended wording rather than to
+/// "Session failed: ".
+pub(crate) fn failure_banner(error: &str) -> String {
+    let flattened = error.split_whitespace().collect::<Vec<_>>().join(" ");
+    if flattened.is_empty() {
+        return ENDED_BANNER.to_string();
+    }
+    format!(
+        "Session failed: {}",
+        steer::truncate(&flattened, FAILURE_BANNER_MAX)
+    )
+}
+
+/// EXP-758: the engine emits `Failed(reason)` and THEN `Ended`, and the feed
+/// closing can add a third plain end after both. A later, less specific end
+/// must never erase the reason the first one carried.
+pub(crate) fn merge_ended_phase(current: &ViewerPhase, next: ViewerPhase) -> ViewerPhase {
+    match (current, &next) {
+        (ViewerPhase::Ended { outcome: Some(_) }, ViewerPhase::Ended { outcome: None }) => {
+            current.clone()
         }
+        _ => next,
     }
 }
 
@@ -3968,5 +4027,60 @@ mod tests {
             viewer_phase(engine::EnginePhase::Ended),
             ViewerPhase::Ended { outcome: None }
         ));
+    }
+
+    /// EXP-758: a run that died on its handshake says WHY, on one capped
+    /// line. The old behaviour was an empty tab whose only word was
+    /// "ended".
+    #[test]
+    fn a_failure_reason_becomes_a_one_line_banner() {
+        assert_eq!(
+            failure_banner("codex app-server exited: status 127"),
+            "Session failed: codex app-server exited: status 127"
+        );
+        // Multi-line stderr collapses to one line.
+        assert_eq!(
+            failure_banner("initialize failed\n  caused by: broken pipe\n"),
+            "Session failed: initialize failed caused by: broken pipe"
+        );
+        // …and a long one is capped.
+        let long = "x".repeat(FAILURE_BANNER_MAX * 2);
+        assert_eq!(
+            failure_banner(&long).len(),
+            "Session failed: ".len() + FAILURE_BANNER_MAX
+        );
+        // A blank reason is no reason: the plain ended wording, never
+        // "Session failed: ".
+        assert_eq!(failure_banner("   \n "), ENDED_BANNER);
+        // The phase mapping carries it.
+        assert_eq!(
+            viewer_phase(engine::EnginePhase::Failed("boom".to_string())),
+            ViewerPhase::Ended {
+                outcome: Some("Session failed: boom".to_string())
+            }
+        );
+    }
+
+    /// EXP-758: `Failed` precedes `Ended`, and the feed closing can add a
+    /// third plain end after both. Only the FIRST reason survives.
+    #[test]
+    fn a_later_plain_end_never_erases_the_failure_reason() {
+        let failed = ViewerPhase::Ended {
+            outcome: Some("Session failed: boom".to_string()),
+        };
+        let plain = ViewerPhase::Ended { outcome: None };
+        assert_eq!(merge_ended_phase(&failed, plain.clone()), failed);
+        // A plain end still records itself when nothing better is there…
+        assert_eq!(
+            merge_ended_phase(&ViewerPhase::Live, plain.clone()),
+            plain.clone()
+        );
+        // …and a reason still lands on an end that had none.
+        assert_eq!(merge_ended_phase(&plain, failed.clone()), failed);
+        // Every other phase is a plain overwrite.
+        assert_eq!(
+            merge_ended_phase(&ViewerPhase::Connecting, ViewerPhase::Live),
+            ViewerPhase::Live
+        );
     }
 }
