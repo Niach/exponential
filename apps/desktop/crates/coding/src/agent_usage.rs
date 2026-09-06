@@ -660,7 +660,9 @@ impl AgentStatusPayload {
 /// deterministic).
 ///
 /// EXP-754: an agent a LIVE session already reports for ([`live`]) skips all
-/// of that — no spawn, no request, and no poll floor either.
+/// of that — no spawn, no request, and no poll floor either. The one
+/// exception is identity: a rate-limit frame names nobody, so a due beat
+/// with no cached account still spends one probe to name it.
 pub fn collect_if_due(
     data_dir: &Path,
     settings: &Settings,
@@ -695,14 +697,46 @@ pub fn collect_if_due(
         // poll policy.
         match live_probe(agent, &entry, now) {
             Some(probe) => {
-                if usage_cache::poll_due(&entry, now)
-                    || probe.outcome == PollOutcome::Changed
-                {
+                // Read BEFORE the apply: `apply_outcome` stamps `fetched_at`,
+                // which is what `poll_due` keys on.
+                let due = usage_cache::poll_due(&entry, now);
+                // A failed probe left the numbers dimmed. A live session
+                // confirming those exact numbers is the freshest attempt
+                // there is, so it clears the flag (and refreshes the
+                // sibling's `fetched_at`) even mid-backoff.
+                let dimmed = entry.usage.as_ref().is_some_and(|usage| usage.stale);
+                if due || dimmed || probe.outcome == PollOutcome::Changed {
                     // Deliberately past `MIN_POLL_SECS`: the floor exists to
                     // ration requests, and a live read is not one. Moving
                     // numbers reach the bar as fast as codex reports them.
                     changed = true;
                     usage_cache::apply_outcome(&mut entry, probe.outcome, probe.windows, now, &stamp);
+                    cache.insert(id.clone(), entry.clone());
+                }
+                // A rate-limit frame names nobody, so a machine that has
+                // never probed (fresh cache, or a login just called
+                // `usage_cache::forget`) would report codex's presence-only
+                // row for the whole session. Spend ONE app-server probe on
+                // the identity when a beat is due; every later beat rides
+                // the live shortcut above.
+                if due && entry.account.is_none() {
+                    polled = true;
+                    changed = true;
+                    // Claim the slot before the (slow) spawn, as the poll arm
+                    // does — the live apply already moved it, never backwards.
+                    entry.next_poll_at_secs = entry
+                        .next_poll_at_secs
+                        .max(now + usage_cache::MIN_POLL_SECS);
+                    cache.insert(id.clone(), entry.clone());
+                    usage_cache::save(data_dir, &cache);
+                    let probe =
+                        probe_agent(agent, settings, check.version.as_deref(), &mut entry, now);
+                    // Only the identity: the live windows are at least as
+                    // fresh as this probe's, so its outcome never dims them.
+                    if let Some(account) = probe.account {
+                        entry.account = Some(account.clone());
+                        accounts.insert(id.clone(), account);
+                    }
                     cache.insert(id.clone(), entry.clone());
                 }
             }
@@ -1363,6 +1397,122 @@ mod tests {
             now + usage_cache::FAILED_BACKOFF_SECS
         );
 
+        live::reset();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A failed probe dims the numbers and pins a 5-minute backoff. A live
+    /// session confirming those EXACT numbers is a read, so it undims them
+    /// (and refreshes what the sibling process sees) without waiting the
+    /// backoff out.
+    #[test]
+    fn a_live_confirmation_undims_a_stale_entry_inside_its_backoff() {
+        let _lock = live_lock();
+        live::reset();
+        let dir = usage_dir("live-undim");
+        let settings = Settings {
+            codex_path: "/nonexistent/codex".to_string(),
+            ..Settings::default()
+        };
+        let now = crate::run_registry::now_secs();
+        let windows = vec![session_window(37)];
+
+        // What the last good fetch cached, then a probe that failed.
+        let mut entry = AgentCacheEntry::default();
+        usage_cache::apply_outcome(
+            &mut entry,
+            PollOutcome::Changed,
+            Some(windows.clone()),
+            now - 400,
+            "EARLIER",
+        );
+        // The identity is already known, so this pass owes nobody a probe.
+        entry.account = Some(crate::agent_accounts::AgentAccount {
+            signed_in: true,
+            email: Some("dev@example.com".to_string()),
+            ..Default::default()
+        });
+        usage_cache::apply_outcome(&mut entry, PollOutcome::Failed, None, now, "EARLIER");
+        assert!(entry.usage.as_ref().unwrap().stale);
+        assert!(!usage_cache::poll_due(&entry, now), "deep in the backoff");
+        let mut cache = usage_cache::UsageCache::default();
+        cache.insert("codex".to_string(), entry);
+        usage_cache::save(&dir, &cache);
+
+        // A session starts and reports the very same percentages.
+        let session = live::attach(CodingAgent::Codex);
+        live::publish(CodingAgent::Codex, windows.clone());
+
+        let payload = collect_if_due(&dir, &settings, &codex_ready_report(), now);
+        let usage = payload.usage.get("codex").expect("the live windows");
+        assert_eq!(usage.windows, windows);
+        assert!(!usage.stale, "a live confirmation is the freshest attempt");
+        assert_ne!(usage.fetched_at, "EARLIER", "and it re-ages the numbers");
+
+        // The sibling process reading the file sees the same.
+        let reloaded = usage_cache::load(&dir);
+        let stored = reloaded.get("codex").expect("the shared entry");
+        assert!(!stored.usage.as_ref().unwrap().stale);
+        assert_eq!(stored.fetched_at_secs, now);
+
+        drop(session);
+        live::reset();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A rate-limit frame names nobody. A machine that has never probed (a
+    /// fresh cache, or a login that just called `usage_cache::forget`) still
+    /// spends ONE app-server probe on the identity while a session runs —
+    /// and only one: the beats after it ride the live shortcut.
+    #[cfg(unix)]
+    #[test]
+    fn a_live_session_still_probes_once_to_name_the_codex_account() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let _lock = live_lock();
+        live::reset();
+        let dir = usage_dir("live-identity");
+        // A stand-in codex that records the spawn and exits: the probe fails
+        // (no app-server answers), but the marker proves it ran.
+        let marker = dir.join("probed");
+        let program = dir.join("codex-stub.sh");
+        std::fs::write(
+            &program,
+            format!("#!/bin/sh\necho ran >> {}\n", marker.display()),
+        )
+        .unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let settings = Settings {
+            codex_path: program.to_string_lossy().to_string(),
+            ..Settings::default()
+        };
+
+        let session = live::attach(CodingAgent::Codex);
+        let windows = vec![session_window(12)];
+        live::publish(CodingAgent::Codex, windows.clone());
+
+        let now = crate::run_registry::now_secs();
+        let payload = collect_if_due(&dir, &settings, &codex_ready_report(), now);
+        assert!(
+            marker.exists(),
+            "a nameless account owes the identity one probe"
+        );
+        let usage = payload.usage.get("codex").expect("the live windows");
+        assert_eq!(usage.windows, windows, "the live windows still land");
+        assert!(!usage.stale, "and the failed identity probe never dims them");
+
+        // The next beat is inside the floor: no second spawn.
+        std::fs::remove_file(&marker).unwrap();
+        live::publish(CodingAgent::Codex, vec![session_window(13)]);
+        let payload = collect_if_due(&dir, &settings, &codex_ready_report(), now + 10);
+        assert!(!marker.exists(), "every later beat rides the live shortcut");
+        assert_eq!(
+            payload.usage.get("codex").expect("the live windows").windows,
+            vec![session_window(13)],
+            "moving numbers still reach the bar"
+        );
+
+        drop(session);
         live::reset();
         let _ = std::fs::remove_dir_all(&dir);
     }
