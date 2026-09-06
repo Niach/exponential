@@ -219,14 +219,16 @@ object AgentUsagePresentation {
     /** EXP-746 context section title. Byte-identical ×4. */
     const val CONTEXT_SECTION_TITLE = "Context"
 
-    /** How full the window is, floored; null when there is nothing to show. */
+    /** How full the window is, floored and clamped to 0-100; null when there
+     *  is nothing to show. An agent that overshoots its own window still
+     *  reads as full, never as 150%. */
     fun contextPercent(usage: SessionUsageState?): Int? {
         if (usage == null || usage.contextSize <= 0) return null
-        return (usage.contextUsed.toLong() * 100 / usage.contextSize).toInt()
+        return (usage.contextUsed.toLong() * 100 / usage.contextSize).toInt().coerceIn(0, 100)
     }
 
     /**
-     * `124k / 200k (62%)` — thousands rounded down to `k` from 1000 up, no
+     * `124k / 200k (62%)` — thousands ROUNDED to `k` from 1000 up, no
      * decimals, percent floored. Empty when there is nothing to show.
      * Byte-identical ×4 (`formatContextUsage`).
      */
@@ -246,9 +248,11 @@ object AgentUsagePresentation {
         return String.format(java.util.Locale.US, "\$%.2f", cost)
     }
 
-    /** `1234` → `1k`; below 1000 the exact count. */
+    /** `1234` → `1k`; below 1000 the exact count. ROUNDED, never truncated:
+     *  `1500` reads `2k`, matching the other three clients (a truncated `1k`
+     *  would under-report every non-round count, which is all of them). */
     private fun compactTokens(count: Int): String =
-        if (count >= 1000) "${count / 1000}k" else count.toString()
+        if (count >= 1000) "${(count + 500) / 1000}k" else count.toString()
 
     // ── Freshness + countdown ────────────────────────────────────────────────
 

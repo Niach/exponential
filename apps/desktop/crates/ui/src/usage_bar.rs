@@ -678,12 +678,33 @@ mod tests {
             "999 / 4k (24%)"
         );
         assert_eq!(context_percent(Some(&usage(1, 3, None))), Some(33));
+        // The fixtures that catch ×4 arithmetic drift, one per trap:
+        // an exact fraction (the percent must be `used * 100 / size`)...
+        assert_eq!(
+            format_context_usage(Some(&usage(116_000, 200_000, None))),
+            "116k / 200k (58%)"
+        );
+        assert_eq!(context_percent(Some(&usage(116_000, 200_000, None))), Some(58));
+        // ...and counts that are not round thousands: `k` ROUNDS, so this is
+        // 125k and not 124k, and 1500 is 2k.
+        assert_eq!(
+            format_context_usage(Some(&usage(124_600, 200_000, None))),
+            "125k / 200k (62%)"
+        );
+        assert_eq!(
+            format_context_usage(Some(&usage(1_500, 200_000, None))),
+            "2k / 200k (0%)"
+        );
         // No window, no line — never a division by zero, never "0 / 0".
         assert_eq!(format_context_usage(Some(&usage(10, 0, None))), "");
         assert_eq!(format_context_usage(None), "");
         assert_eq!(context_percent(Some(&usage(10, 0, None))), None);
         // A report past its own window still reads as full, not 120%.
         assert_eq!(context_percent(Some(&usage(300, 200, None))), Some(100));
+        assert_eq!(
+            format_context_usage(Some(&usage(300, 200, None))),
+            "300 / 200 (100%)"
+        );
     }
 
     #[test]

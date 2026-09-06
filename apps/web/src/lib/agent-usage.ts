@@ -236,16 +236,20 @@ export function usageGroups(
 export const CONTEXT_SECTION_TITLE = `Context`
 
 /** How full the run's context window is, 0-100, or null when the engine has
- * not measured one. Floored — a bar must never read 100% before it is. */
+ * not measured one. Floored — a bar must never read 100% before it is.
+ * MULTIPLY BEFORE DIVIDE: the other three clients compute `used * 100 / size`
+ * in integers, and `(used / size) * 100` disagrees with them by one on exact
+ * fractions (116000/200000 floors to 57 that way, 58 this way). */
 export function contextPercent(
   usage: SessionUsageState | null | undefined
 ): number | null {
   if (!usage || usage.contextSize <= 0) return null
-  const percent = Math.floor((usage.contextUsed / usage.contextSize) * 100)
+  const percent = Math.floor((usage.contextUsed * 100) / usage.contextSize)
   return Math.min(100, Math.max(0, percent))
 }
 
-/** k-rounded at >= 1000, no decimals — `124k`, `999`. */
+/** k-rounded at >= 1000, no decimals — `124k`, `999`. Rounded, never
+ * truncated: `1500` reads `2k` on all four clients. */
 function formatTokens(value: number): string {
   return value >= 1000 ? `${Math.round(value / 1000)}k` : `${Math.round(value)}`
 }

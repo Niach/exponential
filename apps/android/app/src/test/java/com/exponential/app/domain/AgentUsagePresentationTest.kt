@@ -376,6 +376,29 @@ class AgentUsagePresentationTest {
             "0 / 200k (0%)",
             AgentUsagePresentation.formatContextUsage(SessionUsageState(0, 200_000)),
         )
+        // The fixtures that catch ×4 arithmetic drift, one per trap:
+        // an exact fraction (the percent must be `used * 100 / size`)...
+        assertEquals(
+            "116k / 200k (58%)",
+            AgentUsagePresentation.formatContextUsage(SessionUsageState(116_000, 200_000)),
+        )
+        assertEquals(58, AgentUsagePresentation.contextPercent(SessionUsageState(116_000, 200_000)))
+        // ...a count that is not a round thousand (k ROUNDS, never truncates,
+        // so this is 125k and not 124k)...
+        assertEquals(
+            "125k / 200k (62%)",
+            AgentUsagePresentation.formatContextUsage(SessionUsageState(124_600, 200_000)),
+        )
+        assertEquals(
+            "2k / 200k (0%)",
+            AgentUsagePresentation.formatContextUsage(SessionUsageState(1_500, 200_000)),
+        )
+        // ...and a run past its own window, which reads full rather than 150%.
+        assertEquals(
+            "300 / 200 (100%)",
+            AgentUsagePresentation.formatContextUsage(SessionUsageState(300, 200)),
+        )
+        assertEquals(100, AgentUsagePresentation.contextPercent(SessionUsageState(300, 200)))
         // Nothing to show reads as nothing, never as "0 / 0".
         assertEquals("", AgentUsagePresentation.formatContextUsage(null))
         assertEquals("", AgentUsagePresentation.formatContextUsage(SessionUsageState(10, 0)))

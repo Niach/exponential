@@ -298,6 +298,27 @@ final class AgentUsagePresentationTests: XCTestCase {
             AgentUsagePresentation.formatContextUsage(used: 129_999, size: 200_000),
             "130k / 200k (64%)"
         )
+        // The fixtures that catch ×4 arithmetic drift, one per trap:
+        // an exact fraction (the percent must be `used * 100 / size`)...
+        XCTAssertEqual(
+            AgentUsagePresentation.formatContextUsage(used: 116_000, size: 200_000),
+            "116k / 200k (58%)"
+        )
+        // ...a count that is not a round thousand (k ROUNDS, never truncates,
+        // so this is 125k and not 124k)...
+        XCTAssertEqual(
+            AgentUsagePresentation.formatContextUsage(used: 124_600, size: 200_000),
+            "125k / 200k (62%)"
+        )
+        XCTAssertEqual(
+            AgentUsagePresentation.formatContextUsage(used: 1_500, size: 200_000),
+            "2k / 200k (0%)"
+        )
+        // ...and a run past its own window, which reads full rather than 150%.
+        XCTAssertEqual(
+            AgentUsagePresentation.formatContextUsage(used: 300, size: 200),
+            "300 / 200 (100%)"
+        )
         // An unknown size has nothing honest to print.
         XCTAssertNil(AgentUsagePresentation.formatContextUsage(used: 10, size: 0))
         XCTAssertEqual(AgentUsagePresentation.contextSectionTitle, "Context")
