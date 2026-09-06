@@ -289,7 +289,8 @@ fn print_activity(event: &steer::ActivityEvent, state: &Mutex<AttachState>) {
             let line = config_line(options, current_mode.as_deref());
             let mut state = lock(state);
             if let Some(commands) = commands {
-                state.agent_commands = commands.iter().map(|c| c.name.clone()).collect();
+                state.agent_commands =
+                    commands.iter().map(|command| command.name.clone()).collect();
             }
             if state.config_line.as_deref() != Some(line.as_str()) {
                 state.config_line = Some(line.clone());
