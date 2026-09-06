@@ -1406,6 +1406,21 @@ impl ClaudeSession {
         }
     }
 
+    /// A `content_block_start` tool_use: remember the call (name, so far
+    /// empty input) without surfacing it — see [`Self::on_tool_use`].
+    fn record_tool_use(&self, block: &Value) {
+        let Some(id) = block.get("id").and_then(Value::as_str) else { return };
+        let name = block.get("name").and_then(Value::as_str).unwrap_or_default().to_string();
+        if name == "TodoWrite" || is_task_tool(&name) {
+            return;
+        }
+        let input = block.get("input").cloned().unwrap_or(Value::Null);
+        self.lock()
+            .tools
+            .entry(id.to_string())
+            .or_insert(ToolEntry { name, input, surfaced: false });
+    }
+
     fn on_tool_use(
         self: &Arc<Self>,
         cx: &ConnectionTo<Client>,
@@ -1585,7 +1600,12 @@ impl ClaudeSession {
                             );
                         }
                     }
-                    Some("tool_use") => self.on_tool_use(cx, block, &parent),
+                    // The input streams in AFTER this frame (`input_json_delta`),
+                    // so the card is only RECORDED here and surfaces with its
+                    // complete input on the consolidated `assistant` message:
+                    // the relay `tool` event is one-shot and must carry the real
+                    // title and path, never a "Preparing file…" placeholder.
+                    Some("tool_use") => self.record_tool_use(block),
                     _ => {}
                 }
             }
@@ -1658,7 +1678,18 @@ impl ClaudeSession {
                 state.context_size = window;
             }
         }
-        self.merge_usage(cx, &result.usage, result.total_cost_usd);
+        // `result.usage` is the turn's CUMULATIVE token count (every request
+        // of the turn summed), not the context occupancy; the occupancy is
+        // what the last `message_start`/`message_delta` already merged. The
+        // result only contributes the cost, and its usage counts only when
+        // nothing streamed (a non-streaming gateway).
+        let streamed = self.lock().usage.used() > 0;
+        if streamed {
+            let used = self.lock().usage.used();
+            self.publish_usage(cx, used, result.total_cost_usd);
+        } else {
+            self.merge_usage(cx, &result.usage, result.total_cost_usd);
+        }
 
         // A "clear context" plan approval interrupted this turn on purpose:
         // the same ACP turn continues on a fresh conversation instead of

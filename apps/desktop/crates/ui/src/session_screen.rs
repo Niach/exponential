@@ -314,13 +314,6 @@ impl SessionScreenView {
         cx.notify();
     }
 
-    /// Which feed this screen renders. The screen itself keys off the field;
-    /// this is for the surfaces that open one (Devices → Running / Past).
-    #[allow(dead_code)] // consumed by lane D5's Devices sections
-    pub(crate) fn feed(&self) -> SessionFeed {
-        self.feed
-    }
-
     // ── Changes rail ──────────────────────────────────────────────────────
 
     /// Install the parse of the newly published diff, when

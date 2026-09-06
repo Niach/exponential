@@ -181,9 +181,15 @@ struct ElicitationAsk {
 struct ElicitStep {
     property: String,
     text: String,
+    /// The property's title when it is not already the card text.
+    header: Option<String>,
     options: Vec<QuestionOption>,
     multi_select: bool,
     kind: StepKind,
+    /// A free-text sibling folded into this step (claude's
+    /// `question_<n>_custom`): the card grows a "Type something." row and a
+    /// typed answer lands on THIS property instead of the choice.
+    custom_property: Option<String>,
 }
 
 /// How a step's answer is folded back into the elicitation's `content` map.
@@ -496,7 +502,9 @@ impl Mapper {
             steer::truncate(ask_id, ID_MAX)
         };
         let steps = match &request.mode {
-            ElicitationMode::Form(form) => self.elicit_steps(&form.requested_schema),
+            ElicitationMode::Form(form) => {
+                self.elicit_steps(&request.message, &form.requested_schema)
+            }
             // A URL (or any newer) elicitation has nothing to step through:
             // one confirm card, then the form goes back accepted.
             _ => Vec::new(),
@@ -793,10 +801,11 @@ impl Mapper {
             .or_else(|| notification_meta.and_then(subagent_id_from_meta))
             .map(|id| steer::truncate(&id, ID_MAX));
         let detail = self.tool_detail(call.kind, &call.locations, call.raw_input.as_ref());
+        let name = self.wire_tool_name(call.kind, &call.title, detail.as_deref());
         emit(
             out,
             ActivityEvent::Tool {
-                name: self.clean(&call.title, TOOL_NAME_MAX),
+                name: self.clean(&name, TOOL_NAME_MAX),
                 detail,
                 subagent_id,
                 at: None,
@@ -908,6 +917,33 @@ impl Mapper {
     /// The `Tool { detail }` DERIVATION (rule 1). Never `raw_input`'s command
     /// string, never a patch body: a path, a pattern, the command's first
     /// token, or the agent's own one-line description.
+    /// The wire `tool.name`: the PTY path's bare vocabulary, never a title
+    /// that quotes the command. An `Execute` card's title IS the command on
+    /// every adapter (claude `Bash`, codex `commandExecution`, pi `bash`), so
+    /// it maps to the name the PTY path published for that agent; any other
+    /// title drops the detail it embeds (`Write smoke.txt` → `Write`).
+    fn wire_tool_name(&self, kind: ToolKind, title: &str, detail: Option<&str>) -> String {
+        if kind == ToolKind::Execute {
+            return match self.config.agent {
+                steer::SessionAgent::Claude => "Bash",
+                steer::SessionAgent::Codex => "exec_command",
+                steer::SessionAgent::Pi => "bash",
+                _ => "Execute",
+            }
+            .to_string();
+        }
+        let title = title.trim();
+        if let Some(detail) = detail.filter(|detail| !detail.is_empty()) {
+            if let Some(at) = title.find(detail) {
+                let head = title[..at].trim();
+                if !head.is_empty() {
+                    return head.to_string();
+                }
+            }
+        }
+        title.to_string()
+    }
+
     fn tool_detail(
         &self,
         kind: ToolKind,
@@ -919,6 +955,13 @@ impl Mapper {
         }
         let input = raw_input?.as_object()?;
         let string = |key: &str| input.get(key).and_then(Value::as_str).filter(|s| !s.is_empty());
+        if kind == ToolKind::Execute {
+            // The PTY path publishes the model's own description of a command
+            // (never the command); the first token is the fallback below.
+            if let Some(description) = string("description") {
+                return Some(self.clean(description, TOOL_DETAIL_MAX));
+            }
+        }
         if let Some(path) = string("file_path").or_else(|| string("path")).or_else(|| string("filePath")) {
             return Some(self.clean(&self.display_path(&PathBuf::from(path)), TOOL_DETAIL_MAX));
         }
@@ -1193,12 +1236,29 @@ impl Mapper {
                         .unwrap_or_else(|| key.clone())
                 })
                 .collect();
-            let typed = answer.text.clone();
-            let value = step_value(step, &answer.keys, typed.as_deref());
-            ask.fields.insert(step.property.clone(), value);
+            let typed = answer.text.clone().filter(|text| !text.trim().is_empty());
+            let choice_keys: Vec<String> =
+                answer.keys.iter().filter(|key| *key != FREE_TEXT_KEY).cloned().collect();
+            match (&step.custom_property, &typed) {
+                // The folded free-text row: the typed answer is the custom
+                // field and the choice stays unanswered (claude's
+                // `applyAskElicitationResponse` lets the custom text win).
+                (Some(custom), Some(text)) => {
+                    ask.fields.insert(custom.clone(), Value::String(text.clone()));
+                }
+                _ => {
+                    let value = step_value(step, &choice_keys, typed.as_deref());
+                    if !value.is_null() && value != Value::String(String::new()) {
+                        ask.fields.insert(step.property.clone(), value);
+                    }
+                }
+            }
             match typed {
-                Some(text) if !text.is_empty() => vec![text],
-                _ => labels,
+                Some(text) => vec![text],
+                None => labels
+                    .into_iter()
+                    .filter(|label| answer.keys.iter().all(|key| key != FREE_TEXT_KEY) || label != "Type something.")
+                    .collect(),
             }
         };
         emit(
@@ -1219,7 +1279,10 @@ impl Mapper {
             None,
         );
 
-        if submit {
+        // A one-step form has nothing to review: its answer IS the submit,
+        // exactly the one tap the PTY card took.
+        let lone_step = ask.steps.len() == 1 && !submit;
+        if submit || lone_step {
             ask.answered = true;
             let fields = Value::Object(ask.fields.clone());
             if self.pending_asks() == 0 {
@@ -1273,7 +1336,7 @@ impl Mapper {
                 ask_id: Some(ask_id.to_string()),
                 index: Some(ask.current as u32 + 1),
                 total: Some(total as u32),
-                header: None,
+                header: step.header.clone(),
                 at: None,
             }
         };
@@ -1283,34 +1346,90 @@ impl Mapper {
         question_id
     }
 
+    /// One step per property, except that a plain-string property named
+    /// `<name>_custom` beside a choice `<name>` is FOLDED into that choice's
+    /// step as its free-text row (the shape claude's AskUserQuestion form
+    /// takes), so the card reads like the PTY path's: options plus "Type
+    /// something.", one tap. A single-step form reads the request message
+    /// as its text (the message IS the question) and the property title as
+    /// its header.
     fn elicit_steps(
         &self,
+        message: &str,
         schema: &agent_client_protocol::schema::v1::ElicitationSchema,
     ) -> Vec<ElicitStep> {
-        schema
+        let is_plain_string = |property: &ElicitationPropertySchema| {
+            matches!(
+                property,
+                ElicitationPropertySchema::String(schema)
+                    if schema.one_of.as_ref().is_none_or(Vec::is_empty)
+                        && schema.enum_values.as_ref().is_none_or(Vec::is_empty)
+            )
+        };
+        let folded: std::collections::HashSet<String> = schema
             .properties
             .iter()
-            .map(|(name, property)| self.elicit_step(name, property))
-            .collect()
+            .filter_map(|(name, property)| {
+                let choice = name.strip_suffix("_custom")?;
+                let sibling = schema.properties.get(choice)?;
+                (is_plain_string(property) && !is_plain_string(sibling)).then(|| name.clone())
+            })
+            .collect();
+        let mut steps: Vec<ElicitStep> = schema
+            .properties
+            .iter()
+            .filter(|(name, _)| !folded.contains(*name))
+            .map(|(name, property)| {
+                let mut step = self.elicit_step(name, property);
+                let custom = format!("{name}_custom");
+                if folded.contains(&custom) {
+                    if !step.options.iter().any(|option| option.free_text) {
+                        step.options.push(QuestionOption {
+                            label: "Type something.".to_string(),
+                            key: FREE_TEXT_KEY.to_string(),
+                            description: None,
+                            free_text: true,
+                        });
+                    }
+                    step.custom_property = Some(custom);
+                }
+                step
+            })
+            .collect();
+        if steps.len() == 1 && !message.trim().is_empty() {
+            let step = &mut steps[0];
+            let text = self.clean_marked(message, QUESTION_TEXT_MAX);
+            if step.text != text {
+                let title = std::mem::replace(&mut step.text, text);
+                step.header = Some(self.clean(&title, QUESTION_HEADER_MAX));
+            }
+        }
+        steps
     }
 
     fn elicit_step(&self, name: &str, property: &ElicitationPropertySchema) -> ElicitStep {
         let free_text = |label: &str| QuestionOption {
             label: label.to_string(),
-            key: "text".to_string(),
+            key: FREE_TEXT_KEY.to_string(),
             description: None,
             free_text: true,
         };
         match property {
             ElicitationPropertySchema::String(schema) => {
-                let text = self.clean_marked(
-                    schema
-                        .title
-                        .as_deref()
-                        .or(schema.description.as_deref())
-                        .unwrap_or(name),
-                    QUESTION_TEXT_MAX,
-                );
+                // The description is the QUESTION when a form carries several
+                // (the title is its short header); a lone title is the text.
+                let (text, header) = match (schema.description.as_deref(), schema.title.as_deref()) {
+                    (Some(description), title) if !description.trim().is_empty() => (
+                        self.clean_marked(description, QUESTION_TEXT_MAX),
+                        title
+                            .filter(|title| !title.trim().is_empty())
+                            .map(|title| self.clean(title, QUESTION_HEADER_MAX)),
+                    ),
+                    (_, Some(title)) if !title.trim().is_empty() => {
+                        (self.clean_marked(title, QUESTION_TEXT_MAX), None)
+                    }
+                    _ => (self.clean_marked(name, QUESTION_TEXT_MAX), None),
+                };
                 let options = match (&schema.one_of, &schema.enum_values) {
                     (Some(one_of), _) if !one_of.is_empty() => one_of
                         .iter()
@@ -1338,9 +1457,11 @@ impl Mapper {
                 ElicitStep {
                     property: name.to_string(),
                     text,
+                    header,
                     options,
                     multi_select: false,
                     kind: StepKind::Text,
+                    custom_property: None,
                 }
             }
             ElicitationPropertySchema::Boolean(schema) => ElicitStep {
@@ -1353,26 +1474,32 @@ impl Mapper {
                         .unwrap_or(name),
                     QUESTION_TEXT_MAX,
                 ),
+                header: None,
                 options: vec![
                     QuestionOption::new("Yes", "true"),
                     QuestionOption::new("No", "false"),
                 ],
                 multi_select: false,
                 kind: StepKind::Bool,
+                custom_property: None,
             },
             ElicitationPropertySchema::Integer(_) => ElicitStep {
                 property: name.to_string(),
                 text: self.clean_marked(name, QUESTION_TEXT_MAX),
+                header: None,
                 options: vec![free_text("Type a number.")],
                 multi_select: false,
                 kind: StepKind::Integer,
+                custom_property: None,
             },
             ElicitationPropertySchema::Number(_) => ElicitStep {
                 property: name.to_string(),
                 text: self.clean_marked(name, QUESTION_TEXT_MAX),
+                header: None,
                 options: vec![free_text("Type a number.")],
                 multi_select: false,
                 kind: StepKind::Number,
+                custom_property: None,
             },
             ElicitationPropertySchema::Array(schema) => ElicitStep {
                 property: name.to_string(),
@@ -1384,6 +1511,7 @@ impl Mapper {
                         .unwrap_or(name),
                     QUESTION_TEXT_MAX,
                 ),
+                header: None,
                 options: multi_select_options(&schema.items)
                     .into_iter()
                     .map(|(value, label)| QuestionOption {
@@ -1395,19 +1523,26 @@ impl Mapper {
                     .collect(),
                 multi_select: true,
                 kind: StepKind::Strings,
+                custom_property: None,
             },
             // `#[non_exhaustive]`: an unknown property kind still gets a
             // free-text step rather than silently dropping the question.
             _ => ElicitStep {
                 property: name.to_string(),
                 text: self.clean_marked(name, QUESTION_TEXT_MAX),
+                header: None,
                 options: vec![free_text("Type something.")],
                 multi_select: false,
                 kind: StepKind::Text,
+                custom_property: None,
             },
         }
     }
 }
+
+/// The option key of a free-text row. Never a VALUE: a typed answer rides
+/// `answer.text`, and picking the row with nothing typed means "no answer".
+const FREE_TEXT_KEY: &str = "text";
 
 /// `(value, label)` per multi-select item, over both shapes the schema has.
 fn multi_select_options(
@@ -1694,8 +1829,58 @@ mod tests {
         mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut out);
         match &out.wire[0] {
             ActivityEvent::Tool { name, detail, .. } => {
-                assert_eq!(name, "Run tests");
+                // The PTY vocabulary for this agent, never the title/command.
+                assert_eq!(name, "Bash");
                 assert_eq!(detail.as_deref(), Some("npm"));
+            }
+            other => panic!("expected a tool event, got {other:?}"),
+        }
+    }
+
+    /// The PTY path publishes the model's description of a command, never
+    /// the command; the first token is only the fallback.
+    #[test]
+    fn a_command_description_is_the_detail_before_the_first_token() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let call = ToolCall::new(ToolCallId::new("tc-3"), "printf 'smoke %s' one two")
+            .kind(ToolKind::Execute)
+            .raw_input(json!({"command": "printf 'smoke %s' one two", "description": "Print the smoke lines"}));
+        mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut out);
+        match &out.wire[0] {
+            ActivityEvent::Tool { name, detail, .. } => {
+                assert_eq!(name, "Bash");
+                assert_eq!(detail.as_deref(), Some("Print the smoke lines"));
+            }
+            other => panic!("expected a tool event, got {other:?}"),
+        }
+    }
+
+    /// A title that embeds the detail (`Write smoke.txt`) publishes as the
+    /// bare verb, so the clients' `name · detail` row reads like the PTY one.
+    #[test]
+    fn the_wire_tool_name_drops_the_detail_the_title_embeds() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let call = ToolCall::new(ToolCallId::new("tc-4"), "Write smoke.txt")
+            .kind(ToolKind::Edit)
+            .raw_input(json!({"file_path": "/tmp/worktree/smoke.txt", "content": "hello"}));
+        mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut out);
+        match &out.wire[0] {
+            ActivityEvent::Tool { name, detail, .. } => {
+                assert_eq!(name, "Write");
+                assert_eq!(detail.as_deref(), Some("smoke.txt"));
+            }
+            other => panic!("expected a tool event, got {other:?}"),
+        }
+        // A title with no embedded detail is published as it is.
+        let mut out = MapOut::default();
+        let call = ToolCall::new(ToolCallId::new("tc-5"), "mcp.exponential.issues_get").kind(ToolKind::Other);
+        mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut out);
+        match &out.wire[0] {
+            ActivityEvent::Tool { name, detail, .. } => {
+                assert_eq!(name, "mcp.exponential.issues_get");
+                assert_eq!(detail, &None);
             }
             other => panic!("expected a tool event, got {other:?}"),
         }

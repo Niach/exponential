@@ -922,6 +922,18 @@ describe(`activity event kinds`, () => {
     planMode: true,
     id: `toolu_plan`,
   }
+  // EXP-746: an ACP session's option keys are the agent's own option ids,
+  // which are words, not keystrokes.
+  const acpQuestion = {
+    kind: `question`,
+    text: `## The plan`,
+    options: [
+      { label: `Yes, clear context and auto-accept edits`, key: `exit-plan-clear-accept-edits` },
+      { label: `No, keep planning`, key: `exit-plan-default` },
+    ],
+    planMode: true,
+    id: `toolu_acp_plan`,
+  }
   // EXP-746: every declared field at once — the whole-object assertions below
   // are what catch a field the schema forgot (the relay re-serializes the
   // PARSED event, so an undeclared one is stripped in silence).
@@ -1135,7 +1147,7 @@ describe(`activity event kinds`, () => {
       kind: `question`,
       id: `q`,
       text: `oversized key`,
-      options: [{ label: `A`, key: `x`.repeat(9) }],
+      options: [{ label: `A`, key: `x`.repeat(129) }],
     })
     // EXP-730: id is required — an id-less card (pre-0.14.31 publisher)
     // is not answerable and never reaches a viewer.
@@ -1331,7 +1343,7 @@ describe(`semantic answers (EXP-249)`, () => {
     hub.onMessage(steerer, JSON.stringify({ t: `answer`, questionId: `q`, keys: [] }))
     hub.onMessage(
       steerer,
-      JSON.stringify({ t: `answer`, questionId: `q`, keys: [`x`.repeat(9)] })
+      JSON.stringify({ t: `answer`, questionId: `q`, keys: [`x`.repeat(129)] })
     )
     hub.onMessage(
       steerer,

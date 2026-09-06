@@ -530,8 +530,9 @@ fn a_turn_publishes_its_updates_and_feeds_the_local_screen() {
     });
 
     let tools = events_of(&harness.sink, "tool");
-    assert_eq!(tools[0]["name"], "Read src/main.rs");
-    // The detail is DERIVED, never `raw_input` verbatim.
+    // The wire name is the bare verb (the PTY vocabulary), the path rides
+    // `detail` — which is DERIVED, never `raw_input` verbatim.
+    assert_eq!(tools[0]["name"], "Read");
     assert_eq!(tools[0]["detail"], "src/main.rs");
 
     // `session/new` published the first snapshot; the commands update

@@ -56,7 +56,7 @@ export const answerFrame = z.object({
   t: z.literal(`answer`),
   questionId: z.string().max(128),
   askId: z.string().max(128).optional(),
-  keys: z.array(z.string().max(8)).min(1).max(10),
+  keys: z.array(z.string().min(1).max(128)).min(1).max(10),
   // EXP-513: the typed reply for a `freeText` option — the desktop selects
   // the row with `keys`, types this into the TUI's inline editor and
   // submits. Bounded well under the input-frame cap; a reply is a line, not
@@ -109,8 +109,10 @@ export const setModeFrame = z.object({
 export const questionOptionSchema = z.object({
   label: z.string().max(256),
   // The `keys` member of the answer frame that picks this option — the
-  // publisher turns it into whatever its TUI expects.
-  key: z.string().min(1).max(8),
+  // publisher turns it into whatever its TUI expects. EXP-746: on the ACP
+  // path the key IS the agent's option id (`exit-plan-clear-accept-edits`,
+  // `allow-once`), so the cap is the shared id cap, not a keystroke's.
+  key: z.string().min(1).max(128),
   description: z.string().max(1024).optional(),
   // EXP-513: claude's synthetic free-text row ("Type something.") — clients
   // render an inline text input and send the typed reply as `answer.text`.

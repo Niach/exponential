@@ -77,7 +77,7 @@ fn a_recorded_turn_maps_to_the_wire_vector() {
             json!({"kind": "narration", "text": "Looking at the repo"}),
             json!({"kind": "narration", "text": "They want the tests green"}),
             // The detail is the location path, relative to the worktree.
-            json!({"kind": "tool", "name": "Read src/main.rs", "detail": "src/main.rs"}),
+            json!({"kind": "tool", "name": "Read", "detail": "src/main.rs"}),
             json!({
                 "kind": "usage",
                 "contextUsed": 12000,
@@ -117,7 +117,7 @@ fn a_command_never_reaches_the_wire_and_a_secret_never_reaches_a_detail() {
     let wire = wire("execute.jsonl");
     assert_eq!(
         wire,
-        vec![json!({"kind": "tool", "name": "Run the tests", "detail": "bun"})]
+        vec![json!({"kind": "tool", "name": "Bash", "detail": "bun"})]
     );
     let serialized = serde_json::to_string(&wire).expect("the vector serializes");
     assert!(
@@ -231,29 +231,50 @@ fn the_plan_approval_card_is_byte_exact() {
 
 /// An elicitation is a STEPPER: `<ask>#<n>` with index/total, then
 /// `<ask>#submit` with BOTH absent — that absence is the submit marker (D3).
-#[test]
-fn an_elicitation_steps_then_submits() {
+fn form_request(
+    message: &str,
+    properties: Vec<(&str, agent_client_protocol::schema::v1::ElicitationPropertySchema)>,
+) -> agent_client_protocol::schema::v1::CreateElicitationRequest {
     use agent_client_protocol::schema::v1::{
-        CreateElicitationRequest, ElicitationFormMode, ElicitationPropertySchema, ElicitationSchema,
-        ElicitationSessionScope, SessionId, StringPropertySchema,
+        CreateElicitationRequest, ElicitationFormMode, ElicitationSchema, ElicitationSessionScope,
+        SessionId,
     };
+    let mut schema = ElicitationSchema::new();
+    for (name, property) in properties {
+        schema = schema.property(name, property, false);
+    }
+    CreateElicitationRequest::new(
+        ElicitationFormMode::new(ElicitationSessionScope::new(SessionId::new("acp-1")), schema),
+        message,
+    )
+}
+
+fn choice(title: &str) -> agent_client_protocol::schema::v1::ElicitationPropertySchema {
+    use agent_client_protocol::schema::v1::{ElicitationPropertySchema, StringPropertySchema};
+    ElicitationPropertySchema::String(
+        StringPropertySchema::new()
+            .title(title)
+            .enum_values(vec!["rewrite".to_string(), "patch".to_string()]),
+    )
+}
+
+fn answer(id: &str, keys: &[&str], text: Option<&str>) -> steer::RemoteAnswer {
+    steer::RemoteAnswer {
+        question_id: id.to_string(),
+        ask_id: Some("ask-1".to_string()),
+        keys: keys.iter().map(|key| key.to_string()).collect(),
+        text: text.map(str::to_string),
+    }
+}
+
+/// A form with ONE property is one card: the request message is the
+/// question, the property title its header, and answering it IS the submit
+/// (the one tap the PTY card took).
+#[test]
+fn a_lone_step_form_is_one_card_that_submits_on_its_answer() {
     let mut mapper = mapper();
     let mut out = MapOut::default();
-    let request = CreateElicitationRequest::new(
-        ElicitationFormMode::new(
-            ElicitationSessionScope::new(SessionId::new("acp-1")),
-            ElicitationSchema::new().property(
-                "approach",
-                ElicitationPropertySchema::String(
-                    StringPropertySchema::new()
-                        .title("Which approach?")
-                        .enum_values(vec!["rewrite".to_string(), "patch".to_string()]),
-                ),
-                true,
-            ),
-        ),
-        "The agent has a question",
-    );
+    let request = form_request("The agent has a question", vec![("approach", choice("Which approach?"))]);
     let key = mapper.on_elicitation("ask-1", &request, &mut out);
     assert_eq!(key.question_id, "ask-1#0");
     assert_eq!(key.ask_id.as_deref(), Some("ask-1"));
@@ -261,7 +282,7 @@ fn an_elicitation_steps_then_submits() {
         serde_json::to_value(&out.wire[0]).expect("the step serializes"),
         json!({
             "kind": "question",
-            "text": "Which approach?",
+            "text": "The agent has a question",
             "options": [
                 {"label": "rewrite", "key": "rewrite"},
                 {"label": "patch", "key": "patch"}
@@ -269,48 +290,147 @@ fn an_elicitation_steps_then_submits() {
             "id": "ask-1#0",
             "askId": "ask-1",
             "index": 1,
-            "total": 1
+            "total": 1,
+            "header": "Which approach?"
         })
     );
 
-    // Answering the step publishes the submit marker and resolves nothing.
-    let mut stepped = MapOut::default();
-    let answer = steer::RemoteAnswer {
-        question_id: "ask-1#0".to_string(),
-        ask_id: Some("ask-1".to_string()),
-        keys: vec!["patch".to_string()],
-        text: None,
-    };
-    let decision = mapper.on_answer(&mapper.ask_key(&answer), &answer, &mut stepped);
+    let mut answered = MapOut::default();
+    let answer = answer("ask-1#0", &["patch"], None);
     assert_eq!(
-        decision,
-        engine::AnswerDecision::Elicitation {
-            fields: json!({"approach": "patch"}),
-            submit: false
-        }
-    );
-    let submit = serde_json::to_value(stepped.wire.last().expect("the submit step"))
-        .expect("the submit step serializes");
-    assert_eq!(submit["id"], "ask-1#submit");
-    assert_eq!(submit.get("index"), None);
-    assert_eq!(submit.get("total"), None);
-
-    // The submit answer hands the whole form back.
-    let mut submitted = MapOut::default();
-    let answer = steer::RemoteAnswer {
-        question_id: "ask-1#submit".to_string(),
-        ask_id: Some("ask-1".to_string()),
-        keys: vec!["submit".to_string()],
-        text: None,
-    };
-    assert_eq!(
-        mapper.on_answer(&mapper.ask_key(&answer), &answer, &mut submitted),
+        mapper.on_answer(&mapper.ask_key(&answer), &answer, &mut answered),
         engine::AnswerDecision::Elicitation {
             fields: json!({"approach": "patch"}),
             submit: true
         }
     );
+    let kinds: Vec<Value> = answered.wire.iter().map(|event| serde_json::to_value(event).unwrap()["kind"].clone()).collect();
+    assert_eq!(kinds, vec![json!("answer_ack"), json!("question_resolved")], "no submit card for a lone step");
+    assert_eq!(answered.needs_input, Some(false));
+}
+
+/// Several properties step through `<ask>#<n>` and end on the `#submit`
+/// marker (index and total absent), which hands the whole form back.
+#[test]
+fn a_multi_step_form_steps_then_submits() {
+    let mut mapper = mapper();
+    let mut out = MapOut::default();
+    let request = form_request(
+        "Please answer the following questions.",
+        vec![("approach", choice("Which approach?")), ("scope", choice("Which scope?"))],
+    );
+    mapper.on_elicitation("ask-1", &request, &mut out);
+    let first = serde_json::to_value(&out.wire[0]).unwrap();
+    assert_eq!(first["text"], "Which approach?");
+    assert_eq!(first["index"], 1);
+    assert_eq!(first["total"], 2);
+    assert_eq!(first.get("header"), None);
+
+    let mut stepped = MapOut::default();
+    let answer1 = answer("ask-1#0", &["patch"], None);
+    assert_eq!(
+        mapper.on_answer(&mapper.ask_key(&answer1), &answer1, &mut stepped),
+        engine::AnswerDecision::Elicitation { fields: json!({"approach": "patch"}), submit: false }
+    );
+    let second = serde_json::to_value(stepped.wire.last().unwrap()).unwrap();
+    assert_eq!(second["id"], "ask-1#1");
+    assert_eq!(second["index"], 2);
+
+    let mut stepped = MapOut::default();
+    let answer2 = answer("ask-1#1", &["rewrite"], None);
+    mapper.on_answer(&mapper.ask_key(&answer2), &answer2, &mut stepped);
+    let submit = serde_json::to_value(stepped.wire.last().expect("the submit step")).unwrap();
+    assert_eq!(submit["id"], "ask-1#submit");
+    assert_eq!(submit.get("index"), None);
+    assert_eq!(submit.get("total"), None);
+
+    let mut submitted = MapOut::default();
+    let answer3 = answer("ask-1#submit", &["submit"], None);
+    assert_eq!(
+        mapper.on_answer(&mapper.ask_key(&answer3), &answer3, &mut submitted),
+        engine::AnswerDecision::Elicitation {
+            fields: json!({"approach": "patch", "scope": "rewrite"}),
+            submit: true
+        }
+    );
     assert_eq!(submitted.needs_input, Some(false));
+}
+
+/// Claude's AskUserQuestion form pairs every choice `question_<n>` with a
+/// plain-string `question_<n>_custom`: that sibling folds into the choice's
+/// card as its "Type something." row, and a typed answer lands on the custom
+/// field (custom wins, as the CLI's own picker has it) while picking the row
+/// with nothing typed answers nothing — never the literal row key.
+#[test]
+fn a_choice_with_a_custom_sibling_is_one_card_with_a_free_text_row() {
+    use agent_client_protocol::schema::v1::{ElicitationPropertySchema, EnumOption, StringPropertySchema};
+    let form = || {
+        form_request(
+            "Which color do you prefer?",
+            vec![
+                (
+                    "question_0",
+                    ElicitationPropertySchema::String(StringPropertySchema::new().title("Color").one_of(vec![
+                        EnumOption::new("Red", "Red").description("Choose red."),
+                        EnumOption::new("Blue", "Blue"),
+                    ])),
+                ),
+                (
+                    "question_0_custom",
+                    ElicitationPropertySchema::String(StringPropertySchema::new().title("Other")),
+                ),
+            ],
+        )
+    };
+
+    let mut m = mapper();
+    let mut out = MapOut::default();
+    m.on_elicitation("ask-1", &form(), &mut out);
+    assert_eq!(
+        serde_json::to_value(&out.wire[0]).expect("the card serializes"),
+        json!({
+            "kind": "question",
+            "text": "Which color do you prefer?",
+            "options": [
+                {"label": "Red", "key": "Red", "description": "Choose red."},
+                {"label": "Blue", "key": "Blue"},
+                {"label": "Type something.", "key": "text", "freeText": true}
+            ],
+            "id": "ask-1#0",
+            "askId": "ask-1",
+            "index": 1,
+            "total": 1,
+            "header": "Color"
+        })
+    );
+    let mut answered = MapOut::default();
+    let pick = answer("ask-1#0", &["Red"], None);
+    assert_eq!(
+        m.on_answer(&m.ask_key(&pick), &pick, &mut answered),
+        engine::AnswerDecision::Elicitation { fields: json!({"question_0": "Red"}), submit: true }
+    );
+
+    let mut m = mapper();
+    m.on_elicitation("ask-1", &form(), &mut MapOut::default());
+    let mut answered = MapOut::default();
+    let typed = answer("ask-1#0", &["text"], Some("Green"));
+    assert_eq!(
+        m.on_answer(&m.ask_key(&typed), &typed, &mut answered),
+        engine::AnswerDecision::Elicitation { fields: json!({"question_0_custom": "Green"}), submit: true }
+    );
+    let resolved = serde_json::to_value(answered.wire.last().unwrap()).unwrap();
+    assert_eq!(resolved["answers"], json!(["Green"]));
+
+    let mut m = mapper();
+    m.on_elicitation("ask-1", &form(), &mut MapOut::default());
+    let mut answered = MapOut::default();
+    let empty = answer("ask-1#0", &["text"], Some(""));
+    assert_eq!(
+        m.on_answer(&m.ask_key(&empty), &empty, &mut answered),
+        engine::AnswerDecision::Elicitation { fields: json!({}), submit: true }
+    );
+    let resolved = serde_json::to_value(answered.wire.last().unwrap()).unwrap();
+    assert_eq!(resolved["answers"], json!([]));
 }
 
 /// The relay drops an over-cap frame WHOLE (its schema is a discriminated
