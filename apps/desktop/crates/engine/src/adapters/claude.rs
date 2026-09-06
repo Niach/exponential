@@ -95,12 +95,13 @@ const CONFIG_MODE: &str = "mode";
 /// The value that means "whatever the CLI would pick" for effort and agent.
 const CONFIG_DEFAULT_VALUE: &str = "default";
 
-/// How long `session/new` waits for the `initialize` control response before
-/// giving up on it and seeding the session from `system/init` alone. The
-/// spike measured 0.6-1.8 s normally and ~25 s with an unreachable MCP
-/// endpoint (the CLI waits on the MCP handshake first), so the budget is
-/// generous on purpose: a slow init is not a dead CLI.
-const INITIALIZE_TIMEOUT: Duration = Duration::from_secs(90);
+/// How long any control request waits for its response before the caller
+/// gives up on it (`session/new` then seeds the session from `system/init`
+/// alone). The spike measured `initialize` at 0.6-1.8 s normally and ~25 s
+/// with an unreachable MCP endpoint — the CLI waits on the MCP handshake
+/// before answering — so the budget is generous on purpose: a slow init is
+/// not a dead CLI.
+const CONTROL_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// The re-prompt that carries a plan into a fresh context after the user
 /// picked one of the "clear context" plan options.
@@ -142,13 +143,24 @@ impl ConnectTo<Client> for ClaudeAgent {
                     on_receive_request!(),
                 )
                 .on_receive_request(
-                    async move |_request: NewSessionRequest, responder, cx: ConnectionTo<Client>| {
+                    async move |request: NewSessionRequest, responder, cx: ConnectionTo<Client>| {
                         // Spawn + handshake takes seconds; a handler that waits
                         // for it inline blocks every further message on the
                         // connection, `$/cancel_request` included.
                         let session = on_new.clone();
                         let spawned = cx.clone();
                         cx.spawn(async move {
+                            if request.cwd != session.spec.cwd {
+                                // The child is already pinned to the prepared
+                                // worktree; a different cwd here would mean the
+                                // launcher and the client disagree about which
+                                // tree this run edits.
+                                log::warn!(
+                                    "engine: claude session/new cwd {} is not the prepared worktree {}",
+                                    request.cwd.display(),
+                                    session.spec.cwd.display()
+                                );
+                            }
                             let started = session.start(&spawned, None).await;
                             match started {
                                 Ok(()) => responder.respond(
@@ -441,7 +453,11 @@ impl ClaudeSession {
     /// Spawn the CLI (once), start the pump, and run the `initialize` control
     /// request. `resume` reopens a recorded conversation, in which case the
     /// fresh `--session-id` pin is dropped (claude refuses both).
-    async fn start(&self, cx: &ConnectionTo<Client>, resume: Option<&str>) -> Result<(), Error> {
+    async fn start(
+        self: &Arc<Self>,
+        cx: &ConnectionTo<Client>,
+        resume: Option<&str>,
+    ) -> Result<(), Error> {
         if self.lock().child.is_some() {
             return Ok(());
         }
@@ -456,7 +472,7 @@ impl ClaudeSession {
         }
         let lines = child.lines.clone();
         let pump_cx = cx.clone();
-        let pump = self.clone_arc();
+        let pump = self.clone();
         cx.spawn(async move {
             pump.pump(lines, pump_cx).await;
             Ok(())
@@ -474,16 +490,6 @@ impl ClaudeSession {
             Err(error) => log::warn!("engine: claude initialize did not answer: {error}"),
         }
         Ok(())
-    }
-
-    /// A second `Arc` to the same session. The handlers hold one each, so the
-    /// pump can be handed one without threading it through every call.
-    fn clone_arc(&self) -> Arc<ClaudeSession> {
-        // Safety of the pattern, not of memory: `ClaudeSession` is only ever
-        // constructed inside an `Arc` in `connect_to`, and every method that
-        // needs a second handle is reached through it.
-        unsafe { Arc::increment_strong_count(self as *const ClaudeSession) };
-        unsafe { Arc::from_raw(self as *const ClaudeSession) }
     }
 
     fn spawn_child(&self, resume: Option<&str>) -> std::io::Result<ChildLines> {
@@ -516,6 +522,14 @@ impl ClaudeSession {
             }
             _ => None,
         };
+        // A launch that carries a resume seed reopens THAT conversation even
+        // when the host called `session/new`: the recorded id is already taken,
+        // so pinning it as a fresh `--session-id` would be refused.
+        let recorded = match &self.spec.resume {
+            Some(ResumeHandle::Acp(id)) | Some(ResumeHandle::Native(id)) => Some(id.as_str()),
+            Some(ResumeHandle::PiSessionFile(_)) | None => None,
+        };
+        let resume = resume.or(recorded);
         // Without `elicitation.form` the model must never pick
         // AskUserQuestion: there would be nothing to render its form with.
         let disallowed: &[&str] = if disallow_ask { &["AskUserQuestion"] } else { &[] };
@@ -608,7 +622,7 @@ impl ClaudeSession {
             self.lock().pending_control.remove(&request_id);
             return Err(error);
         }
-        let response = match tokio::time::timeout(INITIALIZE_TIMEOUT, rx.recv_async()).await {
+        let response = match tokio::time::timeout(CONTROL_TIMEOUT, rx.recv_async()).await {
             Ok(Ok(response)) => response,
             Ok(Err(_)) | Err(_) => {
                 self.lock().pending_control.remove(&request_id);
@@ -1064,7 +1078,10 @@ impl ClaudeSession {
                 self.lock().aborted_requests.insert(cancel.request_id);
             }
             // Answering a keep_alive is a protocol error; unknown frame types
-            // are how the CLI ships new features.
+            // are how the CLI ships new features. `rate_limit_event` lands here
+            // deliberately: the upstream adapter re-emits its usage snapshot on
+            // it, but the numbers are unchanged and the plan windows ride
+            // `devices.agent_usage`, not the session feed.
             ClaudeOut::KeepAlive | ClaudeOut::Unknown => {}
         }
     }
