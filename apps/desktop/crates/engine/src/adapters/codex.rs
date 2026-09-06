@@ -2298,9 +2298,16 @@ async fn replay_thread(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
+    log::debug!("engine: codex thread/read {thread_id}: {} turns", turns.len());
     for turn in turns {
         for item in turn.get("items").and_then(Value::as_array).unwrap_or(&Vec::new()) {
-            for update in item_updates(&shared.items, item, true, true) {
+            let updates = item_updates(&shared.items, item, true, true);
+            log::debug!(
+                "engine: codex replay item {} -> {} updates",
+                item.get("type").and_then(Value::as_str).unwrap_or("?"),
+                updates.len()
+            );
+            for update in updates {
                 emit(shared, cx, update);
             }
         }

@@ -547,8 +547,29 @@ pub(crate) fn render_plan_card(entries: &[engine::PlanEntryView], cx: &App) -> A
 /// The agent's latest thought, one clamped line above the composer. Thoughts
 /// are not feed rows on purpose: they are superseded constantly, and a
 /// transcript of every one of them would bury the work.
+/// A thought as one plain line: codex's reasoning headlines arrive as
+/// `**Bold markdown**` and the pinned line is not a markdown surface.
+pub(crate) fn plain_thought(text: &str) -> String {
+    let mut line = text.lines().find(|line| !line.trim().is_empty()).unwrap_or("").trim();
+    loop {
+        let trimmed = line
+            .strip_prefix("**")
+            .and_then(|rest| rest.strip_suffix("**"))
+            .or_else(|| line.strip_prefix('*').and_then(|rest| rest.strip_suffix('*')))
+            .or_else(|| line.strip_prefix('_').and_then(|rest| rest.strip_suffix('_')))
+            .or_else(|| line.strip_prefix('#').map(|rest| rest.trim_start_matches('#')))
+            .map(str::trim);
+        match trimmed {
+            Some(next) if next != line => line = next,
+            _ => break,
+        }
+    }
+    line.to_string()
+}
+
 pub(crate) fn render_thought(text: &str, cx: &App) -> AnyElement {
     let muted = cx.theme().muted_foreground;
+    let text = plain_thought(text);
     h_flex()
         .w_full()
         .flex_shrink_0()
@@ -567,7 +588,7 @@ pub(crate) fn render_thought(text: &str, cx: &App) -> AnyElement {
                 .truncate()
                 .text_xs()
                 .text_color(muted)
-                .child(SharedString::from(text.to_string())),
+                .child(SharedString::from(text)),
         )
         .into_any_element()
 }
@@ -655,6 +676,15 @@ pub(crate) fn context_summary(usage: Option<&steer::SessionUsage>) -> Option<Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_thought_headline_drops_its_markdown_emphasis() {
+        assert_eq!(plain_thought("**Preparing exact final question options**"), "Preparing exact final question options");
+        assert_eq!(plain_thought("*soft*"), "soft");
+        assert_eq!(plain_thought("## Heading\nbody"), "Heading");
+        assert_eq!(plain_thought("plain words"), "plain words");
+        assert_eq!(plain_thought("   "), "");
+    }
 
     fn line(kind: DiffLineKind, content: &str) -> (DiffLineKind, String) {
         (kind, content.to_string())

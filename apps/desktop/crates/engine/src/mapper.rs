@@ -136,6 +136,10 @@ pub struct Mapper {
     thought: Coalescer,
     /// User message chunks (an agent replaying what it was sent).
     user: Coalescer,
+    /// Prompts the HOST already published as `user_message` (it sends them,
+    /// so it need not wait for an echo): an agent that replays the user's
+    /// message (claude's `--replay-user-messages`) is deduped against this.
+    pending_echoes: std::collections::VecDeque<String>,
     tools: HashMap<String, ToolState>,
     subagents: HashMap<String, String>,
     permissions: HashMap<String, PermissionAsk>,
@@ -261,6 +265,7 @@ impl Mapper {
             message: Coalescer::default(),
             thought: Coalescer::default(),
             user: Coalescer::default(),
+            pending_echoes: std::collections::VecDeque::new(),
             tools: HashMap::new(),
             subagents: HashMap::new(),
             permissions: HashMap::new(),
@@ -757,8 +762,31 @@ impl Mapper {
         emit(out, ActivityEvent::narration(text), None);
     }
 
+    /// The host is about to send `text` as a prompt (a seed, a steer, a
+    /// command): publish it as the user's message NOW, the way the PTY path
+    /// echoed typed input, and remember it so the agent's own replay of the
+    /// same message (claude) does not land twice. An agent that never echoes
+    /// (codex, pi) gets its `user_message` from here alone.
+    pub fn on_prompt(&mut self, text: &str, out: &mut MapOut) {
+        if text.trim().is_empty() {
+            return;
+        }
+        self.flush_all(out);
+        self.pending_echoes.push_back(text.trim().to_string());
+        if self.pending_echoes.len() > PENDING_ECHOES_MAX {
+            self.pending_echoes.pop_front();
+        }
+        let text = self.clean(text, NARRATION_MAX);
+        emit(out, ActivityEvent::user_message(text), None);
+    }
+
     fn emit_user(&mut self, text: &str, out: &mut MapOut) {
         if text.trim().is_empty() {
+            return;
+        }
+        if let Some(at) = self.pending_echoes.iter().position(|sent| sent == text.trim()) {
+            // The agent replayed what the host already published.
+            self.pending_echoes.remove(at);
             return;
         }
         let text = self.clean(text, NARRATION_MAX);
@@ -800,7 +828,7 @@ impl Mapper {
             .and_then(subagent_id_from_meta)
             .or_else(|| notification_meta.and_then(subagent_id_from_meta))
             .map(|id| steer::truncate(&id, ID_MAX));
-        let detail = self.tool_detail(call.kind, &call.locations, call.raw_input.as_ref());
+        let detail = self.tool_detail(call.kind, &call.title, &call.locations, call.raw_input.as_ref());
         let name = self.wire_tool_name(call.kind, &call.title, detail.as_deref());
         emit(
             out,
@@ -947,13 +975,21 @@ impl Mapper {
     fn tool_detail(
         &self,
         kind: ToolKind,
+        title: &str,
         locations: &[agent_client_protocol::schema::v1::ToolCallLocation],
         raw_input: Option<&Value>,
     ) -> Option<String> {
         if let Some(location) = locations.first() {
             return Some(self.clean(&self.display_path(&location.path), TOOL_DETAIL_MAX));
         }
-        let input = raw_input?.as_object()?;
+        let Some(input) = raw_input.and_then(Value::as_object) else {
+            // No structured input (codex's commandExecution card): an Execute
+            // title IS the command, and its first token is the detail.
+            return (kind == ToolKind::Execute)
+                .then(|| command_head(title))
+                .filter(|head| !head.is_empty())
+                .map(|head| self.clean(head, TOOL_DETAIL_MAX));
+        };
         let string = |key: &str| input.get(key).and_then(Value::as_str).filter(|s| !s.is_empty());
         if kind == ToolKind::Execute {
             // The PTY path publishes the model's own description of a command
@@ -972,8 +1008,9 @@ impl Mapper {
             if let Some(command) = string("command") {
                 // The FIRST TOKEN only: `rm -rf …` reads as `rm`, and no
                 // argument (a URL with a token in it, a heredoc) reaches the
-                // relay.
-                let head = command.split_whitespace().next().unwrap_or_default();
+                // relay. codex wraps a command as `/bin/zsh -lc <command>`,
+                // which names the shell, not the command.
+                let head = command_head(command);
                 if !head.is_empty() {
                     return Some(self.clean(head, TOOL_DETAIL_MAX));
                 }
@@ -1540,6 +1577,10 @@ impl Mapper {
     }
 }
 
+/// How many host-sent prompts wait for their echo at once (a mid-turn steer
+/// queue is short; claude replays each message before the next turn).
+const PENDING_ECHOES_MAX: usize = 8;
+
 /// The option key of a free-text row. Never a VALUE: a typed answer rides
 /// `answer.text`, and picking the row with nothing typed means "no answer".
 const FREE_TEXT_KEY: &str = "text";
@@ -1686,6 +1727,22 @@ fn subagent_id_from_meta(meta: &BTreeMapLike) -> Option<String> {
         .map(str::to_string)
 }
 
+/// The first token of a command line, past a `<shell> -lc`/`-c` wrapper
+/// (`/bin/zsh -lc "bun test"` reads as `bun`).
+fn command_head(command: &str) -> &str {
+    let mut tokens = command.split_whitespace();
+    let first = tokens.next().unwrap_or_default();
+    let is_shell = first.rsplit('/').next().is_some_and(|name| name.ends_with("sh"));
+    if is_shell {
+        if let Some(flag) = tokens.next() {
+            if matches!(flag, "-lc" | "-c" | "-ic" | "-lic") {
+                return tokens.next().unwrap_or_default().trim_matches(|c| c == '"' || c == '\'');
+            }
+        }
+    }
+    first
+}
+
 /// The `_meta` of the update a notification carries, for the variants an
 /// adapter may stamp instead of the notification itself.
 fn update_meta(update: &SessionUpdate) -> Option<&BTreeMapLike> {
@@ -1766,6 +1823,40 @@ mod tests {
             Some(id) => chunk.message_id(agent_client_protocol::schema::v1::MessageId::new(id)),
             None => chunk,
         }
+    }
+
+    /// The host publishes a prompt as the user's message itself, and an
+    /// agent that replays it (claude) is deduped; one that never echoes
+    /// (codex) still gets exactly one `user_message`.
+    #[test]
+    fn a_prompt_is_the_users_message_once_whether_or_not_the_agent_echoes_it() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        mapper.on_prompt("fix the login bug", &mut out);
+        assert_eq!(
+            out.wire.iter().filter(|event| matches!(event, ActivityEvent::UserMessage { .. })).count(),
+            1
+        );
+        // claude's replay of the same text: silent.
+        let mut echoed = MapOut::default();
+        let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new("fix the login bug")));
+        mapper.on_update(&notify(SessionUpdate::UserMessageChunk(chunk)), &mut echoed);
+        mapper.on_stop(StopReason::EndTurn, &mut echoed);
+        assert!(
+            !echoed.wire.iter().any(|event| matches!(event, ActivityEvent::UserMessage { .. })),
+            "{:?}",
+            echoed.wire
+        );
+        // A different user message the agent surfaces (a session/load
+        // replay) still publishes.
+        let mut other = MapOut::default();
+        let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new("and the signup page")));
+        mapper.on_update(&notify(SessionUpdate::UserMessageChunk(chunk)), &mut other);
+        mapper.on_stop(StopReason::EndTurn, &mut other);
+        assert_eq!(
+            other.wire.iter().filter(|event| matches!(event, ActivityEvent::UserMessage { .. })).count(),
+            1
+        );
     }
 
     #[test]
@@ -1870,6 +1961,29 @@ mod tests {
             ActivityEvent::Tool { name, detail, .. } => {
                 assert_eq!(name, "Write");
                 assert_eq!(detail.as_deref(), Some("smoke.txt"));
+            }
+            other => panic!("expected a tool event, got {other:?}"),
+        }
+        // codex wraps the command in a login shell: the detail is the
+        // command's own first token, never the shell.
+        let mut out = MapOut::default();
+        let call = ToolCall::new(ToolCallId::new("tc-7"), "printf 'smoke %s' one two")
+            .kind(ToolKind::Execute)
+            .raw_input(json!({"command": "/bin/zsh -lc \"printf 'smoke %s' one two\""}));
+        mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut out);
+        match &out.wire[0] {
+            ActivityEvent::Tool { detail, .. } => assert_eq!(detail.as_deref(), Some("printf")),
+            other => panic!("expected a tool event, got {other:?}"),
+        }
+        // codex's command card carries no raw input: the title IS the
+        // command and its first token is the detail.
+        let mut out = MapOut::default();
+        let call = ToolCall::new(ToolCallId::new("tc-6"), "printf 'smoke %s' one two").kind(ToolKind::Execute);
+        mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut out);
+        match &out.wire[0] {
+            ActivityEvent::Tool { name, detail, .. } => {
+                assert_eq!(name, "Bash");
+                assert_eq!(detail.as_deref(), Some("printf"));
             }
             other => panic!("expected a tool event, got {other:?}"),
         }

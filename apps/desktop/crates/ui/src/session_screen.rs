@@ -477,9 +477,14 @@ impl SessionScreenView {
                     .truncate()
                     .text_xs()
                     .text_color(muted)
+                    // The status caption already names the device when the
+                    // transcript knows it (`phase_label`); append it only
+                    // when it does not.
                     .child(SharedString::from(match device {
-                        Some(device) => format!("{caption} · {device}"),
-                        None => caption,
+                        Some(device) if !caption.contains(device.as_str()) => {
+                            format!("{caption} · {device}")
+                        }
+                        _ => caption,
                     })),
             )
             // EXP-746: the session's own context meter. Gone once the run is
@@ -591,13 +596,18 @@ impl Render for SessionScreenView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let header = self.render_header(cx);
         let rail = self.render_changes_rail(cx);
+        // `h_flex` centers its items: the column must claim the full height
+        // itself, or the transcript's list has no height to virtualize into
+        // and the header floats mid-panel over nothing.
         h_flex()
             .size_full()
             .min_h_0()
+            .items_start()
             .track_focus(&self.focus_handle)
             .child(
                 v_flex()
                     .flex_1()
+                    .h_full()
                     .min_w_0()
                     .min_h_0()
                     .child(header)

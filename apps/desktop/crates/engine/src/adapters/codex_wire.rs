@@ -667,19 +667,30 @@ impl std::fmt::Display for ModelId {
 /// shell wrapper codex puts around almost everything.
 pub fn strip_shell_prefix(command: &str) -> &str {
     let command = command.trim();
-    for prefix in ["bash -lc ", "bash -c ", "sh -lc ", "sh -c ", "zsh -lc ", "zsh -c "] {
-        if let Some(rest) = command.strip_prefix(prefix) {
-            let rest = rest.trim();
-            // The wrapped command is usually one quoted argument.
-            for quote in ['\'', '"'] {
-                if let Some(inner) = rest.strip_prefix(quote).and_then(|r| r.strip_suffix(quote)) {
-                    return inner;
-                }
-            }
-            return rest;
+    // `bash -lc`, `zsh -c`, and the absolute spellings codex actually uses
+    // (`/bin/zsh -lc`): the shell is whatever the first token's basename is.
+    let Some((shell, rest)) = command.split_once(char::is_whitespace) else {
+        return command;
+    };
+    let is_shell = matches!(shell.rsplit('/').next(), Some("bash" | "sh" | "zsh" | "dash" | "fish"));
+    if !is_shell {
+        return command;
+    }
+    let rest = rest.trim_start();
+    let Some((flag, rest)) = rest.split_once(char::is_whitespace) else {
+        return command;
+    };
+    if !matches!(flag, "-lc" | "-c" | "-ic" | "-lic") {
+        return command;
+    }
+    let rest = rest.trim();
+    // The wrapped command is usually one quoted argument.
+    for quote in ['\'', '"'] {
+        if let Some(inner) = rest.strip_prefix(quote).and_then(|r| r.strip_suffix(quote)) {
+            return inner;
         }
     }
-    command
+    rest
 }
 
 /// How an approval option reads to a person picking it. Maps onto ACP's
@@ -1161,6 +1172,9 @@ mod wire_tests {
     fn the_command_headline_drops_the_shell_wrapper() {
         assert_eq!(strip_shell_prefix("bash -lc 'cargo test -p engine'"), "cargo test -p engine");
         assert_eq!(strip_shell_prefix("sh -c \"ls\""), "ls");
+        // codex 0.144 spells the shell absolutely.
+        assert_eq!(strip_shell_prefix("/bin/zsh -lc \"printf 'smoke %s' one two\""), "printf 'smoke %s' one two");
+        assert_eq!(strip_shell_prefix("/bin/zsh -lc printf hi"), "printf hi");
         assert_eq!(strip_shell_prefix("  git status  "), "git status");
     }
 

@@ -738,7 +738,12 @@ where
             if ctx.replay {
                 // A transcript replay has nothing to steer: `session/load`
                 // already streamed its history through the notification
-                // handler above.
+                // handler above. Flush what the coalescers still hold (a
+                // replay has no turn end and may finish inside the 250 ms
+                // idle window) before the phase closes the feed.
+                let mut out = MapOut::default();
+                ctx.with_mapper(|mapper| mapper.on_stop(StopReason::EndTurn, &mut out));
+                ctx.dispatch(out);
                 ctx.phase(EnginePhase::Ended);
                 return Ok(());
             }
@@ -794,6 +799,7 @@ fn handle_command(
                 // into the live turn (codex `turn/steer`, claude's queued
                 // user message), so its response is not a turn end and is
                 // deliberately detached.
+                announce_prompt(ctx, &text);
                 cx.send_request(PromptRequest::new(session_id.clone(), text_blocks(&text)))
                     .detach();
             }
@@ -916,6 +922,7 @@ fn start_turn(
     blocks: Vec<ContentBlock>,
     turns: &Arc<AtomicUsize>,
 ) {
+    announce_prompt(ctx, &blocks_text(&blocks));
     let sent = cx.send_request(PromptRequest::new(session_id.clone(), blocks));
     turns.fetch_add(1, Ordering::SeqCst);
     ctx.turn_signal.set_idle(false);
@@ -941,6 +948,27 @@ fn start_turn(
         ctx.dispatch(out);
         Ok(())
     });
+}
+
+/// Publish what the host is about to send as the user's own message (the
+/// PTY path echoed typed input; an agent that never replays it, codex, would
+/// otherwise leave the transcript without the question the reply answers).
+fn announce_prompt(ctx: &Arc<SessionCtx>, text: &str) {
+    let mut out = MapOut::default();
+    ctx.with_mapper(|mapper| mapper.on_prompt(text, &mut out));
+    ctx.dispatch(out);
+}
+
+/// The text of a prompt's blocks, for the user's own message row.
+fn blocks_text(blocks: &[ContentBlock]) -> String {
+    blocks
+        .iter()
+        .filter_map(|block| match block {
+            ContentBlock::Text(text) => Some(text.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// The elicitation's id: its ACP scope where it has one, else a stable

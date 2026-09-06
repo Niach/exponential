@@ -134,6 +134,14 @@ impl EngineSession {
         let kind = AdapterKind::from_agent(&agent);
         let builtin = agent.builtin();
         let child_exit = ChildExitLink::new();
+        // The recorded ACP id is what `session/load` takes (for pi it is the
+        // session file, which doubles as its ACP id); a run recorded without
+        // one falls back to the agent-native handle the adapter knows how to
+        // reopen.
+        let resume = match acp_session_id {
+            Some(id) => ResumeHandle::Acp(id),
+            None => native,
+        };
         let adapter = Adapter::new(AdapterSpec {
             kind,
             agent: agent.clone(),
@@ -161,14 +169,11 @@ impl EngineSession {
             cwd: cwd.clone(),
             session_id: String::new(),
             prompt: None,
-            resume: Some(match acp_session_id {
-                Some(id) => ResumeHandle::Acp(id),
-                None => native,
-            }),
+            resume: Some(resume.clone()),
             personal_key: personal_key.clone(),
             reaper_settings_path: None,
-        exit: child_exit.clone(),
-})?;
+            exit: child_exit.clone(),
+        })?;
 
         // A replay's session id is local bookkeeping only — no row exists.
         let session_id = format!("replay-{}", uuid::Uuid::new_v4());
@@ -190,7 +195,9 @@ impl EngineSession {
             local_sink: Some(local_sink),
             agent: agent.clone(),
             replay: true,
-            resume: None,
+            // The HOST issues `session/load` for it: a replay that opened a
+            // fresh `session/new` would show an empty transcript.
+            resume: Some(resume),
             prompt: None,
             child_exit,
         });

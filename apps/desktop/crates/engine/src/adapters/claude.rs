@@ -1093,6 +1093,7 @@ impl ClaudeSession {
             }
             ClaudeOut::ControlCancelRequest(cancel) => {
                 // The CLI abandoned a request it sent us: never answer it.
+                log::debug!("engine: claude cancelled control request {}", cancel.request_id);
                 self.lock().aborted_requests.insert(cancel.request_id);
             }
             // Answering a keep_alive is a protocol error; unknown frame types
@@ -1814,9 +1815,13 @@ impl ClaudeSession {
         // The CLI cancelled this request while we were asking: answering it
         // now would be answering a request that no longer exists.
         if self.lock().aborted_requests.remove(&request_id) {
+            log::debug!("engine: claude abandoned control request {request_id}; not answering");
             return;
         }
-        let _ = self.send(wire::control_response_success(&request_id, answer));
+        match self.send(wire::control_response_success(&request_id, answer)) {
+            Ok(()) => log::debug!("engine: answered claude control request {request_id}"),
+            Err(error) => log::warn!("engine: claude control response {request_id} failed: {error}"),
+        }
     }
 
     async fn request_permission(
