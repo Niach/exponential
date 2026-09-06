@@ -19,29 +19,89 @@
 }
 
 .ac-card {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  align-items: stretch;
+  gap: 12px;
   padding: 20px;
+  overflow: hidden;
+  transition:
+    border-color 0.2s ease,
+    transform 0.2s ease;
+}
+
+/* Top-edge sheen + a soft glow tucked behind the icon tile — the only
+   light in the card, so the tile reads as the anchor. */
+.ac-card::before,
+.ac-autos::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    oklch(1 0 0 / 22%) 30%,
+    oklch(1 0 0 / 22%) 70%,
+    transparent
+  );
+  pointer-events: none;
+}
+
+.ac-card::after {
+  content: "";
+  position: absolute;
+  top: -70px;
+  left: -50px;
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    oklch(1 0 0 / 9%),
+    oklch(1 0 0 / 0%) 65%
+  );
+  opacity: 0.85;
+  transition: opacity 0.25s ease;
+  pointer-events: none;
+}
+
+.ac-card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
 }
 
 .ac-card-icon {
+  flex: none;
+  align-self: flex-start;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
-  border-radius: var(--radius-row);
-  background: var(--glass-fill-active);
-  border: 1px solid var(--glass-stroke-row);
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: linear-gradient(
+    180deg,
+    oklch(1 0 0 / 13%),
+    oklch(1 0 0 / 5%)
+  );
+  border: 1px solid var(--glass-stroke-active);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 16%),
+    0 6px 18px -8px oklch(0 0 0 / 70%);
   color: var(--fg);
+  transition: transform 0.2s ease;
 }
 
 .ac-card-title {
-  font-size: 14.5px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--fg);
   letter-spacing: -0.01em;
+  line-height: 1.25;
 }
 
 .ac-card-text {
@@ -50,8 +110,35 @@
   color: var(--fg-muted);
 }
 
+@media (hover: hover) {
+  .ac-card:hover {
+    border-color: var(--glass-stroke-active);
+    transform: translateY(-2px);
+  }
+  .ac-card:hover::after {
+    opacity: 1;
+  }
+  .ac-card:hover .ac-card-icon {
+    transform: scale(1.06);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ac-card,
+  .ac-card-icon {
+    transition: none;
+  }
+  .ac-card:hover {
+    transform: none;
+  }
+  .ac-card:hover .ac-card-icon {
+    transform: none;
+  }
+}
+
 /* ── Automations sub-block (EXP-583 marketing, EXP-602) ── */
 .ac-autos {
+  position: relative;
   margin-top: 14px;
   display: flex;
   flex-direction: column;

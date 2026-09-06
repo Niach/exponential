@@ -64,10 +64,12 @@ export function ActionsSection() {
               className={`glass-card ac-card`}
               variants={cardReveal}
             >
-              <span className={`ac-card-icon`}>
-                <Icon size={17} stroke={1.7} />
+              <span className={`ac-card-head`}>
+                <span className={`ac-card-icon`}>
+                  <Icon size={18} stroke={1.7} />
+                </span>
+                <span className={`ac-card-title`}>{title}</span>
               </span>
-              <span className={`ac-card-title`}>{title}</span>
               <span className={`ac-card-text`}>{text}</span>
             </motion.div>
           ))}
