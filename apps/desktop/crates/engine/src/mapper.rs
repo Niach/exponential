@@ -145,6 +145,10 @@ pub struct Mapper {
     pending_echoes: std::collections::VecDeque<String>,
     tools: HashMap<String, ToolState>,
     subagents: HashMap<String, String>,
+    /// EXP-748: attributed tool calls per live subagent. The completed edge
+    /// reports the total, so a viewer whose replay lost the individual rows
+    /// (the journal drops them first) still captions "N tool calls".
+    subagent_tool_calls: HashMap<String, u32>,
     permissions: HashMap<String, PermissionAsk>,
     elicitations: HashMap<String, ElicitationAsk>,
     /// question id → which ask owns it (a stepper registers one per step).
@@ -271,6 +275,7 @@ impl Mapper {
             pending_echoes: std::collections::VecDeque::new(),
             tools: HashMap::new(),
             subagents: HashMap::new(),
+            subagent_tool_calls: HashMap::new(),
             permissions: HashMap::new(),
             elicitations: HashMap::new(),
             questions: HashMap::new(),
@@ -693,6 +698,16 @@ impl Mapper {
                 .remove(&id)
                 .unwrap_or_else(|| self.clean(&edge.agent_type, AGENT_TYPE_MAX)),
         };
+        // EXP-748: the completed edge carries the run's tool-call total — what
+        // this mapper attributed, or the adapter's own number when it counted
+        // more (it sees calls that never reached a `session/update`).
+        let tool_calls = match edge.status {
+            SubagentEdgeStatus::Started => None,
+            SubagentEdgeStatus::Completed => {
+                let counted = self.subagent_tool_calls.remove(&id).unwrap_or(0);
+                Some(counted.max(edge.tool_calls.unwrap_or(0))).filter(|total| *total > 0)
+            }
+        };
         emit(
             out,
             ActivityEvent::Subagent {
@@ -707,7 +722,7 @@ impl Mapper {
                     .as_ref()
                     .map(|detail| self.clean(detail, TOOL_DETAIL_MAX)),
                 at: None,
-                tool_calls: None,
+                tool_calls,
             },
             None,
         );
@@ -858,6 +873,11 @@ impl Mapper {
             .and_then(subagent_id_from_meta)
             .or_else(|| notification_meta.and_then(subagent_id_from_meta))
             .map(|id| steer::truncate(&id, ID_MAX));
+        // EXP-748: count it for the subagent's completed edge — the rows
+        // themselves are the first thing a replay drops.
+        if let Some(subagent_id) = subagent_id.clone() {
+            *self.subagent_tool_calls.entry(subagent_id).or_insert(0) += 1;
+        }
         let detail = self.tool_detail(call.kind, &call.title, &call.locations, call.raw_input.as_ref());
         let name = self.wire_tool_name(call.kind, &call.title, detail.as_deref());
         emit(
@@ -2322,6 +2342,83 @@ mod tests {
         assert_eq!(
             serde_json::to_value(&out.wire[0]).expect("subagent serializes"),
             json!({"kind": "subagent", "id": "task-1", "agentType": "explore", "status": "started"})
+        );
+    }
+
+    /// EXP-748: the journal drops a subagent's tool rows before anything of
+    /// the main transcript, so the completed edge has to carry the total the
+    /// caption falls back on.
+    #[test]
+    fn a_completed_subagent_edge_carries_its_tool_call_count() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let start = SubagentEdge {
+            id: "task-1".to_string(),
+            agent_type: "explore".to_string(),
+            status: SubagentEdgeStatus::Started,
+            detail: None,
+            tool_calls: None,
+        };
+        mapper.on_update(
+            &notify(SessionUpdate::AgentMessageChunk(chunk("", None))).meta(start.to_meta()),
+            &mut out,
+        );
+
+        let mut owned = serde_json::Map::new();
+        owned.insert(
+            SUBAGENT_ID_META_KEY.to_string(),
+            json!("task-1"),
+        );
+        for i in 0..3 {
+            let call = ToolCall::new(ToolCallId::new(format!("tc-{i}")), "Read file.rs")
+                .kind(ToolKind::Read);
+            mapper.on_update(
+                &notify(SessionUpdate::ToolCall(call)).meta(owned.clone()),
+                &mut out,
+            );
+        }
+        // A call of the MAIN line is never attributed to the subagent.
+        mapper.on_update(
+            &notify(SessionUpdate::ToolCall(
+                ToolCall::new(ToolCallId::new("tc-main"), "Read main.rs").kind(ToolKind::Read),
+            )),
+            &mut out,
+        );
+
+        let mut out = MapOut::default();
+        mapper.on_subagent(
+            &SubagentEdge {
+                status: SubagentEdgeStatus::Completed,
+                ..start
+            },
+            &mut out,
+        );
+        assert_eq!(
+            serde_json::to_value(&out.wire[0]).expect("subagent serializes"),
+            json!({
+                "kind": "subagent",
+                "id": "task-1",
+                "agentType": "explore",
+                "status": "completed",
+                "toolCalls": 3
+            })
+        );
+
+        // A subagent that ran no tools keeps the key off the wire entirely.
+        let mut out = MapOut::default();
+        mapper.on_subagent(
+            &SubagentEdge {
+                id: "task-2".to_string(),
+                agent_type: "plan".to_string(),
+                status: SubagentEdgeStatus::Completed,
+                detail: None,
+                tool_calls: None,
+            },
+            &mut out,
+        );
+        assert_eq!(
+            serde_json::to_value(&out.wire[0]).expect("subagent serializes"),
+            json!({"kind": "subagent", "id": "task-2", "agentType": "plan", "status": "completed"})
         );
     }
 
