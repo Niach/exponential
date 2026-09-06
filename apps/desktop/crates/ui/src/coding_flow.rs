@@ -505,6 +505,18 @@ impl LocalSessions {
             .collect()
     }
 
+    /// EXP-746: every in-process ACP engine this app hosts — the app-quit
+    /// sweep's kill list (a PTY child dies with its terminal; an engine's
+    /// does not).
+    pub(crate) fn acp_hosts(&self) -> Vec<engine::EngineSession> {
+        self.all()
+            .filter_map(|session| match &session.host {
+                LocalSessionHost::Acp { session } => Some(session.clone()),
+                LocalSessionHost::Pty { .. } => None,
+            })
+            .collect()
+    }
+
     /// The ACTIONS with a live local run (EXP-530) — the automation host's
     /// defer set: a trigger never launches a second run of an action this
     /// process is already running. Keyed by action id (not session id), and
@@ -952,6 +964,18 @@ const QUIT_END_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 /// covered by draining [`PENDING_ENDS`] within the same deadline.
 pub fn install_quit_hook(cx: &mut App) {
     cx.on_app_quit(|cx| {
+        // EXP-746: an ACP run's agent is OUR child, not a PTY's — nothing
+        // SIGHUPs it when we go. Kill every engine first so the child dies
+        // with us and the end sequence has the quit window to land in; the
+        // row end below is the same idempotent backstop the PTY path uses.
+        // (Closing a WINDOW deliberately does not do this: an ACP run is not
+        // window-bound — that is the point of moving it off the dock.)
+        let engines: Vec<engine::EngineSession> = LocalSessions::global_ref(cx)
+            .map(|sessions| sessions.read(cx).acp_hosts())
+            .unwrap_or_default();
+        for session in engines {
+            session.kill("ended");
+        }
         let session_ids: Vec<String> = LocalSessions::global_ref(cx)
             .map(|sessions| sessions.read(cx).session_ids())
             .unwrap_or_default();
@@ -1259,10 +1283,11 @@ pub fn build_launch(
         codex_sessions_root: None,
         claude_projects_root: None,
         device_id: Some(steer::persistent_device_id(&data_dir)),
-        // EXP-746: the desktop ACP host lands with the engine lane
-        // (`spawn_acp_into_window`); until then every launch prepares for
-        // the PTY path. Flip this to "a steer runtime exists" there.
-        acp_available: false,
+        // EXP-746: the engine runs its session on the steer runtime, so no
+        // runtime means no ACP host — the transport decision is made HERE,
+        // at prepare time, because an Acp-prepared launch has no TUI argv to
+        // fall back to at spawn time.
+        acp_available: crate::steer_wiring::runtime(cx).is_some(),
         data_dir,
     };
     Some((request, deps))
@@ -1289,7 +1314,7 @@ pub fn build_batch_deps(cx: &mut App) -> Option<CodingDeps> {
         claude_projects_root: None,
         device_id: Some(steer::persistent_device_id(&data_dir)),
         // EXP-746: see `build_launch` above.
-        acp_available: false,
+        acp_available: crate::steer_wiring::runtime(cx).is_some(),
         data_dir,
     })
 }
@@ -1411,12 +1436,49 @@ pub fn resume_blocker(record: &RunRecord, cx: &mut App) -> Option<String> {
     None
 }
 
-/// Foreground half of the launch: spawn the prepared Claude tab into THIS
-/// window's dock, register the local session (play→stop), and hook the exit
-/// edge to clear it again. Shared by the single-issue and batch paths — only
-/// the [`SessionSubject`] differs. A spawn failure never strands the row —
-/// `spawn_prepared_with` already ends it.
+/// EXP-746: which host a prepared launch goes to. Pure, so the dispatch is a
+/// unit test rather than a gpui one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SpawnArm {
+    /// A terminal tab in this window's dock — the pre-746 path, byte-identical.
+    Pty,
+    /// An in-process ACP engine rendered by the session screen.
+    Acp,
+}
+
+pub(crate) fn arm_for(transport: coding::LaunchTransport) -> SpawnArm {
+    match transport {
+        coding::LaunchTransport::Terminal => SpawnArm::Pty,
+        coding::LaunchTransport::Acp => SpawnArm::Acp,
+    }
+}
+
+/// Foreground half of the launch. The transport was decided at PREPARE time
+/// (`coding::resolve_transport` — an Acp-prepared launch has no TUI argv, so
+/// there is nothing to fall back to here); this only routes it to its host.
+///
+/// Every caller — the Start-coding dialog, the three relay start handlers,
+/// `action_run::resume_run`, the dock's chat launch — funnels through here,
+/// which is what keeps "there is no second, divergent start implementation"
+/// true across both transports.
 pub fn spawn_into_window(
+    prepared: coding::PreparedLaunch,
+    subject: SessionSubject,
+    window: &mut Window,
+    cx: &mut App,
+) -> Result<(), String> {
+    match arm_for(prepared.transport) {
+        SpawnArm::Pty => spawn_pty_into_window(prepared, subject, window, cx),
+        SpawnArm::Acp => spawn_acp_into_window(prepared, subject, window, cx),
+    }
+}
+
+/// Spawn the prepared agent tab into THIS window's dock, register the local
+/// session (play→stop), and hook the exit edge to clear it again. Shared by
+/// the single-issue and batch paths — only the [`SessionSubject`] differs. A
+/// spawn failure never strands the row — `spawn_prepared_with` already ends
+/// it.
+fn spawn_pty_into_window(
     mut prepared: coding::PreparedLaunch,
     subject: SessionSubject,
     window: &mut Window,
@@ -1426,10 +1488,7 @@ pub fn spawn_into_window(
         // No dock in this window — end the already-started row so the
         // "coding now" badge doesn't ghost (§7.1 step 6 created it).
         if let Some(trpc) = queries::trpc_client(cx) {
-            let session_id = prepared.session_id.clone();
-            std::thread::spawn(move || {
-                coding::end_session_best_effort(&trpc, &session_id);
-            });
+            end_row_best_effort(&Arc::new(trpc), &prepared.session_id);
         }
         return Err("No terminal dock in this window.".to_string());
     };
@@ -1501,7 +1560,7 @@ pub fn spawn_into_window(
             // single hookup the §08 wiring owns (`ui::steer_wiring`). The
             // worktree rides along for the §P7 scrubbed activity emitter
             // (members-only activity channel).
-            crate::steer_wiring::attach_publisher(
+            crate::steer_wiring::attach_publisher_pty(
                 &session_id,
                 &subject,
                 terminal_tab,
@@ -1547,6 +1606,191 @@ pub fn spawn_into_window(
         Ok(LaunchOutcome::Disabled { reason }) => Err(reason.message()),
         Err(err) => Err(format!("Could not start the coding session: {err}")),
     }
+}
+
+
+// ---------------------------------------------------------------------------
+// The ACP arm (EXP-746 D2)
+// ---------------------------------------------------------------------------
+
+/// The engine's exit callback. It fires on the engine's own thread, so the
+/// only thing it may do is hand the exit to the gpui foreground — the
+/// `steer_wiring` [`flume`] recipe.
+struct DesktopEngineHost {
+    exits: flume::Sender<engine::EngineExit>,
+}
+
+impl engine::EngineHost for DesktopEngineHost {
+    fn on_exit(&self, exit: engine::EngineExit) {
+        let _ = self.exits.send(exit);
+    }
+}
+
+/// Start a prepared launch on the in-process ACP engine and open its session
+/// screen.
+///
+/// The ORDER below is the whole function: every step is an invariant some
+/// earlier bug bought.
+///
+/// 1. `launch_hold` comes out first (EXP-478) — anything that consumes
+///    `prepared` afterwards would drop the gate pre-spawn.
+/// 2. The kill watch is registered BEFORE `engine::start` (D14) so no
+///    `ended` edge can land in the gap between the row existing and the
+///    engine reading its feed.
+/// 3. The exit drain is spawned before the start for the same reason.
+/// 4. The hold is dropped only after `LocalSessions` registered the session,
+///    so the auto-prune never sees an unheld worktree.
+///
+/// Unlike the PTY arm this needs no terminal dock: an ACP run has no tab, so
+/// a window without one is a perfectly good host.
+fn spawn_acp_into_window(
+    mut prepared: coding::PreparedLaunch,
+    subject: SessionSubject,
+    window: &mut Window,
+    cx: &mut App,
+) -> Result<(), String> {
+    // EXP-478, before anything can consume `prepared`.
+    let launch_hold = prepared.launch_hold.take();
+
+    // The bookkeeping snapshot, exactly the PTY arm's (the engine takes
+    // `prepared` whole).
+    let session_id = prepared.session_id.clone();
+    let clone = prepared.clone.clone();
+    let repository_id = prepared.repository_id.clone();
+    let branch = prepared.branch.clone();
+    let worktree = prepared.worktree.clone();
+    let base_ref = prepared.base_ref.clone();
+    let agent = prepared.agent;
+    let action_id = match &prepared.tab_kind {
+        TabKind::Action(id) => Some(id.clone()),
+        _ => None,
+    };
+    let started_reason = prepared.heartbeat_scope.started_reason.clone();
+    let started_by_id = prepared.heartbeat_scope.started_by_id.clone();
+    let run_cleanup = prepared.run_cleanup.clone();
+
+    let Some(trpc) = queries::trpc_client(cx) else {
+        return Err("Not signed in.".to_string());
+    };
+    let trpc = Arc::new(trpc);
+    let Some(account) = queries::active_account(cx) else {
+        return Err("Not signed in.".to_string());
+    };
+    // `prepare` only resolves the Acp transport when `acp_available` said a
+    // runtime exists, so this is a signed-out-mid-launch degenerate case.
+    let Some(runtime) = crate::steer_wiring::runtime(cx) else {
+        end_row_best_effort(&trpc, &session_id);
+        return Err("The steering runtime is not available.".to_string());
+    };
+
+    let sessions = LocalSessions::global(cx);
+    let (exit_tx, exit_rx) = flume::bounded::<engine::EngineExit>(1);
+    // The exit edge lands on the engine's thread; this is its foreground half
+    // (EXP-283's ordering, verbatim: unwatch before our own `ended` flip can
+    // sync back and read as a remote kill).
+    {
+        let sessions = sessions.downgrade();
+        let subject = subject.clone();
+        let session_id = session_id.clone();
+        cx.spawn(async move |cx| {
+            let Ok(exit) = exit_rx.recv_async().await else {
+                return;
+            };
+            let _ = cx.update(|cx| {
+                if let Some(error) = exit.error.as_deref() {
+                    log::warn!("[ui] acp session {session_id} failed: {error}");
+                } else {
+                    log::info!("[ui] acp session {session_id} ended ({})", exit.outcome);
+                }
+                crate::steer_wiring::unwatch_kill(&session_id, cx);
+                if let Some(sessions) = sessions.upgrade() {
+                    LocalSessions::remove(&sessions, &subject, cx);
+                }
+                // The tab STAYS: an ended run is a read-only transcript.
+                crate::session_screen::mark_ended(&session_id, cx);
+            });
+        })
+        .detach();
+    }
+
+    // D14: registered with our `cx` before the engine exists, so an `ended`
+    // row that lands during the handshake is not lost.
+    let kill = crate::steer_wiring::register_kill_feed(&session_id, cx);
+    let start = engine::EngineStart {
+        prepared,
+        trpc: Arc::clone(&trpc),
+        runtime,
+        data_dir: coding_data_dir(cx),
+        account_id: account.id,
+        own_user_id: Some(account.user_id),
+        // REV2-17 + the agent's MCP bearer.
+        personal_key: crate::steer_wiring::personal_key(cx),
+        issue_id: match &subject {
+            SessionSubject::Issue(issue_id) => Some(issue_id.clone()),
+            SessionSubject::Batch(_) | SessionSubject::Action(_) => None,
+        },
+        foreign_host: crate::steer_wiring::foreign_host(started_by_id.as_deref(), cx),
+        publish: true,
+        kill,
+        // The session screen reads the feed through `EngineSession::subscribe`
+        // — a view can attach late (the tab reopened, the screen rebuilt) and
+        // needs the backlog replayed, which a push sink cannot give it. The
+        // sink is still handed over because its PRESENCE is what tells the
+        // engine this host renders locally at all (the daemon passes `None`).
+        local_sink: Some(Arc::new(|_| {})),
+    };
+
+    let session = match engine::start(start, Arc::new(DesktopEngineHost { exits: exit_tx })) {
+        Ok(session) => session,
+        Err(err) => {
+            // The row is already created (prepare made it), so it must not
+            // ghost — the PTY arm's failure path, on a thread because it is a
+            // blocking HTTPS call.
+            crate::steer_wiring::unwatch_kill(&session_id, cx);
+            end_row_best_effort(&trpc, &session_id);
+            // `launch_hold` releases via RAII with this return.
+            return Err(format!("Could not start the coding session: {err}"));
+        }
+    };
+
+    // P9: keep the clone's embedded token fresh for the session's life
+    // (released via `LocalSessions::remove` on the exit edge).
+    if let Some(repository_id) = &repository_id {
+        TokenRefreshers::retain(&clone, repository_id, cx);
+    }
+    LocalSessions::insert(
+        &sessions,
+        LocalCodingSession {
+            session_id: session_id.clone(),
+            subject,
+            clone,
+            branch,
+            host: LocalSessionHost::Acp { session },
+            action_id,
+            agent,
+            worktree,
+            base_ref,
+            started_reason,
+            run_cleanup,
+        },
+        trpc,
+        cx,
+    );
+    // EXP-478: only now (see the PTY arm).
+    drop(launch_hold);
+    crate::session_screen::open_session(&session_id, window, cx);
+    Ok(())
+}
+
+/// End `session_id`'s row off the foreground, best effort. Both arms' failure
+/// paths use it: `prepare` already created the row, so a start that never
+/// happened must not leave "coding now" ghosting on every client.
+fn end_row_best_effort(trpc: &Arc<api::TrpcClient>, session_id: &str) {
+    let trpc = Arc::clone(trpc);
+    let session_id = session_id.to_string();
+    std::thread::spawn(move || {
+        coding::end_session_best_effort(&trpc, &session_id);
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -1969,6 +2213,36 @@ mod tests {
             BranchTakeover::Close(handles) => handles,
             BranchTakeover::Refuse => panic!("expected a takeover, got a refusal"),
         }
+    }
+
+    /// EXP-746: the prepared transport decides the host, and nothing else
+    /// does — no spawn-time fallback, because an Acp-prepared launch has no
+    /// TUI argv and a Terminal-prepared one has no ACP payload.
+    #[test]
+    fn spawn_dispatch_follows_the_prepared_transport() {
+        assert_eq!(arm_for(coding::LaunchTransport::Terminal), SpawnArm::Pty);
+        assert_eq!(arm_for(coding::LaunchTransport::Acp), SpawnArm::Acp);
+    }
+
+    /// EXP-746: "stop this session" reaches the right backend. The PTY arm
+    /// closes its tab (whose `TabClosed` watcher ends the row); the ACP arm
+    /// kills the engine (whose end sequence does). Asserted over the shape,
+    /// since neither side is constructible without gpui.
+    #[test]
+    fn local_session_host_stop_targets_the_right_backend() {
+        // A PTY host is the ONLY one with a tab and a manager — every reader
+        // that used to reach for `LocalCodingSession.tab` funnels through
+        // these two accessors, so an ACP run can never be mistaken for one.
+        let acp_has_no_tab = |host: &LocalSessionHost| host.tab().is_none();
+        // The enum is closed, so this is exhaustive by construction: adding a
+        // third backend without a `stop` arm will not compile.
+        fn stop_is_total(host: &LocalSessionHost) -> &'static str {
+            match host {
+                LocalSessionHost::Pty { .. } => "close the tab",
+                LocalSessionHost::Acp { .. } => "kill the engine",
+            }
+        }
+        let _ = (acp_has_no_tab, stop_is_total);
     }
 
     /// Trunk/scratch action runs record no branch — they must never read as
