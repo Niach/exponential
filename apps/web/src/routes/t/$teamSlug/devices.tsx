@@ -5,12 +5,22 @@ import {
   useNavigate,
 } from "@tanstack/react-router"
 import { MyMachines } from "@/components/my-machines"
-import { SessionRow } from "@/components/agent-session-row"
+import {
+  EndedSessionRow,
+  SessionRow,
+} from "@/components/agent-session-row"
+import { agentLabel } from "@/components/agent-usage-bar"
+import { relativeTime } from "@/components/comment-rows/format"
 import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import { useSteerConfig } from "@/components/agent-session"
 import { useAgentDock } from "@/components/agent-dock/agent-dock-provider"
 import { LaunchDialog } from "@/components/launch-dialog/launch-dialog"
-import { useAgentsData } from "@/hooks/use-agents-data"
+import { pastRunByline, pastRunEndedAt } from "@/lib/past-runs"
+import {
+  useAgentsData,
+  usePastRuns,
+  type PastRunRow,
+} from "@/hooks/use-agents-data"
 import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug } from "@/hooks/use-team-data"
@@ -43,6 +53,20 @@ export const Route = createFileRoute(`/t/$teamSlug/devices`)({
   component: DevicesPage,
 })
 
+/** EXP-746: the Past row's caption. The ORDER and the "ended by" wording are
+ * the ×4 rule (lib/past-runs.ts); the agent label and the relative time are
+ * this client's own vocabulary and formatter. */
+function rowByline(row: PastRunRow): string {
+  // A row that stamped neither end nor heartbeat has no honest time to show
+  // (0 would render as 1970), so that segment simply drops.
+  const endedAt = pastRunEndedAt(row.session)
+  return pastRunByline(row.session, {
+    deviceLabel: row.device.label ?? row.session.deviceLabel,
+    agentLabel: row.session.agent ? agentLabel(row.session.agent) : null,
+    relativeTime: endedAt > 0 ? relativeTime(new Date(endedAt)) : ``,
+  })
+}
+
 function DevicesPage() {
   const { teamSlug } = Route.useParams()
   const search = Route.useSearch()
@@ -58,6 +82,9 @@ function DevicesPage() {
   // Own sessions only (EXP-312 follow-up): a teammate's live session can
   // never be watched from here, so listing it only read as "not online".
   const { running, isLoading } = useAgentsData(teamId, currentUserId)
+  // EXP-746: the caller's own FINISHED, person-started runs — the native
+  // apps' Past section, on every viewport like Running above it.
+  const { past } = usePastRuns(teamId, currentUserId)
   // Steer tickets require team membership and a configured relay; the
   // server enforces both at mint time, this only decides whether the
   // interactive affordances render.
@@ -141,6 +168,26 @@ function DevicesPage() {
                 No agents running right now.
               </GlassRow>
             )}
+          </div>
+        )}
+
+        {/* EXP-746: Past — the caller's own finished runs, newest first,
+            capped at PAST_RUN_CAP. Hidden entirely when empty: a header over
+            nothing is noise, and the natives do the same. */}
+        {past.length > 0 && (
+          <div className="mb-6">
+            <GlassSectionHeader label="Past" />
+            <div className="flex flex-col gap-2">
+              {past.map((row) => (
+                <EndedSessionRow
+                  key={row.session.id}
+                  row={{ session: row.session, canResume: row.canResume }}
+                  title={row.title}
+                  identifier={row.identifier ?? undefined}
+                  byline={rowByline(row)}
+                />
+              ))}
+            </div>
           </div>
         )}
       </div>

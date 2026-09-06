@@ -2,6 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   ackAnswer,
   activeQuestionIds,
+  configChips,
+  parseConfigState,
+  parseSessionUsage,
   answerKey,
   applyQuestionResolved,
   askStepperView,
@@ -27,6 +30,7 @@ import {
   type EchoEntry,
   type QuestionLike,
 } from "./agent-feed"
+import { CONFIG_DEFAULT_VALUE_LABEL } from "./steer-commands"
 
 describe(`local-echo dedupe`, () => {
   it(`consumes a matching echo exactly once`, () => {
@@ -877,5 +881,135 @@ describe(`compaction`, () => {
       { kind: `single`, item: feed[1] },
       { kind: `toolRun`, id: 3, items: [feed[2], feed[3]] },
     ])
+  })
+})
+
+// EXP-746: the ACP engine's latest-wins configuration + context meter.
+describe(`config state`, () => {
+  const state = (over: Record<string, unknown> = {}) => ({
+    kind: `config_state`,
+    options: [
+      {
+        id: `model`,
+        label: `Model`,
+        value: `opus`,
+        values: [
+          { id: `opus`, label: `Opus` },
+          { id: `sonnet`, label: `Sonnet` },
+        ],
+      },
+    ],
+    ...over,
+  })
+
+  it(`parseConfigState drops malformed options and keeps the rest`, () => {
+    const parsed = parseConfigState(
+      state({
+        options: [
+          `not an option`,
+          { label: `no id at all` },
+          { id: ``, label: `blank id` },
+          { id: `effort`, label: `Effort`, value: `high`, values: `nope` },
+          { id: `model`, label: `Model` },
+        ],
+        modes: [{ id: `plan`, label: `Plan`, description: `Read-only` }, 7],
+        commands: [{ name: `review`, description: `Review the diff` }, null],
+        currentMode: `plan`,
+      })
+    )
+    expect(parsed).toEqual({
+      options: [
+        { id: `effort`, label: `Effort`, value: `high` },
+        { id: `model`, label: `Model` },
+      ],
+      modes: [{ id: `plan`, label: `Plan`, description: `Read-only` }],
+      commands: [{ name: `review`, description: `Review the diff` }],
+      currentMode: `plan`,
+    })
+    // Not a config state at all — the caller keeps its previous snapshot.
+    expect(parseConfigState({ kind: `config_state` })).toBeNull()
+    expect(parseConfigState(null)).toBeNull()
+    expect(parseConfigState([])).toBeNull()
+  })
+
+  it(`parseSessionUsage refuses a zero context size`, () => {
+    expect(
+      parseSessionUsage({
+        kind: `usage`,
+        contextUsed: 124_000,
+        contextSize: 200_000,
+        costUsd: 1.235,
+      })
+    ).toEqual({ contextUsed: 124_000, contextSize: 200_000, costUsd: 1.235 })
+    // A zero window is the engine saying "unknown", not "empty".
+    expect(
+      parseSessionUsage({ kind: `usage`, contextUsed: 0, contextSize: 0 })
+    ).toBeNull()
+    expect(
+      parseSessionUsage({ kind: `usage`, contextUsed: `lots`, contextSize: 10 })
+    ).toBeNull()
+    // A negative cost is dropped, the counts still stand.
+    expect(
+      parseSessionUsage({
+        kind: `usage`,
+        contextUsed: 10,
+        contextSize: 20,
+        costUsd: -1,
+      })
+    ).toEqual({ contextUsed: 10, contextSize: 20 })
+  })
+
+  it(`configChips puts the mode chip first, then options in publisher order`, () => {
+    const config = parseConfigState(
+      state({
+        options: [
+          { id: `model`, label: `Model`, value: `opus`, values: [{ id: `opus`, label: `Opus` }] },
+          { id: `effort`, label: `Effort`, value: `high`, values: [{ id: `high`, label: `High` }] },
+        ],
+        modes: [
+          { id: `default`, label: `Default` },
+          { id: `plan`, label: `Plan` },
+        ],
+        currentMode: `plan`,
+      })
+    )
+    expect(configChips(config).map((chip) => [chip.id, chip.valueLabel])).toEqual([
+      [`mode`, `Plan`],
+      [`model`, `Opus`],
+      [`effort`, `High`],
+    ])
+    // No modes on this run → no mode chip.
+    expect(configChips(parseConfigState(state())).map((c) => c.id)).toEqual([
+      `model`,
+    ])
+    expect(configChips(null)).toEqual([])
+  })
+
+  it(`a values-less option is a read-only chip`, () => {
+    const config = parseConfigState(
+      state({ options: [{ id: `fast`, label: `Fast`, value: `on` }] })
+    )
+    expect(configChips(config)).toEqual([
+      {
+        kind: `option`,
+        id: `fast`,
+        label: `Fast`,
+        value: `on`,
+        valueLabel: `on`,
+        values: [],
+      },
+    ])
+  })
+
+  it(`a blank value reads CLI default`, () => {
+    const config = parseConfigState(
+      state({
+        options: [
+          { id: `model`, label: `Model`, value: ``, values: [{ id: `opus`, label: `Opus` }] },
+        ],
+      })
+    )
+    expect(configChips(config)[0].valueLabel).toBe(CONFIG_DEFAULT_VALUE_LABEL)
+    expect(configChips(config)[0].value).toBe(``)
   })
 })
