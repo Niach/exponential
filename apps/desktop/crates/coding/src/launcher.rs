@@ -1597,8 +1597,14 @@ pub fn prepare_with_hooks(
     // the cwd can never be tailed into this session's feed. Always fresh
     // here (EXP-662: this path never reopens a conversation); codex gets a
     // per-session originator stamped into its rollout metas.
-    let claude_session_id =
-        (agent == CodingAgent::Claude).then(|| uuid::Uuid::new_v4().to_string());
+    //
+    // EXP-746: PTY-only. The claude ACP adapter mints its own
+    // `--session-id` (which doubles as the ACP session id the engine
+    // upserts), so a pin minted here would name no transcript at all — and
+    // would still outrank the real id in the replay's fallback chain.
+    let claude_session_id = (transport == LaunchTransport::Terminal
+        && agent == CodingAgent::Claude)
+        .then(|| uuid::Uuid::new_v4().to_string());
     let codex_originator = (agent == CodingAgent::Codex)
         .then(|| crate::argv::codex_session_originator(&session.id));
     let pi_session = (agent == CodingAgent::Pi)
@@ -2311,9 +2317,12 @@ fn prepare_action(
     };
     // EXP-443: action runs mint identities like a session — they share the
     // trunk-clone cwd with each other and with agent shells, exactly the
-    // collision the pin/originator disambiguate. Always fresh (no resume).
-    let claude_session_id =
-        (agent == CodingAgent::Claude).then(|| uuid::Uuid::new_v4().to_string());
+    // collision the pin/originator disambiguate. Always fresh (no resume),
+    // and EXP-746: PTY-only, like the session path above (the ACP adapter
+    // mints claude's `--session-id` itself).
+    let claude_session_id = (transport == LaunchTransport::Terminal
+        && agent == CodingAgent::Claude)
+        .then(|| uuid::Uuid::new_v4().to_string());
     let codex_originator = (agent == CodingAgent::Codex)
         .then(|| crate::argv::codex_session_originator(&session.id));
     let pi_session = (agent == CodingAgent::Pi)
@@ -2614,17 +2623,34 @@ fn prepare_resume_run(
         ultracode: record.ultracode,
         // The plan already happened in the run being continued.
         plan_mode: false,
-        external: None,
+        // EXP-746 (D13): a resume never switches agents, and that includes
+        // an EXTERNAL one — dropping the recorded spec here would relaunch
+        // the builtin `record.agent` (the settings default, which means
+        // nothing for an external record) and feed it the external agent's
+        // ACP session id.
+        external: record.external_agent.clone(),
     };
+    let agent_kind = agent_kind(&options);
+    // The builtin CLI this resume runs, if any. Everything keyed on the
+    // closed [`CodingAgent`] vocabulary — the doctor gate, the trust
+    // seeders, the three native resume handles, the argv identities — has
+    // nothing to do for an external agent.
+    let builtin = agent_kind.builtin();
 
     // Step 0 — doctor: the RECORDED agent (a resume never switches agents),
-    // plus git when the run lives in a clone.
+    // plus git when the run lives in a clone. An external agent is gated by
+    // its own command resolving at spawn time
+    // (`engine::adapters::external::resolve_on_path`), never by a builtin
+    // CLI the recorded run never touched.
     let report = run_doctor(&deps.settings);
-    let failure = if record.clone.is_some() {
-        report.first_failure_for(agent)
-    } else {
-        let check = report.check_for(agent);
-        (!check.ok).then_some(check)
+    let failure = match builtin {
+        Some(agent) if record.clone.is_some() => report.first_failure_for(agent),
+        Some(agent) => {
+            let check = report.check_for(agent);
+            (!check.ok).then_some(check)
+        }
+        None if record.clone.is_some() => (!report.git.ok).then_some(&report.git),
+        None => None,
     };
     if let Some(failed) = failure {
         return Ok(Prepared::Disabled(DisabledReason::DoctorFailed(
@@ -2635,7 +2661,6 @@ fn prepare_resume_run(
     // no TUI resume handle and a PTY run has no ACP session id, so the
     // record beats the setting. A pre-746 record (no `transport`) resumes
     // into the terminal, which is where it ran.
-    let agent_kind = agent_kind(&options);
     let transport = resolve_transport(
         &deps.settings,
         &agent_kind,
@@ -2717,9 +2742,9 @@ fn prepare_resume_run(
     let claude_resume_id = record
         .claude_session_id
         .clone()
-        .filter(|_| marker_allows_resume && agent == CodingAgent::Claude)
+        .filter(|_| marker_allows_resume && builtin == Some(CodingAgent::Claude))
         .filter(|id| claude_transcript_exists(deps, &cwd, id));
-    let codex_resume_id = (marker_allows_resume && agent == CodingAgent::Codex)
+    let codex_resume_id = (marker_allows_resume && builtin == Some(CodingAgent::Codex))
         .then(|| {
             deps.codex_sessions_root
                 .clone()
@@ -2737,9 +2762,20 @@ fn prepare_resume_run(
     let pi_resume_file = record
         .pi_session_file
         .clone()
-        .filter(|_| marker_allows_resume && agent == CodingAgent::Pi)
+        .filter(|_| marker_allows_resume && builtin == Some(CodingAgent::Pi))
         .filter(|path| path.is_file());
-    let native_resume = claude_resume_id.is_some()
+    // EXP-746 (D8): an ACP run's surviving conversation is its recorded ACP
+    // session id — `session/load` replays the WHOLE thread, so it is as
+    // native a resume as the three handles above. Counting it here is what
+    // keeps the seed prompt off: `engine::host` starts a turn for every
+    // `AcpLaunch::prompt`, so a prompt on top of a load would put the agent
+    // back to work unasked, which no other resume shape does.
+    let acp_resume_id = record
+        .acp_session_id
+        .clone()
+        .filter(|_| transport == LaunchTransport::Acp);
+    let native_resume = acp_resume_id.is_some()
+        || claude_resume_id.is_some()
         || codex_resume_id.is_some()
         || pi_resume_file.is_some();
 
@@ -2848,7 +2884,7 @@ fn prepare_resume_run(
     let _ = crate::worktree_agents::record_worktree_agent(&cwd, agent);
 
     // Step 6 — the spawn spec, mirroring the fresh action path.
-    if agent == CodingAgent::Codex {
+    if builtin == Some(CodingAgent::Codex) {
         let trust_root = record
             .clone
             .as_deref()
@@ -2856,7 +2892,7 @@ fn prepare_resume_run(
             .unwrap_or(&cwd);
         crate::codex_trust::ensure_trusted(trust_root);
     }
-    if agent == CodingAgent::Claude {
+    if builtin == Some(CodingAgent::Claude) {
         crate::claude_trust::ensure_onboarded(&cwd, true);
     }
     // EXP-746: PTY-only, like the two paths above.
@@ -2873,12 +2909,17 @@ fn prepare_resume_run(
         }
     };
     // A native claude resume keeps the recorded conversation's id; anything
-    // else mints a fresh pin.
-    let claude_session_id = (agent == CodingAgent::Claude && claude_resume_id.is_none())
-        .then(|| uuid::Uuid::new_v4().to_string());
-    let codex_originator =
-        (agent == CodingAgent::Codex).then(|| crate::argv::codex_session_originator(&session.id));
-    let pi_session = (agent == CodingAgent::Pi)
+    // else mints a fresh pin — but only on the PTY path. The ACP adapter
+    // mints its OWN `--session-id` (it doubles as the ACP session id), so a
+    // pin minted here would never name a transcript and would outrank the
+    // real id in the replay's fallback chain (`ui::session_screen`).
+    let claude_session_id = (transport == LaunchTransport::Terminal
+        && builtin == Some(CodingAgent::Claude)
+        && claude_resume_id.is_none())
+    .then(|| uuid::Uuid::new_v4().to_string());
+    let codex_originator = (builtin == Some(CodingAgent::Codex))
+        .then(|| crate::argv::codex_session_originator(&session.id));
+    let pi_session = (builtin == Some(CodingAgent::Pi))
         .then(|| {
             pi_resume_file
                 .clone()
@@ -3037,7 +3078,7 @@ fn prepare_resume_run(
     // recorded ACP session id when the run WAS an ACP run, else the agent's
     // own handle (a PTY-recorded run the engine loads natively).
     let acp_resume = match record.transport() {
-        LaunchTransport::Acp => record.acp_session_id.clone().map(ResumeSeed::Acp),
+        LaunchTransport::Acp => acp_resume_id.clone().map(ResumeSeed::Acp),
         LaunchTransport::Terminal => claude_resume_id
             .clone()
             .or_else(|| codex_resume_id.clone())
@@ -3774,6 +3815,93 @@ mod tests {
         assert!(prepared.spawn.args.is_empty());
         let acp = prepared.acp.as_ref().expect("the ACP half");
         assert_eq!(acp.resume, Some(ResumeSeed::Acp("acp-42".to_string())));
+        // A loaded conversation is a NATIVE resume: `session/load` replays
+        // the whole thread, and a seed prompt on top of it would fire an
+        // unasked turn the moment the engine connects.
+        assert_eq!(acp.prompt, None);
+        assert!(!dir.0.join("scratch").join(PROMPT_FILE).exists());
+        // The PTY pin is not re-minted either — claude's ACP adapter mints
+        // its own `--session-id`, and a stale pin outranks the real ACP id
+        // in the replay's fallback chain.
+        assert_eq!(prepared.claude_session_id, None);
+        let fresh = crate::run_registry::get(&dir.0, "sess-a").expect("record");
+        assert_eq!(fresh.claude_session_id, None);
+    }
+
+    /// EXP-746 (D8): an ACP record whose engine died BEFORE `session/new`
+    /// answered has no conversation to re-enter — that resume still gets the
+    /// seed prompt, on a fresh session.
+    #[test]
+    fn an_acp_resume_without_a_session_id_still_seeds_the_prompt() {
+        let dir = temp_dir("resume-acp-fresh");
+        let base = canned_server(vec![(200, START_ACTION_OK.to_string())]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+        let mut record = resume_record(&dir.0, "sess-old");
+        record.transport = Some("acp".to_string());
+        record.acp_session_id = None;
+
+        let prepared =
+            match prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps).unwrap() {
+                Prepared::Ready(prepared) => prepared,
+                other => panic!("expected Ready, got {other:?}"),
+            };
+        assert_eq!(prepared.transport, LaunchTransport::Acp);
+        let acp = prepared.acp.as_ref().expect("the ACP half");
+        assert_eq!(acp.resume, None);
+        assert!(acp.prompt.as_deref().unwrap().contains("Code review"));
+    }
+
+    /// EXP-746 (D13): a run recorded under an EXTERNAL agent resumes into
+    /// THAT binary — the spec rides the options the engine builds its
+    /// adapter from, the builtin `record.agent` never gates it, and the new
+    /// row carries no agent (the server's vocabulary is closed).
+    #[test]
+    fn an_external_agent_resume_re_enters_the_recorded_external_agent() {
+        let dir = temp_dir("resume-external");
+        let (base, captured) = canned_server_recording(vec![(200, START_ACTION_OK.to_string())]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let mut deps = make_deps(&base, &dir.0, worktrees);
+        // The builtin the record names is not even installed: an external
+        // run never touched it, so it must not gate the resume.
+        deps.settings.claude_path = dir.0.join("no-such-claude").to_string_lossy().into_owned();
+        let spec = external_spec();
+        let mut record = resume_record(&dir.0, "sess-old");
+        record.transport = Some("acp".to_string());
+        record.acp_session_id = Some("acp-9".to_string());
+        record.external_agent = Some(spec.clone());
+
+        let prepared =
+            match prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps).unwrap() {
+                Prepared::Ready(prepared) => prepared,
+                other => panic!("expected Ready, got {other:?}"),
+            };
+        assert_eq!(prepared.transport, LaunchTransport::Acp);
+        let acp = prepared.acp.as_ref().expect("the ACP half");
+        assert_eq!(acp.options.external.as_ref(), Some(&spec));
+        assert_eq!(acp.resume, Some(ResumeSeed::Acp("acp-9".to_string())));
+        // No builtin identity is minted for it, and the reaper anchor is
+        // claude's alone.
+        assert_eq!(prepared.claude_session_id, None);
+        assert_eq!(prepared.codex_originator, None);
+        assert_eq!(acp.reaper_settings_path, None);
+        // The row records no agent at all rather than the settings default.
+        let requests = captured.lock().unwrap();
+        assert!(
+            requests.iter().all(|request| !request.contains(r#""agent""#)),
+            "{requests:?}"
+        );
+        drop(requests);
+        // ... and the resumed run's own record keeps the spec, so a resume
+        // of the resume chains into the same binary.
+        let fresh = crate::run_registry::get(&dir.0, "sess-a").expect("record");
+        assert_eq!(fresh.external_agent.as_ref(), Some(&spec));
     }
 
     /// EXP-746 (D8): every pre-746 record (no `transport`) resumes into the
