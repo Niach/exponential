@@ -87,6 +87,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use terminal::{TabId, TabKind, TerminalManager, TerminalManagerEvent, TerminalView};
 
+use crate::changes_bar;
 use crate::coding_flow::{CodingHub, TokenRefreshers};
 use crate::icons::{registry, ExpIcon};
 use crate::navigation;
@@ -128,11 +129,6 @@ const BUBBLE_MAX_CHIPS: usize = 3;
 /// then appears within a blink of the dock opening rather than 3s later.
 const CHANGES_POLL: Duration = Duration::from_secs(3);
 const CHANGES_IDLE_POLL: Duration = Duration::from_millis(500);
-
-/// The Latest-changes bar's own height, and the expanded diff's (the web's
-/// `max-h-72`).
-const CHANGES_BAR_H: f32 = 28.;
-const CHANGES_DIFF_H: f32 = 288.;
 
 /// Slide tick. ~120Hz, so the animation is smooth on high-refresh displays
 /// and the cost is ~24 `set_size` calls over a whole open — trivial next to
@@ -378,7 +374,7 @@ pub struct TerminalDockPanel {
     changes_diff: Entity<crate::diff::DiffView>,
     /// EXP-698: the STEER arm's Latest-changes state — the relay-delivered
     /// diff of the active steer chip, parsed once per delivered string.
-    steer_changes: Option<SteerChangesState>,
+    steer_changes: Option<changes_bar::ChangesSnapshot>,
     /// Its own expanded view. Deliberately NOT shared with
     /// [`Self::changes_diff`]: the local poll keeps running while a steer
     /// chip is showing, and a rebuild off the local snapshot would silently
@@ -1041,7 +1037,8 @@ impl TerminalDockPanel {
         let collections = store.collections().clone();
         let now = chrono::Utc::now().timestamp();
         let sessions = collections.coding_sessions.read(cx);
-        let rows = remote_session_rows(sessions.iter(), &me, &own_device_id, &local, now);
+        let rows =
+            crate::queries::remote_session_rows(sessions.iter(), &me, &own_device_id, &local, now);
         if rows.is_empty() {
             return Vec::new();
         }
@@ -2012,77 +2009,23 @@ impl TerminalDockPanel {
     /// AND batch since EXP-498). EXP-484 moved it off the chip into the
     /// per-tab toolbar: a labeled button never squeezes a title there, and
     /// the chip got its close button back (merging still closes the
-    /// session). Two-click confirm via the shared `pr_merge`
-    /// state ("Merge" → "Confirm merge", ~5s auto-disarm). A failed merge
-    /// (typically conflicts) jumps to the Reviews PAGE, where the shared error
-    /// caption + Fix-conflicts button render exactly as a Reviews-originated
-    /// failure.
+    /// session).
     ///
-    /// The tab closes LOCALLY the moment the merge call fires (the
+    /// EXP-746 moved the button itself into [`crate::changes_bar`] — every
+    /// session surface wears one, and the only thing the dock adds is the
+    /// local tab close: the tab closes the moment the merge call fires (the
     /// `TabClosed` watcher fires the idempotent `codingSessions.end`), so a
     /// merge that fails on conflicts never leaves a live session holding the
     /// branch — the Reviews page's "Fix conflicts" recovery starts
-    /// immediately instead of parking behind a busy worktree. The server
-    /// ends the user's live sessions on OTHER devices after the merge.
-    fn tab_merge_button(
-        &self,
-        tab: TabId,
-        merge: &MergeTarget,
-        merge_state: &Entity<crate::pr_merge::MergeState>,
-        cx: &gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let key = merge.key();
-        let (armed, merging) = {
-            let state = merge_state.read(cx);
-            (state.armed(&key), state.merging(&key))
-        };
-        // EXP-484: one button per dock (the toolbar renders the ACTIVE tab
-        // only), so the id no longer carries a strip index.
-        let mut button = Button::new("merge-session-changes").xsmall();
-        if merging {
-            button = button
-                .outline().cursor_pointer()
-                .label("Merging…")
-                .loading(true)
-                .disabled(true);
-        } else if armed {
-            button = button.outline().cursor_pointer().label("Confirm merge").danger().cursor_pointer();
-        } else {
-            button = button
-                .ghost().cursor_pointer()
-                .icon(ExpIcon::GitMerge)
-                .label("Merge")
-                .tooltip(merge.tooltip());
-        }
-        let target = merge.clone();
-        let button = button.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-            cx.stop_propagation();
-            let handle = window.window_handle();
-            let outcome = crate::pr_merge::two_click(
-                target.op(),
-                Some(Box::new(move |cx: &mut App| {
-                    let _ = handle.update(cx, |_, window, cx| {
-                        // EXP-706: Reviews is a full-page screen now, not a
-                        // rail tool window.
-                        crate::navigation::navigate(
-                            window,
-                            cx,
-                            crate::navigation::Screen::Reviews,
-                        );
-                    });
-                })),
-                None,
-                cx,
-            );
-            if outcome == crate::pr_merge::TwoClick::Fired {
-                // Confirmed: close the session tab NOW, not off the server's
-                // →`ended` echo — a conflict failure must find the branch
-                // free so the "Fix conflicts" recovery can start right away.
-                this.manager
-                    .update(cx, |manager, cx| manager.close_tab(tab, cx));
+    /// immediately instead of parking behind a busy worktree. The server ends
+    /// the user's live sessions on OTHER devices after the merge.
+    fn tab_close_on_merge(&self, tab: TabId) -> changes_bar::OnMerged {
+        let manager = self.manager.downgrade();
+        std::rc::Rc::new(move |cx: &mut App| {
+            if let Some(manager) = manager.upgrade() {
+                manager.update(cx, |manager, cx| manager.close_tab(tab, cx));
             }
-        }));
-        button.into_any_element()
+        })
     }
 
     /// The "+" dropdown (EXP-325): one item per doctor-INSTALLED agent CLI —
@@ -2501,8 +2444,8 @@ impl TerminalDockPanel {
         let generation = previous.as_ref().map_or(0, |changes| changes.generation);
         let previous_files = previous.map(|changes| changes.files).unwrap_or_default();
         let changed = files.as_ref().is_some_and(|files| *files != previous_files);
-        let files = merge_changes_snapshot(previous_files, files);
-        let (additions, deletions) = changes_totals(&files);
+        let files = changes_bar::merge_changes_snapshot(previous_files, files);
+        let (additions, deletions) = changes_bar::changes_totals(&files);
         self.changes = Some(ChangesState {
             tab,
             files,
@@ -2533,9 +2476,10 @@ impl TerminalDockPanel {
     /// row; it renders when there IS a diff or an open PR to merge, so the
     /// Merge pill never stands alone.
     ///
-    /// EXP-698 split the CHROME out into [`Self::changes_bar_chrome`] — the
-    /// steer arm renders the same row off the relay-delivered diff, and two
-    /// hand-built copies of one bar is how they drift.
+    /// EXP-698 split the CHROME out so the steer arm could render the same
+    /// row off the relay-delivered diff; EXP-746 moved that chrome into
+    /// [`crate::changes_bar`], where the session screen's rail wears it too.
+    /// Two hand-built copies of one bar is how they drift.
     fn render_changes_bar(
         &self,
         tab: TabId,
@@ -2546,120 +2490,24 @@ impl TerminalDockPanel {
             .changes
             .as_ref()
             .filter(|changes| changes.tab == tab && !changes.files.is_empty());
-        if !changes_bar_visible(changes.is_some(), merge.is_some()) {
+        if !changes_bar::changes_bar_visible(changes.is_some(), merge.is_some()) {
             return None;
         }
         let expanded = changes.is_some_and(|changes| changes.expanded);
         let totals = changes.map(|changes| (changes.additions, changes.deletions));
-        let merge_button = merge.as_ref().map(|merge| {
-            let merge_state = crate::pr_merge::MergeState::global(cx);
-            self.tab_merge_button(tab, merge, &merge_state, cx)
-        });
-        Some(self.changes_bar_chrome(
-            "terminal-changes-toggle",
-            totals,
-            expanded,
-            merge_button,
-            self.changes_diff.clone(),
-            |this, cx| this.toggle_changes_expanded(cx),
+        Some(changes_bar::render(
+            changes_bar::ChangesSpec {
+                toggle_id: "terminal-changes-toggle",
+                placement: changes_bar::ChangesPlacement::Bar,
+                totals,
+                expanded,
+                merge,
+                diff_view: self.changes_diff.clone(),
+                on_toggle: Box::new(|this: &mut Self, cx| this.toggle_changes_expanded(cx)),
+                on_merged: Some(self.tab_close_on_merge(tab)),
+            },
             cx,
         ))
-    }
-
-    /// EXP-698 — the ONE Latest-changes row: the collapsible `+N −M` summary
-    /// on the left, the Merge capsule on the right, and (expanded) the
-    /// side-by-side diff underneath. Both arms of the dock's content — a
-    /// LOCAL terminal tab and a STEER viewer — render through this, so the
-    /// bar is one design with one set of metrics.
-    ///
-    /// `totals` is `None` when there is no diff at all (an open PR whose
-    /// branch no longer differs): the row still draws, carrying only the
-    /// Merge pill, and nothing is clickable on the left.
-    #[allow(clippy::too_many_arguments)] // two call sites, one row
-    fn changes_bar_chrome(
-        &self,
-        toggle_id: &'static str,
-        totals: Option<(u32, u32)>,
-        expanded: bool,
-        merge_button: Option<gpui::AnyElement>,
-        diff_view: Entity<crate::diff::DiffView>,
-        on_toggle: impl Fn(&mut Self, &mut gpui::Context<Self>) + 'static,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let muted = cx.theme().muted_foreground;
-        let mut left = h_flex()
-            .id(toggle_id)
-            .min_w_0()
-            .flex_1()
-            .gap_1p5()
-            .items_center()
-            .text_xs()
-            .text_color(muted);
-        if let Some((additions, deletions)) = totals {
-            left = left
-                .cursor_pointer()
-                .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                    on_toggle(this, cx);
-                }))
-                .child(
-                    Icon::new(if expanded {
-                        registry::UI_CHEVRON_DOWN
-                    } else {
-                        registry::UI_CHEVRON_RIGHT
-                    })
-                    .xsmall(),
-                )
-                .child(Icon::new(registry::CODING_DIFF).xsmall())
-                .child("Latest changes")
-                .child(
-                    div()
-                        .font_family(theme::terminal::FONT_FAMILY)
-                        .text_color(theme::tokens::GREEN.to_hsla())
-                        .child(SharedString::from(format!("+{additions}"))),
-                )
-                .child(
-                    div()
-                        .font_family(theme::terminal::FONT_FAMILY)
-                        .text_color(cx.theme().danger)
-                        .child(SharedString::from(format!("-{deletions}"))),
-                );
-        }
-
-        let mut row = h_flex()
-            .w_full()
-            .h(px(CHANGES_BAR_H))
-            .px_2()
-            .gap_2()
-            .items_center()
-            .flex_shrink_0()
-            .border_t_1()
-            .border_color(theme::tokens::glass::STROKE_SECTION.to_hsla())
-            .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
-            .child(left);
-        if let Some(merge_button) = merge_button {
-            row = row.child(
-                // READONLY: the shell is only the capsule around the merge
-                // button — the button owns the cursor and the hover, and a
-                // second hover lift on the wrapper would light up on the
-                // capsule's own padding, which does nothing.
-                crate::surface::glass_pill(
-                    "changes-bar-merge",
-                    crate::surface::PillSize::Sm,
-                    crate::surface::PillMode::Readonly,
-                    cx,
-                )
-                .px_0()
-                .child(merge_button),
-            );
-        }
-
-        let bar = v_flex().w_full().flex_shrink_0().child(row);
-        if expanded {
-            bar.child(div().w_full().h(px(CHANGES_DIFF_H)).child(diff_view))
-                .into_any_element()
-        } else {
-            bar.into_any_element()
-        }
     }
 
     /// EXP-698 — the steer arm's Latest-changes bar. The relay hands the
@@ -2668,6 +2516,9 @@ impl TerminalDockPanel {
     /// summary and the same Merge affordance a local tab gets are available
     /// for a run on another machine; only the SOURCE of the diff differs (a
     /// string off the wire instead of a `git` shell-out here).
+    ///
+    /// No local tab close on merge: a remote run has no terminal tab here,
+    /// and the server ends the session on merge anyway (EXP-498).
     fn render_steer_changes_bar(
         &mut self,
         session_id: &str,
@@ -2679,14 +2530,14 @@ impl TerminalDockPanel {
             (
                 view.latest_diff().map(str::to_string),
                 view.session_row()
-                    .and_then(|row| merge_meta_for_session(row, cx)),
+                    .and_then(|row| changes_bar::merge_meta_for_session(row, cx)),
                 view.session_over(),
             )
         };
         // A finished run offers no Merge (iOS/web `canMerge` gate the same
         // way) — the PR merges from Reviews once the session is over.
         let merge = merge.filter(|_| !over);
-        if !changes_bar_visible(raw.is_some(), merge.is_some()) {
+        if !changes_bar::changes_bar_visible(raw.is_some(), merge.is_some()) {
             return None;
         }
         self.sync_steer_changes(session_id, raw.as_deref(), cx);
@@ -2696,57 +2547,38 @@ impl TerminalDockPanel {
             .filter(|state| state.session_id == session_id);
         let expanded = state.is_some_and(|state| state.expanded);
         let totals = state.map(|state| (state.additions, state.deletions));
-        let merge_button = merge.as_ref().map(|merge| {
-            let merge_state = crate::pr_merge::MergeState::global(cx);
-            self.steer_merge_button(merge, &merge_state, cx)
-        });
-        Some(self.changes_bar_chrome(
-            "steer-changes-toggle",
-            totals,
-            expanded,
-            merge_button,
-            self.steer_changes_diff.clone(),
-            |this, cx| this.toggle_steer_changes_expanded(cx),
+        Some(changes_bar::render(
+            changes_bar::ChangesSpec {
+                toggle_id: "steer-changes-toggle",
+                placement: changes_bar::ChangesPlacement::Bar,
+                totals,
+                expanded,
+                merge,
+                diff_view: self.steer_changes_diff.clone(),
+                on_toggle: Box::new(|this: &mut Self, cx| this.toggle_steer_changes_expanded(cx)),
+                on_merged: None,
+            },
             cx,
         ))
     }
 
-    /// Re-parse the steer diff only when the relay actually delivered a new
-    /// one (the raw string is the cache key): a unified-diff parse per
-    /// repaint of a live feed is real work for no new information.
+    /// Install the parse of a relay-delivered diff, when
+    /// [`changes_bar::sync`] says it changed.
     fn sync_steer_changes(
         &mut self,
         session_id: &str,
         raw: Option<&str>,
         cx: &mut gpui::Context<Self>,
     ) {
-        let same = self
-            .steer_changes
-            .as_ref()
-            .is_some_and(|state| state.session_id == session_id && state.raw.as_deref() == raw);
-        if same {
-            return;
-        }
-        let Some(raw) = raw else {
-            self.steer_changes = None;
+        let Some(next) = changes_bar::sync(self.steer_changes.as_ref(), session_id, raw) else {
             return;
         };
-        let expanded = self
+        self.steer_changes = next;
+        if self
             .steer_changes
             .as_ref()
-            .filter(|state| state.session_id == session_id)
-            .is_some_and(|state| state.expanded);
-        let files = coding::scm::parse_unified_diff(raw);
-        let (additions, deletions) = changes_totals(&files);
-        self.steer_changes = Some(SteerChangesState {
-            session_id: session_id.to_string(),
-            raw: Some(raw.to_string()),
-            files,
-            additions,
-            deletions,
-            expanded,
-        });
-        if expanded {
+            .is_some_and(|state| state.expanded)
+        {
             self.rebuild_steer_changes_diff(cx);
         }
     }
@@ -2769,66 +2601,6 @@ impl TerminalDockPanel {
             self.rebuild_steer_changes_diff(cx);
         }
         cx.notify();
-    }
-
-    /// The steer arm's Merge — the same two-click arm/confirm machinery every
-    /// other Merge surface drives ([`crate::pr_merge`]), minus the local
-    /// tab close: a remote run has no terminal tab here, and the server ends
-    /// the session on merge anyway (EXP-498).
-    fn steer_merge_button(
-        &self,
-        merge: &MergeTarget,
-        merge_state: &Entity<crate::pr_merge::MergeState>,
-        cx: &gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let key = merge.key();
-        let (armed, merging) = {
-            let state = merge_state.read(cx);
-            (state.armed(&key), state.merging(&key))
-        };
-        let mut button = Button::new("merge-steer-session-changes").xsmall();
-        if merging {
-            button = button
-                .outline()
-                .cursor_pointer()
-                .label("Merging…")
-                .loading(true)
-                .disabled(true);
-        } else if armed {
-            button = button
-                .outline()
-                .cursor_pointer()
-                .label("Confirm merge")
-                .danger();
-        } else {
-            button = button
-                .ghost()
-                .cursor_pointer()
-                .icon(ExpIcon::GitMerge)
-                .label("Merge")
-                .tooltip(merge.tooltip());
-        }
-        let target = merge.clone();
-        button
-            .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                cx.stop_propagation();
-                let handle = window.window_handle();
-                crate::pr_merge::two_click(
-                    target.op(),
-                    Some(Box::new(move |cx: &mut App| {
-                        let _ = handle.update(cx, |_, window, cx| {
-                            crate::navigation::navigate(
-                                window,
-                                cx,
-                                crate::navigation::Screen::Reviews,
-                            );
-                        });
-                    })),
-                    None,
-                    cx,
-                );
-            }))
-            .into_any_element()
     }
 
     /// Flip the Latest-changes bar open/shut, building the diff rows the
@@ -3108,22 +2880,6 @@ struct ChangesState {
     generation: u64,
 }
 
-/// EXP-698: the STEER arm's Latest-changes snapshot. Unlike [`ChangesState`]
-/// nothing is polled here — the host publishes the worktree diff on the
-/// activity channel and the viewer's feed keeps the latest one, so this is
-/// only the PARSE of that string plus the bar's expanded flag.
-struct SteerChangesState {
-    /// Which steer chip the snapshot belongs to.
-    session_id: String,
-    /// The raw unified diff it was parsed from — the cache key, so a repaint
-    /// of an unchanged feed re-parses nothing.
-    raw: Option<String>,
-    files: Vec<coding::scm::DiffFile>,
-    additions: u32,
-    deletions: u32,
-    expanded: bool,
-}
-
 /// What one Latest-changes tick has to do.
 enum ChangesJob {
     /// Nothing to show (collapsed dock / no session tab) — no git, no bar.
@@ -3133,81 +2889,6 @@ enum ChangesJob {
         worktree: PathBuf,
         base_ref: Option<String>,
     },
-}
-
-/// The bar shows for a diff OR an open PR: a Merge button with nothing above
-/// it is the EXP-688 complaint, and a diff with no PR yet is still the
-/// session's work. Pure (unit-tested).
-fn changes_bar_visible(has_diff: bool, has_open_pr: bool) -> bool {
-    has_diff || has_open_pr
-}
-
-/// Keep the last snapshot across a FAILED poll (`None`): git errors for a
-/// moment during a rebase/checkout, and blanking the bar on that would strand
-/// the Merge button alone — the exact shape of the bug EXP-688 fixes. A real
-/// answer always wins, an empty one included (a reset branch has no changes).
-/// Pure.
-fn merge_changes_snapshot(
-    previous: Vec<coding::scm::DiffFile>,
-    next: Option<Vec<coding::scm::DiffFile>>,
-) -> Vec<coding::scm::DiffFile> {
-    next.unwrap_or(previous)
-}
-
-/// `+adds -dels` over every file in the snapshot. Pure.
-fn changes_totals(files: &[coding::scm::DiffFile]) -> (u32, u32) {
-    files.iter().fold((0, 0), |(adds, dels), file| {
-        (adds + file.additions, dels + file.deletions)
-    })
-}
-
-/// What the session's Merge pill acts on. An ISSUE target (EXP-498) is the
-/// representative synced issue with an open PR — `issues.mergePr` on it fans
-/// out to every issue sharing the prUrl, so any batch sibling merges the whole
-/// PR. A SESSION target (EXP-734) is a run whose PR links NO issue at all (an
-/// action or chat run's chore PR) — it lives on the `coding_sessions` row and
-/// merges through `codingSessions.mergePr`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum MergeTarget {
-    Issue { issue_id: String },
-    Session { session_id: String },
-}
-
-impl MergeTarget {
-    /// The shared two-click arm/in-flight key for this target.
-    fn key(&self) -> String {
-        match self {
-            MergeTarget::Issue { issue_id } => issue_id.clone(),
-            MergeTarget::Session { session_id } => {
-                crate::pr_merge::session_merge_key(session_id)
-            }
-        }
-    }
-
-    /// The op the confirmed click fires.
-    fn op(&self) -> crate::pr_merge::MergeOp {
-        match self {
-            MergeTarget::Issue { issue_id } => crate::pr_merge::MergeOp::MergeIssuePr {
-                issue_id: issue_id.clone(),
-            },
-            MergeTarget::Session { session_id } => crate::pr_merge::MergeOp::MergeSessionPr {
-                session_id: session_id.clone(),
-            },
-        }
-    }
-
-    /// The button's resting tooltip — an issue merge completes the linked
-    /// issues, a run's own PR has none to complete.
-    fn tooltip(&self) -> &'static str {
-        match self {
-            MergeTarget::Issue { .. } => {
-                "Merge: completes every linked issue and closes this coding session"
-            }
-            MergeTarget::Session { .. } => {
-                "Merge: merges this run's pull request and closes the session"
-            }
-        }
-    }
 }
 
 /// Measured width of one tab chip, for the EXP-497 overflow partition —
@@ -3319,53 +3000,12 @@ fn issue_tab_meta(tab_id: TabId, cx: &App) -> Option<IssueTabMeta> {
     })
 }
 
-/// The ONE merge-target rule every session surface applies (EXP-498 /
-/// EXP-734), pure so both the local-tab and the steer arm can be tested
-/// against it:
-///
-/// 1. an ISSUE-linked run merges its OWN issue, when that issue's PR is open;
-/// 2. otherwise a BATCH run resolves the representative open-PR issue through
-///    the head branch `pr_open` stamped on it (every batch sibling shares the
-///    one prUrl, so any of them merges the whole PR);
-/// 3. otherwise (EXP-734) an ACTION or CHAT run merges its OWN chore PR off
-///    the `coding_sessions` row — no issue links it, so nothing else can.
-///
-/// `row` is the synced session row (absent while a just-started run has not
-/// synced yet — then only the issue/branch rules can fire).
-fn merge_target_for_run<'a>(
-    issue_id: Option<&str>,
-    branch: &str,
-    row: Option<&domain::rows::CodingSession>,
-    issues: impl Iterator<Item = &'a domain::rows::Issue>,
-) -> Option<MergeTarget> {
-    let issues: Vec<&domain::rows::Issue> = issues.collect();
-    if let Some(issue_id) = issue_id {
-        if let Some(issue) = issues
-            .iter()
-            .copied()
-            .find(|issue| issue.id == issue_id && issue_has_open_pr(issue))
-        {
-            return Some(MergeTarget::Issue {
-                issue_id: issue.id.clone(),
-            });
-        }
-    }
-    if let Some(issue) = open_pr_issue_on_branch(branch, issues.into_iter()) {
-        return Some(MergeTarget::Issue {
-            issue_id: issue.id.clone(),
-        });
-    }
-    let row = row?;
-    row.has_open_pr().then(|| MergeTarget::Session {
-        session_id: row.id.clone(),
-    })
-}
-
-/// Resolve a tab's merge affordance: the [`merge_target_for_run`] rules over
+/// Resolve a tab's merge affordance: the [`changes_bar::merge_target_for_run`]
+/// rules over
 /// the LOCAL session behind the tab, with its synced `coding_sessions` row
 /// looked up by the row id the launcher recorded (EXP-734 — an action or chat
 /// run's own chore PR lives there and nowhere else).
-fn merge_tab_meta(tab_id: TabId, cx: &App) -> Option<MergeTarget> {
+fn merge_tab_meta(tab_id: TabId, cx: &App) -> Option<changes_bar::MergeTarget> {
     let sessions = crate::coding_flow::LocalSessions::global_ref(cx)?;
     let sessions = sessions.read(cx);
     let session = sessions.session_for_tab(tab_id)?;
@@ -3380,51 +3020,12 @@ fn merge_tab_meta(tab_id: TabId, cx: &App) -> Option<MergeTarget> {
         crate::coding_flow::SessionSubject::Batch(_)
         | crate::coding_flow::SessionSubject::Action(_) => None,
     };
-    merge_target_for_run(
+    changes_bar::merge_target_for_run(
         issue_id,
         &session.branch,
         rows.get(&session.session_id),
         issues.iter(),
     )
-}
-
-/// EXP-698 — [`merge_tab_meta`]'s twin for a REMOTE run: the merge target of a
-/// synced `coding_sessions` row, with no local session to consult. Same
-/// [`merge_target_for_run`] rules every client applies (iOS
-/// `AgentSessionModel.mergeTarget`, web `use-agents-data`) — including
-/// EXP-734's third one, which is why an ACTION or CHAT run is no longer turned
-/// away here: its own chore PR is right on the row.
-fn merge_meta_for_session(
-    session: &domain::rows::CodingSession,
-    cx: &App,
-) -> Option<MergeTarget> {
-    let store = sync::Store::try_global(cx)?;
-    let issues = store.collections().issues.read(cx);
-    merge_target_for_run(
-        session.issue_id.as_deref(),
-        session.branch.as_deref().unwrap_or_default(),
-        Some(session),
-        issues.iter(),
-    )
-}
-
-fn issue_has_open_pr(issue: &domain::rows::Issue) -> bool {
-    issue.pr_state.as_deref() == Some("open")
-}
-
-/// Any synced open-PR issue on `branch` — a batch tab's representative merge
-/// target. Pure (unit-tested); an empty branch never matches (trunk/scratch
-/// runs record no branch).
-fn open_pr_issue_on_branch<'a>(
-    branch: &str,
-    issues: impl Iterator<Item = &'a domain::rows::Issue>,
-) -> Option<&'a domain::rows::Issue> {
-    if branch.is_empty() {
-        return None;
-    }
-    let mut issues =
-        issues.filter(|issue| issue.branch.as_deref() == Some(branch) && issue_has_open_pr(issue));
-    issues.next()
 }
 
 // ---------------------------------------------------------------------------
@@ -3464,40 +3065,6 @@ impl PartialEq for RemoteChip {
             && self.paused == other.paused
             && self.killable == other.killable
     }
-}
-
-/// The user's live sessions hosted ELSEWHERE, newest start first.
-///
-/// The device filter is what makes this correct for the CLI daemon: the
-/// daemon registers its own `device_id` even when it runs on this very
-/// machine, so its runs are remote to the IDE — which is exactly right, the
-/// IDE has no terminal tab for them. Pure (unit-tested).
-fn remote_session_rows<'a>(
-    sessions: impl Iterator<Item = &'a domain::rows::CodingSession>,
-    user_id: &str,
-    own_device_id: &str,
-    local_session_ids: &HashSet<String>,
-    now_epoch: i64,
-) -> Vec<&'a domain::rows::CodingSession> {
-    let mut rows: Vec<&domain::rows::CodingSession> = sessions
-        .filter(|session| session.user_id.as_deref() == Some(user_id))
-        .filter(|session| {
-            session
-                .device_id
-                .as_deref()
-                .is_some_and(|device_id| device_id != own_device_id)
-        })
-        .filter(|session| !local_session_ids.contains(&session.id))
-        .filter(|session| crate::queries::coding_session_is_live(session, now_epoch))
-        .collect();
-    // Newest first (web `useAgentsData`); the id is the tiebreak so the strip
-    // order is stable across renders.
-    rows.sort_by(|a, b| {
-        b.started_at
-            .cmp(&a.started_at)
-            .then_with(|| b.id.cmp(&a.id))
-    });
-    rows
 }
 
 /// The chip's subject line (web `sessionIdentity`): the issue title, the
@@ -3664,7 +3231,7 @@ pub(crate) fn open_steer_session(session_id: &str, window: &mut Window, cx: &mut
         let sessions = sessions.read(cx);
         sessions
             .session_by_id(session_id)
-            .map(|session| session.tab)
+            .and_then(|session| session.host.tab())
     });
     let session_id = session_id.to_string();
     panel.update(cx, |panel, cx| match local_tab {
@@ -3957,53 +3524,6 @@ mod tests {
 
     use super::*;
 
-    /// EXP-688: the bar's `+adds -dels` counts the WHOLE snapshot, not the
-    /// first file.
-    #[test]
-    fn changes_totals_sum_every_file() {
-        let file = |additions, deletions| coding::scm::DiffFile {
-            path: "f".to_string(),
-            previous_path: None,
-            status: coding::scm::FileStatus::Modified,
-            additions,
-            deletions,
-            hunks: Vec::new(),
-            binary: false,
-        };
-        assert_eq!(changes_totals(&[]), (0, 0));
-        assert_eq!(
-            changes_totals(&[file(3, 1), file(0, 7), file(10, 0)]),
-            (13, 8)
-        );
-    }
-
-    /// A momentarily empty answer (mid-rebase, mid-checkout) keeps the last
-    /// real diff — blanking the bar there is what left the Merge button
-    /// standing alone.
-    #[test]
-    fn an_empty_snapshot_keeps_the_last_non_empty_diff() {
-        let file = |path: &str| coding::scm::DiffFile {
-            path: path.to_string(),
-            previous_path: None,
-            status: coding::scm::FileStatus::Modified,
-            additions: 1,
-            deletions: 0,
-            hunks: Vec::new(),
-            binary: false,
-        };
-        let previous = vec![file("a.rs")];
-        // A failed poll keeps the previous answer.
-        let kept = merge_changes_snapshot(previous.clone(), None);
-        assert_eq!(kept, previous);
-        // A real answer always wins, even a smaller one.
-        let next = vec![file("b.rs")];
-        assert_eq!(merge_changes_snapshot(previous.clone(), Some(next.clone())), next);
-        // A real EMPTY answer clears the bar (the branch was reset).
-        assert!(merge_changes_snapshot(previous, Some(Vec::new())).is_empty());
-        // Nothing either way is still nothing.
-        assert!(merge_changes_snapshot(Vec::new(), None).is_empty());
-    }
-
     /// EXP-742: the bubble's dot is the MOST urgent entry, not the first —
     /// a question waiting behind two green runs must still turn it amber,
     /// and a paused host contributes nothing.
@@ -4045,132 +3565,6 @@ mod tests {
         // An out-of-range selection (nothing selected) never adds a slot.
         assert_eq!(bubble_visible_entries(5, 9), vec![0, 1, 2]);
         assert_eq!(bubble_visible_entries(BUBBLE_MAX_CHIPS, 0).len(), BUBBLE_MAX_CHIPS);
-    }
-
-    /// The bar renders for a diff OR an open PR — and for neither it is not
-    /// painted at all (a shell tab has no session to describe).
-    #[test]
-    fn changes_bar_shows_for_diff_or_open_pr() {
-        assert!(changes_bar_visible(true, false));
-        assert!(changes_bar_visible(false, true));
-        assert!(changes_bar_visible(true, true));
-        assert!(!changes_bar_visible(false, false));
-    }
-
-    /// EXP-498: the batch tab's merge target — any synced OPEN-PR issue on
-    /// the session's branch; nothing else qualifies.
-    #[test]
-    fn open_pr_issue_on_branch_picks_only_open_prs_on_the_branch() {
-        let issue = |id: &str,
-                     branch: Option<&str>,
-                     pr_state: Option<&str>|
-         -> domain::rows::Issue {
-            serde_json::from_value(serde_json::json!({
-                "id": id, "board_id": "b-1", "number": 1,
-                "identifier": "EXP-1", "title": "t", "status": "in_review",
-                "branch": branch, "pr_state": pr_state,
-            }))
-            .unwrap()
-        };
-        let open = issue("i-open", Some("exp/batch-a1b2c3d4"), Some("open"));
-        let merged = issue("i-merged", Some("exp/batch-a1b2c3d4"), Some("merged"));
-        let other = issue("i-other", Some("exp/EXP-9"), Some("open"));
-        let branchless = issue("i-none", None, Some("open"));
-
-        let found = open_pr_issue_on_branch(
-            "exp/batch-a1b2c3d4",
-            [&merged, &other, &open, &branchless].into_iter(),
-        );
-        assert_eq!(found.map(|issue| issue.id.as_str()), Some("i-open"));
-        assert!(open_pr_issue_on_branch(
-            "exp/batch-a1b2c3d4",
-            [&merged, &other, &branchless].into_iter()
-        )
-        .is_none());
-        // Trunk/scratch sessions record no branch — never a merge target.
-        assert!(open_pr_issue_on_branch("", [&open].into_iter()).is_none());
-    }
-
-    /// EXP-734: the ONE merge-target rule. An action/chat run carries its own
-    /// chore PR on the SESSION row (no issue links it); an issue run still
-    /// prefers its own issue; a run whose PR already merged offers nothing.
-    #[test]
-    fn merge_target_for_run_falls_back_to_the_runs_own_pr() {
-        let issue = |id: &str, branch: Option<&str>, pr_state: Option<&str>| -> domain::rows::Issue {
-            serde_json::from_value(serde_json::json!({
-                "id": id, "board_id": "b-1", "number": 1,
-                "identifier": "EXP-1", "title": "t", "status": "in_review",
-                "branch": branch, "pr_state": pr_state,
-            }))
-            .unwrap()
-        };
-        let row = |pr_state: Option<&str>| -> domain::rows::CodingSession {
-            serde_json::from_value(serde_json::json!({
-                "id": "cs-1", "team_id": "t-1", "status": "in_review",
-                "action_id": "act-1", "branch": "exp/chat-a1b2c3d4",
-                "pr_url": "https://github.com/o/r/pull/12",
-                "pr_number": "12", "pr_state": pr_state,
-            }))
-            .unwrap()
-        };
-        let linked = issue("i-1", Some("exp/EXP-1"), Some("open"));
-
-        // Action/chat run with an OPEN chore PR → the session itself.
-        let open_row = row(Some("open"));
-        assert_eq!(
-            merge_target_for_run(None, "exp/chat-a1b2c3d4", Some(&open_row), std::iter::empty()),
-            Some(MergeTarget::Session {
-                session_id: "cs-1".to_string()
-            })
-        );
-        // …and its key/op route to `codingSessions.mergePr`, never an issue.
-        let target = MergeTarget::Session {
-            session_id: "cs-1".to_string(),
-        };
-        assert_eq!(target.key(), "session:cs-1");
-        assert!(matches!(
-            target.op(),
-            crate::pr_merge::MergeOp::MergeSessionPr { .. }
-        ));
-
-        // An ISSUE run prefers its own issue even with a row in hand.
-        assert_eq!(
-            merge_target_for_run(
-                Some("i-1"),
-                "exp/EXP-1",
-                Some(&open_row),
-                [&linked].into_iter()
-            ),
-            Some(MergeTarget::Issue {
-                issue_id: "i-1".to_string()
-            })
-        );
-
-        // A BATCH run still resolves through its branch (no issue, no row PR).
-        let batch_issue = issue("i-2", Some("exp/batch-a1b2c3d4"), Some("open"));
-        let plain_row = row(None);
-        assert_eq!(
-            merge_target_for_run(
-                None,
-                "exp/batch-a1b2c3d4",
-                Some(&plain_row),
-                [&batch_issue].into_iter()
-            ),
-            Some(MergeTarget::Issue {
-                issue_id: "i-2".to_string()
-            })
-        );
-
-        // A merged (or absent) run PR is not a merge target.
-        let merged_row = row(Some("merged"));
-        assert_eq!(
-            merge_target_for_run(None, "exp/chat-a1b2c3d4", Some(&merged_row), std::iter::empty()),
-            None
-        );
-        assert_eq!(
-            merge_target_for_run(None, "exp/chat-a1b2c3d4", None, std::iter::empty()),
-            None
-        );
     }
 
     /// A real pre-EXP-301 `window-0.json`: an OPEN bottom dock whose panel
@@ -4367,10 +3761,9 @@ mod tests {
     }
 
     // ── EXP-696: remote session chips ──────────────────────────────────────
-
-    /// Rows are heartbeat-dated so `coding_session_is_live` keeps them:
-    /// 2026-07-17T12:00:00Z, beating a minute ago.
-    const NOW: i64 = 1784289600;
+    // EXP-746 moved the row PROJECTION (and its four tests) to
+    // `queries::remote_session_rows` — the Devices screen wants it too. Only
+    // the chip's own presentation is still tested here.
 
     fn remote_row(
         id: &str,
@@ -4388,74 +3781,6 @@ mod tests {
             "updated_at": "2026-07-17T11:59:00Z",
         }))
         .unwrap()
-    }
-
-    /// Only the caller's own live rows, hosted somewhere that is not this
-    /// install, newest run first.
-    #[test]
-    fn remote_chips_keep_only_other_devices_own_live_rows() {
-        let rows = vec![
-            remote_row("mine-old", "me", Some("laptop"), "2026-07-17T10:00:00Z"),
-            remote_row("mine-new", "me", Some("server"), "2026-07-17T11:00:00Z"),
-            remote_row("here", "me", Some("this-ide"), "2026-07-17T11:30:00Z"),
-            remote_row("theirs", "someone", Some("laptop"), "2026-07-17T11:45:00Z"),
-        ];
-        let picked = remote_session_rows(
-            rows.iter(),
-            "me",
-            "this-ide",
-            &HashSet::new(),
-            NOW,
-        );
-        let ids: Vec<&str> = picked.iter().map(|row| row.id.as_str()).collect();
-        assert_eq!(ids, vec!["mine-new", "mine-old"]);
-    }
-
-    /// A row this process HOSTS already has a terminal tab — it must never
-    /// also grow a steer chip (belt-and-braces next to the device filter).
-    #[test]
-    fn remote_chips_skip_sessions_this_process_hosts() {
-        let rows = vec![remote_row(
-            "sess-1",
-            "me",
-            Some("laptop"),
-            "2026-07-17T11:00:00Z",
-        )];
-        let local: HashSet<String> = ["sess-1".to_string()].into_iter().collect();
-        assert!(remote_session_rows(rows.iter(), "me", "this-ide", &local, NOW).is_empty());
-    }
-
-    /// An ENDED or stale row drops off the strip entirely (web parity: a
-    /// stale run renders as absent, never as a dead tab).
-    #[test]
-    fn remote_chips_drop_ended_and_stale_rows() {
-        let ended: domain::rows::CodingSession = serde_json::from_value(serde_json::json!({
-            "id": "ended",
-            "user_id": "me",
-            "device_id": "laptop",
-            "status": "ended",
-            "updated_at": "2026-07-17T11:59:00Z",
-        }))
-        .unwrap();
-        let stale: domain::rows::CodingSession = serde_json::from_value(serde_json::json!({
-            "id": "stale",
-            "user_id": "me",
-            "device_id": "laptop",
-            "status": "running",
-            // 3h old — past the 2h contract window.
-            "updated_at": "2026-07-17T09:00:00Z",
-        }))
-        .unwrap();
-        let rows = vec![ended, stale];
-        assert!(remote_session_rows(rows.iter(), "me", "this-ide", &HashSet::new(), NOW).is_empty());
-    }
-
-    /// A pre-EXP-549 row with no `device_id` cannot be proven to live
-    /// elsewhere — it stays off the strip rather than claiming to be remote.
-    #[test]
-    fn remote_chips_ignore_rows_without_a_device() {
-        let rows = vec![remote_row("sess-1", "me", None, "2026-07-17T11:00:00Z")];
-        assert!(remote_session_rows(rows.iter(), "me", "this-ide", &HashSet::new(), NOW).is_empty());
     }
 
     /// The subject line falls back the way the web `sessionIdentity` does.

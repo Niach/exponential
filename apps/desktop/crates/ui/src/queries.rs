@@ -1085,6 +1085,100 @@ pub(crate) fn coding_session_display(
 }
 
 // ---------------------------------------------------------------------------
+// Live and past run projections (EXP-696 / EXP-746)
+// ---------------------------------------------------------------------------
+
+/// The user's live sessions hosted ELSEWHERE, newest start first.
+///
+/// The device filter is what makes this correct for the CLI daemon: the
+/// daemon registers its own `device_id` even when it runs on this very
+/// machine, so its runs are remote to the IDE — which is exactly right, the
+/// IDE has no terminal tab for them. Pure (unit-tested).
+///
+/// EXP-746 moved it out of `terminal_dock` — the Devices screen's Running
+/// list is the same projection, and two copies of it is how they drift.
+pub(crate) fn remote_session_rows<'a>(
+    sessions: impl Iterator<Item = &'a domain::rows::CodingSession>,
+    user_id: &str,
+    own_device_id: &str,
+    local_session_ids: &HashSet<String>,
+    now_epoch: i64,
+) -> Vec<&'a domain::rows::CodingSession> {
+    let mut rows: Vec<&domain::rows::CodingSession> = sessions
+        .filter(|session| session.user_id.as_deref() == Some(user_id))
+        .filter(|session| {
+            session
+                .device_id
+                .as_deref()
+                .is_some_and(|device_id| device_id != own_device_id)
+        })
+        .filter(|session| !local_session_ids.contains(&session.id))
+        .filter(|session| coding_session_is_live(session, now_epoch))
+        .collect();
+    // Newest first (web `useAgentsData`); the id is the tiebreak so the strip
+    // order is stable across renders.
+    rows.sort_by(|a, b| b.started_at.cmp(&a.started_at).then_with(|| b.id.cmp(&a.id)));
+    rows
+}
+
+/// EXP-746 — how many Past runs the Devices screen lists (×4 parity: web
+/// `PAST_RUN_CAP`, iOS/Android the same). The section is a recent-history
+/// glance, not an archive.
+#[allow(dead_code)] // consumed by the Devices "Past" section
+pub(crate) const PAST_RUNS_CAP: usize = 20;
+
+/// EXP-746 — "Past": the caller's own FINISHED, person-started runs in the
+/// active team, newest end first, capped at [`PAST_RUNS_CAP`].
+///
+/// Four predicates, all deliberate:
+/// - `ended` only — a live row belongs to Running, and a stale live row is
+///   treated as absent everywhere else (`coding_session_is_live`), so it must
+///   not resurface here either;
+/// - `started_reason` unset — an AUTOMATION run's home is the Automations
+///   tab's "Recent automated runs" (EXP-676), and listing it twice was the
+///   duplication that split;
+/// - the caller's own rows — a live session is owner-only (EXP-312) and its
+///   transcript stays that way once it ends;
+/// - the ACTIVE team, strictly: a row without a `team_id` cannot be proven to
+///   belong here (the column is NOT NULL server-side, so `None` means a
+///   decode gap, never "any team").
+///
+/// Sorted by `ended_at`, falling back to `updated_at` for a row the server
+/// swept without stamping one; ISO-8601 sorts lexicographically. The id is
+/// the tiebreak so the order never flickers between renders. Pure.
+#[allow(dead_code)] // consumed by the Devices "Past" section
+pub(crate) fn own_ended_runs<'a>(
+    rows: impl Iterator<Item = &'a domain::rows::CodingSession>,
+    me: &str,
+    team_id: &str,
+) -> Vec<&'a domain::rows::CodingSession> {
+    let mut out: Vec<&domain::rows::CodingSession> = rows
+        .filter(|session| {
+            session.status.as_deref() == Some(domain::contract::CODING_SESSION_STATUS_ENDED)
+        })
+        .filter(|session| session.started_reason.is_none())
+        .filter(|session| session.user_id.as_deref() == Some(me))
+        .filter(|session| session.team_id.as_deref() == Some(team_id))
+        .collect();
+    out.sort_by(|a, b| {
+        past_run_ended_key(b)
+            .cmp(&past_run_ended_key(a))
+            .then_with(|| b.id.cmp(&a.id))
+    });
+    out.truncate(PAST_RUNS_CAP);
+    out
+}
+
+/// When a past run finished, for ordering: its `ended_at`, else the last
+/// `updated_at` (a row the server swept never got an `ended_at`).
+fn past_run_ended_key(session: &domain::rows::CodingSession) -> Option<&str> {
+    session
+        .ended_at
+        .as_deref()
+        .or(session.updated_at.as_deref())
+}
+
+// ---------------------------------------------------------------------------
 // Launch device candidates (EXP-696)
 // ---------------------------------------------------------------------------
 
@@ -2346,5 +2440,217 @@ mod tests {
         assert!(!failed.may_request(start));
         assert!(!failed.may_request(start + STEER_CONFIG_RETRY - std::time::Duration::from_secs(1)));
         assert!(failed.may_request(start + STEER_CONFIG_RETRY));
+    }
+
+    // ── EXP-696 / EXP-746: live and past run projections ───────────────────
+
+    /// Rows are heartbeat-dated so `coding_session_is_live` keeps them:
+    /// 2026-07-17T12:00:00Z, beating a minute ago.
+    const NOW: i64 = 1784289600;
+
+    fn remote_row(
+        id: &str,
+        user_id: &str,
+        device_id: Option<&str>,
+        started_at: &str,
+    ) -> domain::rows::CodingSession {
+        serde_json::from_value(json!({
+            "id": id,
+            "issue_id": "issue-1",
+            "user_id": user_id,
+            "device_id": device_id,
+            "status": "running",
+            "started_at": started_at,
+            "updated_at": "2026-07-17T11:59:00Z",
+        }))
+        .unwrap()
+    }
+
+    /// Only the caller's own live rows, hosted somewhere that is not this
+    /// install, newest run first.
+    #[test]
+    fn remote_chips_keep_only_other_devices_own_live_rows() {
+        let rows = vec![
+            remote_row("mine-old", "me", Some("laptop"), "2026-07-17T10:00:00Z"),
+            remote_row("mine-new", "me", Some("server"), "2026-07-17T11:00:00Z"),
+            remote_row("here", "me", Some("this-ide"), "2026-07-17T11:30:00Z"),
+            remote_row("theirs", "someone", Some("laptop"), "2026-07-17T11:45:00Z"),
+        ];
+        let picked = remote_session_rows(rows.iter(), "me", "this-ide", &HashSet::new(), NOW);
+        let ids: Vec<&str> = picked.iter().map(|row| row.id.as_str()).collect();
+        assert_eq!(ids, vec!["mine-new", "mine-old"]);
+    }
+
+    /// A row this process HOSTS already has a terminal tab — it must never
+    /// also grow a steer chip (belt-and-braces next to the device filter).
+    #[test]
+    fn remote_chips_skip_sessions_this_process_hosts() {
+        let rows = vec![remote_row(
+            "sess-1",
+            "me",
+            Some("laptop"),
+            "2026-07-17T11:00:00Z",
+        )];
+        let local: HashSet<String> = ["sess-1".to_string()].into_iter().collect();
+        assert!(remote_session_rows(rows.iter(), "me", "this-ide", &local, NOW).is_empty());
+    }
+
+    /// An ENDED or stale row drops off the strip entirely (web parity: a
+    /// stale run renders as absent, never as a dead tab).
+    #[test]
+    fn remote_chips_drop_ended_and_stale_rows() {
+        let ended: domain::rows::CodingSession = serde_json::from_value(json!({
+            "id": "ended",
+            "user_id": "me",
+            "device_id": "laptop",
+            "status": "ended",
+            "updated_at": "2026-07-17T11:59:00Z",
+        }))
+        .unwrap();
+        let stale: domain::rows::CodingSession = serde_json::from_value(json!({
+            "id": "stale",
+            "user_id": "me",
+            "device_id": "laptop",
+            "status": "running",
+            // 3h old — past the 2h contract window.
+            "updated_at": "2026-07-17T09:00:00Z",
+        }))
+        .unwrap();
+        let rows = vec![ended, stale];
+        assert!(remote_session_rows(rows.iter(), "me", "this-ide", &HashSet::new(), NOW).is_empty());
+    }
+
+    /// A pre-EXP-549 row with no `device_id` cannot be proven to live
+    /// elsewhere — it stays off the strip rather than claiming to be remote.
+    #[test]
+    fn remote_chips_ignore_rows_without_a_device() {
+        let rows = vec![remote_row("sess-1", "me", None, "2026-07-17T11:00:00Z")];
+        assert!(remote_session_rows(rows.iter(), "me", "this-ide", &HashSet::new(), NOW).is_empty());
+    }
+
+    /// A finished run, as the Past section sees it. `ended_at`/`updated_at`
+    /// are passed straight through so the ordering rules are testable.
+    fn past_row(
+        id: &str,
+        user_id: &str,
+        team_id: Option<&str>,
+        ended_at: Option<&str>,
+        updated_at: Option<&str>,
+    ) -> domain::rows::CodingSession {
+        serde_json::from_value(json!({
+            "id": id,
+            "issue_id": "issue-1",
+            "user_id": user_id,
+            "team_id": team_id,
+            "status": "ended",
+            "ended_at": ended_at,
+            "updated_at": updated_at,
+        }))
+        .unwrap()
+    }
+
+    /// Past lists ENDED, PERSON-started runs of the caller's own — a live
+    /// row, an automation run and a teammate's run all stay out.
+    #[test]
+    fn only_own_person_started_ended_rows() {
+        let mut live = past_row("live", "me", Some("t-1"), None, Some("2026-07-17T11:00:00Z"));
+        live.status = Some("running".to_string());
+        let theirs = past_row(
+            "theirs",
+            "someone",
+            Some("t-1"),
+            Some("2026-07-17T11:00:00Z"),
+            None,
+        );
+        let mine = past_row(
+            "mine",
+            "me",
+            Some("t-1"),
+            Some("2026-07-17T11:00:00Z"),
+            None,
+        );
+        let rows = vec![live, theirs, mine];
+        let picked = own_ended_runs(rows.iter(), "me", "t-1");
+        let ids: Vec<&str> = picked.iter().map(|row| row.id.as_str()).collect();
+        assert_eq!(ids, vec!["mine"]);
+    }
+
+    /// Newest END first, and a row the server swept without an `ended_at`
+    /// still sorts — on its last `updated_at`.
+    #[test]
+    fn newest_first_by_ended_at_then_updated_at() {
+        let rows = vec![
+            past_row("old", "me", Some("t-1"), Some("2026-07-17T09:00:00Z"), None),
+            past_row("new", "me", Some("t-1"), Some("2026-07-17T11:00:00Z"), None),
+            // No `ended_at` — ordered on `updated_at`, between the two.
+            past_row("swept", "me", Some("t-1"), None, Some("2026-07-17T10:00:00Z")),
+        ];
+        let picked = own_ended_runs(rows.iter(), "me", "t-1");
+        let ids: Vec<&str> = picked.iter().map(|row| row.id.as_str()).collect();
+        assert_eq!(ids, vec!["new", "swept", "old"]);
+    }
+
+    /// The section is a recent-history glance: at most [`PAST_RUNS_CAP`]
+    /// rows, and it is the NEWEST ones that survive the truncation.
+    #[test]
+    fn caps_at_twenty() {
+        let rows: Vec<domain::rows::CodingSession> = (0..30)
+            .map(|n| {
+                past_row(
+                    &format!("run-{n:02}"),
+                    "me",
+                    Some("t-1"),
+                    Some(&format!("2026-07-17T{:02}:00:00Z", n % 24)),
+                    None,
+                )
+            })
+            .collect();
+        let picked = own_ended_runs(rows.iter(), "me", "t-1");
+        assert_eq!(picked.len(), PAST_RUNS_CAP);
+        assert_eq!(
+            picked[0].ended_at.as_deref(),
+            Some("2026-07-17T23:00:00Z"),
+            "the newest run heads the list"
+        );
+    }
+
+    /// EXP-676: an automation's runs live in the Automations tab's "Recent
+    /// automated runs" and nowhere else.
+    #[test]
+    fn an_automation_run_never_appears() {
+        let mut scheduled = past_row(
+            "auto",
+            "me",
+            Some("t-1"),
+            Some("2026-07-17T11:00:00Z"),
+            None,
+        );
+        scheduled.started_reason = Some("schedule".to_string());
+        let mut evented = scheduled.clone();
+        evented.id = "auto-2".to_string();
+        evented.started_reason = Some("event".to_string());
+        let rows = vec![scheduled, evented];
+        assert!(own_ended_runs(rows.iter(), "me", "t-1").is_empty());
+    }
+
+    /// The team filter is STRICT: another team's run stays out, and so does a
+    /// row whose `team_id` failed to decode — the column is NOT NULL
+    /// server-side, so `None` is a gap, never a wildcard.
+    #[test]
+    fn a_team_filter_is_strict() {
+        let rows = vec![
+            past_row("here", "me", Some("t-1"), Some("2026-07-17T11:00:00Z"), None),
+            past_row(
+                "elsewhere",
+                "me",
+                Some("t-2"),
+                Some("2026-07-17T11:00:00Z"),
+                None,
+            ),
+            past_row("teamless", "me", None, Some("2026-07-17T11:00:00Z"), None),
+        ];
+        let picked = own_ended_runs(rows.iter(), "me", "t-1");
+        let ids: Vec<&str> = picked.iter().map(|row| row.id.as_str()).collect();
+        assert_eq!(ids, vec!["here"]);
     }
 }

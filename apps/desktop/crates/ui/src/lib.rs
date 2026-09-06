@@ -35,6 +35,9 @@ mod automation_editor;
 mod board;
 mod board_form;
 mod changelog;
+// EXP-746: the ONE "Latest changes" surface — the dock's row and the session
+// screen's rail render through it.
+mod changes_bar;
 pub mod coding_flow;
 mod coding_selects;
 mod comment_attachments;

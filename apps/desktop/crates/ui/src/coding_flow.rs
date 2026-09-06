@@ -279,8 +279,64 @@ pub enum SessionSubject {
     Action(String),
 }
 
-/// One locally running coding session (a `coding_sessions` row whose child
-/// lives in one of OUR terminal docks).
+/// WHERE a locally running session's agent actually lives (EXP-746).
+///
+/// Before ACP every local run was a PTY tab in a terminal dock, so the
+/// bookkeeping carried a `TabId` + its manager outright. An ACP run has
+/// neither: it is an in-process [`engine::EngineSession`] rendered by the
+/// session screen. Everything that used to reach for the tab goes through
+/// this instead, so the two hosts never grow parallel registries.
+#[derive(Clone)]
+pub enum LocalSessionHost {
+    Pty {
+        tab: TabId,
+        manager: WeakEntity<TerminalManager>,
+    },
+    Acp {
+        session: engine::EngineSession,
+    },
+}
+
+impl LocalSessionHost {
+    /// The dock tab this run occupies, when it has one.
+    pub fn tab(&self) -> Option<TabId> {
+        match self {
+            LocalSessionHost::Pty { tab, .. } => Some(*tab),
+            LocalSessionHost::Acp { .. } => None,
+        }
+    }
+
+    /// The manager owning [`Self::tab`], when there is one.
+    pub fn manager(&self) -> Option<WeakEntity<TerminalManager>> {
+        match self {
+            LocalSessionHost::Pty { manager, .. } => Some(manager.clone()),
+            LocalSessionHost::Acp { .. } => None,
+        }
+    }
+
+    /// "Stop this session."
+    ///
+    /// The PTY arm closes the tab — `close_tab` kills the child and joins the
+    /// PTY threads, and the `TabClosed` watcher then fires the idempotent
+    /// `codingSessions.end` and clears the bookkeeping. The ACP arm kills the
+    /// engine, whose own end sequence (D14) ends the row and reports through
+    /// `EngineHost::on_exit`. Either way the row must never ghost.
+    pub fn stop(&self, cx: &mut App) {
+        match self {
+            LocalSessionHost::Pty { tab, manager } => {
+                let tab = *tab;
+                if let Some(manager) = manager.upgrade() {
+                    manager.update(cx, |manager, cx| manager.close_tab(tab, cx));
+                }
+            }
+            LocalSessionHost::Acp { session } => session.kill("ended"),
+        }
+    }
+}
+
+/// One locally running coding session (a `coding_sessions` row whose agent
+/// this process hosts — a PTY tab in one of our docks, or an in-process ACP
+/// engine).
 pub struct LocalCodingSession {
     pub session_id: String,
     pub subject: SessionSubject,
@@ -290,8 +346,8 @@ pub struct LocalCodingSession {
     /// The branch the session's worktree is on (`exp/<IDENTIFIER>` /
     /// `exp/batch-<id8>`) — the EXP-102 sweep/delete guard key.
     pub branch: String,
-    pub tab: TabId,
-    pub manager: WeakEntity<TerminalManager>,
+    /// EXP-746: the PTY tab or the ACP engine hosting the agent.
+    pub host: LocalSessionHost,
     /// The team action this run executes (`None` for issue/batch sessions).
     pub action_id: Option<String>,
     /// EXP-484: the agent CLI this session runs.
@@ -414,7 +470,7 @@ impl LocalSessions {
     /// a dock tab back to its steer session).
     pub fn session_id_for_tab(&self, tab: TabId) -> Option<&str> {
         self.all()
-            .find(|session| session.tab == tab)
+            .find(|session| session.host.tab() == Some(tab))
             .map(|session| session.session_id.as_str())
     }
 
@@ -429,7 +485,7 @@ impl LocalSessions {
     /// dock's merge affordance needs both the subject AND the branch
     /// (EXP-498: a batch tab's merge target resolves by branch match).
     pub fn session_for_tab(&self, tab: TabId) -> Option<&LocalCodingSession> {
-        self.all().find(|session| session.tab == tab)
+        self.all().find(|session| session.host.tab() == Some(tab))
     }
 
     /// The live local session with this `coding_sessions` ROW id — the
@@ -554,11 +610,20 @@ impl LocalSessions {
         let subject = session.subject.clone();
         let session_key = session.session_id.clone();
         let mut watchers: Vec<Subscription> = Vec::new();
-        if let Some(manager) = session.manager.upgrade() {
+        // EXP-746: both watchers below are PTY-only — an ACP run has no tab to
+        // close and no manager to be released with, and its engine owns the
+        // end sequence (D14) instead.
+        let pty = match &session.host {
+            LocalSessionHost::Pty { tab, manager } => {
+                manager.upgrade().map(|manager| (*tab, manager))
+            }
+            LocalSessionHost::Acp { .. } => None,
+        };
+        if let Some((tab, manager)) = pty {
             {
                 let sessions = sessions.downgrade();
                 let watch_subject = subject.clone();
-                let watch_tab = session.tab;
+                let watch_tab = tab;
                 let session_id = session.session_id.clone();
                 let trpc = Arc::clone(&trpc);
                 watchers.push(cx.subscribe(
@@ -637,15 +702,14 @@ impl LocalSessions {
         .then(|| {
             (
                 session.branch.clone(),
-                session.tab,
-                session.manager.clone(),
+                session.host.clone(),
                 session.session_id.clone(),
             )
         });
         // EXP-711: NOR when the team switched merge-ends-sessions off — the
         // server leaves issue sessions running then, and the batch tab
         // must stay open the same way (synced `teams.end_sessions_on_merge`).
-        if let Some((branch, tab, manager, session_id)) = batch_close.clone() {
+        if let Some((branch, host, session_id)) = batch_close.clone() {
             if let Some(store) = Store::try_global(cx) {
                 let issues = store.collections().issues.clone();
                 let sessions_collection = store.collections().coding_sessions.clone();
@@ -665,9 +729,9 @@ impl LocalSessions {
                     ) {
                         return;
                     }
-                    if let Some(manager) = manager.upgrade() {
-                        manager.update(cx, |manager, cx| manager.close_tab(tab, cx));
-                    }
+                    // EXP-746: the PTY arm closes the tab (its watcher then
+                    // ends the row); the ACP arm kills the engine.
+                    host.stop(cx);
                 }));
             }
         }
@@ -694,7 +758,7 @@ impl LocalSessions {
         // a merged branch) never sees another issues notify — run the same
         // check once, AFTER the entry exists so the close's teardown finds
         // and removes it.
-        if let Some((branch, tab, manager, session_id)) = batch_close {
+        if let Some((branch, host, session_id)) = batch_close {
             let merged = Store::try_global(cx).is_some_and(|store| {
                 branch_pr_merged(&branch, store.collections().issues.read(cx).iter())
                     && !session_merged_its_own_pr(
@@ -710,9 +774,7 @@ impl LocalSessions {
                     )
             });
             if merged {
-                if let Some(manager) = manager.upgrade() {
-                    manager.update(cx, |manager, cx| manager.close_tab(tab, cx));
-                }
+                host.stop(cx);
             }
         }
     }
@@ -1461,8 +1523,10 @@ pub fn spawn_into_window(
                     subject,
                     clone,
                     branch,
-                    tab: terminal_tab,
-                    manager: manager.downgrade(),
+                    host: LocalSessionHost::Pty {
+                        tab: terminal_tab,
+                        manager: manager.downgrade(),
+                    },
                     action_id,
                     agent,
                     worktree,
@@ -1605,30 +1669,42 @@ impl StartCodingControl {
     }
 
     /// The stop affordance (§7.5), behind a confirm (EXP-268 — destructive
-    /// native actions confirm first): close this issue's terminal tab
-    /// entirely. `close_tab` kills the child and joins the PTY threads; the
-    /// `TabClosed` watcher then fires the idempotent `codingSessions.end`
-    /// and clears the registry.
+    /// native actions confirm first): stop this issue's session through its
+    /// [`LocalSessionHost`] — a PTY tab closes (killing the child and joining
+    /// the PTY threads, after which the `TabClosed` watcher fires the
+    /// idempotent `codingSessions.end`), an ACP engine is killed.
+    ///
+    /// EXP-746: the confirm copy names what actually happens, so the terminal
+    /// sentence is not shown to someone whose run has no terminal.
     fn stop(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let Some(issue_id) = self.issue_id.clone() else {
             return;
         };
+        let in_terminal = LocalSessions::global_ref(cx).is_some_and(|sessions| {
+            sessions
+                .read(cx)
+                .get(&issue_id)
+                .is_some_and(|session| session.host.tab().is_some())
+        });
+        let detail = if in_terminal {
+            "The agent stops immediately and the terminal tab closes. \
+             Uncommitted work in the worktree is kept."
+        } else {
+            "The agent stops immediately. Uncommitted work in the worktree is kept."
+        };
         let spec = crate::native_dialog::AlertSpec::new(
             "Stop this coding session?",
-            "The agent stops immediately and the terminal tab closes. \
-             Uncommitted work in the worktree is kept.",
+            detail,
             "Stop session",
         )
         .on_ok(move |_, cx| {
             let sessions = LocalSessions::global(cx);
-            let handle = sessions.read(cx).get(&issue_id).and_then(|session| {
-                session
-                    .manager
-                    .upgrade()
-                    .map(|manager| (manager, session.tab))
-            });
-            if let Some((manager, tab)) = handle {
-                manager.update(cx, |manager, cx| manager.close_tab(tab, cx));
+            let host = sessions
+                .read(cx)
+                .get(&issue_id)
+                .map(|session| session.host.clone());
+            if let Some(host) = host {
+                host.stop(cx);
             }
             true
         });

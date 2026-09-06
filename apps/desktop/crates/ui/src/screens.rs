@@ -282,14 +282,39 @@ enum ChipLead {
     /// Resolution is per-issue, so it stays correct on this cross-team strip
     /// — only GROUPING is team-scoped.
     Status(domain::statuses::ResolvedStatus),
+    /// EXP-746: a liveness tone dot — the session screen's chip, mirroring
+    /// the terminal dock's remote chips.
+    #[allow(dead_code)] // built by `chip_content` for `Screen::Session`
+    Dot(gpui::Hsla),
 }
 
 impl ChipLead {
+    /// The GLYPH lead, when the chip has one. A [`ChipLead::Dot`] is painted
+    /// by `surface::rich_tab` itself and has no icon.
     fn icon(&self, cx: &App) -> Option<gpui_component::Icon> {
         match self {
-            ChipLead::None => None,
+            ChipLead::None | ChipLead::Dot(_) => None,
             ChipLead::Status(status) => Some(crate::icons::resolved_status_icon(status, cx)),
         }
+    }
+}
+
+/// How much width the lead reserves in [`ScreensPanel::measure_chip_width`].
+///
+/// EXP-746: reserving the icon's `size_3` for a `size_1p5` dot over-estimated
+/// every session chip and collapsed tabs into "+N" with room to spare — the
+/// exact EXP-326 bug the measured strip exists to avoid. Pure (unit-tested);
+/// it must move whenever `surface::rich_tab`'s lead does.
+fn lead_reserve_rems(lead: &ChipLead) -> f32 {
+    /// `Icon::xsmall()` — `size_3` (status AND action leads render xsmall,
+    /// so one constant covers both — EXP-426).
+    const LEAD_ICON_REMS: f32 = 0.75;
+    /// The `size_1p5` liveness dot (`surface::rich_tab`'s `RichTabStatus::Dot`).
+    const LEAD_DOT_REMS: f32 = 0.375;
+    match lead {
+        ChipLead::None => 0.,
+        ChipLead::Status(_) => LEAD_ICON_REMS,
+        ChipLead::Dot(_) => LEAD_DOT_REMS,
     }
 }
 
@@ -871,9 +896,6 @@ impl ScreensPanel {
     fn measure_chip_width(&self, entry: &TabEntry, window: &Window, cx: &App) -> f32 {
         /// `surface::rich_tab`'s `px_2p5`, both sides.
         const CHIP_PADDING_REMS: f32 = 0.625 * 2.;
-        /// `Icon::xsmall()` — `size_3` (status AND action leads render
-        /// xsmall, so one constant covers both — EXP-426).
-        const LEAD_ICON_REMS: f32 = 0.75;
         /// An icon-only xsmall `Button` — `size_5`.
         const XSMALL_BUTTON_REMS: f32 = 1.25;
         /// The trailing button cluster's own `gap_0p5`.
@@ -886,8 +908,9 @@ impl ScreensPanel {
         let content = chip_content(&entry.screen, cx);
         let base_font = window.text_style().font();
         let mut children: Vec<f32> = Vec::with_capacity(4);
-        if !matches!(content.lead, ChipLead::None) {
-            children.push(LEAD_ICON_REMS * rem);
+        let lead_reserve = lead_reserve_rems(&content.lead);
+        if lead_reserve > 0. {
+            children.push(lead_reserve * rem);
         }
         if let Some(identifier) = content.identifier.as_ref() {
             // EXP-310: the shortcode renders `text_xs` in the terminal mono
@@ -965,9 +988,12 @@ impl ScreensPanel {
                 let content = chip_content(screen, cx);
                 let mut tab =
                     crate::surface::RichTab::new(("center-tab", ix), Some(ix) == active_ix);
-                tab.status = match content.lead.icon(cx) {
-                    Some(icon) => crate::surface::RichTabStatus::Glyph(icon),
-                    None => crate::surface::RichTabStatus::None,
+                tab.status = match &content.lead {
+                    ChipLead::Dot(tone) => crate::surface::RichTabStatus::Dot(*tone),
+                    lead => match lead.icon(cx) {
+                        Some(icon) => crate::surface::RichTabStatus::Glyph(icon),
+                        None => crate::surface::RichTabStatus::None,
+                    },
                 };
                 tab.identifier = content.identifier;
                 tab.title = content.title;
@@ -1764,7 +1790,7 @@ fn pinned_panel_root(
 
 #[cfg(test)]
 mod tests {
-    use super::partition_tabs;
+    use super::{lead_reserve_rems, partition_tabs, ChipLead};
 
     /// The strip's `gap_1` and the "+N" button at the app's rem
     /// ([`theme::FONT_SIZE_PX`]). Every assertion below is expressed in terms
@@ -1794,6 +1820,26 @@ mod tests {
         assert_eq!(partition(&widths, available, Some(0)), vec![0, 1]);
         // One pixel less and only the first chip survives the budget.
         assert_eq!(partition(&widths, available - 1., Some(0)), vec![0]);
+    }
+
+    /// EXP-746: the width reserve mirrors what `surface::rich_tab` actually
+    /// paints. A dot is half an icon wide; reserving the icon for it inflates
+    /// every session chip and folds tabs away with room still to their right.
+    #[test]
+    fn lead_reserve_matches_the_rendered_lead() {
+        assert_eq!(lead_reserve_rems(&ChipLead::None), 0.);
+        assert_eq!(
+            lead_reserve_rems(&ChipLead::Dot(gpui::red())),
+            0.375,
+            "`size_1p5`"
+        );
+        assert_eq!(
+            lead_reserve_rems(&ChipLead::Status(domain::statuses::constructed_default(
+                domain::enums::IssueStatus::InProgress
+            ))),
+            0.75,
+            "`Icon::xsmall()` = `size_3`"
+        );
     }
 
     /// The active tab is never hidden: it displaces the last chip that fit.

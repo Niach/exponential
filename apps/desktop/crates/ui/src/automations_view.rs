@@ -737,8 +737,9 @@ fn render_run_row(
 }
 
 /// The dock tab a LIVE run occupies on THIS machine (EXP-686), if this
-/// process is the one hosting it. `None` for a run on another device — there
-/// is no terminal here to reveal.
+/// process is the one hosting it IN A TERMINAL. `None` for a run on another
+/// device (there is no terminal here to reveal) and for an EXP-746 ACP run
+/// (it has no tab at all — see [`local_acp_session`]).
 fn local_terminal_tab(
     session_id: &str,
     cx: &App,
@@ -746,7 +747,27 @@ fn local_terminal_tab(
     let sessions = crate::coding_flow::LocalSessions::global_ref(cx)?;
     let sessions = sessions.read(cx);
     let session = sessions.session_by_id(session_id)?;
-    Some((session.tab, session.manager.clone()))
+    match &session.host {
+        crate::coding_flow::LocalSessionHost::Pty { tab, manager } => {
+            Some((*tab, manager.clone()))
+        }
+        crate::coding_flow::LocalSessionHost::Acp { .. } => None,
+    }
+}
+
+/// EXP-746: is this LIVE run an ACP session this process hosts? Its row opens
+/// the session SCREEN rather than revealing a terminal tab, so the caller
+/// routes on this instead of [`local_terminal_tab`].
+#[allow(dead_code)] // wired up with `Screen::Session` (lane D3)
+fn local_acp_session(session_id: &str, cx: &App) -> bool {
+    crate::coding_flow::LocalSessions::global_ref(cx).is_some_and(|sessions| {
+        sessions.read(cx).session_by_id(session_id).is_some_and(|session| {
+            matches!(
+                session.host,
+                crate::coding_flow::LocalSessionHost::Acp { .. }
+            )
+        })
+    })
 }
 
 /// Flip an automation's `enabled` flag through `automations.update`

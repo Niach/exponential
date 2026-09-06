@@ -117,13 +117,43 @@ struct PendingImage {
     uploaded_id: Option<String>,
 }
 
-/// The steering view for ONE remote coding session.
+/// Where a [`SteerSessionView`]'s feed comes from (EXP-746).
+///
+/// One renderer, three sources: today's relay viewer, an in-process ACP run on
+/// this machine, and a read-only replay of a finished one. `Local` and
+/// `Replay` additionally produce local-only rich items (per-edit diff cards,
+/// command output, the pinned plan, thoughts) that never touch the wire.
+#[allow(dead_code)] // Local/Replay are constructed by the session screen
+pub(crate) enum FeedSource {
+    /// An in-process ACP session this host is running.
+    Local { session: engine::EngineSession },
+    /// The relay viewer: a run on another machine (or another process here).
+    /// `None` = the socket could not be dialled at all.
+    Remote { handle: Option<ViewerHandle> },
+    /// A finished run replayed through the engine's `session/load`.
+    Replay { session: engine::EngineSession },
+}
+
+impl FeedSource {
+    /// The relay handle, when this source HAS one. Steering, answers and
+    /// wakeups all go through it; the local sources answer `None` until lane
+    /// D3 routes them at their `EngineSession`.
+    fn handle(&self) -> Option<&ViewerHandle> {
+        match self {
+            FeedSource::Remote { handle } => handle.as_ref(),
+            FeedSource::Local { .. } | FeedSource::Replay { .. } => None,
+        }
+    }
+}
+
+/// The steering view for ONE coding session — remote, local or replayed.
 pub(crate) struct SteerSessionView {
     session_id: String,
     /// The synced row, re-snapshotted whenever `coding_sessions` notifies.
     row: Option<domain::rows::CodingSession>,
     feed: SteerFeed,
-    handle: Option<ViewerHandle>,
+    /// EXP-746: what drives the feed. The relay handle lives inside it.
+    source: FeedSource,
     phase: ViewerPhase,
     connected: bool,
     /// EXP-696 wakeups: the last seen edge states, so only a TRANSITION back
@@ -168,11 +198,30 @@ pub(crate) struct SteerSessionView {
 }
 
 impl SteerSessionView {
-    /// Build the view and dial the relay. The socket stays up for the view's
-    /// whole life — the dock creates one lazily on the first chip click and
-    /// keeps it until the session's row leaves the live set.
+    /// Build the view and dial the relay — the REMOTE constructor. The socket
+    /// stays up for the view's whole life; the dock creates one lazily on the
+    /// first chip click and keeps it until the session's row leaves the live
+    /// set.
     pub(crate) fn new(
         session_id: String,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Self {
+        Self::with_source(
+            session_id,
+            FeedSource::Remote { handle: None },
+            window,
+            cx,
+        )
+    }
+
+    /// EXP-746 — the same view over any [`FeedSource`]. A `Remote` source with
+    /// no handle yet is DIALLED here (that is what [`Self::new`] passes), so
+    /// the relay path is unchanged; `Local` and `Replay` bring their own
+    /// engine session.
+    pub(crate) fn with_source(
+        session_id: String,
+        source: FeedSource,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
@@ -263,7 +312,7 @@ impl SteerSessionView {
             session_id: session_id.clone(),
             row: None,
             feed: SteerFeed::new(),
-            handle: None,
+            source,
             phase: ViewerPhase::Connecting,
             connected: false,
             device_offline: false,
@@ -293,11 +342,18 @@ impl SteerSessionView {
         // first observer call is a comparison rather than a false edge.
         this.device_offline = this.device(cx).offline;
         this.sync_offline = sync_offline(cx);
-        this.handle = spawn_viewer(&session_id, events_tx, cx);
-        if this.handle.is_none() {
-            this.phase = ViewerPhase::Unauthorized {
-                detail: Some("Live steering is unavailable on this instance.".to_string()),
-            };
+        // Only the relay source dials — and only when the caller did not hand
+        // one in. A local/replay source keeps its `Connecting` phase until its
+        // engine reports (lane D3).
+        if let FeedSource::Remote { handle } = &mut this.source {
+            if handle.is_none() {
+                *handle = spawn_viewer(&session_id, events_tx, cx);
+            }
+            if handle.is_none() {
+                this.phase = ViewerPhase::Unauthorized {
+                    detail: Some("Live steering is unavailable on this instance.".to_string()),
+                };
+            }
         }
         this
     }
@@ -340,7 +396,7 @@ impl SteerSessionView {
         // EXP-724: nothing is coming to close an open compaction strip once
         // the socket is gone.
         self.feed.clear_compaction();
-        if let Some(handle) = self.handle.as_ref() {
+        if let Some(handle) = self.source.handle() {
             handle.note_session_ended();
             handle.shutdown();
         }
@@ -368,7 +424,7 @@ impl SteerSessionView {
             // EXP-639: the redial loops treat the synced row as the truth —
             // a `no_such_session` for an ended run would otherwise park the
             // viewer in `Starting` forever.
-            if let Some(handle) = self.handle.as_ref() {
+            if let Some(handle) = self.source.handle() {
                 handle.note_session_ended();
             }
             // EXP-724: a run that ended mid-compaction never sends `ended`.
@@ -421,7 +477,7 @@ impl SteerSessionView {
     /// Nudge the socket to redial NOW if it is stuck. A no-op once the loop
     /// has stopped for good (ended, unauthorized, shut down).
     fn wake(&self, reason: &str) {
-        let Some(handle) = self.handle.as_ref() else {
+        let Some(handle) = self.source.handle() else {
             return;
         };
         if !handle.is_active() {
@@ -603,7 +659,7 @@ impl SteerSessionView {
         let Some(question_id) = card.question_id.as_deref() else {
             return;
         };
-        let Some(handle) = self.handle.as_ref() else {
+        let Some(handle) = self.source.handle() else {
             return;
         };
         let sent = handle.send_answer(question_id, card.ask_id.as_deref(), &keys, text.as_deref());
@@ -936,8 +992,8 @@ impl SteerSessionView {
     /// Push a composed message onto the wire. `false` = the socket is down
     /// and the caller keeps its draft.
     fn deliver(&self, message: &str) -> bool {
-        self.handle
-            .as_ref()
+        self.source
+            .handle()
             .is_some_and(|handle| handle.send_message(message))
     }
 
@@ -2958,7 +3014,7 @@ impl Render for SteerSessionView {
 
 impl Drop for SteerSessionView {
     fn drop(&mut self) {
-        if let Some(handle) = self.handle.as_ref() {
+        if let Some(handle) = self.source.handle() {
             handle.shutdown();
         }
     }
