@@ -1009,6 +1009,16 @@ async fn prompt(
     // A `/` command the agent owns is a VERB, not a message: sending it as
     // text would put the literal `/compact` into the conversation.
     if let Some((name, args)) = slash_command(&text) {
+        // EXP-752: `/exp-plan` is the MODE SWITCH, and `publish_commands`
+        // hides it from the picker — but free text (the composer, a remote
+        // steer message) still reaches here. pi runs a registered extension
+        // command and starts NO turn, so forwarding it as an ordinary prompt
+        // would park this request on a turn that never settles: take the same
+        // route `session/set_mode` takes, refusals included.
+        if name == coding::pi_bridge::PI_PLAN_COMMAND {
+            switch_plan_mode(session, cx, plan_argument(args)).await?;
+            return Ok(PromptResponse::new(StopReason::EndTurn));
+        }
         if let Some(result) = run_command(session, cx, name, args).await {
             result?;
             return Ok(PromptResponse::new(StopReason::EndTurn));
@@ -1040,7 +1050,8 @@ async fn prompt(
 /// Two refusals, both deliberate: a session that never loaded the extension
 /// has no modes at all, and a switch MID-TURN would be queued into the
 /// running turn (pi's own streaming rules) and take effect at the wrong
-/// moment — the caller waits for the turn instead.
+/// moment — the caller waits for the turn instead. Both live in
+/// [`switch_plan_mode`], which a TYPED `/exp-plan` takes too.
 async fn set_mode(
     session: &Arc<PiSession>,
     cx: &ConnectionTo<Client>,
@@ -1058,6 +1069,22 @@ async fn set_mode(
                 .data(json!(format!("pi has no session mode {other}"))))
         }
     };
+    switch_plan_mode(session, cx, argument).await?;
+    Ok(SetSessionModeResponse::new())
+}
+
+/// The ONE plan switch, shared by `session/set_mode` and a typed
+/// `/exp-plan`: send the extension command as a `prompt` (pi runs it and
+/// starts no turn), then take the session to the mode it leaves behind and
+/// tell the client. `argument` is pi's own `on`/`off`.
+async fn switch_plan_mode(
+    session: &Arc<PiSession>,
+    cx: &ConnectionTo<Client>,
+    argument: &str,
+) -> Result<(), Error> {
+    if guard(&session.mode).is_none() {
+        return Err(Error::invalid_request().data(json!("pi has no session modes")));
+    }
     if guard(&session.turn).active {
         return Err(Error::invalid_request()
             .data(json!("pi plan mode switches between turns only")));
@@ -1070,8 +1097,19 @@ async fn set_mode(
             }),
         )
         .await?;
-    session.enter_mode(cx, &requested);
-    Ok(SetSessionModeResponse::new())
+    session.enter_mode(cx, if argument == "off" { MODE_DEFAULT } else { MODE_PLAN });
+    Ok(())
+}
+
+/// The `on`/`off` a typed `/exp-plan <args>` means, by the extension's OWN
+/// rule (`.trim() !== "off"` turns planning on), so a bare `/exp-plan` and
+/// anything unrecognised land where pi would put them.
+fn plan_argument(args: &str) -> &'static str {
+    if args.trim() == "off" {
+        "off"
+    } else {
+        "on"
+    }
 }
 
 async fn set_config_option(
@@ -1645,6 +1683,21 @@ mod tests {
         // A multi-line message is a message, even when it opens with a slash.
         assert_eq!(slash_command("/compact\nand then ship it"), None);
         assert_eq!(slash_command("/"), None);
+    }
+
+    #[test]
+    fn a_typed_plan_command_reads_as_the_extensions_own_argument() {
+        // The extension turns planning on for ANYTHING but `off`, so a bare
+        // `/exp-plan` (and a typo) has to land the same way here.
+        assert_eq!(plan_argument(""), "on");
+        assert_eq!(plan_argument(" on "), "on");
+        assert_eq!(plan_argument("please"), "on");
+        assert_eq!(plan_argument(" off "), "off");
+        // The switch is reached through `slash_command`, which trims the line.
+        assert_eq!(
+            slash_command("  /exp-plan off  "),
+            Some((coding::pi_bridge::PI_PLAN_COMMAND, "off"))
+        );
     }
 
     #[test]
