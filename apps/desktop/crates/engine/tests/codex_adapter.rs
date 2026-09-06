@@ -21,7 +21,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use agent_client_protocol::schema::v1::{
-    CancelNotification, ClientCapabilities, ContentBlock, InitializeRequest, NewSessionRequest,
+    CancelNotification, ClientCapabilities, ContentBlock, CreateElicitationRequest,
+    CreateElicitationResponse, ElicitationAcceptAction, ElicitationContentValue,
+    ElicitationMode, InitializeRequest, NewSessionRequest,
     PermissionOptionId, PromptRequest, RequestPermissionOutcome, RequestPermissionRequest,
     RequestPermissionResponse, SelectedPermissionOutcome, SessionNotification, SessionUpdate,
     StopReason, TextContent, ToolCallContent, ToolKind,
@@ -513,5 +515,76 @@ async fn a_cancelled_turn_drops_every_frame_that_arrives_after_it() {
     assert!(
         texts.iter().all(|text| text != "after the interrupt"),
         "a cancelled turn leaked into the feed: {texts:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_request_for_user_input_becomes_one_elicitation_with_a_property_per_question() {
+    let (fake, connection) = FakeServer::new(
+        vec![frames("question.jsonl")],
+        Vec::new(),
+        frames("question-continued.jsonl"),
+    );
+    let agent = CodexAgent::with_connection(spec(), connection);
+    let form: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let seen = form.clone();
+
+    Client
+        .builder()
+        .on_receive_notification(
+            async move |_notification: SessionNotification, _cx| Ok(()),
+            agent_client_protocol::on_receive_notification!(),
+        )
+        .on_receive_request(
+            async move |request: CreateElicitationRequest, responder, _cx| {
+                // ONE elicitation, one property per question: codex sends every
+                // question of a request under the same itemId, so a permission
+                // request each would collide on the id.
+                let ElicitationMode::Form(form) = &request.mode else {
+                    panic!("expected a form elicitation");
+                };
+                if let Ok(mut seen) = seen.lock() {
+                    seen.extend(form.requested_schema.properties.keys().cloned());
+                }
+                let mut content = std::collections::BTreeMap::new();
+                content.insert(
+                    "q1".to_string(),
+                    ElicitationContentValue::String("spaces".to_string()),
+                );
+                responder.respond(CreateElicitationResponse::new(
+                    ElicitationAcceptAction::new().content(content),
+                ))
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .connect_with(agent, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(ClientCapabilities::new()),
+            )
+            .block_task()
+            .await?;
+            let session = cx
+                .send_request(NewSessionRequest::new(PathBuf::from("/work/tree")))
+                .block_task()
+                .await?;
+            let response = cx
+                .send_request(PromptRequest::new(
+                    session.session_id.clone(),
+                    vec![text("reformat the file")],
+                ))
+                .block_task()
+                .await?;
+            assert_eq!(response.stop_reason, StopReason::EndTurn);
+            Ok(())
+        })
+        .await
+        .expect("the session runs");
+
+    assert_eq!(form.lock().expect("the form").clone(), vec!["q1".to_string()]);
+    // The answer goes back keyed by the QUESTION id, in codex's own shape.
+    assert_eq!(
+        fake.answers(),
+        vec![json!({ "answers": { "q1": { "answers": ["spaces"] } } })]
     );
 }

@@ -36,7 +36,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{
-    AgentCapabilities, AvailableCommand, AvailableCommandsUpdate, CancelNotification,
+    AgentCapabilities, CreateElicitationRequest, ElicitationAction, ElicitationContentValue,
+    ElicitationFormMode, ElicitationSchema, ElicitationSessionScope, StringPropertySchema, AvailableCommand, AvailableCommandsUpdate, CancelNotification,
     CompactionId, CompactionStatus, CompactionUpdate, ContentBlock, ContentChunk, CurrentModeUpdate, Diff,
     InitializeRequest, InitializeResponse, ListSessionsRequest, ListSessionsResponse,
     LoadSessionRequest, LoadSessionResponse, NewSessionRequest, NewSessionResponse,
@@ -251,6 +252,9 @@ struct Shared {
     /// Server-request ids already answered (a cancel races the client's own
     /// outcome; whoever gets there first wins and the other is dropped).
     answered: Mutex<HashSet<String>>,
+    /// Approvals waiting on a person. A cancel answers them itself rather than
+    /// leaving codex holding a request whose turn is already gone.
+    in_flight: Mutex<HashMap<String, ServerRequest>>,
     /// `error` notifications that arrived before `turn/started` — codex sends
     /// them with no turn to attach to, and flushing them at turn start is what
     /// keeps the first error of a turn from vanishing.
@@ -363,6 +367,7 @@ impl ConnectTo<Client> for CodexAgent {
                 config: Mutex::new(Config::default()),
                 items: Items::default(),
                 answered: Mutex::new(HashSet::new()),
+                in_flight: Mutex::new(HashMap::new()),
                 pending_errors: Mutex::new(Vec::new()),
                 compaction: Mutex::new(None),
                 compacted: Mutex::new(HashSet::new()),
@@ -1178,6 +1183,16 @@ async fn compact(shared: &Arc<Shared>, thread_id: &str) -> Result<StopReason, Er
 /// The fence. Marks every live turn stale and returns them so the interrupt
 /// can follow; the caller must do this BEFORE awaiting anything.
 fn mark_stale(shared: &Arc<Shared>) -> Vec<String> {
+    // Every approval still on screen belongs to the turn being cancelled.
+    let pending: Vec<ServerRequest> = shared
+        .in_flight
+        .lock()
+        .map(|mut in_flight| in_flight.drain().map(|(_, request)| request).collect())
+        .unwrap_or_default();
+    for request in pending {
+        let key = request.id.to_string();
+        answer(shared, &key, &request, codex_wire::cancel_result(&request.method));
+    }
     let mut live = Vec::new();
     if let Ok(mut turns) = shared.turns.lock() {
         if let Some(id) = turns.live.clone() {
@@ -2039,6 +2054,9 @@ async fn on_server_request(shared: &Arc<Shared>, cx: &ConnectionTo<Client>, requ
         answer(shared, &key, &request, codex_wire::cancel_result(&request.method));
         return;
     };
+    if let Ok(mut in_flight) = shared.in_flight.lock() {
+        in_flight.insert(key.clone(), request.clone());
+    }
     let outcome = cx
         .send_request(RequestPermissionRequest::new(
             session_id,
@@ -2072,6 +2090,9 @@ async fn on_server_request(shared: &Arc<Shared>, cx: &ConnectionTo<Client>, requ
             codex_wire::cancel_result(&request.method)
         }
     };
+    if let Ok(mut in_flight) = shared.in_flight.lock() {
+        in_flight.remove(&key);
+    }
     answer(shared, &key, &request, result);
 }
 
@@ -2113,10 +2134,14 @@ fn approval_card(request: &ServerRequest) -> ToolCallUpdate {
     )
 }
 
-/// `item/tool/requestUserInput` as a permission request per question: one
-/// card, one option per offered answer.
-/// `autoResolutionMs` races the person — codex resolves the request itself
-/// when it expires, so an answer that arrives late must not be sent.
+/// `item/tool/requestUserInput` as ONE ACP elicitation: a form with one
+/// property per question, which is what the engine mapper turns into the
+/// `<ask>#<n>` … `<ask>#submit` stepper the four clients render. One
+/// permission request per question would collide on the id — codex sends every
+/// question of a request under the SAME `itemId`.
+///
+/// `autoResolutionMs` races the person: codex resolves the request itself when
+/// it expires, so an answer that arrives late must never be sent.
 async fn question(
     shared: &Arc<Shared>,
     cx: &ConnectionTo<Client>,
@@ -2137,87 +2162,97 @@ async fn question(
         answer(shared, key, request, codex_wire::cancel_result(&request.method));
         return;
     }
-    let auto = request
-        .params
-        .get("autoResolutionMs")
-        .and_then(Value::as_u64)
-        .filter(|millis| *millis > 0);
 
-    let mut answers = serde_json::Map::new();
+    let mut schema = ElicitationSchema::new();
+    let mut headers = Vec::new();
     for entry in &questions {
-        let Some(question_id) = entry.get("id").and_then(Value::as_str) else { continue };
+        let Some(id) = entry.get("id").and_then(Value::as_str) else { continue };
         let text = entry
             .get("question")
             .and_then(Value::as_str)
-            .unwrap_or_default();
-        let options: Vec<PermissionOption> = entry
+            .unwrap_or_default()
+            .to_string();
+        let header = entry
+            .get("header")
+            .and_then(Value::as_str)
+            .unwrap_or(text.as_str())
+            .to_string();
+        headers.push(header.clone());
+        let mut property = StringPropertySchema::new()
+            .title(header)
+            .description(text);
+        let labels: Vec<String> = entry
             .get("options")
             .and_then(Value::as_array)
             .map(|options| {
                 options
                     .iter()
-                    .enumerate()
-                    .filter_map(|(index, option)| {
-                        let label = option.get("label").and_then(Value::as_str)?;
-                        Some(PermissionOption::new(
-                            format!("{question_id}#{index}"),
-                            label,
-                            PermissionOptionKind::AllowOnce,
-                        ))
-                    })
+                    .filter_map(|option| option.get("label").and_then(Value::as_str))
+                    .map(str::to_string)
                     .collect()
             })
             .unwrap_or_default();
-        if options.is_empty() {
-            continue;
+        // `isOther` means the person may write their own answer, so the
+        // options stay a hint rather than the only choices.
+        let free_text = entry
+            .get("isOther")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if !labels.is_empty() && !free_text {
+            property = property.enum_values(labels);
         }
-        let ask = cx.send_request(RequestPermissionRequest::new(
-            session_id.clone(),
-            ToolCallUpdate::new(
-                ToolCallId::new(
-                    request
-                        .params
-                        .get("itemId")
-                        .and_then(Value::as_str)
-                        .unwrap_or(question_id),
-                ),
-                ToolCallUpdateFields::new()
-                    .title(text.to_string())
-                    .kind(ToolKind::Other),
+        schema = schema.property(id, property, true);
+    }
+
+    let ask = cx.send_request(CreateElicitationRequest::new(
+        ElicitationFormMode::new(
+            ElicitationSessionScope::new(session_id).tool_call_id(
+                request
+                    .params
+                    .get("itemId")
+                    .and_then(Value::as_str)
+                    .map(ToolCallId::new),
             ),
-            options,
-        ));
-        let picked = match auto {
-            Some(millis) => {
-                match tokio::time::timeout(Duration::from_millis(millis), ask.block_task()).await {
-                    Ok(picked) => picked,
-                    // codex has resolved it itself by now; answering would be
-                    // answering a request that no longer exists.
-                    Err(_) => return,
-                }
+            schema,
+        ),
+        headers.first().cloned().unwrap_or_else(|| "Codex needs an answer".to_string()),
+    ));
+    let auto = request
+        .params
+        .get("autoResolutionMs")
+        .and_then(Value::as_u64)
+        .filter(|millis| *millis > 0);
+    let response = match auto {
+        Some(millis) => {
+            match tokio::time::timeout(Duration::from_millis(millis), ask.block_task()).await {
+                Ok(response) => response,
+                // codex has resolved it itself by now; answering would be
+                // answering a request that no longer exists.
+                Err(_) => return,
             }
-            None => ask.block_task().await,
+        }
+        None => ask.block_task().await,
+    };
+    let Ok(response) = response else {
+        answer(shared, key, request, codex_wire::cancel_result(&request.method));
+        return;
+    };
+    let ElicitationAction::Accept(accepted) = response.action else {
+        answer(shared, key, request, codex_wire::cancel_result(&request.method));
+        return;
+    };
+    let mut answers = serde_json::Map::new();
+    for (id, value) in accepted.content.unwrap_or_default() {
+        let value = match value {
+            ElicitationContentValue::String(value) => value,
+            ElicitationContentValue::Integer(value) => value.to_string(),
+            ElicitationContentValue::Number(value) => value.to_string(),
+            ElicitationContentValue::Boolean(value) => value.to_string(),
+            // A shape a newer client answers with: skipping it is better than
+            // sending codex a stringified blob.
+            _ => continue,
         };
-        let Ok(response) = picked else { continue };
-        let RequestPermissionOutcome::Selected(selected) = response.outcome else {
-            answer(shared, key, request, codex_wire::cancel_result(&request.method));
-            return;
-        };
-        let index = selected
-            .option_id
-            .0
-            .rsplit('#')
-            .next()
-            .and_then(|index| index.parse::<usize>().ok())
-            .unwrap_or(0);
-        let label = entry
-            .get("options")
-            .and_then(Value::as_array)
-            .and_then(|options| options.get(index))
-            .and_then(|option| option.get("label"))
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        answers.insert(question_id.to_string(), json!({ "answers": [label] }));
+        answers.insert(id, json!({ "answers": [value] }));
     }
     answer(shared, key, request, json!({ "answers": answers }));
 }
