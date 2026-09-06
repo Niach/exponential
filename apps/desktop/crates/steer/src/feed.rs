@@ -131,6 +131,11 @@ pub enum FeedKind {
         agent_type: String,
         status: SubagentStatus,
         detail: Option<String>,
+        /// EXP-748: the tool calls the publisher counted for this subagent.
+        /// The journal drops a subagent's oldest calls long before the main
+        /// transcript, so the marker's own number is what the caption falls
+        /// back on when the rows themselves were evicted.
+        tool_calls: Option<u32>,
     },
     Question(QuestionCard),
     /// EXP-724: the quiet "Context compacted" divider `compaction ended`
@@ -656,6 +661,7 @@ impl SteerFeed {
                 agent_type,
                 status,
                 detail,
+                tool_calls,
                 ..
             } => {
                 if id.is_empty() {
@@ -666,6 +672,7 @@ impl SteerFeed {
                     agent_type,
                     status,
                     detail: non_blank(detail),
+                    tool_calls,
                 });
             }
             ActivityEvent::Permission { tool, detail, .. } => {
@@ -1080,7 +1087,10 @@ pub fn collect_subagents(items: &[FeedItem]) -> Vec<SubagentSummary> {
 /// - `done`: any marker completed;
 /// - `detail`: the LATEST non-empty detail (the completed edge restates the
 ///   freshest);
-/// - `tool_count`: the tool calls attributed to the subagent.
+/// - `tool_count`: the tool calls attributed to the subagent — the VISIBLE
+///   rows, or the highest count a marker reported when that is larger
+///   (EXP-748: the journal drops a subagent's oldest calls first, so a replay
+///   carries the number even once the rows are gone).
 #[derive(Clone, Debug, PartialEq)]
 pub struct SubagentRowSummary {
     pub agent_type: String,
@@ -1090,23 +1100,32 @@ pub struct SubagentRowSummary {
 }
 
 pub fn summarize_subagent_row(items: &[&FeedItem]) -> SubagentRowSummary {
-    let markers: Vec<(&str, SubagentStatus, Option<&str>)> = items
+    let markers: Vec<(&str, SubagentStatus, Option<&str>, Option<u32>)> = items
         .iter()
         .filter_map(|item| match &item.kind {
             FeedKind::Subagent {
                 agent_type,
                 status,
                 detail,
+                tool_calls,
                 ..
-            } => Some((agent_type.trim(), *status, detail.as_deref())),
+            } => Some((agent_type.trim(), *status, detail.as_deref(), *tool_calls)),
             _ => None,
         })
         .collect();
     let types: Vec<&str> = markers
         .iter()
-        .map(|(agent_type, _, _)| *agent_type)
+        .map(|(agent_type, _, _, _)| *agent_type)
         .filter(|agent_type| !agent_type.is_empty())
         .collect();
+    // EXP-748: the rows this feed still holds, or the publisher's own count
+    // when it is higher — a replay whose subagent tool calls were evicted
+    // still captions "done · 240 tool calls".
+    let reported = markers
+        .iter()
+        .filter_map(|(_, _, _, tool_calls)| *tool_calls)
+        .max()
+        .unwrap_or(0) as usize;
     SubagentRowSummary {
         agent_type: types
             .iter()
@@ -1116,13 +1135,17 @@ pub fn summarize_subagent_row(items: &[&FeedItem]) -> SubagentRowSummary {
             .unwrap_or_else(|| SUBAGENT_FALLBACK_TYPE.to_string()),
         done: markers
             .iter()
-            .any(|(_, status, _)| *status == SubagentStatus::Completed),
+            .any(|(_, status, _, _)| *status == SubagentStatus::Completed),
         detail: markers
             .iter()
             .rev()
-            .find_map(|(_, _, detail)| detail.filter(|d| !d.trim().is_empty()))
+            .find_map(|(_, _, detail, _)| detail.filter(|d| !d.trim().is_empty()))
             .map(str::to_string),
-        tool_count: items.iter().filter(|item| item.is_tool()).count(),
+        tool_count: items
+            .iter()
+            .filter(|item| item.is_tool())
+            .count()
+            .max(reported),
     }
 }
 
@@ -1969,6 +1992,65 @@ mod tests {
         assert_eq!(agents[1].subagent_id, "a2");
         assert_eq!(agents[1].agent_type, "plan");
         assert!(!agents[1].done);
+    }
+
+    /// EXP-748: the journal evicts a subagent's oldest tool calls long before
+    /// the main transcript, so a rejoining viewer sees a marker whose count
+    /// outruns the rows it still has — the caption must follow the count.
+    #[test]
+    fn a_reported_tool_call_count_wins_over_the_visible_one() {
+        let mut feed = SteerFeed::new();
+        feed.apply(ActivityEvent::Subagent {
+            id: "a1".into(),
+            agent_type: "explore".into(),
+            status: SubagentStatus::Started,
+            detail: None,
+            at: None,
+            tool_calls: None,
+        });
+        feed.apply(ActivityEvent::Tool {
+            name: "Grep".into(),
+            detail: None,
+            subagent_id: Some("a1".into()),
+            at: None,
+        });
+        feed.apply(ActivityEvent::Subagent {
+            id: "a1".into(),
+            agent_type: "explore".into(),
+            status: SubagentStatus::Completed,
+            detail: None,
+            at: None,
+            tool_calls: Some(240),
+        });
+        assert_eq!(feed.subagents()[0].tool_count, 240);
+
+        // A count that UNDERSTATES what the feed holds never shrinks the row:
+        // the rows on screen are the floor.
+        feed.apply(ActivityEvent::Subagent {
+            id: "a2".into(),
+            agent_type: "plan".into(),
+            status: SubagentStatus::Started,
+            detail: None,
+            at: None,
+            tool_calls: None,
+        });
+        for name in ["Read", "Edit"] {
+            feed.apply(ActivityEvent::Tool {
+                name: name.into(),
+                detail: None,
+                subagent_id: Some("a2".into()),
+                at: None,
+            });
+        }
+        feed.apply(ActivityEvent::Subagent {
+            id: "a2".into(),
+            agent_type: "plan".into(),
+            status: SubagentStatus::Completed,
+            detail: None,
+            at: None,
+            tool_calls: Some(1),
+        });
+        assert_eq!(feed.subagents()[1].tool_count, 2);
     }
 
     #[test]
