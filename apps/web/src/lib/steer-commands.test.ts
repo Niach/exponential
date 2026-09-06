@@ -3,13 +3,18 @@ import { contract } from "@exp/domain-contract"
 import {
   filterSteerCommands,
   matchSlashDraft,
+  mergeAgentCommands,
   parseSteerCommand,
+  steerAgentId,
   steerCommandDraft,
   steerCommandConfirmCopy,
   steerCommandsFor,
   COMPACTED_LABEL,
   COMPACTING_LABEL,
+  CONFIG_DEFAULT_VALUE_LABEL,
+  CONFIG_MODE_LABEL,
   DEFAULT_STEER_AGENT,
+  EXTERNAL_STEER_AGENT,
   STEER_COMMANDS,
 } from "./steer-commands"
 
@@ -43,6 +48,44 @@ describe(`steerCommandsFor`, () => {
 
   it(`an unknown agent offers nothing`, () => {
     expect(steerCommandsFor(`gizmo`)).toEqual([])
+  })
+})
+
+// EXP-746: an external ACP agent syncs no agent at all, so "no agent" is not
+// enough to mean claude. Mirrored ×4 with this exact name (iOS
+// testAnAgentLessAcpRunIsAnExternalAgent, Android + desktop
+// `an agent-less acp run is an external agent`).
+describe(`steerAgentId`, () => {
+  it(`an agent-less acp run is an external agent`, () => {
+    // The sentinel is outside the contract on purpose: the curated rows
+    // describe claude/codex/pi behaviour, and an external agent's own
+    // catalog is whatever it advertises.
+    expect(contract.codingAgent.values).not.toContain(EXTERNAL_STEER_AGENT)
+    expect(steerAgentId(null, true)).toBe(EXTERNAL_STEER_AGENT)
+    expect(steerCommandsFor(steerAgentId(null, true))).toEqual([])
+    // Only what the agent advertised reaches the menu — no `/clear`, so no
+    // confirm dialog for a command nothing would run.
+    const merged = mergeAgentCommands(
+      steerCommandsFor(steerAgentId(null, true)),
+      [{ name: `review`, description: `Review the diff` }],
+      steerAgentId(null, true)
+    )
+    expect(merged.map((command) => command.name)).toEqual([`review`])
+    expect(parseSteerCommand(`/clear`, merged)).toBeNull()
+  })
+
+  it(`a row that names its agent keeps it, ACP or not`, () => {
+    expect(steerAgentId(`codex`, true)).toBe(`codex`)
+    expect(steerAgentId(` pi `, true)).toBe(`pi`)
+    expect(steerAgentId(`claude`, false)).toBe(`claude`)
+  })
+
+  it(`an agent-less run with no config_state is still a claude run`, () => {
+    // A PTY run publishes no `config_state` — and neither does a row from a
+    // desktop too old to stamp its agent.
+    expect(steerAgentId(null, false)).toBe(DEFAULT_STEER_AGENT)
+    expect(steerAgentId(``, false)).toBe(DEFAULT_STEER_AGENT)
+    expect(steerAgentId(undefined, false)).toBe(DEFAULT_STEER_AGENT)
   })
 })
 
@@ -148,5 +191,97 @@ describe(`copy`, () => {
       cancel: `Cancel`,
     })
     expect(steerCommandConfirmCopy(`compact`).title).toBe(`Run /compact?`)
+  })
+})
+
+// EXP-746: on an ACP run the `/` menu is the contract catalog UNION the
+// agent's own advertised commands. Mirrored ×4 with these exact names.
+describe(`mergeAgentCommands`, () => {
+  const claude = steerCommandsFor(`claude`)
+
+  it(`mergeAgentCommands lists the contract commands first`, () => {
+    const merged = mergeAgentCommands(
+      claude,
+      [
+        { name: `review`, description: `Review the diff`, hint: `<path>` },
+        { name: `ship`, description: `Open the PR` },
+      ],
+      `claude`
+    )
+    expect(merged.slice(0, claude.length)).toEqual(claude)
+    expect(merged.slice(claude.length)).toEqual([
+      {
+        name: `review`,
+        description: `Review the diff`,
+        argHint: `<path>`,
+        agents: [`claude`],
+        confirm: false,
+      },
+      {
+        name: `ship`,
+        description: `Open the PR`,
+        argHint: ``,
+        agents: [`claude`],
+        confirm: false,
+      },
+    ])
+    // An agent-less run is a claude run, like everywhere else.
+    expect(
+      mergeAgentCommands([], [{ name: `ship`, description: `` }])[0].agents
+    ).toEqual([DEFAULT_STEER_AGENT])
+  })
+
+  it(`an agent command that shadows a contract name is dropped`, () => {
+    const shadow = claude[0]
+    const merged = mergeAgentCommands(
+      claude,
+      [
+        { name: shadow.name.toUpperCase(), description: `The agent's own` },
+        { name: `   `, description: `blank` },
+      ],
+      `claude`
+    )
+    // The contract's own entry survives untouched — never confirm-flipped by
+    // an agent that happens to ship the same name.
+    expect(merged).toEqual(claude)
+  })
+
+  // The feed's command pill and the `/` menu read ONE catalog: a command the
+  // agent advertised is a command when it comes back down the transcript too,
+  // not a prose bubble. Mirrors Android's `the menu and the command lookup
+  // both see the advertised rows` and iOS's
+  // testTheMenuAndTheCommandLookupBothSeeTheAdvertisedRows.
+  it(`the command lookup sees advertised agent commands`, () => {
+    const advertised = [{ name: `review`, description: `Review the diff` }]
+    const merged = mergeAgentCommands(claude, advertised, `claude`)
+    expect(merged.map((command) => command.name)).toEqual([
+      `compact`,
+      `clear`,
+      `review`,
+    ])
+    // The `/` menu offers it...
+    expect(
+      filterSteerCommands(merged, matchSlashDraft(`/rev`) ?? ``).map(
+        (command) => command.name
+      )
+    ).toEqual([`review`])
+    // ...and the sent message resolves back to the same row, argument and all.
+    expect(parseSteerCommand(`/review src/a.ts`, merged)).toMatchObject({
+      command: { name: `review`, confirm: false },
+      args: `src/a.ts`,
+    })
+    expect(parseSteerCommand(`/REVIEW`, merged)?.command.name).toBe(`review`)
+    // Without the advertisement the very same text is prose again.
+    expect(parseSteerCommand(`/review src/a.ts`, claude)).toBeNull()
+    // Prose rules do not soften for an agent row.
+    expect(parseSteerCommand(`please /review this`, merged)).toBeNull()
+    expect(parseSteerCommand(`/reviewer`, merged)).toBeNull()
+  })
+})
+
+describe(`config chip copy (EXP-746)`, () => {
+  it(`pins the chip labels byte for byte`, () => {
+    expect(CONFIG_DEFAULT_VALUE_LABEL).toBe(`CLI default`)
+    expect(CONFIG_MODE_LABEL).toBe(`Mode`)
   })
 })

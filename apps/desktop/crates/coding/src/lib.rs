@@ -77,7 +77,7 @@ pub mod trunk_state;
 pub mod usage_cache;
 pub mod worktree_agents;
 
-pub use agent::CodingAgent;
+pub use agent::{AgentKind, CodingAgent};
 pub use argv::{
     permission_args, session_args, AgentMcp, LaunchOptions, SessionTail, HOOK_CONFIG_ENV,
     HOOK_PORT_ENV, MCP_TOKEN_ENV, MCP_URL_ENV, OBSERVER_TOKEN_ENV, OBSERVER_URL_ENV,
@@ -95,8 +95,9 @@ pub use batch_prompt::{render_batch_prompt, BatchPromptArgs};
 pub use clone_manager::{AutoSyncOutcome, CloneEvent};
 pub use codex_sessions::default_codex_sessions_root;
 pub use doctor::{
-    parse_claude_version, run_doctor, AgentAdvertisement, AgentLaunchDefaults, ClaudeAuthStatus,
-    DoctorReport, Tool, ToolCheck, MIN_CLAUDE_VERSION,
+    device_caps, parse_claude_version, run_doctor, AgentAdvertisement, AgentLaunchDefaults,
+    ClaudeAuthStatus, DoctorReport, Tool, ToolCheck, ACTION_CAPS, DEVICE_CAPS,
+    MIN_CLAUDE_ACP_VERSION, MIN_CLAUDE_VERSION,
 };
 pub use agent_accounts::{now_iso, AgentAccount, AgentAccounts};
 pub use agent_login::{login_plan, LoginPhase, LoginPlan, LoginProgress};
@@ -117,13 +118,15 @@ pub use git_worktree::{
 pub use launch_gate::LaunchHold;
 #[cfg(feature = "gpui")]
 pub use launcher::{spawn_prepared, spawn_prepared_with, ExitNotify};
-pub use launcher::{set_session_end_observer, SESSION_HEARTBEAT_INTERVAL};
+pub use launcher::{set_session_end_observer, start_heartbeat, HeartbeatStop};
+pub use launcher::SESSION_HEARTBEAT_INTERVAL;
 pub use launcher::{
-    default_device_label, end_session, end_session_best_effort, prepare, prepare_agent_shell,
-    prepare_with_hooks, ActionLaunchRequest, ActionRunKind,
+    claude_projects_root, claude_transcript_exists, default_device_label, end_session,
+    end_session_best_effort, prepare, prepare_agent_shell,
+    prepare_with_hooks, resolve_transport, AcpLaunch, ActionLaunchRequest, ActionRunKind,
     AgentShellLaunch, AgentShellRequest, CodingDeps, CodingError, DisabledReason,
     GitWorktrees, HookSetup, IssueSeed, IssueSeedFn, LaunchOrigin, LaunchOutcome, LaunchRequest,
-    ObserverSetup, ResumeRunRequest, SessionEndObserver,
+    LaunchTransport, ObserverSetup, ResumeRunRequest, ResumeSeed, SessionEndObserver,
     Prepared, PreparedAgentShell, PrepareRequest, PreparedLaunch, WorktreeProvider,
 };
 pub use run_cleanup::{remove_if_clean, CleanupOutcome, RunCleanup};
@@ -147,7 +150,7 @@ pub use prompt::{
     deliver_prompt, deliver_prompt_file, render_prompt, render_resume_prompt,
     write_rendered_prompt, PromptDelivery, PROMPT_ARGV_MAX_BYTES, PROMPT_FILE, SEED_LINE,
 };
-pub use settings::Settings;
+pub use settings::{ExternalAgentSpec, Settings};
 pub use token_refresh::{
     next_refresh_delay, refresh_clone_token, REFRESH_LEAD, TOKEN_REFRESH_RETRY,
 };

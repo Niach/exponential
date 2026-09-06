@@ -1,0 +1,3 @@
+{"sessionId":"acp-1","update":{"sessionUpdate":"tool_call","toolCallId":"tc-9","title":"Run the tests","kind":"execute","status":"in_progress","content":[],"locations":[],"rawInput":{"command":"bun run test --token expu_supersecretkey"}}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"tool_call_update","toolCallId":"tc-9","status":"completed","content":[{"type":"content","content":{"type":"text","text":"12 passed"}}],"rawOutput":{"exit_code":0}}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"tool_call_update","toolCallId":"tc-2","status":"completed","content":[{"type":"diff","path":"/tmp/worktree/src/lib.rs","oldText":"old","newText":"new"}]}}

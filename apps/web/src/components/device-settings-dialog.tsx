@@ -161,6 +161,9 @@ export function DeviceSettingsDialog({
   const [defaultAgentDraft, setDefaultAgentDraft] = useState<string>(
     contract.codingAgent.values[0]
   )
+  // EXP-746: device-GLOBAL, so it sits beside the per-agent drafts rather
+  // than inside one of them.
+  const [startInTerminalDraft, setStartInTerminalDraft] = useState(false)
   const [drafts, setDrafts] = useState<Record<string, AgentDraft>>({})
 
   // ── Autosave state (EXP-490 — no Save buttons) ───────────────────────────
@@ -208,6 +211,7 @@ export function DeviceSettingsDialog({
       )
     }
     setDrafts(seeded)
+    setStartInTerminalDraft(source.launchDefaults?.startInTerminal === true)
     const configuredDefault = source.launchDefaults?.defaultAgent
     const defaultAgent =
       configuredDefault && agents.includes(configuredDefault)
@@ -323,6 +327,7 @@ export function DeviceSettingsDialog({
     nameDraft,
     drafts,
     defaultAgentDraft,
+    startInTerminalDraft,
     namePending,
     defaultsPending,
   })
@@ -332,6 +337,7 @@ export function DeviceSettingsDialog({
     nameDraft,
     drafts,
     defaultAgentDraft,
+    startInTerminalDraft,
     namePending,
     defaultsPending,
   }
@@ -401,7 +407,11 @@ export function DeviceSettingsDialog({
     void trpc.devices.setLaunchDefaults
       .mutate({
         deviceId: snapshot.deviceId,
-        launchDefaults: { defaultAgent: snapshot.defaultAgentDraft, agents },
+        launchDefaults: {
+          defaultAgent: snapshot.defaultAgentDraft,
+          startInTerminal: snapshot.startInTerminalDraft,
+          agents,
+        },
       })
       .then((result) => {
         const stamp = result.launchDefaultsUpdatedAt
@@ -728,6 +738,22 @@ export function DeviceSettingsDialog({
                 value: agent,
                 label: AGENT_LABELS[agent] ?? agent,
               }))}
+            />
+          </GlassGroup>
+          {/* EXP-746: the transport switch is a property of the MACHINE, not
+              of one agent — its own group, outside the per-agent card below.
+              The desktop reads it as `coding::Settings.start_in_terminal` and
+              runs every start on the terminal path. */}
+          <GlassGroup>
+            <GlassToggleRow
+              id="device-settings-start-in-terminal"
+              label="Start in terminal"
+              description="Runs the agent in a terminal tab instead of the session screen."
+              checked={startInTerminalDraft}
+              onCheckedChange={(checked) => {
+                setStartInTerminalDraft(checked)
+                scheduleDefaults()
+              }}
             />
           </GlassGroup>
           <AgentOptionsFields

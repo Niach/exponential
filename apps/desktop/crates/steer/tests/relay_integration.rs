@@ -44,7 +44,7 @@ use api::steer::MintedTicket;
 use steer::control_channel::{spawn_control_channel, ControlApi, DeviceIdentity};
 use steer::publisher::{publish, KillSignal, PublishSpec, PublisherHooks, PublisherTickets};
 use steer::viewer::{spawn_viewer_with, ViewerEvent, ViewerPhase, ViewerTickets, ViewerTimings};
-use steer::{ActivityEvent, AnswerLink, RemoteAnswer, SteerFeed, SteerRuntime};
+use steer::{ActivityEvent, AnswerLink, ConfigLink, RemoteAnswer, SteerFeed, SteerRuntime};
 
 const SECRET: &str = "test-secret";
 const SESSION_ID: &str = "11111111-2222-3333-4444-555555555555";
@@ -271,6 +271,7 @@ fn recording_hooks_with(
         text_sink: None,
         attachments: None,
         commands: None,
+        config: None,
     }
 }
 
@@ -588,6 +589,40 @@ fn full_protocol_flow_against_the_real_relay() {
     // Activity published BEFORE any viewer joins → the relay's replay log.
     let activity = handle.activity_sender();
     activity.send(ActivityEvent::narration("early-scrollback"));
+    // EXP-746: the two latest-wins kinds go through the REAL zod here — the
+    // relay drops a non-conforming activity frame in silence, so this is the
+    // only place the new schema is proven end to end. Two of each: the join
+    // replay must carry the NEWER one, after the log.
+    activity.send(ActivityEvent::ConfigState {
+        options: vec![steer::ConfigOption {
+            value: Some("sonnet".to_string()),
+            ..steer::ConfigOption::new("model", "Model")
+        }],
+        current_mode: None,
+        modes: None,
+        commands: None,
+        at: None,
+    });
+    activity.send(ActivityEvent::usage(10, 200_000, Some(0.5)));
+    activity.send(ActivityEvent::ConfigState {
+        options: vec![steer::ConfigOption {
+            category: Some("model".to_string()),
+            value: Some("opus".to_string()),
+            values: Some(vec![
+                steer::ConfigValue::new("opus", "Opus"),
+                steer::ConfigValue::new("sonnet", "Sonnet"),
+            ]),
+            ..steer::ConfigOption::new("model", "Model")
+        }],
+        current_mode: Some("plan".to_string()),
+        modes: Some(vec![steer::ConfigMode {
+            description: Some("Read-only until approved".to_string()),
+            ..steer::ConfigMode::new("plan", "Plan")
+        }]),
+        commands: Some(vec![steer::ConfigCommand::new("review", "Review the diff")]),
+        at: None,
+    });
+    activity.send(ActivityEvent::usage(124_000, 200_000, None));
     std::thread::sleep(Duration::from_millis(300)); // let the relay ingest
 
     // ── Viewer join: the relay's own reset + replay of the log ────────────
@@ -596,6 +631,46 @@ fn full_protocol_flow_against_the_real_relay() {
         viewer.texts().iter().any(|t| t == r#"{"t":"activity_reset"}"#)
     });
     wait_for("replay at the viewer", || viewer.saw_activity("early-scrollback"));
+    // The replay carries exactly ONE snapshot of each latest-wins kind, and
+    // it is the newest — a per-turn usage meter never fills the log.
+    wait_for("config_state replay", || {
+        viewer.saw_activity(r#""kind":"config_state""#)
+    });
+    wait_for("usage replay", || viewer.saw_activity(r#""kind":"usage""#));
+    let replayed: Vec<String> = viewer
+        .texts()
+        .into_iter()
+        .filter(|text| text.contains(r#""kind":"config_state""#) || text.contains(r#""kind":"usage""#))
+        .collect();
+    assert_eq!(replayed.len(), 2, "one slot per kind, not a transcript: {replayed:?}");
+    assert!(
+        replayed.iter().any(|text| text.contains(r#""value":"opus""#)),
+        "the NEWER config_state survived: {replayed:?}"
+    );
+    assert!(
+        replayed.iter().any(|text| text.contains(r#""contextUsed":124000"#)),
+        "the NEWER usage survived: {replayed:?}"
+    );
+    // Every declared field made it through the relay's re-serialization (an
+    // undeclared one is silently STRIPPED, which is how a chip goes missing
+    // with nothing in any log).
+    let config_replay = replayed
+        .iter()
+        .find(|text| text.contains(r#""kind":"config_state""#))
+        .expect("a replayed config_state");
+    for field in [
+        r#""id":"model""#,
+        r#""label":"Model""#,
+        r#""category":"model""#,
+        r#""values":["#,
+        r#""currentMode":"plan""#,
+        r#""modes":["#,
+        r#""description":"Read-only until approved""#,
+        r#""commands":["#,
+        r#""name":"review""#,
+    ] {
+        assert!(config_replay.contains(field), "{field} missing: {config_replay}");
+    }
 
     // ── Steer input reaches the PTY-writer hook directly (EXP-312 —
     // seamless and owner-only: no claim, no perm tier) ────────────────────
@@ -747,6 +822,12 @@ fn the_production_viewer_watches_and_steers_a_real_room() {
     // The room, published by the production publisher.
     let recorded = Arc::new(Recorded::default());
     let (answer_link, answers_rx) = AnswerLink::new();
+    // EXP-746: an ACP-path publisher — the live-config seam is wired, so the
+    // relay's `set_config`/`set_mode` gating is exercised against the real
+    // zod and the real membership check.
+    let config_link = ConfigLink::new();
+    let mut hooks = recording_hooks_with(recorded.clone(), Some(answer_link));
+    hooks.config = Some(config_link.clone());
     let publisher = publish(
         &runtime,
         PublishSpec {
@@ -757,7 +838,7 @@ fn the_production_viewer_watches_and_steers_a_real_room() {
             relay_port: relay.port,
             proxy_port_once: Mutex::new(None),
         }),
-        recording_hooks_with(recorded.clone(), Some(answer_link)),
+        hooks,
     );
     wait_for("room live", || {
         http_request(
@@ -872,6 +953,42 @@ fn the_production_viewer_watches_and_steers_a_real_room() {
         recorded.inputs.lock().unwrap().len(),
         before,
         "an answer is never replayed as keystrokes"
+    );
+
+    // ── EXP-746: live config crosses the real relay to the engine seam ────
+    let before = recorded.inputs.lock().unwrap().len();
+    assert!(viewer.send_config("model", "opus"));
+    // The BLANK value ("CLI default") must survive the relay's zod, which
+    // deliberately has no `min(1)` on it.
+    assert!(viewer.send_config("effort", ""));
+    assert!(viewer.send_mode("plan"));
+    let changes: Mutex<Vec<steer::ConfigChange>> = Mutex::new(Vec::new());
+    wait_for("live config forwarded to the engine", || {
+        while let Some(change) = config_link.try_recv() {
+            changes.lock().unwrap().push(change);
+        }
+        changes.lock().unwrap().len() >= 3
+    });
+    assert_eq!(
+        changes.into_inner().unwrap(),
+        vec![
+            steer::ConfigChange::Option {
+                id: "model".to_string(),
+                value: "opus".to_string(),
+            },
+            steer::ConfigChange::Option {
+                id: "effort".to_string(),
+                value: String::new(),
+            },
+            steer::ConfigChange::Mode {
+                id: "plan".to_string(),
+            },
+        ]
+    );
+    assert_eq!(
+        recorded.inputs.lock().unwrap().len(),
+        before,
+        "a config change is never replayed as keystrokes"
     );
 
     // ── The publisher's clean end closes the room; the viewer reports it ──

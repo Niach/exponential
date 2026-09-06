@@ -1,9 +1,12 @@
 package com.exponential.app.domain
 
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.jsonArray
@@ -132,6 +135,117 @@ const val COMPACTION_TIMEOUT_MS = 180_000L
  *  desktop builds also stamp it onto the COMPLETED edge, so it is a sentinel
  *  the label selection skips past, never a type to prefer (EXP-350). */
 const val SUBAGENT_FALLBACK_TYPE = "agent"
+
+// ── EXP-746 steering v2: the agent's live configuration ─────────────────────
+//
+// `config_state` and `usage` are LATEST-WINS STATE, never feed rows (the
+// `latestDiff` / `compacting` precedent): the relay keeps only the newest of
+// each per room and replays it right after the log, so a joining viewer paints
+// its chips from ONE frame. Mirrored ×4 — web `agent-feed.ts`
+// SessionConfigState/SessionUsageState, iOS `AgentSessionConfig`/
+// `AgentSessionUsage`, desktop `feed.rs` SessionConfig/SessionUsage.
+
+/** One selectable value of a [ConfigOption] (or of the mode chip). */
+data class ConfigValue(val id: String, val label: String)
+
+/** One live option the publisher advertises — model, effort, a toggle. */
+data class ConfigOption(
+    val id: String,
+    val label: String,
+    /** Grouping hint (`model`, `effort`, …); unknown ones still render. */
+    val category: String? = null,
+    /** In force right now; BLANK is the CLI's own default, absent is unknown. */
+    val value: String? = null,
+    /** Empty = read-only on this run: render the value, offer no menu. */
+    val values: List<ConfigValue> = emptyList(),
+)
+
+/** One agent mode (`plan`, `auto`, …) the run can be switched into. */
+data class ConfigMode(val id: String, val label: String, val description: String? = null)
+
+/** One slash command the AGENT itself advertises (ACP available_commands). */
+data class ConfigCommand(val name: String, val description: String, val hint: String? = null)
+
+/** The whole live configuration: the chip vocabulary AND the values in force. */
+data class SessionConfigState(
+    val options: List<ConfigOption> = emptyList(),
+    val currentMode: String? = null,
+    val modes: List<ConfigMode> = emptyList(),
+    val commands: List<ConfigCommand> = emptyList(),
+)
+
+/** The run's context window + spend as the engine last measured it. Token
+ *  counts, deliberately NOT percentages — the device's rate-limit windows
+ *  already own the 0-100 vocabulary and this is a different quantity. */
+data class SessionUsageState(
+    val contextUsed: Int,
+    val contextSize: Int,
+    val costUsd: Double? = null,
+)
+
+/** A chip whose value is blank — the CLI's own default. Byte-identical ×4. */
+const val CONFIG_DEFAULT_VALUE_LABEL = "CLI default"
+
+/** The mode chip's leading label. Byte-identical ×4. */
+const val CONFIG_MODE_LABEL = "Mode"
+
+/** The mode chip's synthetic id — modes are switched with `set_mode`, not
+ *  `set_config`, so this never collides with a real option id. */
+const val CONFIG_MODE_CHIP_ID = "mode"
+
+/** What one composer chip renders and what picking a value would send. */
+data class ConfigChip(
+    val kind: Kind,
+    /** The option id for [Kind.Option]; [CONFIG_MODE_CHIP_ID] for the mode. */
+    val id: String,
+    /** The chip's leading label — off the WIRE, never a local vocabulary, so
+     *  all four clients agree by construction (only [CONFIG_MODE_LABEL] is
+     *  client-side, because a mode chip has no wire label of its own). */
+    val label: String,
+    /** What it currently reads ("Opus", [CONFIG_DEFAULT_VALUE_LABEL]). */
+    val valueLabel: String,
+    /** Empty = read-only: render the value, offer no menu. */
+    val values: List<ConfigValue> = emptyList(),
+) {
+    enum class Kind { Mode, Option }
+}
+
+/**
+ * The chip row in the order every client draws it: the MODE chip first when
+ * the run has modes, then the options in PUBLISHER order. Byte-identical ×4
+ * (`configChips` on web, iOS `AgentFeed.configChips`, desktop `feed.rs`).
+ */
+fun configChips(config: SessionConfigState?): List<ConfigChip> {
+    if (config == null) return emptyList()
+    val chips = mutableListOf<ConfigChip>()
+    if (config.modes.isNotEmpty()) {
+        val current = config.modes.firstOrNull { it.id == config.currentMode }
+        chips += ConfigChip(
+            kind = ConfigChip.Kind.Mode,
+            id = CONFIG_MODE_CHIP_ID,
+            label = CONFIG_MODE_LABEL,
+            // An unadvertised current mode still reads as itself rather than
+            // as "CLI default" — the agent is genuinely in it.
+            valueLabel = current?.label
+                ?: config.currentMode?.takeIf { it.isNotBlank() }
+                ?: CONFIG_DEFAULT_VALUE_LABEL,
+            values = config.modes.map { ConfigValue(it.id, it.label) },
+        )
+    }
+    config.options.forEach { option ->
+        val picked = option.values.firstOrNull { it.id == option.value }
+        chips += ConfigChip(
+            kind = ConfigChip.Kind.Option,
+            id = option.id,
+            label = option.label,
+            valueLabel = picked?.label
+                ?: option.value?.takeIf { it.isNotBlank() }
+                ?: CONFIG_DEFAULT_VALUE_LABEL,
+            values = option.values,
+        )
+    }
+    return chips
+}
 
 /** Append a question card, or REPLACE the card carrying the same wire id in
  *  place (EXP-249) — a re-emission augments an ask (options the desktop
@@ -430,6 +544,7 @@ private fun JsonObject.bool(key: String): Boolean =
 
 private fun JsonObject.int(key: String): Int? = (this[key] as? JsonPrimitive)?.intOrNull
 private fun JsonObject.long(key: String): Long? = (this[key] as? JsonPrimitive)?.longOrNull
+private fun JsonObject.dbl(key: String): Double? = (this[key] as? JsonPrimitive)?.doubleOrNull
 
 /** Everything the room's activity log owns, as ONE immutable value — the whole
  *  decode path is a pure transition over it, so it is unit testable end to end
@@ -451,6 +566,11 @@ data class ActivityFeedState(
      *  swap (which re-folds from a fresh state) and by the connection's
      *  [COMPACTION_TIMEOUT_MS] backstop. Never a feed row. */
     val compacting: CompactionState? = null,
+    /** EXP-746: the agent's live configuration behind the composer chips.
+     *  Latest-wins state beside the feed, like [compacting] — never a row. */
+    val config: SessionConfigState? = null,
+    /** EXP-746: this run's context + spend meter, same latest-wins rule. */
+    val usage: SessionUsageState? = null,
     /** Per-card answer locks, keyed by the card's wire id (EXP-249). */
     val answerLocks: Map<String, AnswerState> = emptyMap(),
     /** What THIS client picked per locked card — the option labels (a typed
@@ -623,8 +743,84 @@ fun ActivityFeedState.applyActivityEvent(
         "ended" -> copy(compacting = null).append(AgentFeedItem.Compaction(nextEventId))
         else -> this
     }
+    // EXP-746: the live configuration behind the composer chips. LATEST-WINS
+    // STATE, never a row — one frame carries the whole picture, so a newer one
+    // simply replaces the older. A payload we cannot read at all leaves the
+    // PREVIOUS snapshot standing: blanking the chips on one odd frame would
+    // read as the agent having lost its settings.
+    "config_state" -> runCatching {
+        val options = event["options"]!!.jsonArray.mapNotNull { raw ->
+            val option = raw as? JsonObject ?: return@mapNotNull null
+            val id = option.str("id")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            ConfigOption(
+                id = id,
+                label = option.str("label").orEmpty(),
+                category = option.str("category")?.takeIf { it.isNotBlank() },
+                // Kept as-is: a BLANK value is the "CLI default" choice, which
+                // is not the same as an option that advertises no value.
+                value = option.str("value"),
+                values = configValues(option["values"]),
+            )
+        }
+        copy(
+            config = SessionConfigState(
+                options = options,
+                currentMode = event.str("currentMode")?.takeIf { it.isNotBlank() },
+                modes = (event["modes"] as? JsonArray).orEmptyList { mode ->
+                    val id = mode.str("id")?.takeIf { it.isNotBlank() } ?: return@orEmptyList null
+                    ConfigMode(
+                        id = id,
+                        label = mode.str("label").orEmpty(),
+                        description = mode.str("description")?.takeIf { it.isNotBlank() },
+                    )
+                },
+                commands = (event["commands"] as? JsonArray).orEmptyList { command ->
+                    val name = command.str("name")?.takeIf { it.isNotBlank() }
+                        ?: return@orEmptyList null
+                    ConfigCommand(
+                        name = name,
+                        description = command.str("description").orEmpty(),
+                        hint = command.str("hint")?.takeIf { it.isNotBlank() },
+                    )
+                },
+            ),
+        )
+    }.getOrDefault(this)
+    // EXP-746: the context + spend meter, same latest-wins rule. A ZERO
+    // context size means the engine does not know the window (claude before
+    // its first result, an agent that reports none) — that CLEARS the slot
+    // rather than rendering a "0 / 0 (0%)" bar; an unreadable payload keeps
+    // the previous numbers.
+    "usage" -> {
+        val used = event.int("contextUsed")
+        val size = event.int("contextSize")
+        when {
+            used == null || size == null || used < 0 || size < 0 -> this
+            size == 0 -> copy(usage = null)
+            else -> copy(
+                usage = SessionUsageState(
+                    contextUsed = used,
+                    contextSize = size,
+                    costUsd = event.dbl("costUsd")?.takeIf { it >= 0.0 },
+                ),
+            )
+        }
+    }
     else -> this
 }
+
+/** One `values[]` array of a `config_state` option; anything unusable drops
+ *  that entry, never the whole option (the `question.options` precedent). */
+private fun configValues(raw: JsonElement?): List<ConfigValue> =
+    (raw as? JsonArray).orEmptyList { value ->
+        val id = value.str("id")?.takeIf { it.isNotBlank() } ?: return@orEmptyList null
+        ConfigValue(id, value.str("label").orEmpty())
+    }
+
+/** Map a wire array, dropping entries that are not objects or that [decode]
+ *  rejects; a null array is simply empty. */
+private inline fun <T> JsonArray?.orEmptyList(decode: (JsonObject) -> T?): List<T> =
+    this?.mapNotNull { entry -> (entry as? JsonObject)?.let(decode) } ?: emptyList()
 
 /** Lock a card the instant its answer goes out — no double-tap (EXP-249). */
 fun ActivityFeedState.lockAnswer(

@@ -88,9 +88,11 @@ interface Room {
   activityLog: ActivityEntry[]
   /** Running serialized size of activityLog (the byte-budget accumulator). */
   activityBytes: number
-  /** Latest worktree diff — replaces rather than appends (replay stays small),
-   *  and stays OUT of the byte budget: the schema already caps it at 512KB. */
-  lastDiff: ActivityEntry | null
+  /** EXP-746: latest-wins STATE by kind (`diff`, `config_state`, `usage`) —
+   *  the newest one replaces its predecessor, stays OUT of the count/byte
+   *  budget, and the join replay sends them after the log. Each schema
+   *  already caps the payload (a diff at 512KB, a config at 8 options). */
+  lastByKind: Map<string, ActivityEntry>
 }
 
 // EXP-249: full-history re-publish on reconnect means a long session's log is
@@ -99,6 +101,15 @@ interface Room {
 // leaves at least one event.
 const ACTIVITY_LOG_CAP = 2000
 const ACTIVITY_BYTE_CAP = 4 * 1024 * 1024
+
+// EXP-746: kinds that are latest-wins STATE rather than transcript rows.
+// Appending them would burn the budgets above on stale snapshots — a `usage`
+// frame per turn on a long run would evict real transcript events out of the
+// replay window.
+const LATEST_WINS_KINDS = new Set([`diff`, `config_state`, `usage`])
+// Replay order for the latest-wins slots — `diff` stays LAST, exactly where
+// it replayed before this became a map.
+const LATEST_REPLAY_ORDER = [`config_state`, `usage`, `diff`] as const
 
 // An activity socket with more than this queued is evicted: activity is
 // low-volume JSON, so saturation means the consumer is gone, not lagging.
@@ -334,7 +345,7 @@ export class Hub {
             activityMembers: new Set(),
             activityLog: [],
             activityBytes: 0,
-            lastDiff: null,
+            lastByKind: new Map(),
           }
           this.rooms.set(sessionId, room)
         } else {
@@ -417,13 +428,36 @@ export class Hub {
         return
       }
 
+      case `set_config`: {
+        const room = this.roomFor(conn)
+        if (!room || !room.publisher) return
+        // EXP-746: same gating as `input` — membership is only ever granted
+        // by the `join` arm, which checks claims.role === 'viewer', so the
+        // role test is transitive (regression-locked by the stale
+        // public_viewer test).
+        if (!room.activityMembers.has(conn)) return
+        room.publisher.sock.send(
+          frame({ t: `set_config`, id: msg.id, value: msg.value })
+        )
+        return
+      }
+
+      case `set_mode`: {
+        const room = this.roomFor(conn)
+        if (!room || !room.publisher) return
+        // Same gating as `input`.
+        if (!room.activityMembers.has(conn)) return
+        room.publisher.sock.send(frame({ t: `set_mode`, id: msg.id }))
+        return
+      }
+
       case `activity`: {
         // Publisher-only: the desktop's scrubbed event stream.
         const room = this.roomFor(conn)
         if (!room || room.publisher !== conn) return
         const entry = this.entryFor(msg.event)
-        if (msg.event.kind === `diff`) {
-          room.lastDiff = entry
+        if (LATEST_WINS_KINDS.has(msg.event.kind)) {
+          room.lastByKind.set(msg.event.kind, entry)
         } else {
           this.appendActivity(room, entry)
         }
@@ -437,7 +471,7 @@ export class Hub {
         if (!room || room.publisher !== conn) return
         room.activityLog = []
         room.activityBytes = 0
-        room.lastDiff = null
+        room.lastByKind.clear()
         this.fanoutActivity(room, frame({ t: `activity_reset` }))
         return
       }
@@ -616,12 +650,17 @@ export class Hub {
     }
   }
 
-  /** Replay the scrubbed event log then the latest diff to one socket. */
+  /** Replay the scrubbed event log, then the latest-wins state slots, to one
+   *  socket. EXP-746: the slots come last and in a fixed order so a joining
+   *  viewer paints its chips, meter and diff from the end of the burst. */
   private replayActivity(room: Room, conn: Conn) {
     for (const entry of room.activityLog) {
       conn.sock.send(entry.framed)
     }
-    if (room.lastDiff) conn.sock.send(room.lastDiff.framed)
+    for (const kind of LATEST_REPLAY_ORDER) {
+      const entry = room.lastByKind.get(kind)
+      if (entry) conn.sock.send(entry.framed)
+    }
   }
 
   private closeRoom(room: Room, outcome: string) {

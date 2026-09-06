@@ -147,6 +147,17 @@ pub fn permission_args(plan_mode: bool) -> Vec<String> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AgentMcp {
     ClaudeFile,
+    /// EXP-746 (the ACP transport): claude gets the MCP server as INLINE
+    /// `--mcp-config` JSON whose `Authorization` header reads
+    /// `Bearer ${EXP_MCP_TOKEN}` — the CLI expands env refs inside header
+    /// values (measured in the phase-1 spike), so the `expu_` key rides the
+    /// child's env like codex/pi and never lands on disk. The engine renders
+    /// the JSON; this carries what it needs.
+    ClaudeInline {
+        url: String,
+        /// The `X-Exp-Session-Id` header value (EXP-637).
+        session_id: Option<String>,
+    },
     CodexOverrides {
         url: String,
         /// EXP-637: the launched `coding_sessions` row id, sent as the
@@ -177,6 +188,12 @@ pub struct LaunchOptions {
     /// pi via the injected `.exp-pi-plan.ts` extension gated on
     /// [`PI_PLAN_MODE_ENV`] (EXP-441). Never codex.
     pub plan_mode: bool,
+    /// EXP-746 (D13): run this launch on a user-declared external ACP agent
+    /// instead of `agent`'s CLI. `None` = the builtin above, which is every
+    /// path but a local start that picked an external pill — an external
+    /// agent is never remotely startable and has no TUI argv, so it always
+    /// resolves to [`crate::launcher::LaunchTransport::Acp`].
+    pub external: Option<crate::settings::ExternalAgentSpec>,
 }
 
 impl LaunchOptions {
@@ -199,6 +216,9 @@ impl LaunchOptions {
             effort: settings.effort_for(agent).to_string(),
             ultracode: settings.claude_ultracode && agent.supports_ultracode(),
             plan_mode: settings.plan_mode_for(agent) && agent.supports_plan_mode(),
+            // EXP-746: the settings defaults always name a BUILTIN agent —
+            // an external one is only ever an explicit local pick.
+            external: None,
         }
     }
 
@@ -261,6 +281,9 @@ impl LaunchOptions {
             ultracode: ultracode.unwrap_or(settings.claude_ultracode)
                 && agent.supports_ultracode(),
             plan_mode: plan_mode.unwrap_or(false) && agent.supports_plan_mode(),
+            // EXP-746 (D13): external agents are LOCAL-only — a relay start
+            // can never name one.
+            external: None,
         }
     }
 }
@@ -487,6 +510,7 @@ mod tests {
             effort: "".to_string(),
             ultracode: false,
             plan_mode: false,
+            external: None,
         }
     }
 
@@ -685,6 +709,7 @@ mod tests {
             effort: "high".to_string(),
             ultracode: false,
             plan_mode: false,
+            external: None,
         };
         assert_eq!(
             session_args(&opts, &mcp, None, SessionIdentity::default(), SessionTail::Prompt("prompt")),
@@ -714,6 +739,7 @@ mod tests {
             effort: "".to_string(),
             ultracode: false,
             plan_mode: false,
+            external: None,
         };
         let args = session_args(&opts, &mcp, None, SessionIdentity::default(), SessionTail::Prompt("prompt"));
         assert_eq!(
@@ -746,6 +772,7 @@ mod tests {
             effort: "high".to_string(),
             ultracode: false,
             plan_mode: false,
+            external: None,
         };
         assert_eq!(
             session_args(&opts, &AgentMcp::PiExtension, None, SessionIdentity::default(), SessionTail::Prompt("prompt")),
@@ -772,6 +799,7 @@ mod tests {
             effort: "".to_string(),
             ultracode: false,
             plan_mode: false,
+            external: None,
         };
         let args = session_args(&opts, &AgentMcp::PiExtension, None, SessionIdentity::default(), SessionTail::Prompt("p"));
         assert_eq!(
@@ -811,6 +839,7 @@ mod tests {
             effort: "".to_string(),
             ultracode: false,
             plan_mode: false,
+            external: None,
         };
         let session_file = Path::new("/data/pi-sessions/sess-1.jsonl");
         assert_eq!(
@@ -846,6 +875,7 @@ mod tests {
             effort: "".to_string(),
             ultracode: false,
             plan_mode: false,
+            external: None,
         };
         let mcp = AgentMcp::CodexOverrides {
             url: "https://app.exponential.at/api/mcp".to_string(),
@@ -887,6 +917,7 @@ mod tests {
             effort: "".to_string(),
             ultracode: false,
             plan_mode: false,
+            external: None,
         };
         let mcp = AgentMcp::CodexOverrides {
             url: "https://app.exponential.at/api/mcp".to_string(),
@@ -904,6 +935,7 @@ mod tests {
             effort: "".to_string(),
             ultracode: false,
             plan_mode: false,
+            external: None,
         };
         let args = session_args(&pi, &AgentMcp::PiExtension, None, SessionIdentity::default(), SessionTail::None);
         assert_eq!(

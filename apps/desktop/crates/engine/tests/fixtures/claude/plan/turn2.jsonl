@@ -1,0 +1,2 @@
+{"type":"system","subtype":"session_state_changed","state":"running","uuid":"00000000-0000-4000-8000-000000000011","session_id":"11111111-2222-3333-4444-555555555555"}
+{"type":"result","subtype":"success","is_error":false,"duration_ms":40,"num_turns":1,"result":"","stop_reason":"end_turn","total_cost_usd":0.0,"usage":{"input_tokens":0,"output_tokens":0},"modelUsage":{"claude-opus-5[1m]":{"contextWindow":1000000}},"permission_denials":[],"session_id":"11111111-2222-3333-4444-555555555555","uuid":"00000000-0000-4000-8000-000000000012"}

@@ -1015,6 +1015,8 @@ mod tests {
             authed: Some(false),
             account: Some(AgentAccount::default()),
             usage_eligible: false,
+            acp: None,
+            acp_note: None,
         };
         let missing = |tool| ToolCheck {
             tool,
@@ -1024,6 +1026,8 @@ mod tests {
             authed: None,
             account: None,
             usage_eligible: false,
+            acp: None,
+            acp_note: None,
         };
         let report = DoctorReport {
             claude: signed_out,

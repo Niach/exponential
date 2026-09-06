@@ -66,6 +66,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -107,6 +108,9 @@ import com.exponential.app.domain.AgentFeedItem
 import com.exponential.app.domain.AgentFeedRow
 import com.exponential.app.domain.AgentPhase
 import com.exponential.app.domain.AgentUsagePresentation
+import com.exponential.app.domain.ConfigChip
+import com.exponential.app.domain.ConfigCommand
+import com.exponential.app.domain.configChips
 import com.exponential.app.domain.AnswerState
 import com.exponential.app.domain.COMPACTED_LABEL
 import com.exponential.app.domain.COMPACTING_LABEL
@@ -282,6 +286,23 @@ fun AgentSessionScreen(
     // The run's OWN issue (EXP-688) — the header names what is being worked
     // on, exactly like the Agents list row does.
     val issue by viewModel.issue.collectAsStateWithLifecycle()
+    // EXP-746: the agent's live configuration (the composer chips + the run's
+    // own `/` commands) and its context/spend meter. Both null on a PTY run,
+    // which publishes neither.
+    val sessionConfig by viewModel.sessionConfig.collectAsStateWithLifecycle()
+    val sessionUsage by viewModel.sessionUsage.collectAsStateWithLifecycle()
+    val chips = remember(sessionConfig) { configChips(sessionConfig) }
+    // EXP-746: the `/` hint counts the MERGED catalog — an agent that
+    // advertises commands has a menu even if the contract had none for it.
+    // An agent-less run that publishes a `config_state` is an EXTERNAL agent
+    // (`SlashCommands.agentId`), which has no contract rows at all.
+    val catalogAgent = SlashCommands.agentId(session?.agent, sessionConfig != null)
+    val slashCatalogAvailable = remember(catalogAgent, sessionConfig) {
+        SlashCommands.merged(
+            SlashCommands.catalogFor(catalogAgent),
+            sessionConfig?.commands.orEmpty(),
+        ).isNotEmpty()
+    }
 
     // Steer image attach (EXP-511) — the system photo picker feeds the VM's
     // pending list; the upload rides the SESSION route (EXP-698), so every
@@ -425,7 +446,11 @@ fun AgentSessionScreen(
                     val row = session
                     val canKill = row != null && !sessionEnded && row.userId == currentUserId
                     val usage = agentUsage
-                    if (canKill || usage != null) {
+                    // EXP-746: the sheet is reachable on this run's OWN
+                    // context numbers too, not only on the machine's
+                    // rate-limit windows.
+                    val hasUsage = usage != null || sessionUsage != null
+                    if (canKill || hasUsage) {
                         // The Box stays: it anchors the dropdown to the button.
                         Box {
                             TopBarActionButton(
@@ -437,7 +462,7 @@ fun AgentSessionScreen(
                                 expanded = overflowOpen,
                                 onDismissRequest = { overflowOpen = false },
                             ) {
-                                if (usage != null) {
+                                if (hasUsage) {
                                     GlassMenuItem(
                                         leadingIcon = {
                                             Icon(ExpIcons.uiUsage, contentDescription = null)
@@ -577,7 +602,11 @@ fun AgentSessionScreen(
                             answerStates = answerStates,
                             answerLabels = answerLabels,
                             // EXP-724: filters the command pill's catalog.
-                            agent = session?.agent,
+                            agent = catalogAgent,
+                            // EXP-746: the run's own advertised
+                            // commands, so a steered agent command
+                            // renders as a command row, not prose.
+                            agentCommands = sessionConfig?.commands.orEmpty(),
                             // Every answer is one semantic `answer` frame keyed
                             // by the card's wire id (EXP-249); an id-less card
                             // renders read-only and never reaches this (EXP-672).
@@ -964,7 +993,11 @@ fun AgentSessionScreen(
                     // button dims and the placeholder says "reconnecting…".
                     live = phase == AgentPhase.Live && connected,
                     planPending = planAwaitingApproval,
-                    commandsAvailable = SlashCommands.catalogFor(session?.agent).isNotEmpty(),
+                    commandsAvailable = slashCatalogAvailable,
+                    // EXP-746: the live model/effort/mode chips.
+                    chips = chips,
+                    onSetOption = viewModel::setConfig,
+                    onSetMode = viewModel::setMode,
                     onPickImages = {
                         imagePicker.launch(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
@@ -1009,8 +1042,13 @@ fun AgentSessionScreen(
     // Only reachable while the host machine reports fresh numbers for this
     // run's agent, so the sheet retires itself when they age out.
     val sheetUsage = agentUsage
-    LaunchedEffect(sheetUsage) { if (sheetUsage == null) usageSheetOpen = false }
-    if (usageSheetOpen && sheetUsage != null) {
+    // EXP-746: this run's own context/spend meter — a second, independent
+    // source, so the sheet stays reachable while EITHER has something.
+    val contextUsage = sessionUsage
+    LaunchedEffect(sheetUsage, contextUsage) {
+        if (sheetUsage == null && contextUsage == null) usageSheetOpen = false
+    }
+    if (usageSheetOpen && (sheetUsage != null || contextUsage != null)) {
         GlassSheet(title = "Usage", onDismiss = { usageSheetOpen = false }) {
             Column(
                 modifier = Modifier
@@ -1032,7 +1070,34 @@ fun AgentSessionScreen(
                     )
                     Spacer(Modifier.height(12.dp))
                 }
-                AgentUsageCards(usage = sheetUsage)
+                // EXP-746: the run's own window first — it is about THIS
+                // conversation; the machine's plan limits follow below.
+                if (contextUsage != null) {
+                    Text(
+                        AgentUsagePresentation.CONTEXT_SECTION_TITLE,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        AgentUsagePresentation.formatContextUsage(contextUsage),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(
+                            alpha = TextEmphasis.Secondary,
+                        ),
+                    )
+                    AgentUsagePresentation.formatUsageCost(contextUsage)?.let { cost ->
+                        Text(
+                            cost,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(
+                                alpha = TextEmphasis.Tertiary,
+                            ),
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                }
+                if (sheetUsage != null) AgentUsageCards(usage = sheetUsage)
                 Spacer(Modifier.height(8.dp))
             }
         }
@@ -1229,6 +1294,9 @@ private fun ActivityFeed(
      *  whose first token is one of ITS catalog commands renders as a command
      *  pill instead of prose. */
     agent: String? = null,
+    /** EXP-746: the commands the AGENT advertised on this run — merged behind
+     *  the contract catalog so a steered `/<agent command>` reads as one. */
+    agentCommands: List<ConfigCommand> = emptyList(),
     /** EXP-688: how much of the feed's tail the floating Latest-changes bar
      *  covers. The list pads past it (and so does the Jump-to-bottom pill), so
      *  the last message is never parked underneath it. */
@@ -1357,7 +1425,8 @@ private fun ActivityFeed(
                         is AgentFeedItem.Tool -> ToolRow(item.name, item.detail)
                         is AgentFeedItem.UserMessage -> {
                             // EXP-724: a steered catalog command reads as one.
-                            val command = SlashCommands.commandFor(item.text, agent)
+                            val command =
+                                SlashCommands.commandFor(item.text, agent, agentCommands)
                             if (command != null) {
                                 CommandRow(command, item.text)
                             } else {
@@ -2556,6 +2625,14 @@ private fun SteerComposer(
     /** EXP-724: this run's agent has catalog commands — the placeholder says
      *  so, since a `/` menu nothing hints at is a menu nobody finds. */
     commandsAvailable: Boolean,
+    /** EXP-746: the live agent configuration as chips, in publisher order
+     *  (the mode chip first). Empty on a PTY run — which publishes none — and
+     *  then the composer draws exactly what it always did. */
+    chips: List<ConfigChip> = emptyList(),
+    /** Picking a value on an option chip: (option id, value id). */
+    onSetOption: (String, String) -> Unit = { _, _ -> },
+    /** Picking a mode on the mode chip. */
+    onSetMode: (String) -> Unit = {},
     onPickImages: () -> Unit,
     onRemoveImage: (Int) -> Unit,
     onSend: () -> Unit,
@@ -2603,6 +2680,20 @@ private fun SteerComposer(
     GlassComposer(
         // The composer floats over the scrolling activity feed.
         opaque = true,
+        // EXP-746: the chip row sits ABOVE the pending-image strip, which
+        // keeps that strip exactly where it has always been.
+        leading = if (chips.isEmpty()) {
+            null
+        } else {
+            {
+                ConfigChipRow(
+                    chips = chips,
+                    enabled = live && !sending,
+                    onSetOption = onSetOption,
+                    onSetMode = onSetMode,
+                )
+            }
+        },
         strip = {
             PendingAttachmentStrip(
                 items = pendingImages,
@@ -2662,6 +2753,73 @@ private fun SteerComposer(
             // The composer card owns the chrome; the field is just its text.
             bordered = false,
         )
+    }
+}
+
+/**
+ * EXP-746: the live agent-configuration chips above the composer — the mode
+ * chip first, then the options in publisher order ([configChips] decides that,
+ * identically on all four clients).
+ *
+ * Each chip is fire-and-forget: the tap sends one `set_config`/`set_mode`
+ * frame and nothing here goes into a pending state, because the publisher's
+ * re-emitted `config_state` IS the confirmation. A chip the run advertises no
+ * values for is READ-ONLY — it renders what is in force and opens no menu.
+ */
+@Composable
+private fun ConfigChipRow(
+    chips: List<ConfigChip>,
+    enabled: Boolean,
+    onSetOption: (String, String) -> Unit,
+    onSetMode: (String) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(bottom = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        chips.forEach { chip ->
+            key(chip.kind, chip.id) {
+                var open by remember { mutableStateOf(false) }
+                val pickable = enabled && chip.values.isNotEmpty()
+                Box {
+                    GlassPill(
+                        label = chip.valueLabel,
+                        size = PillSize.Sm,
+                        mode = if (pickable) PillMode.Action else PillMode.Readonly,
+                        enabled = enabled,
+                        onClick = { open = true },
+                        leading = {
+                            Text(
+                                chip.label,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(
+                                    alpha = TextEmphasis.Tertiary,
+                                ),
+                                maxLines = 1,
+                            )
+                        },
+                    )
+                    GlassDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                        chip.values.forEach { value ->
+                            GlassMenuItem(
+                                text = { Text(value.label) },
+                                onClick = {
+                                    open = false
+                                    when (chip.kind) {
+                                        ConfigChip.Kind.Mode -> onSetMode(value.id)
+                                        ConfigChip.Kind.Option -> onSetOption(chip.id, value.id)
+                                    }
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

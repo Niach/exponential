@@ -51,15 +51,19 @@ import com.exponential.app.domain.MergeTarget
 import com.exponential.app.domain.SessionDevicePresentation
 import com.exponential.app.domain.canOfferFixConflicts
 import com.exponential.app.domain.codingSessionDisplayState
+import com.exponential.app.domain.pastRunByline
+import com.exponential.app.domain.pastRunTitle
 import com.exponential.app.ui.actions.ActionEditSheet
 import com.exponential.app.ui.actions.ActionsViewModel
 import com.exponential.app.ui.actions.AutomationFormSheet
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.CircleIconButton
+import com.exponential.app.ui.components.EndedRunRow
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.actionGlyph
+import com.exponential.app.ui.components.agentLabel
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.DoneBlue
 import com.exponential.app.ui.issue.NeedsInputAmber
@@ -110,6 +114,9 @@ fun AgentsScreen(
     val startCandidates by viewModel.startCandidates.collectAsStateWithLifecycle()
     val merging by viewModel.merging.collectAsStateWithLifecycle()
     val mergeErrors by viewModel.mergeErrors.collectAsStateWithLifecycle()
+    // EXP-746: the caller's own finished, person-started runs.
+    val pastRuns by viewModel.pastRuns.collectAsStateWithLifecycle()
+    val resuming by viewModel.resuming.collectAsStateWithLifecycle()
     // EXP-694 (S6): the rows behind a session's trailing action/automation
     // button, plus the automation form's own plumbing.
     val actionsState by actionsViewModel.state.collectAsStateWithLifecycle()
@@ -172,9 +179,10 @@ fun AgentsScreen(
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
             )
-            // No steer and nothing running → the full empty state (no
-            // machines section to anchor a compact caption).
-            if (!steerOn && state.rows.isEmpty()) {
+            // No steer, nothing running and nothing finished → the full empty
+            // state (no machines section to anchor a compact caption). Past
+            // runs still read fine without a relay — only Resume needs one.
+            if (!steerOn && state.rows.isEmpty() && pastRuns.isEmpty()) {
                 AgentsEmptyState()
             } else {
                 LazyColumn(
@@ -342,6 +350,45 @@ fun AgentsScreen(
                                 onFixConflicts = {
                                     fixTargetIssueId = issueMergeTarget?.issueId
                                 },
+                            )
+                        }
+                    }
+
+                    // EXP-746: the runs that finished — the caller's own
+                    // person-started ones, expandable to their summary and a
+                    // Resume. An automated run belongs to the Automations
+                    // tab's "Recent automated runs" and never lists here.
+                    // Nothing renders while there are none.
+                    if (pastRuns.isNotEmpty()) {
+                        item(key = "__past_header__") { SectionHeader("Past") }
+                        items(pastRuns, key = { "past_${it.session.id}" }) { row ->
+                            EndedRunRow(
+                                // The ×4 rule (domain `pastRunTitle`): the
+                                // issue's title, a sync placeholder while it
+                                // is missing, the action_name snapshot (a
+                                // chat run's reads "Chat"), else the batch.
+                                title = pastRunTitle(row.session, row.issue),
+                                identifier = row.issue?.identifier,
+                                summary = row.session.summary,
+                                // Unused while `byline` carries the whole
+                                // caption; kept so the row's own fallback
+                                // stays correct.
+                                timeLabel = relativeTime(
+                                    row.session.endedAt ?: row.session.updatedAt,
+                                ),
+                                byline = pastRunByline(
+                                    deviceLabel = row.device.displayLabel,
+                                    agentLabel = row.session.agent
+                                        ?.takeIf { it.isNotBlank() }
+                                        ?.let(::agentLabel),
+                                    endedBy = row.session.endedBy,
+                                    timeLabel = relativeTime(
+                                        row.session.endedAt ?: row.session.updatedAt,
+                                    ),
+                                ),
+                                resumeTarget = row.resume,
+                                resuming = row.session.id in resuming,
+                                onResume = viewModel::resumeRun,
                             )
                         }
                     }

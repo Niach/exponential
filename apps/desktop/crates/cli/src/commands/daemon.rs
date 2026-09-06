@@ -40,59 +40,13 @@ const DOCTOR_RECHECK: Duration = Duration::from_secs(5 * 60);
 /// confirms (or clears) a pending change, so a real change still converges
 /// in ~DOCTOR_RECHECK + this instead of two full periods.
 const ADVERT_CONFIRM_RECHECK: Duration = Duration::from_secs(30);
-/// EXP-481 adds `resume` (start_session honors the resume flag — registry
-/// driven since EXP-662: a recorded run relaunches its exact transcript, a
-/// record-less issue degrades to a fresh resume-prompted session),
-/// `worktrees` (inventory reporting + remove/prune commands) and
-/// `launch-defaults` (server-authoritative defaults convergence + the
-/// `check_in` nudge frame). EXP-490 split them off [`ACTION_CAPS`]: these
-/// three are BUILD capabilities and ride even with zero runnable agents.
-/// EXP-484 adds `agent-login`: this build executes the `agent_login` device
-/// command (run the agent's own sign-in in a PTY, report the link back).
-/// It is deliberately a BUILD cap — signing IN is exactly what a machine
-/// with no runnable agent needs. EXP-679 adds `agent-start`: this build
-/// understands the `started_reason` field on a `StartSession` frame and
-/// forwards it into `codingSessions.start`, so a run another coding session
-/// asked for (MCP `exponential_sessions_start`, which sends the parent's id)
-/// lands UNATTENDED here instead of silently degrading to a person-started
-/// run that nothing ever closes out. It is a PROTOCOL cap, so build-level:
-/// the server refuses an agent-parented start against a device without it.
-/// Hand-synced with the desktop's `steer_wiring::device_caps` vec.
-pub const DEVICE_CAPS: [&str; 5] = [
-    "resume",
-    "worktrees",
-    "launch-defaults",
-    "agent-login",
-    "agent-start",
-];
-
-/// The action-run capabilities — advertised only while at least one agent is
-/// RUNNABLE (EXP-409: a machine whose only agents are signed out cannot run
-/// actions either). EXP-530 adds `automations`: this daemon evaluates the
-/// triggers bound to its device id and starts the runs itself, so the web
-/// device pickers may offer it as an automation host (hand-synced with the
-/// desktop's `steer_wiring` caps vec).
-/// EXP-615 adds `chat`: this build runs the hidden `builtin:chat` action, so
-/// the remote Chat tab may target this machine.
-/// EXP-637 adds `resume-run`: this build can resume an ended action/chat run
-/// out of its own run registry.
-pub const ACTION_CAPS: [&str; 6] = [
-    "actions",
-    "action-inputs",
-    "fix-conflicts",
-    "automations",
-    "chat",
-    "resume-run",
-];
-
-/// The caps to advertise for a doctor snapshot: the build caps, plus the
-/// action caps while anything is runnable.
+/// EXP-746 (D9): the caps this daemon advertises — ONE list, owned by
+/// [`coding::doctor::DEVICE_CAPS`] + [`coding::doctor::ACTION_CAPS`] and
+/// shared with the desktop (`ui::steer_wiring`). They used to be hand-synced
+/// copies here and there, and a one-sided edit silently made one host
+/// un-targetable for the new feature.
 fn device_caps(advertised: &coding::AgentAdvertisement) -> Vec<String> {
-    let mut caps: Vec<String> = DEVICE_CAPS.iter().map(|cap| cap.to_string()).collect();
-    if !advertised.agents.is_empty() {
-        caps.extend(ACTION_CAPS.iter().map(|cap| cap.to_string()));
-    }
-    caps
+    coding::device_caps(advertised)
 }
 
 // ---------------------------------------------------------------------------
@@ -366,6 +320,11 @@ fn run_daemon(args: &[String]) -> CommandResult {
         ctx.account.email,
         ctx.account.instance_url
     );
+
+    // EXP-746: ONE registry decision for every end this process issues —
+    // the PTY supervisor's and the ACP engine's alike. Installed before any
+    // session can launch (first caller wins, process-wide).
+    registry::install_end_observer(ctx.data_dir.clone());
 
     // EXP-229 parity: end orphaned rows a previous crash left `running`
     // (pid-guarded — rows owned by a live sibling process are skipped).
@@ -1170,7 +1129,7 @@ fn remote_issue_start(
     let issue = fetched.issue;
     let mut seeds = HashMap::new();
     seeds.insert(issue.id.clone(), launch::issue_seed(&issue));
-    let deps = launch::coding_deps(ctx, seeds, launch::LaunchHost::Daemon);
+    let deps = launch::coding_deps(ctx, seeds, launch::LaunchHost::Daemon, runtime);
     // EXP-662: a recorded run relaunches its EXACT transcript (the recorded
     // agent, workspace and identity pin); only a record-less resume falls
     // through to a fresh session carrying the resume PROMPT.
@@ -1282,7 +1241,7 @@ fn remote_batch_start(
         origin,
         options,
     };
-    let deps = launch::coding_deps(ctx, seeds, launch::LaunchHost::Daemon);
+    let deps = launch::coding_deps(ctx, seeds, launch::LaunchHost::Daemon, runtime);
     let prepared = coding::prepare_with_hooks(
         &PrepareRequest::Batch(request),
         &deps,
@@ -1363,7 +1322,7 @@ fn remote_action_start(
         }
     }
 
-    let deps = launch::coding_deps(ctx, HashMap::new(), launch::LaunchHost::Daemon);
+    let deps = launch::coding_deps(ctx, HashMap::new(), launch::LaunchHost::Daemon, runtime);
     let prepared = coding::prepare_with_hooks(
         &PrepareRequest::Action(request),
         &deps,
@@ -1430,7 +1389,7 @@ fn remote_resume_start(
         model: None,
         effort: None,
     };
-    let deps = launch::coding_deps(ctx, seeds, launch::LaunchHost::Daemon);
+    let deps = launch::coding_deps(ctx, seeds, launch::LaunchHost::Daemon, runtime);
     let prepared = coding::prepare_with_hooks(
         &PrepareRequest::ResumeRun(request),
         &deps,
@@ -2271,7 +2230,12 @@ impl AutomationHost {
             Some(note),
             Some(action.triggered.automation_id.clone()),
         )?;
-        let deps = launch::coding_deps(&self.ctx, HashMap::new(), launch::LaunchHost::Daemon);
+        let deps = launch::coding_deps(
+            &self.ctx,
+            HashMap::new(),
+            launch::LaunchHost::Daemon,
+            self.runtime.as_ref(),
+        );
         let prepared = coding::prepare_with_hooks(
             &PrepareRequest::Action(request),
             &deps,
@@ -2842,6 +2806,7 @@ mod tests {
                 .iter()
                 .map(|agent| (agent.to_string(), coding::AgentLaunchDefaults::default()))
                 .collect(),
+            acp_agents: Vec::new(),
         }
     }
 
@@ -2997,6 +2962,12 @@ mod tests {
             fix: None,
             started_reason: None,
             resumed_from_id: None,
+            // EXP-746: a pre-746-shaped record (the resume then re-enters
+            // the terminal, which is what these tests exercise).
+            transport: None,
+            acp_session_id: None,
+            agent_native_session_id: None,
+            external_agent: None,
             recorded_at: coding::run_registry::now_secs(),
             extra: std::collections::BTreeMap::new(),
         }
@@ -3358,44 +3329,27 @@ mod tests {
         assert!(!rescan_events(&[]));
     }
 
-    /// The cap is hand-synced with the desktop's `steer_wiring` vec — the
-    /// automation host must advertise itself or the web pickers hide it.
+    /// EXP-746 (D9): the cap LISTS and their three tests moved into
+    /// `coding::doctor` — one const for both hosts. What stays here is the
+    /// call-through: this daemon must advertise exactly that shared list.
     #[test]
-    fn action_caps_advertise_automations() {
-        assert!(ACTION_CAPS.contains(&"automations"));
+    fn daemon_advertises_the_shared_caps() {
+        assert_eq!(
+            device_caps(&advert(&["claude"])),
+            coding::device_caps(&advert(&["claude"]))
+        );
         let caps = device_caps(&advert(&["claude"]));
-        assert!(caps.contains(&"automations".to_string()));
-        // Nothing runnable = nothing to run an automation with.
-        assert!(!device_caps(&advert(&[])).contains(&"automations".to_string()));
-        // EXP-615: the same for chat — remote Chat starts gate on this cap,
-        // so an agent-less machine must never advertise it.
-        assert!(ACTION_CAPS.contains(&"chat"));
-        assert!(caps.contains(&"chat".to_string()));
-        assert!(!device_caps(&advert(&[])).contains(&"chat".to_string()));
-    }
-
-    /// EXP-484: signing IN is exactly what a machine with no runnable agent
-    /// needs, so `agent-login` is a BUILD cap — it rides even when nothing
-    /// is signed in, alongside the desktop's hand-synced `steer_wiring` vec.
-    #[test]
-    fn device_caps_include_agent_login_without_runnable_agents() {
-        assert!(DEVICE_CAPS.contains(&"agent-login"));
-        assert!(!ACTION_CAPS.contains(&"agent-login"));
+        for cap in coding::DEVICE_CAPS {
+            assert!(caps.contains(&cap.to_string()), "missing build cap {cap}");
+        }
+        for cap in coding::ACTION_CAPS {
+            assert!(caps.contains(&cap.to_string()), "missing action cap {cap}");
+        }
+        // Nothing runnable = build caps only.
         let signed_out = device_caps(&advert(&[]));
+        assert_eq!(signed_out.len(), coding::DEVICE_CAPS.len());
         assert!(signed_out.contains(&"agent-login".to_string()));
-        assert!(device_caps(&advert(&["claude"])).contains(&"agent-login".to_string()));
-    }
-
-    /// EXP-679: `agent-start` asserts this build understands a start frame's
-    /// `started_reason` — a PROTOCOL property of the binary, not of what it
-    /// can run, so it rides with the build caps and the server may gate an
-    /// agent-parented start on it.
-    #[test]
-    fn device_caps_include_agent_start_as_a_build_cap() {
-        assert!(DEVICE_CAPS.contains(&"agent-start"));
-        assert!(!ACTION_CAPS.contains(&"agent-start"));
-        assert!(device_caps(&advert(&[])).contains(&"agent-start".to_string()));
-        assert!(device_caps(&advert(&["claude"])).contains(&"agent-start".to_string()));
+        assert!(!signed_out.contains(&"automations".to_string()));
     }
 
     #[test]

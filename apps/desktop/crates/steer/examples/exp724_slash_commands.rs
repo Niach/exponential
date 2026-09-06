@@ -241,6 +241,9 @@ fn main() {
         ),
         // Replaced below: pi's spawn needs the observer sidecar's port.
         SessionAgent::Pi => (SpawnSpec::new("pi"), None),
+        // EXP-746: this example drives the PTY steer path, which an external
+        // ACP agent never takes — the arg parse above cannot produce it.
+        SessionAgent::External => unreachable!("this example takes claude|codex|pi"),
     };
     // Pi's whole steer path is the observer extension — no PTY, no hooks.
     let pi_observer = (agent == SessionAgent::Pi).then(|| {
@@ -290,6 +293,7 @@ fn main() {
         }),
         attachments: None,
         commands: Some(command_link.clone()),
+        config: None,
     };
     let handle = publish(
         &runtime,

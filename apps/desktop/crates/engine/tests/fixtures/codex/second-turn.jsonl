@@ -1,0 +1,3 @@
+{"jsonrpc":"2.0","method":"turn/started","params":{"threadId":"thread_1","turn":{"id":"turn_2","status":"inProgress"}}}
+{"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"threadId":"thread_1","turnId":"turn_2","itemId":"item_2","delta":"after the fence"}}
+{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"thread_1","turn":{"id":"turn_2","status":"completed"}}}

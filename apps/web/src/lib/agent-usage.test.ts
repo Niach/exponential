@@ -3,7 +3,10 @@ import {
   accountCaption,
   accountLine,
   accountRow,
+  contextPercent,
+  formatContextUsage,
   formatResetCountdown,
+  formatUsageCost,
   parseAgentLoginResult,
   parseAgentUsage,
   parseAgentUsageMap,
@@ -11,6 +14,7 @@ import {
   severity,
   usageGroups,
   usageIsFresh,
+  CONTEXT_SECTION_TITLE,
   USAGE_FRESH_MS,
 } from "./agent-usage"
 import type { CodingSession, Device, DeviceAgentUsage } from "@/db/schema"
@@ -462,5 +466,64 @@ describe(`parseAgentLoginResult`, () => {
     expect(parseAgentLoginResult(null)).toBeNull()
     // A `url` phase with no URL is unusable — treat it as not an answer.
     expect(parseAgentLoginResult(`{"agent":"codex","phase":"url"}`)).toBeNull()
+  })
+})
+
+// EXP-746: the RUN's own context meter, beside the machine's rate-limit
+// cards. Both test names are mirrored ×4.
+describe(`session context usage`, () => {
+  it(`context usage reads used over size with a percent`, () => {
+    expect(
+      formatContextUsage({ contextUsed: 124_000, contextSize: 200_000 })
+    ).toBe(`124k / 200k (62%)`)
+    expect(contextPercent({ contextUsed: 124_000, contextSize: 200_000 })).toBe(
+      62
+    )
+    // Under a thousand tokens stays a plain count; the percent floors, so a
+    // bar never reads full before it is.
+    expect(formatContextUsage({ contextUsed: 999, contextSize: 1_000 })).toBe(
+      `999 / 1k (99%)`
+    )
+    // The fixtures that catch ×4 arithmetic drift, one per trap:
+    // an exact fraction (`(used / size) * 100` floors this to 57 in floating
+    // point, `used * 100 / size` gives 58 like the other three clients)…
+    expect(
+      formatContextUsage({ contextUsed: 116_000, contextSize: 200_000 })
+    ).toBe(`116k / 200k (58%)`)
+    expect(contextPercent({ contextUsed: 116_000, contextSize: 200_000 })).toBe(
+      58
+    )
+    // …a count that is not a round thousand (k ROUNDS, never truncates, so
+    // this is 125k and not 124k)…
+    expect(
+      formatContextUsage({ contextUsed: 124_600, contextSize: 200_000 })
+    ).toBe(`125k / 200k (62%)`)
+    expect(
+      formatContextUsage({ contextUsed: 1_500, contextSize: 200_000 })
+    ).toBe(`2k / 200k (0%)`)
+    // …and a run past its own window, which reads full rather than 150%.
+    expect(formatContextUsage({ contextUsed: 300, contextSize: 200 })).toBe(
+      `300 / 200 (100%)`
+    )
+    expect(contextPercent({ contextUsed: 300, contextSize: 200 })).toBe(100)
+    // No measurement at all renders nothing.
+    expect(formatContextUsage(null)).toBe(``)
+    expect(contextPercent(null)).toBeNull()
+    expect(contextPercent({ contextUsed: 10, contextSize: 0 })).toBeNull()
+  })
+
+  it(`a cost under half a cent renders nothing`, () => {
+    expect(
+      formatUsageCost({ contextUsed: 1, contextSize: 2, costUsd: 1.235 })
+    ).toBe(`$1.24`)
+    expect(
+      formatUsageCost({ contextUsed: 1, contextSize: 2, costUsd: 0.004 })
+    ).toBeNull()
+    expect(formatUsageCost({ contextUsed: 1, contextSize: 2 })).toBeNull()
+    expect(formatUsageCost(null)).toBeNull()
+  })
+
+  it(`pins the section title byte for byte`, () => {
+    expect(CONTEXT_SECTION_TITLE).toBe(`Context`)
   })
 })

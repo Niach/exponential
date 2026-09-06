@@ -30,7 +30,28 @@ final class AgentsViewModel {
         var id: String { session.id }
     }
 
+    /// EXP-746: one finished run under "Past" — an ended, PERSON-started run
+    /// of the caller's in the active team. Automation runs are not here: they
+    /// live under Automations' "Recent automated runs" (EXP-676) and the two
+    /// sets are disjoint by `started_reason`, so the two Resume paths can
+    /// never double-fire on the same row.
+    struct PastRow: Identifiable {
+        let session: CodingSessionEntity
+        let issue: IssueEntity?
+        /// The host machine as it presents right now (the live devices row's
+        /// label, not the session's start-time snapshot).
+        let device: SessionDevicePresentation
+        /// Non-nil when a Resume would be accepted: the run's OWN machine,
+        /// online and advertising `resume-run`.
+        let resume: SteerDevice?
+        var id: String { session.id }
+    }
+
     var rows: [Row] = []
+
+    /// EXP-746: the caller's most recent finished runs, newest first, capped
+    /// at `PastRuns.cap`. Empty = the section is absent entirely.
+    private(set) var pastRows: [PastRow] = []
 
     /// EXP-481: the machines list, composed from the synced `devices` shape
     /// (own rows + the active team's shared servers; online-ness derives from
@@ -65,6 +86,10 @@ final class AgentsViewModel {
     // propagate cancellation into unstructured inner loops, and the view
     // re-arms on every appear.
     private var sessionTask: Task<Void, Never>?
+    /// EXP-746: ended rows are observed separately from the live ones — the
+    /// live query filters on status and would otherwise have to carry them
+    /// through every liveness rule that only makes sense for a running run.
+    private var endedTask: Task<Void, Never>?
     private var issueTask: Task<Void, Never>?
     private var boardTask: Task<Void, Never>?
     private var livenessTask: Task<Void, Never>?
@@ -82,6 +107,7 @@ final class AgentsViewModel {
     private var freshnessTask: Task<Void, Never>?
 
     private var sessions: [CodingSessionEntity] = []
+    private var endedSessions: [CodingSessionEntity] = []
     private var issues: [IssueEntity] = []
     // Observed so the Start-coding picker can resolve repo-backed boards
     // (EXP-156) and so the batch-PR resolution can scope issues to the
@@ -117,6 +143,25 @@ final class AgentsViewModel {
                 for try await sessions in sessionObservation.values(in: pool) {
                     self?.sessions = sessions
                     self?.rebuild()
+                }
+            } catch {}
+        }
+
+        // EXP-746: the finished runs behind "Past". PERSON-started only —
+        // `started_reason IS NULL` rides in the QUERY (Android/web parity) so
+        // a burst of automation runs can never crowd the cap; the pure
+        // `PastRuns.select` applies the same rule again on the way out.
+        let endedObservation = ValueObservation.tracking { db in
+            try CodingSessionEntity
+                .filter(Column("status") == DomainContract.codingSessionStatusEnded)
+                .filter(Column("started_reason") == nil)
+                .fetchAll(db)
+        }
+        endedTask = Task { [weak self] in
+            do {
+                for try await sessions in endedObservation.values(in: pool) {
+                    self?.endedSessions = sessions
+                    self?.rebuildPast()
                 }
             } catch {}
         }
@@ -240,6 +285,8 @@ final class AgentsViewModel {
     func stopObserving() {
         sessionTask?.cancel()
         sessionTask = nil
+        endedTask?.cancel()
+        endedTask = nil
         issueTask?.cancel()
         issueTask = nil
         boardTask?.cancel()
@@ -281,6 +328,35 @@ final class AgentsViewModel {
             teamId: activeTeamId,
             userId: userId
         )
+        // EXP-746: the Resume affordance is gated on the run's machine being
+        // online and `resume-run`-capable, so a heartbeat repaints Past too.
+        rebuildPast()
+    }
+
+    /// EXP-746: the "Past" rows — own, active-team, ended, person-started,
+    /// newest by `ended_at ?? updated_at`, capped at 20. The predicate, the
+    /// ordering key and the cap are the ×4-locked `PastRuns` rules; only the
+    /// joins (issue, device presentation, resume target) are local.
+    private func rebuildPast() {
+        let now = Date()
+        let fresh = devicesFresh(now: now)
+        let issuesById = Dictionary(issues.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let deviceRows = deviceEntities ?? []
+        let startTargets = devices ?? []
+        pastRows = PastRuns.select(
+            endedSessions, userId: userId, teamId: activeTeamId
+        ).map { session in
+            PastRow(
+                session: session,
+                issue: session.issueId.flatMap { issuesById[$0] },
+                device: SessionDevicePresentation.resolve(
+                    session: session, devices: deviceRows, now: now, devicesFresh: fresh
+                ),
+                resume: RunResume.target(
+                    for: session, devices: startTargets, currentUserId: userId
+                )
+            )
+        }
     }
 
     /// Candidate issues for the Agents-tab Start-coding sheet (EXP-156): every
@@ -378,5 +454,7 @@ final class AgentsViewModel {
                     )
                 )
             }
+        // The Past rows join the same issues and device rows this pass read.
+        rebuildPast()
     }
 }

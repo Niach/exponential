@@ -3,6 +3,14 @@
 // answerable-question rule, the multi-question stepper and the answer lock
 // state machine are unit testable.
 
+// EXP-746: the two chip labels live in steer-commands.ts (the ×4 copy home);
+// the import is one-way — steer-commands only takes TYPES from here, so the
+// merged `/` catalog and the chips never form a runtime cycle.
+import {
+  CONFIG_DEFAULT_VALUE_LABEL,
+  CONFIG_MODE_LABEL,
+} from "@/lib/steer-commands"
+
 /** A locally-echoed steered message awaiting its transcript-derived twin. */
 export interface EchoEntry {
   text: string
@@ -622,4 +630,219 @@ export function summarizeSubagentRow<
     detail: [...markers].reverse().find((m) => m.detail?.trim())?.detail,
     toolCount: items.filter((i) => i.kind === `tool`).length,
   }
+}
+
+// ── Live agent config + usage (EXP-746) ──────────────────────────────────────
+// The ACP engine publishes the agent's configuration and its context meter as
+// LATEST-WINS STATE (relay `LATEST_WINS_KINDS`), never as feed rows — the
+// `diff` precedent. The folds below are the ×4 rule home: iOS
+// AgentFeed.applyConfigState/applyUsage, Android AgentFeed.kt, desktop
+// feed.rs SessionConfig/SessionUsage.
+
+/** One selectable value of a config option (`opus`, `high`). */
+export interface SessionConfigValue {
+  id: string
+  label: string
+}
+
+/** One live option chip: what it is called, what it reads right now and what
+ *  it can be switched to. `values` absent = read-only on this run. */
+export interface SessionConfigOption {
+  id: string
+  label: string
+  /** Grouping hint from the wire (`model`, `effort`, …); unknown values just
+   *  render as their own chip. */
+  category?: string
+  /** In force right now; blank/absent = the CLI's own default. */
+  value?: string
+  values?: SessionConfigValue[]
+}
+
+/** One selectable session mode (`plan`, `acceptEdits`, …). */
+export interface SessionConfigMode {
+  id: string
+  label: string
+  description?: string
+}
+
+/** One command the AGENT itself advertises (ACP `available_commands_update`)
+ *  — merged into the `/` menu behind the contract catalog. */
+export interface SessionConfigCommand {
+  name: string
+  description: string
+  hint?: string
+}
+
+/** EXP-746: the agent's live configuration — the chip vocabulary AND the
+ *  values in force. Latest-wins STATE, never a feed row (the `latestDiff`
+ *  precedent). Mirrored ×4: iOS AgentSessionConfig, Android
+ *  SessionConfigState, desktop feed.rs SessionConfig. */
+export interface SessionConfigState {
+  options: SessionConfigOption[]
+  currentMode?: string
+  modes: SessionConfigMode[]
+  commands: SessionConfigCommand[]
+}
+
+/** EXP-746: the run's context window and spend as the engine last measured
+ *  it. A TOKEN count, never a percent — the device's rate-limit windows
+ *  (lib/agent-usage.ts) already own the 0-100 vocabulary. */
+export interface SessionUsageState {
+  contextUsed: number
+  contextSize: number
+  costUsd?: number
+}
+
+function isEventRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === `object` && value !== null && !Array.isArray(value)
+}
+
+/** A wire id: present, a string, non-blank. Machine fields are never
+ *  trimmed — the publisher's id is what `set_config` has to send back. */
+function wireId(value: unknown): string | null {
+  return typeof value === `string` && value.length > 0 ? value : null
+}
+
+function wireText(value: unknown): string {
+  return typeof value === `string` ? value : ``
+}
+
+function parseConfigValues(value: unknown): SessionConfigValue[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const values: SessionConfigValue[] = []
+  for (const entry of value) {
+    if (!isEventRecord(entry)) continue
+    const id = wireId(entry.id)
+    if (id === null) continue
+    values.push({ id, label: wireText(entry.label) || id })
+  }
+  return values
+}
+
+/** Tolerant fold of a `config_state` event; `null` for an unusable payload —
+ *  the caller then KEEPS the previous snapshot rather than blanking the
+ *  chips. Mirrors AgentFeed.applyConfigState / applyActivityEvent's arm. */
+export function parseConfigState(event: unknown): SessionConfigState | null {
+  if (!isEventRecord(event)) return null
+  // `options` is the one required member on the wire — a payload without it
+  // is not a config state at all (a truly option-less run still sends []).
+  if (!Array.isArray(event.options)) return null
+  const options: SessionConfigOption[] = []
+  for (const entry of event.options) {
+    if (!isEventRecord(entry)) continue
+    const id = wireId(entry.id)
+    if (id === null) continue
+    const option: SessionConfigOption = {
+      id,
+      label: wireText(entry.label) || id,
+    }
+    if (typeof entry.category === `string`) option.category = entry.category
+    if (typeof entry.value === `string`) option.value = entry.value
+    const values = parseConfigValues(entry.values)
+    if (values) option.values = values
+    options.push(option)
+  }
+  const modes: SessionConfigMode[] = []
+  if (Array.isArray(event.modes)) {
+    for (const entry of event.modes) {
+      if (!isEventRecord(entry)) continue
+      const id = wireId(entry.id)
+      if (id === null) continue
+      const mode: SessionConfigMode = { id, label: wireText(entry.label) || id }
+      if (typeof entry.description === `string`) {
+        mode.description = entry.description
+      }
+      modes.push(mode)
+    }
+  }
+  const commands: SessionConfigCommand[] = []
+  if (Array.isArray(event.commands)) {
+    for (const entry of event.commands) {
+      if (!isEventRecord(entry)) continue
+      const name = wireId(entry.name)
+      if (name === null) continue
+      const command: SessionConfigCommand = {
+        name,
+        description: wireText(entry.description),
+      }
+      if (typeof entry.hint === `string`) command.hint = entry.hint
+      commands.push(command)
+    }
+  }
+  const state: SessionConfigState = { options, modes, commands }
+  const currentMode = wireId(event.currentMode)
+  if (currentMode !== null) state.currentMode = currentMode
+  return state
+}
+
+/** `null` for an unusable payload OR a zero `contextSize` ("unknown"). Unlike
+ *  the config fold, a null here CLEARS the slot: a context meter is only
+ *  worth showing while the engine is measuring one, and a stale bar beside a
+ *  live run reads as current. */
+export function parseSessionUsage(event: unknown): SessionUsageState | null {
+  if (!isEventRecord(event)) return null
+  const used = event.contextUsed
+  const size = event.contextSize
+  if (typeof used !== `number` || !Number.isFinite(used) || used < 0) return null
+  if (typeof size !== `number` || !Number.isFinite(size) || size <= 0) return null
+  const usage: SessionUsageState = {
+    contextUsed: Math.round(used),
+    contextSize: Math.round(size),
+  }
+  const cost = event.costUsd
+  if (typeof cost === `number` && Number.isFinite(cost) && cost >= 0) {
+    usage.costUsd = cost
+  }
+  return usage
+}
+
+/** One composer chip. */
+export interface ConfigChip {
+  kind: `mode` | `option`
+  /** The option id for `option`; the literal `mode` for the mode chip. */
+  id: string
+  /** The chip's leading label ("Model", "Mode") — from the wire, never a
+   *  local constant, so all four clients agree by construction. */
+  label: string
+  /** The raw value in force (`` = the CLI's own default), so a renderer can
+   *  run a CONTRACT value through its own vocabulary (`modelLabel`). */
+  value: string
+  /** What it currently reads ("Opus", CONFIG_DEFAULT_VALUE_LABEL). */
+  valueLabel: string
+  /** Empty = read-only (render the value, offer no menu). */
+  values: SessionConfigValue[]
+}
+
+/** The chip row in the order every client draws it: the MODE chip first when
+ *  the run has modes, then the options in publisher order. */
+export function configChips(
+  config: SessionConfigState | null | undefined
+): ConfigChip[] {
+  if (!config) return []
+  const chips: ConfigChip[] = []
+  if (config.modes.length > 0) {
+    const current = config.currentMode ?? ``
+    const mode = config.modes.find((m) => m.id === current)
+    chips.push({
+      kind: `mode`,
+      id: `mode`,
+      label: CONFIG_MODE_LABEL,
+      value: current,
+      valueLabel: mode?.label ?? (current || CONFIG_DEFAULT_VALUE_LABEL),
+      values: config.modes.map((m) => ({ id: m.id, label: m.label })),
+    })
+  }
+  for (const option of config.options) {
+    const value = option.value ?? ``
+    const known = option.values?.find((v) => v.id === value)
+    chips.push({
+      kind: `option`,
+      id: option.id,
+      label: option.label,
+      value,
+      valueLabel: known?.label ?? (value || CONFIG_DEFAULT_VALUE_LABEL),
+      values: option.values ?? [],
+    })
+  }
+  return chips
 }

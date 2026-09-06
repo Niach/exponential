@@ -1,7 +1,9 @@
 import SwiftUI
 
 /// EXP-637: the ONE row a runs list draws — the Actions tab's "Recent
-/// automated runs" (EXP-676 dropped the Agents tab's "Recent runs").
+/// automated runs" and, since EXP-746, the Devices tab's "Past" (EXP-676 had
+/// dropped that list; sessions are screens now, so a finished run is where its
+/// transcript and its Resume live).
 ///
 /// Ended rows are EXPANDABLE, and the summary is deliberately NOT shown
 /// inline: a close-out is a paragraph, and a list of paragraphs is unreadable.

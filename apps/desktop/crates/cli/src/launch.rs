@@ -88,7 +88,18 @@ impl LaunchHost {
 
 /// The injected launcher collaborators, seeded with the issues the caller
 /// already fetched (the seed fn runs off-thread inside `prepare`).
-pub fn coding_deps(ctx: &Ctx, seeds: HashMap<String, IssueSeed>, host: LaunchHost) -> CodingDeps {
+///
+/// `runtime` is this host's steer runtime (`None` = it failed to start): the
+/// ACP engine drives its connection on it, so a runtime-less process has
+/// nowhere to run a session and every launch must prepare the PTY argv
+/// instead (EXP-746 — the transport composes the argv, so the decision cannot
+/// wait until spawn time).
+pub fn coding_deps(
+    ctx: &Ctx,
+    seeds: HashMap<String, IssueSeed>,
+    host: LaunchHost,
+    runtime: Option<&Arc<steer::SteerRuntime>>,
+) -> CodingDeps {
     CodingDeps {
         trpc: Arc::clone(&ctx.trpc),
         token_store: Arc::clone(&ctx.token_store),
@@ -102,6 +113,9 @@ pub fn coding_deps(ctx: &Ctx, seeds: HashMap<String, IssueSeed>, host: LaunchHos
         // (`attribution` prefers it) — this is only the fallback for starts
         // that name no device.
         device_id: host.device_id(ctx),
+        // EXP-746: `session_host::launch_acp` runs the engine on the steer
+        // runtime, so "this host can run one" IS "it has a runtime".
+        acp_available: runtime.is_some(),
         data_dir: ctx.data_dir.clone(),
     }
 }
@@ -426,10 +440,30 @@ mod tests {
     fn only_a_daemon_hosted_launch_stamps_the_device_id() {
         let (_dir, ctx) = temp_ctx("launch-host");
 
-        let hosted = coding_deps(&ctx, HashMap::new(), LaunchHost::Daemon);
+        let hosted = coding_deps(&ctx, HashMap::new(), LaunchHost::Daemon, None);
         assert_eq!(hosted.device_id.as_deref(), Some(ctx.device_id().as_str()));
 
-        let foreground = coding_deps(&ctx, HashMap::new(), LaunchHost::Foreground);
+        let foreground = coding_deps(&ctx, HashMap::new(), LaunchHost::Foreground, None);
         assert_eq!(foreground.device_id, None);
+    }
+
+    /// EXP-746: a host that could not start a steer runtime has nowhere to
+    /// run the ACP engine, so `resolve_transport` must keep every launch on
+    /// the PTY path — the two transports compose different argv, and an
+    /// ACP-prepared launch has no TUI fallback to spawn.
+    #[test]
+    fn the_acp_transport_needs_this_hosts_steer_runtime() {
+        let (_dir, ctx) = temp_ctx("launch-acp");
+
+        assert!(!coding_deps(&ctx, HashMap::new(), LaunchHost::Daemon, None).acp_available);
+
+        let Ok(runtime) = steer::SteerRuntime::new() else {
+            // No runtime on this machine — the negative half above is still
+            // the load-bearing one.
+            return;
+        };
+        assert!(
+            coding_deps(&ctx, HashMap::new(), LaunchHost::Daemon, Some(&runtime)).acp_available
+        );
     }
 }

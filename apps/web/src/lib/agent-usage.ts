@@ -14,6 +14,7 @@
 // agent's own app groups them (`usageGroups`). There is no pinned window and
 // no "the fullest one" heuristic any more — a reading habit nobody had.
 
+import type { SessionUsageState } from "@/lib/agent-feed"
 import type {
   CodingSession,
   Device,
@@ -222,6 +223,56 @@ export function usageGroups(
     groups.push({ key: `other`, title: `Other`, cards: other })
   }
   return groups
+}
+
+// ── The RUN's own context meter (EXP-746) ────────────────────────────────────
+// Deliberately BESIDE `usageGroups`, never inside it: these numbers come from
+// the ACP engine's `usage` activity event (tokens for one session), while the
+// cards above come from the machine's rate-limit report (percentages for one
+// account). Folding them together would break the ×4 `usageGroups` fixture
+// lock and put a token count on a percent rail.
+
+/** EXP-746 context section title. Byte-identical ×4. */
+export const CONTEXT_SECTION_TITLE = `Context`
+
+/** How full the run's context window is, 0-100, or null when the engine has
+ * not measured one. Floored — a bar must never read 100% before it is.
+ * MULTIPLY BEFORE DIVIDE: the other three clients compute `used * 100 / size`
+ * in integers, and `(used / size) * 100` disagrees with them by one on exact
+ * fractions (116000/200000 floors to 57 that way, 58 this way). */
+export function contextPercent(
+  usage: SessionUsageState | null | undefined
+): number | null {
+  if (!usage || usage.contextSize <= 0) return null
+  const percent = Math.floor((usage.contextUsed * 100) / usage.contextSize)
+  return Math.min(100, Math.max(0, percent))
+}
+
+/** k-rounded at >= 1000, no decimals — `124k`, `999`. Rounded, never
+ * truncated: `1500` reads `2k` on all four clients. */
+function formatTokens(value: number): string {
+  return value >= 1000 ? `${Math.round(value / 1000)}k` : `${Math.round(value)}`
+}
+
+/** `124k / 200k (62%)` — empty when the engine reported no window (the
+ * caller renders nothing at all). Byte-identical ×4. */
+export function formatContextUsage(
+  usage: SessionUsageState | null | undefined
+): string {
+  const percent = contextPercent(usage)
+  if (!usage || percent === null) return ``
+  return `${formatTokens(usage.contextUsed)} / ${formatTokens(usage.contextSize)} (${percent}%)`
+}
+
+/** `$1.24`, or null under half a cent — a run that has spent essentially
+ * nothing says nothing rather than `$0.00`. Byte-identical ×4. */
+export function formatUsageCost(
+  usage: SessionUsageState | null | undefined
+): string | null {
+  const cost = usage?.costUsd
+  if (typeof cost !== `number` || !Number.isFinite(cost)) return null
+  if (cost < 0.005) return null
+  return `$${cost.toFixed(2)}`
 }
 
 /** What one agent's sign-in reads as. EXP-694 reduced it to the identity

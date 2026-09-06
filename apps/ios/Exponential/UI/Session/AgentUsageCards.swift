@@ -137,12 +137,22 @@ struct AgentUsageTrack: View {
 /// The steering screen's "Usage" sheet (EXP-688) — the `…` menu's Usage entry.
 /// Content-fitted (EXP-687): a machine reporting many windows grows the sheet
 /// up to the shared 85 % cap, then scrolls.
+///
+/// EXP-746: it opens on EITHER half now. The machine's rate-limit report is
+/// optional (a fresh run on a machine that reported nothing still has its own
+/// numbers) and the ACP engine's per-run context/spend rides above it as its
+/// own "Context" block — deliberately NOT folded into `usageGroups`, whose
+/// percent cards are fixture-locked ×4 and would draw an empty rail for a
+/// token count.
 struct AgentUsageSheet: View {
-    let usage: AgentUsage
+    let usage: AgentUsage?
     /// The host machine's sign-in status for THIS session's agent, when it
     /// reported one — the agent name is already the sheet's context, so the
     /// caption drops the `<agent> · ` prefix `accountRow` adds.
     let account: AgentAccount?
+    /// EXP-746: this run's own context window and spend off the relay's
+    /// latest-wins `usage` event.
+    var sessionUsage: AgentSessionUsage?
 
     var body: some View {
         GlassSheetChrome(title: "Usage") {
@@ -153,7 +163,12 @@ struct AgentUsageSheet: View {
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                AgentUsageCards(usage: usage)
+                if let sessionUsage {
+                    SessionContextBlock(usage: sessionUsage)
+                }
+                if let usage {
+                    AgentUsageCards(usage: usage)
+                }
                 if let staleCaption {
                     Text(staleCaption)
                         .font(.caption)
@@ -170,9 +185,52 @@ struct AgentUsageSheet: View {
     /// Numbers the machine could not refresh say so, in the same words the
     /// other three clients use.
     private var staleCaption: String? {
-        guard usage.stale == true else { return nil }
-        let asOf = agentUsageRelativeDate(usage.fetchedAt)
+        guard usage?.stale == true else { return nil }
+        let asOf = agentUsageRelativeDate(usage?.fetchedAt)
         return asOf.isEmpty ? nil : "as of \(asOf)"
+    }
+}
+
+/// EXP-746: the run's own context window and spend — `124k / 200k (62%)` with
+/// the same severity-toned track the rate-limit cards use, and the spend
+/// beside it when there is one worth printing. The strings come from the
+/// ×4-locked pure rules; nothing here formats a number itself.
+struct SessionContextBlock: View {
+    let usage: AgentSessionUsage
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(AgentUsagePresentation.contextSectionTitle)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Text(
+                        AgentUsagePresentation.formatContextUsage(
+                            used: usage.contextUsed, size: usage.contextSize
+                        ) ?? "—"
+                    )
+                    .font(.subheadline.weight(.medium).monospacedDigit())
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    Spacer(minLength: 0)
+                    if let cost = AgentUsagePresentation.formatUsageCost(usage.costUsd) {
+                        Text(cost)
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    }
+                }
+                AgentUsageTrack(
+                    percent: usage.percent.map(Double.init),
+                    severity: AgentUsagePresentation.severity(usage.percent.map(Double.init))
+                )
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glassRow()
+            .accessibilityElement(children: .combine)
+        }
     }
 }
 

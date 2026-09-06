@@ -1,4 +1,7 @@
 import { contract } from "@exp/domain-contract"
+// EXP-746: type-only, so the chip helpers in agent-feed.ts can import the two
+// label constants below without a runtime cycle.
+import type { SessionConfigCommand } from "@/lib/agent-feed"
 
 // EXP-724 — the curated slash commands a viewer may send into a live steering
 // session. Pure: the `/` menu (components/steer-command-menu.tsx), the
@@ -26,6 +29,36 @@ export interface SteerCommand {
 /** A session whose synced row names no agent predates the column: it is a
  *  claude run (contract order puts claude first). */
 export const DEFAULT_STEER_AGENT: string = contract.codingAgent.values[0]
+
+/** EXP-746: the catalog id of an EXTERNAL ACP agent — deliberately a value
+ *  contract `codingAgent` (and therefore `steerCommands`) cannot name, so its
+ *  curated catalog is EMPTY. Mirrors the desktop's
+ *  `steer::commands::agent_id(SessionAgent::External)`. */
+export const EXTERNAL_STEER_AGENT = `external`
+
+/** EXP-746: which catalog a session's `/` menu and command pills key off.
+ *
+ *  A row that names no agent is normally a claude run that predates the
+ *  column — but an EXTERNAL ACP agent syncs no agent EITHER, because
+ *  `coding_sessions.agent` takes contract values only and there is none for
+ *  one. The two are told apart by `config_state`: only the ACP engine
+ *  publishes it (every PTY run publishes none), and an ACP run for
+ *  claude/codex/pi always stamps its id — so an agent-less run that published
+ *  one is external, and it gets the contract-less id above.
+ *
+ *  Without this, a phone offered `/compact` and `/clear` (confirm dialog and
+ *  all) for a run whose desktop-side catalog is empty: the literal text
+ *  reached the agent as a prompt and nothing was cleared. Mirrored ×4
+ *  (iOS `SlashCommands.agentId(_:acp:)`, Android `SlashCommands.agentId`,
+ *  desktop `slash_commands::agent_of`). */
+export function steerAgentId(
+  agent: string | null | undefined,
+  acp: boolean
+): string {
+  const id = agent?.trim()
+  if (id) return id
+  return acp ? EXTERNAL_STEER_AGENT : DEFAULT_STEER_AGENT
+}
 
 /** The whole catalog, in contract order. */
 export const STEER_COMMANDS: readonly SteerCommand[] =
@@ -94,7 +127,50 @@ export function steerCommandDraft(command: SteerCommand): string {
   return command.argHint ? `/${command.name} ` : `/${command.name}`
 }
 
+/** EXP-746: the `/` menu's catalog on an ACP run — the contract commands for
+ *  this agent FIRST, then the agent's OWN advertised ones
+ *  (`config_state.commands`), deduped by lowercased name so an agent that
+ *  ships its own `/compact` never doubles the row. Mirrored ×4 (iOS
+ *  SlashCommands.merged, Android SlashCommands.merged, desktop
+ *  slash_commands::menu_matches_with).
+ *
+ *  An agent command becomes an ordinary `SteerCommand` so the menu, the send
+ *  path and the feed's command pill all keep working unchanged: no argument
+ *  hint unless the agent gave one, scoped to THIS session's agent, and never
+ *  confirm-gated (only the contract knows which commands discard context). */
+export function mergeAgentCommands(
+  contractCommands: readonly SteerCommand[],
+  agentCommands: readonly SessionConfigCommand[],
+  agent?: string | null
+): SteerCommand[] {
+  const merged = [...contractCommands]
+  const seen = new Set(merged.map((command) => command.name.toLowerCase()))
+  const id = agent?.trim() ? agent.trim() : DEFAULT_STEER_AGENT
+  for (const command of agentCommands) {
+    const name = command.name.trim()
+    if (!name) continue
+    const key = name.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    merged.push({
+      name,
+      description: command.description,
+      argHint: command.hint ?? ``,
+      agents: [id],
+      confirm: false,
+    })
+  }
+  return merged
+}
+
 // ── Copy (byte-identical on web, iOS, Android and the desktop viewer) ────────
+
+/** EXP-746: a chip whose value is blank — the CLI's own default. */
+export const CONFIG_DEFAULT_VALUE_LABEL = `CLI default`
+
+/** EXP-746: the mode chip's leading label. Every other chip takes its leading
+ *  label from the wire, so only this synthetic one needs a constant. */
+export const CONFIG_MODE_LABEL = `Mode`
 
 /** The compaction strip's label while the agent is folding its context. */
 export const COMPACTING_LABEL = `Compacting context…`

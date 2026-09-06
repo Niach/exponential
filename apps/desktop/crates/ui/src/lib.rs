@@ -35,6 +35,9 @@ mod automation_editor;
 mod board;
 mod board_form;
 mod changelog;
+// EXP-746: the ONE "Latest changes" surface — the dock's row and the session
+// screen's rail render through it.
+mod changes_bar;
 pub mod coding_flow;
 mod coding_selects;
 mod comment_attachments;
@@ -93,11 +96,17 @@ mod pr_merge;
 mod queries;
 mod repo_resolver;
 mod reviews_view;
+// EXP-746: the ONE agent-run row (Automations' run log, Devices' Running and
+// Past) and the two Devices sections that render it.
+mod run_rows;
+mod sessions_section;
 mod screens;
 mod scroll_pane;
 mod search_sheet;
 mod session;
+mod session_extras;
 mod session_registry;
+mod session_screen;
 mod settings;
 mod sidebar;
 mod slash_commands;

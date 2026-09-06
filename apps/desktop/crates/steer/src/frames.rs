@@ -125,6 +125,17 @@ pub enum ClientFrame<'a> {
         text: Option<String>,
     },
     Kill,
+    /// EXP-746 (viewer role): change ONE live agent option the publisher
+    /// advertised in [`ActivityEvent::ConfigState`]. Fire-and-forget — the
+    /// publisher's next `config_state` IS the confirmation, so there is no
+    /// ack frame and no optimistic lock (unlike [`ClientFrame::Answer`]). A
+    /// BLANK `value` is the "CLI default / unset" choice, which is why the
+    /// relay's zod deliberately has no `min(1)` on it. Owned fields like
+    /// [`ClientFrame::Answer`]: built once from a chip the viewer holds and
+    /// handed to the socket task.
+    SetConfig { id: String, value: String },
+    /// EXP-746 (viewer role): switch to one of `config_state.modes`.
+    SetMode { id: String },
     Bye {
         #[serde(skip_serializing_if = "Option::is_none")]
         outcome: Option<&'a str>,
@@ -313,6 +324,43 @@ pub enum ActivityEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         at: Option<i64>,
     },
+    /// EXP-746: the agent's LIVE configuration — the chip vocabulary AND the
+    /// values in force, re-emitted in FULL on every change (a `set_config` /
+    /// `set_mode` that landed, a model the agent switched itself, an ACP
+    /// `current_mode_update` / `available_commands_update`). LATEST-WINS
+    /// state on every client (a snapshot slot beside the diff, never a feed
+    /// row): the relay keeps only the newest per room and the journal drops
+    /// its predecessor, so a joining viewer paints its chips from one frame.
+    ///
+    /// Field order here IS serialization order and the relay's zod is
+    /// declared in the same one — never reorder (`config_state` test
+    /// vectors are byte-exact).
+    #[serde(rename_all = "camelCase")]
+    ConfigState {
+        options: Vec<ConfigOption>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        current_mode: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        modes: Option<Vec<ConfigMode>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        commands: Option<Vec<ConfigCommand>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
+    /// EXP-746: the run's context window + spend as the engine last measured
+    /// it. LATEST-WINS state like [`ActivityEvent::ConfigState`]. Deliberately
+    /// TOKENS, not a percent — the device-reported `DeviceUsageWindow`
+    /// already owns the 0-100 rate-limit vocabulary and this is a different
+    /// quantity.
+    #[serde(rename_all = "camelCase")]
+    Usage {
+        context_used: i64,
+        context_size: i64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cost_usd: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
 }
 
 /// `started` | `ended` — the two [`ActivityEvent::Compaction`] edges.
@@ -367,6 +415,18 @@ impl ActivityEvent {
         }
     }
 
+    /// EXP-746 context/spend meter. No `ConfigState` twin: the engine builds
+    /// that snapshot whole (options, mode, commands) and there is nothing a
+    /// shorthand could leave out.
+    pub fn usage(context_used: i64, context_size: i64, cost_usd: Option<f64>) -> Self {
+        ActivityEvent::Usage {
+            context_used,
+            context_size,
+            cost_usd,
+            at: None,
+        }
+    }
+
     /// Every FREE-TEXT field of the event, mutably (EXP-511: the publisher
     /// walks them to put a localized image path back to the embed token the
     /// steerer sent — a local path must never reach the published feed,
@@ -415,6 +475,34 @@ impl ActivityEvent {
                 fields
             }
             ActivityEvent::Compaction { .. } => Vec::new(),
+            // EXP-746: labels and descriptions only. Option/value/mode ids,
+            // `option.value`, `option.category` and `command.name` are
+            // MACHINE fields — an id the rewrite touched would no longer
+            // name anything the engine can set (same reason
+            // `QuestionOption::key` is excluded).
+            ActivityEvent::ConfigState {
+                options,
+                modes,
+                commands,
+                ..
+            } => {
+                let mut fields = Vec::new();
+                for option in options {
+                    fields.push(&mut option.label);
+                    for value in option.values.iter_mut().flatten() {
+                        fields.push(&mut value.label);
+                    }
+                }
+                for mode in modes.iter_mut().flatten() {
+                    fields.push(&mut mode.label);
+                    fields.extend(mode.description.as_mut());
+                }
+                for command in commands.iter_mut().flatten() {
+                    fields.push(&mut command.description);
+                }
+                fields
+            }
+            ActivityEvent::Usage { .. } => Vec::new(),
         }
     }
 
@@ -431,7 +519,9 @@ impl ActivityEvent {
             | ActivityEvent::AnswerAck { at, .. }
             | ActivityEvent::Subagent { at, .. }
             | ActivityEvent::Permission { at, .. }
-            | ActivityEvent::Compaction { at, .. } => at,
+            | ActivityEvent::Compaction { at, .. }
+            | ActivityEvent::ConfigState { at, .. }
+            | ActivityEvent::Usage { at, .. } => at,
         }
     }
 }
@@ -466,6 +556,95 @@ impl QuestionOption {
             key: key.into(),
             description: None,
             free_text: false,
+        }
+    }
+}
+
+/// EXP-746: one live agent option of an [`ActivityEvent::ConfigState`] — a
+/// composer chip. `values` ABSENT means read-only on this run (render the
+/// value, offer no menu); a blank `value` means the CLI's own default.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+pub struct ConfigOption {
+    /// The id a [`ClientFrame::SetConfig`] names — machine field, never
+    /// rewritten or localized.
+    pub id: String,
+    pub label: String,
+    /// Grouping hint for the chip row (`model`, `effort`, …); a client that
+    /// does not know it renders one chip per option.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub values: Option<Vec<ConfigValue>>,
+}
+
+/// One selectable value of a [`ConfigOption`].
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+pub struct ConfigValue {
+    pub id: String,
+    pub label: String,
+}
+
+/// EXP-746: one session mode (`plan`, `default`, …) a
+/// [`ClientFrame::SetMode`] may switch to.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+pub struct ConfigMode {
+    pub id: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// EXP-746: one slash command the AGENT advertises (ACP
+/// `available_commands_update`). The `/` menu shows the contract catalog
+/// UNION these, contract first — so `name` is a machine field the clients
+/// match on, never rewritten.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+pub struct ConfigCommand {
+    pub name: String,
+    pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
+}
+
+impl ConfigOption {
+    pub fn new(id: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+            category: None,
+            value: None,
+            values: None,
+        }
+    }
+}
+
+impl ConfigValue {
+    pub fn new(id: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+        }
+    }
+}
+
+impl ConfigMode {
+    pub fn new(id: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+            description: None,
+        }
+    }
+}
+
+impl ConfigCommand {
+    pub fn new(name: impl Into<String>, description: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+            hint: None,
         }
     }
 }
@@ -620,6 +799,14 @@ pub enum ServerFrame {
         #[serde(default)]
         text: Option<String>,
     },
+    /// EXP-746: live-config steering, relay → publisher, forwarded verbatim
+    /// from a joined viewer (same gating as `input`/`answer`). Never touches
+    /// the PTY — it crosses to the engine through
+    /// [`crate::activity::ConfigLink`], which owns the ACP session, and the
+    /// re-emitted `config_state` is the only confirmation the wire has.
+    SetConfig { id: String, value: String },
+    /// EXP-746: switch to one of the modes the publisher advertised.
+    SetMode { id: String },
     Kill,
     Bye {
         #[serde(default)]
@@ -1092,6 +1279,176 @@ mod tests {
         .is_err());
     }
 
+    /// EXP-746: the maximal snapshot, byte-for-byte in the zod's field order
+    /// (`options[{id,label,category?,value?,values?[{id,label}]}]`,
+    /// `currentMode?`, `modes?`, `commands?`, `at?`). Reordering a field here
+    /// reorders the wire.
+    #[test]
+    fn config_state_serializes_to_the_relay_schema_and_parses_back() {
+        let event = ActivityEvent::ConfigState {
+            options: vec![ConfigOption {
+                category: Some("model".into()),
+                value: Some("opus".into()),
+                values: Some(vec![
+                    ConfigValue::new("opus", "Opus"),
+                    ConfigValue::new("sonnet", "Sonnet"),
+                ]),
+                ..ConfigOption::new("model", "Model")
+            }],
+            current_mode: Some("plan".into()),
+            modes: vec![
+                ConfigMode {
+                    description: Some("Read-only until approved".into()),
+                    ..ConfigMode::new("plan", "Plan")
+                },
+                ConfigMode::new("default", "Default"),
+            ]
+            .into(),
+            commands: vec![
+                ConfigCommand {
+                    hint: Some("instructions".into()),
+                    ..ConfigCommand::new("compact", "Compact the context")
+                },
+                ConfigCommand::new("new", "Start a fresh context"),
+            ]
+            .into(),
+            at: Some(9),
+        };
+        assert_eq!(
+            ClientFrame::Activity { event: event.clone() }.to_json(),
+            r#"{"t":"activity","event":{"kind":"config_state","options":[{"id":"model","label":"Model","category":"model","value":"opus","values":[{"id":"opus","label":"Opus"},{"id":"sonnet","label":"Sonnet"}]}],"currentMode":"plan","modes":[{"id":"plan","label":"Plan","description":"Read-only until approved"},{"id":"default","label":"Default"}],"commands":[{"name":"compact","description":"Compact the context","hint":"instructions"},{"name":"new","description":"Start a fresh context"}],"at":9}}"#
+        );
+        assert_eq!(
+            ViewerFrame::parse(&ClientFrame::Activity { event: event.clone() }.to_json()).unwrap(),
+            ViewerFrame::Activity { event }
+        );
+    }
+
+    #[test]
+    fn config_state_omits_every_absent_optional() {
+        // A read-only run with no modes and no agent commands is the whole
+        // frame minus five keys — nothing may serialize as `null`.
+        let event = ActivityEvent::ConfigState {
+            options: Vec::new(),
+            current_mode: None,
+            modes: None,
+            commands: None,
+            at: None,
+        };
+        assert_eq!(
+            serde_json::to_string(&event).unwrap(),
+            r#"{"kind":"config_state","options":[]}"#
+        );
+        // An option with no category/value/values is equally bare.
+        let bare = ActivityEvent::ConfigState {
+            options: vec![ConfigOption::new("effort", "Effort")],
+            current_mode: None,
+            modes: None,
+            commands: None,
+            at: None,
+        };
+        assert_eq!(
+            serde_json::to_string(&bare).unwrap(),
+            r#"{"kind":"config_state","options":[{"id":"effort","label":"Effort"}]}"#
+        );
+    }
+
+    #[test]
+    fn config_state_parses_a_frame_that_omits_modes_and_commands() {
+        // Proves the `#[serde(default)]` on every optional: an internally
+        // tagged enum has no per-field fallback, so a publisher that sends a
+        // model chip and nothing else would otherwise fail the parse and the
+        // viewer would render no chips at all.
+        let parsed: ActivityEvent = serde_json::from_str(
+            r#"{"kind":"config_state","options":[{"id":"model","label":"Model","value":""}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            parsed,
+            ActivityEvent::ConfigState {
+                options: vec![ConfigOption {
+                    value: Some(String::new()),
+                    ..ConfigOption::new("model", "Model")
+                }],
+                current_mode: None,
+                modes: None,
+                commands: None,
+                at: None,
+            }
+        );
+        // Unknown future fields inside a nested struct are ignored too.
+        let forward: ActivityEvent = serde_json::from_str(
+            r#"{"kind":"config_state","options":[{"id":"a","label":"b","hologram":true}],"modes":[]}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            forward,
+            ActivityEvent::ConfigState { ref modes, .. } if modes.as_deref() == Some(&[][..])
+        ));
+    }
+
+    #[test]
+    fn usage_serializes_to_the_relay_schema_and_parses_back() {
+        let metered = ActivityEvent::Usage {
+            context_used: 124_000,
+            context_size: 200_000,
+            cost_usd: Some(1.25),
+            at: Some(5),
+        };
+        assert_eq!(
+            ClientFrame::Activity { event: metered.clone() }.to_json(),
+            r#"{"t":"activity","event":{"kind":"usage","contextUsed":124000,"contextSize":200000,"costUsd":1.25,"at":5}}"#
+        );
+        // A plan run reports no spend: the key is absent, never `null`.
+        assert_eq!(
+            serde_json::to_string(&ActivityEvent::usage(0, 200_000, None)).unwrap(),
+            r#"{"kind":"usage","contextUsed":0,"contextSize":200000}"#
+        );
+        assert_eq!(
+            ViewerFrame::parse(&ClientFrame::Activity { event: metered.clone() }.to_json()).unwrap(),
+            ViewerFrame::Activity { event: metered }
+        );
+    }
+
+    #[test]
+    fn text_fields_mut_skips_config_ids_values_and_command_names() {
+        // EXP-511's reverse rewrite walks free text ONLY. Ids, the value in
+        // force, the category and a command's name are machine fields: a
+        // rewritten id would name nothing the engine can set.
+        let mut event = ActivityEvent::ConfigState {
+            options: vec![ConfigOption {
+                category: Some("model".into()),
+                value: Some("opus".into()),
+                values: Some(vec![ConfigValue::new("opus", "Opus")]),
+                ..ConfigOption::new("model", "Model")
+            }],
+            current_mode: Some("plan".into()),
+            modes: Some(vec![ConfigMode {
+                description: Some("Read-only".into()),
+                ..ConfigMode::new("plan", "Plan")
+            }]),
+            commands: Some(vec![ConfigCommand::new("compact", "Compact the context")]),
+            at: None,
+        };
+        let seen: Vec<String> = event
+            .text_fields_mut()
+            .into_iter()
+            .map(|field| field.clone())
+            .collect();
+        assert_eq!(
+            seen,
+            vec![
+                "Model".to_string(),
+                "Opus".to_string(),
+                "Plan".to_string(),
+                "Read-only".to_string(),
+                "Compact the context".to_string(),
+            ]
+        );
+        // `usage` carries no free text at all.
+        assert!(ActivityEvent::usage(1, 2, None).text_fields_mut().is_empty());
+    }
+
     #[test]
     fn activity_reset_is_a_bare_tag() {
         assert_eq!(ClientFrame::ActivityReset.to_json(), r#"{"t":"activity_reset"}"#);
@@ -1133,6 +1490,14 @@ mod tests {
             },
             ActivityEvent::Permission { tool: "Bash".into(), detail: None, at: None },
             ActivityEvent::compaction(CompactionPhase::Started, None),
+            ActivityEvent::ConfigState {
+                options: vec![ConfigOption::new("model", "Model")],
+                current_mode: None,
+                modes: None,
+                commands: None,
+                at: None,
+            },
+            ActivityEvent::usage(1, 2, None),
         ];
         for event in &mut events {
             *event.at_mut() = Some(7);
@@ -1232,6 +1597,14 @@ mod tests {
             (ClientFrame::join(), "join"),
             (ClientFrame::Input { data: String::new() }, "input"),
             (ClientFrame::Kill, "kill"),
+            (
+                ClientFrame::SetConfig {
+                    id: "model".into(),
+                    value: "opus".into(),
+                },
+                "set_config",
+            ),
+            (ClientFrame::SetMode { id: "plan".into() }, "set_mode"),
             (ClientFrame::Bye { outcome: None }, "bye"),
             (ClientFrame::ActivityReset, "activity_reset"),
         ] {
@@ -1591,6 +1964,27 @@ mod tests {
             ServerFrame::Input { data: "ls\r".into() }
         );
         assert_eq!(ServerFrame::parse(r#"{"t":"kill"}"#).unwrap(), ServerFrame::Kill);
+        // EXP-746: the relay forwards a viewer's chip change verbatim; the
+        // BLANK value ("CLI default") is a legitimate payload, not a
+        // malformed one.
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"set_config","id":"model","value":"opus"}"#).unwrap(),
+            ServerFrame::SetConfig {
+                id: "model".into(),
+                value: "opus".into(),
+            }
+        );
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"set_config","id":"model","value":""}"#).unwrap(),
+            ServerFrame::SetConfig {
+                id: "model".into(),
+                value: String::new(),
+            }
+        );
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"set_mode","id":"plan"}"#).unwrap(),
+            ServerFrame::SetMode { id: "plan".into() }
+        );
         assert_eq!(
             ServerFrame::parse(r#"{"t":"bye","outcome":"publisher_lost"}"#).unwrap(),
             ServerFrame::Bye {
@@ -1683,6 +2077,51 @@ mod tests {
                 ask_id: Some("toolu_01".into()),
                 keys: vec!["2".into()],
                 text: Some("purple".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn client_set_config_and_set_mode_serialize() {
+        // EXP-746: byte-for-byte the shapes `setConfigFrame`/`setModeFrame`
+        // validate. Single-word fields — no camelCase rename anywhere.
+        assert_eq!(
+            ClientFrame::SetConfig {
+                id: "model".into(),
+                value: "opus".into(),
+            }
+            .to_json(),
+            r#"{"t":"set_config","id":"model","value":"opus"}"#
+        );
+        // A BLANK value is the "CLI default / omit the flag" choice and must
+        // stay ON the wire — the relay's zod deliberately has no `min(1)`
+        // there, and dropping the key would parse as a malformed frame.
+        assert_eq!(
+            ClientFrame::SetConfig {
+                id: "model".into(),
+                value: String::new(),
+            }
+            .to_json(),
+            r#"{"t":"set_config","id":"model","value":""}"#
+        );
+        assert_eq!(
+            ClientFrame::SetMode { id: "plan".into() }.to_json(),
+            r#"{"t":"set_mode","id":"plan"}"#
+        );
+        // Both halves of the same frame: what a viewer sends is exactly what
+        // the publisher parses back off the relay.
+        assert_eq!(
+            ServerFrame::parse(
+                &ClientFrame::SetConfig {
+                    id: "effort".into(),
+                    value: "high".into(),
+                }
+                .to_json()
+            )
+            .unwrap(),
+            ServerFrame::SetConfig {
+                id: "effort".into(),
+                value: "high".into(),
             }
         );
     }
@@ -1816,6 +2255,31 @@ mod tests {
                 detail: None,
                 at: None,
             },
+            ActivityEvent::ConfigState {
+                options: vec![
+                    ConfigOption {
+                        category: Some("model".into()),
+                        value: Some("opus".into()),
+                        values: Some(vec![ConfigValue::new("opus", "Opus")]),
+                        ..ConfigOption::new("model", "Model")
+                    },
+                    ConfigOption::new("effort", "Effort"),
+                ],
+                current_mode: Some("plan".into()),
+                modes: Some(vec![ConfigMode {
+                    description: Some("Read-only until approved".into()),
+                    ..ConfigMode::new("plan", "Plan")
+                }]),
+                commands: Some(vec![ConfigCommand::new("compact", "Compact the context")]),
+                at: Some(11),
+            },
+            ActivityEvent::Usage {
+                context_used: 124_000,
+                context_size: 200_000,
+                cost_usd: Some(1.25),
+                at: None,
+            },
+            ActivityEvent::usage(0, 0, None),
         ];
         for event in events {
             let frame = ClientFrame::Activity {

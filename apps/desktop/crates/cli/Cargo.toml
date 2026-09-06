@@ -19,6 +19,9 @@ api = { path = "../api" }
 domain = { path = "../domain" }
 coding = { path = "../coding", default-features = false }
 steer = { path = "../steer" }
+# EXP-746: the ACP session engine — the daemon runs an Acp-transport session
+# through it instead of the PTY host, sharing one lifecycle with the IDE.
+engine = { path = "../engine" }
 # EXP-530: the daemon's own Electric pipeline (a 6-shape subset into
 # `sync-cli.sqlite`) — engine only, the gpui collections seam stays off.
 sync = { path = "../sync", default-features = false }

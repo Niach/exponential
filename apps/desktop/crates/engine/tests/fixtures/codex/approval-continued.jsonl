@@ -1,0 +1,2 @@
+{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"thread_1","turnId":"turn_1","item":{"id":"item_9","type":"commandExecution","command":"bash -lc 'rm -rf build'","commandActions":[],"status":"completed","aggregatedOutput":"","exitCode":0}}}
+{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"thread_1","turn":{"id":"turn_1","status":"completed"}}}

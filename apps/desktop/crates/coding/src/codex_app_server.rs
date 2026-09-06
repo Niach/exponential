@@ -71,7 +71,26 @@ pub fn route_line(line: &str) -> Option<(u64, Option<Value>)> {
 }
 
 /// Kills and reaps the child on every exit path, including a panic.
-struct ChildGuard(std::process::Child);
+///
+/// EXP-746: `pub` because the ACP engine spawns the same shape of child (a
+/// long-lived JSON-RPC-over-stdio agent) and must not grow a second
+/// kill-on-drop guard — codex/pi/external ACP children have no `claude-hooks`
+/// reaper anchor, so this Drop IS what keeps them from escaping.
+pub struct ChildGuard(std::process::Child);
+
+impl ChildGuard {
+    /// Take ownership of `child`: it is killed (with its process group on
+    /// unix, if it was spawned into its own) and reaped when this drops.
+    pub fn new(child: std::process::Child) -> ChildGuard {
+        ChildGuard(child)
+    }
+
+    /// The guarded child's pid — the engine stamps it into log lines and the
+    /// reaper's protection checks.
+    pub fn pid(&self) -> u32 {
+        self.0.id()
+    }
+}
 
 impl Drop for ChildGuard {
     fn drop(&mut self) {
@@ -107,7 +126,7 @@ pub fn probe(program: &str, path_env: &str, timeout: Duration) -> std::io::Resul
         .take()
         .expect("stdout piped above");
     let mut stdin = child.stdin.take().expect("stdin piped above");
-    let _guard = ChildGuard(child);
+    let _guard = ChildGuard::new(child);
 
     let (sender, receiver) = channel();
     std::thread::spawn(move || {

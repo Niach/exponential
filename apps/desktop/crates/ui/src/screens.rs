@@ -81,6 +81,46 @@ pub(crate) fn screens_for_window_id(
         .and_then(|registry| registry.by_window.get(&window_id).cloned())
 }
 
+/// EXP-746: every window's open screen for `session_id` (usually zero or
+/// one). The engine's exit edge is app-global — it knows the row, not the
+/// window that opened it — so it marks whatever is up.
+pub(crate) fn session_views(
+    session_id: &str,
+    cx: &App,
+) -> Vec<Entity<crate::session_screen::SessionScreenView>> {
+    let Some(registry) = cx.try_global::<ScreensRegistry>() else {
+        return Vec::new();
+    };
+    registry
+        .by_window
+        .values()
+        .filter_map(|panel| panel.read(cx).session_view(session_id))
+        .collect()
+}
+
+/// EXP-746: hand the open tab of `resumed_from` to `session_id` in THIS
+/// window's panel (D5's resume swap), reporting whether a tab changed hands.
+///
+/// The open-time half of the rule `sync_session_tabs` applies to synced rows:
+/// a local resume opens its screen before the new row's echo can arrive, so
+/// without this the run it continues would keep a second tab beside it. Only
+/// this window's panel is consulted — the tab being taken over is the one the
+/// user is looking at; a copy undocked into another window is that window's
+/// own sync to swap.
+pub(crate) fn take_over_session_tab(
+    resumed_from: &str,
+    session_id: &str,
+    window: &mut Window,
+    cx: &mut App,
+) -> bool {
+    let Some(panel) = screens_for_window(window, cx) else {
+        return false;
+    };
+    panel.update(cx, |panel, cx| {
+        panel.take_over_session_tab(resumed_from, session_id, window, cx)
+    })
+}
+
 /// Drop a closed window's entry (called from the `Shell` release hook,
 /// mirroring `sidebar::remove_window`).
 pub(crate) fn remove_window(window_id: WindowId, cx: &mut App) {
@@ -119,6 +159,14 @@ pub(crate) fn build_screen_content(
             view.update(cx, |diff, cx| diff.set_issue(issue_id, cx));
             view.into()
         }
+        // EXP-746: a fresh view is always the REMOTE one — a second view over
+        // a live local run would take a second handle on one engine. Never
+        // undockable today, so this only keeps the match total.
+        Screen::Session { session_id } => cx
+            .new(|cx| {
+                crate::session_screen::SessionScreenView::remote(session_id.clone(), window, cx)
+            })
+            .into(),
         // Never undockable — unreachable via the undock path, kept total for
         // the compiler.
         Screen::Devices => cx
@@ -282,18 +330,83 @@ enum ChipLead {
     /// Resolution is per-issue, so it stays correct on this cross-team strip
     /// — only GROUPING is team-scoped.
     Status(domain::statuses::ResolvedStatus),
+    /// EXP-746: a liveness tone dot — the session screen's chip, mirroring
+    /// the terminal dock's remote chips.
+    Dot(gpui::Hsla),
 }
 
 impl ChipLead {
+    /// The GLYPH lead, when the chip has one. A [`ChipLead::Dot`] is painted
+    /// by `surface::rich_tab` itself and has no icon.
     fn icon(&self, cx: &App) -> Option<gpui_component::Icon> {
         match self {
-            ChipLead::None => None,
+            ChipLead::None | ChipLead::Dot(_) => None,
             ChipLead::Status(status) => Some(crate::icons::resolved_status_icon(status, cx)),
         }
     }
 }
 
+/// How much width the lead reserves in [`ScreensPanel::measure_chip_width`].
+///
+/// EXP-746: reserving the icon's `size_3` for a `size_1p5` dot over-estimated
+/// every session chip and collapsed tabs into "+N" with room to spare — the
+/// exact EXP-326 bug the measured strip exists to avoid. Pure (unit-tested);
+/// it must move whenever `surface::rich_tab`'s lead does.
+fn lead_reserve_rems(lead: &ChipLead) -> f32 {
+    /// `Icon::xsmall()` — `size_3` (status AND action leads render xsmall,
+    /// so one constant covers both — EXP-426).
+    const LEAD_ICON_REMS: f32 = 0.75;
+    /// The `size_1p5` liveness dot (`surface::rich_tab`'s `RichTabStatus::Dot`).
+    const LEAD_DOT_REMS: f32 = 0.375;
+    match lead {
+        ChipLead::None => 0.,
+        ChipLead::Status(_) => LEAD_ICON_REMS,
+        ChipLead::Dot(_) => LEAD_DOT_REMS,
+    }
+}
+
+/// EXP-746: a session chip's liveness dot. Deliberately the SAME tones the
+/// dock's remote chips wear (`terminal_dock::remote_chip_tone`) — one strip
+/// entry per run, one vocabulary, wherever it is hosted.
+fn session_chip_tone(session_id: &str, cx: &App) -> gpui::Hsla {
+    let muted = cx.theme().muted_foreground.opacity(0.5);
+    let Some(store) = Store::try_global(cx) else {
+        return muted;
+    };
+    let collections = store.collections();
+    let sessions = collections.coding_sessions.read(cx);
+    let Some(row) = sessions.get(session_id) else {
+        return muted;
+    };
+    // An ended run keeps its tab as a read-only transcript — its dot says so
+    // rather than claiming the agent is still working.
+    if row.status.as_deref() == Some(domain::contract::CODING_SESSION_STATUS_ENDED) {
+        return muted;
+    }
+    let pr_state = row
+        .issue_id
+        .as_deref()
+        .and_then(|issue_id| collections.issues.read(cx).get(issue_id).cloned())
+        .and_then(|issue| issue.pr_state);
+    match crate::queries::coding_session_display(row, pr_state.as_deref()) {
+        crate::queries::CodingSessionDisplay::NeedsInput => theme::tokens::YELLOW.to_hsla(),
+        crate::queries::CodingSessionDisplay::Done => theme::tokens::BLUE.to_hsla(),
+        crate::queries::CodingSessionDisplay::Review
+        | crate::queries::CodingSessionDisplay::Running => theme::tokens::GREEN.to_hsla(),
+    }
+}
+
 fn chip_content(screen: &Screen, cx: &App) -> ChipContent {
+    if let Screen::Session { session_id } = screen {
+        // The tab strip says WHAT is running and how it is doing without the
+        // tab having to be open — the dock's remote chips did this, and the
+        // session screen inherits it.
+        return ChipContent {
+            lead: ChipLead::Dot(session_chip_tone(session_id, cx)),
+            identifier: None,
+            title: Some(screen_title(screen, cx)),
+        };
+    }
     if let Screen::IssueDetail { issue_id } = screen {
         let store = Store::global(cx);
         let issues = store.collections().issues.read(cx);
@@ -317,6 +430,42 @@ fn chip_content(screen: &Screen, cx: &App) -> ChipContent {
         identifier: None,
         title: Some(screen_title(screen, cx)),
     }
+}
+
+/// EXP-746, THE rule of the resume swap: an open tab for `resumed_from`
+/// becomes `session_id`'s.
+///
+/// `Screen::Session` keys on the row id and a resume mints a new one, so
+/// without this a resumed run opens a SECOND tab beside the one it continues.
+/// A run only takes a tab over when it resumes an id that is open and is not
+/// itself open yet: a resume of a resume converges one step per tick, and two
+/// tabs the user opened by hand stay two tabs.
+///
+/// Two paths can see the link first and both call this, so the swap happens
+/// exactly once whichever wins the race: the synced row ([`resume_swaps`],
+/// the only path for a resume started on another device) and, for a LOCAL
+/// resume, [`take_over_session_tab`] at open time — the engine starts
+/// synchronously while the new row's Electric echo is a network round trip,
+/// so the tab is usually already open by the time the row lands.
+fn takes_over_tab(open: &[String], resumed_from: &str, session_id: &str) -> bool {
+    open.iter().any(|tab| tab == resumed_from) && !open.iter().any(|tab| tab == session_id)
+}
+
+/// EXP-746, pure core of the synced half: which OPEN session tab each new row
+/// takes over ([`takes_over_tab`]). Sorted by the displaced id, because the
+/// synced rows arrive in no useful order and the swap must be deterministic.
+fn resume_swaps(open: &[String], rows: &[(String, Option<String>)]) -> Vec<(String, String)> {
+    let mut swaps: Vec<(String, String)> = rows
+        .iter()
+        .filter_map(|(id, resumed_from)| {
+            let resumed_from = resumed_from.as_ref()?;
+            takes_over_tab(open, resumed_from, id).then(|| (resumed_from.clone(), id.clone()))
+        })
+        .collect();
+    swaps.sort();
+    // One tab can only become one session; the sort makes "the first" stable.
+    swaps.dedup_by(|a, b| a.0 == b.0);
+    swaps
 }
 
 pub struct ScreensPanel {
@@ -347,6 +496,12 @@ pub struct ScreensPanel {
     /// The Getting-started checklist page (EXP-470 — the same tab-less
     /// full-page mode, behind a conditional rail entry).
     getting_started: Entity<crate::getting_started::GettingStartedView>,
+    /// EXP-746: one session screen per OPEN session tab, keyed by the
+    /// `coding_sessions` row id. Not a shared single instance like the views
+    /// above: each one owns a feed (a relay socket, or the local engine's
+    /// drain), so it is created on first activation and lives exactly as long
+    /// as its tab — every removal path shuts it down.
+    sessions: HashMap<String, Entity<crate::session_screen::SessionScreenView>>,
     /// The window's shared rail state (EXP-288): the active tool drives the
     /// tab-less center default (SC diff / file viewer), and the file
     /// selection re-points the viewer.
@@ -438,6 +593,17 @@ impl ScreensPanel {
             },
         ));
         subscriptions.push(cx.observe(&collections.boards, |_, _, cx| cx.notify()));
+        // EXP-746: session tabs read their identity, their liveness and the
+        // resume swap off this collection — a run that ends, or is resumed
+        // into a NEW row, has to reach the open tab without a navigation.
+        subscriptions.push(cx.observe_in(
+            &collections.coding_sessions,
+            window,
+            |this, _, window, cx| {
+                this.sync_session_tabs(window, cx);
+                cx.notify();
+            },
+        ));
         // EXP-698 round 5: the "No boards yet" center renders the
         // Getting-started cards — same reason the issue list observes it
         // (tRPC one-shot signals no collection echo covers).
@@ -479,6 +645,7 @@ impl ScreensPanel {
             automations,
             reviews,
             getting_started,
+            sessions: HashMap::new(),
             rail,
             tabs: Vec::new(),
             tabs_team: None,
@@ -578,6 +745,9 @@ impl ScreensPanel {
                 .update(cx, |detail, cx| detail.flush_description(cx));
             self.tabs_team = team;
             self.tabs.clear();
+            // EXP-746: the session views go with their tabs (a dropped tab
+            // must not keep a relay socket or an engine drain alive).
+            self.shutdown_all_sessions(cx);
             // The sidebar selections are team-scoped too (trunk-relative
             // paths / commit hashes of the OLD team's clone).
             self.rail.update(cx, |rail, cx| {
@@ -653,6 +823,17 @@ impl ScreensPanel {
                 self.support_thread
                     .update(cx, |thread, cx| thread.set_thread(thread_id, window, cx));
             }
+            Screen::Session { session_id } => {
+                // ENTRY-OR-INSERT, never a re-point: each session owns its
+                // feed, so re-pointing one view at another row would hand the
+                // new session the old one's socket. Built lazily — a
+                // background tab has no view until it is activated.
+                self.sessions.entry(session_id.clone()).or_insert_with(|| {
+                    cx.new(|cx| {
+                        crate::session_screen::SessionScreenView::new(session_id, window, cx)
+                    })
+                });
+            }
             Screen::PrDiff { .. }
             | Screen::Devices
             | Screen::Actions
@@ -702,6 +883,103 @@ impl ScreensPanel {
         for ix in missing.into_iter().rev() {
             self.close_tab(ix, window, cx);
         }
+    }
+
+    /// EXP-746: reconcile the open session tabs with the synced rows.
+    ///
+    /// Deliberately NOT `dismiss_stale_pr_diff`'s model: an ended run KEEPS
+    /// its tab (it becomes a read-only transcript, and Past reopens it), so
+    /// this only (a) marks the ended edge on the view, and (b) performs the
+    /// resume swap — a resume mints a NEW row id, which would otherwise open
+    /// a second tab beside the run it continues. Titles ride the observer's
+    /// `cx.notify()`; nothing here recomputes them.
+    fn sync_session_tabs(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let (swaps, ended) = {
+            let sessions = Store::global(cx).collections().coding_sessions.read(cx);
+            let open = self.open_session_ids();
+            if open.is_empty() {
+                return;
+            }
+            let rows: Vec<(String, Option<String>)> = sessions
+                .iter()
+                .map(|row| (row.id.clone(), row.resumed_from_id.clone()))
+                .collect();
+            let ended: Vec<String> = open
+                .iter()
+                .filter(|id| {
+                    sessions
+                        .get(id.as_str())
+                        .and_then(|row| row.status.as_deref())
+                        .is_some_and(|status| {
+                            status == domain::contract::CODING_SESSION_STATUS_ENDED
+                        })
+                })
+                .cloned()
+                .collect();
+            (resume_swaps(&open, &rows), ended)
+        };
+        for session_id in ended {
+            if let Some(view) = self.sessions.get(&session_id) {
+                view.update(cx, |view, cx| view.mark_ended(cx));
+            }
+        }
+        for (old_id, new_id) in swaps {
+            self.take_over_session_tab(&old_id, &new_id, window, cx);
+        }
+    }
+
+    /// The row ids of this panel's open session tabs, in strip order.
+    fn open_session_ids(&self) -> Vec<String> {
+        self.tabs
+            .iter()
+            .filter_map(|tab| match &tab.screen {
+                Screen::Session { session_id } => Some(session_id.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// EXP-746: hand `resumed_from`'s open tab to `session_id` — D5's in-place
+    /// resume swap, applied to whichever of the two paths in
+    /// [`takes_over_tab`] gets here first. `false` when there is nothing to
+    /// take over (the swap already happened, or the user has both tabs open).
+    fn take_over_session_tab(
+        &mut self,
+        resumed_from: &str,
+        session_id: &str,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> bool {
+        if !takes_over_tab(&self.open_session_ids(), resumed_from, session_id) {
+            return false;
+        }
+        let old = Screen::Session {
+            session_id: resumed_from.to_string(),
+        };
+        let new = Screen::Session {
+            session_id: session_id.to_string(),
+        };
+        if resolved_screen(&self.nav, cx).as_ref() == Some(&old) {
+            // EXP-48's in-place swap: `sync_tabs` consumes the marker,
+            // keeps the tab's slot and origin, and builds the new view.
+            crate::navigation::replace_screen(window, cx, new);
+        } else if let Some(ix) = self.tabs.iter().position(|tab| tab.screen == old) {
+            // A background tab: nothing is navigating, so swap its
+            // identity directly (its view, if it has one, is dropped
+            // below and rebuilt when the tab is next activated).
+            self.tabs[ix].screen = new;
+        }
+        self.shutdown_session_view(&old, cx);
+        true
+    }
+
+    /// This panel's screen for `session_id`, if that tab is open and has been
+    /// activated at least once.
+    fn session_view(
+        &self,
+        session_id: &str,
+    ) -> Option<Entity<crate::session_screen::SessionScreenView>> {
+        self.sessions.get(session_id).cloned()
     }
 
     /// EXP-525: review diffs are transient center views (no tab). The
@@ -794,6 +1072,7 @@ impl ScreensPanel {
                 .update(cx, |detail, cx| detail.flush_description(cx));
         }
         let closed = self.tabs.remove(ix);
+        self.shutdown_session_view(&closed.screen, cx);
         let active = resolved_screen(&self.nav, cx);
         if active.as_ref() == Some(&closed.screen) {
             let next = self
@@ -823,7 +1102,16 @@ impl ScreensPanel {
             self.issue_detail
                 .update(cx, |detail, cx| detail.flush_description(cx));
         }
+        let dropped: Vec<Screen> = self
+            .tabs
+            .iter()
+            .filter(|tab| tab.screen != keep)
+            .map(|tab| tab.screen.clone())
+            .collect();
         self.tabs.retain(|tab| tab.screen == keep);
+        for screen in &dropped {
+            self.shutdown_session_view(screen, cx);
+        }
         set_screen(window, cx, Some(keep));
         cx.notify();
     }
@@ -842,8 +1130,30 @@ impl ScreensPanel {
                 .update(cx, |detail, cx| detail.flush_description(cx));
         }
         self.tabs.clear();
+        self.shutdown_all_sessions(cx);
         set_screen(window, cx, None);
         cx.notify();
+    }
+
+    /// EXP-746: drop the session view a closing tab owned. Never called for
+    /// any other screen kind — the shared single-instance views outlive every
+    /// tab. Shutting the view down drops its FEED, not the run.
+    fn shutdown_session_view(&mut self, screen: &Screen, cx: &mut gpui::Context<Self>) {
+        let Screen::Session { session_id } = screen else {
+            return;
+        };
+        if let Some(view) = self.sessions.remove(session_id) {
+            view.update(cx, |view, cx| view.shutdown(cx));
+        }
+    }
+
+    /// [`Self::shutdown_session_view`] for every open session at once (the
+    /// team switch and "Close all tabs", which clear the strip wholesale).
+    fn shutdown_all_sessions(&mut self, cx: &mut gpui::Context<Self>) {
+        let views: Vec<_> = self.sessions.drain().map(|(_, view)| view).collect();
+        for view in views {
+            view.update(cx, |view, cx| view.shutdown(cx));
+        }
     }
 
     /// Undock the tab at `ix` into its own native window (EXP-65): open (or
@@ -871,9 +1181,6 @@ impl ScreensPanel {
     fn measure_chip_width(&self, entry: &TabEntry, window: &Window, cx: &App) -> f32 {
         /// `surface::rich_tab`'s `px_2p5`, both sides.
         const CHIP_PADDING_REMS: f32 = 0.625 * 2.;
-        /// `Icon::xsmall()` — `size_3` (status AND action leads render
-        /// xsmall, so one constant covers both — EXP-426).
-        const LEAD_ICON_REMS: f32 = 0.75;
         /// An icon-only xsmall `Button` — `size_5`.
         const XSMALL_BUTTON_REMS: f32 = 1.25;
         /// The trailing button cluster's own `gap_0p5`.
@@ -886,8 +1193,9 @@ impl ScreensPanel {
         let content = chip_content(&entry.screen, cx);
         let base_font = window.text_style().font();
         let mut children: Vec<f32> = Vec::with_capacity(4);
-        if !matches!(content.lead, ChipLead::None) {
-            children.push(LEAD_ICON_REMS * rem);
+        let lead_reserve = lead_reserve_rems(&content.lead);
+        if lead_reserve > 0. {
+            children.push(lead_reserve * rem);
         }
         if let Some(identifier) = content.identifier.as_ref() {
             // EXP-310: the shortcode renders `text_xs` in the terminal mono
@@ -965,9 +1273,12 @@ impl ScreensPanel {
                 let content = chip_content(screen, cx);
                 let mut tab =
                     crate::surface::RichTab::new(("center-tab", ix), Some(ix) == active_ix);
-                tab.status = match content.lead.icon(cx) {
-                    Some(icon) => crate::surface::RichTabStatus::Glyph(icon),
-                    None => crate::surface::RichTabStatus::None,
+                tab.status = match &content.lead {
+                    ChipLead::Dot(tone) => crate::surface::RichTabStatus::Dot(*tone),
+                    lead => match lead.icon(cx) {
+                        Some(icon) => crate::surface::RichTabStatus::Glyph(icon),
+                        None => crate::surface::RichTabStatus::None,
+                    },
                 };
                 tab.identifier = content.identifier;
                 tab.title = content.title;
@@ -1671,6 +1982,14 @@ impl Render for ScreensPanel {
                 self.support_thread.clone().into_any_element()
             }
             Some(Screen::PrDiff { .. }) => self.pr_diff.clone().into_any_element(),
+            // EXP-746: built by `sync_tabs` on activation — the fallback only
+            // shows for the frame between a navigation and that observer.
+            Some(Screen::Session { session_id }) => self
+                .sessions
+                .get(session_id)
+                .cloned()
+                .map(gpui::IntoElement::into_any_element)
+                .unwrap_or_else(|| self.render_syncing(cx)),
             Some(Screen::Devices) => self.devices.clone().into_any_element(),
             Some(Screen::Actions) => self.actions.clone().into_any_element(),
             Some(Screen::Automations) => self.automations.clone().into_any_element(),
@@ -1764,7 +2083,95 @@ fn pinned_panel_root(
 
 #[cfg(test)]
 mod tests {
-    use super::partition_tabs;
+    use super::{lead_reserve_rems, partition_tabs, resume_swaps, takes_over_tab, ChipLead};
+
+    fn ids(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+
+    fn row(id: &str, resumed_from: Option<&str>) -> (String, Option<String>) {
+        (id.to_string(), resumed_from.map(str::to_string))
+    }
+
+    /// EXP-746: a resumed run takes over the tab of the run it continues —
+    /// that is the whole point of keying the screen on the row id. Rows that
+    /// resume something not open, or whose own tab is already up, change
+    /// nothing.
+    #[test]
+    fn resume_swap_targets_the_open_tab() {
+        let open = ids(&["s1", "s2"]);
+        let rows = vec![
+            row("s1", None),
+            row("s2", None),
+            row("s3", Some("s1")),
+            // Resumes a run nobody has open.
+            row("s4", Some("s9")),
+        ];
+        assert_eq!(
+            resume_swaps(&open, &rows),
+            vec![("s1".to_string(), "s3".to_string())]
+        );
+
+        // Both rows already have tabs: either the swap already happened at
+        // open time, or the user opened the continuation itself (Devices →
+        // Running) beside the run it continues. Neither is ours to undo.
+        assert!(resume_swaps(&ids(&["s1", "s3"]), &rows).is_empty());
+        // No session tabs at all.
+        assert!(resume_swaps(&[], &rows).is_empty());
+    }
+
+    /// EXP-746 regression: the swap must not depend on which side sees the
+    /// resume first. A desktop-initiated resume reaches
+    /// `session_screen::open_session` — and through it
+    /// `ScreensPanel::take_over_session_tab`, i.e. [`takes_over_tab`] — a
+    /// round trip BEFORE the resumed row syncs, so both orderings have to end
+    /// with exactly one tab. Keying the swap on the synced row alone left the
+    /// continued run's transcript sitting beside its live continuation on the
+    /// common (local) path.
+    #[test]
+    fn a_resume_swaps_once_whichever_side_sees_it_first() {
+        let rows = vec![row("s2", Some("s1"))];
+
+        // The local start wins the race: the tab is taken over at open
+        // time, and the row's echo then finds nothing left to do.
+        assert!(takes_over_tab(&ids(&["s1"]), "s1", "s2"));
+        assert!(resume_swaps(&ids(&["s2"]), &rows).is_empty());
+
+        // The echo wins: the sync swaps, and the open-time call that
+        // follows finds the tab already renamed.
+        assert_eq!(
+            resume_swaps(&ids(&["s1"]), &rows),
+            vec![("s1".to_string(), "s2".to_string())]
+        );
+        assert!(!takes_over_tab(&ids(&["s2"]), "s1", "s2"));
+
+        // Nothing open for the run being continued (Past → Resume without
+        // opening it first, the usual case): a plain new tab either way.
+        assert!(!takes_over_tab(&ids(&["s9"]), "s1", "s2"));
+        assert!(resume_swaps(&ids(&["s9"]), &rows).is_empty());
+    }
+
+    /// A chain (`s3` resumed `s1`, `s5` resumed `s3`) converges one step per
+    /// tick, and two rows claiming ONE tab resolve deterministically — the
+    /// row ids arrive in no useful order.
+    #[test]
+    fn resume_swaps_take_one_step_and_stay_deterministic() {
+        let rows = vec![row("s5", Some("s3")), row("s3", Some("s1"))];
+        assert_eq!(
+            resume_swaps(&ids(&["s1"]), &rows),
+            vec![("s1".to_string(), "s3".to_string())]
+        );
+        // After that swap the next tick moves the same tab on to `s5`.
+        assert_eq!(
+            resume_swaps(&ids(&["s3"]), &rows),
+            vec![("s3".to_string(), "s5".to_string())]
+        );
+        let contested = vec![row("s9", Some("s1")), row("s2", Some("s1"))];
+        assert_eq!(
+            resume_swaps(&ids(&["s1"]), &contested),
+            vec![("s1".to_string(), "s2".to_string())]
+        );
+    }
 
     /// The strip's `gap_1` and the "+N" button at the app's rem
     /// ([`theme::FONT_SIZE_PX`]). Every assertion below is expressed in terms
@@ -1794,6 +2201,26 @@ mod tests {
         assert_eq!(partition(&widths, available, Some(0)), vec![0, 1]);
         // One pixel less and only the first chip survives the budget.
         assert_eq!(partition(&widths, available - 1., Some(0)), vec![0]);
+    }
+
+    /// EXP-746: the width reserve mirrors what `surface::rich_tab` actually
+    /// paints. A dot is half an icon wide; reserving the icon for it inflates
+    /// every session chip and folds tabs away with room still to their right.
+    #[test]
+    fn lead_reserve_matches_the_rendered_lead() {
+        assert_eq!(lead_reserve_rems(&ChipLead::None), 0.);
+        assert_eq!(
+            lead_reserve_rems(&ChipLead::Dot(gpui::red())),
+            0.375,
+            "`size_1p5`"
+        );
+        assert_eq!(
+            lead_reserve_rems(&ChipLead::Status(domain::statuses::constructed_default(
+                domain::enums::IssueStatus::InProgress
+            ))),
+            0.75,
+            "`Icon::xsmall()` = `size_3`"
+        );
     }
 
     /// The active tab is never hidden: it displaces the last chip that fit.

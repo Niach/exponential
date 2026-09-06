@@ -177,10 +177,12 @@ export function SessionRow({
                   : `—`}
           </span>
           <span className="truncate font-medium">
+            {/* EXP-746: the same words the Past rows and the three native
+                clients use for an issue-less run (`lib/past-runs.ts`). */}
             {isAction
               ? session.actionName
               : isBatch
-                ? `Batch session`
+                ? `Batch run`
                 : (issue?.title ?? `Issue syncing…`)}
           </span>
         </div>
@@ -286,9 +288,19 @@ export function EndedSessionRow({
   /** The title line — the action that fired (the row's `actionName`
    * snapshot, or the live action's name when the snapshot is missing). */
   title,
+  identifier,
+  byline,
 }: {
   row: EndedRunRow
   title: string
+  /** EXP-746: an issue run's identifier, drawn as the mono lead-in
+   * `SessionRow` already uses (iOS/Android `EndedRunRow` parity). */
+  identifier?: string
+  /** EXP-746: the Past caption — `<device> · <agent> · ended by … · <rel
+   * time>` (lib/past-runs.ts `pastRunByline`). It ALREADY ends with the
+   * relative time, so the trailing time column stands down when it is set;
+   * the Automations tab passes none and keeps the old row verbatim. */
+  byline?: string
 }) {
   const { session, canResume } = row
   const [expanded, setExpanded] = useState(false)
@@ -320,14 +332,26 @@ export function EndedSessionRow({
     >
       <div className="flex min-w-0 items-center gap-2">
         <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center text-sm">
+          <div className="flex min-w-0 items-center gap-1.5 text-sm">
+            {identifier && (
+              <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                {identifier}
+              </span>
+            )}
             <span className="truncate font-medium">{title}</span>
           </div>
+          {byline && (
+            <div className="truncate text-xs text-muted-foreground">
+              {byline}
+            </div>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-2 text-xs">
-          <span className="text-muted-foreground">
-            {relativeTime(session.endedAt ?? session.startedAt)}
-          </span>
+          {!byline && (
+            <span className="text-muted-foreground">
+              {relativeTime(session.endedAt ?? session.startedAt)}
+            </span>
+          )}
           <ChevronDown
             className={`size-4 text-muted-foreground transition-transform duration-fast ${expanded ? `rotate-180` : ``}`}
             aria-hidden

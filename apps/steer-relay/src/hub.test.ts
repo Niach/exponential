@@ -103,9 +103,18 @@ const activity = (hub: Hub, pub: FakeSocket, event: unknown) =>
 interface RoomInternals {
   activityLog: { framed: string; bytes: number }[]
   activityBytes: number
-  lastDiff: { framed: string } | null
+  /** EXP-746: the latest-wins state slots (`diff`, `config_state`, `usage`). */
+  lastByKind: Map<string, { framed: string }>
   lastPublisherActivity: number
   publisher: unknown
+}
+
+/** The event parked in a room's latest-wins slot, or undefined. */
+function slot(hub: Hub, kind: string, sessionId = `sess-1`) {
+  const entry = room(hub, sessionId).lastByKind.get(kind)
+  return entry
+    ? (JSON.parse(entry.framed) as { event: Record<string, unknown> }).event
+    : undefined
 }
 
 function room(hub: Hub, sessionId = `sess-1`): RoomInternals {
@@ -865,9 +874,17 @@ describe(`removed public_viewer role (EXP-90)`, () => {
       stale,
       JSON.stringify({ t: `answer`, questionId: `q1`, keys: [`1`] })
     )
+    // EXP-746: the two live-config frames ride the same viewer gate.
+    hub.onMessage(
+      stale,
+      JSON.stringify({ t: `set_config`, id: `model`, value: `opus` })
+    )
+    hub.onMessage(stale, JSON.stringify({ t: `set_mode`, id: `plan` }))
     expect(pub.lastFrame(`input`)).toBeUndefined()
     expect(pub.lastFrame(`answer`)).toBeUndefined()
     expect(pub.lastFrame(`kill`)).toBeUndefined()
+    expect(pub.lastFrame(`set_config`)).toBeUndefined()
+    expect(pub.lastFrame(`set_mode`)).toBeUndefined()
 
     hub.onMessage(
       stale,
@@ -905,6 +922,55 @@ describe(`activity event kinds`, () => {
     planMode: true,
     id: `toolu_plan`,
   }
+  // EXP-746: an ACP session's option keys are the agent's own option ids,
+  // which are words, not keystrokes.
+  const acpQuestion = {
+    kind: `question`,
+    text: `## The plan`,
+    options: [
+      { label: `Yes, clear context and auto-accept edits`, key: `exit-plan-clear-accept-edits` },
+      { label: `No, keep planning`, key: `exit-plan-default` },
+    ],
+    planMode: true,
+    id: `toolu_acp_plan`,
+  }
+  // EXP-746: every declared field at once — the whole-object assertions below
+  // are what catch a field the schema forgot (the relay re-serializes the
+  // PARSED event, so an undeclared one is stripped in silence).
+  const configState = {
+    kind: `config_state`,
+    options: [
+      {
+        id: `model`,
+        label: `Model`,
+        category: `model`,
+        value: `opus`,
+        values: [
+          { id: `opus`, label: `Opus` },
+          { id: `sonnet`, label: `Sonnet` },
+        ],
+      },
+      // No `values`: read-only on this run. A BLANK value is the agent's own
+      // default (the option ids in `values` are never blank — a client that
+      // offers "CLI default" sends an empty `set_config.value`).
+      { id: `effort`, label: `Effort`, value: `` },
+    ],
+    currentMode: `plan`,
+    modes: [
+      { id: `plan`, label: `Plan`, description: `Read-only until approved` },
+      { id: `code`, label: `Code` },
+    ],
+    commands: [
+      { name: `compact`, description: `Compact the context`, hint: `[focus]` },
+      { name: `usage`, description: `Show usage` },
+    ],
+  }
+  const usage = {
+    kind: `usage`,
+    contextUsed: 124_000,
+    contextSize: 200_000,
+    costUsd: 1.24,
+  }
 
   test(`every v2 kind fans out with its fields intact`, () => {
     const hub = new Hub()
@@ -930,6 +996,8 @@ describe(`activity event kinds`, () => {
       { kind: `permission`, tool: `Bash`, detail: `rm -rf build` },
       { kind: `compaction`, phase: `started`, trigger: `auto` },
       { kind: `compaction`, phase: `ended` },
+      configState,
+      usage,
     ]
     for (const event of events) activity(hub, pub, event)
 
@@ -996,6 +1064,74 @@ describe(`activity event kinds`, () => {
     expect((questions[1].options as unknown[]).length).toBe(3)
   })
 
+  // EXP-746: config_state and usage are STATE, not transcript rows — the room
+  // keeps one of each and replays them after the log.
+  test(`config_state and usage are latest-wins, replayed after the log`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+
+    activity(hub, pub, { kind: `narration`, text: `working` })
+    activity(hub, pub, configState)
+    activity(hub, pub, usage)
+    const newerConfig = { ...configState, currentMode: `code` }
+    const newerUsage = { ...usage, contextUsed: 150_000 }
+    activity(hub, pub, newerConfig)
+    activity(hub, pub, newerUsage)
+
+    const member = connectMember(hub)
+    expect(member.events().map((e) => e.kind)).toEqual([
+      `narration`,
+      `config_state`,
+      `usage`,
+    ])
+    expect(member.events()[1]).toEqual(newerConfig as never)
+    expect(member.events()[2]).toEqual(newerUsage as never)
+    // Only the narration is a row.
+    expect(room(hub).activityLog.length).toBe(1)
+  })
+
+  test(`the latest config_state and usage are exempt from the log budget`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    activity(hub, pub, configState)
+    activity(hub, pub, usage)
+    expect(room(hub).activityBytes).toBe(0)
+    expect(room(hub).activityLog.length).toBe(0)
+    expect(room(hub).lastByKind.size).toBe(2)
+  })
+
+  test(`the replay ends with the diff`, () => {
+    // The diff replayed last before the slots became a map; a viewer's diff
+    // pane must not be repainted by a later state frame.
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    activity(hub, pub, configState)
+    activity(hub, pub, usage)
+    activity(hub, pub, { kind: `diff`, diff: `+ line` })
+
+    const member = connectMember(hub)
+    expect(member.events().map((e) => e.kind)).toEqual([
+      `config_state`,
+      `usage`,
+      `diff`,
+    ])
+  })
+
+  test(`a publisher reset clears every latest-wins slot`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    activity(hub, pub, configState)
+    activity(hub, pub, usage)
+    activity(hub, pub, { kind: `diff`, diff: `+ line` })
+
+    hub.onMessage(pub, JSON.stringify({ t: `activity_reset` }))
+    expect(room(hub).lastByKind.size).toBe(0)
+    expect(slot(hub, `config_state`)).toBeUndefined()
+
+    const late = connectMember(hub)
+    expect(late.events()).toEqual([])
+  })
+
   test(`invalid shapes are dropped by the schema`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub)
@@ -1011,7 +1147,7 @@ describe(`activity event kinds`, () => {
       kind: `question`,
       id: `q`,
       text: `oversized key`,
-      options: [{ label: `A`, key: `x`.repeat(9) }],
+      options: [{ label: `A`, key: `x`.repeat(129) }],
     })
     // EXP-730: id is required — an id-less card (pre-0.14.31 publisher)
     // is not answerable and never reaches a viewer.
@@ -1026,6 +1162,28 @@ describe(`activity event kinds`, () => {
     activity(hub, pub, { kind: `compaction` }) // phase is required
     activity(hub, pub, { kind: `compaction`, phase: `paused` })
     activity(hub, pub, { kind: `compaction`, phase: `started`, trigger: `magic` })
+    // EXP-746: a config_state the schema rejects means NO chips at all, so
+    // every bound is locked here rather than discovered on a live run.
+    activity(hub, pub, { kind: `config_state` }) // options is required
+    activity(hub, pub, { kind: `config_state`, options: [{ id: `model` }] }) // label
+    activity(hub, pub, { kind: `config_state`, options: [{ id: ``, label: `x` }] })
+    activity(hub, pub, {
+      kind: `config_state`,
+      options: Array.from({ length: 9 }, () => ({ id: `a`, label: `b` })),
+    })
+    activity(hub, pub, {
+      kind: `config_state`,
+      options: [],
+      modes: [{ id: `m` }], // label
+    })
+    activity(hub, pub, {
+      kind: `config_state`,
+      options: [{ id: `a`, label: `b`, values: [{ id: `v` }] }], // label
+    })
+    activity(hub, pub, { kind: `usage` }) // both counters are required
+    activity(hub, pub, { kind: `usage`, contextUsed: `a`, contextSize: 1 })
+    activity(hub, pub, { kind: `usage`, contextUsed: 1.5, contextSize: 2 })
+    activity(hub, pub, { kind: `usage`, contextUsed: -1, contextSize: 2 })
     activity(hub, pub, { kind: `unknown_kind`, text: `x` })
     expect(member.events().length).toBe(0)
   })
@@ -1185,7 +1343,7 @@ describe(`semantic answers (EXP-249)`, () => {
     hub.onMessage(steerer, JSON.stringify({ t: `answer`, questionId: `q`, keys: [] }))
     hub.onMessage(
       steerer,
-      JSON.stringify({ t: `answer`, questionId: `q`, keys: [`x`.repeat(9)] })
+      JSON.stringify({ t: `answer`, questionId: `q`, keys: [`x`.repeat(129)] })
     )
     hub.onMessage(
       steerer,
@@ -1196,6 +1354,107 @@ describe(`semantic answers (EXP-249)`, () => {
       })
     )
     expect(pub.framesOf(`answer`).length).toBe(0)
+  })
+})
+
+describe(`live config (EXP-746)`, () => {
+  test(`a joined viewer's set_config reaches the publisher, verbatim`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const steerer = connectMember(hub, { sub: `s` })
+
+    hub.onMessage(
+      steerer,
+      JSON.stringify({ t: `set_config`, id: `model`, value: `opus` })
+    )
+    expect(pub.lastFrame(`set_config`)).toEqual({
+      t: `set_config`,
+      id: `model`,
+      value: `opus`,
+    })
+
+    // A BLANK value is the "CLI default" choice and must survive the trip —
+    // the schema deliberately has no min(1) on it.
+    hub.onMessage(
+      steerer,
+      JSON.stringify({ t: `set_config`, id: `model`, value: `` })
+    )
+    expect(pub.lastFrame(`set_config`)).toEqual({
+      t: `set_config`,
+      id: `model`,
+      value: ``,
+    })
+
+    // A viewer that never joined the room is dropped.
+    const stranger = new FakeSocket()
+    hub.onOpen(stranger, claims({ role: `viewer`, sub: `x`, sessionId: `sess-1` }))
+    hub.onMessage(
+      stranger,
+      JSON.stringify({ t: `set_config`, id: `model`, value: `sonnet` })
+    )
+    expect(pub.framesOf(`set_config`).length).toBe(2)
+
+    // Config changes are never echoed to the audience — the publisher's next
+    // `config_state` is the only confirmation there is.
+    expect(steerer.framesOf(`set_config`).length).toBe(0)
+  })
+
+  test(`set_mode carries only its id`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const steerer = connectMember(hub, { sub: `s` })
+
+    hub.onMessage(steerer, JSON.stringify({ t: `set_mode`, id: `plan` }))
+    expect(pub.lastFrame(`set_mode`)).toEqual({ t: `set_mode`, id: `plan` })
+    expect(steerer.framesOf(`set_mode`).length).toBe(0)
+  })
+
+  test(`a set_config with no publisher is a no-op`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const steerer = connectMember(hub, { sub: `s` })
+    hub.onClose(pub)
+
+    hub.onMessage(
+      steerer,
+      JSON.stringify({ t: `set_config`, id: `model`, value: `opus` })
+    )
+    hub.onMessage(steerer, JSON.stringify({ t: `set_mode`, id: `plan` }))
+    expect(pub.framesOf(`set_config`).length).toBe(0)
+    expect(pub.framesOf(`set_mode`).length).toBe(0)
+  })
+
+  test(`malformed set_config/set_mode frames are dropped by the schema`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const steerer = connectMember(hub, { sub: `s` })
+
+    hub.onMessage(steerer, JSON.stringify({ t: `set_config`, value: `opus` }))
+    hub.onMessage(
+      steerer,
+      JSON.stringify({ t: `set_config`, id: ``, value: `opus` })
+    )
+    hub.onMessage(
+      steerer,
+      JSON.stringify({ t: `set_config`, id: `x`.repeat(65), value: `opus` })
+    )
+    hub.onMessage(
+      steerer,
+      JSON.stringify({ t: `set_config`, id: `model`, value: `x`.repeat(129) })
+    )
+    hub.onMessage(steerer, JSON.stringify({ t: `set_config`, id: `model` }))
+    hub.onMessage(steerer, JSON.stringify({ t: `set_mode` }))
+    hub.onMessage(steerer, JSON.stringify({ t: `set_mode`, id: `` }))
+    expect(pub.framesOf(`set_config`).length).toBe(0)
+    expect(pub.framesOf(`set_mode`).length).toBe(0)
+
+    // Parsing is non-strict: an extra field is stripped, not a rejection, and
+    // the rebuilt frame carries only what the schema declares.
+    hub.onMessage(
+      steerer,
+      JSON.stringify({ t: `set_mode`, id: `plan`, value: `ignored` })
+    )
+    expect(pub.lastFrame(`set_mode`)).toEqual({ t: `set_mode`, id: `plan` })
   })
 })
 
@@ -1211,7 +1470,7 @@ describe(`activity_reset (EXP-249)`, () => {
     expect(member.frames().at(-1)).toEqual({ t: `activity_reset` })
     expect(room(hub).activityLog.length).toBe(0)
     expect(room(hub).activityBytes).toBe(0)
-    expect(room(hub).lastDiff).toBeNull()
+    expect(room(hub).lastByKind.size).toBe(0)
 
     // The re-published history is all a late joiner sees.
     activity(hub, pub, { kind: `narration`, text: `republished` })
@@ -1294,7 +1553,7 @@ describe(`activity log caps (EXP-249)`, () => {
     activity(hub, pub, { kind: `diff`, diff: `x`.repeat(400 * 1024) })
     expect(room(hub).activityBytes).toBe(0)
     expect(room(hub).activityLog.length).toBe(0)
-    expect(room(hub).lastDiff).not.toBeNull()
+    expect(room(hub).lastByKind.get(`diff`)).toBeDefined()
   })
 })
 

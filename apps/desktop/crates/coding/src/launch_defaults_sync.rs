@@ -258,7 +258,12 @@ mod tests {
         assert_eq!(base, defaults_fingerprint(&settings));
         // A launch-default field must.
         settings.claude_model = "opus".into();
-        assert_ne!(base, defaults_fingerprint(&settings));
+        let with_model = defaults_fingerprint(&settings);
+        assert_ne!(base, with_model);
+        // EXP-746: `start_in_terminal` IS a launch default (it rides
+        // `defaults_wire`), so the fingerprint moves with it too.
+        settings.start_in_terminal = true;
+        assert_ne!(with_model, defaults_fingerprint(&settings));
     }
 
     #[test]

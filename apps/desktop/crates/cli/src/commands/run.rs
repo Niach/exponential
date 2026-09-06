@@ -36,6 +36,9 @@ pub fn run(args: &[String]) -> CommandResult {
     let ctx = context::load()?;
     let interactive = !detach && term::stdin_is_tty() && term::stdout_is_tty();
     let options = launch::agent_options(&ctx.settings, &flags, interactive)?;
+    // EXP-746: the shared registry decision for every end this process
+    // issues (daemon parity — `registry::install_end_observer`).
+    crate::registry::install_end_observer(ctx.data_dir.clone());
 
     let team_id = match team_flag {
         Some(team) if !team.is_empty() => team,
@@ -59,9 +62,16 @@ pub fn run(args: &[String]) -> CommandResult {
     )?;
     println!("Running action: {}", request.action_name);
 
-    let deps = launch::coding_deps(&ctx, HashMap::new(), launch::LaunchHost::Foreground);
-    let sidecars = Sidecars::start();
+    // EXP-746: the runtime decides the transport (`CodingDeps::acp_available`)
+    // and the transport composes the argv, so it is resolved before `prepare`.
     let runtime = steer::SteerRuntime::new().ok();
+    let deps = launch::coding_deps(
+        &ctx,
+        HashMap::new(),
+        launch::LaunchHost::Foreground,
+        runtime.as_ref(),
+    );
+    let sidecars = Sidecars::start();
     let personal_key = context::ensure_personal_key(&ctx).ok();
 
     let prepared = coding::prepare_with_hooks(
@@ -87,11 +97,15 @@ pub fn run(args: &[String]) -> CommandResult {
     };
     let session = Arc::new(session_host::launch(&env, prepared, interactive, None)?);
 
-    if interactive {
-        super::code::attend(&session)
-    } else {
-        println!("Session {} running — steer it from the web.", session.session_id);
-        super::code::wait_with_signals(&session)
+    match (interactive, session.attaches_by_line()) {
+        // EXP-746: same fork as `code` — an ACP run attaches as a line
+        // transcript, a PTY run as the raw byte tee.
+        (true, true) => super::code::attend_acp(&session),
+        (true, false) => super::code::attend(&session),
+        (false, _) => {
+            println!("Session {} running — steer it from the web.", session.session_id);
+            super::code::wait_with_signals(&session)
+        }
     }
 }
 

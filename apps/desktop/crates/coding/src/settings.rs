@@ -17,6 +17,7 @@
 //! render a status row + Regenerate, never a value (§7.2).
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -141,6 +142,20 @@ pub struct Settings {
     /// per-install store. `None`/blank = auto (the platform's
     /// `default_shell()` resolution in the terminal crate).
     pub terminal_shell: Option<String>,
+    /// EXP-746: run coding sessions as a TERMINAL tab (today's PTY path)
+    /// instead of the in-process ACP engine. Device-global like
+    /// [`terminal_shell`](Self::terminal_shell) above — not a launcher knob,
+    /// but this file is the app's ONE merge-preserving per-install store —
+    /// and OFF by default: the ACP engine is the default path, so this
+    /// returns the PTY one. It is not the only route back there:
+    /// [`crate::launcher::resolve_transport`] also falls back for every login
+    /// flow and for an agent without ACP readiness.
+    pub start_in_terminal: bool,
+    /// EXP-746 (D13): user-declared external ACP agents this machine may
+    /// launch beside the three builtins. Opt-in and LOCAL-only — never
+    /// advertised to remote pickers, never a [`CodingAgent`], and always the
+    /// ACP transport (an external agent has no TUI path here).
+    pub external_agents: Vec<ExternalAgentSpec>,
     /// EXP-723: id of the newest `ui::changelog::LATEST` entry the user
     /// dismissed or opened — the rail's "What's new" card renders only while
     /// this differs from it (the desktop mirror of the web
@@ -172,6 +187,22 @@ pub struct Settings {
     /// form the dock returns to. Per-DEVICE like every other ui pref here,
     /// never synced. OFF by default — the strip is what every install knows.
     pub terminal_dock_bubble: bool,
+}
+
+/// EXP-746 (D13): one user-declared external ACP agent — an ACP-speaking
+/// binary the user names themselves. `command` + `args` spawn it VERBATIM
+/// (never an `npx` preset), `env` is layered onto the spawn env, `id` keys
+/// settings and run records and `label` names the picker pill. Every field
+/// `#[serde(default)]` so a half-written entry loads instead of taking the
+/// whole settings file down with it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ExternalAgentSpec {
+    pub id: String,
+    pub label: String,
+    pub command: String,
+    pub args: Vec<String>,
+    pub env: BTreeMap<String, String>,
 }
 
 /// Deserialize [`Settings::default_agent`] leniently: any non-string or
@@ -206,6 +237,9 @@ impl Default for Settings {
             claude_plan_mode: true,
             pi_plan_mode: true,
             terminal_shell: None,
+            // EXP-746: the ACP engine is the default path.
+            start_in_terminal: false,
+            external_agents: Vec::new(),
             changelog_seen_id: None,
             tools_setup_seen: false,
             emoji_recents: Vec::new(),
@@ -569,6 +603,9 @@ mod tests {
         assert!(settings.pi_plan_mode);
         // EXP-288: no shell override by default (auto-detect).
         assert_eq!(settings.terminal_shell, None);
+        // EXP-746: sessions run in the ACP engine unless this is flipped.
+        assert!(!settings.start_in_terminal);
+        assert!(settings.external_agents.is_empty());
         // EXP-367: a fresh install has not seen the tools onboarding step.
         assert!(!settings.tools_setup_seen);
     }
@@ -812,6 +849,14 @@ mod tests {
             claude_plan_mode: false,
             pi_plan_mode: false,
             terminal_shell: Some("/opt/homebrew/bin/fish".to_string()),
+            start_in_terminal: true,
+            external_agents: vec![ExternalAgentSpec {
+                id: "acme".to_string(),
+                label: "Acme".to_string(),
+                command: "acme-acp".to_string(),
+                args: vec!["--acp".to_string()],
+                env: BTreeMap::from([("ACME_TOKEN".to_string(), "t".to_string())]),
+            }],
             changelog_seen_id: Some("2026-09-relations-and-design-refresh".to_string()),
             tools_setup_seen: true,
             emoji_recents: vec!["🎉".to_string()],
@@ -830,7 +875,73 @@ mod tests {
         assert!(raw.contains("\"piPlanMode\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"changelogSeenId\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"terminalDockBubble\""), "camelCase keys: {raw}");
+        assert!(raw.contains("\"startInTerminal\""), "camelCase keys: {raw}");
+        assert!(raw.contains("\"externalAgents\""), "camelCase keys: {raw}");
         assert_eq!(Settings::load(&path), settings);
+    }
+
+    /// EXP-746: the ACP engine is the default path — a fresh install (and a
+    /// settings file predating the key) starts sessions IN it, not in a
+    /// terminal tab.
+    #[test]
+    fn start_in_terminal_defaults_off() {
+        assert!(!Settings::default().start_in_terminal);
+        let dir = TempDir::new("start-in-terminal-default");
+        let path = dir.0.join("settings.json");
+        fs::write(&path, r#"{"claudeModel":"opus"}"#).unwrap();
+        assert!(!Settings::load(&path).start_in_terminal);
+    }
+
+    /// EXP-746: the flag rides the SAME merge-preserving save every other key
+    /// does — a foreign top-level key (`launchDefaultsSync` and friends)
+    /// survives a save that flips it, and the flag survives a save by a
+    /// subsystem that never heard of it.
+    #[test]
+    fn a_saved_start_in_terminal_survives_a_merge_save() {
+        let dir = TempDir::new("start-in-terminal-merge");
+        let path = dir.0.join("settings.json");
+        fs::write(
+            &path,
+            r#"{"launchDefaultsSync":{"desk-1":{"dirty":true}},"claudeModel":"opus"}"#,
+        )
+        .unwrap();
+        let mut settings = Settings::load(&path);
+        settings.start_in_terminal = true;
+        settings.save(&path).unwrap();
+
+        let reloaded = Settings::load(&path);
+        assert!(reloaded.start_in_terminal);
+        let root: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(root["startInTerminal"], true);
+        assert_eq!(root["launchDefaultsSync"]["desk-1"]["dirty"], true);
+    }
+
+    /// EXP-746 (D13): an external agent round-trips whole (command, args and
+    /// env), and a half-written entry loads instead of failing the parse.
+    #[test]
+    fn external_agents_round_trip() {
+        assert!(Settings::default().external_agents.is_empty());
+        let dir = TempDir::new("external-agents");
+        let path = dir.0.join("settings.json");
+        let mut settings = Settings::default();
+        settings.external_agents = vec![ExternalAgentSpec {
+            id: "acme".to_string(),
+            label: "Acme ACP".to_string(),
+            command: "/opt/acme/bin/acme".to_string(),
+            args: vec!["--acp".to_string(), "--quiet".to_string()],
+            env: BTreeMap::from([("ACME_HOME".to_string(), "/opt/acme".to_string())]),
+        }];
+        settings.save(&path).unwrap();
+        assert_eq!(Settings::load(&path).external_agents, settings.external_agents);
+
+        // A hand-written entry missing every optional field still loads.
+        fs::write(&path, r#"{"externalAgents":[{"id":"bare"}]}"#).unwrap();
+        let loaded = Settings::load(&path);
+        assert_eq!(loaded.external_agents.len(), 1);
+        assert_eq!(loaded.external_agents[0].id, "bare");
+        assert!(loaded.external_agents[0].command.is_empty());
+        assert_eq!(loaded.claude_model, DEFAULT_CLAUDE_MODEL, "the rest still parses");
     }
 
     /// EXP-688: the EXP-484 per-agent pinned usage window is gone (every

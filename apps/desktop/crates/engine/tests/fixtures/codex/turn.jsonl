@@ -1,0 +1,11 @@
+{"jsonrpc":"2.0","method":"turn/started","params":{"threadId":"thread_1","turn":{"id":"turn_1","status":"inProgress"}}}
+{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"thread_1","turnId":"turn_1","item":{"id":"item_1","type":"commandExecution","command":"bash -lc 'cargo test -p engine'","commandActions":[],"status":"inProgress"}}}
+{"jsonrpc":"2.0","method":"item/commandExecution/outputDelta","params":{"threadId":"thread_1","turnId":"turn_1","itemId":"item_1","delta":"running 58 tests\n"}}
+{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"thread_1","turnId":"turn_1","item":{"id":"item_1","type":"commandExecution","command":"bash -lc 'cargo test -p engine'","commandActions":[],"status":"completed","aggregatedOutput":"running 58 tests\ntest result: ok","exitCode":0}}}
+{"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"threadId":"thread_1","turnId":"turn_1","itemId":"item_2","delta":"The tests pass."}}
+{"jsonrpc":"2.0","method":"turn/plan/updated","params":{"threadId":"thread_1","turnId":"turn_1","plan":[{"step":"run the tests","status":"completed"}]}}
+{"jsonrpc":"2.0","method":"thread/tokenUsage/updated","params":{"threadId":"thread_1","turnId":"turn_1","tokenUsage":{"last":{"totalTokens":1200},"total":{"totalTokens":4200},"modelContextWindow":200000}}}
+{"jsonrpc":"2.0","method":"process/outputDelta","params":{"processHandle":"p1","stream":"stdout","deltaBase64":"aGk="}}
+{"jsonrpc":"2.0","method":"thread/reverted","params":{"threadId":"thread_1","turnId":"turn_1"}}
+{"jsonrpc":"2.0","method":"account/rateLimits/updated","params":{"rateLimits":{"primary":{"usedPercent":4,"windowDurationMins":300,"resetsAt":1758000000}}}}
+{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"thread_1","turn":{"id":"turn_1","status":"completed"}}}

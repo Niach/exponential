@@ -50,6 +50,12 @@ fn agent_id(agent: SessionAgent) -> &'static str {
         SessionAgent::Claude => "claude",
         SessionAgent::Codex => "codex",
         SessionAgent::Pi => "pi",
+        // EXP-746: deliberately an id `contract.json`'s `steerCommands`
+        // cannot name, so an external ACP agent's catalog is EMPTY and its
+        // `/` menu carries only what the agent advertised itself
+        // (`config_state.commands`). Never add it to the contract: the
+        // curated rows describe claude/codex/pi behaviour we verified.
+        SessionAgent::External => "external",
     }
 }
 
@@ -133,6 +139,11 @@ mod tests {
             assert!(rows.iter().any(|c| c.name == "clear" && c.confirm));
             assert!(rows.iter().any(|c| c.name == "compact" && !c.confirm));
         }
+        // EXP-746: an external ACP agent matches no contract row, so its
+        // catalog is empty and `/compact` is prose to it — the agent's own
+        // advertised commands are the whole `/` menu there.
+        assert!(catalog_for(SessionAgent::External).is_empty());
+        assert_eq!(parse_command("/compact", SessionAgent::External), None);
     }
 
     #[test]

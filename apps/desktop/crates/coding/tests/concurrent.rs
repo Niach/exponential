@@ -221,6 +221,8 @@ fn main() {
         }),
         worktrees: Arc::new(GitWorktrees),
         codex_sessions_root: None,
+        // EXP-746: the PTY path is what this e2e exercises.
+        acp_available: false,
         claude_projects_root: None,
         device_id: None,
         data_dir: data_dir.to_path_buf(),
@@ -243,6 +245,7 @@ fn main() {
                 effort: "".to_string(),
                 ultracode: false,
                 plan_mode: false,
+                external: None,
             },
             resume_prompt: false,
         })

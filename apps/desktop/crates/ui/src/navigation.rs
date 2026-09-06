@@ -72,6 +72,15 @@ pub enum Screen {
     /// (a split beside the diff); it is now a tab-less full-page screen like
     /// Devices / Actions, and the PR diff is the center view its rows open.
     Reviews,
+    /// One live/ended ACP or remote coding session (EXP-746), keyed by the
+    /// `coding_sessions` ROW id — never the issue, the branch or the tab: a
+    /// resume mints a NEW row, and the two runs are two screens (the resumed
+    /// one takes the old one's tab slot, see `ScreensPanel::sync_session_tabs`).
+    /// A run THIS process hosts on the PTY path is not one of these: its dock
+    /// terminal is the surface, which is why every entry point funnels through
+    /// [`crate::session_screen::open_session`] rather than navigating here
+    /// directly.
+    Session { session_id: String },
     /// The Getting-started checklist (EXP-470 — the desktop mirror of the
     /// web checklist). Tab-less full-page mode exactly like Actions, opened
     /// from a conditional rail entry. EXP-686: the page carries the
@@ -94,6 +103,9 @@ impl Screen {
     /// Whether the screen can be undocked into its own native window
     /// (EXP-65). Content screens only — Settings is app-config
     /// singletons with near-zero value as standalone windows.
+    /// EXP-746 keeps [`Screen::Session`] OUT: an undocked window builds a
+    /// FRESH view (`screens::build_screen_content`), and a second view over a
+    /// live local run would mean a second engine handle for one agent.
     pub(crate) fn undockable(&self) -> bool {
         matches!(self, Screen::IssueDetail { .. } | Screen::PrDiff { .. })
     }
@@ -109,11 +121,13 @@ impl Screen {
     /// any rail-tool click or tab click leaves it. EXP-525: PrDiff stopped
     /// being a tab — review diffs are transient center views driven by the
     /// Reviews page (a merged PR used to leave a stale diff tab behind);
-    /// `ScreensPanel::dismiss_stale_pr_diff` retires them.
+    /// `ScreensPanel::dismiss_stale_pr_diff` retires them. EXP-746: a coding
+    /// session is a detail tab too — several run at once, and an ended one
+    /// keeps its tab as a read-only transcript instead of closing.
     pub(crate) fn is_detail(&self) -> bool {
         matches!(
             self,
-            Screen::IssueDetail { .. } | Screen::SupportThread { .. }
+            Screen::IssueDetail { .. } | Screen::SupportThread { .. } | Screen::Session { .. }
         )
     }
 
@@ -188,6 +202,7 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
             .get(issue_id)
             .map(|issue| gpui::SharedString::from(format!("{} · Diff", issue_tab_title(issue))))
             .unwrap_or_else(|| "Diff".into()),
+        Screen::Session { session_id } => session_tab_title(session_id, cx),
         Screen::Devices => "Devices".into(),
         Screen::Actions => "Actions".into(),
         Screen::Automations => "Automations".into(),
@@ -205,6 +220,39 @@ fn issue_tab_title(issue: &domain::rows::Issue) -> gpui::SharedString {
     } else {
         gpui::SharedString::from(title.to_string())
     }
+}
+
+/// A coding session's tab label (EXP-746) — the SAME identity the session
+/// screen's header shows (`steer_viewer::SteerSessionView::identity`, itself
+/// the web `sessionIdentity`): the linked issue's `EXP-42 · title`, else the
+/// action name, else "Batch run" for a batch. Every degrade (no row yet, the
+/// issue still syncing) lands on the generic label, like an issue tab's
+/// "Issue" — a tab is chrome, so it never renders a transient status string.
+fn session_tab_title(session_id: &str, cx: &App) -> gpui::SharedString {
+    let Some(store) = Store::try_global(cx) else {
+        return "Session".into();
+    };
+    let collections = store.collections();
+    let Some(row) = collections.coding_sessions.read(cx).get(session_id).cloned() else {
+        return "Session".into();
+    };
+    if let Some(issue_id) = row.issue_id.as_deref() {
+        let Some(issue) = collections.issues.read(cx).get(issue_id) else {
+            return "Session".into();
+        };
+        let title = issue.title.trim();
+        if title.is_empty() {
+            return gpui::SharedString::from(issue.identifier.clone());
+        }
+        return gpui::SharedString::from(format!("{} · {title}", issue.identifier));
+    }
+    row.action_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(|name| gpui::SharedString::from(name.to_string()))
+        // An issue-less, action-less run is a batch (`exp/batch-<id8>`).
+        .unwrap_or_else(|| "Batch run".into())
 }
 
 /// Per-window navigation state. Mutate through [`navigate`] /
@@ -275,7 +323,8 @@ impl Navigation {
 /// DEV-ONLY `EXP_DEV_SCREEN` values: `settings` | `account` | `devices` |
 /// `actions` | `automations` | `reviews` | `getting-started` | `issue:<uuid>` |
 /// `pr:<issue-uuid>` (the PR-diff screen, keyed by the ISSUE whose linked PR
-/// it shows) | `support:<uuid>` (anything else = no pre-route).
+/// it shows) | `support:<uuid>` | `session:<uuid>` (a coding session, keyed by
+/// its `coding_sessions` ROW id — EXP-746) (anything else = no pre-route).
 /// `getting-started` additionally reads `EXP_DEV_GETTING_STARTED_TAB`
 /// ([`parse_getting_started_tab`]) so a capture run can land on the
 /// suggestions tab without synthetic input.
@@ -306,6 +355,11 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
             if let Some(id) = spec.strip_prefix("pr:") {
                 return Some(Screen::PrDiff {
                     issue_id: id.to_string(),
+                });
+            }
+            if let Some(id) = spec.strip_prefix("session:") {
+                return Some(Screen::Session {
+                    session_id: id.to_string(),
                 });
             }
             spec.strip_prefix("support:")
@@ -1005,6 +1059,42 @@ mod tests {
             issue_id: "i1".into()
         }
         .undockable());
+    }
+
+    /// EXP-746: a capture run (and a debug session) reaches ONE coding
+    /// session's screen by its row id, the same shape as `issue:` / `pr:`.
+    #[test]
+    fn dev_screen_parses_a_session_id() {
+        assert_eq!(
+            parse_dev_screen("session:5f2a"),
+            Some(Screen::Session {
+                session_id: "5f2a".into()
+            })
+        );
+        // The prefix is the whole grammar: a bare word is not a session.
+        assert_eq!(parse_dev_screen("session"), None);
+        // An empty id parses (it simply matches no row) — the screen degrades
+        // to its generic title rather than the app pre-routing nowhere.
+        assert_eq!(
+            parse_dev_screen("session:"),
+            Some(Screen::Session {
+                session_id: String::new()
+            })
+        );
+    }
+
+    /// EXP-746: a session gets a tab chip (several runs are open at once, and
+    /// an ended one stays as a read-only transcript), but it is neither
+    /// undockable — a fresh view in a second window would mean a second
+    /// engine handle for one live agent — nor a rail full-page screen.
+    #[test]
+    fn session_screens_are_detail_but_not_undockable_or_full_page() {
+        let session = Screen::Session {
+            session_id: "s1".into(),
+        };
+        assert!(session.is_detail());
+        assert!(!session.undockable());
+        assert!(!session.is_rail_full_page());
     }
 
     /// The rail entries and the tab-less page headers read these titles —

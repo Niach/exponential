@@ -19,8 +19,10 @@
 //!    uses, `LaunchOrigin::Relay`).
 //!
 //! 2. **Publisher — attaches on coding-session launch.**
-//!    [`attach_publisher`] is the single call `coding_flow::spawn_into_window`
-//!    makes right after `coding` reports `LaunchOutcome::Spawned`. It mints a
+//!    [`attach_publisher_pty`] is the single call
+//!    `coding_flow::spawn_pty_into_window` makes right after `coding` reports
+//!    `LaunchOutcome::Spawned` (an ACP run publishes from the engine instead,
+//!    EXP-746 D14). It mints a
 //!    publisher ticket over tRPC (never signed locally), wires the live
 //!    terminal's Send+Sync handles (`Terminal::writer()` for remote input and
 //!    answer injection, `Terminal::term()` for the grid the emitter watches),
@@ -541,54 +543,12 @@ pub fn refresh_device_advertisement(cx: &mut App) {
     }
 }
 
-/// The caps this build advertises for a doctor snapshot (EXP-253/EXP-257: the
-/// actions capabilities ride only while ANY agent is usable — action runs
-/// stopped being Claude-only — plus `action-inputs` for builtin +
-/// inputs-carrying starts and `fix-conflicts` for the EXP-259 builtin, whose
-/// ids a pre-EXP-259 desktop would treat as real actions and fail to fetch).
-/// EXP-481's `resume`/`worktrees`/`launch-defaults`, EXP-484's `agent-login`
-/// and EXP-679's `agent-start` are BUILD capabilities and ride even with zero
-/// runnable agents (a machine with nothing signed in is exactly the one a
-/// remote Login button targets; `agent-start` is a property of the FRAME
-/// parser, not of the agent list). Hand-synced with the CLI daemon's
-/// `DEVICE_CAPS` + `ACTION_CAPS`.
+/// EXP-746 (D9): the caps this device advertises — ONE list, owned by
+/// [`coding::doctor::DEVICE_CAPS`] + [`coding::doctor::ACTION_CAPS`] and
+/// shared with the CLI daemon. They used to be hand-synced copies, and a
+/// one-sided edit silently made one host un-targetable for the new feature.
 fn device_caps(advertisement: &coding::AgentAdvertisement) -> Vec<String> {
-    let mut caps: Vec<String> = [
-        "resume",
-        "worktrees",
-        "launch-defaults",
-        "agent-login",
-        // EXP-679: this build reads `started_reason` off a `StartSession`
-        // frame and forwards it into `codingSessions.start`, so an
-        // agent-parented start (MCP `exponential_sessions_start`) lands
-        // UNATTENDED. The server refuses one against a device lacking it.
-        "agent-start",
-    ]
-    .iter()
-    .map(|cap| cap.to_string())
-    .collect();
-    if !advertisement.agents.is_empty() {
-        caps.extend(
-            [
-                "actions",
-                "action-inputs",
-                "fix-conflicts",
-                // EXP-530: this build runs the automation host, so a trigger
-                // may be BOUND to this device. Agent-gated with the rest — an
-                // automation is an action run, and a machine with no runnable
-                // agent could only fail every firing.
-                "automations",
-                // EXP-615: this build runs the hidden `builtin:chat` action.
-                "chat",
-                // EXP-637: this build can RESUME an ended run out of its own
-                // run registry — since EXP-662 issue and batch sessions too.
-                "resume-run",
-            ]
-            .iter()
-            .map(|cap| cap.to_string()),
-        );
-    }
-    caps
+    coding::device_caps(advertisement)
 }
 
 /// Best-effort `devices.register` on the background executor (EXP-403) — the
@@ -1168,6 +1128,106 @@ impl PublisherRegistry {
     }
 }
 
+/// EXP-746 — the facts BOTH hosts need off the app state, extracted verbatim
+/// from [`attach_publisher_pty`] so the PTY publisher and the ACP engine read
+/// them from one place instead of drifting apart.
+///
+/// REV2-17: the account's `expu_` personal key. It is the redactor's
+/// exact-match secret (a codex/pi session carries it in the spawn env, never
+/// in a worktree file) AND the bearer the engine puts on the agent's MCP
+/// wiring. The store always holds the current one — the launcher's
+/// `ensure_personal_key` reads-or-mints it there before any spawn.
+pub(crate) fn personal_key(cx: &App) -> Option<String> {
+    cx.try_global::<AuthContext>()
+        .map(|auth| auth.data_dir.clone())
+        .zip(queries::active_account(cx))
+        .and_then(|(data_dir, account)| {
+            api::token_store::TokenStore::new(data_dir).get(
+                &account.id,
+                api::token_store::SecretKind::PersonalApiKey,
+            )
+        })
+}
+
+/// EXP-444/EXP-432: a relay start whose requester is NOT the signed-in
+/// account runs on a SHARED host — the login affordances stay suppressed for
+/// it. `None` (a local or own start) is never foreign.
+pub(crate) fn foreign_host(started_by_id: Option<&str>, cx: &App) -> bool {
+    started_by_id.is_some_and(|requester| {
+        queries::active_account(cx)
+            .map(|account| account.user_id)
+            .as_deref()
+            != Some(requester)
+    })
+}
+
+/// Drop `session_id`'s §8.8 own-row kill watch. Idempotent (an unwatched id
+/// is a no-op), and deliberately separate from [`detach_publisher`]: an ACP
+/// run has no publisher entry here at all (D14 — the engine owns its
+/// publisher), but it still needs the watch dropped before its own `ended`
+/// flip syncs back, or that flip reads as a remote kill (EXP-283).
+pub(crate) fn unwatch_kill(session_id: &str, cx: &mut App) {
+    if let Some(kill_watch) = cx.try_global::<KillWatchGlobal>().map(|g| g.0.clone()) {
+        kill_watch.update(cx, |watch, _| watch.unwatch(session_id));
+    }
+}
+
+/// EXP-746 — register the §8.8 kill watch for an ACP run and hand the engine
+/// the receiving half.
+///
+/// The engine is gpui-free and runs on its own thread, so it can neither
+/// register the watch (`KillWatch::watch` needs a `Context`) nor unwatch it
+/// (`&mut App`). The host therefore registers HERE, with its own `cx`, BEFORE
+/// `engine::start` — no edge can be missed between the row being created and
+/// the first frame — and hands over a plain channel. `unwatch` marshals back
+/// to the foreground through the same [`flume`] recipe every other steer
+/// callback uses; the engine drops the feed FIRST in its end sequence, so the
+/// run's own `ended` flip cannot bounce back at it (EXP-283).
+///
+/// The POLICY stays here too: [`ended_policy`] decides whether an ended row is
+/// a stop-now or the agent finishing its own close-out.
+pub(crate) fn register_kill_feed(session_id: &str, cx: &mut App) -> engine::KillFeed {
+    let (kill_tx, kill_rx) = flume::unbounded::<engine::KillReason>();
+    let (unwatch_tx, unwatch_rx) = flume::bounded::<()>(1);
+    if let Some(kill_watch) = cx.try_global::<KillWatchGlobal>().map(|g| g.0.clone()) {
+        let own_user_id = queries::active_account(cx).map(|account| account.user_id);
+        kill_watch.update(cx, |watch, cx| {
+            watch.watch(
+                session_id.to_string(),
+                own_user_id,
+                Box::new(move |facts| {
+                    let _ = kill_tx.send(kill_reason(facts.ended_by.as_deref()));
+                }),
+                cx,
+            );
+        });
+    }
+    let watched = session_id.to_string();
+    cx.spawn(async move |cx| {
+        if unwatch_rx.recv_async().await.is_err() {
+            return;
+        }
+        let _ = cx.update(|cx| unwatch_kill(&watched, cx));
+    })
+    .detach();
+    engine::KillFeed {
+        rx: kill_rx,
+        unwatch: Some(Box::new(move || {
+            let _ = unwatch_tx.send(());
+        })),
+    }
+}
+
+/// The engine's half of [`ended_policy`]: an agent-declared end lets the turn
+/// finish (`steer::STOP_GRACE` on the `TurnSignal`, waited out by the engine),
+/// everything else stops now.
+pub(crate) fn kill_reason(ended_by: Option<&str>) -> engine::KillReason {
+    match ended_policy(ended_by) {
+        EndPolicy::CloseAfterTurn => engine::KillReason::AfterTurn,
+        EndPolicy::CloseNow => engine::KillReason::Now,
+    }
+}
+
 /// Marshaled from the publisher task (steer runtime) to the gpui foreground.
 enum SteerUiEvent {
     /// A surfaced publisher error (clock skew, repeated rejects — §8.7).
@@ -1210,14 +1270,19 @@ pub struct SteerSessionInfo {
     pub base_ref: Option<String>,
 }
 
-/// Attach a steer publisher to a freshly launched coding session (§8.4). The
-/// single call `coding_flow::spawn_into_window` makes on `LaunchOutcome::
-/// Spawned` — for BOTH subjects (issue sessions and multi-issue batch
-/// runs; a batch session publishes with `issue_id: None` and is
-/// never publicly fanned). Best-effort and non-blocking: a disabled/
+/// Attach a steer publisher to a freshly launched PTY coding session (§8.4).
+/// The single call `coding_flow::spawn_pty_into_window` makes on
+/// `LaunchOutcome::Spawned` — for BOTH subjects (issue sessions and
+/// multi-issue batch runs; a batch session publishes with `issue_id: None` and
+/// is never publicly fanned). Best-effort and non-blocking: a disabled/
 /// unreachable relay ends the publisher task quietly and the session keeps
 /// running locally.
-pub fn attach_publisher(
+///
+/// EXP-746: the TERMINAL transport's publisher, and only it. An ACP run's
+/// publisher belongs to the engine (D14) — it has no PTY writer, no grid to
+/// scrape and no keystroke choreography, and giving it a second owner here
+/// would mean two `bye`s and two ends for one run.
+pub fn attach_publisher_pty(
     session_id: &str,
     subject: &coding_flow::SessionSubject,
     tab: TabId,
@@ -1334,6 +1399,7 @@ pub fn attach_publisher(
             worktree.join(coding::launcher::STEER_IMAGES_DIR),
         )),
         commands: Some(command_link.clone()),
+        config: None,
     };
 
     // EXP-214: the needs-input forwarder's own handle — cloned before the
@@ -1376,20 +1442,7 @@ pub fn attach_publisher(
     // REV2-17: the `expu_` personal key from the account's secret store —
     // codex/pi sessions carry it only in the spawn env (never a worktree
     // file), so the redactor's exact-match layer needs it handed in here.
-    // The store always holds the current key: the launcher's
-    // `ensure_personal_key` reads-or-mints it there before any spawn.
-    let extra_secrets: Vec<String> = cx
-        .try_global::<AuthContext>()
-        .map(|auth| auth.data_dir.clone())
-        .zip(queries::active_account(cx))
-        .and_then(|(data_dir, account)| {
-            api::token_store::TokenStore::new(data_dir).get(
-                &account.id,
-                api::token_store::SecretKind::PersonalApiKey,
-            )
-        })
-        .into_iter()
-        .collect();
+    let extra_secrets: Vec<String> = personal_key(cx).into_iter().collect();
     // EXP-249: this session's slice of the hooks sidecar — the structured
     // plan/question/subagent/permission stream. Absent when the sidecar never
     // came up; the emitter then runs grid-only, exactly as before. Claude
@@ -1404,12 +1457,7 @@ pub fn attach_publisher(
     // EXP-444/EXP-432: a relay start whose requester is NOT this signed-in
     // account runs on a shared host — the emitter suppresses the remote
     // login flow for it.
-    let foreign_host = started_by_id.as_deref().is_some_and(|requester| {
-        queries::active_account(cx)
-            .map(|account| account.user_id)
-            .as_deref()
-            != Some(requester)
-    });
+    let foreign_host = foreign_host(started_by_id.as_deref(), cx);
     spawn_activity_emitter(
         EmitterConfig {
             agent: session_agent,
@@ -1644,9 +1692,7 @@ pub fn detach_publisher(session_id: &str, outcome: Option<String>, cx: &mut App)
     }
 
     // Drop the kill-watch registration so a later row change can't re-fire.
-    if let Some(kill_watch) = cx.try_global::<KillWatchGlobal>().map(|g| g.0.clone()) {
-        kill_watch.update(cx, |watch, _| watch.unwatch(session_id));
-    }
+    unwatch_kill(session_id, cx);
 }
 
 
@@ -1660,6 +1706,18 @@ mod tests {
         assert_eq!(ended_policy(Some("agent")), EndPolicy::CloseAfterTurn);
         for ended_by in [Some("user"), Some("client"), Some("merge"), Some("system"), None] {
             assert_eq!(ended_policy(ended_by), EndPolicy::CloseNow, "{ended_by:?}");
+        }
+    }
+
+    /// EXP-746: the ACP engine waits out the same turn the PTY tab does. One
+    /// policy, two transports — a second table here would drift the moment
+    /// `ended_by` gains a value.
+    #[test]
+    fn ended_policy_maps_onto_kill_reason() {
+        use super::kill_reason;
+        assert_eq!(kill_reason(Some("agent")), engine::KillReason::AfterTurn);
+        for ended_by in [Some("user"), Some("client"), Some("merge"), Some("system"), None] {
+            assert_eq!(kill_reason(ended_by), engine::KillReason::Now, "{ended_by:?}");
         }
     }
 

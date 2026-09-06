@@ -2188,9 +2188,9 @@ pub(crate) fn coding_now_card(issue_id: &str, cx: &mut App) -> Option<gpui::Div>
                     .text_color(cx.theme().primary_foreground),
             )
             .label("Watch")
-            .tooltip("Open this run in the bottom dock and steer it")
+            .tooltip("Open this run and steer it")
             .on_click(move |_, window, cx| {
-                crate::terminal_dock::open_steer_session(&session_id, window, cx);
+                crate::session_screen::open_session(&session_id, window, cx);
             })
     });
 

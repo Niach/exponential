@@ -114,6 +114,17 @@ sha2 = "0.10"
 # transitively (portable-pty, gpui) at this exact major.
 libc = "0.2"
 
+# EXP-746: the ONE internal contract for agent sessions (Apache-2.0). Only
+# `crates/engine` links it — the adapters speak ACP in-process to the user's
+# unmodified agent CLI, so it must stay gpui-free; the crate itself carries zero
+# non-dev tokio dependencies and is driven on steer's existing runtime.
+# Pinned EXACTLY (`=2.1.0`): the 2.x line pins its own `-schema`/`-derive`
+# companions to exact versions, and the role/builder API moved between 2.0 and
+# 2.1 — a caret range would silently resolve a surface this code does not
+# compile against. Everything used is stable protocol v1 except
+# `CompactionUpdate`, which lives behind `unstable_session_compaction`.
+agent-client-protocol = { version = "=2.1.0", features = ["unstable_session_compaction"] }
+
 # EXP-222: zed's `ztracing`/`ztracing_macro` (and `zlog`, reachable only through
 # ztracing) are GPL-3.0-or-later — statically linking them would put the shipped
 # binary as a whole under GPL-3.0 terms, which we do not distribute under. The

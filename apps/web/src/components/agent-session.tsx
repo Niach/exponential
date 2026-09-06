@@ -27,13 +27,28 @@ import { useSessionAgentUsage } from "@/hooks/use-session-agent-usage"
 import { useKillSession } from "@/hooks/use-kill-session"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { AgentUsageCards } from "@/components/agent-usage-bar"
-import { accountCaption } from "@/lib/agent-usage"
+import {
+  accountCaption,
+  contextPercent,
+  formatContextUsage,
+  formatUsageCost,
+  CONTEXT_SECTION_TITLE,
+} from "@/lib/agent-usage"
+import {
+  agentEffortValues,
+  agentModelValues,
+} from "@/lib/coding-launch-prefs"
+import {
+  effortLabel,
+  modelLabel,
+} from "@/components/launch-dialog/launch-options-pane"
 import type { SessionDevice } from "@/lib/session-device"
 import {
   activeQuestionIds,
   answerKey,
   askStepperView,
   collectSubagents,
+  configChips,
   groupFeedRows,
   isAnswerLocked,
   looksLikeMarkdown,
@@ -41,14 +56,19 @@ import {
   visibleSubagentTabs,
   type AnswerState,
   type AnswerStates,
+  type ConfigChip,
+  type SessionConfigState,
   type SubagentSummary,
 } from "@/lib/agent-feed"
 import {
+  mergeAgentCommands,
   parseSteerCommand,
+  steerAgentId,
   steerCommandConfirmCopy,
   steerCommandsFor,
   COMPACTED_LABEL,
   COMPACTING_LABEL,
+  DEFAULT_STEER_AGENT,
   type SteerCommand,
 } from "@/lib/steer-commands"
 import {
@@ -244,8 +264,16 @@ export function AgentSessionView({
   // EXP-698: the steer composer is the mention field, so it needs the run's
   // team roster for `@` autocomplete.
   const { users: teamUsers } = useTeamUsers(session.teamId)
-  const { phase, feed, latestDiff, compacting, answerStates, connected } =
-    useSyncExternalStore(store.subscribe, store.getSnapshot)
+  const {
+    phase,
+    feed,
+    latestDiff,
+    compacting,
+    config,
+    usage: sessionUsage,
+    answerStates,
+    connected,
+  } = useSyncExternalStore(store.subscribe, store.getSnapshot)
   /** EXP-724: the agent is folding its context — the strip above the composer
    *  says so, and the generic "Working…" footer stands down while it does. */
   const compactingNow = compacting !== null
@@ -412,10 +440,23 @@ export function AgentSessionView({
     [live, feed, questionIds]
   )
   /** EXP-724: the slash commands THIS session's agent can run (an agent-less
-   *  row is a claude run). Empty catalog = no menu, no hint, no "…" entry. */
+   *  row is a claude run). Empty catalog = no menu, no hint, no "…" entry.
+   *  EXP-746: an ACP run's agent advertises commands of its own, so the
+   *  catalog is the same MERGE the composer's `/` menu offers — otherwise a
+   *  steered `/<agent command>` came back as a prose bubble here while the
+   *  menu that sent it listed the row (Android and iOS merge on both sides
+   *  too). The "…" Compact entry follows: a run whose agent advertises
+   *  `/compact` can run it. An agent-less run that published a `config_state`
+   *  is an EXTERNAL agent, not a claude one (`steerAgentId`). */
+  const catalogAgent = steerAgentId(session.agent, config !== null)
   const agentCommands = useMemo(
-    () => steerCommandsFor(session.agent),
-    [session.agent]
+    () =>
+      mergeAgentCommands(
+        steerCommandsFor(catalogAgent),
+        config?.commands ?? [],
+        catalogAgent
+      ),
+    [catalogAgent, config?.commands]
   )
   /** EXP-389: the agent is actively working — live and nothing waiting on
    *  the user (no active question card, synced needs_input clear; all three
@@ -602,10 +643,10 @@ export function AgentSessionView({
           {/* A finished run with no fresh numbers has nothing to offer, so the
               trigger goes away rather than opening an empty menu (its width
               stays, so the title does not jump). */}
-          {!agentUsage && !canKill && !canCompact && (
+          {!agentUsage && !sessionUsage && !canKill && !canCompact && (
             <span className="size-8 shrink-0" />
           )}
-          {(agentUsage || canKill || canCompact) && (
+          {(agentUsage || sessionUsage || canKill || canCompact) && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -617,7 +658,7 @@ export function AgentSessionView({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                {agentUsage && (
+                {(agentUsage || sessionUsage) && (
                   <DropdownMenuItem onSelect={() => setUsageOpen(true)}>
                     <UiUsageIcon className="size-4" />
                     Usage
@@ -646,6 +687,22 @@ export function AgentSessionView({
       ) : (
         <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
           <span className="flex-1" />
+          {/* EXP-746: desktop web had no usage affordance at all — the dock
+              tab under the panel carries identity and kill, so the sheet used
+              to be mobile-only. The run's own context meter belongs on every
+              viewport. */}
+          {(agentUsage || sessionUsage) && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="shrink-0"
+              aria-label="Usage"
+              title="Usage"
+              onClick={() => setUsageOpen(true)}
+            >
+              <UiUsageIcon />
+            </Button>
+          )}
           {phase.kind === `closed` && !paused && (
             <Button
               variant="outline"
@@ -943,6 +1000,11 @@ export function AgentSessionView({
                 sessionId={session.id}
                 users={teamUsers}
                 agent={session.agent}
+                // EXP-746: the live config rides down as a PROP. The composer
+                // deliberately subscribes to the draft snapshot only (a
+                // keystroke must not re-render the feed), and this view
+                // already holds the full one.
+                config={config}
                 placeholder={
                   planPending ? `Tell Claude what to change…` : undefined
                 }
@@ -956,7 +1018,7 @@ export function AgentSessionView({
       {/* EXP-688: usage is a SHEET on mobile, not a hairline under the header
           — every window the machine reports, grouped the way the agent's own
           app groups them. */}
-      {agentUsage && (
+      {(agentUsage || sessionUsage) && (
         <Dialog open={usageOpen} onOpenChange={setUsageOpen}>
           <DialogContent
             className="sm:max-w-sm"
@@ -968,12 +1030,37 @@ export function AgentSessionView({
             <div className="space-y-3">
               {/* Above the cards, without the agent prefix — the natives'
                   Usage sheets do the same (hand-mirrored strings, EXP-484). */}
-              {agentUsage.account && (
+              {agentUsage?.account && (
                 <p className="text-[11px] text-muted-foreground">
                   {accountCaption(agentUsage.account)}
                 </p>
               )}
-              <AgentUsageCards usage={agentUsage.usage} now={usageNow} />
+              {/* EXP-746: THIS run's context window and spend, a SIBLING of
+                  the machine's rate-limit cards — a token count has no percent
+                  window of its own, and folding it into `usageGroups` would
+                  break the ×4 fixture lock. */}
+              {sessionUsage && (
+                <div className="space-y-1.5">
+                  <p className="text-[11px] text-muted-foreground">
+                    {CONTEXT_SECTION_TITLE}
+                  </p>
+                  <div className="flex items-baseline justify-between gap-2 text-xs">
+                    <span>{formatContextUsage(sessionUsage)}</span>
+                    {formatUsageCost(sessionUsage) && (
+                      <span className="text-muted-foreground">
+                        {formatUsageCost(sessionUsage)}
+                      </span>
+                    )}
+                  </div>
+                  <Progress
+                    value={contextPercent(sessionUsage) ?? 0}
+                    className="h-1"
+                  />
+                </div>
+              )}
+              {agentUsage && (
+                <AgentUsageCards usage={agentUsage.usage} now={usageNow} />
+              )}
             </div>
           </DialogContent>
         </Dialog>
@@ -2068,12 +2155,98 @@ function ToolGroupRow({
   )
 }
 
+/** EXP-746: a chip's value as THIS client says it. The wire label always
+ *  wins (all four clients then agree by construction); a raw value that
+ *  happens to be part of the launch vocabulary runs through the same
+ *  `modelLabel`/`effortLabel` the Start-coding dialog uses, so a chip reads
+ *  "GPT-5.6 Sol" rather than `gpt-5.6-sol`. No new label table. */
+function configValueText(
+  chip: ConfigChip,
+  value: string,
+  wireLabel: string,
+  agent: string | null
+): string {
+  if (!value) return wireLabel
+  if (wireLabel !== value) return wireLabel
+  const id = agent?.trim() ? agent.trim() : DEFAULT_STEER_AGENT
+  if (chip.id === `model` && agentModelValues(id).includes(value)) {
+    return modelLabel(value)
+  }
+  if (chip.id === `effort` && agentEffortValues(id).includes(value)) {
+    return effortLabel(value)
+  }
+  return wireLabel
+}
+
+/** The composer's live-config chips: the mode chip first, then the agent's
+ *  options in publisher order (`configChips`). A chip the agent published no
+ *  values for is READ-ONLY — it renders what is in force and offers no menu.
+ *  Switching is fire-and-forget: the publisher's re-emitted `config_state`
+ *  repaints the chip, so there is no pending state to draw. */
+function ConfigChipRow({
+  chips,
+  agent,
+  live,
+  onPick,
+}: {
+  chips: ConfigChip[]
+  agent: string | null
+  live: boolean
+  onPick: (chip: ConfigChip, valueId: string) => void
+}) {
+  if (chips.length === 0) return null
+  return (
+    <div className="flex min-w-0 items-center gap-1 overflow-x-auto">
+      {chips.map((chip) => {
+        const label = (
+          <>
+            <span className="text-muted-foreground">{chip.label}</span>
+            <span>
+              {configValueText(chip, chip.value, chip.valueLabel, agent)}
+            </span>
+          </>
+        )
+        if (chip.values.length === 0) {
+          return (
+            <Pill key={chip.id} size="sm" title={chip.label}>
+              {label}
+            </Pill>
+          )
+        }
+        return (
+          <DropdownMenu key={chip.id}>
+            <DropdownMenuTrigger asChild>
+              <Pill size="sm" mode="action" disabled={!live} title={chip.label}>
+                {label}
+              </Pill>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              {chip.values.map((value) => (
+                <DropdownMenuItem
+                  key={value.id}
+                  onSelect={() => onPick(chip, value.id)}
+                >
+                  {configValueText(chip, value.id, value.label, agent)}
+                  {value.id === chip.value && (
+                    <Check className="ml-auto size-3.5 shrink-0 text-emerald-500" />
+                  )}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )
+      })}
+    </div>
+  )
+}
+
 function MessageComposer({
   store,
   live,
   onSend,
   sessionId,
   agent,
+  config,
   placeholder,
   users,
 }: {
@@ -2089,6 +2262,10 @@ function MessageComposer({
   /** EXP-724: the session's coding agent (synced row), which decides which
    *  slash commands the `/` menu offers. Null = a claude run. */
   agent: string | null
+  /** EXP-746: the agent's live configuration — the chips in the tool row and
+   *  the agent's own half of the `/` catalog. Null on a PTY run (and until
+   *  the first `config_state` lands), which draws no chips at all. */
+  config: SessionConfigState | null
   /** Context-aware hint (e.g. the plan-approval "Tell Claude what to
    *  change…"); the default stays the generic prompt. */
   placeholder?: string
@@ -2106,7 +2283,21 @@ function MessageComposer({
   const [sending, setSending] = useState(false)
   /** EXP-724: a context-discarding command waiting on its confirmation. */
   const [confirming, setConfirming] = useState<SteerCommand | null>(null)
-  const commands = useMemo(() => steerCommandsFor(agent), [agent])
+  // EXP-746: the contract catalog for this agent, then the agent's OWN
+  // advertised commands (an ACP run publishes them in `config_state`). An
+  // agent-less run that published one is EXTERNAL: no contract rows at all,
+  // only what it advertised itself (`steerAgentId`).
+  const catalogAgent = steerAgentId(agent, config !== null)
+  const commands = useMemo(
+    () =>
+      mergeAgentCommands(
+        steerCommandsFor(catalogAgent),
+        config?.commands ?? [],
+        catalogAgent
+      ),
+    [catalogAgent, config?.commands]
+  )
+  const chips = useMemo(() => configChips(config), [config])
   const menu = useSlashCommandMenu({
     text,
     commands,
@@ -2267,6 +2458,17 @@ function MessageComposer({
             >
               <UiAddIcon />
             </ComposerTool>
+            {/* EXP-746: the agent's live config, as text pills (D10 — no new
+                icon concepts). They scroll rather than push the send glyph. */}
+            <ConfigChipRow
+              chips={chips}
+              agent={agent}
+              live={live}
+              onPick={(chip, valueId) => {
+                if (chip.kind === `mode`) store.setMode(valueId)
+                else store.setConfig(chip.id, valueId)
+              }}
+            />
           </>
         }
         submit={

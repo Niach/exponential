@@ -59,6 +59,67 @@ pub(crate) const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 /// everything the launcher's claude argv relies on.
 pub const MIN_CLAUDE_VERSION: (u32, u32, u32) = (2, 1, 215);
 
+/// EXP-746: the minimum Claude Code that speaks the ACP engine's control
+/// protocol (`--input-format stream-json` + `--permission-prompt-tool
+/// stdio`). Deliberately SEPARATE from [`MIN_CLAUDE_VERSION`] and NON-FATAL:
+/// an older claude still launches, on the PTY path
+/// ([`crate::launcher::resolve_transport`] falls back when
+/// [`ToolCheck::acp`] is not `Some(true)`).
+pub const MIN_CLAUDE_ACP_VERSION: (u32, u32, u32) = (2, 1, 263);
+
+/// EXP-746 (D9): the BUILD capabilities every host advertises to
+/// `devices.register`, whatever it can currently run. ONE list — the desktop
+/// (`ui::steer_wiring`) and the CLI daemon both call [`device_caps`], which
+/// is what makes a new cap reach both hosts (they used to be hand-synced
+/// copies, and a one-sided edit silently made one host un-targetable).
+///
+/// - `resume`/`worktrees`/`launch-defaults` (EXP-481) — the device-admin
+///   protocol.
+/// - `agent-login` (EXP-484) — signing IN is exactly what a machine with no
+///   runnable agent needs, so it is a build cap.
+/// - `agent-start` (EXP-679) — this build reads a start frame's
+///   `started_reason` and forwards it to `codingSessions.start`, so an
+///   agent-parented start lands UNATTENDED. The server refuses one against a
+///   device without it.
+/// - `acp` (EXP-746) — this build speaks the ACP engine and steering v2:
+///   `set_config`/`set_mode` frames, `config_state`/`usage` kinds.
+///
+/// Ceiling check: `devices.register`'s `capsInput` accepts 16 caps
+/// (`apps/web/src/lib/trpc/devices.ts`); this is 6 + 6 = 12.
+pub const DEVICE_CAPS: [&str; 6] = [
+    "resume",
+    "worktrees",
+    "launch-defaults",
+    "agent-login",
+    "agent-start",
+    "acp",
+];
+
+/// The action-run capabilities — advertised only while at least one agent is
+/// RUNNABLE (EXP-409: a machine whose only agents are signed out cannot run
+/// actions either). EXP-530's `automations` (this host evaluates the triggers
+/// bound to its device id), EXP-615's `chat` (the hidden `builtin:chat`
+/// action) and EXP-637's `resume-run` (resume an ended run out of the local
+/// run registry) ride with them.
+pub const ACTION_CAPS: [&str; 6] = [
+    "actions",
+    "action-inputs",
+    "fix-conflicts",
+    "automations",
+    "chat",
+    "resume-run",
+];
+
+/// The caps to advertise for a doctor snapshot: the build caps always, plus
+/// the action caps while anything is runnable.
+pub fn device_caps(advertised: &AgentAdvertisement) -> Vec<String> {
+    let mut caps: Vec<String> = DEVICE_CAPS.iter().map(|cap| cap.to_string()).collect();
+    if !advertised.agents.is_empty() {
+        caps.extend(ACTION_CAPS.iter().map(|cap| cap.to_string()));
+    }
+    caps
+}
+
 /// The local binaries the launcher ever shells out to (§7.1 step 3:
 /// argv `git` + the agent CLIs, never `gh`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -147,6 +208,16 @@ pub struct ToolCheck {
     /// [`ClaudeAuthStatus::usage_eligible`] for claude, `false` elsewhere
     /// (codex answers over its app-server, pi over its own credential).
     pub usage_eligible: bool,
+    /// EXP-746: whether this agent can run on the ACP engine.
+    /// **Non-fatal** — it never touches `ok`, [`DoctorReport::any_agent_ok`]
+    /// or the launch gate ([`DoctorReport::first_failure_for`]); a
+    /// `Some(false)` agent simply launches on the PTY path
+    /// ([`crate::launcher::resolve_transport`]). `None` = not applicable
+    /// (git) or never probed.
+    pub acp: Option<bool>,
+    /// Why `acp` is not `Some(true)` — one short line, rendered under the
+    /// agent's doctor row ("not supported (…)").
+    pub acp_note: Option<String>,
 }
 
 impl ToolCheck {
@@ -232,6 +303,12 @@ impl DoctorReport {
                 .map(|agent| agent.id().to_string())
                 .collect(),
             default_agent: settings.default_agent.id().to_string(),
+            acp_agents: self
+                .installed_agents()
+                .into_iter()
+                .filter(|agent| self.check_for(*agent).acp == Some(true))
+                .map(|agent| agent.id().to_string())
+                .collect(),
             launch_defaults: self
                 .installed_agents()
                 .into_iter()
@@ -292,6 +369,12 @@ pub struct AgentAdvertisement {
     /// local Start-coding dialog seeds from. `BTreeMap` for deterministic
     /// wire serialization (the steer frames are byte-locked in tests).
     pub launch_defaults: BTreeMap<String, AgentLaunchDefaults>,
+    /// EXP-746: the runnable agents that also speak ACP ([`ToolCheck::acp`]).
+    /// LOCAL use only for now — it is deliberately NOT on the
+    /// `devices.register` payload (that needs a `devices` column + shape
+    /// change; filed as a follow-up), so remote pickers still offer every
+    /// runnable agent and a not-ready one simply starts in a terminal tab.
+    pub acp_agents: Vec<String>,
 }
 
 /// One agent's launch defaults on this machine (EXP-437): mirrors
@@ -331,8 +414,10 @@ pub fn run_doctor(settings: &Settings) -> DoctorReport {
     apply_auth_gate(&mut claude, &claude_program);
     let mut codex = check_tool(Tool::Codex, &codex_program);
     apply_auth_gate(&mut codex, &codex_program);
+    apply_codex_acp(&mut codex);
     let mut pi = check_tool(Tool::Pi, &pi_program);
     apply_auth_gate(&mut pi, &pi_program);
+    probe_pi_rpc(&mut pi);
     DoctorReport {
         claude,
         codex,
@@ -351,12 +436,20 @@ pub fn check_agent(settings: &Settings, agent: CodingAgent) -> ToolCheck {
         apply_version_gate(&mut check);
     }
     apply_auth_gate(&mut check, &program);
+    // EXP-746: the same non-fatal ACP stamps [`run_doctor`] applies.
+    match agent {
+        CodingAgent::Codex => apply_codex_acp(&mut check),
+        CodingAgent::Pi => probe_pi_rpc(&mut check),
+        CodingAgent::Claude => {}
+    }
     check
 }
 
 /// Flip a GREEN claude check red when its version parses BELOW
-/// [`MIN_CLAUDE_VERSION`]. An unparseable version stays green — never
-/// falsely block a nonstandard build.
+/// [`MIN_CLAUDE_VERSION`], and stamp the SEPARATE, non-fatal ACP readiness
+/// (EXP-746) from [`MIN_CLAUDE_ACP_VERSION`]. An unparseable version stays
+/// green — never falsely block a nonstandard build — and its ACP readiness
+/// stays unknown (`None`), which resolves to the PTY path.
 fn apply_version_gate(check: &mut ToolCheck) {
     if !check.ok {
         return;
@@ -364,8 +457,18 @@ fn apply_version_gate(check: &mut ToolCheck) {
     let Some(version) = check.version.as_deref().and_then(parse_claude_version) else {
         return;
     };
+    let (major, minor, patch) = version;
+    let acp_ready = version >= MIN_CLAUDE_ACP_VERSION;
+    check.acp = Some(acp_ready);
+    if !acp_ready {
+        let (acp_major, acp_minor, acp_patch) = MIN_CLAUDE_ACP_VERSION;
+        check.acp_note = Some(format!(
+            "Claude Code {major}.{minor}.{patch} has no ACP control protocol. \
+Update to {acp_major}.{acp_minor}.{acp_patch}+ for the session screen; \
+sessions run in a terminal tab until then."
+        ));
+    }
     if version < MIN_CLAUDE_VERSION {
-        let (major, minor, patch) = version;
         let (min_major, min_minor, min_patch) = MIN_CLAUDE_VERSION;
         check.ok = false;
         check.error = Some(format!(
@@ -373,6 +476,128 @@ fn apply_version_gate(check: &mut ToolCheck) {
 {min_major}.{min_minor}.{min_patch}+ (run: claude update)."
         ));
     }
+}
+
+/// EXP-746: codex's ACP readiness. `codex app-server` is what the adapter
+/// drives, and every codex build the doctor accepts ships it — so a resolved,
+/// signed-in codex reads as ready HERE, without a probe: [`run_doctor`] runs
+/// on the launch path (step 0) and inline in the daemon every 5 minutes, and
+/// a 10-second app-server handshake on either would be paid on every launch.
+/// [`probe_codex_acp`] is the deep check for `exponential doctor`, and the
+/// engine's own `initialize` is the authoritative one.
+fn apply_codex_acp(check: &mut ToolCheck) {
+    check.acp = Some(check.ok);
+    if !check.ok {
+        check.acp_note = Some("codex is not available".to_string());
+    }
+}
+
+/// The DEEP codex ACP check: the real `codex app-server --listen stdio://`
+/// handshake, bounded by [`PROBE_TIMEOUT`] and killed on drop. Deliberately
+/// NOT part of [`run_doctor`] (see [`apply_codex_acp`]) — `exponential
+/// doctor` and the settings pane call it on demand.
+pub fn probe_codex_acp(program: &str, path_env: &str) -> bool {
+    crate::codex_app_server::probe(program, path_env, PROBE_TIMEOUT).is_ok()
+}
+
+/// EXP-746: pi's ACP readiness — a real `pi --mode rpc` handshake, bounded
+/// by [`PROBE_TIMEOUT`] and killed on every exit path.
+///
+/// It has to be a handshake: `pi --mode <anything>` parses leniently and
+/// exits 0 with no output on stdin EOF, so PRESENCE proves nothing and only
+/// an answered `get_state` distinguishes a build that has the rpc mode from
+/// one that does not. That also rules out [`output_with_timeout`], which
+/// pins `Stdio::null()` on stdin; the recipe below is the same otherwise
+/// (own process group, drained pipes, killed at the deadline).
+///
+/// Fails OPEN in every ambiguous case (no spawn, no PATH match, a wedged
+/// child): the engine's own handshake is the authoritative one, and a false
+/// negative here silently demotes a working install to the terminal
+/// transport. Same never-block-the-launch posture as the two above.
+fn probe_pi_rpc(check: &mut ToolCheck) {
+    use std::io::{Read as _, Write as _};
+    use std::process::Stdio;
+    use wait_timeout::ChildExt as _;
+
+    if !check.ok {
+        check.acp = Some(false);
+        check.acp_note = Some("pi is not available".to_string());
+        return;
+    }
+    check.acp = Some(true);
+
+    // The probe runs from `run_doctor`, which has no settings in hand here,
+    // so it resolves pi the standard way. A pi installed at a hand-configured
+    // path simply does not resolve, the spawn fails, and the check stays
+    // green — never wrong, only uninformative.
+    let program = Settings::default().resolved_path_for(CodingAgent::Pi);
+    let mut cmd = background_command(&program);
+    cmd.env("PATH", terminal::pty::login_path())
+        .args(["--mode", "rpc"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt as _;
+        cmd.process_group(0);
+    }
+    let Ok(mut child) = cmd.spawn() else { return };
+    let Some(mut stdin) = child.stdin.take() else { return };
+    let Some(mut stdout) = child.stdout.take() else { return };
+    // One command, then EOF: pi's rpc loop ends with its stdin, so the child
+    // reaps itself and the deadline below is only the wedged-child guard.
+    let asked = stdin
+        .write_all(b"{\"id\":\"1\",\"type\":\"get_state\"}\n")
+        .and_then(|()| stdin.flush())
+        .is_ok();
+    drop(stdin);
+    if !asked {
+        let _ = child.kill();
+        let _ = child.wait();
+        return;
+    }
+    // Drain on a thread: a child that fills the pipe buffer would never exit.
+    let reader = std::thread::spawn(move || {
+        let mut answer = String::new();
+        let _ = stdout.read_to_string(&mut answer);
+        answer
+    });
+    let exited = matches!(child.wait_timeout(PROBE_TIMEOUT), Ok(Some(_)));
+    if !exited {
+        #[cfg(unix)]
+        unsafe {
+            libc::killpg(child.id() as i32, libc::SIGKILL);
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+        return;
+    }
+    let answer = reader.join().unwrap_or_default();
+    if answered_get_state(&answer) {
+        return;
+    }
+    check.acp = Some(false);
+    check.acp_note = Some(
+        "This pi build has no rpc mode. Update pi for the session screen; \
+sessions run in a terminal tab until then."
+            .to_string(),
+    );
+}
+
+/// Did the child answer our `get_state` on its rpc stream? Line-delimited
+/// JSON, so a stray log line before or after the answer is fine.
+fn answered_get_state(stdout: &str) -> bool {
+    stdout.lines().any(|line| {
+        serde_json::from_str::<serde_json::Value>(line.trim()).is_ok_and(|value| {
+            value.get("type").and_then(serde_json::Value::as_str) == Some("response")
+                && value.get("command").and_then(serde_json::Value::as_str) == Some("get_state")
+                && value
+                    .get("success")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false)
+        })
+    })
 }
 
 /// EXP-409: stamp `authed` on a still-green agent check and flip it red when
@@ -638,7 +863,7 @@ fn check_tool_with_path(tool: Tool, program: &str, path_env: &str) -> ToolCheck 
         Ok(output) if output.status.success() => {
             let stdout = String::from_utf8_lossy(&output.stdout);
             match parse_version_output(tool, &stdout) {
-                Some(version) => ToolCheck { tool, ok: true, version: Some(version), error: None, authed: None, account: None, usage_eligible: false },
+                Some(version) => ToolCheck { tool, ok: true, version: Some(version), error: None, authed: None, account: None, usage_eligible: false, acp: None, acp_note: None },
                 None => ToolCheck {
                     tool,
                     ok: false,
@@ -647,6 +872,8 @@ fn check_tool_with_path(tool: Tool, program: &str, path_env: &str) -> ToolCheck 
                     authed: None,
                     account: None,
                     usage_eligible: false,
+                    acp: None,
+                    acp_note: None,
                 },
             }
         }
@@ -663,6 +890,8 @@ fn check_tool_with_path(tool: Tool, program: &str, path_env: &str) -> ToolCheck 
                 authed: None,
                 account: None,
                 usage_eligible: false,
+                acp: None,
+                acp_note: None,
             }
         }
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => ToolCheck {
@@ -673,6 +902,8 @@ fn check_tool_with_path(tool: Tool, program: &str, path_env: &str) -> ToolCheck 
             authed: None,
             account: None,
             usage_eligible: false,
+            acp: None,
+            acp_note: None,
         },
         Err(err) => ToolCheck {
             tool,
@@ -682,6 +913,8 @@ fn check_tool_with_path(tool: Tool, program: &str, path_env: &str) -> ToolCheck 
             authed: None,
             account: None,
             usage_eligible: false,
+            acp: None,
+            acp_note: None,
         },
     }
 }
@@ -838,6 +1071,8 @@ mod tests {
             authed: None,
             account: None,
             usage_eligible: false,
+            acp: None,
+            acp_note: None,
         }
     }
 
@@ -850,6 +1085,8 @@ mod tests {
             authed: None,
             account: None,
             usage_eligible: false,
+            acp: None,
+            acp_note: None,
         }
     }
 
@@ -1091,6 +1328,129 @@ mod tests {
             all.installed_agents(),
             vec![CodingAgent::Claude, CodingAgent::Codex, CodingAgent::Pi]
         );
+    }
+
+    /// EXP-746 (D9): the caps list lives HERE, once — the desktop
+    /// (`ui::steer_wiring`) and the CLI daemon both call [`device_caps`],
+    /// so a new cap can no longer reach one host and miss the other.
+    fn advert(agents: &[&str]) -> AgentAdvertisement {
+        AgentAdvertisement {
+            agents: agents.iter().map(|agent| agent.to_string()).collect(),
+            unauthed_agents: Vec::new(),
+            default_agent: "claude".to_string(),
+            launch_defaults: agents
+                .iter()
+                .map(|agent| (agent.to_string(), AgentLaunchDefaults::default()))
+                .collect(),
+            acp_agents: Vec::new(),
+        }
+    }
+
+    /// The automation host must advertise itself or the web pickers hide it.
+    /// (Moved here from `cli::commands::daemon` with the caps themselves.)
+    #[test]
+    fn action_caps_advertise_automations() {
+        assert!(ACTION_CAPS.contains(&"automations"));
+        let caps = device_caps(&advert(&["claude"]));
+        assert!(caps.contains(&"automations".to_string()));
+        // Nothing runnable = nothing to run an automation with.
+        assert!(!device_caps(&advert(&[])).contains(&"automations".to_string()));
+        // EXP-615: the same for chat — remote Chat starts gate on this cap,
+        // so an agent-less machine must never advertise it.
+        assert!(ACTION_CAPS.contains(&"chat"));
+        assert!(caps.contains(&"chat".to_string()));
+        assert!(!device_caps(&advert(&[])).contains(&"chat".to_string()));
+    }
+
+    /// EXP-484: signing IN is exactly what a machine with no runnable agent
+    /// needs, so `agent-login` is a BUILD cap — it rides even when nothing
+    /// is signed in.
+    #[test]
+    fn device_caps_include_agent_login_without_runnable_agents() {
+        assert!(DEVICE_CAPS.contains(&"agent-login"));
+        assert!(!ACTION_CAPS.contains(&"agent-login"));
+        let signed_out = device_caps(&advert(&[]));
+        assert!(signed_out.contains(&"agent-login".to_string()));
+        assert!(device_caps(&advert(&["claude"])).contains(&"agent-login".to_string()));
+    }
+
+    /// EXP-679: `agent-start` asserts this build understands a start frame's
+    /// `started_reason` — a PROTOCOL property of the binary, not of what it
+    /// can run, so it rides with the build caps and the server may gate an
+    /// agent-parented start on it.
+    #[test]
+    fn device_caps_include_agent_start_as_a_build_cap() {
+        assert!(DEVICE_CAPS.contains(&"agent-start"));
+        assert!(!ACTION_CAPS.contains(&"agent-start"));
+        assert!(device_caps(&advert(&[])).contains(&"agent-start".to_string()));
+        assert!(device_caps(&advert(&["claude"])).contains(&"agent-start".to_string()));
+    }
+
+    /// EXP-746: `acp` is a BUILD cap — it says this binary speaks the engine
+    /// and steering v2, not that any agent on this machine is ready today
+    /// (per-agent readiness is local, [`AgentAdvertisement::acp_agents`]).
+    /// The whole list stays inside `devices.register`'s 16-cap ceiling.
+    #[test]
+    fn build_caps_include_acp() {
+        assert!(DEVICE_CAPS.contains(&"acp"));
+        assert!(!ACTION_CAPS.contains(&"acp"));
+        assert!(device_caps(&advert(&[])).contains(&"acp".to_string()));
+        assert!(device_caps(&advert(&["claude"])).len() <= 16);
+    }
+
+    /// EXP-746: ACP readiness NEVER gates a launch — a machine whose agents
+    /// all lack it still passes the doctor and simply runs in terminal tabs.
+    #[test]
+    fn acp_readiness_is_non_fatal() {
+        let mut claude = green(Tool::Claude, "2.1.215 (Claude Code)");
+        claude.acp = Some(false);
+        claude.acp_note = Some("too old".to_string());
+        let report = DoctorReport {
+            claude,
+            codex: red(Tool::Codex),
+            pi: red(Tool::Pi),
+            git: green(Tool::Git, "2.45.0"),
+        };
+        assert!(report.any_agent_ok());
+        assert_eq!(report.first_failure_for(CodingAgent::Claude), None);
+        assert_eq!(report.installed_agents(), vec![CodingAgent::Claude]);
+        assert!(report
+            .agent_advertisement(&Settings::default())
+            .acp_agents
+            .is_empty());
+    }
+
+    /// EXP-746: the two claude version gates are SEPARATE — a CLI new enough
+    /// to launch but too old for the control protocol stays green with
+    /// `acp: Some(false)` and a note; at/above the ACP minimum it is ready.
+    #[test]
+    fn claude_acp_gate_is_separate_from_the_launch_gate() {
+        let mut between = green(Tool::Claude, "2.1.240 (Claude Code)");
+        apply_version_gate(&mut between);
+        assert!(between.ok, "the launch gate is MIN_CLAUDE_VERSION alone");
+        assert_eq!(between.acp, Some(false));
+        assert!(between
+            .acp_note
+            .as_deref()
+            .is_some_and(|note| note.contains("2.1.263")));
+
+        let mut ready = green(Tool::Claude, "2.1.263 (Claude Code)");
+        apply_version_gate(&mut ready);
+        assert!(ready.ok);
+        assert_eq!(ready.acp, Some(true));
+        assert_eq!(ready.acp_note, None);
+
+        // Too old for BOTH gates: red for the launch, and not ACP-ready.
+        let mut old = green(Tool::Claude, "2.1.199 (Claude Code)");
+        apply_version_gate(&mut old);
+        assert!(!old.ok);
+        assert_eq!(old.acp, Some(false));
+
+        // Unparseable stays green and unknown (→ the PTY path).
+        let mut odd = green(Tool::Claude, "nightly (Claude Code)");
+        apply_version_gate(&mut odd);
+        assert!(odd.ok);
+        assert_eq!(odd.acp, None);
     }
 
     /// EXP-437: the advertisement carries the machine's per-agent launch

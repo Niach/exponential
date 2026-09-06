@@ -127,7 +127,14 @@ struct AgentSessionView: View {
     /// glyph. Usage opens the per-window cards; Kill (EXP-268) force-ends a
     /// live session — owner-only, like everything about one (EXP-312).
     private var hasToolbarMenu: Bool {
-        headerIssue != nil || model?.agentUsage != nil || model?.canKill == true
+        headerIssue != nil || hasUsage || model?.canKill == true
+    }
+
+    /// EXP-746: Usage opens on EITHER half — the machine's rate-limit report
+    /// (EXP-484) or this run's own context/spend off the relay. A fresh run on
+    /// a machine that reported nothing used to have no usage affordance at all.
+    private var hasUsage: Bool {
+        model?.agentUsage != nil || model?.sessionUsage != nil
     }
 
     @ViewBuilder
@@ -140,7 +147,7 @@ struct AgentSessionView: View {
                 deps.deepLinkBus.navigateToIssue(issue.id, accountId: accountId)
             }
         }
-        if model?.agentUsage != nil {
+        if hasUsage {
             GlassMenuItem("Usage", icon: AppIcons.uiUsage) {
                 showUsageSheet = true
             }
@@ -339,8 +346,12 @@ struct AgentSessionView: View {
         // EXP-688: usage lives in its own sheet now — every window the machine
         // reported, grouped, instead of one pinned hairline.
         .sheet(isPresented: $showUsageSheet) {
-            if let usage = model?.agentUsage {
-                AgentUsageSheet(usage: usage.usage, account: model?.agentAccount)
+            if hasUsage {
+                AgentUsageSheet(
+                    usage: model?.agentUsage?.usage,
+                    account: model?.agentAccount,
+                    sessionUsage: model?.sessionUsage
+                )
             }
         }
     }
@@ -712,7 +723,14 @@ struct AgentSessionView: View {
             case let .userMessage(_, text):
                 // EXP-724: a steered slash command is a control action, not
                 // prose — it renders as a compact pill instead of a bubble.
-                if let command = SlashCommands.command(for: text, agent: model?.session?.agent) {
+                // EXP-746: over the MERGED catalog, so a command the agent
+                // itself advertised gets the pill too (the `/` menu that sent
+                // it reads the same merge).
+                if let command = SlashCommands.command(
+                    for: text,
+                    agent: model?.catalogAgent,
+                    extra: model?.sessionConfig?.commands ?? []
+                ) {
                     CommandPill(command: command, text: text)
                 } else {
                     UserMessageBubble(text: text, context: markdownContext)
@@ -1317,6 +1335,12 @@ struct AgentSessionView: View {
             .padding(.top, 12)
             .padding(.bottom, 4)
         } strip: {
+            // EXP-746: the live config chips ride the STRIP, above the pending
+            // images — three chips plus the `[+]` button do not fit on a
+            // phone's tool row, and the strip is already the composer's
+            // "extra state" band.
+            configChipRow(model)
+
             if !model.pendingImages.isEmpty {
                 PendingAttachmentStrip(items: model.pendingImages) { id in
                     removePendingImage(model, id: id)
@@ -1349,6 +1373,68 @@ struct AgentSessionView: View {
             ) {
                 sendMessage(model)
             }
+        }
+    }
+
+    // MARK: - Live config chips (EXP-746)
+
+    /// The agent's live options as pickable pills — the mode chip first, then
+    /// every option it advertised. Picks are FIRE-AND-FORGET: the publisher
+    /// re-emits `config_state` once it applied and that repaint is the
+    /// confirmation, so nothing here holds a pending state. An agent that
+    /// refuses the switch simply re-emits the old value and the chip snaps
+    /// back.
+    @ViewBuilder
+    private func configChipRow(_ model: AgentSessionModel) -> some View {
+        let chips = model.configChips
+        if !chips.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(chips) { chip in
+                        configChip(chip, model)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 2)
+            }
+            .padding(.bottom, 4)
+        }
+    }
+
+    @ViewBuilder
+    private func configChip(_ chip: AgentConfigChip, _ model: AgentSessionModel) -> some View {
+        let label = "\(chip.label): \(chip.valueLabel)"
+        // A values-less option is read-only on this run, and so is every chip
+        // while the run can't be steered — the pills dim exactly like the send
+        // button rather than offering a tap that would no-op (EXP-621).
+        if chip.isReadOnly || !model.canSteer {
+            GlassPill(label, mode: .readonly, enabled: model.canSteer)
+                .accessibilityIdentifier("agent-config-chip")
+        } else {
+            GlassMenu {
+                ForEach(chip.values) { value in
+                    GlassMenuItem(value.label) {
+                        pickConfig(chip, value: value, model)
+                    }
+                }
+            } label: {
+                GlassPill(label, mode: .readonly) {
+                    EmptyView()
+                } trailing: {
+                    AppIcon(AppIcons.uiChevronDown, size: GlassPillSize.sm.glyphSize)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                }
+            }
+            .accessibilityIdentifier("agent-config-chip")
+        }
+    }
+
+    private func pickConfig(
+        _ chip: AgentConfigChip, value: AgentConfigValue, _ model: AgentSessionModel
+    ) {
+        switch chip.kind {
+        case .mode: model.sendMode(id: value.id)
+        case .option: model.sendConfig(id: chip.id, value: value.id)
         }
     }
 

@@ -68,6 +68,12 @@ pub struct Proc {
 
 /// The marker directory: `<data_dir>/claude-hooks`. Written only by
 /// [`crate::launcher`], which is what makes it a safe anchor.
+///
+/// EXP-746: selection matches this path in the process COMMAND LINE, not on
+/// disk — so the ACP path, which has no hooks sidecar at all, still writes an
+/// EMPTY `{}` settings file here and still passes `--settings <that path>`
+/// (`launcher::write_acp_reaper_anchor`). Drop the flag and every ACP claude
+/// becomes invisible to the quit sweep.
 pub fn hook_marker(data_dir: &Path) -> String {
     data_dir.join("claude-hooks").to_string_lossy().into_owned()
 }

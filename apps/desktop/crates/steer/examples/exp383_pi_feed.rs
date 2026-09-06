@@ -211,6 +211,7 @@ fn main() {
         text_sink: Some(Arc::new(move |text: String| steer_handle.push(text))),
         attachments: None,
         commands: None,
+        config: None,
     };
     let handle = publish(
         &runtime,

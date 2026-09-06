@@ -95,6 +95,85 @@ class SlashCommandsTest {
         assertNull(SlashCommands.commandFor("compact", "claude"))
     }
 
+    // ── EXP-746: the run's own advertised commands ─────────────────────────
+
+    @Test
+    fun `merged lists the contract commands first`() {
+        val agent = listOf(
+            ConfigCommand("review", "Review the diff", hint = "<path>"),
+            // The wire form may carry the sigil; the catalog never does.
+            ConfigCommand("/usage", "Show usage"),
+        )
+        val merged = SlashCommands.merged(SlashCommands.catalogFor("claude"), agent)
+        assertEquals(listOf("compact", "clear", "review", "usage"), merged.map { it.name })
+        // Only the contract knows what discards context.
+        assertFalse(merged.single { it.name == "review" }.confirm)
+        assertEquals("<path>", merged.single { it.name == "review" }.argHint)
+        assertEquals("/review ", merged.single { it.name == "review" }.insertion)
+        assertEquals("/usage", merged.single { it.name == "usage" }.insertion)
+        // Nothing advertised leaves the contract catalog untouched.
+        assertEquals(SlashCommands.catalogFor("claude"), SlashCommands.merged(SlashCommands.catalogFor("claude"), emptyList()))
+    }
+
+    @Test
+    fun `an agent command that shadows a contract name is dropped`() {
+        val merged = SlashCommands.merged(
+            SlashCommands.catalogFor("claude"),
+            listOf(
+                ConfigCommand("Compact", "the agent's own"),
+                ConfigCommand("review", "first wins"),
+                ConfigCommand("REVIEW", "the duplicate"),
+                ConfigCommand("  ", "nameless"),
+            ),
+        )
+        assertEquals(listOf("compact", "clear", "review"), merged.map { it.name })
+        // The CONTRACT row survives, with its own copy and its confirm flag.
+        assertTrue(merged.single { it.name == "compact" }.confirm.not())
+        assertEquals("first wins", merged.single { it.name == "review" }.description)
+    }
+
+    @Test
+    fun `the menu and the command lookup both see the advertised rows`() {
+        val agent = listOf(ConfigCommand("review", "Review the diff"))
+        assertEquals(
+            listOf("compact", "clear", "review"),
+            SlashCommands.matches("/", "claude", agent).map { it.name },
+        )
+        assertEquals(listOf("review"), SlashCommands.matches("/rev", "claude", agent).map { it.name })
+        assertEquals("review", SlashCommands.commandFor("/review src/a.kt", "claude", agent)?.name)
+        // Without the advertisement it is prose again.
+        assertNull(SlashCommands.commandFor("/review src/a.kt", "claude"))
+    }
+
+    /**
+     * EXP-746, mirrored ×4 under this name (web `steerAgentId`, iOS
+     * `testAnAgentLessAcpRunIsAnExternalAgent`, desktop
+     * `an_agent_less_acp_run_is_an_external_agent`): "no agent" alone does not
+     * mean claude. An EXTERNAL ACP agent syncs no agent either, so offering it
+     * `/compact` and `/clear` — confirm dialog and all — sent the literal text
+     * to an agent whose desktop-side catalog is empty, and nothing ran.
+     */
+    @Test
+    fun `an agent-less acp run is an external agent`() {
+        assertFalse(SlashCommands.EXTERNAL_AGENT in DomainContract.codingAgentValues)
+        assertEquals(SlashCommands.EXTERNAL_AGENT, SlashCommands.agentId(null, acp = true))
+        assertEquals(SlashCommands.EXTERNAL_AGENT, SlashCommands.agentId("  ", acp = true))
+        // A named agent keeps its own catalog on the ACP path.
+        assertEquals("codex", SlashCommands.agentId("codex", acp = true))
+        // A PTY run publishes no `config_state`: an agent-less one there is
+        // the claude run it always was.
+        assertEquals("claude", SlashCommands.agentId(null, acp = false))
+        assertEquals("claude", SlashCommands.agentId("", acp = false))
+
+        val external = SlashCommands.agentId(null, acp = true)
+        assertTrue(SlashCommands.catalogFor(external).isEmpty())
+        // Only what the agent advertised reaches the menu and the lookup — no
+        // `/clear`, so no confirm dialog for a command nothing would run.
+        val agent = listOf(ConfigCommand("review", "Review the diff"))
+        assertEquals(listOf("review"), SlashCommands.matches("/", external, agent).map { it.name })
+        assertNull(SlashCommands.commandFor("/clear", external, agent))
+    }
+
     @Test
     fun `the confirm copy is the one every client shows`() {
         assertEquals("Run /clear?", SlashCommands.confirmTitle("clear"))

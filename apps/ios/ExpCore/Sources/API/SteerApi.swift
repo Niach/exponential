@@ -98,10 +98,21 @@ public struct DeviceLaunchDefaults: Decodable, Equatable, Sendable {
     /// runs by the reader — a signed-out default must not preselect.
     public let defaultAgent: String?
     public let agents: [String: AgentLaunchDefaults]?
+    /// EXP-746: run coding sessions on a TERMINAL tab instead of the in-app
+    /// session screen. DEVICE-GLOBAL, not per agent — it picks the transport
+    /// the machine launches with, and every start on it follows. Absent on a
+    /// machine that never wrote it (and on every pre-EXP-746 build), which
+    /// reads as false everywhere.
+    public let startInTerminal: Bool?
 
-    public init(defaultAgent: String? = nil, agents: [String: AgentLaunchDefaults]? = nil) {
+    public init(
+        defaultAgent: String? = nil,
+        agents: [String: AgentLaunchDefaults]? = nil,
+        startInTerminal: Bool? = nil
+    ) {
         self.defaultAgent = defaultAgent
         self.agents = agents
+        self.startInTerminal = startInTerminal
     }
 }
 
@@ -373,6 +384,17 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     public var needsAgentSignIn: Bool {
         isOnline && !hasRunnableAgent && !unauthedAgentIds.isEmpty
     }
+
+    /// EXP-746: whether this machine can run a session through the in-process
+    /// ACP engine (the session screen) at all. A machine without the cap is an
+    /// older build that only ever runs a terminal session — the toggle below
+    /// is then moot, so surfaces that mention the session screen hide it.
+    public var supportsAcp: Bool { caps?.contains("acp") == true }
+
+    /// EXP-746: this machine's device-global "Start in terminal" preference,
+    /// as the row advertises it. Absent = false (an older build has no session
+    /// screen to opt out of).
+    public var startsInTerminal: Bool { launchDefaults?.startInTerminal == true }
 
     /// EXP-484: whether this machine can run an agent sign-in REMOTELY (the
     /// `agent_login` device command). Strictly cap-gated like the other remote

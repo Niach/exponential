@@ -554,10 +554,11 @@ team settings → Repositories.";
 /// Take a fix-conflicts run's branch over from the local sessions still
 /// holding its worktree. Sessions outlive their PR's OPENING (EXP-194 keeps
 /// them alive through `in_review`, so the session that opened the PR commonly
-/// survives a failed merge) and the fix run supersedes them: close their tabs
-/// now — `close_tab` kills and joins the PTY, and the `TabClosed` watcher
-/// fires the idempotent `codingSessions.end` — so the rebase never runs under
-/// a live PTY's cwd.
+/// survives a failed merge) and the fix run supersedes them: stop them now
+/// through their [`coding_flow::LocalSessionHost`] — a PTY tab's `close_tab`
+/// kills and joins the PTY (its `TabClosed` watcher then fires the idempotent
+/// `codingSessions.end`), an ACP engine is killed — so the rebase never runs
+/// under a live agent's cwd.
 ///
 /// Returns `false` when the launch must be REFUSED: another fix run is
 /// already working the branch, and two agents rebasing + force-pushing one
@@ -574,7 +575,9 @@ fn take_over_branch(branch: &str, window: gpui::AnyWindowHandle, cx: &mut App) -
         .sessions_on_branch(branch)
         .map(|session| coding_flow::BranchClaim {
             is_fix_run: coding_flow::is_fix_conflicts_run(session.action_id.as_deref()),
-            handle: (session.manager.clone(), session.tab),
+            // EXP-746: the holder is its HOST — a PTY tab closes, an ACP
+            // engine is killed; either way the worktree is free afterwards.
+            handle: session.host.clone(),
         })
         .collect();
     match coding_flow::plan_branch_takeover(claims) {
@@ -587,10 +590,8 @@ fn take_over_branch(branch: &str, window: gpui::AnyWindowHandle, cx: &mut App) -
             false
         }
         coding_flow::BranchTakeover::Close(holders) => {
-            for (manager, tab) in holders {
-                if let Some(manager) = manager.upgrade() {
-                    manager.update(cx, |manager, cx| manager.close_tab(tab, cx));
-                }
+            for host in holders {
+                host.stop(cx);
             }
             true
         }

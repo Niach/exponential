@@ -32,7 +32,9 @@ use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::activity::{AnswerLink, CommandLink, RemoteAnswer, SessionAgent};
+use crate::activity::{
+    AnswerLink, CommandLink, ConfigChange, ConfigLink, RemoteAnswer, SessionAgent,
+};
 use crate::commands::parse_command;
 use crate::frames::{
     ActivityEvent, ClientFrame, ServerFrame, CLOSE_REPLACED, CLOSE_UNAUTHORIZED,
@@ -150,6 +152,14 @@ pub struct PublisherHooks {
     /// state a command needs. `None` = commands ride the ordinary message
     /// path (they then reach the agent as prose, the pre-EXP-724 behaviour).
     pub commands: Option<Arc<CommandLink>>,
+    /// EXP-746: the live-config seam. `set_config`/`set_mode` cross to the
+    /// ACP engine here — never through [`Self::write_input`], because there
+    /// are no keystrokes that could express them.
+    ///
+    /// `None` is the PTY path (and every test): a documented NO-OP. A PTY run
+    /// publishes no `config_state`, so no client ever renders a chip for it
+    /// and no conforming viewer sends these frames at all.
+    pub config: Option<Arc<ConfigLink>>,
 }
 
 /// Keystroke frames (`\r` submit, `\x1b` interrupt / CSI sequences, any lone
@@ -1069,6 +1079,21 @@ async fn pump_connection(
                                 answers.submit(RemoteAnswer { question_id, ask_id, keys, text });
                             }
                         }
+                        // EXP-746: live config. Like `answer`, never through
+                        // `input_tx` — a model switch has no keystroke form,
+                        // and only the engine holds the ACP session that can
+                        // apply it. `None` (the PTY path) is a documented
+                        // no-op: such a run advertises no chips to change.
+                        Some(ServerFrame::SetConfig { id, value }) => {
+                            if let Some(config) = &hooks.config {
+                                config.submit(ConfigChange::Option { id, value });
+                            }
+                        }
+                        Some(ServerFrame::SetMode { id }) => {
+                            if let Some(config) = &hooks.config {
+                                config.submit(ConfigChange::Mode { id });
+                            }
+                        }
                         Some(ServerFrame::Kill) => {
                             // §8.4: relay kill → end the session. The kill hook
                             // kills the child (whose exit hook ends the synced
@@ -1383,6 +1408,7 @@ mod tests {
             text_sink: None,
             attachments: None,
             commands: None,
+            config: None,
         }
     }
 
@@ -1687,6 +1713,114 @@ mod tests {
     }
 
     // ── EXP-724: remote slash commands ─────────────────────────────────────
+
+    /// EXP-746: on the PTY path (`config = None`) the two live-config frames
+    /// are a documented NO-OP — never keystrokes, never an answer, never a
+    /// surfaced error. This is what makes `start_in_terminal = true`
+    /// behave exactly as it did before steering v2.
+    #[test]
+    fn set_config_and_set_mode_are_no_ops_without_a_config_link() {
+        let runtime = SteerRuntime::new().unwrap();
+        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
+        let recorded = Arc::new(Recorded::default());
+        let (answer_link, answers_rx) = AnswerLink::new();
+        let handle = publish(
+            &runtime,
+            PublishSpec {
+                session_id: "sess-cfg-none".to_string(),
+                issue_id: None,
+            },
+            Arc::new(FakeTickets {
+                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
+            }),
+            recording_hooks_with(recorded.clone(), Some(answer_link)),
+        );
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
+
+        inject_tx
+            .send(Message::Text(
+                r#"{"t":"set_config","id":"model","value":"opus"}"#.to_string(),
+            ))
+            .unwrap();
+        inject_tx
+            .send(Message::Text(r#"{"t":"set_mode","id":"plan"}"#.to_string()))
+            .unwrap();
+        // An `input` behind them proves the pump kept running and that the
+        // two frames really were consumed (not merely slow).
+        inject_tx
+            .send(Message::Text(r#"{"t":"input","data":"ls\r"}"#.to_string()))
+            .unwrap();
+        wait_for(|| !recorded.inputs.lock().unwrap().is_empty());
+        assert_eq!(
+            recorded.inputs.lock().unwrap().as_slice(),
+            &[b"ls\r".to_vec()],
+            "a config change never becomes keystrokes"
+        );
+        assert!(answers_rx.try_recv().is_err(), "and never an answer");
+        assert!(recorded.errors.lock().unwrap().is_empty());
+        handle.shutdown(None);
+    }
+
+    /// The positive twin: with a link wired (the ACP path) both frames cross
+    /// to the engine verbatim, blank value included, and still never touch
+    /// the PTY writer.
+    #[test]
+    fn set_config_and_set_mode_cross_to_the_config_link() {
+        let runtime = SteerRuntime::new().unwrap();
+        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
+        let recorded = Arc::new(Recorded::default());
+        let config = ConfigLink::new();
+        let mut hooks = recording_hooks(recorded.clone());
+        hooks.config = Some(config.clone());
+        let handle = publish(
+            &runtime,
+            PublishSpec {
+                session_id: "sess-cfg".to_string(),
+                issue_id: None,
+            },
+            Arc::new(FakeTickets {
+                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
+            }),
+            hooks,
+        );
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
+
+        // A BLANK value is the "CLI default" choice, not a malformed frame.
+        inject_tx
+            .send(Message::Text(
+                r#"{"t":"set_config","id":"model","value":""}"#.to_string(),
+            ))
+            .unwrap();
+        inject_tx
+            .send(Message::Text(r#"{"t":"set_mode","id":"plan"}"#.to_string()))
+            .unwrap();
+        let received: Mutex<Vec<ConfigChange>> = Mutex::new(Vec::new());
+        wait_for(|| {
+            while let Some(change) = config.try_recv() {
+                received.lock().unwrap().push(change);
+            }
+            received.lock().unwrap().len() >= 2
+        });
+        assert_eq!(
+            received.into_inner().unwrap(),
+            vec![
+                ConfigChange::Option {
+                    id: "model".to_string(),
+                    value: String::new(),
+                },
+                ConfigChange::Mode {
+                    id: "plan".to_string(),
+                },
+            ]
+        );
+        assert!(
+            recorded.inputs.lock().unwrap().is_empty(),
+            "live config never reaches the PTY"
+        );
+        handle.shutdown(None);
+    }
 
     /// A catalog command is buffered, never written, and crosses whole to the
     /// emitter on its `\r` — the publisher cannot type one (no grid, no turn
