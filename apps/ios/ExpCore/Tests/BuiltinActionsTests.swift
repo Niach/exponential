@@ -32,6 +32,25 @@ final class BuiltinActionsTests: XCTestCase {
         XCTAssertFalse(inputs[1].isRequired)
     }
 
+    // EXP-756: the Start-coding sheet wires the Chat tab through
+    // `ActionInputValues.wireValues` over the builtin's inputs, so a "No
+    // repository" pick ("") must reach the wire as NO `repo` key at all — an
+    // empty string would read as a bogus repository id — while a picked one
+    // rides through untouched.
+    func testARepoLessChatWiresOnlyThePrompt() {
+        let inputs = ActionDto.builtinChatAction(teamId: "t-1").inputs ?? []
+        let repoLess = ActionInputValues.wireValues(
+            inputs,
+            values: ["prompt": "  Summarize the open bugs  ", "repo": ""]
+        )
+        XCTAssertEqual(repoLess, ["prompt": "Summarize the open bugs"])
+        let withRepo = ActionInputValues.wireValues(
+            inputs,
+            values: ["prompt": "Refactor the parser", "repo": "repo-1"]
+        )
+        XCTAssertEqual(withRepo, ["prompt": "Refactor the parser", "repo": "repo-1"])
+    }
+
     // The leakage guard: chat is in NO list constructor.
     func testChatIsNeverListed() {
         let listed = ActionDto.builtinActions(teamId: "t-1")

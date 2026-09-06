@@ -89,9 +89,10 @@ import com.exponential.app.ui.theme.TextEmphasis
 // "Create action" is not offered — creation lives in its own
 // [com.exponential.app.ui.actions.CreateActionSheet]) plus typed input fields
 // for the selected action (text / repo / board / pr / icon), and the Chat tab
-// (EXP-615) is a free prompt on a repository, riding the hidden
-// [builtinChatAction] over the same action rails. All three share the SAME
-// device / agent / model / effort / toggle block (LaunchOptionsSection), and
+// (EXP-615) is a free prompt with an OPTIONAL repository (EXP-756), riding
+// the hidden [builtinChatAction] over the same action rails. All three share
+// the SAME device / agent / model / effort / toggle block
+// (LaunchOptionsSection), and
 // since EXP-672 the SAME device pool: online with a runnable agent, no
 // per-subject capability filters.
 // EXP-437: the sheet keeps NO last-used state of its own — the picked machine
@@ -120,6 +121,17 @@ data class StartIssueOption(
     val status: String?,
     val priority: String?,
 )
+
+/**
+ * The Chat tab's wire payload (EXP-615): the hidden builtin's `prompt` (trimmed)
+ * plus `repo` ONLY when one is picked — an empty pick means a repo-less chat
+ * (EXP-739/EXP-756), and the server treats an absent optional input as unset.
+ */
+internal fun chatRunPayload(prompt: String, repoId: String): Map<String, String> =
+    buildMap {
+        put("prompt", prompt.trim())
+        if (repoId.isNotEmpty()) put("repo", repoId)
+    }
 
 /** The sheet's top-level subject switch (EXP-257, Chat since EXP-615): what a
  * run launches on. */
@@ -223,12 +235,15 @@ fun StartCodingSheet(
 
     // ── Chat-tab state (EXP-615) ─────────────────────────────────────────────
     // The chat builtin is HIDDEN: no list carries it, so the tab constructs
-    // the row itself and fills its two inputs from these fields.
+    // the row itself and fills its two inputs from these fields. The repo is
+    // OPTIONAL (EXP-739/EXP-756): "" = "No repository", a chat that runs
+    // worktree-less in the agent's scratch dir.
     val selectedTeamId by dataViewModel.teamId.collectAsStateWithLifecycle()
     var chatPrompt by remember { mutableStateOf("") }
     var chatRepoId by remember { mutableStateOf("") }
 
-    // A team with exactly one repository never asks which one (web parity).
+    // A team with exactly one repository pre-picks it (web parity); the
+    // picker still offers "No repository".
     LaunchedEffect(teamRepos) {
         if (chatRepoId.isEmpty() && teamRepos.size == 1) chatRepoId = teamRepos.first().id
     }
@@ -418,11 +433,11 @@ fun StartCodingSheet(
         .all { !inputValues[it.key].isNullOrBlank() }
     val canRunAction = device != null && selectedAction != null &&
         !hasUnknownInputType && requiredInputsFilled
-    // Chat needs both of its required inputs and a team to hang the hidden
-    // builtin row on (every builtin start carries its teamId).
+    // Chat needs its one required input (the prompt — the repository is
+    // optional since EXP-739) and a team to hang the hidden builtin row on
+    // (every builtin start carries its teamId).
     val chatAction = selectedTeamId?.let { builtinChatAction(it) }
-    val canChat = device != null && chatAction != null &&
-        chatPrompt.isNotBlank() && chatRepoId.isNotEmpty()
+    val canChat = device != null && chatAction != null && chatPrompt.isNotBlank()
 
     // Full-height sheet (EXP-208), one-shell chrome (EXP-687): a drag handle,
     // no title, and ONE pinned bottom button — the Cancel pill and the
@@ -472,10 +487,7 @@ fun StartCodingSheet(
                 )
                 if (action != null) {
                     val payload = if (subjectTab == SubjectTab.Chat) {
-                        mapOf(
-                            "prompt" to chatPrompt.trim(),
-                            "repo" to chatRepoId,
-                        )
+                        chatRunPayload(prompt = chatPrompt, repoId = chatRepoId)
                     } else {
                         // Only filled values ride, keyed by the def key
                         // (repo/board values are the picked ids).
@@ -625,10 +637,11 @@ fun StartCodingSheet(
                 Spacer(Modifier.height(4.dp))
             } else if (subjectTab == SubjectTab.Chat) {
                 // ── Chat (EXP-615) ───────────────────────────────────────
-                // A free prompt on one repository's trunk clone — no issue,
-                // no branch, no worktree. The two fields ARE the hidden
-                // builtin's two inputs, labelled exactly as it declares
-                // them.
+                // A free prompt with an OPTIONAL repository — no issue. With
+                // a repo the run gets its own `exp/chat-<id8>` worktree,
+                // without one (EXP-739/EXP-756) it runs in the agent's
+                // scratch dir. The two fields ARE the hidden builtin's two
+                // inputs, labelled exactly as it declares them.
                 SectionHeader("Prompt", modifier = Modifier.padding(horizontal = 12.dp))
                 // EXP-698: inside the grouped card like every other field on
                 // this sheet, instead of a second chromed box beside them.
@@ -645,27 +658,36 @@ fun StartCodingSheet(
                     )
                 }
                 Spacer(Modifier.height(8.dp))
-                OptionGroup {
-                    PickerRow(
-                        label = "Repository",
-                        value = teamRepos.firstOrNull { it.id == chatRepoId }?.fullName
-                            ?: "Select",
-                        options = teamRepos.map { it.id },
-                        selected = chatRepoId.takeIf { it.isNotEmpty() },
-                        optionLabel = { id ->
-                            teamRepos.firstOrNull { it.id == id }?.fullName ?: id
-                        },
-                        onSelect = { chatRepoId = it },
-                    )
-                }
                 if (teamRepos.isEmpty()) {
-                    Spacer(Modifier.height(4.dp))
+                    // Nothing to pick from: the chat simply runs without a
+                    // repository (web parity, EXP-756).
+                    SectionHeader("Repository", modifier = Modifier.padding(horizontal = 12.dp))
                     Text(
-                        "Connect a repository to this team to chat.",
+                        "No repository connected. The chat runs without one.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                         modifier = Modifier.padding(horizontal = 32.dp),
                     )
+                } else {
+                    // The leading "" is the "No repository" choice, like an
+                    // optional `repo` input's "None" in [ActionInputField].
+                    OptionGroup {
+                        PickerRow(
+                            label = "Repository",
+                            value = teamRepos.firstOrNull { it.id == chatRepoId }?.fullName
+                                ?: "No repository",
+                            options = listOf("") + teamRepos.map { it.id },
+                            selected = chatRepoId,
+                            optionLabel = { id ->
+                                if (id.isEmpty()) {
+                                    "No repository"
+                                } else {
+                                    teamRepos.firstOrNull { it.id == id }?.fullName ?: id
+                                }
+                            },
+                            onSelect = { chatRepoId = it },
+                        )
+                    }
                 }
                 Spacer(Modifier.height(4.dp))
             } else {
