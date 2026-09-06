@@ -133,6 +133,7 @@ impl EngineSession {
         } = handle;
         let kind = AdapterKind::from_agent(&agent);
         let builtin = agent.builtin();
+        let child_exit = ChildExitLink::new();
         let adapter = Adapter::new(AdapterSpec {
             kind,
             agent: agent.clone(),
@@ -166,7 +167,8 @@ impl EngineSession {
             }),
             personal_key: personal_key.clone(),
             reaper_settings_path: None,
-        })?;
+        exit: child_exit.clone(),
+})?;
 
         // A replay's session id is local bookkeeping only — no row exists.
         let session_id = format!("replay-{}", uuid::Uuid::new_v4());
@@ -190,7 +192,7 @@ impl EngineSession {
             replay: true,
             resume: None,
             prompt: None,
-            child_exit: ChildExitLink::new(),
+            child_exit,
         });
         spawn_engine(ctx, agent, adapter, KillFeed::inert(), Arc::new(NoHost))
     }
@@ -360,7 +362,8 @@ pub fn start(start: EngineStart, host: Arc<dyn EngineHost>) -> Result<EngineSess
         resume: acp.resume.clone().map(ResumeHandle::from),
         personal_key: start.personal_key.clone(),
         reaper_settings_path: acp.reaper_settings_path.clone(),
-    })?;
+    exit: child_exit.clone(),
+})?;
     start_with(
         start,
         host,

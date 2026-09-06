@@ -22,6 +22,7 @@ use std::path::PathBuf;
 
 use agent_client_protocol::{Agent, Client, ConnectTo};
 
+use crate::host::ChildExitLink;
 use crate::session::{EngineError, ResumeHandle};
 
 /// Which adapter drives a run. Distinct from `coding::CodingAgent` because
@@ -93,6 +94,11 @@ pub struct AdapterSpec {
     /// The claude `--settings <path>` reaper anchor (`{}`, no hooks). `None`
     /// for every other agent, which the reaper never anchored either.
     pub reaper_settings_path: Option<PathBuf>,
+    /// Where a stdio adapter reports its child's exit (`ChildLines::forward_exit`),
+    /// so the run's bye is `exit:<code>`. An adapter that owns no child of
+    /// ours (`External`: the SDK transport owns it) never records, and the
+    /// run ends as `ended`.
+    pub exit: ChildExitLink,
 }
 
 /// The four adapters behind one type, so the host holds a single field.
@@ -107,10 +113,18 @@ impl Adapter {
     /// Build the adapter `spec.kind` names. Errors here are start-time
     /// errors (a missing external binary, an agent with no adapter on this
     /// build) and let the caller fall back to the terminal transport.
-    // EXP-746 E1: fill (each arm is then owned by E2/E3/E4)
-    #[allow(unused_variables)]
+    ///
+    /// Claude spawns lazily (at `session/new`), so a missing `claude` surfaces
+    /// as a handshake failure through `EngineExit`; codex and pi spawn HERE,
+    /// and external resolves its command here, so those come back as
+    /// `EngineError::Spawn` before anything was registered.
     pub fn new(spec: AdapterSpec) -> Result<Adapter, EngineError> {
-        todo!("EXP-746 E1: dispatch on spec.kind into the four constructors")
+        Ok(match spec.kind {
+            AdapterKind::Claude => Adapter::Claude(claude::ClaudeAgent::new(spec)?),
+            AdapterKind::Codex => Adapter::Codex(codex::CodexAgent::new(spec)?),
+            AdapterKind::Pi => Adapter::Pi(pi::PiAgent::new(spec)?),
+            AdapterKind::External => Adapter::External(external::ExternalAgent::new(spec)?),
+        })
     }
 
     pub fn kind(&self) -> AdapterKind {

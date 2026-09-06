@@ -90,6 +90,7 @@ fn adapter(cwd: &Path) -> PiAgent {
         resume: None,
         personal_key: None,
         reaper_settings_path: None,
+        exit: engine::ChildExitLink::new(),
     })
     .expect("the fake pi spawns")
 }
@@ -214,7 +215,7 @@ fn a_pi_turn_maps_onto_acp_updates_and_answers_a_confirm() {
     assert_eq!(session_id.0.as_ref(), FIXTURE_SESSION_FILE);
     assert_eq!(
         session_meta["_meta"],
-        json!({ "exp.nativeSessionId": FIXTURE_SESSION_FILE })
+        json!({ "exponentialNativeSessionId": FIXTURE_SESSION_FILE })
     );
     let option_ids: Vec<&Value> = session_meta["configOptions"]
         .as_array()

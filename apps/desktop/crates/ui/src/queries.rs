@@ -1124,7 +1124,6 @@ pub(crate) fn remote_session_rows<'a>(
 /// EXP-746 — how many Past runs the Devices screen lists (×4 parity: web
 /// `PAST_RUN_CAP`, iOS/Android the same). The section is a recent-history
 /// glance, not an archive.
-#[allow(dead_code)] // consumed by the Devices "Past" section
 pub(crate) const PAST_RUNS_CAP: usize = 20;
 
 /// EXP-746 — "Past": the caller's own FINISHED, person-started runs in the
@@ -1146,7 +1145,6 @@ pub(crate) const PAST_RUNS_CAP: usize = 20;
 /// Sorted by `ended_at`, falling back to `updated_at` for a row the server
 /// swept without stamping one; ISO-8601 sorts lexicographically. The id is
 /// the tiebreak so the order never flickers between renders. Pure.
-#[allow(dead_code)] // consumed by the Devices "Past" section
 pub(crate) fn own_ended_runs<'a>(
     rows: impl Iterator<Item = &'a domain::rows::CodingSession>,
     me: &str,

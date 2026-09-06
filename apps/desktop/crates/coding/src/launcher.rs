@@ -1449,7 +1449,7 @@ pub fn prepare_with_hooks(
             // A resume is `prepare_resume_run`'s business (EXP-662); this
             // path always starts a run of its own.
             None,
-            Some(agent.id()),
+            agent_kind.wire_id(),
         ),
         PrepareRequest::Batch(batch_req) => coding_sessions::start_batch(
             &deps.trpc,
@@ -1458,7 +1458,7 @@ pub fn prepare_with_hooks(
             attribution(&batch_req.origin, deps),
             run_reason,
             None,
-            Some(agent.id()),
+            agent_kind.wire_id(),
         ),
         PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
             unreachable!("dispatched above")
@@ -1755,7 +1755,7 @@ pub fn prepare_with_hooks(
                 automation_id: None,
                 // The server refuses a branch beside an issueId.
                 branch: None,
-                agent: Some(agent.id().to_string()),
+                agent: agent_kind.wire_id().map(str::to_string),
             }
         }
         PrepareRequest::Batch(batch_req) => {
@@ -1773,7 +1773,7 @@ pub fn prepare_with_hooks(
                 // The batch branch is minted client-side and already
                 // recorded by `start_batch`; nothing to re-assert.
                 branch: None,
-                agent: Some(agent.id().to_string()),
+                agent: agent_kind.wire_id().map(str::to_string),
             }
         }
         PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
@@ -2247,7 +2247,7 @@ fn prepare_action(
             device_label: Some(&req.device_label),
             branch: run_branch.as_deref(),
             resumed_from_id: None,
-            agent: Some(agent.id()),
+            agent: agent_kind.wire_id(),
             attribution: attribution(&req.origin, deps),
         },
     ) {
@@ -2512,7 +2512,7 @@ fn prepare_action(
             // EXP-637: the run branch, so a resurrected row still points at
             // the worktree the agent is working in.
             branch: run_branch.clone(),
-            agent: Some(agent.id().to_string()),
+            agent: agent_kind.wire_id().map(str::to_string),
         },
         transport,
         acp: (transport == LaunchTransport::Acp).then(|| AcpLaunch {
@@ -2797,7 +2797,7 @@ fn prepare_resume_run(
             attribution(&req.origin, deps),
             run_reason,
             Some(&record.session_id),
-            Some(record.agent.id()),
+            agent_kind.wire_id(),
         ),
         RunKind::Batch => coding_sessions::start_batch(
             &deps.trpc,
@@ -2806,7 +2806,7 @@ fn prepare_resume_run(
             attribution(&req.origin, deps),
             run_reason,
             Some(&record.session_id),
-            Some(record.agent.id()),
+            agent_kind.wire_id(),
         ),
         _ => coding_sessions::start_action(
             &deps.trpc,
@@ -2820,7 +2820,7 @@ fn prepare_resume_run(
                 device_label: Some(&req.device_label),
                 branch: record.branch.as_deref(),
                 resumed_from_id: Some(&record.session_id),
-                agent: Some(record.agent.id()),
+                agent: agent_kind.wire_id(),
                 attribution: attribution(&req.origin, deps),
             },
         ),
@@ -2996,7 +2996,7 @@ fn prepare_resume_run(
             started_reason: run_reason.map(str::to_string),
             automation_id: None,
             branch: None,
-            agent: Some(record.agent.id().to_string()),
+            agent: agent_kind.wire_id().map(str::to_string),
         },
         RunKind::Batch => coding_sessions::HeartbeatScope {
             issue_id: None,
@@ -3008,7 +3008,7 @@ fn prepare_resume_run(
             started_reason: run_reason.map(str::to_string),
             automation_id: None,
             branch: None,
-            agent: Some(record.agent.id().to_string()),
+            agent: agent_kind.wire_id().map(str::to_string),
         },
         _ => coding_sessions::HeartbeatScope {
             issue_id: None,
@@ -3020,7 +3020,7 @@ fn prepare_resume_run(
             started_reason: run_reason.map(str::to_string),
             automation_id: None,
             branch: record.branch.clone(),
-            agent: Some(record.agent.id().to_string()),
+            agent: agent_kind.wire_id().map(str::to_string),
         },
     };
     let issue_identifier = match record.kind {
@@ -3722,7 +3722,16 @@ mod tests {
         let acp = prepared.acp.as_ref().expect("the ACP half");
         assert_eq!(acp.session_id, "sess-1");
         assert!(acp.prompt.as_deref().unwrap().contains("EXP-42"));
-        assert_eq!(acp.mcp, AgentMcp::ClaudeFile);
+        // P0-h: claude's MCP server rides INLINE on the ACP arm (the key never
+        // lands on disk), keyed to the row so the server can name the run.
+        match &acp.mcp {
+            AgentMcp::ClaudeInline { url, session_id } => {
+                assert_eq!(url, &mcp_url(&base));
+                assert_eq!(session_id.as_deref(), Some("sess-1"));
+            }
+            other => panic!("expected the inline MCP posture, got {other:?}"),
+        }
+        assert!(!worktree.join(crate::mcp_json::MCP_JSON_FILE).exists(), "no .exp-mcp.json on the ACP arm");
         assert!(acp.resume.is_none());
         // No PROMPT.md and no hooks/curl files — but the anchor is written.
         assert!(!worktree.join(PROMPT_FILE).exists());

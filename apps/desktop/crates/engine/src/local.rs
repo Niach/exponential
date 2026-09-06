@@ -131,6 +131,17 @@ pub enum PlanEntryStatusView {
 /// `_meta.subagentId` instead, which becomes `Tool { subagentId }`.
 pub const SUBAGENT_META_KEY: &str = "exponentialSubagent";
 
+/// The `_meta` key on a `ToolCall` (or the notification carrying it) naming
+/// the subagent the call belongs to; it becomes `Tool { subagentId }` and must
+/// equal the edge's `id` above.
+pub const SUBAGENT_ID_META_KEY: &str = "subagentId";
+
+/// The `_meta` key on a `CompactionUpdate` (or the notification carrying it)
+/// naming what triggered the compaction — ACP has no field for it. Folded by
+/// `steer::normalize_compaction_trigger` (`manual` stays, everything else is
+/// `auto`).
+pub const COMPACTION_TRIGGER_META_KEY: &str = "trigger";
+
 /// One subagent lifecycle edge. Deliberately tiny: the relay vocabulary has
 /// exactly `{id, agentType, status, detail?}` and nothing an adapter adds
 /// beyond that could be rendered anywhere.
@@ -190,8 +201,12 @@ impl SubagentEdge {
         if id.is_empty() {
             return None;
         }
+        // The relay knows two states; an adapter's failed/cancelled edge is
+        // a subagent that is no longer running, i.e. completed.
         let status = match edge.get("status").and_then(serde_json::Value::as_str) {
-            Some("completed") => SubagentEdgeStatus::Completed,
+            Some("completed" | "failed" | "cancelled" | "stopped" | "ended") => {
+                SubagentEdgeStatus::Completed
+            }
             _ => SubagentEdgeStatus::Started,
         };
         Some(SubagentEdge {

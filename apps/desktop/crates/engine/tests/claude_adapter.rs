@@ -184,6 +184,7 @@ fn spec(scenario: &str, work: &Path, plan_mode: bool) -> AdapterSpec {
         resume: None,
         personal_key: Some("expu_test-key".to_string()),
         reaper_settings_path: Some(work.join("claude-hooks/1/row-1.settings.json")),
+        exit: engine::ChildExitLink::new(),
     }
 }
 

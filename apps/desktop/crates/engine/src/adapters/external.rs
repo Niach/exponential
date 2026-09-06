@@ -213,6 +213,7 @@ mod tests {
             resume: None,
             personal_key: None,
             reaper_settings_path: None,
+            exit: crate::ChildExitLink::new(),
         };
         assert!(matches!(
             ExternalAgent::new(spec),

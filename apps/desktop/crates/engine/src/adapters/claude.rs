@@ -64,16 +64,20 @@ use super::AdapterSpec;
 use crate::session::{EngineError, ResumeHandle};
 use crate::transport::{spawn_lines, ChildLines, StderrPolicy};
 
-/// `_meta` key carrying a subagent edge. ACP v1 has no subagent update, and
-/// the relay's `subagent` card predates ACP by a year, so the adapter stamps
-/// the edge onto a no-op `ToolCallUpdate` for the spawning tool call and the
+/// `_meta` key carrying a subagent edge — the engine's own
+/// [`crate::SUBAGENT_META_KEY`]. ACP v1 has no subagent update, and the
+/// relay's `subagent` card predates ACP by a year, so the adapter stamps the
+/// edge onto a no-op `ToolCallUpdate` for the spawning tool call and the
 /// engine's mapper reads it back out. Shape:
-/// `{"id": <task id>, "agentType": <subagent type>, "status": started|completed|failed}`.
-pub const SUBAGENT_META_KEY: &str = "exp/subagent";
+/// `{"id": <spawning tool_use id>, "agentType": <subagent type>, "status": started|completed|failed}`.
+/// The id is the SPAWNING TOOL CALL (falling back to claude's task id) so it
+/// matches the `subagentId` its nested tool calls carry — the PTY path's
+/// `attribute_to_card` remap, done at the source.
+pub use crate::local::SUBAGENT_META_KEY;
 
-/// `_meta` key carrying the tool call a message or tool call belongs to, when
-/// it belongs to a subagent's nested run (claude's `parent_tool_use_id`).
-pub const PARENT_TOOL_CALL_META_KEY: &str = "exp/parentToolCallId";
+/// `_meta` key naming the subagent a message or tool call belongs to
+/// (claude's `parent_tool_use_id`) — the engine's `subagentId`.
+pub use crate::local::SUBAGENT_ID_META_KEY as PARENT_TOOL_CALL_META_KEY;
 
 /// The subagents the CLI ships. They are spawned by the model, never picked
 /// for the main thread, so the `agent` option offers only what the user (or a
@@ -474,6 +478,7 @@ impl ClaudeSession {
             Error::internal_error()
                 .data(json!({ "reason": format!("could not start claude: {error}") }))
         })?);
+        child.forward_exit(&self.spec.exit);
         {
             let mut state = self.lock();
             state.child = Some(child.clone());
@@ -1033,14 +1038,14 @@ impl ClaudeSession {
         agent_type: Option<&str>,
         status: &str,
     ) {
-        let mut meta = Map::new();
-        meta.insert(
-            SUBAGENT_META_KEY.to_string(),
-            json!({ "id": task_id, "agentType": agent_type, "status": status }),
-        );
         // The edge rides a no-op patch of the tool call that spawned the
         // subagent, so a client that ignores the meta sees nothing at all.
         let id = tool_use_id.unwrap_or(task_id);
+        let mut meta = Map::new();
+        meta.insert(
+            SUBAGENT_META_KEY.to_string(),
+            json!({ "id": id, "agentType": agent_type, "status": status }),
+        );
         self.notify_meta(
             cx,
             SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
@@ -1195,7 +1200,7 @@ impl ClaudeSession {
                 state.usage = wire::TokenSnapshot { input: post_tokens, ..Default::default() };
                 drop(state);
                 let mut meta = Map::new();
-                meta.insert("trigger".to_string(), json!(trigger));
+                meta.insert(crate::local::COMPACTION_TRIGGER_META_KEY.to_string(), json!(trigger));
                 self.notify_meta(
                     cx,
                     SessionUpdate::CompactionUpdate(CompactionUpdate::new(

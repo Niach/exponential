@@ -62,7 +62,7 @@ pub const COMPACTION_MAX: Duration = Duration::from_secs(300);
 
 /// The `_meta` key an adapter stamps a subagent edge under (see
 /// [`SubagentEdge`]).
-pub use crate::local::SUBAGENT_META_KEY;
+pub use crate::local::{COMPACTION_TRIGGER_META_KEY, SUBAGENT_ID_META_KEY, SUBAGENT_META_KEY};
 
 /// Everything the mapper needs that is constant for a session.
 pub struct MapperConfig {
@@ -286,10 +286,14 @@ impl Mapper {
 
     /// The main path: one `session/update` notification.
     pub fn on_update(&mut self, notification: &SessionNotification, out: &mut MapOut) {
+        // An adapter stamps its `_meta` on whichever carrier is natural to it:
+        // the notification (claude, whose edges ride no-op patches) or the
+        // update itself (codex, whose edges ride the subagent's own card).
         if let Some(edge) = notification
             .meta
             .as_ref()
             .and_then(SubagentEdge::from_meta)
+            .or_else(|| update_meta(&notification.update).and_then(SubagentEdge::from_meta))
         {
             self.on_subagent(&edge, out);
         }
@@ -315,7 +319,9 @@ impl Mapper {
                     self.emit_thought(&flushed, out);
                 }
             }
-            SessionUpdate::ToolCall(call) => self.on_tool_call(call, out),
+            SessionUpdate::ToolCall(call) => {
+                self.on_tool_call(call, notification.meta.as_ref(), out)
+            }
             SessionUpdate::ToolCallUpdate(update) => self.on_tool_call_update(update, out),
             SessionUpdate::Plan(plan) => {
                 let entries = plan
@@ -379,7 +385,8 @@ impl Mapper {
                 let trigger = notification
                     .meta
                     .as_ref()
-                    .and_then(|meta| meta.get("trigger"))
+                    .or(defined(&update.meta))
+                    .and_then(|meta| meta.get(COMPACTION_TRIGGER_META_KEY))
                     .and_then(Value::as_str);
                 match update.status {
                     CompactionStatus::InProgress => self.start_compaction(trigger, out),
@@ -769,13 +776,21 @@ impl Mapper {
         steer::synthetic_question_id(&self.config.session_seed, kind, text, self.ordinal)
     }
 
-    fn on_tool_call(&mut self, call: &ToolCall, out: &mut MapOut) {
+    /// `notification_meta`: the carrying notification's `_meta`, the other
+    /// place an adapter may name the owning subagent.
+    fn on_tool_call(
+        &mut self,
+        call: &ToolCall,
+        notification_meta: Option<&BTreeMapLike>,
+        out: &mut MapOut,
+    ) {
         self.flush_all(out);
         let id = steer::truncate(&call.tool_call_id.0, ID_MAX);
         let subagent_id = call
             .meta
             .as_ref()
             .and_then(subagent_id_from_meta)
+            .or_else(|| notification_meta.and_then(subagent_id_from_meta))
             .map(|id| steer::truncate(&id, ID_MAX));
         let detail = self.tool_detail(call.kind, &call.locations, call.raw_input.as_ref());
         emit(
@@ -1530,10 +1545,29 @@ fn content_text(content: &[ToolCallContent]) -> String {
 }
 
 fn subagent_id_from_meta(meta: &BTreeMapLike) -> Option<String> {
-    meta.get("subagentId")
+    meta.get(SUBAGENT_ID_META_KEY)
         .or_else(|| meta.get("subagent_id"))
         .and_then(Value::as_str)
         .map(str::to_string)
+}
+
+/// The `_meta` of the update a notification carries, for the variants an
+/// adapter may stamp instead of the notification itself.
+fn update_meta(update: &SessionUpdate) -> Option<&BTreeMapLike> {
+    match update {
+        SessionUpdate::ToolCall(call) => call.meta.as_ref(),
+        SessionUpdate::ToolCallUpdate(update) => update.meta.as_ref(),
+        SessionUpdate::CompactionUpdate(update) => defined(&update.meta),
+        _ => None,
+    }
+}
+
+/// A patch-shaped field (`MaybeUndefined`) read as plain presence.
+fn defined<T>(value: &agent_client_protocol::schema::MaybeUndefined<T>) -> Option<&T> {
+    match value {
+        agent_client_protocol::schema::MaybeUndefined::Value(value) => Some(value),
+        _ => None,
+    }
 }
 
 /// ACP's `_meta` is a `serde_json::Map`; named so the helper above reads.

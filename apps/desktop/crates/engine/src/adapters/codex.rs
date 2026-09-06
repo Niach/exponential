@@ -139,6 +139,9 @@ pub struct CodexAgent {
 impl CodexAgent {
     pub fn new(spec: AdapterSpec) -> Result<CodexAgent, EngineError> {
         let connection = CodexConnection::spawn(&spec.spawn).map_err(EngineError::Spawn)?;
+        if let Some(exit) = &connection.exit {
+            crate::transport::forward_exit(exit.clone(), spec.exit.clone());
+        }
         Ok(CodexAgent {
             spec,
             connection,
@@ -1792,17 +1795,15 @@ fn subagent(
     activity: &str,
 ) -> Vec<SessionUpdate> {
     // ACP v1 has no subagent update, so the edge rides `_meta` on the tool
-    // card the subagent already produces. EXP-746: the engine mapper reads
-    // `_meta.exp.subagent` and publishes the relay `subagent` kind from it.
+    // card the subagent already produces, under the engine's own key: the
+    // mapper reads it off the card and publishes the relay `subagent` kind.
     let mut meta = serde_json::Map::new();
     meta.insert(
-        "exp".to_string(),
+        crate::local::SUBAGENT_META_KEY.to_string(),
         json!({
-            "subagent": {
-                "id": thread,
-                "agentType": short_name(agent_type),
-                "status": if completed || activity == "completed" { "completed" } else { "started" },
-            }
+            "id": thread,
+            "agentType": short_name(agent_type),
+            "status": if completed || activity == "completed" { "completed" } else { "started" },
         }),
     );
     let known = items.has_card(id);
@@ -2534,7 +2535,7 @@ mod tests {
         // engine mapper to publish as the relay `subagent` kind.
         let meta = call.meta.expect("subagent meta");
         assert_eq!(
-            meta.get("exp").and_then(|exp| exp.get("subagent")),
+            meta.get("exponentialSubagent"),
             Some(&json!({ "id": "thread_9", "agentType": "reviewer", "status": "started" }))
         );
     }

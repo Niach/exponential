@@ -17,6 +17,8 @@ use std::sync::{Arc, Mutex};
 use terminal::process::background_command;
 use terminal::pty::{login_path, ChildExit, SpawnSpec};
 
+use crate::host::ChildExitLink;
+
 /// What to do with the child's stderr. Agent CLIs log diagnostics there and
 /// a wedged one can produce a lot of it, so nothing is ever buffered for
 /// replay: it is either dropped at the OS level or logged line by line.
@@ -44,6 +46,29 @@ pub struct ChildLines {
     /// The child's pid — log lines and the reaper's protection checks.
     pub pid: u32,
     _guard: ChildGuard,
+}
+
+impl ChildLines {
+    /// Forward the one-shot exit into the engine's [`ChildExitLink`], so the
+    /// end sequence publishes `exit:<code>` as the bye outcome instead of a
+    /// plain `ended`. The forwarder is the ONE consumer of `exit` (flume hands
+    /// each message to a single receiver): an adapter that wants the code too
+    /// reads the link, never a second clone of the receiver.
+    pub fn forward_exit(&self, link: &ChildExitLink) {
+        forward_exit(self.exit.clone(), link.clone());
+    }
+}
+
+/// [`ChildLines::forward_exit`] for a receiver already split off its
+/// `ChildLines` (the codex router owns that child whole).
+pub fn forward_exit(exit: flume::Receiver<ChildExit>, link: ChildExitLink) {
+    let _ = std::thread::Builder::new()
+        .name("exit-forward".to_string())
+        .spawn(move || {
+            if let Ok(exit) = exit.recv() {
+                link.record(exit);
+            }
+        });
 }
 
 /// Clonable, mutex-serialized stdin. An adapter writes from the connection

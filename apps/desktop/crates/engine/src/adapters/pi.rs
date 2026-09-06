@@ -62,14 +62,15 @@ use crate::transport::{spawn_lines, ChildLines, StderrPolicy};
 /// ACP `SessionId` alone cannot carry it for agents whose native identity is
 /// a different shape. For pi the two coincide (both are the session FILE),
 /// which is exactly why a resumed pi run re-enters through either recorded
-/// field.
-pub const NATIVE_SESSION_META_KEY: &str = "exp.nativeSessionId";
+/// field. The key is the engine's own ([`crate::NATIVE_SESSION_META_KEY`]).
+pub use crate::host::NATIVE_SESSION_META_KEY;
 
 /// Where an adapter reports a compaction's TRIGGER, which ACP's
 /// `CompactionUpdate` has no field for. The mapper folds it with
 /// `steer::normalize_compaction_trigger` (`manual` stays manual, everything
-/// else is `auto`), so pi's `threshold`/`overflow` land as `auto`.
-pub const COMPACTION_TRIGGER_META_KEY: &str = "exp.compactionTrigger";
+/// else is `auto`), so pi's `threshold`/`overflow` land as `auto`. The key is
+/// the engine's own ([`crate::COMPACTION_TRIGGER_META_KEY`]).
+pub use crate::local::COMPACTION_TRIGGER_META_KEY;
 
 /// Config option ids. Stable strings: they key the relay `config_state`
 /// options AND the `set_config` frames every client sends back.
@@ -96,6 +97,7 @@ impl PiAgent {
         // has nothing in common with the TUI one.
         spawn.args = pi_argv_for(&spec);
         let child = spawn_lines(&spawn, StderrPolicy::Log)?;
+        child.forward_exit(&spec.exit);
         log::info!(
             "engine: pi rpc child {} started for session {}",
             child.pid,
@@ -1569,7 +1571,7 @@ mod tests {
         let meta = trigger_meta(Some("threshold")).expect("a reason produces meta");
         assert_eq!(
             serde_json::to_value(&meta).expect("meta serializes"),
-            json!({ "exp.compactionTrigger": "threshold" })
+            json!({ "trigger": "threshold" })
         );
         assert!(trigger_meta(None).is_none());
     }
@@ -1592,6 +1594,7 @@ mod tests {
             resume: Some(ResumeHandle::PiSessionFile(PathBuf::from("/s/run.jsonl"))),
             personal_key: None,
             reaper_settings_path: None,
+            exit: crate::ChildExitLink::new(),
         };
         assert_eq!(
             pi_argv_for(&spec),

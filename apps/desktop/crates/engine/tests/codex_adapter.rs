@@ -226,6 +226,7 @@ fn spec() -> engine::adapters::AdapterSpec {
         resume: None,
         personal_key: Some("expu_test".to_string()),
         reaper_settings_path: None,
+        exit: engine::ChildExitLink::new(),
     }
 }
 
