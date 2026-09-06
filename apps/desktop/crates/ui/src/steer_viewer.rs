@@ -2890,7 +2890,8 @@ impl SteerSessionView {
         // that ended with NOTHING to show says why: its transcript is not on
         // this machine (it ran on the terminal transport, or elsewhere), and
         // an ended session's relay room is gone.
-        if self.source.read_only() {
+        // Once the replay has ended, the ended banner below says it all.
+        if self.source.read_only() && !matches!(self.phase, ViewerPhase::Ended { .. }) {
             banners.push(banner(REPLAY_BANNER.to_string()));
         } else if self.feed.is_empty() && !self.is_local() && self.session_over() {
             banners.push(banner(REPLAY_EMPTY_BANNER.to_string()));

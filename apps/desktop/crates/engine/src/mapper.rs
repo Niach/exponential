@@ -308,13 +308,21 @@ impl Mapper {
         {
             self.on_subagent(&edge, out);
         }
+        // The three coalescers join chunks of ONE message each; a chunk of
+        // another kind ends whatever the other two hold, so a replay (or any
+        // burst inside one flush window) keeps its user → thought → message
+        // interleaving instead of grouping by kind at the next flush.
         match &notification.update {
             SessionUpdate::UserMessageChunk(chunk) => {
+                self.flush_message(out);
+                self.flush_thought(out);
                 if let Some(text) = self.user.push(message_id(chunk), &chunk_text(chunk)) {
                     self.emit_user(&text, out);
                 }
             }
             SessionUpdate::AgentMessageChunk(chunk) => {
+                self.flush_user(out);
+                self.flush_thought(out);
                 if let Some(text) = self.message.push(message_id(chunk), &chunk_text(chunk)) {
                     self.emit_narration(&text, out);
                 }
@@ -326,6 +334,8 @@ impl Mapper {
                 if text.trim().is_empty() {
                     return;
                 }
+                self.flush_user(out);
+                self.flush_message(out);
                 if let Some(flushed) = self.thought.push(message_id(chunk), &text) {
                     self.emit_thought(&flushed, out);
                 }
@@ -743,12 +753,24 @@ impl Mapper {
     // -- internals ---------------------------------------------------------
 
     fn flush_all(&mut self, out: &mut MapOut) {
+        self.flush_message(out);
+        self.flush_thought(out);
+        self.flush_user(out);
+    }
+
+    fn flush_message(&mut self, out: &mut MapOut) {
         if let Some(text) = self.message.take() {
             self.emit_narration(&text, out);
         }
+    }
+
+    fn flush_thought(&mut self, out: &mut MapOut) {
         if let Some(text) = self.thought.take() {
             self.emit_thought(&text, out);
         }
+    }
+
+    fn flush_user(&mut self, out: &mut MapOut) {
         if let Some(text) = self.user.take() {
             self.emit_user(&text, out);
         }
@@ -1857,6 +1879,34 @@ mod tests {
             other.wire.iter().filter(|event| matches!(event, ActivityEvent::UserMessage { .. })).count(),
             1
         );
+    }
+
+    /// A replay (or any burst inside one flush window) delivers user,
+    /// thought and message chunks back to back: the wire keeps that order
+    /// instead of grouping the three coalescers' contents by kind.
+    #[test]
+    fn chunks_of_different_kinds_keep_their_arrival_order() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let user = ContentChunk::new(ContentBlock::Text(TextContent::new("fix the login bug")));
+        let thought = ContentChunk::new(ContentBlock::Text(TextContent::new("Planning the fix")));
+        let message = ContentChunk::new(ContentBlock::Text(TextContent::new("On it.")));
+        mapper.on_update(&notify(SessionUpdate::UserMessageChunk(user)), &mut out);
+        mapper.on_update(&notify(SessionUpdate::AgentThoughtChunk(thought)), &mut out);
+        mapper.on_update(&notify(SessionUpdate::AgentMessageChunk(message)), &mut out);
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        let kinds: Vec<String> = out
+            .wire
+            .iter()
+            .map(|event| serde_json::to_value(event).unwrap()["kind"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(kinds, vec!["user_message", "narration", "narration"], "{:?}", out.wire);
+        let texts: Vec<String> = out
+            .wire
+            .iter()
+            .map(|event| serde_json::to_value(event).unwrap()["text"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(texts, vec!["fix the login bug", "Planning the fix", "On it."]);
     }
 
     #[test]
