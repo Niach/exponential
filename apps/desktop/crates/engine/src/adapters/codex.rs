@@ -2011,11 +2011,20 @@ async fn on_server_request(shared: &Arc<Shared>, cx: &ConnectionTo<Client>, requ
         "item/permissions/requestApproval" => {
             codex_wire::permission_approval_choices(&request.params)
         }
-        "item/tool/requestUserInput" | "mcpServer/elicitation/request" => {
-            // Both are questions rather than approvals; the ONE stepper the
-            // relay renders lives in the engine mapper, so they ride the same
-            // permission request with one option per answer.
+        "item/tool/requestUserInput" => {
+            // A question rather than an approval: the ONE stepper the relay
+            // renders lives in the engine mapper, so each question rides its
+            // own permission request with one option per offered answer.
             question(shared, cx, &key, &request).await;
+            return;
+        }
+        "mcpServer/elicitation/request" => {
+            // An MCP server asking the user something. Exponential's own MCP
+            // server never elicits, and answering with a made-up shape is
+            // worse than declining, so this one is declined with a log line
+            // until a server that needs it exists.
+            log::debug!("engine: codex mcp elicitation declined (unsupported)");
+            answer(shared, &key, &request, codex_wire::cancel_result(&request.method));
             return;
         }
         // An approval kind we do not know cannot be answered honestly.
@@ -2104,8 +2113,8 @@ fn approval_card(request: &ServerRequest) -> ToolCallUpdate {
     )
 }
 
-/// `item/tool/requestUserInput` (and an MCP server's elicitation) as a
-/// permission request per question: one card, one option per offered answer.
+/// `item/tool/requestUserInput` as a permission request per question: one
+/// card, one option per offered answer.
 /// `autoResolutionMs` races the person — codex resolves the request itself
 /// when it expires, so an answer that arrives late must not be sent.
 async fn question(
