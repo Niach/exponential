@@ -139,6 +139,23 @@ pub struct RunningSession {
 }
 
 impl RunningSession {
+    /// EXP-746: whether the local attach is the raw byte tee (PTY) or the
+    /// line transcript + line composer (ACP) — `code` and `run` pick their
+    /// attach with it.
+    pub fn attaches_by_line(&self) -> bool {
+        self.backend.kind().steers_by_message()
+    }
+
+    /// Whether raw stdin bytes reach the agent at all.
+    pub fn supports_stdin(&self) -> bool {
+        self.backend.kind().supports_stdin()
+    }
+
+    /// Whether the agent has a grid whose geometry can change.
+    pub fn supports_resize(&self) -> bool {
+        self.backend.kind().supports_resize()
+    }
+
     /// Block until the agent child exits.
     pub fn wait(&self) -> ChildExit {
         match &self.backend {
@@ -190,6 +207,7 @@ impl RunningSession {
     /// attach composes whole messages with [`RunningSession::send_prompt`].
     pub fn write_stdin(&self, bytes: &[u8]) {
         let Backend::Pty { writer, .. } = &self.backend else {
+            debug_assert!(!self.supports_stdin());
             return;
         };
         if let Ok(mut writer) = writer.lock() {
@@ -201,6 +219,7 @@ impl RunningSession {
     /// A no-op on the ACP arm — it has no grid.
     pub fn resize(&self, cols: u16, rows: u16) {
         let Backend::Pty { control_tx, .. } = &self.backend else {
+            debug_assert!(!self.supports_resize());
             return;
         };
         let _ = control_tx.send(Control::Resize(cols, rows));
