@@ -8,8 +8,7 @@
 //! shape directly (EXP-485).
 
 use gpui::{
-    AppContext as _, Entity, IntoElement, ParentElement, Render, ScrollHandle, Styled, Subscription,
-    Window,
+    AppContext as _, Entity, IntoElement, ParentElement, Render, ScrollHandle, Subscription, Window,
 };
 
 use crate::actions_view::page_scaffold;
@@ -56,10 +55,11 @@ impl Render for DevicesView {
         page_scaffold(
             "devices-screen-scroll",
             &self.scroll,
-            // Both run sections render NOTHING while they are empty, so a
-            // machine-only page reads exactly as it did before EXP-746.
+            // No `gap` here: both run sections render NOTHING while they are
+            // empty and carry their own 24px top margin when they do not, so
+            // a machine-only page reads exactly as it did before EXP-746
+            // instead of growing two empty gaps under the list.
             gpui_component::v_flex()
-                .gap_6()
                 .child(self.machines.clone())
                 .child(self.running.clone())
                 .child(self.past.clone()),

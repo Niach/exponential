@@ -178,26 +178,34 @@ pub(crate) fn render_run_row(spec: RunRowSpec<'_>, cx: &App) -> gpui::AnyElement
         .when_some(kill, |this, kill| {
             let on_kill = std::rc::Rc::new(kill.on_kill);
             let label = kill.label.clone();
-            this.child(
-                crate::controls::glass_icon_button(
-                    (SharedString::from(format!("{id_prefix}-menu")), index),
-                    Icon::from(registry::UI_MORE),
-                    cx,
-                )
-                .dropdown_menu(move |menu, _window, cx| {
-                    let on_kill = on_kill.clone();
-                    menu.item(
-                        crate::controls::danger_menu_item(
-                            label.clone(),
-                            Icon::from(registry::CODING_STOP),
-                            cx,
-                        )
-                        .on_click(move |event, window, cx| {
-                            cx.stop_propagation();
-                            on_kill(event, window, cx);
-                        }),
+            let menu = crate::controls::glass_icon_button(
+                (SharedString::from(format!("{id_prefix}-menu")), index),
+                Icon::from(registry::UI_MORE),
+                cx,
+            )
+            .dropdown_menu(move |menu, _window, cx| {
+                let on_kill = on_kill.clone();
+                menu.item(
+                    crate::controls::danger_menu_item(
+                        label.clone(),
+                        Icon::from(registry::CODING_STOP),
+                        cx,
                     )
-                }),
+                    .on_click(move |event, window, cx| {
+                        cx.stop_propagation();
+                        on_kill(event, window, cx);
+                    }),
+                )
+            });
+            // The card under the menu may be clickable: opening the menu must
+            // not also open the session. The wrapper's bubble-phase handler
+            // runs after the popover's own, so the menu still opens.
+            this.child(
+                div()
+                    .id((SharedString::from(format!("{id_prefix}-menu-stop")), index))
+                    .flex_shrink_0()
+                    .on_click(|_, _, cx| cx.stop_propagation())
+                    .child(menu),
             )
         });
     let summary_id = session_id.clone();

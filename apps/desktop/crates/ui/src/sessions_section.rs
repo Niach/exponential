@@ -20,7 +20,7 @@
 use std::collections::HashSet;
 
 use gpui::{
-    div, App, Entity, Hsla, IntoElement, ParentElement, Render, SharedString, Styled, Subscription,
+    App, Entity, Hsla, IntoElement, ParentElement, Render, SharedString, Styled, Subscription,
     Window,
 };
 use gpui_component::{button::ButtonVariant, v_flex, ActiveTheme as _};
@@ -218,7 +218,7 @@ impl Render for RunningSessionsSection {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let rows = self.rows(cx);
         if rows.is_empty() {
-            return div();
+            return v_flex();
         }
         // NO gap on the headed section (EXP-697): the header's `pb_2` IS the
         // 8px to the list, so the rows live in their own gapped column.
@@ -268,12 +268,14 @@ impl Render for RunningSessionsSection {
                 cx,
             ));
         }
-        div().child(
-            v_flex()
-                .min_w_0()
-                .child(glass_section_header("Running", None, cx))
-                .child(column),
-        )
+        // The section carries its OWN top spacing (the page column has no
+        // `gap`): a `gap_6` parent would reserve 24px for an empty section
+        // too, and both of these render nothing most of the time.
+        v_flex()
+            .min_w_0()
+            .mt_6()
+            .child(glass_section_header("Running", None, cx))
+            .child(column)
     }
 }
 
@@ -376,7 +378,7 @@ impl Render for PastSessionsSection {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let rows = self.rows(cx);
         if rows.is_empty() {
-            return div();
+            return v_flex();
         }
         let mut column = v_flex().min_w_0().gap_2();
         for (index, row) in rows.iter().enumerate() {
@@ -424,13 +426,12 @@ impl Render for PastSessionsSection {
                 cx,
             ));
         }
-        div().child(
-            v_flex()
-                .min_w_0()
-                // ×4 copy: the section is "Past" on every client.
-                .child(glass_section_header("Past", None, cx))
-                .child(column),
-        )
+        v_flex()
+            .min_w_0()
+            .mt_6()
+            // ×4 copy: the section is "Past" on every client.
+            .child(glass_section_header("Past", None, cx))
+            .child(column)
     }
 }
 
