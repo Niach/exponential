@@ -60,6 +60,21 @@ impl Run {
         self.argv.get(at + 1).map(String::as_str)
     }
 
+    /// The subagent edges the adapter stamped on its no-op tool-call patches,
+    /// as `(spawning tool call, status)` in the order the client saw them.
+    fn subagent_edges(&self) -> Vec<(String, String)> {
+        self.updates
+            .iter()
+            .filter_map(|notification| {
+                let edge = notification.meta.as_ref()?.get("exponentialSubagent")?;
+                Some((
+                    edge.get("id")?.as_str()?.to_string(),
+                    edge.get("status")?.as_str()?.to_string(),
+                ))
+            })
+            .collect()
+    }
+
     /// The control responses the adapter wrote back to claude.
     fn control_responses(&self) -> Vec<&Value> {
         self.stdin
@@ -971,4 +986,91 @@ async fn the_child_going_away_closes_the_connection_with_its_exit_code() {
     // And it closed LATE enough for the exit code to be on the link: the end
     // sequence turns this into the `exit:3` bye rather than a bare `ended`.
     assert_eq!(exit.get().map(|exit| exit.code), Some(3));
+}
+
+/// EXP-753 — subagent attribution, end to end, off a LIVE recording.
+///
+/// Two facts the `subagent/` capture settles, because neither is documented
+/// anywhere the CLI publishes:
+///
+/// 1. `can_use_tool.agent_id` IS the `task_id` of the earlier
+///    `system/task_started` — measured, not inferred. That is the whole
+///    reason a permission raised inside a subagent can be attributed at all:
+///    the id resolves to the task, and the task carries the `tool_use_id` of
+///    the Task call every nested row already names.
+/// 2. The terminal `task_updated`/`task_notification` pair arrives BEFORE the
+///    turn's `result`, and the CLI streams no prose of its own for a
+///    subagent (its report rides `task_notification.summary`), so the only
+///    nested rows here are the prompt it was handed and its Bash call.
+#[tokio::test]
+async fn a_subagents_permission_chunks_and_edges_carry_the_parent_tool_use() {
+    let work = workdir("subagent");
+    let run = drive(
+        "subagent",
+        &work.0,
+        "Use the Task tool to launch one subagent that appends probe to probe.txt.",
+        false,
+        pick("allow-once"),
+        cancel_elicitations(),
+    )
+    .await;
+
+    assert_eq!(run.stop_reason, StopReason::EndTurn);
+    // The Task tool call the whole subagent hangs off: what the edge is keyed
+    // on and what every row it produced names.
+    let parent = "toolu_01R79m5CpGKpY22SFu6n5MSZ";
+    // Both terminal frames report the same completion, so the edge is
+    // published twice — a client keyed on the id folds them into one card.
+    assert_eq!(
+        run.subagent_edges(),
+        vec![
+            (parent.to_string(), "started".to_string()),
+            (parent.to_string(), "completed".to_string()),
+            (parent.to_string(), "completed".to_string()),
+        ]
+    );
+
+    let nested: Vec<(String, String)> = run
+        .updates
+        .iter()
+        .filter_map(|notification| {
+            let id = notification.meta.as_ref()?.get("subagentId")?.as_str()?.to_string();
+            Some((shape(&notification.update), id))
+        })
+        .collect();
+    assert!(nested.iter().all(|(_, id)| id == parent), "{nested:?}");
+    let shapes: Vec<&str> = nested.iter().map(|(shape, _)| shape.as_str()).collect();
+    assert_eq!(shapes.len(), 3, "{nested:?}");
+    assert!(shapes[0].starts_with("user:Your only job"), "{shapes:?}");
+    assert_eq!(shapes[1], "tool:echo probe >> probe.txt");
+    assert_eq!(shapes[2], "tool_update:Completed");
+
+    // The permission raised INSIDE the subagent names it too, without losing
+    // the `permission` meta it already carried.
+    let permission = run.permissions.first().expect("the subagent's permission");
+    let meta = permission.tool_call.meta.as_ref().expect("the permission carries meta");
+    assert_eq!(meta.get("subagentId"), Some(&serde_json::json!(parent)));
+    assert_eq!(
+        meta.get("permission").and_then(|meta| meta.get("description")),
+        Some(&serde_json::json!("Append probe to probe.txt"))
+    );
+
+    // The completed edge reaches the client BEFORE the run ends: the terminal
+    // `task_notification` publishes it and only then settles the turn it was
+    // deferring, so a client never sees a prompt finish with the subagent
+    // card still spinning.
+    let completed = run
+        .updates
+        .iter()
+        .position(|notification| {
+            notification
+                .meta
+                .as_ref()
+                .and_then(|meta| meta.get("exponentialSubagent"))
+                .and_then(|edge| edge.get("status"))
+                .and_then(Value::as_str)
+                == Some("completed")
+        })
+        .expect("a completed edge");
+    assert!(completed < run.updates.len() - 1, "{completed} of {}", run.updates.len());
 }

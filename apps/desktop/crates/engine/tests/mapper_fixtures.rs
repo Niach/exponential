@@ -527,3 +527,30 @@ fn every_wire_string_is_capped() {
         }
     }
 }
+
+
+/// EXP-753 — a subagent's edge and the rows it produced name the SAME id.
+///
+/// The claude adapter rides the edge on a no-op patch of the Task call that
+/// spawned the subagent and stamps `subagentId` on everything that subagent
+/// did, so a client can nest the rows under the card without a second
+/// lookup; this replays that shape through the mapper and locks the wire.
+#[test]
+fn subagent_edges_and_their_tool_rows_carry_the_parent_id() {
+    assert_eq!(
+        wire("subagent.jsonl"),
+        vec![
+            // The Task call itself is an ordinary tool row: the edge that
+            // follows is what turns it into a subagent card.
+            json!({"kind": "tool", "name": "Find the failing test"}),
+            json!({"kind": "subagent", "id": "tc-parent", "agentType": "explore", "status": "started"}),
+            // What the subagent ran, attributed to the card, never a top-level
+            // row of its own.
+            json!({"kind": "tool", "name": "Bash", "detail": "bun", "subagentId": "tc-parent"}),
+            // EXP-748 put `toolCalls` on the edge contract and the fixture's
+            // meta carries it; `Mapper::on_subagent` still emits `None`, so
+            // the wire row gains the count the day the mapper counts.
+            json!({"kind": "subagent", "id": "tc-parent", "agentType": "explore", "status": "completed"}),
+        ]
+    );
+}

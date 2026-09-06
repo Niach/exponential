@@ -1,0 +1,5 @@
+{"sessionId":"acp-1","update":{"sessionUpdate":"tool_call","toolCallId":"tc-parent","title":"Find the failing test","kind":"think","status":"in_progress","content":[],"locations":[],"rawInput":{"subagent_type":"explore","prompt":"Find the failing test"}}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"tool_call_update","toolCallId":"tc-parent"},"_meta":{"exponentialSubagent":{"id":"tc-parent","agentType":"explore","status":"started"}}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"tool_call","toolCallId":"tc-child","title":"Run the tests","kind":"execute","status":"in_progress","content":[],"locations":[],"rawInput":{"command":"bun run test"}},"_meta":{"subagentId":"tc-parent"}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"tool_call_update","toolCallId":"tc-child","status":"completed","content":[{"type":"content","content":{"type":"text","text":"12 passed"}}]},"_meta":{"subagentId":"tc-parent"}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"tool_call_update","toolCallId":"tc-parent"},"_meta":{"exponentialSubagent":{"id":"tc-parent","agentType":"explore","status":"completed","toolCalls":1}}}

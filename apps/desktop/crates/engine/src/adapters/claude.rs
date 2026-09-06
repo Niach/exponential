@@ -1318,13 +1318,25 @@ impl ClaudeSession {
             }
             SystemSubtype::TaskNotification | SystemSubtype::TaskUpdated => {
                 let Some(task_id) = system.task_id.clone() else { return };
+                // `task_notification` puts the status in the TYPED `status`
+                // field (`system/status` shares the name), `task_updated`
+                // inside its `patch` — reading only the flattened extras saw
+                // neither, so a completed task stayed live forever and the
+                // turn it deferred never settled (EXP-753).
                 let status = system
-                    .extra
-                    .get("status")
-                    .or_else(|| system.extra.get("patch").and_then(|patch| patch.get("status")))
-                    .and_then(Value::as_str)
-                    .unwrap_or("running")
-                    .to_string();
+                    .status
+                    .clone()
+                    .or_else(|| {
+                        system
+                            .extra
+                            .get("status")
+                            .or_else(|| {
+                                system.extra.get("patch").and_then(|patch| patch.get("status"))
+                            })
+                            .and_then(Value::as_str)
+                            .map(str::to_string)
+                    })
+                    .unwrap_or_else(|| "running".to_string());
                 let terminal = matches!(status.as_str(), "completed" | "failed" | "cancelled");
                 let mut state = self.lock();
                 let (tool_use_id, subagent_type) = match state.tasks.get_mut(&task_id) {
@@ -1334,10 +1346,11 @@ impl ClaudeSession {
                     }
                     None => (None, None),
                 };
-                if terminal {
-                    self.settle_deferred(&mut state);
-                }
                 drop(state);
+                // The edge goes out BEFORE the settle it unblocks: settling
+                // first ends the `session/prompt`, and a client that renders
+                // the subagent card off the edge would see the run finish
+                // with that card still spinning (EXP-753).
                 self.publish_subagent(
                     cx,
                     &task_id,
@@ -1345,6 +1358,10 @@ impl ClaudeSession {
                     subagent_type.as_deref(),
                     &status,
                 );
+                if terminal {
+                    let mut state = self.lock();
+                    self.settle_deferred(&mut state);
+                }
             }
             SystemSubtype::CommandsChanged => {
                 let commands = system
@@ -1924,19 +1941,48 @@ impl ClaudeSession {
             .locations(info.locations)
             .raw_input(request.input.clone());
         let mut tool_call = ToolCallUpdate::new(ToolCallId::new(tool_use_id), fields);
+        let mut meta = Map::new();
         // `decision_reason_type` says WHY the CLI is asking under a mode that
         // normally would not (`safetyCheck` is the bypass-immune one).
         if let Some(description) = request.description.clone().or_else(|| {
             request.decision_reason_type.clone().map(|reason| format!("Reason: {reason}"))
         }) {
-            let mut meta = Map::new();
             meta.insert(
                 "permission".to_string(),
                 json!({ "version": 1, "description": description }),
             );
+        }
+        // A permission raised INSIDE a subagent belongs to that subagent's
+        // card, exactly like the chunks and tool calls around it.
+        if let Some(parent) = self.subagent_parent(request.agent_id.as_deref()) {
+            meta.insert(PARENT_TOOL_CALL_META_KEY.to_string(), json!(parent));
+        }
+        if !meta.is_empty() {
             tool_call = tool_call.meta(meta);
         }
         self.await_permission(cx, tool_call, options, request, tool_use_id).await
+    }
+
+    /// The tool call that spawned the subagent a `can_use_tool` was raised
+    /// inside, or `None` for the main thread. `agent_id` IS the `task_id` of
+    /// an earlier `system/task_started` (EXP-753, measured against the CLI),
+    /// so the lookup is exact. The fallback covers a CLI that stops sending
+    /// it: a Task the model waits on holds the main thread, so the ONE live
+    /// task is the only thing that can be asking — and with two live there is
+    /// nothing to distinguish them, so it attributes to neither.
+    fn subagent_parent(&self, agent_id: Option<&str>) -> Option<String> {
+        let state = self.lock();
+        if let Some(parent) =
+            agent_id.and_then(|id| state.tasks.get(id)).and_then(|task| task.tool_use_id.clone())
+        {
+            return Some(parent);
+        }
+        let mut live = state.tasks.values().filter(|task| task.live);
+        let only = live.next()?;
+        if live.next().is_some() {
+            return None;
+        }
+        only.tool_use_id.clone()
     }
 
     async fn await_permission(
