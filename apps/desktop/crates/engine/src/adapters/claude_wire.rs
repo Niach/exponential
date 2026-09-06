@@ -258,6 +258,9 @@ pub struct SystemMsg {
     pub capabilities: Vec<String>,
     pub slash_commands: Vec<String>,
     pub tools: Vec<String>,
+    /// camelCase on the wire (measured): `permissionMode`, not the
+    /// snake_case its siblings use.
+    #[serde(rename = "permissionMode", alias = "permission_mode")]
     pub permission_mode: Option<String>,
     pub effort: Option<String>,
     /// `system/task_started`: the subagent id that a later `can_use_tool`
@@ -337,7 +340,11 @@ pub struct UserMsg {
     /// Message-level and carrying NO `tool_use_id`: honour it only when the
     /// message holds exactly one `tool_result` block.
     pub tool_use_result: Value,
+    /// camelCase on the wire (measured), unlike its snake_case siblings; the
+    /// alias keeps a hand-written fixture in either spelling decoding.
+    #[serde(rename = "isReplay", alias = "is_replay")]
     pub is_replay: bool,
+    #[serde(rename = "isSynthetic", alias = "is_synthetic")]
     pub is_synthetic: bool,
     pub session_id: String,
     pub uuid: String,
@@ -713,6 +720,585 @@ pub fn extra_env() -> BTreeMap<String, String> {
     env
 }
 
+// ---------------------------------------------------------------------------
+// argv spellings and the inline MCP document
+// ---------------------------------------------------------------------------
+
+/// The CONTROL-protocol permission modes (`set_permission_mode`), in the order
+/// the mode picker offers them. `dontAsk` is accepted by the CLI but never
+/// offered, exactly as the upstream adapter does it.
+pub const PERMISSION_MODES: [&str; 5] =
+    ["default", "acceptEdits", "plan", "auto", "bypassPermissions"];
+
+/// The argv spelling of a control-protocol permission mode.
+///
+/// `claude --help` (2.1.263) takes `acceptEdits|auto|bypassPermissions|manual|
+/// dontAsk|plan`: the protocol's `default` is **`manual`** on the command line,
+/// and passing `default` there is rejected by commander.
+pub fn argv_permission_mode(mode: &str) -> &str {
+    if mode == "default" {
+        "manual"
+    } else {
+        mode
+    }
+}
+
+/// The `--mcp-config` document for the ACP arm, with the personal key left as
+/// an env REFERENCE.
+///
+/// Measured in the phase-1 spike: claude expands `${EXP_MCP_TOKEN}` inside a
+/// header VALUE from the child's own environment, so the `expu_` key rides
+/// `PreparedLaunch::spawn.env` and never lands on disk (which is what
+/// `AgentMcp::ClaudeInline` exists for). The document shape mirrors
+/// `coding::mcp_json::render_mcp_json` field for field so the two paths stay
+/// comparable.
+pub fn inline_mcp_config(url: &str, session_id: Option<&str>) -> String {
+    let mut headers = Map::new();
+    headers.insert(
+        "Authorization".to_string(),
+        Value::String(format!("Bearer ${{{}}}", coding::MCP_TOKEN_ENV)),
+    );
+    if let Some(session_id) = session_id {
+        headers.insert(
+            "X-Exp-Session-Id".to_string(),
+            Value::String(session_id.to_string()),
+        );
+    }
+    json!({
+        "mcpServers": {
+            "exponential": { "type": "http", "url": url, "headers": Value::Object(headers) },
+        }
+    })
+    .to_string()
+}
+
+// ---------------------------------------------------------------------------
+// initialize: hooks in, capabilities out
+// ---------------------------------------------------------------------------
+
+/// The hook callback ids the `initialize` request registers. The CLI echoes
+/// the id back on every `hook_callback` control request, so these are the
+/// adapter's routing keys — plain constants rather than minted ids because
+/// exactly one callback is registered per event.
+pub const HOOK_POST_TOOL_USE: &str = "exp_post_tool_use";
+pub const HOOK_POST_MODEL_SWITCH: &str = "exp_post_model_switch";
+pub const HOOK_TASK_CREATED: &str = "exp_task_created";
+pub const HOOK_TASK_COMPLETED: &str = "exp_task_completed";
+
+/// The `hooks` block of the `initialize` request.
+///
+/// Four events, no more: `PostToolUse` carries the REAL `structuredPatch` for
+/// Edit/Write (which is why their `tool_result` renders nothing) and the
+/// EnterPlanMode edge; `PostModelSwitch` mirrors a `/model` typed as a prompt
+/// back into the picker; `TaskCreated`/`TaskCompleted` keep the task plan in
+/// step. Deliberately NOT `PreCompact`/`PostCompact` — compaction is read off
+/// `system/status` + `system/compact_boundary`, which also covers the
+/// automatic compactions no hook fires for.
+pub fn initialize_hooks() -> Value {
+    let matcher = |id: &str| json!([{ "hookCallbackIds": [id] }]);
+    json!({
+        "PostToolUse": matcher(HOOK_POST_TOOL_USE),
+        "PostModelSwitch": matcher(HOOK_POST_MODEL_SWITCH),
+        "TaskCreated": matcher(HOOK_TASK_CREATED),
+        "TaskCompleted": matcher(HOOK_TASK_COMPLETED),
+    })
+}
+
+/// `get_usage` without the transcript scan: the behaviours section walks every
+/// transcript touched in the last seven days, and the session screen renders
+/// only the plan windows and the session's own cost.
+pub fn get_usage_without_behaviors() -> Value {
+    json!({ "subtype": "get_usage", "skip_behaviors": true })
+}
+
+/// The `initialize` control response — the ONLY place the CLI reports its
+/// command catalog, model list and custom agents. Everything is optional: a
+/// CLI that predates a field simply leaves the option empty.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct InitializeInfo {
+    pub commands: Vec<SlashCommandInfo>,
+    /// Custom agents (`--agents`): the strings the `agent` config option offers.
+    pub agents: Vec<Value>,
+    pub models: Vec<ModelInfo>,
+    pub output_style: String,
+    /// `on` | `off` | absent — drives whether a Fast toggle is offered.
+    pub fast_mode_state: Option<String>,
+    /// The effort level the session will send next. Absent on 2.1.263, which
+    /// is why the adapter seeds the effort chip from the launch flag instead.
+    pub effort: Option<String>,
+    pub hooks_applied: Option<bool>,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct SlashCommandInfo {
+    pub name: String,
+    pub description: String,
+    /// camelCase on the wire; a string or (older CLIs) a list of strings.
+    #[serde(rename = "argumentHint")]
+    pub argument_hint: Value,
+    pub aliases: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ModelInfo {
+    pub value: String,
+    pub display_name: String,
+    pub description: String,
+    pub supports_effort: bool,
+    pub supported_effort_levels: Vec<String>,
+    pub supports_fast_mode: bool,
+    pub supports_auto_mode: bool,
+}
+
+/// One `/` command as the ACP client sees it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandRow {
+    pub name: String,
+    pub description: String,
+    pub hint: Option<String>,
+}
+
+/// Commands the CLI's TUI owns and an ACP client can neither run nor render.
+const UNSUPPORTED_COMMANDS: [&str; 8] = [
+    "clear",
+    "cost",
+    "keybindings-help",
+    "login",
+    "logout",
+    "output-style:new",
+    "release-notes",
+    "todos",
+];
+
+/// The port of `getAvailableSlashCommands`: drop the CLI's terminal-only
+/// commands (matched on the RAW name, before the rename), rewrite
+/// `"foo (MCP)"` to `mcp:foo`, then drop the hard-coded unsupported set.
+pub fn available_commands(commands: &[SlashCommandInfo], terminal: &[String]) -> Vec<CommandRow> {
+    commands
+        .iter()
+        .filter(|command| !terminal.iter().any(|name| name == &command.name))
+        .map(|command| {
+            let name = match command.name.strip_suffix(" (MCP)") {
+                Some(base) => format!("mcp:{base}"),
+                None => command.name.clone(),
+            };
+            let hint = match &command.argument_hint {
+                Value::String(hint) if !hint.is_empty() => Some(hint.clone()),
+                Value::Array(parts) => {
+                    let joined = parts
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    (!joined.is_empty()).then_some(joined)
+                }
+                _ => None,
+            };
+            CommandRow { name, description: command.description.clone(), hint }
+        })
+        .filter(|command| !UNSUPPORTED_COMMANDS.contains(&command.name.as_str()))
+        .collect()
+}
+
+/// The payload of a `hook_callback` control request. One shape for all four
+/// registered events; every field is optional because each event fills a
+/// different subset.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct HookInput {
+    pub hook_event_name: String,
+    pub tool_name: String,
+    pub tool_input: Value,
+    pub tool_response: Value,
+    /// `PostModelSwitch`: where the switch came from. `sdk` is our own
+    /// `set_model` and `resume` is a transcript restore — neither needs a
+    /// re-sync.
+    pub source: Option<String>,
+    pub to_model: Option<String>,
+    pub task_id: Option<String>,
+    pub task_subject: Option<String>,
+    pub task_description: Option<String>,
+    pub task_active_form: Option<String>,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+// ---------------------------------------------------------------------------
+// text hazards (ported from `tools.js` / `acp-agent.js`)
+// ---------------------------------------------------------------------------
+
+/// `toDisplayPath`: relative to the session cwd, absolute when outside it.
+pub fn display_path(path: &str, cwd: &Path) -> String {
+    let file = Path::new(path);
+    match file.strip_prefix(cwd) {
+        Ok(relative) if !relative.as_os_str().is_empty() => relative.display().to_string(),
+        _ => path.to_string(),
+    }
+}
+
+const USAGE_OPEN: &str = "<usage>";
+const USAGE_CLOSE: &str = "</usage>";
+
+/// Drop a trailing `<usage>…</usage>` block (plus the newline before it).
+/// Matched from the LAST opener so a report that merely mentions the marker
+/// earlier is not truncated at the mention.
+fn strip_usage_block(text: &str) -> &str {
+    let body = text.trim_end();
+    if !body.ends_with(USAGE_CLOSE) {
+        return text;
+    }
+    let search_end = body.len() - USAGE_CLOSE.len();
+    let Some(open) = body[..search_end].rfind(USAGE_OPEN) else {
+        return text;
+    };
+    let cut = if open > 0 && body.as_bytes()[open - 1] == b'\n' { open - 1 } else { open };
+    &body[..cut]
+}
+
+/// Drop a final `agentId: <id> (…)` continuation line. Anchored to a whole
+/// line so a format change stops matching instead of mangling the report.
+fn strip_agent_id_line(text: &str) -> &str {
+    let body = text.trim_end();
+    let line_start = body.rfind('\n').map(|at| at + 1).unwrap_or(0);
+    let line = &body[line_start..];
+    let Some(rest) = line.strip_prefix("agentId: ") else {
+        return text;
+    };
+    let Some((id, tail)) = rest.split_once(' ') else {
+        return text;
+    };
+    let id_ok = !id.is_empty()
+        && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    let tail_ok = tail.starts_with('(') && tail.ends_with(')') && !tail[1..].contains('(');
+    if !id_ok || !tail_ok {
+        return text;
+    }
+    &body[..line_start.saturating_sub(1)]
+}
+
+/// The model-directed trailer of an `Agent`/`Task` result: a `<usage>` totals
+/// block and/or the `agentId: … (use SendMessage …)` continuation line. Both
+/// are tail-anchored and independent (older CLIs emit only one).
+pub fn strip_agent_trailer(text: &str) -> String {
+    strip_agent_id_line(strip_usage_block(text)).to_string()
+}
+
+const PARTIAL_OUTPUT_LABEL: &str = "[Agent stopped at its turn limit — the output below is partial]";
+
+/// Swap the CLI's model-directed "stopped at its N-turn limit" note for a
+/// client-facing label. Anchored on the stable prefix only (CLI 2.1.246+).
+pub fn replace_partial_output_note(text: &str) -> String {
+    let Some(rest) = text.strip_prefix("NOTE: this agent stopped at its ") else {
+        return text.to_string();
+    };
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    if digits.is_empty() || !rest[digits.len()..].starts_with("-turn limit before finishing.") {
+        return text.to_string();
+    }
+    match text.find("\n\n") {
+        Some(end) => {
+            let report = text[end + 2..].trim_start();
+            if report.is_empty() {
+                PARTIAL_OUTPUT_LABEL.to_string()
+            } else {
+                format!("{PARTIAL_OUTPUT_LABEL}\n\n{report}")
+            }
+        }
+        None => PARTIAL_OUTPUT_LABEL.to_string(),
+    }
+}
+
+/// The five wrapper tags the CLI persists around a local command's echo.
+const LOCAL_COMMAND_MARKERS: [&str; 5] = [
+    "command-name",
+    "command-message",
+    "command-args",
+    "local-command-stdout",
+    "local-command-stderr",
+];
+
+/// Single-pass removal of every `<tag>…</tag>` marker, matching the nearest
+/// closing tag of the same name (what a lazy regex would do).
+pub fn strip_marker_tags(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    'outer: while let Some(at) = rest.find('<') {
+        for marker in LOCAL_COMMAND_MARKERS {
+            let open = format!("<{marker}>");
+            let close = format!("</{marker}>");
+            if rest[at..].starts_with(&open) {
+                if let Some(end) = rest[at + open.len()..].find(&close) {
+                    out.push_str(&rest[..at]);
+                    rest = &rest[at + open.len() + end + close.len()..];
+                    continue 'outer;
+                }
+            }
+        }
+        out.push_str(&rest[..at + 1]);
+        rest = &rest[at + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// User-message text with the local-command markers removed, or `None` when
+/// nothing meaningful is left (the caller then skips the message). Real prose
+/// mixed in beside the markers survives.
+pub fn strip_local_command_metadata(text: &str) -> Option<String> {
+    let stripped = strip_marker_tags(text);
+    (!stripped.trim().is_empty()).then_some(stripped)
+}
+
+/// Wrap `text` in a fence long enough to survive fences inside it.
+pub fn markdown_escape(text: &str) -> String {
+    let mut fence = String::from("```");
+    for line in text.lines() {
+        let ticks = line.chars().take_while(|c| *c == '`').count();
+        if line.starts_with("```") {
+            while ticks >= fence.len() {
+                fence.push('`');
+            }
+        }
+    }
+    let tail = if text.ends_with('\n') { "" } else { "\n" };
+    format!("{fence}\n{text}{tail}{fence}")
+}
+
+/// The line-numbered `Read` view, rebuilt from the STRUCTURED output.
+///
+/// The raw `tool_result` text is the model-facing view: it embeds
+/// `<system-reminder>` blocks (malicious-code checks, memory staleness notes)
+/// that must never reach a client — and, on this path, never reach the relay.
+pub fn numbered_read_view(content: &str, start_line: u64, truncated: Option<(u64, u64)>) -> String {
+    let body = content.strip_suffix('\n').unwrap_or(content);
+    let mut view = body
+        .split('\n')
+        .enumerate()
+        .map(|(index, line)| format!("{}\t{line}", start_line + index as u64))
+        .collect::<Vec<_>>()
+        .join("\n");
+    if let Some((shown, total)) = truncated {
+        view.push_str(&format!("\n[File truncated: showing {shown} of {total} lines]"));
+    }
+    view
+}
+
+/// The refusal a LOGGED-OUT claude reports as a perfectly ordinary
+/// `result/success` (measured in the spike — there is no error frame). Without
+/// this special case a logged-out agent looks like a well-behaved run that
+/// happens to say nothing useful.
+pub fn is_login_required_result(text: &str) -> bool {
+    text.contains("Please run /login")
+}
+
+// ---------------------------------------------------------------------------
+// usage
+// ---------------------------------------------------------------------------
+
+/// Anthropic's cumulative per-message token counts.
+///
+/// `message_delta.usage` is CUMULATIVE and only `output_tokens` is guaranteed
+/// non-null, so every other field falls back to the previous snapshot instead
+/// of resetting to zero.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TokenSnapshot {
+    pub input: u64,
+    pub cache_read: u64,
+    pub cache_creation: u64,
+    pub output: u64,
+}
+
+impl TokenSnapshot {
+    /// Fold one `usage` object in, keeping the previous value of every field
+    /// the frame omitted.
+    pub fn merge(&mut self, usage: &Value) {
+        let field = |name: &str| usage.get(name).and_then(Value::as_u64);
+        self.input = field("input_tokens").unwrap_or(self.input);
+        self.cache_read = field("cache_read_input_tokens").unwrap_or(self.cache_read);
+        self.cache_creation = field("cache_creation_input_tokens").unwrap_or(self.cache_creation);
+        self.output = field("output_tokens").unwrap_or(self.output);
+    }
+
+    /// Context OCCUPANCY: everything the next request re-sends plus what this
+    /// one produced.
+    pub fn used(&self) -> u64 {
+        self.input + self.cache_read + self.cache_creation + self.output
+    }
+}
+
+/// The authoritative context window for `model`, from `result.modelUsage`.
+/// Falls back to the largest window reported for any model in the map, which
+/// is what the turn actually ran against when the id is spelled differently.
+pub fn context_window_from_model_usage(model_usage: &Value, model: &str) -> Option<u64> {
+    let entries = model_usage.as_object()?;
+    if let Some(window) = entries
+        .get(model)
+        .and_then(|entry| entry.get("contextWindow"))
+        .and_then(Value::as_u64)
+    {
+        return Some(window);
+    }
+    entries
+        .values()
+        .filter_map(|entry| entry.get("contextWindow").and_then(Value::as_u64))
+        .max()
+}
+
+/// The heuristic the upstream adapter uses before any authoritative number
+/// arrives: a `1m` in the model id means the million-token window.
+pub fn infer_context_window(model: &str) -> u64 {
+    let lower = model.to_ascii_lowercase();
+    let millionish = lower.split(|c: char| !c.is_ascii_alphanumeric()).any(|part| part == "1m");
+    if millionish {
+        1_000_000
+    } else {
+        200_000
+    }
+}
+
+/// `/usage` rendered from the `get_usage` control response.
+///
+/// Deliberately small: the session screen has its own usage sheet, so this is
+/// the plan windows plus this session's cost, not the CLI's full dialog.
+pub fn render_usage_markdown(usage: &Value) -> String {
+    let mut lines = vec!["**Usage**".to_string()];
+    if let Some(cost) = usage
+        .get("session")
+        .and_then(|session| session.get("total_cost_usd"))
+        .and_then(Value::as_f64)
+    {
+        lines.push(format!("- Session cost: ${cost:.2}"));
+    }
+    let windows: [(&str, &str); 3] = [
+        ("five_hour", "5-hour limit"),
+        ("seven_day", "Weekly limit"),
+        ("seven_day_opus", "Weekly Opus limit"),
+    ];
+    if let Some(limits) = usage.get("rate_limits") {
+        for (key, label) in windows {
+            let Some(window) = limits.get(key).filter(|value| !value.is_null()) else {
+                continue;
+            };
+            let Some(utilization) = window.get("utilization").and_then(Value::as_f64) else {
+                continue;
+            };
+            let resets = window
+                .get("resets_at")
+                .and_then(Value::as_str)
+                .map(|at| format!(" (resets {at})"))
+                .unwrap_or_default();
+            lines.push(format!("- {label}: {}% used{resets}", utilization.round() as i64));
+        }
+    }
+    if lines.len() == 1 {
+        lines.push("- No plan limits reported for this account.".to_string());
+    }
+    lines.join("\n")
+}
+
+// ---------------------------------------------------------------------------
+// turn outcome
+// ---------------------------------------------------------------------------
+
+/// How a turn ended, in the vocabulary the adapter answers `session/prompt`
+/// with. `AuthRequired` is not an ACP stop reason: it is the logged-out
+/// special case, which fails the prompt instead of ending it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TurnOutcome {
+    EndTurn,
+    MaxTokens,
+    MaxTurnRequests,
+    Refusal,
+    Cancelled,
+    AuthRequired,
+}
+
+/// The stop-reason table (`acp-agent.js:3311-3740`), in the CLI's own order of
+/// precedence: a refusal is decided BEFORE the subtype switch, a cancelled
+/// session beats every success, and only then does the subtype matter.
+pub fn turn_outcome(result: &ResultMsg, cancelled: bool) -> TurnOutcome {
+    if result.stop_reason.as_deref() == Some("refusal") {
+        return TurnOutcome::Refusal;
+    }
+    if cancelled {
+        return TurnOutcome::Cancelled;
+    }
+    match result.subtype.as_str() {
+        "success" if is_login_required_result(&result.result) => TurnOutcome::AuthRequired,
+        "success" if result.stop_reason.as_deref() == Some("max_tokens") => TurnOutcome::MaxTokens,
+        "error_during_execution" if result.stop_reason.as_deref() == Some("max_tokens") => {
+            TurnOutcome::MaxTokens
+        }
+        "error_max_turns" | "error_max_budget_usd" | "error_max_structured_output_retries" => {
+            TurnOutcome::MaxTurnRequests
+        }
+        _ => TurnOutcome::EndTurn,
+    }
+}
+
+/// Whether the `result` text is the turn's only output and must be forwarded
+/// as an assistant message.
+///
+/// Two cases: a local-only command (`/context`, …) whose output IS the result,
+/// and a cache-replayed turn that answers on the `result` alone with no
+/// `stream_event` and no consolidated `assistant` message (adapter issue #453).
+pub fn should_forward_result(
+    local_only_command: bool,
+    delivered_assistant_text: bool,
+    result: &ResultMsg,
+) -> bool {
+    if result.result.trim().is_empty() {
+        return false;
+    }
+    if local_only_command {
+        return true;
+    }
+    let output_tokens = result
+        .usage
+        .get("output_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    !delivered_assistant_text && output_tokens == 0
+}
+
+/// Commands whose output the CLI puts in the turn's `result` instead of
+/// streaming it as an assistant message.
+pub const LOCAL_ONLY_COMMANDS: [&str; 3] = ["/context", "/heapdump", "/extra-usage"];
+
+/// `/usage` is answered from the `get_usage` control request instead of a
+/// turn — `get_context_usage` is NEVER sent (it stalls ~15 s before the first
+/// turn and serializes ahead of an awaited `set_model`).
+pub fn is_usage_command(text: &str) -> bool {
+    text.trim() == "/usage"
+}
+
+/// A `/mcp:server:command args` prompt in the CLI's own spelling
+/// (`/server:command (MCP) args`).
+pub fn prompt_to_claude(text: &str) -> String {
+    let Some(rest) = text.strip_prefix("/mcp:") else {
+        return text.to_string();
+    };
+    let (head, args) = match rest.split_once(' ') {
+        Some((head, args)) => (head, Some(args)),
+        None => (rest, None),
+    };
+    let Some((server, command)) = head.split_once(':') else {
+        return text.to_string();
+    };
+    if server.is_empty() || command.is_empty() {
+        return text.to_string();
+    }
+    match args {
+        Some(args) => format!("/{server}:{command} (MCP) {args}"),
+        None => format!("/{server}:{command} (MCP)"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -962,5 +1548,344 @@ mod tests {
                 "origin": { "kind": "human" },
             })
         );
+    }
+
+    #[test]
+    fn the_argv_spelling_of_the_default_mode_is_manual() {
+        assert_eq!(argv_permission_mode("default"), "manual");
+        assert_eq!(argv_permission_mode("plan"), "plan");
+        assert_eq!(argv_permission_mode("bypassPermissions"), "bypassPermissions");
+        // Every control-protocol mode has an argv spelling the CLI accepts.
+        for mode in PERMISSION_MODES {
+            assert!(matches!(
+                argv_permission_mode(mode),
+                "manual" | "acceptEdits" | "plan" | "auto" | "bypassPermissions"
+            ));
+        }
+    }
+
+    #[test]
+    fn the_inline_mcp_document_leaves_the_key_as_an_env_reference() {
+        let rendered = inline_mcp_config("https://app.example/api/mcp", Some("sess-1"));
+        let parsed: Value = serde_json::from_str(&rendered).expect("inline config is JSON");
+        assert_eq!(
+            parsed,
+            json!({
+                "mcpServers": {
+                    "exponential": {
+                        "type": "http",
+                        "url": "https://app.example/api/mcp",
+                        "headers": {
+                            "Authorization": "Bearer ${EXP_MCP_TOKEN}",
+                            "X-Exp-Session-Id": "sess-1",
+                        },
+                    }
+                }
+            })
+        );
+        // No session id outside a launched session — the header is dropped,
+        // never rendered as an empty string.
+        let bare = inline_mcp_config("https://app.example/api/mcp", None);
+        let parsed: Value = serde_json::from_str(&bare).expect("inline config is JSON");
+        assert!(parsed["mcpServers"]["exponential"]["headers"]
+            .get("X-Exp-Session-Id")
+            .is_none());
+        // The raw key never appears in the document.
+        assert!(!rendered.contains("expu_"));
+    }
+
+    #[test]
+    fn the_initialize_hooks_register_one_callback_per_event() {
+        assert_eq!(
+            initialize_hooks(),
+            json!({
+                "PostToolUse": [{ "hookCallbackIds": [HOOK_POST_TOOL_USE] }],
+                "PostModelSwitch": [{ "hookCallbackIds": [HOOK_POST_MODEL_SWITCH] }],
+                "TaskCreated": [{ "hookCallbackIds": [HOOK_TASK_CREATED] }],
+                "TaskCompleted": [{ "hookCallbackIds": [HOOK_TASK_COMPLETED] }],
+            })
+        );
+        // Compaction is read off the frames, never from a hook.
+        let hooks = initialize_hooks();
+        assert!(hooks.get("PreCompact").is_none());
+        assert!(hooks.get("PostCompact").is_none());
+    }
+
+    #[test]
+    fn an_initialize_response_with_unmodelled_fields_decodes() {
+        let info: InitializeInfo = serde_json::from_value(json!({
+            "commands": [{ "name": "compact", "description": "Compact", "argumentHint": "" }],
+            "agents": [{ "name": "reviewer" }],
+            "models": [{
+                "value": "claude-opus-5[1m]",
+                "displayName": "Opus",
+                "description": "The big one",
+                "supportsEffort": true,
+                "supportedEffortLevels": ["low", "high"],
+                "supportsFastMode": true,
+                "supportsAutoMode": true,
+            }],
+            "output_style": "default",
+            "account": { "email": "someone@example.com" },
+            "brand_new_field": 7,
+        }))
+        .expect("a tolerant decode");
+        assert_eq!(info.commands.len(), 1);
+        assert_eq!(info.models[0].display_name, "Opus");
+        assert!(info.models[0].supports_effort);
+        assert_eq!(info.models[0].supported_effort_levels, vec!["low", "high"]);
+        assert!(info.extra.contains_key("brand_new_field"));
+    }
+
+    #[test]
+    fn available_commands_drop_terminal_and_unsupported_names_and_rename_mcp() {
+        let commands = vec![
+            SlashCommandInfo {
+                name: "compact".into(),
+                description: "Compact the conversation".into(),
+                argument_hint: Value::String("<instructions>".into()),
+                aliases: vec![],
+            },
+            SlashCommandInfo {
+                name: "doctor".into(),
+                description: "Terminal only".into(),
+                ..SlashCommandInfo::default()
+            },
+            SlashCommandInfo {
+                name: "clear".into(),
+                description: "Unsupported".into(),
+                ..SlashCommandInfo::default()
+            },
+            SlashCommandInfo {
+                name: "issues (MCP)".into(),
+                description: "From a server".into(),
+                argument_hint: Value::Array(vec![json!("<id>"), json!("<title>")]),
+                aliases: vec![],
+            },
+        ];
+        let rows = available_commands(&commands, &["doctor".to_string()]);
+        assert_eq!(
+            rows,
+            vec![
+                CommandRow {
+                    name: "compact".into(),
+                    description: "Compact the conversation".into(),
+                    hint: Some("<instructions>".into()),
+                },
+                CommandRow {
+                    name: "mcp:issues".into(),
+                    description: "From a server".into(),
+                    hint: Some("<id> <title>".into()),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_hook_callback_payload_decodes_with_its_structured_patch() {
+        let input: HookInput = serde_json::from_value(json!({
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Edit",
+            "tool_input": { "file_path": "/w/a.rs" },
+            "tool_response": {
+                "filePath": "/w/a.rs",
+                "structuredPatch": [{ "newStart": 3, "lines": [" keep", "-old", "+new"] }],
+            },
+            "session_id": "s1",
+        }))
+        .expect("a tolerant decode");
+        assert_eq!(input.hook_event_name, "PostToolUse");
+        assert_eq!(input.tool_response["structuredPatch"][0]["newStart"], json!(3));
+        assert!(input.extra.contains_key("session_id"));
+    }
+
+    #[test]
+    fn display_path_relativizes_inside_the_worktree_only() {
+        let cwd = PathBuf::from("/work/tree");
+        assert_eq!(display_path("/work/tree/src/main.rs", &cwd), "src/main.rs");
+        assert_eq!(display_path("/etc/hosts", &cwd), "/etc/hosts");
+        // The cwd itself has no relative form worth showing.
+        assert_eq!(display_path("/work/tree", &cwd), "/work/tree");
+    }
+
+    #[test]
+    fn the_agent_trailer_is_stripped_tail_anchored() {
+        let text = "Report body\n\nagentId: abc-123 (use SendMessage to continue)";
+        assert_eq!(strip_agent_trailer(text), "Report body\n");
+        let with_usage = "Report body\n<usage>total: 12</usage>";
+        assert_eq!(strip_agent_trailer(with_usage), "Report body");
+        // A mention of the marker earlier in the report is not a trailer.
+        let mention = "I saw <usage> in the file and left it alone";
+        assert_eq!(strip_agent_trailer(mention), mention);
+        // A malformed continuation line stops matching instead of eating text.
+        let malformed = "Report body\nagentId: not a real line";
+        assert_eq!(strip_agent_trailer(malformed), malformed);
+    }
+
+    #[test]
+    fn the_partial_output_note_becomes_a_client_facing_label() {
+        let text = "NOTE: this agent stopped at its 30-turn limit before finishing. \
+                    Send the agent a message.\n\nThe actual report.";
+        assert_eq!(
+            replace_partial_output_note(text),
+            "[Agent stopped at its turn limit — the output below is partial]\n\nThe actual report."
+        );
+        assert_eq!(replace_partial_output_note("A normal report"), "A normal report");
+    }
+
+    #[test]
+    fn local_command_markers_are_stripped_and_marker_only_messages_vanish() {
+        assert_eq!(
+            strip_local_command_metadata("<command-name>compact</command-name>hi").as_deref(),
+            Some("hi")
+        );
+        assert_eq!(
+            strip_local_command_metadata(
+                "<command-name>usage</command-name><local-command-stdout>x</local-command-stdout>"
+            ),
+            None
+        );
+        // An unclosed marker is left alone rather than eating the rest.
+        let unclosed = "<command-name>oops";
+        assert_eq!(strip_marker_tags(unclosed), unclosed);
+    }
+
+    #[test]
+    fn markdown_escape_outgrows_the_fences_inside_it() {
+        assert_eq!(markdown_escape("plain"), "```\nplain\n```");
+        assert_eq!(markdown_escape("```\ninner\n```"), "````\n```\ninner\n```\n````");
+    }
+
+    #[test]
+    fn the_read_view_is_rebuilt_from_the_structured_output() {
+        assert_eq!(numbered_read_view("a\nb\n", 1, None), "1\ta\n2\tb");
+        assert_eq!(numbered_read_view("a\nb", 12, None), "12\ta\n13\tb");
+        assert_eq!(
+            numbered_read_view("a", 1, Some((1, 40))),
+            "1\ta\n[File truncated: showing 1 of 40 lines]"
+        );
+    }
+
+    #[test]
+    fn a_logged_out_run_is_recognised_from_its_success_result() {
+        let result = ResultMsg {
+            subtype: "success".into(),
+            result: "Not logged in · Please run /login".into(),
+            ..ResultMsg::default()
+        };
+        assert!(is_login_required_result(&result.result));
+        assert_eq!(turn_outcome(&result, false), TurnOutcome::AuthRequired);
+    }
+
+    #[test]
+    fn cumulative_usage_falls_back_to_the_previous_snapshot() {
+        let mut snapshot = TokenSnapshot::default();
+        snapshot.merge(&json!({
+            "input_tokens": 2,
+            "cache_read_input_tokens": 11_474,
+            "cache_creation_input_tokens": 6_721,
+            "output_tokens": 4,
+        }));
+        assert_eq!(snapshot.used(), 2 + 11_474 + 6_721 + 4);
+        // A `message_delta` carries only output_tokens: everything else keeps
+        // its previous value instead of collapsing to zero.
+        snapshot.merge(&json!({ "output_tokens": 9 }));
+        assert_eq!(
+            snapshot,
+            TokenSnapshot { input: 2, cache_read: 11_474, cache_creation: 6_721, output: 9 }
+        );
+    }
+
+    #[test]
+    fn the_context_window_prefers_the_authoritative_model_usage() {
+        let model_usage = json!({
+            "claude-haiku-4-5": { "contextWindow": 200_000 },
+            "claude-opus-5[1m]": { "contextWindow": 1_000_000 },
+        });
+        assert_eq!(
+            context_window_from_model_usage(&model_usage, "claude-opus-5[1m]"),
+            Some(1_000_000)
+        );
+        // An id spelled differently still resolves to the turn's real window.
+        assert_eq!(context_window_from_model_usage(&model_usage, "opus"), Some(1_000_000));
+        assert_eq!(context_window_from_model_usage(&json!({}), "opus"), None);
+        assert_eq!(infer_context_window("claude-opus-5[1m]"), 1_000_000);
+        assert_eq!(infer_context_window("claude-sonnet-5"), 200_000);
+    }
+
+    #[test]
+    fn the_usage_markdown_renders_the_plan_windows() {
+        let rendered = render_usage_markdown(&json!({
+            "session": { "total_cost_usd": 1.239 },
+            "rate_limits": {
+                "five_hour": { "utilization": 4.4, "resets_at": "2026-09-06T18:00:00Z" },
+                "seven_day": { "utilization": null },
+                "seven_day_opus": null,
+            },
+        }));
+        assert_eq!(
+            rendered,
+            "**Usage**\n- Session cost: $1.24\n- 5-hour limit: 4% used (resets 2026-09-06T18:00:00Z)"
+        );
+        assert_eq!(
+            render_usage_markdown(&json!({})),
+            "**Usage**\n- No plan limits reported for this account."
+        );
+    }
+
+    #[test]
+    fn the_stop_reason_table_puts_a_refusal_before_the_subtype() {
+        let refusal = ResultMsg {
+            subtype: "error_during_execution".into(),
+            stop_reason: Some("refusal".into()),
+            ..ResultMsg::default()
+        };
+        assert_eq!(turn_outcome(&refusal, true), TurnOutcome::Refusal);
+        let plain = ResultMsg { subtype: "success".into(), ..ResultMsg::default() };
+        assert_eq!(turn_outcome(&plain, true), TurnOutcome::Cancelled);
+        assert_eq!(turn_outcome(&plain, false), TurnOutcome::EndTurn);
+        let max_tokens = ResultMsg {
+            subtype: "success".into(),
+            stop_reason: Some("max_tokens".into()),
+            ..ResultMsg::default()
+        };
+        assert_eq!(turn_outcome(&max_tokens, false), TurnOutcome::MaxTokens);
+        let max_turns = ResultMsg { subtype: "error_max_turns".into(), ..ResultMsg::default() };
+        assert_eq!(turn_outcome(&max_turns, false), TurnOutcome::MaxTurnRequests);
+    }
+
+    #[test]
+    fn a_cache_replayed_turn_forwards_its_result_text() {
+        let replayed = ResultMsg {
+            subtype: "success".into(),
+            result: "Already answered from cache".into(),
+            usage: json!({ "output_tokens": 0 }),
+            ..ResultMsg::default()
+        };
+        assert!(should_forward_result(false, false, &replayed));
+        // Text already streamed as assistant chunks is never repeated.
+        assert!(!should_forward_result(false, true, &replayed));
+        // …unless the turn was a local-only command, whose output IS the result.
+        assert!(should_forward_result(true, true, &replayed));
+        let normal = ResultMsg {
+            subtype: "success".into(),
+            result: "hi".into(),
+            usage: json!({ "output_tokens": 4 }),
+            ..ResultMsg::default()
+        };
+        assert!(!should_forward_result(false, false, &normal));
+    }
+
+    #[test]
+    fn an_mcp_command_prompt_is_rewritten_to_the_cli_spelling() {
+        assert_eq!(
+            prompt_to_claude("/mcp:exponential:issues_get EXP-1"),
+            "/exponential:issues_get (MCP) EXP-1"
+        );
+        assert_eq!(prompt_to_claude("/mcp:exponential:list"), "/exponential:list (MCP)");
+        assert_eq!(prompt_to_claude("/compact"), "/compact");
+        assert!(is_usage_command("  /usage "));
+        assert!(!is_usage_command("/usage limits"));
+        assert!(LOCAL_ONLY_COMMANDS.contains(&"/context"));
     }
 }
