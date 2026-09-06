@@ -611,9 +611,18 @@ export function visibleSubagentTabs(
  *  - `done`: any marker completed;
  *  - `detail`: the LATEST non-empty detail (the completed edge restates the
  *    freshest);
- *  - `toolCount`: the tool calls attributed to the subagent. */
+ *  - `toolCount`: the tool calls attributed to the subagent — the publisher's
+ *    own `toolCalls` on a marker wins over the tool rows still in the feed
+ *    (EXP-748: replay buffers evict subagent tool rows first, so the visible
+ *    ones undercount), and the visible count wins when no marker reports. */
 export function summarizeSubagentRow<
-  T extends { kind: string; agentType?: string; status?: string; detail?: string },
+  T extends {
+    kind: string
+    agentType?: string
+    status?: string
+    detail?: string
+    toolCalls?: number
+  },
 >(
   items: readonly T[]
 ): { agentType: string; done: boolean; detail?: string; toolCount: number } {
@@ -621,6 +630,10 @@ export function summarizeSubagentRow<
   const types = markers
     .map((m) => m.agentType?.trim() ?? ``)
     .filter((t) => t !== ``)
+  const reported = markers.reduce(
+    (max, m) => (typeof m.toolCalls === `number` && m.toolCalls > max ? m.toolCalls : max),
+    0
+  )
   return {
     agentType:
       types.find((t) => t !== SUBAGENT_FALLBACK_TYPE) ??
@@ -628,7 +641,7 @@ export function summarizeSubagentRow<
       SUBAGENT_FALLBACK_TYPE,
     done: markers.some((m) => m.status === `completed`),
     detail: [...markers].reverse().find((m) => m.detail?.trim())?.detail,
-    toolCount: items.filter((i) => i.kind === `tool`).length,
+    toolCount: Math.max(items.filter((i) => i.kind === `tool`).length, reported),
   }
 }
 

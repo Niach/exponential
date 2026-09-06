@@ -650,6 +650,35 @@ describe(`summarizeSubagentRow`, () => {
     })
   })
 
+  // EXP-748: the completed edge carries the publisher's own tool-call count.
+  // A replay buffer evicts subagent tool rows first, so the rows still in the
+  // feed undercount — the reported number wins.
+  it(`a completed marker's toolCalls beats the visible tool rows`, () => {
+    const row = summarizeSubagentRow([
+      marker({ agentType: `explore`, status: `started` }),
+      tool(),
+      marker({ agentType: `explore`, status: `completed`, toolCalls: 12 }),
+    ])
+    expect(row.toolCount).toBe(12)
+  })
+
+  it(`the visible rows win when the publisher reports none or fewer`, () => {
+    expect(
+      summarizeSubagentRow([
+        marker({ agentType: `explore`, status: `completed` }),
+        tool(),
+        tool(),
+      ]).toolCount
+    ).toBe(2)
+    expect(
+      summarizeSubagentRow([
+        tool(),
+        tool(),
+        marker({ agentType: `explore`, status: `completed`, toolCalls: 1 }),
+      ]).toolCount
+    ).toBe(2)
+  })
+
   it(`the LATEST non-empty detail wins (the completed edge restates it)`, () => {
     const row = summarizeSubagentRow([
       marker({ agentType: `explore`, status: `started`, detail: `Old` }),

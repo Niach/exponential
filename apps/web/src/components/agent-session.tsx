@@ -1891,13 +1891,16 @@ function PermissionRow({
 /** A subagent's work (protocol v2): its lifecycle events plus every tool call
  *  it made, collapsed into one expandable row like a tool run. Expandable only
  *  when there ARE tool calls — the detail is always visible collapsed, so a
- *  chevron on an empty group would expand to nothing (EXP-350). */
+ *  chevron on an empty group would expand to nothing (EXP-350).
+ *  EXP-748: the CAPTION counts what the publisher reported (`toolCount`), the
+ *  chevron keys on the rows actually here — a replayed run can honestly say
+ *  "12 tool calls" and expand to the handful that survived the buffer. */
 function SubagentGroupRow({ items }: { items: FeedItem[] }) {
   const [expanded, setExpanded] = useState(false)
   const tools = items.filter(
     (i): i is Extract<FeedItem, { kind: `tool` }> => i.kind === `tool`
   )
-  const { agentType, done, detail } = summarizeSubagentRow(items)
+  const { agentType, done, detail, toolCount } = summarizeSubagentRow(items)
   const expandable = tools.length > 0
   const header = (
     <>
@@ -1906,8 +1909,8 @@ function SubagentGroupRow({ items }: { items: FeedItem[] }) {
       {!done && <UiLoadingIcon className="size-3 shrink-0 animate-spin" />}
       <span className="shrink-0 text-[0.6875rem]">
         {done ? `done` : `running`}
-        {tools.length > 0 &&
-          ` · ${tools.length} tool call${tools.length === 1 ? `` : `s`}`}
+        {toolCount > 0 &&
+          ` · ${toolCount} tool call${toolCount === 1 ? `` : `s`}`}
       </span>
       {detail && (
         <span className="truncate text-[0.6875rem]" title={detail}>
