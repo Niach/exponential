@@ -52,7 +52,7 @@ use std::time::Duration;
 use gpui::{
     bounce, div, ease_in_out, prelude::FluentBuilder as _, px, relative, AnimationExt as _,
     AnyElement, App, AppContext as _, ClickEvent, Entity, FocusHandle, Focusable,
-    InteractiveElement as _, IntoElement, ParentElement as _, Render, ScrollHandle,
+    InteractiveElement as _, IntoElement, ParentElement as _, Pixels, Render, ScrollHandle,
     ScrollWheelEvent, SharedString, StatefulInteractiveElement as _, StyledImage as _, Styled as _,
     Subscription, Task, Window,
 };
@@ -231,11 +231,22 @@ pub(crate) struct SteerSessionView {
     /// EXP-732: whether the feed pane follows its tail. On by default — a
     /// session tab opens on the newest rows (the question waiting for an
     /// answer, the composer's context), and every appended row keeps it
-    /// there. An upward wheel scroll releases it so the reader can look back
-    /// while the agent keeps talking; scrolling back to the bottom re-arms
-    /// it. `ScrollHandle::scroll_to_bottom` is deferred to the next layout,
-    /// so the request is made when the feed CHANGES, never during render.
+    /// there. Any way the reader moves the pane UP releases it so they can
+    /// look back while the agent keeps talking; moving back DOWN to the
+    /// bottom re-arms it. While it is on, every render re-requests the tail
+    /// (the request is consumed at prepaint, AFTER render, so a gesture
+    /// dispatched earlier in the same frame wins over it); the decision
+    /// itself is [`follow_tail_next`].
     follow_tail: bool,
+    /// What the last render saw in the pane: its scroll offset and the
+    /// extent that offset was measured against. Following is decided from
+    /// the MOVEMENT between these and the next render's pair — a pinned pane
+    /// sits at the bottom every frame, so a position alone says nothing.
+    last_offset_y: Pixels,
+    last_max_y: Pixels,
+    /// An upward wheel since the last render: the reader looking back. Set by
+    /// the pane's wheel handler, consumed by the next render.
+    wheel_up: bool,
     focus_handle: FocusHandle,
     _drain: Task<()>,
     _subscriptions: Vec<Subscription>,
@@ -363,6 +374,9 @@ impl SteerSessionView {
             expanded_extras: HashSet::new(),
             scroll: ScrollHandle::new(),
             follow_tail: true,
+            last_offset_y: px(0.),
+            last_max_y: px(0.),
+            wheel_up: false,
             focus_handle: cx.focus_handle(),
             _drain: drain,
             _subscriptions: subscriptions,
@@ -678,24 +692,16 @@ impl SteerSessionView {
             }
         }
         self.note_compaction(was_compacting, cx);
-        self.feed_changed();
         cx.notify();
     }
 
-    /// The feed gained, replaced or replayed rows: keep the pane on its tail
-    /// while the reader has not scrolled away (see `follow_tail`).
-    fn feed_changed(&self) {
-        if self.follow_tail {
-            self.scroll.scroll_to_bottom();
-        }
-    }
-
     /// The feed pane's wheel handler: an upward scroll is the reader looking
-    /// back, so the tail stops following; `render` re-arms it once the pane
-    /// is back at the bottom.
+    /// back. It only RECORDS the gesture — the next render decides, so the
+    /// release cannot be undone by an offset the same frame is about to pin
+    /// (review C11).
     fn on_feed_wheel(&mut self, event: &ScrollWheelEvent, window: &Window) {
         if event.delta.pixel_delta(window.line_height()).y > px(0.) {
-            self.follow_tail = false;
+            self.wheel_up = true;
         }
     }
 
@@ -745,11 +751,13 @@ impl SteerSessionView {
                 if phase == engine::EnginePhase::Ended {
                     // EXP-724: nothing is coming to close an open strip.
                     self.feed.clear_compaction();
+                    // …and nothing is coming to close a terminal card that
+                    // never got an exit code either.
+                    self.extras.apply(engine::LocalFeedEvent::Phase(phase));
                 }
             }
             other => self.extras.apply(other),
         }
-        self.feed_changed();
         cx.notify();
     }
 
@@ -764,6 +772,10 @@ impl SteerSessionView {
             self.phase = ViewerPhase::Ended { outcome: None };
             self.feed.clear_compaction();
         }
+        // The same edge as the engine's `Phase(Ended)`, on the path where no
+        // phase arrives at all: a card still marked live has nothing left to
+        // end it (review C4).
+        self.extras.end_live();
         cx.notify();
     }
 
@@ -812,7 +824,6 @@ impl SteerSessionView {
                     if quiet >= REPLAY_QUIET || capped {
                         let was_compacting = this.feed.compacting().is_some();
                         this.feed.force_swap();
-                        this.feed_changed();
                         this.note_compaction(was_compacting, cx);
                         this.staging_started = None;
                         cx.notify();
@@ -2208,8 +2219,9 @@ impl SteerSessionView {
             return None;
         }
         // EXP-750: the Stop on a live terminal card goes straight to the
-        // in-process engine — a remote viewer has no terminal to stop, so a
-        // source without one simply drops the click.
+        // in-process engine — a remote viewer and a replay have no terminal
+        // to stop, so they get no Running/Stop strip at all rather than a
+        // button whose click goes nowhere.
         let session = self.source.steerable_session().cloned();
         crate::session_extras::render_extras(
             &self.extras,
@@ -2221,10 +2233,10 @@ impl SteerSessionView {
                 }
                 cx.notify();
             })),
-            Box::new(move |terminal_id: &str, _window: &mut Window, _cx: &mut App| {
-                if let Some(session) = session.as_ref() {
+            session.map(|session| -> Box<dyn Fn(&str, &mut Window, &mut App) + 'static> {
+                Box::new(move |terminal_id: &str, _window: &mut Window, _cx: &mut App| {
                     session.kill_terminal(terminal_id);
-                }
+                })
             }),
             cx,
         )
@@ -3504,15 +3516,67 @@ impl Focusable for SteerSessionView {
     }
 }
 
+/// EXP-732 (review C11) — whether the feed pane keeps following its tail.
+///
+/// Decided from the reader's GESTURE and the MOVEMENT this render observes,
+/// never from the position alone: a followed pane is pinned to the bottom at
+/// every frame, so "is it at the bottom?" re-arms whatever the reader just
+/// did. `prev` is the `(offset.y, max_offset.y)` pair the previous render
+/// read, `now` this one's. Offsets grow NEGATIVE downwards, so the pane
+/// moving UP is `offset.y` INCREASING.
+///
+/// Pure, so the ways a reader escapes a streaming feed are testable without a
+/// window.
+fn follow_tail_next(
+    following: bool,
+    prev: (Pixels, Pixels),
+    now: (Pixels, Pixels),
+    wheel_up: bool,
+) -> bool {
+    let (prev_offset, prev_max) = prev;
+    let (offset, max) = now;
+    // The reader looking back always wins, whatever the offset reads this
+    // frame — a pin requested by the previous render lands at prepaint, so
+    // the pane can be sitting exactly at the tail while the wheel that just
+    // arrived says otherwise.
+    if wheel_up {
+        return false;
+    }
+    if following {
+        // The pane is re-pinned by every render, so with an UNCHANGED extent
+        // nothing but the reader can move it up: dragging the overlay
+        // scrollbar's thumb or clicking its track, neither of which sends a
+        // wheel event. A changed extent means a layout ran (rows appended,
+        // the staged replay swapped, a resize) and the pin follows it.
+        let moved_up = offset > prev_offset;
+        return !(moved_up && max == prev_max);
+    }
+    // Re-arm only on a DOWNWARD movement that ENDS at the tail. Merely being
+    // at the bottom is not enough: a released reader whose content is shorter
+    // than the pane, or one the layout parked there, stays released.
+    offset < prev_offset && offset <= -max + SteerSessionView::TAIL_SLACK
+}
+
 impl Render for SteerSessionView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        // EXP-732: the reader scrolled back down to the tail — follow again.
-        // Offsets grow negative as the pane scrolls, so "at the bottom" is
-        // `offset.y <= -max_offset.y` (within the slack).
-        if !self.follow_tail
-            && self.scroll.offset().y <= -self.scroll.max_offset().y + Self::TAIL_SLACK
-        {
-            self.follow_tail = true;
+        // EXP-732: follow the tail, or let the reader read (see
+        // `follow_tail_next` for why this is a movement, not a position).
+        let offset_y = self.scroll.offset().y;
+        let max_y = self.scroll.max_offset().y;
+        self.follow_tail = follow_tail_next(
+            self.follow_tail,
+            (self.last_offset_y, self.last_max_y),
+            (offset_y, max_y),
+            std::mem::take(&mut self.wheel_up),
+        );
+        self.last_offset_y = offset_y;
+        self.last_max_y = max_y;
+        if self.follow_tail {
+            // Requested HERE, not from the event that appended the row: gpui
+            // consumes the request at prepaint, after this render, so a wheel
+            // dispatched earlier in the frame has already released following
+            // and never gets overridden by it.
+            self.scroll.scroll_to_bottom();
         }
         let header = self.chrome.then(|| self.render_header(cx));
         let feed = self.render_feed(window, cx);
@@ -3797,6 +3861,98 @@ mod tests {
     /// reopened over a long-running session has a live composer on its first
     /// paint, without waiting for a replayed edge that a full backlog may have
     /// evicted (`engine::LocalFeed` replays the latest phase for that too).
+    // ── EXP-732 / review C11: following the tail ──────────────────────────
+
+    /// The pane as a render sees it: `bottom(max)` is a pane pinned to its
+    /// tail, `up(max, by)` the same pane moved `by` pixels back up (offsets
+    /// grow negative downwards).
+    fn bottom(max: f32) -> (Pixels, Pixels) {
+        (px(-max), px(max))
+    }
+    fn up(max: f32, by: f32) -> (Pixels, Pixels) {
+        (px(-max + by), px(max))
+    }
+
+    /// The happy path: rows keep landing, the pane keeps being pinned, and
+    /// nothing in that ever looks like the reader moving.
+    #[test]
+    fn a_streaming_feed_keeps_following_its_tail() {
+        let mut following = true;
+        // Each frame: the extent grew, the previous frame's pin landed.
+        for (prev, now) in [
+            (bottom(100.), bottom(140.)),
+            (bottom(140.), bottom(190.)),
+            // A staged replay swap SHRINKS the extent; the pin follows it
+            // down, and the offset moving up with it is not a gesture.
+            (bottom(190.), bottom(60.)),
+        ] {
+            following = follow_tail_next(following, prev, now, false);
+            assert!(following, "{prev:?} → {now:?} is the feed, not the reader");
+        }
+    }
+
+    /// (a) A sub-slack upward tick during a streaming feed is the reader
+    /// looking back, and must not be undone by the frame it happens in.
+    #[test]
+    fn a_small_upward_wheel_releases_the_tail_and_stays_released() {
+        // The wheel arrives before render; the pane is still exactly at the
+        // bottom (the previous frame's pin landed), so only the gesture says
+        // what happened.
+        assert!(!follow_tail_next(true, bottom(200.), bottom(200.), true));
+        // gpui applied the 3px delta: still within TAIL_SLACK of the bottom,
+        // and the old position test re-armed here.
+        assert!(!follow_tail_next(false, bottom(200.), up(200., 3.), false));
+        // More rows land under the released pane: the extent grows, the
+        // offset the reader chose does not move, and it stays released even
+        // though it is still within the slack of the OLD bottom.
+        assert!(!follow_tail_next(
+            false,
+            up(200., 3.),
+            (px(-197.), px(260.)),
+            false
+        ));
+    }
+
+    /// (b) A pin queued for the frame must not swallow a wheel dispatched in
+    /// that same frame: the wheel is decided at render, the pin only lands at
+    /// prepaint afterwards.
+    #[test]
+    fn a_queued_pin_never_overrides_the_wheel_that_beat_it() {
+        assert!(!follow_tail_next(true, bottom(400.), bottom(430.), true));
+        // 40px up, well clear of the slack — and still not re-armed.
+        assert!(!follow_tail_next(false, bottom(430.), up(430., 40.), false));
+    }
+
+    /// (c) Dragging the overlay scrollbar's thumb sends NO wheel event, so
+    /// the movement itself has to release the tail — otherwise every
+    /// appended row yanks the thumb back mid-drag.
+    #[test]
+    fn a_scrollbar_drag_releases_the_tail_without_a_wheel() {
+        assert!(!follow_tail_next(true, bottom(300.), up(300., 12.), false));
+        // Reading on while the agent talks: rows keep landing (the extent
+        // grows) under a pane that does not move, and it stays released.
+        assert!(!follow_tail_next(
+            false,
+            up(300., 12.),
+            (px(-288.), px(360.)),
+            false
+        ));
+    }
+
+    /// Re-arming is a DOWNWARD movement landing at the tail — never the mere
+    /// fact that the pane sits at the bottom.
+    #[test]
+    fn only_a_move_back_down_to_the_tail_re_arms_the_follow() {
+        // Parked at the bottom with nothing moving: still released.
+        assert!(!follow_tail_next(false, bottom(150.), bottom(150.), false));
+        // Scrolled back down to within the slack: following again.
+        assert!(follow_tail_next(false, up(150., 40.), up(150., 4.), false));
+        // Scrolled down, but not all the way: still the reader's pane.
+        assert!(!follow_tail_next(false, up(150., 90.), up(150., 40.), false));
+        // A downward wheel that lands at the tail re-arms it too.
+        assert!(follow_tail_next(false, up(150., 20.), bottom(150.), false));
+    }
+
     #[test]
     fn an_engine_phase_becomes_the_matching_viewer_phase() {
         assert_eq!(
