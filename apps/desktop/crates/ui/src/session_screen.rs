@@ -325,9 +325,14 @@ impl SessionScreenView {
     /// [`crate::changes_bar::sync`] says it changed. Same cache key the dock
     /// uses: the raw string, so a repaint of an unchanged feed parses nothing.
     fn sync_changes(&mut self, cx: &mut gpui::Context<Self>) {
-        let raw = self.inner.read(cx).latest_diff().map(str::to_string);
-        let Some(next) = crate::changes_bar::sync(self.changes.as_ref(), &self.session_id, raw.as_deref())
-        else {
+        let next = {
+            // Borrowed, never cloned: the published diff runs to 512 KiB and
+            // this fires on every feed event, so an unchanged one must cost
+            // a pointer comparison.
+            let raw = self.inner.read(cx).latest_diff();
+            crate::changes_bar::sync(self.changes.as_ref(), &self.session_id, raw)
+        };
+        let Some(next) = next else {
             return;
         };
         self.changes = next;
@@ -409,9 +414,14 @@ impl SessionScreenView {
         let device_id = inner
             .session_row()
             .and_then(|row| row.device_id.clone());
+        // The pill only exists for a LIVE run's own meter (see the header
+        // below) — resolving the machine's windows for a header that will not
+        // show them is a settings read and a jsonb parse per repaint.
+        let shows_usage =
+            usage_summary.is_some() && !over && self.feed != SessionFeed::Replay;
         // The HOST machine's rate-limit windows: this install's own probe for
         // a run we host, the synced `devices.agent_usage` for one we do not.
-        let windows = agent.and_then(|agent| {
+        let windows = agent.filter(|_| shows_usage).and_then(|agent| {
             if local {
                 crate::device_settings::own_agent_status(cx)
                     .1
@@ -480,7 +490,7 @@ impl SessionScreenView {
             // and never on a replay, whose numbers are the ones the run ended
             // with, not the ones anything is spending now.
             .when_some(
-                usage_summary.filter(|_| !over && self.feed != SessionFeed::Replay),
+                usage_summary.filter(|_| shows_usage),
                 |this, summary| {
                     let usage = usage;
                     this.child(
