@@ -370,6 +370,121 @@ fn render_usage_card(card: &UsageCard, compact: bool, cx: &App) -> gpui::Div {
     body
 }
 
+// ---------------------------------------------------------------------------
+// EXP-746: the per-SESSION context meter
+// ---------------------------------------------------------------------------
+//
+// A different quantity from everything above: the windows are this MACHINE's
+// rate limits, up to a heartbeat stale, while this is the live conversation's
+// token budget on the wire (`ActivityEvent::Usage`). It renders BESIDE
+// `usage_groups`, never inside it — that grouping is fixture-locked ×4, and a
+// token count has no reset window to belong to.
+//
+// Mirrored ×4 with the same test names:
+//   web      apps/web/src/lib/agent-usage.ts
+//   iOS      AgentUsagePresentation.swift
+//   Android  domain/AgentUsagePresentation.kt
+
+/// The context block's heading. Byte-identical ×4.
+pub(crate) const CONTEXT_SECTION_TITLE: &str = "Context";
+
+/// How full the context is, 0-100 and FLOORED. `None` when the run reports no
+/// window at all (an agent that never sent a `usage` frame, or a zero size —
+/// dividing by which is the one thing worse than showing nothing).
+pub(crate) fn context_percent(usage: Option<&steer::SessionUsage>) -> Option<u8> {
+    let usage = usage?;
+    if usage.context_size <= 0 {
+        return None;
+    }
+    let used = usage.context_used.max(0);
+    Some(((used.saturating_mul(100) / usage.context_size).min(100)) as u8)
+}
+
+/// `124k / 200k (62%)` — thousands collapsed to `k` from 1000 up, no
+/// decimals, the percent floored. Empty when there is nothing to report.
+pub(crate) fn format_context_usage(usage: Option<&steer::SessionUsage>) -> String {
+    let Some(percent) = context_percent(usage) else {
+        return String::new();
+    };
+    let usage = match usage {
+        Some(usage) => usage,
+        None => return String::new(),
+    };
+    format!(
+        "{} / {} ({percent}%)",
+        format_tokens(usage.context_used.max(0)),
+        format_tokens(usage.context_size)
+    )
+}
+
+/// `124000` → `124k`, `999` → `999`. Rounded, never truncated: `1500` reads
+/// `2k`, because a token count is an estimate and a floor would report less
+/// than was spent.
+fn format_tokens(tokens: i64) -> String {
+    if tokens < 1000 {
+        return tokens.to_string();
+    }
+    format!("{}k", (tokens + 500) / 1000)
+}
+
+/// `$1.24`, or `None` under half a cent — a run that cost a fraction of a
+/// cent reads as free, and `$0.00` would be a lie in the other direction.
+pub(crate) fn format_usage_cost(usage: Option<&steer::SessionUsage>) -> Option<String> {
+    let cost = usage?.cost_usd?;
+    if !cost.is_finite() || cost < 0.005 {
+        return None;
+    }
+    Some(format!("${cost:.2}"))
+}
+
+/// The "Context" block of the session usage sheet: the heading, the
+/// used/size line with the same meter the windows draw, and the cost when
+/// there is one. `None` when the run has no usage to show.
+pub(crate) fn render_context_block(
+    usage: Option<&steer::SessionUsage>,
+    cx: &App,
+) -> Option<AnyElement> {
+    let percent = context_percent(usage)?;
+    let muted = cx.theme().muted_foreground;
+    let mut block = v_flex()
+        .w_full()
+        .gap_2()
+        .child(
+            div()
+                .text_xs()
+                .text_color(muted)
+                .child(SharedString::from(CONTEXT_SECTION_TITLE)),
+        )
+        .child(
+            div()
+                .text_xs()
+                .child(SharedString::from(format_context_usage(usage))),
+        )
+        .child(
+            div()
+                .w_full()
+                .h(px(TRACK_H))
+                .rounded_full()
+                .bg(theme::tokens::glass::STROKE_STRONG.to_hsla())
+                .child(
+                    div()
+                        .h_full()
+                        .rounded_full()
+                        .w(gpui::relative(percent as f32 / 100.))
+                        .bg(severity_color(severity(percent), cx)),
+                ),
+        );
+    if let Some(cost) = format_usage_cost(usage) {
+        block = block.child(
+            div()
+                .text_xs()
+                .text_color(muted)
+                .child(SharedString::from(cost)),
+        );
+    }
+    Some(block.into_any_element())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -539,5 +654,56 @@ mod tests {
             Some("2026-08-29T10:00:00.000Z")
         );
         assert!(parse_agent_usage(&serde_json::json!("nope")).is_none());
+    }
+
+    // ── EXP-746: the per-session context meter (×4 test names) ────────────
+
+    fn usage(used: i64, size: i64, cost: Option<f64>) -> steer::SessionUsage {
+        steer::SessionUsage {
+            context_used: used,
+            context_size: size,
+            cost_usd: cost,
+        }
+    }
+
+    #[test]
+    fn context_usage_reads_used_over_size_with_a_percent() {
+        assert_eq!(
+            format_context_usage(Some(&usage(124_000, 200_000, None))),
+            "124k / 200k (62%)"
+        );
+        // Under a thousand prints verbatim; the percent floors.
+        assert_eq!(
+            format_context_usage(Some(&usage(999, 4_000, None))),
+            "999 / 4k (24%)"
+        );
+        assert_eq!(context_percent(Some(&usage(1, 3, None))), Some(33));
+        // No window, no line — never a division by zero, never "0 / 0".
+        assert_eq!(format_context_usage(Some(&usage(10, 0, None))), "");
+        assert_eq!(format_context_usage(None), "");
+        assert_eq!(context_percent(Some(&usage(10, 0, None))), None);
+        // A report past its own window still reads as full, not 120%.
+        assert_eq!(context_percent(Some(&usage(300, 200, None))), Some(100));
+    }
+
+    #[test]
+    fn a_cost_under_half_a_cent_renders_nothing() {
+        assert_eq!(
+            format_usage_cost(Some(&usage(1, 2, Some(1.239)))),
+            Some("$1.24".to_string())
+        );
+        assert_eq!(
+            format_usage_cost(Some(&usage(1, 2, Some(0.005)))),
+            Some("$0.01".to_string())
+        );
+        assert_eq!(format_usage_cost(Some(&usage(1, 2, Some(0.004)))), None);
+        assert_eq!(format_usage_cost(Some(&usage(1, 2, Some(0.)))), None);
+        assert_eq!(format_usage_cost(Some(&usage(1, 2, None))), None);
+        assert_eq!(format_usage_cost(None), None);
+    }
+
+    #[test]
+    fn the_context_heading_is_the_shared_wording() {
+        assert_eq!(CONTEXT_SECTION_TITLE, "Context");
     }
 }

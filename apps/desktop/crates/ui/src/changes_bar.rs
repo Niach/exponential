@@ -52,9 +52,7 @@ pub(crate) type OnMerged = Rc<dyn Fn(&mut App)>;
 pub(crate) enum ChangesPlacement {
     /// The terminal dock's row above the tab strip.
     Bar,
-    /// The session screen's right rail (EXP-746 — wired up with
-    /// `Screen::Session`).
-    #[allow(dead_code)]
+    /// The session screen's right rail (EXP-746).
     Rail,
 }
 
@@ -320,6 +318,13 @@ pub(crate) fn changes_bar_visible(has_diff: bool, has_open_pr: bool) -> bool {
     has_diff || has_open_pr
 }
 
+/// A finished run offers no Merge — iOS and web gate their pill on the same
+/// liveness, and the PR merges from Reviews once the session is over. Pure,
+/// and shared by both placements so "over" can never mean two things.
+pub(crate) fn merge_when_live(merge: Option<MergeTarget>, over: bool) -> Option<MergeTarget> {
+    merge.filter(|_| !over)
+}
+
 /// Keep the last snapshot across a FAILED poll (`None`): git errors for a
 /// moment during a rebase/checkout, and blanking the bar on that would strand
 /// the Merge button alone — the exact shape of the bug EXP-688 fixes. A real
@@ -525,6 +530,38 @@ mod tests {
         assert!(changes_bar_visible(false, true));
         assert!(changes_bar_visible(true, true));
         assert!(!changes_bar_visible(false, false));
+    }
+
+    /// EXP-746: the dock's BAR and the session screen's RAIL are two
+    /// placements of ONE surface, so both ask the same two questions — is
+    /// there anything to show, and may this run still be merged. A rail that
+    /// appeared where the bar stays hidden (or kept a Merge the bar drops)
+    /// would be two rules pretending to be one.
+    #[test]
+    fn rail_and_bar_agree_on_visibility() {
+        let target = MergeTarget::Issue {
+            issue_id: "i-1".to_string(),
+        };
+        // Live: the Merge survives, so a run with no diff yet still draws the
+        // surface for its PR.
+        assert_eq!(merge_when_live(Some(target.clone()), false), Some(target.clone()));
+        assert!(changes_bar_visible(
+            false,
+            merge_when_live(Some(target.clone()), false).is_some()
+        ));
+        // Over: the Merge goes, and with no diff either there is nothing left
+        // to paint in EITHER placement.
+        assert_eq!(merge_when_live(Some(target.clone()), true), None);
+        assert!(!changes_bar_visible(
+            false,
+            merge_when_live(Some(target.clone()), true).is_some()
+        ));
+        // …but an ended run that still has a diff keeps showing it: the work
+        // is what the reader came for.
+        assert!(changes_bar_visible(
+            true,
+            merge_when_live(Some(target), true).is_some()
+        ));
     }
 
     /// EXP-498: the batch run's merge target — any synced OPEN-PR issue on

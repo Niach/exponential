@@ -1,0 +1,861 @@
+//! EXP-746 — the LOCAL-only half of a session transcript.
+//!
+//! An in-process ACP run sees strictly more than the relay does: the exact
+//! patch of every edit, a command's output, the agent's plan, its thoughts.
+//! None of that may ride the wire — raw patch bodies and command strings are
+//! precisely what the redactor exists to keep off it — so it arrives as
+//! [`engine::LocalFeedEvent`]s and is rendered HERE, hung off the feed rows
+//! the matching [`steer::ActivityEvent`]s appended.
+//!
+//! The join is the tricky part and is worth stating once: the wire `tool`
+//! event carries no id (`FeedKind::Tool` is `{name, detail, subagent_id}`),
+//! and a `FeedItemId` is a local sequence number the engine cannot know. So
+//! the engine tags each activity with the ACP `tool_call_id` it belongs to,
+//! the drain records `feed item → tool call` as the row lands, and the extras
+//! key off the FEED ITEM. Nothing tries to match on titles or text.
+//!
+//! Two deliberate departures from the dock's diff surface:
+//!
+//! * an edit card renders its own hunk rather than hosting a
+//!   [`crate::diff::DiffView`]. A DiffView is an entity with its own scroll
+//!   and file list; one per edit in a long run is a lot of state for a
+//!   single-hunk card, and the run's FULL diff already has a DiffView in the
+//!   session screen's Changes rail.
+//! * the hunk is computed here, because ACP hands over `old_text`/`new_text`
+//!   and the scm model speaks unified diffs. [`edit_diff`] is that conversion
+//!   (a common prefix/suffix trim around one replacement block — the shape a
+//!   single edit actually has), pure and unit-tested.
+
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
+use gpui::{
+    div, prelude::FluentBuilder as _, AnyElement, App, ClickEvent, InteractiveElement as _,
+    IntoElement, ParentElement, SharedString, StatefulInteractiveElement as _, Styled, Window,
+};
+use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
+
+use coding::scm::{DiffFile, DiffLine, DiffLineKind, FileStatus, UnifiedHunk};
+use steer::feed::FeedItemId;
+
+use crate::controls::WebText as _;
+use crate::icons::registry;
+
+/// Lines of an output card kept — the tail, because a command's verdict is at
+/// the end. Same cap the CLI attach printer applies.
+pub(crate) const OUTPUT_LINES_MAX: usize = 200;
+
+/// Context lines drawn around an edit's replacement block.
+const EDIT_CONTEXT_LINES: usize = 3;
+
+/// Rows of a diff card shown before it folds behind "Show more".
+const DIFF_PREVIEW_ROWS: usize = 12;
+
+/// A tool call's local extras, accumulated as the engine reports them.
+#[derive(Default)]
+pub(crate) struct ToolExtras {
+    /// Every edit the call made, in order.
+    edits: Vec<EditCard>,
+    /// The call's streamed output (`Execute` tools), tail-capped.
+    output: Option<OutputCard>,
+}
+
+struct EditCard {
+    path: PathBuf,
+    file: DiffFile,
+}
+
+#[derive(Default)]
+struct OutputCard {
+    lines: Vec<String>,
+    /// Set with the final chunk; `None` while the command is still running.
+    exit_code: Option<i32>,
+    /// A partial last line waiting for its newline.
+    partial: String,
+}
+
+/// Everything local a transcript accumulated: the per-tool-call extras, the
+/// pinned plan, and the agent's latest thought.
+#[derive(Default)]
+pub(crate) struct LocalExtras {
+    by_tool_call: HashMap<String, ToolExtras>,
+    /// Which tool call a feed row belongs to (the join, see the module docs).
+    by_item: HashMap<FeedItemId, String>,
+    plan: Vec<engine::PlanEntryView>,
+    thought: Option<String>,
+}
+
+impl LocalExtras {
+    /// Record that `item` is the feed row of `tool_call_id`.
+    pub(crate) fn bind(&mut self, item: FeedItemId, tool_call_id: String) {
+        self.by_item.insert(item, tool_call_id);
+    }
+
+    /// Fold one local event in. [`engine::LocalFeedEvent::Activity`] and
+    /// `Phase` are the caller's — they are feed and lifecycle, not extras.
+    pub(crate) fn apply(&mut self, event: engine::LocalFeedEvent) {
+        match event {
+            engine::LocalFeedEvent::EditDiff {
+                tool_call_id,
+                path,
+                old_text,
+                new_text,
+            } => {
+                let file = edit_diff(&path, old_text.as_deref(), &new_text);
+                self.by_tool_call
+                    .entry(tool_call_id)
+                    .or_default()
+                    .edits
+                    .push(EditCard { path, file });
+            }
+            engine::LocalFeedEvent::Output {
+                tool_call_id,
+                chunk,
+                exit_code,
+            } => {
+                let card = self
+                    .by_tool_call
+                    .entry(tool_call_id)
+                    .or_default()
+                    .output
+                    .get_or_insert_with(OutputCard::default);
+                card.push(&chunk);
+                if exit_code.is_some() {
+                    card.finish(exit_code);
+                }
+            }
+            // The plan is replaced wholesale each time (ACP semantics).
+            engine::LocalFeedEvent::Plan { entries } => self.plan = entries,
+            engine::LocalFeedEvent::Thought { text, .. } => {
+                let text = text.trim();
+                self.thought = (!text.is_empty()).then(|| text.to_string());
+            }
+            // A tool card's header is already the feed's `tool` row — the
+            // status/locations it carries add nothing the row does not show,
+            // and a second header per call would double every line.
+            engine::LocalFeedEvent::ToolCall { .. }
+            | engine::LocalFeedEvent::Activity { .. }
+            | engine::LocalFeedEvent::Phase(_) => {}
+        }
+    }
+
+    /// The pinned plan, newest wholesale replacement.
+    pub(crate) fn plan(&self) -> &[engine::PlanEntryView] {
+        &self.plan
+    }
+
+    /// The agent's latest thought, if it is still thinking out loud.
+    pub(crate) fn thought(&self) -> Option<&str> {
+        self.thought.as_deref()
+    }
+
+    fn for_item(&self, item: FeedItemId) -> Option<&ToolExtras> {
+        self.by_tool_call.get(self.by_item.get(&item)?)
+    }
+
+    /// Whether `item`'s row has anything hanging off it.
+    pub(crate) fn has_extras(&self, item: FeedItemId) -> bool {
+        self.for_item(item)
+            .is_some_and(|extras| !extras.edits.is_empty() || extras.output.is_some())
+    }
+}
+
+impl OutputCard {
+    fn push(&mut self, chunk: &str) {
+        self.partial.push_str(chunk);
+        while let Some(newline) = self.partial.find('\n') {
+            let line: String = self.partial.drain(..=newline).collect();
+            self.lines.push(line.trim_end_matches(['\n', '\r']).to_string());
+        }
+        self.trim();
+    }
+
+    fn finish(&mut self, exit_code: Option<i32>) {
+        if !self.partial.is_empty() {
+            let last = std::mem::take(&mut self.partial);
+            self.lines.push(last);
+        }
+        self.exit_code = exit_code;
+        self.trim();
+    }
+
+    /// Keep the TAIL: a command's verdict is at the end, and an unbounded
+    /// buffer of a `yarn install` is megabytes of nothing.
+    fn trim(&mut self) {
+        if self.lines.len() > OUTPUT_LINES_MAX {
+            let overflow = self.lines.len() - OUTPUT_LINES_MAX;
+            self.lines.drain(..overflow);
+        }
+    }
+
+    fn rows(&self) -> Vec<String> {
+        let mut rows = self.lines.clone();
+        if !self.partial.is_empty() {
+            rows.push(self.partial.clone());
+        }
+        rows
+    }
+}
+
+// ---------------------------------------------------------------------------
+// old_text/new_text → one unified hunk (pure)
+// ---------------------------------------------------------------------------
+
+/// The [`DiffFile`] for ONE edit: the changed block with up to
+/// [`EDIT_CONTEXT_LINES`] of context, exactly the shape a single tool call
+/// produces. Deliberately not a full diff algorithm — an edit replaces one
+/// contiguous region, and trimming the common prefix and suffix finds it
+/// without a dependency.
+pub(crate) fn edit_diff(path: &Path, old_text: Option<&str>, new_text: &str) -> DiffFile {
+    let status = if old_text.is_none() {
+        FileStatus::Added
+    } else {
+        FileStatus::Modified
+    };
+    let old: Vec<&str> = old_text.map(split_lines).unwrap_or_default();
+    let new: Vec<&str> = split_lines(new_text);
+
+    let mut prefix = 0;
+    while prefix < old.len() && prefix < new.len() && old[prefix] == new[prefix] {
+        prefix += 1;
+    }
+    let mut suffix = 0;
+    while suffix < old.len() - prefix
+        && suffix < new.len() - prefix
+        && old[old.len() - 1 - suffix] == new[new.len() - 1 - suffix]
+    {
+        suffix += 1;
+    }
+
+    let lead = prefix.saturating_sub(EDIT_CONTEXT_LINES);
+    let old_tail = (old.len() - suffix + EDIT_CONTEXT_LINES).min(old.len());
+    let new_tail = (new.len() - suffix + EDIT_CONTEXT_LINES).min(new.len());
+
+    let mut lines: Vec<DiffLine> = Vec::new();
+    let mut additions = 0;
+    let mut deletions = 0;
+    // Leading context.
+    for (ix, line) in old.iter().enumerate().take(prefix).skip(lead) {
+        lines.push(DiffLine {
+            kind: DiffLineKind::Context,
+            old_line: Some(ix as u32 + 1),
+            new_line: Some(ix as u32 + 1),
+            content: (*line).to_string(),
+        });
+    }
+    for (ix, line) in old.iter().enumerate().take(old.len() - suffix).skip(prefix) {
+        deletions += 1;
+        lines.push(DiffLine {
+            kind: DiffLineKind::Deletion,
+            old_line: Some(ix as u32 + 1),
+            new_line: None,
+            content: (*line).to_string(),
+        });
+    }
+    for (ix, line) in new.iter().enumerate().take(new.len() - suffix).skip(prefix) {
+        additions += 1;
+        lines.push(DiffLine {
+            kind: DiffLineKind::Addition,
+            old_line: None,
+            new_line: Some(ix as u32 + 1),
+            content: (*line).to_string(),
+        });
+    }
+    // Trailing context (numbered on both sides — the tail is common).
+    for offset in 0..(old_tail - (old.len() - suffix)) {
+        let old_ix = old.len() - suffix + offset;
+        let new_ix = new.len() - suffix + offset;
+        if old_ix >= old_tail || new_ix >= new_tail {
+            break;
+        }
+        lines.push(DiffLine {
+            kind: DiffLineKind::Context,
+            old_line: Some(old_ix as u32 + 1),
+            new_line: Some(new_ix as u32 + 1),
+            content: old[old_ix].to_string(),
+        });
+    }
+
+    let old_start = lead as u32 + 1;
+    let new_start = lead as u32 + 1;
+    let old_lines = (old_tail - lead) as u32;
+    let new_lines = (new_tail - lead) as u32;
+    // A write that changed nothing (an agent rewriting a file byte for byte)
+    // is not a diff — a card of pure context lines claims an edit that never
+    // happened.
+    let hunks = if lines.is_empty() || (additions == 0 && deletions == 0) {
+        Vec::new()
+    } else {
+        vec![UnifiedHunk {
+            old_start,
+            old_lines,
+            new_start,
+            new_lines,
+            header: format!("@@ -{old_start},{old_lines} +{new_start},{new_lines} @@"),
+            lines,
+        }]
+    };
+    DiffFile {
+        path: path.to_string_lossy().to_string(),
+        previous_path: None,
+        status,
+        additions,
+        deletions,
+        hunks,
+        binary: false,
+    }
+}
+
+/// Lines WITHOUT their terminators, dropping the empty tail a trailing
+/// newline produces (`"a\n"` is one line, not two).
+fn split_lines(text: &str) -> Vec<&str> {
+    let mut lines: Vec<&str> = text.split('\n').collect();
+    if lines.last().is_some_and(|line| line.is_empty()) && lines.len() > 1 {
+        lines.pop();
+    }
+    lines.into_iter().map(|line| line.trim_end_matches('\r')).collect()
+}
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+
+/// The cards hanging off feed row `item`: one per edit, then the command
+/// output. `None` when the row has none (every remote row, and every local
+/// row that is not a tool call).
+///
+/// `on_toggle` is the host's own listener (`cx.listener(..)`), so this stays
+/// free of the hosting view's type.
+pub(crate) fn render_extras(
+    extras: &LocalExtras,
+    item: FeedItemId,
+    expanded: bool,
+    on_toggle: Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>,
+    cx: &App,
+) -> Option<AnyElement> {
+    let tool = extras.for_item(item)?;
+    if tool.edits.is_empty() && tool.output.is_none() {
+        return None;
+    }
+    let muted = cx.theme().muted_foreground;
+    let mut column = v_flex().w_full().min_w_0().gap_1().pl_5().pt_1();
+    for edit in &tool.edits {
+        column = column.child(render_edit_card(edit, expanded, cx));
+    }
+    if let Some(output) = tool.output.as_ref() {
+        column = column.child(render_output_card(output, expanded, cx));
+    }
+    let foldable = tool
+        .edits
+        .iter()
+        .any(|edit| hunk_rows(&edit.file) > DIFF_PREVIEW_ROWS)
+        || tool
+            .output
+            .as_ref()
+            .is_some_and(|output| output.rows().len() > DIFF_PREVIEW_ROWS);
+    if foldable {
+        column = column.child(
+            div()
+                .id(("session-extras-toggle", item as usize))
+                .mt_0p5()
+                .cursor_pointer()
+                .text_xs()
+                .text_color(muted)
+                .child(if expanded { "Show less" } else { "Show more" })
+                .on_click(on_toggle),
+        );
+    }
+    Some(column.into_any_element())
+}
+
+fn hunk_rows(file: &DiffFile) -> usize {
+    file.hunks.iter().map(|hunk| hunk.lines.len()).sum()
+}
+
+fn render_edit_card(edit: &EditCard, expanded: bool, cx: &App) -> AnyElement {
+    let muted = cx.theme().muted_foreground;
+    let mut body = v_flex()
+        .w_full()
+        .min_w_0()
+        .gap_1()
+        .child(
+            h_flex()
+                .w_full()
+                .min_w_0()
+                .gap_1p5()
+                .items_center()
+                .text_2xs()
+                .text_color(muted)
+                .child(Icon::new(registry::CODING_DIFF).xsmall())
+                .child(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .font_family(theme::terminal::FONT_FAMILY)
+                        .child(SharedString::from(
+                            edit.path.to_string_lossy().to_string(),
+                        )),
+                )
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .font_family(theme::terminal::FONT_FAMILY)
+                        .text_color(theme::tokens::GREEN.to_hsla())
+                        .child(SharedString::from(format!("+{}", edit.file.additions))),
+                )
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .font_family(theme::terminal::FONT_FAMILY)
+                        .text_color(cx.theme().danger)
+                        .child(SharedString::from(format!("-{}", edit.file.deletions))),
+                ),
+        );
+    let rows: Vec<&DiffLine> = edit
+        .file
+        .hunks
+        .iter()
+        .flat_map(|hunk| hunk.lines.iter())
+        .collect();
+    let shown = if expanded {
+        rows.len()
+    } else {
+        rows.len().min(DIFF_PREVIEW_ROWS)
+    };
+    let mut lines = v_flex().w_full().min_w_0();
+    for line in rows.iter().take(shown) {
+        let (marker, tint) = match line.kind {
+            DiffLineKind::Addition => ("+", Some(theme::tokens::GREEN.to_hsla())),
+            DiffLineKind::Deletion => ("-", Some(cx.theme().danger)),
+            DiffLineKind::Context => (" ", None),
+        };
+        lines = lines.child(
+            div()
+                .w_full()
+                .min_w_0()
+                .truncate()
+                .text_2xs()
+                .font_family(theme::terminal::FONT_FAMILY)
+                .when_some(tint, |this, tint| this.text_color(tint))
+                .when(tint.is_none(), |this| this.text_color(muted))
+                .child(SharedString::from(format!("{marker}{}", line.content))),
+        );
+    }
+    body = body.child(lines);
+    crate::surface::glass_row_card()
+        .w_full()
+        .min_w_0()
+        .px_2()
+        .py_1p5()
+        .child(body)
+        .into_any_element()
+}
+
+fn render_output_card(output: &OutputCard, expanded: bool, cx: &App) -> AnyElement {
+    let muted = cx.theme().muted_foreground;
+    let rows = output.rows();
+    let shown = if expanded {
+        rows.len()
+    } else {
+        rows.len().min(DIFF_PREVIEW_ROWS)
+    };
+    // The TAIL is what matters, so a collapsed card shows the last rows.
+    let skip = rows.len().saturating_sub(shown);
+    let mut lines = v_flex().w_full().min_w_0();
+    for line in rows.iter().skip(skip) {
+        lines = lines.child(
+            div()
+                .w_full()
+                .min_w_0()
+                .truncate()
+                .text_2xs()
+                .text_color(muted)
+                .font_family(theme::terminal::FONT_FAMILY)
+                .child(SharedString::from(line.clone())),
+        );
+    }
+    let mut card = crate::surface::glass_row_card()
+        .w_full()
+        .min_w_0()
+        .px_2()
+        .py_1p5()
+        .child(lines);
+    if let Some(code) = output.exit_code.filter(|code| *code != 0) {
+        card = card.child(
+            div()
+                .text_2xs()
+                .text_color(cx.theme().danger)
+                .child(SharedString::from(format!("exit {code}"))),
+        );
+    }
+    card.into_any_element()
+}
+
+/// The pinned plan card — one row per entry, the running one marked. Rendered
+/// above the composer, not in the feed: a plan is state, not an event, and it
+/// is replaced wholesale every time the agent revises it.
+pub(crate) fn render_plan_card(entries: &[engine::PlanEntryView], cx: &App) -> AnyElement {
+    let muted = cx.theme().muted_foreground;
+    let mut column = v_flex().w_full().min_w_0().gap_0p5().child(
+        h_flex()
+            .gap_1p5()
+            .items_center()
+            .text_xs()
+            .text_color(muted)
+            .child(Icon::new(registry::CODING_PLAN).xsmall())
+            .child("Plan"),
+    );
+    for entry in entries {
+        let (glyph, tint) = match entry.status {
+            engine::PlanEntryStatusView::Completed => ("✓", muted),
+            engine::PlanEntryStatusView::InProgress => ("▸", cx.theme().foreground),
+            engine::PlanEntryStatusView::Pending => ("·", muted),
+        };
+        column = column.child(
+            h_flex()
+                .w_full()
+                .min_w_0()
+                .gap_1p5()
+                .items_start()
+                .text_xs()
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .text_color(muted)
+                        .font_family(theme::terminal::FONT_FAMILY)
+                        .child(glyph),
+                )
+                .child(
+                    div()
+                        .min_w_0()
+                        .text_color(tint)
+                        .child(SharedString::from(entry.content.clone())),
+                ),
+        );
+    }
+    div()
+        .w_full()
+        .flex_shrink_0()
+        .px_3()
+        .py_2()
+        .border_t_1()
+        .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+        .child(column)
+        .into_any_element()
+}
+
+/// The agent's latest thought, one clamped line above the composer. Thoughts
+/// are not feed rows on purpose: they are superseded constantly, and a
+/// transcript of every one of them would bury the work.
+pub(crate) fn render_thought(text: &str, cx: &App) -> AnyElement {
+    let muted = cx.theme().muted_foreground;
+    h_flex()
+        .w_full()
+        .flex_shrink_0()
+        .gap_1p5()
+        .items_center()
+        .px_3()
+        .py_1p5()
+        .child(
+            Icon::new(registry::CODING_ASSISTANT)
+                .xsmall()
+                .text_color(muted.opacity(0.6)),
+        )
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .text_xs()
+                .text_color(muted)
+                .child(SharedString::from(text.to_string())),
+        )
+        .into_any_element()
+}
+
+/// One composer chip: what it is called, what it currently reads, and what it
+/// may be set to.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ConfigChip {
+    pub(crate) kind: ChipKind,
+    /// The option id a `set_config` names; the mode chip carries no id (its
+    /// values ARE the mode ids).
+    pub(crate) id: String,
+    /// From the wire, never a local constant — that is how the four clients
+    /// agree on "Model" / "Effort" without mirroring anything.
+    pub(crate) label: String,
+    pub(crate) value_label: String,
+    /// Empty = read-only on this run: render the value, offer no menu.
+    pub(crate) values: Vec<steer::frames::ConfigValue>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ChipKind {
+    Mode,
+    Option,
+}
+
+/// The chip row in the order every client draws it: the MODE chip first when
+/// the run has modes, then the options in publisher order. Mirrored ×4 as
+/// `configChips`.
+pub(crate) fn config_chips(config: Option<&steer::SessionConfig>) -> Vec<ConfigChip> {
+    let Some(config) = config else {
+        return Vec::new();
+    };
+    let mut chips = Vec::new();
+    if !config.modes.is_empty() {
+        let current = config.current_mode.as_deref().unwrap_or_default();
+        let value_label = config
+            .modes
+            .iter()
+            .find(|mode| mode.id == current)
+            .map(|mode| mode.label.clone())
+            .unwrap_or_else(|| crate::slash_commands::CONFIG_DEFAULT_VALUE_LABEL.to_string());
+        chips.push(ConfigChip {
+            kind: ChipKind::Mode,
+            id: current.to_string(),
+            label: crate::slash_commands::CONFIG_MODE_LABEL.to_string(),
+            value_label,
+            values: config
+                .modes
+                .iter()
+                .map(|mode| steer::frames::ConfigValue::new(mode.id.clone(), mode.label.clone()))
+                .collect(),
+        });
+    }
+    for option in &config.options {
+        let value = option.value.as_deref().unwrap_or_default();
+        let values = option.values.clone().unwrap_or_default();
+        let value_label = values
+            .iter()
+            .find(|candidate| candidate.id == value)
+            .map(|candidate| candidate.label.clone())
+            .or_else(|| (!value.is_empty()).then(|| value.to_string()))
+            // A blank value is the CLI's own default, which is a CHOICE and
+            // not a missing answer.
+            .unwrap_or_else(|| crate::slash_commands::CONFIG_DEFAULT_VALUE_LABEL.to_string());
+        chips.push(ConfigChip {
+            kind: ChipKind::Option,
+            id: option.id.clone(),
+            label: option.label.clone(),
+            value_label,
+            values,
+        });
+    }
+    chips
+}
+
+/// The header's compact context read (`124k / 200k`) — the sheet spells out
+/// the percent and the cost.
+pub(crate) fn context_summary(usage: Option<&steer::SessionUsage>) -> Option<String> {
+    let full = crate::usage_bar::format_context_usage(usage);
+    let (head, _) = full.split_once(" (")?;
+    Some(head.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn line(kind: DiffLineKind, content: &str) -> (DiffLineKind, String) {
+        (kind, content.to_string())
+    }
+
+    fn rows(file: &DiffFile) -> Vec<(DiffLineKind, String)> {
+        file.hunks
+            .iter()
+            .flat_map(|hunk| hunk.lines.iter())
+            .map(|line| (line.kind, line.content.clone()))
+            .collect()
+    }
+
+    /// A one-line edit is a one-line diff, not a whole-file replacement — the
+    /// common prefix and suffix stay context.
+    #[test]
+    fn an_edit_diffs_only_the_block_that_changed() {
+        let file = edit_diff(
+            Path::new("src/lib.rs"),
+            Some("a\nb\nc\n"),
+            "a\nB\nc\n",
+        );
+        assert_eq!(file.status, FileStatus::Modified);
+        assert_eq!((file.additions, file.deletions), (1, 1));
+        assert_eq!(
+            rows(&file),
+            vec![
+                line(DiffLineKind::Context, "a"),
+                line(DiffLineKind::Deletion, "b"),
+                line(DiffLineKind::Addition, "B"),
+                line(DiffLineKind::Context, "c"),
+            ]
+        );
+        // The hunk header numbers both sides from the first context line.
+        let hunk = &file.hunks[0];
+        assert_eq!((hunk.old_start, hunk.new_start), (1, 1));
+        assert_eq!((hunk.old_lines, hunk.new_lines), (3, 3));
+    }
+
+    /// A new file has no old side at all: every line is an addition and the
+    /// status says Added (the card must not claim to have deleted nothing).
+    #[test]
+    fn a_created_file_is_all_additions() {
+        let file = edit_diff(Path::new("new.rs"), None, "one\ntwo\n");
+        assert_eq!(file.status, FileStatus::Added);
+        assert_eq!((file.additions, file.deletions), (2, 0));
+        assert_eq!(
+            rows(&file),
+            vec![
+                line(DiffLineKind::Addition, "one"),
+                line(DiffLineKind::Addition, "two"),
+            ]
+        );
+    }
+
+    /// An unchanged write (an agent rewriting a file with the same bytes)
+    /// produces no hunk rather than a diff of nothing.
+    #[test]
+    fn an_identical_write_produces_no_hunk() {
+        let file = edit_diff(Path::new("same.rs"), Some("a\nb\n"), "a\nb\n");
+        assert!(file.hunks.is_empty());
+        assert_eq!((file.additions, file.deletions), (0, 0));
+    }
+
+    /// The output card keeps the TAIL and folds partial chunks into lines —
+    /// a streamed build log arrives byte-wise, not line-wise.
+    #[test]
+    fn output_streams_into_lines_and_keeps_the_tail() {
+        let mut card = OutputCard::default();
+        card.push("one\ntw");
+        card.push("o\n");
+        assert_eq!(card.rows(), vec!["one".to_string(), "two".to_string()]);
+        for n in 0..OUTPUT_LINES_MAX + 5 {
+            card.push(&format!("line {n}\n"));
+        }
+        assert_eq!(card.rows().len(), OUTPUT_LINES_MAX);
+        assert_eq!(
+            card.rows().last().map(String::as_str),
+            Some(format!("line {}", OUTPUT_LINES_MAX + 4).as_str())
+        );
+        // A chunk with no trailing newline still shows, and the exit code
+        // closes the card.
+        let mut card = OutputCard::default();
+        card.push("no newline");
+        assert_eq!(card.rows(), vec!["no newline".to_string()]);
+        card.finish(Some(1));
+        assert_eq!(card.exit_code, Some(1));
+    }
+
+    /// Extras key on the FEED ROW, through the tool-call id the engine
+    /// tagged the activity with — never on titles or text.
+    #[test]
+    fn extras_reach_the_feed_row_their_tool_call_landed_on() {
+        let mut extras = LocalExtras::default();
+        extras.apply(engine::LocalFeedEvent::EditDiff {
+            tool_call_id: "call-1".to_string(),
+            path: PathBuf::from("a.rs"),
+            old_text: Some("a\n".to_string()),
+            new_text: "b\n".to_string(),
+        });
+        // Nothing is reachable until the row it belongs to lands.
+        assert!(!extras.has_extras(7));
+        extras.bind(7, "call-1".to_string());
+        assert!(extras.has_extras(7));
+        assert!(!extras.has_extras(8), "a different row keeps its own cards");
+    }
+
+    /// The plan is replaced wholesale, and a blank thought is no thought.
+    #[test]
+    fn the_plan_replaces_and_a_blank_thought_clears() {
+        let entry = |content: &str| engine::PlanEntryView {
+            content: content.to_string(),
+            priority: engine::PlanEntryPriorityView::Medium,
+            status: engine::PlanEntryStatusView::Pending,
+        };
+        let mut extras = LocalExtras::default();
+        extras.apply(engine::LocalFeedEvent::Plan {
+            entries: vec![entry("first"), entry("second")],
+        });
+        assert_eq!(extras.plan().len(), 2);
+        extras.apply(engine::LocalFeedEvent::Plan {
+            entries: vec![entry("only")],
+        });
+        assert_eq!(extras.plan().len(), 1);
+        extras.apply(engine::LocalFeedEvent::Thought {
+            message_id: None,
+            text: "  weighing options  ".to_string(),
+        });
+        assert_eq!(extras.thought(), Some("weighing options"));
+        extras.apply(engine::LocalFeedEvent::Thought {
+            message_id: None,
+            text: "   ".to_string(),
+        });
+        assert_eq!(extras.thought(), None);
+    }
+
+    // ── EXP-746: the chip row (×4 `configChips`) ──────────────────────────
+
+    fn config() -> steer::SessionConfig {
+        steer::SessionConfig {
+            options: vec![
+                steer::frames::ConfigOption {
+                    value: Some("opus".to_string()),
+                    values: Some(vec![
+                        steer::frames::ConfigValue::new("opus", "Opus"),
+                        steer::frames::ConfigValue::new("sonnet", "Sonnet"),
+                    ]),
+                    ..steer::frames::ConfigOption::new("model", "Model")
+                },
+                steer::frames::ConfigOption {
+                    value: Some(String::new()),
+                    ..steer::frames::ConfigOption::new("effort", "Effort")
+                },
+            ],
+            current_mode: Some("plan".to_string()),
+            modes: vec![
+                steer::frames::ConfigMode::new("default", "Default"),
+                steer::frames::ConfigMode::new("plan", "Plan"),
+            ],
+            commands: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn config_chips_puts_the_mode_chip_first() {
+        let chips = config_chips(Some(&config()));
+        assert_eq!(
+            chips
+                .iter()
+                .map(|chip| (chip.kind, chip.label.as_str(), chip.value_label.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                (ChipKind::Mode, "Mode", "Plan"),
+                (ChipKind::Option, "Model", "Opus"),
+                // A blank value is the CLI's own default, spelled out.
+                (ChipKind::Option, "Effort", "CLI default"),
+            ]
+        );
+        // An option with no `values` is read-only: render it, offer no menu.
+        assert!(chips[2].values.is_empty());
+        // A run with no modes draws no mode chip at all.
+        let modeless = steer::SessionConfig {
+            modes: Vec::new(),
+            current_mode: None,
+            ..config()
+        };
+        assert!(config_chips(Some(&modeless))
+            .iter()
+            .all(|chip| chip.kind == ChipKind::Option));
+        assert!(config_chips(None).is_empty());
+    }
+
+    /// The header shows the tokens; the sheet adds the percent and the cost.
+    #[test]
+    fn the_header_summary_drops_the_percent() {
+        let usage = steer::SessionUsage {
+            context_used: 124_000,
+            context_size: 200_000,
+            cost_usd: None,
+        };
+        assert_eq!(context_summary(Some(&usage)), Some("124k / 200k".to_string()));
+        assert_eq!(context_summary(None), None);
+    }
+}
