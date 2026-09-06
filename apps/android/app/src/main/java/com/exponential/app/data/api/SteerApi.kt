@@ -143,6 +143,12 @@ data class SteerDevice(
     @SerialName("unauthedAgents") val unauthedAgents: List<String> = emptyList(),
     @SerialName("caps") val caps: List<String>? = null,
     /**
+     * EXP-749: the agents this machine runs through the in-process ACP engine
+     * (the session screen). NULL is UNKNOWN, not empty — an older build never
+     * advertises it, and every runnable agent is then assumed ACP-ready.
+     */
+    @SerialName("acpAgents") val acpAgents: List<String>? = null,
+    /**
      * EXP-437: the machine's per-agent coding defaults, so a remote start
      * pre-fills what that machine would use locally. Absent on older desktops
      * (and on a machine with nothing runnable) — the sheet then falls back to
@@ -225,6 +231,25 @@ data class SteerDevice(
         get() = agents?.let { advertised ->
             DomainContract.codingAgentValues.filter { it in advertised }
         } ?: listOf(FALLBACK_AGENT)
+
+    /**
+     * The agents this machine runs through the ACP engine, in contract order
+     * (EXP-749), or null when it never advertised any — see [acpAgents]. An
+     * agent in [runnableAgents] but NOT here still starts, on a terminal tab.
+     */
+    val acpAgentIds: List<String>?
+        get() = acpAgents?.let { advertised ->
+            DomainContract.codingAgentValues.filter { it in advertised }
+        }
+
+    /**
+     * EXP-749: whether starting [agent] here lands in a terminal tab rather
+     * than the session screen. Nothing is filtered on it — the machine runs
+     * the agent either way, the picker just says which experience to expect.
+     * Unknown (null [acpAgentIds]) reads as ACP-ready, the pre-EXP-749 answer.
+     */
+    fun agentRunsInTerminal(agent: String): Boolean =
+        acpAgentIds?.let { agent !in it } == true
 
     /** EXP-409: agents installed but signed out — displayed, never offered. */
     val unauthedAgentIds: List<String>

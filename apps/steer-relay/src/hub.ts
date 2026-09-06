@@ -67,6 +67,9 @@ interface Conn {
 interface ActivityEntry {
   framed: string
   bytes: number
+  /** EXP-748: set to the subagentId when this entry is a subagent's tool
+   *  headline — the class of event the caps give up FIRST. */
+  subagentTool?: string
 }
 
 interface Room {
@@ -88,6 +91,15 @@ interface Room {
   activityLog: ActivityEntry[]
   /** Running serialized size of activityLog (the byte-budget accumulator). */
   activityBytes: number
+  /** EXP-748: live subagent tool entries in activityLog, by subagentId — one
+   *  subagent keeps at most SUBAGENT_TOOL_CAP of them. */
+  subagentToolCounts: Map<string, number>
+  /** Their total, so the count cap knows in O(1) whether anything is left to
+   *  give up before it starts dropping the main transcript. */
+  subagentToolEntries: number
+  /** Scan hint: no subagent tool entry lives BELOW this index, so the search
+   *  for the oldest one starts here instead of at the head. */
+  subagentScanFrom: number
   /** EXP-746: latest-wins STATE by kind (`diff`, `config_state`, `usage`) —
    *  the newest one replaces its predecessor, stays OUT of the count/byte
    *  budget, and the join replay sends them after the log. Each schema
@@ -97,10 +109,21 @@ interface Room {
 
 // EXP-249: full-history re-publish on reconnect means a long session's log is
 // the whole session. Bounded twice — a count cap for pathological chatter and
-// a byte budget for pathological size; eviction is oldest-first and always
-// leaves at least one event.
+// a byte budget for pathological size; the byte budget is a hard bound and
+// evicts oldest-first, and both always leave at least one event.
+//
+// EXP-748: the count cap is TWO-TIER. A parallelising agent spends most of a
+// long run inside subagents, so the flat cap used to evict the main
+// transcript — the narration a viewer actually reads — to make room for a
+// fan-out's tool spam. So the count cap gives up subagent tool headlines
+// FIRST (oldest first, across every subagent) and only drops the head once
+// none are left; on top of that ONE subagent keeps at most
+// SUBAGENT_TOOL_CAP of them, so a single runaway fan-out cannot spend the
+// whole budget. The `subagent` card's `toolCalls` (protocol.ts) is what keeps
+// the count honest once entries are evicted.
 const ACTIVITY_LOG_CAP = 2000
 const ACTIVITY_BYTE_CAP = 4 * 1024 * 1024
+const SUBAGENT_TOOL_CAP = 50
 
 // EXP-746: kinds that are latest-wins STATE rather than transcript rows.
 // Appending them would burn the budgets above on stale snapshots — a `usage`
@@ -345,6 +368,9 @@ export class Hub {
             activityMembers: new Set(),
             activityLog: [],
             activityBytes: 0,
+            subagentToolCounts: new Map(),
+            subagentToolEntries: 0,
+            subagentScanFrom: 0,
             lastByKind: new Map(),
           }
           this.rooms.set(sessionId, room)
@@ -471,6 +497,9 @@ export class Hub {
         if (!room || room.publisher !== conn) return
         room.activityLog = []
         room.activityBytes = 0
+        room.subagentToolCounts.clear()
+        room.subagentToolEntries = 0
+        room.subagentScanFrom = 0
         room.lastByKind.clear()
         this.fanoutActivity(room, frame({ t: `activity_reset` }))
         return
@@ -621,18 +650,78 @@ export class Hub {
 
   private entryFor(event: ActivityEvent): ActivityEntry {
     const framed = frame({ t: `activity`, event })
-    return { framed, bytes: Buffer.byteLength(framed, `utf8`) }
+    const entry: ActivityEntry = {
+      framed,
+      bytes: Buffer.byteLength(framed, `utf8`),
+    }
+    // EXP-748: tag the entries the count cap is allowed to sacrifice.
+    if (event.kind === `tool` && event.subagentId) {
+      entry.subagentTool = event.subagentId
+    }
+    return entry
   }
 
   private appendActivity(room: Room, entry: ActivityEntry) {
     room.activityLog.push(entry)
     room.activityBytes += entry.bytes
-    while (
-      room.activityLog.length > ACTIVITY_LOG_CAP ||
-      (room.activityBytes > ACTIVITY_BYTE_CAP && room.activityLog.length > 1)
-    ) {
-      room.activityBytes -= room.activityLog.shift()!.bytes
+    if (entry.subagentTool) {
+      const count = (room.subagentToolCounts.get(entry.subagentTool) ?? 0) + 1
+      room.subagentToolCounts.set(entry.subagentTool, count)
+      room.subagentToolEntries += 1
+      // Per-subagent tier: one fan-out never owns more than its share.
+      if (count > SUBAGENT_TOOL_CAP) {
+        this.evictOldestSubagentTool(room, entry.subagentTool)
+      }
     }
+    // Count tier: spend subagent tool calls before the main transcript.
+    while (room.activityLog.length > ACTIVITY_LOG_CAP) {
+      if (!this.evictOldestSubagentTool(room)) this.dropHead(room)
+    }
+    // Byte tier: a hard bound, so it stays plain oldest-first.
+    while (
+      room.activityBytes > ACTIVITY_BYTE_CAP &&
+      room.activityLog.length > 1
+    ) {
+      this.dropHead(room)
+    }
+  }
+
+  /** Evict the oldest subagent tool entry — of `subagentId` when given, of
+   *  any subagent otherwise. Returns false when there is none left to give
+   *  up, which is the count cap's signal to fall back to the head. */
+  private evictOldestSubagentTool(room: Room, subagentId?: string): boolean {
+    if (room.subagentToolEntries === 0) return false
+    const log = room.activityLog
+    let i = Math.min(room.subagentScanFrom, log.length)
+    for (; i < log.length; i++) {
+      const tag = log[i]!.subagentTool
+      if (tag && (subagentId === undefined || tag === subagentId)) break
+    }
+    if (i >= log.length) return false
+    const [entry] = log.splice(i, 1)
+    room.activityBytes -= entry!.bytes
+    this.forgetSubagentTool(room, entry!.subagentTool!)
+    // Only the un-filtered scan proves nothing older survives below `i`; a
+    // per-subagent hit may sit past an older entry of another subagent.
+    if (subagentId === undefined) room.subagentScanFrom = i
+    return true
+  }
+
+  /** Drop the oldest event outright: the byte budget's hard bound, and the
+   *  count cap once no subagent tool call is left to sacrifice. */
+  private dropHead(room: Room) {
+    const entry = room.activityLog.shift()
+    if (!entry) return
+    room.activityBytes -= entry.bytes
+    if (entry.subagentTool) this.forgetSubagentTool(room, entry.subagentTool)
+    if (room.subagentScanFrom > 0) room.subagentScanFrom -= 1
+  }
+
+  private forgetSubagentTool(room: Room, subagentId: string) {
+    const left = (room.subagentToolCounts.get(subagentId) ?? 1) - 1
+    if (left > 0) room.subagentToolCounts.set(subagentId, left)
+    else room.subagentToolCounts.delete(subagentId)
+    room.subagentToolEntries -= 1
   }
 
   /** Fan one pre-serialized text frame to the activity audience. Activity is

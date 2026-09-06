@@ -241,6 +241,42 @@ async function gateSignIn(scope: Scope): Promise<void> {
 }
 
 /**
+ * Drop the steering-dependent DESKTOP views when `--skip-relay` says no stub
+ * will be online (EXP-732).
+ *
+ * The flag exists so a run that only wants the settings pages does not have to
+ * stand up a relay — but the desktop lane launches the app either way, and
+ * every view in [`STEER_DEPENDENT_VIEWS`] then photographs what the app falls
+ * back to: a session tab stuck on Reconnecting (`steering` is a driven view
+ * since EXP-732, not a hand capture), a board with no "coding now" badge, a
+ * launcher with no machine to start on. A degraded shot under the right
+ * filename is the one outcome the store cannot survive, so these are SKIPPED
+ * the way the browser lane skips a view whose token could not be minted:
+ * reported, not captured, never failed.
+ *
+ * Desktop only. The browser lane's steering-dependent views are the same
+ * shots, but `--skip-relay` there has always been the flag people run while
+ * iterating on one web view, and silently narrowing that is a bigger surprise
+ * than the banner it prevents.
+ */
+function gateRelay(options: Options, scope: Scope): void {
+  if (!options.skipRelay) return
+  const dropped = laneViews(scope, `desktop`).filter((id) => STEER_DEPENDENT_VIEWS.has(id))
+  if (dropped.length === 0) return
+  for (const id of dropped) scope.get(`desktop`)?.delete(id)
+  console.log(
+    [
+      ``,
+      `── desktop: ${dropped.length} view(s) skipped (--skip-relay) ────────`,
+      `  ${dropped.join(`, `)}`,
+      `  Their content only exists while \`bun run screenshots:desktop\` has a machine online`,
+      `  on the steer relay. Drop --skip-relay (and \`docker compose --profile steer up -d\`)`,
+      `  to refresh them.`,
+    ].join(`\n`)
+  )
+}
+
+/**
  * Did anything narrow this run? Only then does a lane get an explicit view list.
  *
  * Derived from the SCOPE, not just from the flags: `gateSignIn` drops a view
@@ -1003,7 +1039,10 @@ function dedupeBroad(broad: AffectedScope[`broad`]): AffectedScope[`broad`] {
 async function main(): Promise<number> {
   const options = parseArgs(process.argv.slice(2))
   const { scope, affected, since } = await resolveScope(options)
-  if (!options.writeOnly) await gateSignIn(scope)
+  if (!options.writeOnly) {
+    await gateSignIn(scope)
+    gateRelay(options, scope)
+  }
   const relayNeeded =
     needsRelay(options, scope) && !options.skipRelay && !options.dryRun && !options.writeOnly
 
@@ -1115,7 +1154,7 @@ async function main(): Promise<number> {
 
       ids = await fetchDemoIds()
       console.log(
-        `\nids: team ${ids.teamId} · ${Object.keys(ids.issues).length} issues${ids.supportThreadId ? ` · support thread ${ids.supportThreadId}` : ` · NO support thread (support views will skip)`}${ids.deviceId ? `` : ` · NO device row (machine-settings will skip)`}`
+        `\nids: team ${ids.teamId} · ${Object.keys(ids.issues).length} issues${ids.supportThreadId ? ` · support thread ${ids.supportThreadId}` : ` · NO support thread (support views will skip)`}${ids.deviceId ? `` : ` · NO device row (machine-settings will skip)`}${ids.steeredSessionId ? `` : ` · NO showcase session (steering will skip)`}`
       )
 
       await captureWeb(options.platforms, options, scope, outcomes)

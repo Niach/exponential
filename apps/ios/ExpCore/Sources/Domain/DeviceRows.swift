@@ -100,6 +100,9 @@ public extension SteerDevice {
             deviceLabel: entity.label,
             agents: Self.decodeStringArray(entity.agents),
             unauthedAgents: Self.decodeStringArray(entity.unauthedAgents) ?? [],
+            // EXP-749: nil stays nil — an unreported column means "assume
+            // every runnable agent is ACP-ready", not "none of them are".
+            acpAgents: Self.decodeStringArray(entity.acpAgents),
             caps: Self.decodeStringArray(entity.caps) ?? [],
             kind: entity.kind,
             platform: entity.platform,

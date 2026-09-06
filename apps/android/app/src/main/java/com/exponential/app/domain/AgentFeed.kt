@@ -95,13 +95,20 @@ sealed interface AgentFeedItem {
     }
 
     /** A subagent's lifecycle row (EXP-249) — the header of the collapsible
-     *  group its tool calls render inside. */
+     *  group its tool calls render inside.
+     *
+     *  EXP-748: [toolCalls] is the PUBLISHER's count of the calls this
+     *  subagent made, stamped on the completed edge. The replay log evicts a
+     *  subagent's tool events first, so the visible rows can undercount long
+     *  after the fact while this number stays honest. Absent on an older
+     *  desktop. */
     data class Subagent(
         override val id: Long,
         val subagentId: String,
         val agentType: String,
         val completed: Boolean,
         val detail: String? = null,
+        val toolCalls: Int? = null,
     ) : AgentFeedItem
 
     /** A permission prompt the agent hit (EXP-249) — informational only: it is
@@ -348,6 +355,7 @@ fun completeSubagent(
     feed: List<AgentFeedItem>,
     subagentId: String,
     detail: String?,
+    toolCalls: Int? = null,
 ): List<AgentFeedItem>? {
     val index = feed.indexOfLast {
         it is AgentFeedItem.Subagent && it.subagentId == subagentId && !it.completed
@@ -355,7 +363,13 @@ fun completeSubagent(
     if (index < 0) return null
     val item = feed[index] as AgentFeedItem.Subagent
     return feed.toMutableList().apply {
-        this[index] = item.copy(completed = true, detail = detail ?: item.detail)
+        this[index] = item.copy(
+            completed = true,
+            detail = detail ?: item.detail,
+            // EXP-748: the count only ever rides the completed edge, so the
+            // fold is where it lands on the row.
+            toolCalls = toolCalls ?: item.toolCalls,
+        )
     }
 }
 
@@ -417,6 +431,10 @@ sealed interface AgentFeedRow {
         val completed: Boolean,
         val detail: String?,
         val tools: List<AgentFeedItem.Tool>,
+        /** EXP-748: what the "N tool calls" caption counts — the visible rows
+         *  or, when the publisher reported more (replay evicted a subagent's
+         *  tool events), its count. 0 = nothing to say. */
+        val toolCount: Int = 0,
     ) : AgentFeedRow
 }
 
@@ -465,6 +483,10 @@ fun groupFeedRows(feed: List<AgentFeedItem>): List<AgentFeedRow> {
                             completed = markers.any { it.completed },
                             detail = markers.lastOrNull { it.detail != null }?.detail,
                             tools = tools,
+                            toolCount = maxOf(
+                                tools.size,
+                                markers.mapNotNull { it.toolCalls }.maxOrNull() ?: 0,
+                            ),
                         ),
                     )
                 }
@@ -697,8 +719,9 @@ fun ActivityFeedState.applyActivityEvent(
         val subagentId = event.str("id")?.takeIf { it.isNotBlank() }
         val detail = event.str("detail")?.takeIf { it.isNotBlank() }
         val completed = event.str("status") == "completed"
+        val toolCalls = event.int("toolCalls")?.takeIf { it >= 0 }
         val closed = if (subagentId != null && completed) {
-            completeSubagent(feed, subagentId, detail)
+            completeSubagent(feed, subagentId, detail, toolCalls)
         } else {
             null
         }
@@ -712,6 +735,7 @@ fun ActivityFeedState.applyActivityEvent(
                     agentType = event.str("agentType")?.takeIf { it.isNotBlank() } ?: "agent",
                     completed = completed,
                     detail = detail,
+                    toolCalls = toolCalls,
                 ),
             )
         }

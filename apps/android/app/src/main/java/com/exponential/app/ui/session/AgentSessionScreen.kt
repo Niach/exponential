@@ -2471,9 +2471,12 @@ private fun SubagentGroupRow(
                     color = MaterialTheme.colorScheme.onSurface,
                 )
             }
-            if (run.tools.isNotEmpty()) {
+            // EXP-748: the publisher's count when it reported one — replay
+            // evicts a subagent's tool events first, so the visible rows can
+            // undercount what the run actually did.
+            if (run.toolCount > 0) {
                 Text(
-                    "${run.tools.size} tool calls",
+                    "${run.toolCount} tool calls",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                 )

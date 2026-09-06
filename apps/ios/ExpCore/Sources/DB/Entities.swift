@@ -1527,6 +1527,10 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Se
     public let agents: String?
     public let caps: String?
     public let unauthedAgents: String?
+    /// EXP-749: jsonb string[] — the subset of `agents` the machine's ACP
+    /// engine can drive. NULL = the build never reported it (pre-EXP-749), so
+    /// every runnable agent is assumed ACP-ready.
+    public let acpAgents: String?
     /// jsonb object (defaultAgent + per-agent model/effort/toggles), stored as
     /// stringified JSON. Inner keys are camelCase verbatim on the wire.
     public let launchDefaults: String?
@@ -1562,6 +1566,7 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Se
         agents: String? = nil,
         caps: String? = nil,
         unauthedAgents: String? = nil,
+        acpAgents: String? = nil,
         launchDefaults: String? = nil,
         launchDefaultsUpdatedAt: String? = nil,
         agentAccounts: String? = nil,
@@ -1585,6 +1590,7 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Se
         self.agents = agents
         self.caps = caps
         self.unauthedAgents = unauthedAgents
+        self.acpAgents = acpAgents
         self.launchDefaults = launchDefaults
         self.launchDefaultsUpdatedAt = launchDefaultsUpdatedAt
         self.agentAccounts = agentAccounts
@@ -1604,6 +1610,7 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Se
         case userId = "user_id"
         case deviceId = "device_id"
         case unauthedAgents = "unauthed_agents"
+        case acpAgents = "acp_agents"
         case launchDefaults = "launch_defaults"
         case launchDefaultsUpdatedAt = "launch_defaults_updated_at"
         case agentAccounts = "agent_accounts"
@@ -1638,6 +1645,9 @@ extension DeviceEntity: Codable {
         agents = c.decodeWireJsonString(forKey: .agents)
         caps = c.decodeWireJsonString(forKey: .caps)
         unauthedAgents = c.decodeWireJsonString(forKey: .unauthedAgents)
+        // EXP-749: jsonb like agents/caps, and ABSENT on a pre-EXP-749 device
+        // row — nil must stay nil, it means "assume every runnable agent".
+        acpAgents = c.decodeWireJsonString(forKey: .acpAgents)
         launchDefaults = c.decodeWireJsonString(forKey: .launchDefaults)
         launchDefaultsUpdatedAt = try c.decodeIfPresent(String.self, forKey: .launchDefaultsUpdatedAt)
         // EXP-484: jsonb like agents/caps — object off the wire, pre-stringified

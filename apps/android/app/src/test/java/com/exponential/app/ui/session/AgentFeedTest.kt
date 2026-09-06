@@ -467,6 +467,53 @@ class AgentFeedTest {
     }
 
     @Test
+    fun `a reported tool-call count wins over the visible tool rows`() {
+        // EXP-748: a replay evicts a subagent's tool events first, so the
+        // count the publisher stamped on the completed edge is what keeps the
+        // "N tool calls" caption honest.
+        val evicted = listOf<AgentFeedItem>(
+            subagent(1, "s1", completed = true).copy(toolCalls = 12),
+            tool(2).copy(subagentId = "s1"),
+        )
+        assertEquals(12, (groupFeedRows(evicted)[0] as AgentFeedRow.SubagentRun).toolCount)
+
+        // Never BELOW what the viewer can see: a stale or low report loses.
+        val visible = listOf<AgentFeedItem>(
+            subagent(1, "s1", completed = true).copy(toolCalls = 1),
+            tool(2).copy(subagentId = "s1"),
+            tool(3).copy(subagentId = "s1"),
+        )
+        assertEquals(2, (groupFeedRows(visible)[0] as AgentFeedRow.SubagentRun).toolCount)
+
+        // An older desktop reports nothing — the rows ARE the count.
+        val unreported = listOf<AgentFeedItem>(subagent(1, "s1", completed = true))
+        assertEquals(0, (groupFeedRows(unreported)[0] as AgentFeedRow.SubagentRun).toolCount)
+    }
+
+    @Test
+    fun `the completed edge folds its tool-call count onto the running row`() {
+        val state = ActivityFeedState()
+            .applying(
+                event("""{"kind":"subagent","id":"s1","agentType":"explore","status":"started"}"""),
+            )
+            .applying(event("""{"kind":"tool","name":"Grep","subagentId":"s1"}"""))
+            .applying(
+                event(
+                    """
+                    {"kind":"subagent","id":"s1","agentType":"explore",
+                     "status":"completed","detail":"9 files","toolCalls":9}
+                    """,
+                ),
+            )
+        // The completion folded into the running row, count and all.
+        assertEquals(2, state.feed.size)
+        val run = groupFeedRows(state.feed)[0] as AgentFeedRow.SubagentRun
+        assertTrue(run.completed)
+        assertEquals("9 files", run.detail)
+        assertEquals(9, run.toolCount)
+    }
+
+    @Test
     fun `completion flips the running row in place instead of adding one`() {
         val feed = listOf<AgentFeedItem>(
             subagent(1, "s1", completed = false),

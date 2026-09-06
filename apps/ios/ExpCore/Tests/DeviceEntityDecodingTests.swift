@@ -125,6 +125,43 @@ final class DeviceEntityDecodingTests: XCTestCase {
         XCTAssertNil(bare.agentUsageAt)
     }
 
+    // EXP-749: `acp_agents` is jsonb like agents/caps — a real array off the
+    // wire, pre-stringified from fixtures — and ABSENT on a pre-EXP-749
+    // snapshot, where nil must stay nil (it means "assume every runnable
+    // agent", never "none of them").
+    func testDecodesAcpAgentsJsonbAndAbsence() throws {
+        let wire = try decodeDevice("""
+        {"id":"row-7","user_id":"u1","device_id":"dev-7","label":"macbook",
+        "agents":["claude","codex"],"acp_agents":["claude"]}
+        """)
+        let acp = try JSONDecoder().decode(
+            [String].self, from: Data(XCTUnwrap(wire.acpAgents).utf8)
+        )
+        XCTAssertEqual(acp, ["claude"])
+
+        let stringified = try decodeDevice("""
+        {"id":"row-8","user_id":"u1","device_id":"dev-8","label":"mini",
+        "acp_agents":"[\\"codex\\"]"}
+        """)
+        XCTAssertEqual(
+            try JSONDecoder().decode(
+                [String].self, from: Data(XCTUnwrap(stringified.acpAgents).utf8)
+            ),
+            ["codex"]
+        )
+
+        let bare = try decodeDevice(
+            #"{"id":"row-9","user_id":"u1","device_id":"dev-9","label":"box"}"#
+        )
+        XCTAssertNil(bare.acpAgents)
+
+        // The mapping keeps the absent/known distinction: nil = unknown.
+        XCTAssertNil(SteerDevice(entity: bare, currentUserId: "u1").acpAgentIds)
+        XCTAssertEqual(
+            SteerDevice(entity: wire, currentUserId: "u1").acpAgentIds, ["claude"]
+        )
+    }
+
     func testDecodesWorktreeWithPostgresTextBool() throws {
         let worktree = try decodeWorktree("""
         {"id":"wt-1","device_row_id":"row-1","repo_full_name":"acme/api",

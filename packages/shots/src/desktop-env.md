@@ -24,7 +24,7 @@ are documented for users.
 | Var | Values | Effect |
 | --- | --- | --- |
 | `EXP_DEV_TEAM` | team uuid | Pre-select the team (wins over the persisted last-team/board pair). |
-| `EXP_DEV_SCREEN` | `settings` \| `account` (= settings) \| `devices` \| `actions` \| `automations` \| `reviews` \| `getting-started` \| `issue:<issue-uuid>` \| `pr:<issue-uuid>` \| `support:<thread-uuid>` | Pre-route the first screen. **New:** the `pr:` and `support:` arms. `pr:` is keyed by the ISSUE whose linked PR the diff shows (the Reviews rows open it the same way), `support:` by the support thread id. `reviews` (EXP-706) is the full-page Reviews list — it used to be a rail tool, and the legacy `EXP_DEV_TOOL=reviews` spelling still lands on it. Unset = the rail tool's own center content. |
+| `EXP_DEV_SCREEN` | `settings` \| `account` (= settings) \| `devices` \| `actions` \| `automations` \| `reviews` \| `getting-started` \| `issue:<issue-uuid>` \| `pr:<issue-uuid>` \| `support:<thread-uuid>` \| `session:<coding_sessions row id>` | Pre-route the first screen. **New:** the `pr:` and `support:` arms. `pr:` is keyed by the ISSUE whose linked PR the diff shows (the Reviews rows open it the same way), `support:` by the support thread id. `reviews` (EXP-706) is the full-page Reviews list — it used to be a rail tool, and the legacy `EXP_DEV_TOOL=reviews` spelling still lands on it. `session:` (EXP-746) opens one coding session as a `Screen::Session` tab, keyed by the `coding_sessions` ROW id, never the issue or the branch; with no engine in this process the tab dials the relay as a viewer, so it shows a Reconnecting state unless a machine is publishing that session (the `steering` capture pairs it with `bun run screenshots:desktop`). Unset = the rail tool's own center content. |
 | `EXP_DEV_TOOL` | `inbox` \| `my-issues` \| `board` (also `board-issues`, `issues`) \| `support` \| `files` \| `source-control` | **New.** Pre-select the rail tool window. Default `board`. `my-issues` selects the Inbox tool AND seeds its My Issues tab. (`reviews` was retired by EXP-706 — it is a screen now, see `EXP_DEV_SCREEN`.) |
 | `EXP_DEV_INBOX_TAB` | `inbox` \| `my-issues` | **New.** The Inbox tool window's active tab. Default `inbox`; wins over the `my-issues` seed above. |
 | `EXP_DEV_BOARD_ID` | board uuid | **New.** Pre-select the board, for the cases the last-visited one is the wrong one (the empty-board view). `EXP_DEV_BOARD=1` was already taken by an unrelated debug tab, hence the `_ID`. Only assigned when nothing else already picked a board. |
@@ -108,6 +108,13 @@ or one PR diff:
 
 ```sh
 … EXP_DEV_SCREEN=pr:$ISSUE_ID …
+```
+
+or one coding session (the `steering` view — the relay stub has to be
+publishing that session, otherwise the tab renders Reconnecting):
+
+```sh
+… EXP_DEV_SCREEN=session:$SESSION_ID …
 ```
 
 Give every view its own `EXP_DATA_DIR` (or wipe it between runs) so nothing

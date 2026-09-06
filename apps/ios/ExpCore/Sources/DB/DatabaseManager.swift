@@ -886,6 +886,9 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("agents", .text)
                 t.column("caps", .text)
                 t.column("unauthed_agents", .text)
+                // EXP-749: the subset of `agents` the machine's ACP engine can
+                // drive (jsonb string[]); NULL = never reported.
+                t.column("acp_agents", .text)
                 t.column("launch_defaults", .text)
                 t.column("launch_defaults_updated_at", .text)
                 // EXP-484: the machine's per-agent auth status + rate-limit
@@ -1274,6 +1277,29 @@ public final class DatabaseManager: @unchecked Sendable {
                     UPDATE "electric_offsets"
                     SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
                     WHERE "shape" = 'comments'
+                    """)
+            }
+        }
+
+        // v29 (EXP-749): a device reports WHICH of its runnable agents its ACP
+        // engine can drive — the rest start in a terminal tab there. Guarded
+        // additive ALTER so an older store converges on the schema a fresh
+        // install gets from the v1 create above, then the devices offset
+        // resets so the rows already synced re-arrive carrying it (the
+        // v23_agent_status precedent).
+        migrator.registerMigration("v29_device_acp_agents") { db in
+            guard try db.tableExists("devices") else { return }
+            let existing = Set(try db.columns(in: "devices").map(\.name))
+            if !existing.contains("acp_agents") {
+                try db.alter(table: "devices") { t in
+                    t.add(column: "acp_agents", .text)
+                }
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'devices'
                     """)
             }
         }

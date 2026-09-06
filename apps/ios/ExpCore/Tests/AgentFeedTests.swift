@@ -295,6 +295,51 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertEqual(rows[1], .single(feed[4]))
     }
 
+    func testAReportedToolCallCountWinsOverTheVisibleOne() {
+        // EXP-748: replay evicts a subagent's tool events first, so the rows
+        // left behind undercount. The completed edge carries the publisher's
+        // own count and that is what the row shows.
+        let evicted: [AgentFeedItem] = [
+            .subagent(id: 1, subagentId: "s1", agentType: "explorer", status: .started, detail: nil),
+            tool(2, subagentId: "s1"),
+            .subagent(
+                id: 3, subagentId: "s1", agentType: "explorer",
+                status: .completed, detail: nil, toolCalls: 7
+            ),
+        ]
+        guard case let .subagentRun(run) = AgentFeed.rows(evicted)[0] else {
+            return XCTFail("expected a subagent run")
+        }
+        XCTAssertEqual(run.reportedToolCalls, 7)
+        XCTAssertEqual(run.toolCount, 7)
+
+        // A count LOWER than what is visible never shrinks the row, and a
+        // marker without one leaves the visible count alone.
+        let visible: [AgentFeedItem] = [
+            .subagent(id: 1, subagentId: "s2", agentType: "explorer", status: .started, detail: nil),
+            tool(2, subagentId: "s2"),
+            tool(3, subagentId: "s2"),
+            .subagent(
+                id: 4, subagentId: "s2", agentType: "explorer",
+                status: .completed, detail: nil, toolCalls: 1
+            ),
+        ]
+        guard case let .subagentRun(kept) = AgentFeed.rows(visible)[0] else {
+            return XCTFail("expected a subagent run")
+        }
+        XCTAssertEqual(kept.toolCount, 2)
+
+        let unreported: [AgentFeedItem] = [
+            .subagent(id: 1, subagentId: "s3", agentType: "explorer", status: .started, detail: nil),
+            tool(2, subagentId: "s3"),
+        ]
+        guard case let .subagentRun(old) = AgentFeed.rows(unreported)[0] else {
+            return XCTFail("expected a subagent run")
+        }
+        XCTAssertNil(old.reportedToolCalls)
+        XCTAssertEqual(old.toolCount, 1)
+    }
+
     func testAnUnfinishedSubagentRunIsNotDoneAndAStrayMarkerStillOpensItsGroup() {
         let running: [AgentFeedItem] = [
             .subagent(id: 1, subagentId: "s1", agentType: "explorer", status: .started, detail: nil),

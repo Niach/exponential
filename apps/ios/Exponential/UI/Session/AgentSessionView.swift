@@ -737,7 +737,7 @@ struct AgentSessionView: View {
                 }
             case let .question(question):
                 questionCard(question)
-            case let .subagent(_, _, agentType, status, detail):
+            case let .subagent(_, _, agentType, status, detail, _):
                 SubagentRow(agentType: agentType, status: status, detail: detail)
             case let .permission(_, tool, detail):
                 PermissionRow(tool: tool, detail: detail)

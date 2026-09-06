@@ -221,6 +221,18 @@ struct LaunchOptionsSection: View {
         .listRowBackground(glassFormRowFill)
     }
 
+    /// The machine the options currently target — the picker's selection, or
+    /// the sole machine when there is nothing to pick. The device variant
+    /// passes no machines at all, so it never carries a note.
+    private var resolvedDevice: SteerDevice? {
+        devices.first { $0.deviceId == deviceId } ?? (devices.count == 1 ? devices.first : nil)
+    }
+
+    /// EXP-749: the picked agent runs there, outside the ACP engine.
+    private var terminalNote: String? {
+        LaunchVocabulary.terminalNote(device: resolvedDevice, agent: agent)
+    }
+
     private var resumeNote: String? {
         guard let resumeRow, resumeRow.active else { return nil }
         return "A worktree for \(resumeRow.identifier ?? "this issue") already exists (\(resumeRow.branch))."
@@ -228,10 +240,14 @@ struct LaunchOptionsSection: View {
 
     @ViewBuilder
     private var optionsFooter: some View {
-        if resumeNote != nil || footerNote != nil {
+        if resumeNote != nil || terminalNote != nil || footerNote != nil {
             VStack(alignment: .leading, spacing: 4) {
                 if let resumeNote {
                     Text(resumeNote)
+                }
+                if let terminalNote {
+                    Text(terminalNote)
+                        .accessibilityIdentifier("launch-terminal-note")
                 }
                 if let footerNote {
                     Text(footerNote)

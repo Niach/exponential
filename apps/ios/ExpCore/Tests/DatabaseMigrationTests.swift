@@ -97,7 +97,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v21_device_is_default", "v22_coding_session_outcome",
              "v23_agent_status", "v24_drop_coding_session_outcome",
              "v25_board_default_branch", "v26_coding_session_pr",
-             "v27_issue_relations", "v28_comment_threads"]
+             "v27_issue_relations", "v28_comment_threads",
+             "v29_device_acp_agents"]
         )
     }
 
@@ -121,7 +122,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v21_device_is_default", "v22_coding_session_outcome",
              "v23_agent_status", "v24_drop_coding_session_outcome",
              "v25_board_default_branch", "v26_coding_session_pr",
-             "v27_issue_relations", "v28_comment_threads"]
+             "v27_issue_relations", "v28_comment_threads",
+             "v29_device_acp_agents"]
         )
     }
 
@@ -173,7 +175,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v21_device_is_default", "v22_coding_session_outcome",
              "v23_agent_status", "v24_drop_coding_session_outcome",
              "v25_board_default_branch", "v26_coding_session_pr",
-             "v27_issue_relations", "v28_comment_threads"]
+             "v27_issue_relations", "v28_comment_threads",
+             "v29_device_acp_agents"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -245,7 +248,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v21_device_is_default", "v22_coding_session_outcome",
              "v23_agent_status", "v24_drop_coding_session_outcome",
              "v25_board_default_branch", "v26_coding_session_pr",
-             "v27_issue_relations", "v28_comment_threads"]
+             "v27_issue_relations", "v28_comment_threads",
+             "v29_device_acp_agents"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1095,6 +1099,45 @@ final class DatabaseMigrationTests: XCTestCase {
                 sql: "SELECT \"handle\" = '' AND \"offset\" = '-1' AND \"needs_refetch\" = 1 "
                     + "AND \"is_live\" = 0 FROM \"electric_offsets\" "
                     + "WHERE \"shape\" = 'coding-sessions'"
+            )
+        }
+        XCTAssertEqual(reset, true)
+    }
+
+    // v29 (EXP-749): a device reports WHICH of its runnable agents its ACP
+    // engine drives. A store created before the column existed must gain it
+    // via the guarded ALTER and get the devices offset reset, or the already
+    // synced rows would never carry it (the v23 precedent).
+    func testDeviceAcpAgentsColumnAddedToExistingStore() throws {
+        let pool = try makePool("device-acp-agents")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v28_comment_threads")
+        try pool.write { db in
+            // Model the pre-v29 state: today's v1 create already declares the
+            // column, which is exactly the overlap the guarded ALTER tolerates.
+            if try db.columns(in: "devices").contains(where: { $0.name == "acp_agents" }) {
+                try db.alter(table: "devices") { t in t.drop(column: "acp_agents") }
+            }
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('devices', 'h', '0_0', 0, 1)
+                """)
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        let added = try pool.read { db in
+            try db.columns(in: "devices").first { $0.name == "acp_agents" }
+        }
+        XCTAssertNotNil(added)
+        // A machine that never reports keeps it NULL — the "unknown" reading.
+        XCTAssertFalse(added?.isNotNull ?? true)
+        let reset = try pool.read { db in
+            try Bool.fetchOne(
+                db,
+                sql: "SELECT \"handle\" = '' AND \"offset\" = '-1' AND \"needs_refetch\" = 1 "
+                    + "AND \"is_live\" = 0 FROM \"electric_offsets\" "
+                    + "WHERE \"shape\" = 'devices'"
             )
         }
         XCTAssertEqual(reset, true)

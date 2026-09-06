@@ -141,7 +141,7 @@ which is also how you find a rule that needs teaching (`IGNORED`, `BROAD`).
 | ---------- | -------------------------------------------------------------------- |
 | web        | `cd apps/web && bun run capture:views -- --form-factor web`          |
 | web-mobile | same, `--form-factor web-mobile` (390×844@3x, mobile layout)         |
-| desktop    | `packages/shots/src/capture-desktop.ts` — launches the gpui app per view via the `EXP_DEV_*` overrides and `screencapture`s the window; views marked `manual` in the catalog are skipped (fill them with `--manual <view-id>` while the wanted state is on screen) |
+| desktop    | `packages/shots/src/capture-desktop.ts` — launches the gpui app per view via the `EXP_DEV_*` overrides and `screencapture`s the window; views marked `manual` in the catalog are skipped (`chat` is the only one left — fill it with `--manual chat` while the wanted state is on screen), and `--skip-relay` additionally skips the steering-dependent views rather than photographing a Reconnecting tab |
 | ios        | `cd apps/ios && bundle exec fastlane screenshots && bundle exec fastlane styleguide_screenshots` |
 | android    | `cd apps/android && bundle exec fastlane screenshots && bundle exec fastlane styleguide_screenshots` |
 
@@ -169,7 +169,7 @@ family, one `drive` per view:
 | drive | env | opens |
 | ----- | --- | ----- |
 | `tool`     | `EXP_DEV_TOOL`                      | a rail tool window (board, inbox, reviews, support, files, source-control) |
-| `screen`   | `EXP_DEV_SCREEN`                    | a centre screen (`settings`, `devices`, `actions`, `automations`, `getting-started`, `issue:<id>`, `pr:<id>`) |
+| `screen`   | `EXP_DEV_SCREEN`                    | a centre screen (`settings`, `devices`, `actions`, `automations`, `getting-started`, `issue:<id>`, `pr:<id>`, `support:<thread-id>`, `session:<coding-session-id>`) |
 | `settings` | `EXP_DEV_SCREEN` + `EXP_DEV_SETTINGS` | one settings section |
 | `dialog`   | `EXP_DEV_DIALOG`                    | one dialog, fired once from the render path after the state it needs resolves |
 | `login`    | — (no session injected)             | the pre-login card, on its own throwaway data dir |
@@ -198,10 +198,12 @@ Values may carry `$placeholders` — in the drive value AND in `desktop.env` —
 resolved against the seeded database by `bun run screenshots:ids` (which is a
 thin printer over `apps/web/scripts/lib/demo-ids.ts`): `$APP-5` and friends are
 issue identifiers, and `$thread`, `$action`, `$device`, `$automation`, `$board`,
-`$emptyBoard` and `$team` name one well-known seeded row each. `web.route` adds
-`$supportToken`, the reporter magic link for the seeded helpdesk thread — a
-CREDENTIAL, resolved lazily and never printed. An unresolvable placeholder SKIPS
-the view rather than photographing whatever the app fell back to.
+`$emptyBoard`, `$team` and `$steeredSession` (the seeded showcase coding
+session, the `steering` shot's subject) name one well-known seeded row each.
+`web.route` adds `$supportToken`, the reporter magic link for the seeded
+helpdesk thread — a CREDENTIAL, resolved lazily and never printed. An
+unresolvable placeholder SKIPS the view rather than photographing whatever the
+app fell back to.
 
 ## How the diff-skip works
 

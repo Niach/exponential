@@ -389,9 +389,10 @@ describe(`fail-safe`, () => {
     expect(result.broad).toEqual([])
     expect(result.byPlatform.get(`desktop`)).toContain(`terminal`)
     // Every view it claims renders a terminal grid; the board behind the dock
-    // is NOT one of them.
+    // is NOT one of them, and neither is `steering` since EXP-732 — that shot
+    // is the ACP session screen, with no grid in the frame.
     for (const viewId of result.byPlatform.get(`desktop`) ?? []) {
-      expect([`terminal`, `steering`]).toContain(viewId)
+      expect([`terminal`]).toContain(viewId)
     }
     for (const platform of PLATFORMS) {
       if (platform === `desktop`) continue
@@ -575,19 +576,70 @@ describe(`fail-safe`, () => {
   })
 
   test(`a manual-drive view is never pulled in by the missing-image rule`, () => {
-    // EXP-647: `steering` on the desktop is `drive: manual` (the app IS the
-    // session host; there is no dock to open), so no automated run can ever
-    // store it — and it was listed on every refresh, forever.
-    expect(viewById(`steering`)?.desktop?.drive.kind).toBe(`manual`)
+    // EXP-647: a `drive: manual` desktop view cannot be produced by an
+    // unattended run, so it must not sit in every refresh's scope forever.
+    // `chat` is the one left (EXP-732 automated `steering`): the IDE has no
+    // chat page — the dock strip's glyph STARTS one — so the shot is a hand
+    // capture of a started chat.
+    expect(viewById(`chat`)?.desktop?.drive.kind).toBe(`manual`)
     const result = affectedScope({ changedFiles: [], platforms: [`desktop`] })
-    expect(result.byPlatform.get(`desktop`)).not.toContain(`steering`)
+    expect(result.byPlatform.get(`desktop`)).not.toContain(`chat`)
     // A diff that names it still attributes to it — only the missing rule skips.
     const named = affectedScope({
-      changedFiles: [`apps/desktop/crates/terminal/src/element.rs`],
+      changedFiles: [`packages/view-catalog/views.json`],
+      catalogChanges: [`chat`],
       platforms: [`desktop`],
       includeMissing: false,
     })
-    expect(named.byPlatform.get(`desktop`)).toContain(`steering`)
+    expect(named.byPlatform.get(`desktop`)).toContain(`chat`)
+  })
+
+  test(`steering is automatable on the desktop (EXP-732)`, () => {
+    // The session screen dials the relay as a VIEWER when this process hosts no
+    // engine, which is the same relay-fed feed the web shot photographs — so
+    // the view is driven (`session:$steeredSession`) instead of hand-captured,
+    // and the missing-image rule may list it again.
+    expect(viewById(`steering`)?.desktop?.drive).toEqual({
+      kind: `screen`,
+      value: `session:$steeredSession`,
+    })
+    // The screen and the viewer feed narrow to it; nothing else comes along.
+    const named = affectedScope({
+      changedFiles: [
+        `apps/desktop/crates/ui/src/session_screen.rs`,
+        `apps/desktop/crates/ui/src/steer_viewer.rs`,
+        `apps/desktop/crates/steer/src/viewer.rs`,
+        `apps/desktop/crates/engine/src/mapper.rs`,
+      ],
+      platforms: [`desktop`],
+      includeMissing: false,
+    })
+    expect(named.broad).toEqual([])
+    expect(named.byPlatform.get(`desktop`)).toEqual([`steering`])
+
+    // A grid picker rides the feed AND draws into the PTY grid, so it claims
+    // both views rather than narrowing to one of them.
+    const picker = affectedScope({
+      changedFiles: [`apps/desktop/crates/steer/src/permission_picker.rs`],
+      platforms: [`desktop`],
+      includeMissing: false,
+    })
+    expect(picker.broad).toEqual([])
+    expect((picker.byPlatform.get(`desktop`) ?? []).sort()).toEqual([`steering`, `terminal`])
+
+    // `crates/steer/src/lib.rs` still widens (persistent_device_id), and the
+    // AUTH session module must not be dragged into the family by its NAME.
+    for (const path of [
+      `apps/desktop/crates/steer/src/lib.rs`,
+      `apps/desktop/crates/ui/src/session.rs`,
+    ]) {
+      const wide = affectedScope({
+        changedFiles: [path],
+        platforms: [`desktop`],
+        includeMissing: false,
+      })
+      expect(wide.byPlatform.get(`desktop`)).toHaveLength(viewsFor(`desktop`).length)
+    }
   })
 
   test(`a view with no stored shot is always in scope`, () => {

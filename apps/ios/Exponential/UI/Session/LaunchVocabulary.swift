@@ -117,4 +117,20 @@ enum LaunchVocabulary {
         guard let owner = device.owner else { return name }
         return "\(name) — \(owner.name)"
     }
+
+    /// The machine's plain name, no owner attribution — what a sentence about
+    /// it reads best with.
+    static func deviceName(_ device: SteerDevice) -> String {
+        device.deviceLabel.isEmpty ? device.deviceId : device.deviceLabel
+    }
+
+    /// EXP-749: the note under the options when the picked agent runs on the
+    /// machine but OUTSIDE its ACP engine — the run still starts, it just
+    /// lands in a terminal tab there instead of the session screen. Nil when
+    /// the machine never reported its ACP agents (unknown = assume all) or
+    /// drives this one. Never a filter: the agent stays pickable.
+    static func terminalNote(device: SteerDevice?, agent: String) -> String? {
+        guard let device, !agent.isEmpty, device.agentRunsInTerminal(agent) else { return nil }
+        return "Runs in a terminal tab on \(deviceName(device))."
+    }
 }

@@ -144,6 +144,8 @@ fun DeviceEntity.toSteerDevice(
     agents = parseStringList(agents),
     unauthedAgents = parseStringList(unauthedAgents).orEmpty(),
     caps = parseStringList(caps),
+    // EXP-749: null stays null — "the machine never said", not "none".
+    acpAgents = parseStringList(acpAgents),
     launchDefaults = parseLaunchDefaults(launchDefaults),
     kind = kind,
     platform = platform,
