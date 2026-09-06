@@ -358,25 +358,35 @@ impl AutomationsView {
             let resumable = crate::coding_flow::run_is_resumable_ref(&session_id, cx);
             // EXP-686: a LIVE run this process hosts opens from its row — the
             // dock expands onto its tab (or its undocked window is raised).
-            // A live run on ANOTHER machine has no terminal here, so its card
-            // stays inert.
-            let live_tab = (!run_rows::run_has_ended(session))
-                .then(|| local_terminal_tab(&session_id, cx))
-                .flatten();
+            // EXP-746: an ACP run has no terminal at all, so its row opens the
+            // session SCREEN instead. A live run on ANOTHER machine has
+            // neither here, so its card stays inert.
+            let live = !run_rows::run_has_ended(session);
+            let live_tab = live.then(|| local_terminal_tab(&session_id, cx)).flatten();
+            let live_acp = live && live_tab.is_none() && local_acp_session(&session_id, cx);
+            let open_id = session_id.clone();
             let on_open: Option<Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App)>> =
-                live_tab.map(|(tab, manager)| {
-                    Box::new(move |_: &gpui::ClickEvent, window: &mut Window, cx: &mut App| {
-                        let Some(manager) = manager.upgrade() else {
-                            return;
-                        };
-                        crate::undock::reveal_terminal_tab(
-                            tab,
-                            manager,
-                            window.window_handle(),
-                            cx,
-                        );
-                    }) as Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App)>
-                });
+                match live_tab {
+                    Some((tab, manager)) => Some(Box::new(
+                        move |_: &gpui::ClickEvent, window: &mut Window, cx: &mut App| {
+                            let Some(manager) = manager.upgrade() else {
+                                return;
+                            };
+                            crate::undock::reveal_terminal_tab(
+                                tab,
+                                manager,
+                                window.window_handle(),
+                                cx,
+                            );
+                        },
+                    )),
+                    None if live_acp => Some(Box::new(
+                        move |_: &gpui::ClickEvent, window: &mut Window, cx: &mut App| {
+                            crate::session_screen::open_session(&open_id, window, cx);
+                        },
+                    )),
+                    None => None,
+                };
             let toggle_id = session_id.clone();
             let resume_id = session_id.clone();
             // EXP-746: the row itself lives in `run_rows` now — the Devices
@@ -614,7 +624,6 @@ fn local_terminal_tab(
 /// EXP-746: is this LIVE run an ACP session this process hosts? Its row opens
 /// the session SCREEN rather than revealing a terminal tab, so the caller
 /// routes on this instead of [`local_terminal_tab`].
-#[allow(dead_code)] // wired up with `Screen::Session` (lane D3)
 fn local_acp_session(session_id: &str, cx: &App) -> bool {
     crate::coding_flow::LocalSessions::global_ref(cx).is_some_and(|sessions| {
         sessions.read(cx).session_by_id(session_id).is_some_and(|session| {

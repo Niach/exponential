@@ -1,12 +1,13 @@
 //! The IDE's steering VIEWER (EXP-696) — the desktop twin of the web
-//! `AgentSessionView`, living in the bottom dock next to the local terminal
-//! tabs.
+//! `AgentSessionView`.
 //!
-//! The dock's chip strip lists this machine's terminal tabs AND the user's
-//! OTHER live coding sessions (another desktop, the headless CLI daemon, a
-//! shared server). Clicking one of those chips swaps the dock's content for
-//! a [`SteerSessionView`]: the same activity feed + composer the web dock
-//! renders, driven by [`steer::spawn_viewer`] over the relay.
+//! It renders ONE coding session's activity feed + composer over whichever
+//! [`FeedSource`] it is handed: the in-process ACP engine, a read-only replay
+//! of a finished run, or [`steer::spawn_viewer`] over the relay for a run on
+//! another machine (another desktop, the headless CLI daemon, a shared
+//! server). EXP-746 moved every one of those into the center pane's
+//! [`crate::session_screen`]; the bottom dock keeps PTY tabs and nothing
+//! else.
 //!
 //! ## What lives where
 //!
@@ -29,20 +30,20 @@
 //!   woken laptop waits out the transport's staleness window and backoff.
 //!
 //! EXP-698 closed the two biggest gaps: the pinned **Latest changes** strip
-//! and the in-session **Merge** pill now render for a steered session too.
-//! The old rationale ("a remote run's diff is not on this machine") was
-//! wrong — the host publishes its worktree diff on the activity channel and
-//! [`SteerFeed::latest_diff`] holds it; the dock parses it with the same
-//! unified-diff reader the local arm uses and resolves the merge target off
-//! the synced `coding_sessions` row. The bar itself lives in
-//! [`crate::terminal_dock`], which owns the dock's content area.
+//! and the in-session **Merge** pill render for a steered session too. The
+//! old rationale ("a remote run's diff is not on this machine") was wrong —
+//! the host publishes its worktree diff on the activity channel and
+//! [`SteerFeed::latest_diff`] holds it. The bar itself lives in
+//! [`crate::changes_bar`]; the session screen's "Changes" rail draws it from
+//! [`Self::latest_diff`] and resolves the merge target off the synced
+//! `coding_sessions` row.
 //!
 //! ## Deliberate parity gaps vs the web view (EXP-696)
 //!
 //! * no subagent conversation TAB strip — subagent work renders inline as
 //!   expandable group rows, which is the part of parity that matters;
-//! * no fullscreen toggle — the dock's own resize/undock chrome is the
-//!   desktop's answer to that.
+//! * no fullscreen toggle — the screen's own tab chrome is the desktop's
+//!   answer to that.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -123,7 +124,6 @@ struct PendingImage {
 /// this machine, and a read-only replay of a finished one. `Local` and
 /// `Replay` additionally produce local-only rich items (per-edit diff cards,
 /// command output, the pinned plan, thoughts) that never touch the wire.
-#[allow(dead_code)] // Local/Replay are constructed by the session screen
 pub(crate) enum FeedSource {
     /// An in-process ACP session this host is running.
     Local { session: engine::EngineSession },
@@ -178,9 +178,9 @@ pub(crate) struct SteerSessionView {
     feed: SteerFeed,
     /// EXP-746: what drives the feed. The relay handle lives inside it.
     source: FeedSource,
-    /// Whether this view paints its OWN header. The dock's chip needs one;
-    /// the session screen paints a wider one around this view and turns it
-    /// off, so the transcript never carries two identity rows (EXP-746).
+    /// Whether this view paints its OWN header. The session screen paints a
+    /// wider one around this view and turns it off, so the transcript never
+    /// carries two identity rows (EXP-746).
     chrome: bool,
     phase: ViewerPhase,
     connected: bool,
@@ -233,27 +233,9 @@ pub(crate) struct SteerSessionView {
 }
 
 impl SteerSessionView {
-    /// Build the view and dial the relay — the REMOTE constructor. The socket
-    /// stays up for the view's whole life; the dock creates one lazily on the
-    /// first chip click and keeps it until the session's row leaves the live
-    /// set.
-    pub(crate) fn new(
-        session_id: String,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> Self {
-        Self::with_source(
-            session_id,
-            FeedSource::Remote { handle: None },
-            window,
-            cx,
-        )
-    }
-
-    /// EXP-746 — the same view over any [`FeedSource`]. A `Remote` source with
-    /// no handle yet is DIALLED here (that is what [`Self::new`] passes), so
-    /// the relay path is unchanged; `Local` and `Replay` bring their own
-    /// engine session.
+    /// EXP-746 — the view over any [`FeedSource`]. A `Remote` source with no
+    /// handle yet is DIALLED here and the socket stays up for the view's
+    /// whole life; `Local` and `Replay` bring their own engine session.
     pub(crate) fn with_source(
         session_id: String,
         source: FeedSource,
@@ -476,28 +458,17 @@ impl SteerSessionView {
         self.can_kill(cx)
     }
 
-    /// Take focus when the dock swaps this view in — otherwise keystrokes
-    /// keep going to the terminal grid the steer view just covered.
-    pub(crate) fn focus_composer(&self, window: &mut Window, cx: &mut App) {
-        let handle = if self.composer_visible() {
-            self.input.focus_handle(cx)
-        } else {
-            self.focus_handle.clone()
-        };
-        window.focus(&handle, cx);
-    }
-
-    /// EXP-698 — the relay-delivered worktree diff behind the dock's
-    /// "Latest changes" bar. The host publishes it with every activity
+    /// EXP-698 — the relay-delivered worktree diff behind the session
+    /// screen's "Changes" rail. The host publishes it with every activity
     /// frame, so a REMOTE run's diff is on this machine after all: the bar
     /// used to be local-tabs-only on the stale rationale that it was not.
     pub(crate) fn latest_diff(&self) -> Option<&str> {
         self.feed.latest_diff()
     }
 
-    /// The synced `coding_sessions` row behind this viewer — what the dock
-    /// resolves the Merge target from ([`crate::terminal_dock`]'s
-    /// `merge_meta_for_session`).
+    /// The synced `coding_sessions` row behind this viewer — what the
+    /// Changes rail resolves the Merge target from
+    /// ([`crate::changes_bar::merge_meta_for_session`]).
     pub(crate) fn session_row(&self) -> Option<&domain::rows::CodingSession> {
         self.row.as_ref()
     }
@@ -512,7 +483,7 @@ impl SteerSessionView {
     ///
     /// EXP-746: this drops the FEED, never the run. A local engine keeps
     /// working when its tab goes away — killing an agent because a tab closed
-    /// is exactly the surprise the dock's kill affordance exists to avoid.
+    /// is exactly the surprise the header's kill affordance exists to avoid.
     pub(crate) fn shutdown(&mut self) {
         // EXP-724: nothing is coming to close an open compaction strip once
         // the socket is gone.
@@ -1521,7 +1492,8 @@ pub(crate) fn kill_description(device_label: Option<&str>) -> String {
     )
 }
 
-/// `steer.killSession` off the gpui foreground. Shared with the dock chip's X.
+/// `steer.killSession` off the gpui foreground. Shared with the Devices
+/// screen's per-row kill.
 pub(crate) fn kill_session(session_id: &str, cx: &mut App) {
     let Some(trpc) = crate::queries::trpc_client(cx) else {
         return;
