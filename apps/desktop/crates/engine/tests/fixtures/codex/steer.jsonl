@@ -1,0 +1,2 @@
+{"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"threadId":"thread_1","turnId":"turn_1b","itemId":"item_3","delta":"steered mid turn"}}
+{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"thread_1","turn":{"id":"turn_1b","status":"completed"}}}

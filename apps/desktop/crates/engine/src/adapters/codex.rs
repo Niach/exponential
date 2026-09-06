@@ -1044,17 +1044,12 @@ async fn run_prompt(shared: &Arc<Shared>, request: PromptRequest) -> Result<Stop
         // PRECONDITION: if the turn ended in between, the call fails and the
         // text starts a fresh turn instead of vanishing.
         Some(previous) => {
-            let steered = shared
-                .server
-                .request(
-                    "turn/steer",
-                    json!({
-                        "threadId": thread_id,
-                        "expectedTurnId": previous,
-                        "input": input,
-                    }),
-                )
-                .await;
+            let steered = call(
+                shared,
+                "turn/steer",
+                codex_wire::turn_steer_params(&thread_id, &previous, &input),
+            )
+            .await;
             match steered {
                 Ok(response) => {
                     let next = response

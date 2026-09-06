@@ -510,12 +510,13 @@ pub fn turn_start_params(
 }
 
 /// `turn/steer` — `expectedTurnId` is a PRECONDITION: the call fails when
-/// that turn is no longer the active one.
-pub fn turn_steer_params(thread_id: &str, expected_turn_id: &str, text: &str) -> Value {
+/// that turn is no longer the active one, which is what turns a lost race
+/// into a fresh turn instead of a silently dropped message.
+pub fn turn_steer_params(thread_id: &str, expected_turn_id: &str, input: &[Value]) -> Value {
     json!({
         "threadId": thread_id,
         "expectedTurnId": expected_turn_id,
-        "input": [{ "type": "text", "text": text, "text_elements": [] }],
+        "input": input,
     })
 }
 

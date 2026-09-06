@@ -141,6 +141,9 @@ impl LineSink for FakeServer {
                             state.turn += 1;
                             state.turns.pop_front().unwrap_or_default()
                         }
+                        // `turn/steer` supersedes the live turn with a new id
+                        // and takes the next script with it.
+                        "turn/steer" => state.turns.pop_front().unwrap_or_default(),
                         "turn/interrupt" => std::mem::take(&mut state.late),
                         _ => Vec::new(),
                     }
@@ -169,6 +172,7 @@ impl LineSink for FakeServer {
                         "nextCursor": Value::Null,
                     }),
                     "turn/start" => json!({ "turn": { "id": format!("turn_{turn}"), "status": "inProgress" } }),
+                    "turn/steer" => json!({ "turnId": format!("turn_{turn}b") }),
                     _ => json!({}),
                 };
                 self.reply(&id, result);
@@ -587,4 +591,63 @@ async fn a_request_for_user_input_becomes_one_elicitation_with_a_property_per_qu
         fake.answers(),
         vec![json!({ "answers": { "q1": { "answers": ["spaces"] } } })]
     );
+}
+
+#[tokio::test]
+async fn steering_supersedes_the_live_turn_and_resolves_both_prompts() {
+    let (fake, connection) = FakeServer::new(
+        vec![frames("interrupt.jsonl"), frames("steer.jsonl")],
+        Vec::new(),
+        Vec::new(),
+    );
+    let agent = CodexAgent::with_connection(spec(), connection);
+    let recorded = Recorded::default();
+    let sink = recorded.clone();
+    let watcher = recorded.clone();
+
+    Client
+        .builder()
+        .on_receive_notification(
+            async move |notification: SessionNotification, _cx| {
+                sink.push(notification.update);
+                Ok(())
+            },
+            agent_client_protocol::on_receive_notification!(),
+        )
+        .connect_with(agent, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(ClientCapabilities::new()),
+            )
+            .block_task()
+            .await?;
+            let session = cx
+                .send_request(NewSessionRequest::new(PathBuf::from("/work/tree")))
+                .block_task()
+                .await?;
+
+            let first = cx.send_request(PromptRequest::new(
+                session.session_id.clone(),
+                vec![text("start something long")],
+            ));
+            settle(|| watcher.texts().iter().any(|text| text == "before the interrupt")).await;
+            // A prompt while a turn is live IS the steer: it rides
+            // `turn/steer`, whose expectedTurnId is a precondition.
+            let second = cx.send_request(PromptRequest::new(
+                session.session_id.clone(),
+                vec![text("actually, do this instead")],
+            ));
+            let second = second.block_task().await?;
+            assert_eq!(second.stop_reason, StopReason::EndTurn);
+            // The prompt parked on the SUPERSEDED turn must resolve too, or a
+            // steered session leaks a request that never answers.
+            let first = first.block_task().await?;
+            assert_eq!(first.stop_reason, StopReason::EndTurn);
+            Ok(())
+        })
+        .await
+        .expect("the session runs");
+
+    assert!(fake.saw("turn/steer"));
+    assert!(recorded.texts().iter().any(|text| text == "steered mid turn"));
 }
