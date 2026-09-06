@@ -442,6 +442,9 @@ struct TaskEntry {
     tool_use_id: Option<String>,
     subagent_type: Option<String>,
     live: bool,
+    /// `task_started.is_backgrounded`: the model did NOT stop for this one, so
+    /// the main thread keeps running (and asking) beside it.
+    backgrounded: bool,
 }
 
 struct PlanTask {
@@ -1300,12 +1303,18 @@ impl ClaudeSession {
                     .get("subagent_type")
                     .and_then(Value::as_str)
                     .map(str::to_string);
+                let backgrounded = system
+                    .extra
+                    .get("is_backgrounded")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
                 self.lock().tasks.insert(
                     task_id.clone(),
                     TaskEntry {
                         tool_use_id: tool_use_id.clone(),
                         subagent_type: subagent_type.clone(),
                         live: true,
+                        backgrounded,
                     },
                 );
                 self.publish_subagent(
@@ -1966,18 +1975,24 @@ impl ClaudeSession {
     /// The tool call that spawned the subagent a `can_use_tool` was raised
     /// inside, or `None` for the main thread. `agent_id` IS the `task_id` of
     /// an earlier `system/task_started` (EXP-753, measured against the CLI),
-    /// so the lookup is exact. The fallback covers a CLI that stops sending
-    /// it: a Task the model waits on holds the main thread, so the ONE live
-    /// task is the only thing that can be asking — and with two live there is
-    /// nothing to distinguish them, so it attributes to neither.
+    /// so the lookup is exact.
+    ///
+    /// NO `agent_id` at all is the MAIN thread — every main-thread
+    /// `can_use_tool` the fixtures recorded omits the field — so it resolves
+    /// to `None` without guessing: guessing there nests a main-thread
+    /// permission under a background subagent's card. The fallback covers only
+    /// a CLI that sends an id we cannot resolve: a FOREGROUND Task the model
+    /// waits on holds the main thread, so the ONE live foreground task is the
+    /// only thing that can be asking — with two live there is nothing to
+    /// distinguish them, so it attributes to neither, and a BACKGROUNDED task
+    /// never qualifies because the main thread runs on beside it.
     fn subagent_parent(&self, agent_id: Option<&str>) -> Option<String> {
+        let agent_id = agent_id?;
         let state = self.lock();
-        if let Some(parent) =
-            agent_id.and_then(|id| state.tasks.get(id)).and_then(|task| task.tool_use_id.clone())
-        {
+        if let Some(parent) = state.tasks.get(agent_id).and_then(|task| task.tool_use_id.clone()) {
             return Some(parent);
         }
-        let mut live = state.tasks.values().filter(|task| task.live);
+        let mut live = state.tasks.values().filter(|task| task.live && !task.backgrounded);
         let only = live.next()?;
         if live.next().is_some() {
             return None;
