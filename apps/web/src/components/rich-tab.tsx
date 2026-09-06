@@ -15,12 +15,15 @@ import { cn } from "@/lib/utils"
 const CloseIcon = conceptIcon(`ui-close`)
 
 interface RichTabProps {
-  /** The tab the panel is showing: filled chrome, full-strength label. */
+  /** The tab whose surface is on screen: filled chrome, full-strength label. */
   active?: boolean
   /** The host machine is offline — the run is parked, not gone (EXP-550). */
   paused?: boolean
   /** A `bg-*` class for the 6px dot, or a ready-made glyph (a live ping). */
   status?: string | ReactNode
+  /** EXP-739: a leading glyph instead of a status dot's neighbour — the chat
+   * tab has no identifier to lead with, so its concept icon does. */
+  icon?: ReactNode
   /** Mono prefix — an issue identifier, a run name. */
   identifier?: string | null
   title: string
@@ -40,6 +43,7 @@ export function RichTab({
   active = false,
   paused = false,
   status,
+  icon,
   identifier,
   title,
   badge,
@@ -82,6 +86,7 @@ export function RichTab({
       ) : (
         status
       )}
+      {icon}
       {identifier && (
         <span className="shrink-0 font-mono text-xs text-foreground/50">
           {identifier}
@@ -96,7 +101,7 @@ export function RichTab({
           title={closeLabel}
           className="flex size-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors duration-fast hover:text-foreground"
           onClick={(event) => {
-            // The tab toggles the panel; the X must not.
+            // The tab navigates to its surface; the X must not.
             event.stopPropagation()
             onClose()
           }}

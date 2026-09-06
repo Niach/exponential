@@ -15,9 +15,9 @@
  *
  * The card must NEVER gain `transform`, `filter`, `backdrop-filter`,
  * `will-change` or `contain`: each of those makes it a containing block for
- * fixed descendants, and the fullscreen AgentDock (`fixed inset-0`) would be
- * trapped inside the panel instead of covering the viewport. `app-shell.test.ts`
- * pins both rules.
+ * `position: fixed` descendants, and every full-viewport overlay the panel
+ * hosts (dialogs, sheets, the mobile takeovers) would be trapped inside the
+ * card instead of covering the viewport. `app-shell.test.ts` pins both rules.
  */
 export const MAIN_PANEL_CLASS = [
   `flex-1 flex flex-col min-h-screen min-w-0`,

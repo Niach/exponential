@@ -27,7 +27,12 @@ import { chromium, type Page } from "@playwright/test"
 import { mkdirSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { DEMO_EMAIL, TEAM_SLUG } from "./screenshot-demo"
+import {
+  DEMO_EMAIL,
+  DEMO_FEED_QUESTION,
+  DEMO_STEERED_SESSION_ID,
+  TEAM_SLUG,
+} from "./screenshot-demo"
 import { launchContext, login, settle, shot } from "./lib/capture-web"
 import { RECIPES, recipeContext } from "./lib/view-recipes"
 
@@ -55,9 +60,16 @@ const SHOTS: SocialShot[] = [
   { name: `board`, route: `${T}/boards/mobile-app`, anchor: `Ship onboarding flow v2` },
   // Markdown showcase + comments + the live Coding-now row.
   { name: `issue`, route: `${T}/boards/mobile-app/issues/APP-5`, anchor: `Coding now` },
-  // Steering — expand the agent dock on the issue's own running session. No
-  // route: it deliberately continues from the `issue` shot's page.
-  { name: `steering`, anchor: `Coding now`, recipe: `openAgentDock` },
+  // Steering — the session's own page (EXP-740). The anchor is the tail of
+  // the scripted transcript's final unanswered question: an empty feed still
+  // renders its container, so waiting on the container alone happily
+  // photographs a "Reconnecting…" state when the relay is unreachable.
+  {
+    name: `steering`,
+    route: `${T}/sessions/${DEMO_STEERED_SESSION_ID}`,
+    anchor: DEMO_FEED_QUESTION.slice(-40),
+    anchorTimeoutMs: 30_000,
+  },
   // The cross-board open-PR queue.
   { name: `reviews`, route: `${T}/reviews`, anchor: `Batch-edit labels from the board` },
   // APP-14 renders a REAL diff fetched from GitHub; expand the biggest file so

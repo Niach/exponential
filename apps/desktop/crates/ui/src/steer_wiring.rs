@@ -768,7 +768,7 @@ fn remote_action_start(
             // only caller that fires these (EXP-530).
             trigger: None,
             automation_id: None,
-            on_failed: None,
+            on_settled: None,
         },
         cx,
     );

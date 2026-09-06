@@ -86,7 +86,6 @@ const PINNED_RECIPES = [
   `openAutomationsTab`,
   `openSuggestionsTab`,
   `openWidgetEditor`,
-  `openAgentDock`,
   `expandFirstDiffFile`,
   `openFirstThread`,
   `openActionEditor`,

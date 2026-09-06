@@ -84,7 +84,12 @@ const CHAT_INPUTS: ActionInputDef[] = [
     required: true,
     placeholder: `What should the agent do?`,
   },
-  { key: `repo`, label: `Repository`, type: `repo`, required: true },
+  // EXP-739: OPTIONAL. A repo-less chat runs in the agent's scratch dir with
+  // only the Exponential MCP server wired up — a conversation with the
+  // tracker, where code is an anchor you may add rather than a precondition.
+  // With a repo it keeps its own `exp/chat-<id8>` worktree. Byte-locked ×4
+  // (desktop `api::actions`, iOS `ActionsApi`, Android `ActionsApi`).
+  { key: `repo`, label: `Repository`, type: `repo`, required: false },
 ]
 
 export interface BuiltinAction {
@@ -144,9 +149,11 @@ export function builtinFixConflictsAction(teamId: string): BuiltinAction {
   }
 }
 
-/** The hidden "Chat" builtin (EXP-615): a free-prompt agent session on a
- * repository's trunk clone at the default branch. Deliberately appended to NO
- * list — the start-coding dialog's Chat tab constructs it directly. */
+/** The hidden "Chat" builtin (EXP-615): a free-prompt agent session, in its
+ * own `exp/chat-<id8>` worktree cut from the picked repository's default
+ * branch or (EXP-739, repo omitted) in the agent's scratch dir. Deliberately
+ * appended to NO list — the chat page and the start-coding dialog's Chat tab
+ * construct it directly. */
 export function builtinChatAction(teamId: string): BuiltinAction {
   return {
     id: BUILTIN_CHAT_ID,

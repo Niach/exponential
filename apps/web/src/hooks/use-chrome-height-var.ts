@@ -1,16 +1,17 @@
 import { useEffect, useState } from "react"
 
-// EXP-698: the app's floating bottom chrome — the desktop agent dock, the
-// mobile tab bar — paints OVER whatever scrolls beneath it, so every scroller
-// underneath has to reserve exactly that much bottom clearance. Each bar
-// publishes its MEASURED height as a CSS custom property on the document root
-// and the scrollers spend it as `pb-[var(--name,0px)]`; a hard-coded guess
-// drifts the moment the bar resizes (a dock drag, the safe-area inset, one
-// more tab).
+// EXP-698: the app's floating bottom chrome — the mobile tab bar, the bulk
+// bar, the review action bar — paints OVER whatever scrolls beneath it, so
+// every scroller underneath has to reserve exactly that much bottom clearance.
+// Each bar publishes its MEASURED height as a CSS custom property on the
+// document root and the scrollers spend it as `pb-[var(--name,0px)]`; a
+// hard-coded guess drifts the moment the bar resizes (the safe-area inset, a
+// failure line wrapping to two rows).
 //
 // Returns a REF CALLBACK, not a ref object: the bars mount and unmount their
-// own element mid-session (the dock only exists once there is a session), and
-// a callback re-runs the observer when the node itself changes.
+// own element mid-session (the dock strip is `md`-only, the bulk bar exists
+// only during a selection), and a callback re-runs the observer when the node
+// itself changes.
 //
 // A bar that is GONE publishes `0px` — it does NOT remove the property. The
 // consumers' `var(--tabbar-h, 4.25rem)` literal is a first-paint estimate for

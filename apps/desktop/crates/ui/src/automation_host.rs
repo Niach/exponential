@@ -26,7 +26,7 @@
 //! state write (the run that holds it is the one that advances the
 //! watermark); a failed prepare extends `cooldown_until` by
 //! [`coding::automations::PREPARE_FAILURE_BACKOFF_MS`] through the
-//! `on_failed` hook, so a poison-pill trigger backs off instead of
+//! `on_settled` hook, so a poison-pill trigger backs off instead of
 //! re-firing every beat.
 
 use std::collections::{HashMap, HashSet};
@@ -775,7 +775,12 @@ fn launch(
     // launcher, prepare failure, no window) has already advanced its
     // watermark — without a backoff its automation would re-fire every beat.
     let failed_automation = automation_id.clone();
-    let on_failed: action_run::ActionFailureHook = Box::new(move |cx: &mut App| {
+    // EXP-739: the hook settles either way now — back off ONLY when the start
+    // never reached the agent.
+    let on_settled: action_run::ActionSettledHook = Box::new(move |cx: &mut App, started: bool| {
+        if started {
+            return;
+        }
         cx.background_executor()
             .spawn(async move {
                 back_off(&settings_path, &device_id, &failed_automation);
@@ -801,7 +806,7 @@ fn launch(
             activate_app: false,
             reservation: Some(reservation),
             trigger: Some(note),
-            on_failed: Some(on_failed),
+            on_settled: Some(on_settled),
         },
         cx,
     );

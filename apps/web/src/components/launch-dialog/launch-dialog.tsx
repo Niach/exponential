@@ -61,9 +61,12 @@ import { byCreatedAtDesc } from "@/lib/ordering"
 // lives in its own dedicated dialog since EXP-431) plus the action's typed
 // input fields; action runs take the FULL option set on any agent the device
 // advertised.
-// Chat tab (EXP-615): a free prompt on a repository's default branch, running
-// as the hidden "Chat" builtin over the same action rails — no issue, no
-// branch, no PR. Only devices advertising the `chat` cap can receive it.
+// Chat tab (EXP-615): a free prompt with an OPTIONAL repository (EXP-739),
+// running as the hidden "Chat" builtin over the same action rails — no issue,
+// no PR. Picking a repo gives the run its own `exp/chat-<id8>` worktree cut
+// from the default branch; leaving it out runs the chat in the agent's scratch
+// dir. The per-start `chat` cap gate is gone (EXP-624): the fleet floor is
+// enforced by CLIENT_MIN_VERSION_DESKTOP.
 //
 // EXP-437: the options seed from the SELECTED DEVICE's advertised per-agent
 // launch defaults (that machine's Settings → Agents configuration) — on
@@ -429,7 +432,9 @@ export function LaunchDialog({
     tab === `issues`
       ? count === 0 || blocked
       : tab === `chat`
-        ? chatPrompt.trim().length === 0 || chatRepoId === ``
+        ? // EXP-739: the repo is optional — a repo-less chat runs in the
+          // agent's scratch dir; only the prompt gates the start.
+          chatPrompt.trim().length === 0
         : !selectedAction || missingInputs.length > 0
 
   const submit = () => {
@@ -448,7 +453,8 @@ export function LaunchDialog({
         device,
         { id: BUILTIN_CHAT_ID, name: BUILTIN_CHAT_NAME, teamId },
         options,
-        { prompt: chatPrompt, repo: chatRepoId }
+        // An unpicked repo is OMITTED, not sent blank (EXP-739).
+        { prompt: chatPrompt, ...(chatRepoId ? { repo: chatRepoId } : {}) }
       )
       return
     }

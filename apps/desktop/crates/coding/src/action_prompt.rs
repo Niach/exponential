@@ -352,6 +352,13 @@ conversation could not be recovered, so start by INSPECTING what it left behind.
             " You are on branch `{branch}` in its worktree: run `git status` and \
 `git log origin/{base}..HEAD` to see what was already done."
         )),
+        // EXP-739: a repo-LESS run (a repo-less chat, or any scratch-dir
+        // action) has NO checkout — its cwd holds only the MCP config, where
+        // `git status` errors with "not a git repository" as the resumed
+        // session's very first instruction.
+        _ if record.clone.is_none() => prompt.push_str(
+            " This run has no repository checked out: its working directory holds only the tracker's MCP configuration, so there are no files and no git history to inspect. It is a conversation with the tracker over the `exponential_*` MCP tools — read back what it touched through those instead.",
+        ),
         _ => prompt.push_str(" Run `git status` to see what was already done."),
     }
     if !record.inputs.is_empty() {
@@ -400,6 +407,84 @@ pub fn builtin_prompt_preview(action_id: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A [`crate::run_registry::RunRecord`] for the resume-prompt tests:
+    /// repo-backed by default, `repo_less` strips the checkout the way a
+    /// scratch-dir run records it.
+    fn resume_record(repo_less: bool) -> crate::run_registry::RunRecord {
+        use crate::run_registry::{now_secs, RunKind, RunRecord};
+        use crate::CodingAgent;
+        use std::collections::BTreeMap;
+        use std::path::PathBuf;
+        RunRecord {
+            session_id: "sess-1".to_string(),
+            board_id: None,
+            account_id: "acc-1".to_string(),
+            agent: CodingAgent::Claude,
+            kind: if repo_less {
+                RunKind::Chat
+            } else {
+                RunKind::Team
+            },
+            action_id: "builtin:chat".to_string(),
+            action_name: "Chat".to_string(),
+            team_id: "ws-1".to_string(),
+            issue_id: None,
+            issue_identifier: None,
+            batch_id: None,
+            issues: Vec::new(),
+            cwd: if repo_less {
+                PathBuf::from("/data/actions/builtin_chat/1a2b3c4d")
+            } else {
+                PathBuf::from("/repos/acme/web.worktrees/chat-1a2b3c4d")
+            },
+            clone: (!repo_less).then(|| PathBuf::from("/repos/acme/web")),
+            repo: (!repo_less).then(|| "acme/web".to_string()),
+            repository_id: (!repo_less).then(|| "repo-1".to_string()),
+            branch: (!repo_less).then(|| "exp/chat-1a2b3c4d".to_string()),
+            base_branch: (!repo_less).then(|| "main".to_string()),
+            claude_session_id: None,
+            pi_session_file: None,
+            codex_originator: None,
+            inputs: Vec::new(),
+            model: String::new(),
+            effort: String::new(),
+            ultracode: false,
+            fix: None,
+            started_reason: None,
+            resumed_from_id: None,
+            recorded_at: now_secs(),
+            extra: BTreeMap::new(),
+            transport: None,
+            acp_session_id: None,
+            agent_native_session_id: None,
+            external_agent: None,
+        }
+    }
+
+    /// EXP-739: resuming a repo-LESS run must NOT open with a git command —
+    /// its cwd is a scratch dir holding only `.exp-mcp.json`, so `git status`
+    /// answers "not a git repository" and the resumed agent starts on an
+    /// error. A repo-backed record keeps the worktree instructions.
+    #[test]
+    fn run_resume_prompt_skips_git_without_a_checkout() {
+        let repo_less = render_run_resume_prompt(&resume_record(true), false);
+        assert!(repo_less.contains("RESUMING the run \"Chat\""), "{repo_less}");
+        assert!(!repo_less.contains("git status"), "{repo_less}");
+        assert!(!repo_less.contains("git log"), "{repo_less}");
+        assert!(
+            repo_less.contains("no repository checked out"),
+            "{repo_less}"
+        );
+        assert!(repo_less.contains("`exponential_*` MCP tools"), "{repo_less}");
+
+        let repo_backed = render_run_resume_prompt(&resume_record(false), false);
+        assert!(
+            repo_backed.contains("You are on branch `exp/chat-1a2b3c4d` in its worktree"),
+            "{repo_backed}"
+        );
+        assert!(repo_backed.contains("git log origin/main..HEAD"), "{repo_backed}");
+    }
 
     #[test]
     fn prompt_frames_the_body_verbatim() {

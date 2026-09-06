@@ -165,9 +165,10 @@ public extension ActionDto {
         )
     }
 
-    /// The HIDDEN "Chat" builtin (EXP-615): a free-prompt agent session on a
-    /// repository's trunk clone at its default branch — the iOS twin of the
-    /// desktop's chat tab. Unlike the other two it is appended to NO list and
+    /// The HIDDEN "Chat" builtin (EXP-615): a conversation with your agent over
+    /// the tracker's MCP tools, OPTIONALLY anchored to a repository (EXP-739) —
+    /// the iOS twin of the desktop's chat tab. Unlike the other two it is
+    /// appended to NO list and
     /// belongs in NO picker: the Start-coding sheet's Chat tab constructs it
     /// directly for its submit. Mirrors apps/web/src/lib/builtin-actions.ts
     /// field-for-field.
@@ -191,7 +192,7 @@ public extension ActionDto {
                     required: true,
                     placeholder: "What should the agent do?"
                 ),
-                ActionInputDto(key: "repo", label: "Repository", type: "repo", required: true),
+                ActionInputDto(key: "repo", label: "Repository", type: "repo", required: false),
             ],
             builtin: true
         )

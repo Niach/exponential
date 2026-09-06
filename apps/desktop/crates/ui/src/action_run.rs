@@ -222,13 +222,20 @@ fn repo_menu<V: gpui::Render>(
     })
 }
 
-/// The EXP-530 poison-pill hook: called ONCE on every path that ends a start
-/// without a running agent (a refused resolve, a failed fetch, no shell
-/// window, a disabled launcher, a failed prepare/spawn). Runs on the
-/// FOREGROUND — an `&mut App` is exactly what the automation host's callback
-/// needs to hand its settings write to the background executor. `FnOnce`
-/// because a start fails exactly once.
-pub(crate) type ActionFailureHook = Box<dyn FnOnce(&mut App) + 'static>;
+/// The EXP-530 poison-pill hook, widened by EXP-739 to SETTLED semantics:
+/// called ONCE when a start stops being in flight, with `started = false` on
+/// every path that ends without a running agent (a refused resolve, a failed
+/// fetch, no shell window, a disabled launcher, a failed prepare/spawn) and
+/// `started = true` the moment the agent is spawned. Runs on the FOREGROUND —
+/// an `&mut App` is exactly what the automation host's callback needs to hand
+/// its settings write to the background executor. `FnOnce` because a start
+/// settles exactly once.
+///
+/// Why success matters: the terminal dock's progress line used to be cleared
+/// only by its own `TabOpened` edge, which an ACP chat (a CENTER-panel
+/// session, not a dock tab) never raises — an empty dock would sit on
+/// "Starting claude…" forever.
+pub(crate) type ActionSettledHook = Box<dyn FnOnce(&mut App, bool) + 'static>;
 
 /// One [`start_action_run`] request (EXP-257 — grew past positional args).
 pub(crate) struct StartActionArgs {
@@ -260,11 +267,12 @@ pub(crate) struct StartActionArgs {
     /// reason so the run points back at its automation. `None` for user
     /// starts (the server refuses one without the other).
     pub automation_id: Option<String>,
-    /// EXP-530: the automation host's backoff hook (see [`ActionFailureHook`]).
-    /// `None` for dialog starts — a person watching a failed dialog run
-    /// retries themselves. EXP-703: the terminal dock's promptless chat
-    /// launch passes one too, to end its EXP-372 progress line on failure.
-    pub on_failed: Option<ActionFailureHook>,
+    /// EXP-530/EXP-739: the settled hook (see [`ActionSettledHook`]) — the
+    /// automation host backs off on `started = false`. `None` for dialog
+    /// starts, where a person watching a failed run retries themselves.
+    /// EXP-703: the terminal dock's promptless chat launch passes one too, to
+    /// end its EXP-372 progress line whichever way the start settles.
+    pub on_settled: Option<ActionSettledHook>,
 }
 
 /// Start an action: fetch FRESH body (`actions.get`) → resolve repo →
@@ -282,14 +290,14 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
         reservation,
         trigger,
         automation_id,
-        on_failed,
+        on_settled,
     } = args;
     // EXP-530: every early return below has to release the hook, or an
     // automation whose watermark already advanced would sit without a backoff.
-    let mut on_failed = on_failed;
+    let mut on_settled = on_settled;
     let Some(trpc) = queries::trpc_client(cx) else {
         log::warn!("actions: run ignored — not signed in");
-        fire_failure(&mut on_failed, cx);
+        fire_settled(&mut on_settled, false, cx);
         return;
     };
     let builtin = is_builtin_action_id(&action_id);
@@ -301,7 +309,7 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
             Err(message) => {
                 log::warn!("actions: fix-conflicts start refused — {message}");
                 notify_target_error(target, &message, cx);
-                fire_failure(&mut on_failed, cx);
+                fire_settled(&mut on_settled, false, cx);
                 return;
             }
         }
@@ -357,16 +365,19 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
                     // The runner composes the builtin prompts itself — the
                     // input schema is a dialog-side concern only.
                     action.inputs = Vec::new();
-                    // EXP-615: chat runs IN the picked repository's trunk
-                    // clone, so its `repo` input is the run's cwd (not, like
-                    // the creator's, a property of the action being written).
+                    // EXP-615: a chat's `repo` input picks the run's OWN cwd
+                    // (not, like the creator's, a property of the action being
+                    // written). EXP-739 made it OPTIONAL: no pick at all is a
+                    // repo-LESS chat, which the launcher runs worktree-less in
+                    // a scratch dir — only a pick that no longer resolves is an
+                    // error.
                     if chatting {
                         let repo_group = match repo {
                             // Remote start: the server-resolved group.
                             ActionRepo::Provided(group) => group,
                             ActionRepo::Resolve => {
                                 let Some(repository_id) = chat_repo_input else {
-                                    return Err("Pick a repository for the chat.".to_string());
+                                    return Ok((action, None));
                                 };
                                 let rows = fetch_repositories(&trpc, &action.team_id)
                                     .map_err(|err| {
@@ -459,14 +470,14 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
                 Err(message) => {
                     log::warn!("actions: {message}");
                     notify_target_error(target, &message, cx);
-                    fire_failure(&mut on_failed, cx);
+                    fire_settled(&mut on_settled, false, cx);
                     return;
                 }
             };
             let Some(window) = target.or_else(|| crate::steer_wiring::find_team_window(cx))
             else {
                 log::warn!("actions: run for {} — no shell window open", action.name);
-                fire_failure(&mut on_failed, cx);
+                fire_settled(&mut on_settled, false, cx);
                 return;
             };
             if activate_app {
@@ -499,7 +510,7 @@ team settings → Repositories.";
                                 cx,
                             );
                         });
-                        fire_failure(&mut on_failed, cx);
+                        fire_settled(&mut on_settled, false, cx);
                         return;
                     }
                     ActionRunKind::FixConflicts {
@@ -523,7 +534,7 @@ team settings → Repositories.";
             // them down for nothing.
             if let Some(branch) = fix_branch {
                 if !take_over_branch(&branch, window, cx) {
-                    fire_failure(&mut on_failed, cx);
+                    fire_settled(&mut on_settled, false, cx);
                     return;
                 }
             }
@@ -545,7 +556,7 @@ team settings → Repositories.";
                 origin,
                 options,
             };
-            launch_action(request, window, reservation, on_failed, cx);
+            launch_action(request, window, reservation, on_settled, cx);
         });
     })
     .detach();
@@ -738,13 +749,13 @@ fn launch_action(
     request: ActionLaunchRequest,
     target: gpui::AnyWindowHandle,
     reservation: Option<crate::steer_wiring::ReservationGuard>,
-    on_failed: Option<ActionFailureHook>,
+    on_settled: Option<ActionSettledHook>,
     cx: &mut App,
 ) {
-    let mut on_failed = on_failed;
+    let mut on_settled = on_settled;
     let Some(deps) = coding_flow::build_action_deps(cx) else {
         log::warn!("actions: launch ignored — not signed in");
-        fire_failure(&mut on_failed, cx);
+        fire_settled(&mut on_settled, false, cx);
         return;
     };
     let hooks = crate::steer_wiring::hook_setup(cx);
@@ -767,18 +778,20 @@ fn launch_action(
                 // Subject = the SESSION row id (concurrent runs of one
                 // action must not share a registry key).
                 let subject = SessionSubject::Action(prepared.session_id.clone());
-                if let Err(message) = coding_flow::spawn_into_window(
-                    prepared,
-                    subject,
-                    window,
-                    cx,
-                ) {
-                    log::warn!("actions: spawn failed: {message}");
-                    window.push_notification(
-                        Notification::error(SharedString::from(message)),
-                        cx,
-                    );
-                    fire_failure(&mut on_failed, cx);
+                match coding_flow::spawn_into_window(prepared, subject, window, cx) {
+                    // EXP-739: the agent is running — settle SUCCESSFULLY, so
+                    // a caller whose progress line has no TabOpened edge to
+                    // wait for (an ACP chat opens a center-panel session, not
+                    // a dock tab) still gets to clear it.
+                    Ok(()) => fire_settled(&mut on_settled, true, cx),
+                    Err(message) => {
+                        log::warn!("actions: spawn failed: {message}");
+                        window.push_notification(
+                            Notification::error(SharedString::from(message)),
+                            cx,
+                        );
+                        fire_settled(&mut on_settled, false, cx);
+                    }
                 }
             }
             Ok(Prepared::Disabled(reason)) => {
@@ -787,7 +800,7 @@ fn launch_action(
                     Notification::error(SharedString::from(reason.message())),
                     cx,
                 );
-                fire_failure(&mut on_failed, cx);
+                fire_settled(&mut on_settled, false, cx);
             }
             Err(err) => {
                 log::warn!("actions: prepare failed: {err}");
@@ -797,18 +810,18 @@ fn launch_action(
                     ))),
                     cx,
                 );
-                fire_failure(&mut on_failed, cx);
+                fire_settled(&mut on_settled, false, cx);
             }
         });
     })
     .detach();
 }
 
-/// Run the EXP-530 failure hook exactly once (the `Option` is the "already
-/// fired" latch — a start fails on ONE path, and a double backoff would
-/// double the automation's cooldown).
-fn fire_failure(on_failed: &mut Option<ActionFailureHook>, cx: &mut App) {
-    if let Some(hook) = on_failed.take() {
-        hook(cx);
+/// Run the settled hook exactly once (the `Option` is the "already fired"
+/// latch — a start settles on ONE path, and a double backoff would double the
+/// automation's cooldown).
+fn fire_settled(on_settled: &mut Option<ActionSettledHook>, started: bool, cx: &mut App) {
+    if let Some(hook) = on_settled.take() {
+        hook(cx, started);
     }
 }

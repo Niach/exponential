@@ -561,8 +561,8 @@ export function IssueDetailView({
   // since EXP-698 r4 — iOS and Android show it under the property chips too,
   // and the phone's floating circle is the START affordance, not a substitute
   // for the running run's card. The component owns the repo/membership/relay
-  // gating and focuses the global dock rather than mounting the live viewer
-  // inline. Since EXP-616 the IDLE start affordance moved out of this card and
+  // gating and navigates to the run's session page rather than mounting the
+  // live viewer inline. Since EXP-616 the IDLE start affordance moved out of this card and
   // into the properties card above (desktop only — see `codingStartButton`).
   const codingControl = currentUserId ? (
     <IssueCodingControl

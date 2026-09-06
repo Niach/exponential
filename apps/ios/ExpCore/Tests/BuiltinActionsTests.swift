@@ -27,7 +27,9 @@ final class BuiltinActionsTests: XCTestCase {
         XCTAssertEqual(inputs[0].placeholder, "What should the agent do?")
         XCTAssertEqual(inputs[1].label, "Repository")
         XCTAssertEqual(inputs[1].type, "repo")
-        XCTAssertTrue(inputs[1].isRequired)
+        // EXP-739: the repo is an OPTIONAL anchor — a repo-less chat runs
+        // worktree-less in a scratch dir.
+        XCTAssertFalse(inputs[1].isRequired)
     }
 
     // The leakage guard: chat is in NO list constructor.

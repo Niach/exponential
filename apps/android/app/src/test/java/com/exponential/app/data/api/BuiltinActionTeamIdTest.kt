@@ -52,12 +52,17 @@ class BuiltinActionTeamIdTest {
         assertTrue(builtinActions(teamId).none { it.id == chat.id })
     }
 
-    /** Its two inputs are the server's, byte for byte (web builtin-actions.ts). */
+    /**
+     * Its two inputs are the server's, byte for byte (web builtin-actions.ts).
+     * EXP-739 made the repo OPTIONAL: a repo-less chat runs worktree-less in a
+     * scratch dir, so only the prompt is required.
+     */
     @Test
-    fun `chat declares a required prompt and repository`() {
+    fun `chat declares a required prompt and an optional repository`() {
         val inputs = builtinChatAction(teamId).inputs.orEmpty()
         assertEquals(listOf("prompt", "repo"), inputs.map { it.key })
-        assertTrue(inputs.all { it.required })
+        assertTrue(inputs[0].required)
+        assertTrue(!inputs[1].required)
         assertEquals("Prompt", inputs[0].label)
         assertEquals("What should the agent do?", inputs[0].placeholder)
         assertEquals("textarea", inputs[0].type)

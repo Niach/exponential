@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-session-pages-and-chat`,
+    date: `2026-09-06`,
+    title: `Session pages and chat`,
+    summary: `A coding session opens on its own page from the bottom strip, and a Chat button talks to your agent without an issue or a repository.`,
+    body: `- **Sessions on their own page**: the bottom bar on the web is now only the strip of your running sessions. Click one and the steering view fills the page; the resizable panel and its fullscreen switch are gone.
+- **Chat**: the strip ends in a Chat button. On the web it opens the Chat page: your newest running chat, or a start card that picks a machine and an agent, plus your past chats with Resume. In the desktop app the terminal dock's strip has the same button, and the chat opens as a session tab (or a terminal tab when you start agents in the terminal).
+- **Chat without a repository**: a chat started from the web Chat page or the desktop dock no longer needs a repository. Without one it runs in a scratch folder with only the Exponential tools, so nothing is cloned or branched; pick a repository in the start-coding dialog to work on code as before.`,
+  },
+  {
     id: `2026-09-threaded-comments`,
     date: `2026-09-05`,
     title: `Threaded comments`,

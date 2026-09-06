@@ -19,9 +19,12 @@
  * (`apps/web/scripts/seed-screenshots.ts`) but never hardcodes ids that only
  * exist after a seed run. Two escaping conventions:
  *
- *   - `$teamSlug` / `$boardSlug` / `$issueIdentifier` in `web.route` are the
- *     literal TanStack Router param names. Capturers substitute them; on the
- *     demo instance that is team `acme`, board `mobile-app`.
+ *   - `$teamSlug` / `$boardSlug` / `$issueIdentifier` / `$sessionId` in
+ *     `web.route` are the literal TanStack Router param names. Capturers
+ *     substitute them; on the demo instance that is team `acme`, board
+ *     `mobile-app`, and — for `$sessionId` — `DEMO_STEERED_SESSION_ID`, the
+ *     fixed id the seed stamps on the demo user's running showcase session
+ *     (EXP-740 gave a session its own page).
  *   - `$NAME` inside a `DesktopDrive.value` is a runtime lookup: `issue:$APP-5`
  *     means "the UUID of the issue whose identifier is APP-5", `pr:$APP-14` the
  *     same for a PR diff, and `support:$thread` means "any open support thread"

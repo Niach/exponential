@@ -7,6 +7,7 @@ import {
   mergeTargetProps,
   rowPrState,
   type AgentSessionRow,
+  type PastRunRow,
 } from "@/hooks/use-agents-data"
 import type { CodingSession, SyncedAction } from "@/db/schema"
 import {
@@ -14,6 +15,8 @@ import {
   type SessionDisplayState,
 } from "@/components/issue-coding-rows"
 import { relativeTime } from "@/components/comment-rows/format"
+import { agentLabel } from "@/components/agent-usage-bar"
+import { pastRunByline, pastRunEndedAt } from "@/lib/past-runs"
 import { actionCollection } from "@/lib/collections"
 import { getActionIcon } from "@/lib/board-icons"
 import { trpc } from "@/lib/trpc-client"
@@ -274,6 +277,21 @@ export function SessionRow({
 // iOS and Android.
 
 const ResumeIcon = conceptIcon(`run-resume`)
+
+/** EXP-746: the Past row's caption. The ORDER and the "ended by" wording are
+ * the ×4 rule (lib/past-runs.ts); the agent label and the relative time are
+ * this client's own vocabulary and formatter. Lives here (EXP-739) so the
+ * Devices "Past" list and the chat page's "Past chats" caption identically. */
+export function pastRunRowByline(row: PastRunRow): string {
+  // A row that stamped neither end nor heartbeat has no honest time to show
+  // (0 would render as 1970), so that segment simply drops.
+  const endedAt = pastRunEndedAt(row.session)
+  return pastRunByline(row.session, {
+    deviceLabel: row.device.label ?? row.session.deviceLabel,
+    agentLabel: row.session.agent ? agentLabel(row.session.agent) : null,
+    relativeTime: endedAt > 0 ? relativeTime(new Date(endedAt)) : ``,
+  })
+}
 
 /** What an ended-run row needs — the Automations tab builds both fields off
  * the synced session + device rows. */

@@ -552,7 +552,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       web: ok(
         `AgentDock`,
         `apps/web/src/components/agent-dock/agent-dock.tsx`,
-        `the two header buttons sit on the session view (agent-session.tsx); the strip is the dock's; no bubble`
+        `the strip only: session tabs plus a trailing Chat glyph; no header, no bubble; sessions open on their own page`
       ),
       desktop: ok(
         `TerminalDockPanel::render_dock_header`,

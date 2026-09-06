@@ -1091,11 +1091,14 @@ impl TerminalDockPanel {
         // EXP-497: partition the chips against the slot's painted width. The
         // `+` new-session menu rides INSIDE the slot right after the chips —
         // an xsmall icon button (`size_5`) plus one gap comes off the budget.
+        // EXP-739 put the one-click "Chat" button beside it, so the trailing
+        // reserve is TWO of them.
         let widths: Vec<f32> = metas
             .iter()
             .map(|meta| measure_tab_chip_width(meta, window))
             .collect();
-        let plus_reserve = 1.25 * f32::from(window.rem_size()) + crate::screens::chip_gap(window);
+        let plus_reserve =
+            2. * (1.25 * f32::from(window.rem_size()) + crate::screens::chip_gap(window));
         let available = self
             .chips_slot_width
             .map_or(f32::MAX, |slot| (slot - plus_reserve).max(0.));
@@ -1275,7 +1278,9 @@ impl TerminalDockPanel {
                     // (immediate empty session on the current board's trunk
                     // repo; a repo submenu when the team has several) plus
                     // the plain shell (cmd-t unchanged).
-                    .child(self.new_tab_menu(cx)),
+                    .child(self.new_tab_menu(cx))
+                    // EXP-739: the one-click repo-less chat rides beside it.
+                    .child(self.chat_button(cx)),
             )
     }
 
@@ -1614,6 +1619,75 @@ impl TerminalDockPanel {
         })
     }
 
+    /// EXP-739: the agent a one-click chat launches — the device's configured
+    /// `default_agent` when the doctor found it INSTALLED, else the first
+    /// installed one (a default pointing at an agent this machine does not
+    /// have must not disable the button). `None` while no report exists yet,
+    /// or when nothing is runnable at all.
+    fn default_chat_agent(cx: &gpui::App) -> Option<coding::CodingAgent> {
+        let hub = CodingHub::global_ref(cx)?;
+        let hub = hub.read(cx);
+        let installed = hub.doctor.report.as_ref()?.installed_agents();
+        let preferred = hub.settings.default_agent;
+        if installed.contains(&preferred) {
+            return Some(preferred);
+        }
+        installed.first().copied()
+    }
+
+    /// EXP-739: the strip's one-click "Chat" — a promptless, repo-LESS chat
+    /// run on the device's default agent ([`Self::launch_chat_run`] with no
+    /// repo), for the "just talk to the agent about the tracker" shape that
+    /// used to need the Start-coding dialog and a repository pick. The `+`
+    /// menu beside it keeps the repo-anchored launches.
+    fn chat_button(&self, cx: &gpui::Context<Self>) -> impl IntoElement {
+        let panel = cx.entity().downgrade();
+        let agent = Self::default_chat_agent(cx);
+        // A launch is already in flight (this button's, the `+` menu's or
+        // cmd-t's). The strip is visible COLLAPSED, where the empty-state
+        // progress line is not, so without this the only feedback is none and
+        // two quick clicks buy two session rows, two scratch dirs and two
+        // agents.
+        let pending = self.pending_launch.clone();
+        let tooltip: SharedString = match (&pending, agent) {
+            (Some(label), _) => format!("Starting {label}…").into(),
+            (None, Some(agent)) => format!("Chat with {}", agent.label()).into(),
+            (None, None) => crate::coding_flow::NO_AGENT_COPY.into(),
+        };
+        // NEVER `.disabled(true)`: a disabled gpui-component button still
+        // swallows the pointer event, so these ~20px of the toggle strip
+        // would neither launch nor toggle the dock for the whole doctor probe
+        // after launch. Dim the glyph instead and decide in the handler.
+        let inert = pending.is_some() || agent.is_none();
+        Button::new("new-chat-tab")
+            .ghost()
+            .cursor_pointer()
+            .xsmall()
+            .icon(Icon::new(registry::ACTION_CHAT))
+            .tooltip(tooltip)
+            .when(inert, |this| this.opacity(0.4))
+            .on_click(move |_, window, cx| {
+                // No runnable agent: fall THROUGH, so the click still reaches
+                // the strip and toggles the dock.
+                let Some(agent) = agent else {
+                    return;
+                };
+                // The strip's own click toggles the dock open/closed — from
+                // here on this one is ours, whether it launches or is
+                // swallowed as a double-click.
+                cx.stop_propagation();
+                if pending.is_some() {
+                    return;
+                }
+                let Some(panel) = panel.upgrade() else {
+                    return;
+                };
+                panel.update(cx, |panel, cx| {
+                    panel.launch_chat_run(agent, None, window, cx);
+                });
+            })
+    }
+
     /// The "+" dropdown (EXP-325): one item per doctor-INSTALLED agent CLI —
     /// clicking immediately launches a promptless CHAT run of that agent
     /// (EXP-703, [`Self::launch_chat_run`]) on the current team's repo
@@ -1677,8 +1751,7 @@ impl TerminalDockPanel {
                                     panel.update(cx, |panel, cx| {
                                         panel.launch_chat_run(
                                             agent,
-                                            repository_id,
-                                            full_name,
+                                            Some((repository_id, full_name)),
                                             window,
                                             cx,
                                         );
@@ -1717,8 +1790,7 @@ impl TerminalDockPanel {
                                                     panel.update(cx, |panel, cx| {
                                                         panel.launch_chat_run(
                                                             agent,
-                                                            repository_id,
-                                                            full_name,
+                                                            Some((repository_id, full_name)),
                                                             window,
                                                             cx,
                                                         );
@@ -1775,22 +1847,26 @@ impl TerminalDockPanel {
             })
     }
 
-    /// EXP-703: the "+" menu / empty-state agent launch — a promptless CHAT
-    /// run over the builtin action rails ([`crate::action_run`] with the
-    /// hidden `builtin:chat` action and only its `repo` input filled).
-    /// Unlike the EXP-325 agent shell it replaced on this surface, the run
-    /// gets a `coding_sessions` row, a steer channel and the MCP session
-    /// header — visible and steerable from web and mobile, and a child it
-    /// starts via `exponential_sessions_start` gets parent linkage (EXP-700)
-    /// — plus its OWN worktree on `exp/chat-<id8>` instead of the trunk
-    /// clone. The agent still spawns with NO initial prompt and waits for
-    /// input, exactly like the shell it replaces (the attended promptless
-    /// shape `coding::prepare_action` allows since EXP-703).
+    /// EXP-703: the "+" menu / empty-state / "Chat" button agent launch — a
+    /// promptless CHAT run over the builtin action rails
+    /// ([`crate::action_run`] with the hidden `builtin:chat` action and, when
+    /// one is given, its `repo` input filled). Unlike the EXP-325 agent shell
+    /// it replaced on this surface, the run gets a `coding_sessions` row, a
+    /// steer channel and the MCP session header — visible and steerable from
+    /// web and mobile, and a child it starts via `exponential_sessions_start`
+    /// gets parent linkage (EXP-700).
+    ///
+    /// EXP-739: `repo` is `Some((repository_id, full_name))` for a run
+    /// anchored to a repository — its OWN worktree on `exp/chat-<id8>`, never
+    /// the trunk clone — and `None` for a repo-LESS chat, which the launcher
+    /// runs worktree-less in a scratch dir: a conversation with the tracker
+    /// over MCP, no code checked out. The agent spawns with NO initial prompt
+    /// and waits for input either way (the attended promptless shape
+    /// `coding::prepare_action` allows since EXP-703).
     pub(crate) fn launch_chat_run(
         &mut self,
         agent: coding::CodingAgent,
-        repository_id: String,
-        full_name: String,
+        repo: Option<(String, String)>,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
@@ -1805,26 +1881,31 @@ impl TerminalDockPanel {
         };
         let options = coding::LaunchOptions::defaults_for(&deps.settings, agent);
         let action = api::actions::builtin_chat_action(&team_id);
-        // Only the `repo` input rides — deliberately NO `prompt`: the person
-        // is sitting at the terminal and types the first message themselves.
-        let inputs: Vec<coding::ActionInputValue> = action
-            .inputs
-            .iter()
-            .filter(|input| input.key == "repo")
-            .map(|input| coding::ActionInputValue {
-                key: input.key.clone(),
-                label: input.label.clone(),
-                input_type: input.input_type.clone(),
-                value: repository_id.clone(),
-                display: Some(full_name.clone()),
-            })
-            .collect();
-        // EXP-372: the cards must be gone for the launch's whole flight. The
-        // runner has no success callback — the TabOpened edge clears the
-        // progress line; the failure hook covers every refused/failed start.
+        // At most the `repo` input rides — deliberately NO `prompt`: the
+        // person is sitting at the terminal and types the first message
+        // themselves. EXP-739: a repo-less chat emits no `repo` key at all.
+        let inputs: Vec<coding::ActionInputValue> = match &repo {
+            Some((repository_id, full_name)) => action
+                .inputs
+                .iter()
+                .filter(|input| input.key == "repo")
+                .map(|input| coding::ActionInputValue {
+                    key: input.key.clone(),
+                    label: input.label.clone(),
+                    input_type: input.input_type.clone(),
+                    value: repository_id.clone(),
+                    display: Some(full_name.clone()),
+                })
+                .collect(),
+            None => Vec::new(),
+        };
+        // EXP-372: the cards must be gone for the launch's whole flight.
+        // EXP-739: the SETTLED hook clears the progress line whichever way the
+        // start ends — the TabOpened edge alone would strand it forever on an
+        // ACP chat, which opens a center-panel session and no dock tab.
         self.set_pending_launch(Some(agent.label().into()), cx);
         let panel = cx.entity().downgrade();
-        let on_failed: crate::action_run::ActionFailureHook = Box::new(move |cx| {
+        let on_settled: crate::action_run::ActionSettledHook = Box::new(move |cx, _started| {
             if let Some(panel) = panel.upgrade() {
                 panel.update(cx, |panel, cx| panel.set_pending_launch(None, cx));
             }
@@ -1842,7 +1923,7 @@ impl TerminalDockPanel {
                 reservation: None,
                 trigger: None,
                 automation_id: None,
-                on_failed: Some(on_failed),
+                on_settled: Some(on_settled),
             },
             cx,
         );
@@ -2193,8 +2274,7 @@ impl TerminalDockPanel {
                         panel.update(cx, |panel, cx| {
                             panel.launch_chat_run(
                                 agent,
-                                repository_id,
-                                full_name,
+                                Some((repository_id, full_name)),
                                 window,
                                 cx,
                             );
@@ -2224,8 +2304,7 @@ impl TerminalDockPanel {
                                         panel.update(cx, |panel, cx| {
                                             panel.launch_chat_run(
                                                 agent,
-                                                repository_id,
-                                                full_name,
+                                                Some((repository_id, full_name)),
                                                 window,
                                                 cx,
                                             );

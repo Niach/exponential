@@ -29,7 +29,6 @@ import {
   useGettingStartedProgress,
 } from "@/hooks/use-getting-started-progress"
 import { MentionProvider } from "@/components/mention-provider"
-import { AgentDockProvider } from "@/components/agent-dock/agent-dock-provider"
 import { AgentDock } from "@/components/agent-dock/agent-dock"
 import { GettingStartedSheetProvider } from "@/components/getting-started/getting-started-sheet"
 import { IssueSearchProvider } from "@/hooks/use-issue-search"
@@ -145,9 +144,6 @@ function TeamLayout() {
         teamSlug={teamSlug}
       >
         <MentionProvider teamId={team?.id}>
-          {/* The agent-coding dock (EXP-106) lives at layout level so it
-              survives $teamSlug param changes and pins to the viewport. */}
-          <AgentDockProvider teamId={team?.id ?? ``}>
           {/* EXP-686: the board header's Search button (mobile) and the
               Actions/Automations lightbulb reach the layout's sheets through
               context instead of a prop drilled through every list. The
@@ -186,23 +182,24 @@ function TeamLayout() {
                 team={team}
                 boards={boards}
               />
-              {/* EXP-698 / EXP-723: NO dock inset here, on either breakpoint.
-                  From `md` up the panel is a DEFINITE-height flex column
-                  (`h-[calc(100dvh-20px)]`), so the dock is simply its last
-                  child and this wrapper takes what is left — `sticky bottom-0`
-                  on the dock only ever matters on phones, where the column
-                  grows with the page. Either way the content already ends at
-                  the dock's top edge, and reserving `--dock-h` on top of that
-                  would open a second, empty dock-sized gap (up to 85vh with
-                  the panel dragged open). The dock still publishes the
-                  measured height (agent-dock.tsx) for a page that owns a
-                  viewport-sized scroller of its own and therefore really does
-                  run under the panel. */}
+              {/* EXP-740: NO dock inset here. The dock is the tab STRIP
+                  alone now — a fixed `h-9` last flex child of the definite
+                  height panel (`h-[calc(100dvh-20px)]`), so this wrapper
+                  simply takes what is left and the content already ends at
+                  the strip's top edge. Reserving `--dock-h` on top of that
+                  would open a second, empty strip-sized gap. The strip is
+                  `md`-only (phones render none), and still publishes its
+                  measured height for a page that owns a viewport-sized
+                  scroller of its own. */}
               <div className={MAIN_OUTLET_CLASS}>
                 <Outlet />
               </div>
               {team && user && (
-                <AgentDock teamId={team.id} currentUserId={user.id} />
+                <AgentDock
+                  teamId={team.id}
+                  teamSlug={teamSlug}
+                  currentUserId={user.id}
+                />
               )}
             </main>
 
@@ -221,7 +218,6 @@ function TeamLayout() {
           </GettingStartedSheetProvider>
           </MobileChromeProvider>
           </IssueSearchProvider>
-          </AgentDockProvider>
         </MentionProvider>
       </IssueRefProvider>
       </GettingStartedProgressProvider>

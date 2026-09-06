@@ -772,34 +772,37 @@ export const steerRouter = router({
             ),
           }
         } else if (input.actionId === BUILTIN_CHAT_ID) {
-          // The chat builtin's repo is its required `repo` input — resolved
-          // above (team-owned, exists), re-fetched here for the
+          // The chat builtin's repo is its OPTIONAL `repo` input (EXP-739) —
+          // resolved above (team-owned, exists), re-fetched here for the
           // override-aware default branch the frame must carry (EXP-615).
+          // Omitted entirely: the frame carries no `repo` and the launcher
+          // runs the chat in its scratch dir. Picked but since disconnected
+          // still refuses — the caller asked for a repo that is gone.
           const repoId = resolved.inputs.find(
             (value) => value.key === `repo`
           )?.value
-          const [row] = repoId
-            ? await db
-                .select({
-                  id: repositories.id,
-                  fullName: repositories.fullName,
-                  defaultBranch: repositories.defaultBranch,
-                  defaultBranchOverride: repositories.defaultBranchOverride,
-                })
-                .from(repositories)
-                .where(eq(repositories.id, repoId))
-                .limit(1)
-            : []
-          if (!row) {
-            throw new TRPCError({
-              code: `PRECONDITION_FAILED`,
-              message: `That repository is no longer connected`,
-            })
-          }
-          repo = {
-            repositoryId: row.id,
-            fullName: row.fullName,
-            defaultBranch: effectiveDefaultBranch(row),
+          if (repoId) {
+            const [row] = await db
+              .select({
+                id: repositories.id,
+                fullName: repositories.fullName,
+                defaultBranch: repositories.defaultBranch,
+                defaultBranchOverride: repositories.defaultBranchOverride,
+              })
+              .from(repositories)
+              .where(eq(repositories.id, repoId))
+              .limit(1)
+            if (!row) {
+              throw new TRPCError({
+                code: `PRECONDITION_FAILED`,
+                message: `That repository is no longer connected`,
+              })
+            }
+            repo = {
+              repositoryId: row.id,
+              fullName: row.fullName,
+              defaultBranch: effectiveDefaultBranch(row),
+            }
           }
         } else if (action.repositoryId) {
           const [row] = await db
