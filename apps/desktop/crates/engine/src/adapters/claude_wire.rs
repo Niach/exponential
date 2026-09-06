@@ -401,6 +401,15 @@ pub struct ResultMsg {
     pub errors: Vec<String>,
     pub session_id: String,
     pub uuid: String,
+    /// How many turns the CLI still holds behind this one. The ONLY signal
+    /// that tells a folded-in steer (a mid-turn user message the CLI answered
+    /// inside the running turn: one `result`, `queued_turn_count` 0) apart
+    /// from a queued one (its own `result` later, counted here). `None` on a
+    /// CLI that does not report it — then nothing is folded and every turn
+    /// waits for a `result` of its own. The doctor's ACP floor
+    /// (`MIN_CLAUDE_ACP_VERSION`, 2.1.263) does report it, so that arm is
+    /// defensive.
+    pub queued_turn_count: Option<u64>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }

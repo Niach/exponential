@@ -859,20 +859,14 @@ fn handle_command(
 ) -> bool {
     match command {
         EngineCommand::Prompt(blocks) => start_turn(cx, ctx, session_id, blocks, turns),
-        EngineCommand::Steer(text) => {
-            if turns.load(Ordering::SeqCst) == 0 {
-                start_turn(cx, ctx, session_id, text_blocks(&text), turns);
-            } else {
-                // Mid-turn steering: a `session/prompt` that arrives while a
-                // turn is running IS the steer seam — the adapter folds it
-                // into the live turn (codex `turn/steer`, claude's queued
-                // user message), so its response is not a turn end and is
-                // deliberately detached.
-                announce_prompt(ctx, &text);
-                cx.send_request(PromptRequest::new(session_id.clone(), text_blocks(&text)))
-                    .detach();
-            }
-        }
+        // Mid-turn steering: a `session/prompt` that arrives while a turn is
+        // running IS the steer seam — the adapter folds it into the live turn
+        // (codex `turn/steer`, claude's queued or folded-in user message).
+        // It is still a TURN here: counted, and its stop reason folded when
+        // it answers, so `idle` waits for the follow-up instead of firing on
+        // the first prompt's `result` and letting an `AfterTurn` kill
+        // (EXP-637) end the run mid-answer.
+        EngineCommand::Steer(text) => start_turn(cx, ctx, session_id, text_blocks(&text), turns),
         EngineCommand::Cancel => {
             let _ = cx.send_notification(CancelNotification::new(session_id.clone()));
             ctx.asks.cancel_all();

@@ -598,7 +598,11 @@ impl Mapper {
         self.flush_all(out);
         self.end_compaction(None, out);
         out.needs_input = Some(false);
-        out.idle = Some(true);
+        // NOT idle: the agent is still finishing the prompt it was asked to
+        // interrupt. `on_stop` flips the turn signal when that prompt
+        // actually answers (`StopReason::Cancelled` routes back through
+        // here), so an `AfterTurn` kill cannot tear the run down while the
+        // interrupt is still settling.
     }
 
     /// A turn ended. No wire event: the stop reason only moves `out.idle`.
@@ -2215,6 +2219,22 @@ mod tests {
             other => panic!("expected a dismissal, got {other:?}"),
         }
         assert_eq!(cancelled.needs_input, Some(false));
+    }
+
+    /// EXP-746: `session/cancel` asks the agent to stop, it does not stop it.
+    /// The turn signal only flips when the interrupted prompt actually
+    /// answers, or an `AfterTurn` kill (EXP-637) tears the run down while the
+    /// agent is still winding the turn up.
+    #[test]
+    fn a_cancel_stays_busy_until_the_cancelled_turn_answers() {
+        let mut mapper = mapper();
+        let mut cancelled = MapOut::default();
+        mapper.on_cancel(&mut cancelled);
+        assert_eq!(cancelled.idle, None, "the interrupt has not settled yet");
+
+        let mut stopped = MapOut::default();
+        mapper.on_stop(StopReason::Cancelled, &mut stopped);
+        assert_eq!(stopped.idle, Some(true));
     }
 
     #[test]

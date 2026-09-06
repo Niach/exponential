@@ -53,6 +53,10 @@ const BUDGET: Duration = Duration::from_secs(10);
 #[derive(Default)]
 struct FakeState {
     prompts: Mutex<Vec<String>>,
+    /// The prompts the fake has ANSWERED, in the order it answered them.
+    answered: Mutex<Vec<String>>,
+    /// Lets the test end the turn that waits on it.
+    released: AtomicBool,
     /// The permission option the client picked.
     chosen: Mutex<Option<String>>,
     /// The cancel notification arrived (the deadlock guard).
@@ -206,6 +210,11 @@ impl ConnectTo<Client> for FakeAgent {
                                 &cancel_rx,
                             )
                             .await;
+                            state
+                                .answered
+                                .lock()
+                                .expect("the answer log is not poisoned")
+                                .push(text.clone());
                             let _ = responder.respond(PromptResponse::new(stop));
                             Ok(())
                         })?;
@@ -289,6 +298,26 @@ async fn run_turn(
                     *state.chosen.lock().expect("the choice slot is not poisoned") =
                         Some(selected.option_id.0.to_string());
                 }
+            }
+            StopReason::EndTurn
+        }
+        // The mid-turn steer pair: this turn ends the moment the steered
+        // prompt reaches the agent, so the follow-up is genuinely in flight
+        // when the first turn answers.
+        "await-steer" => {
+            let deadline = Instant::now() + BUDGET;
+            while Instant::now() < deadline
+                && state.prompts.lock().expect("the prompt log is not poisoned").len() < 2
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            StopReason::EndTurn
+        }
+        // The steered turn: held until the test releases it.
+        "steered" => {
+            let deadline = Instant::now() + BUDGET;
+            while Instant::now() < deadline && !state.released.load(Ordering::SeqCst) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
             }
             StopReason::EndTurn
         }
@@ -618,6 +647,45 @@ fn a_permission_is_answerable_and_resolves_the_agents_request() {
             .as_deref(),
         Some("allow")
     );
+    harness.session.kill("killed");
+}
+
+/// EXP-746: a viewer steering mid-turn sends a second `session/prompt`. It is
+/// a TURN like any other here, so the run stays busy until the follow-up
+/// answers — an idle edge at the first turn's answer would tell every client
+/// the agent is between turns and would let an `AfterTurn` kill (EXP-637)
+/// SIGKILL the agent in the middle of the steered answer.
+#[test]
+fn a_mid_turn_steer_keeps_the_run_busy_until_the_follow_up_answers() {
+    let harness = start_fake("steer-turn");
+    let signal = harness.session.turn_signal();
+    let prompts = || harness.state.prompts.lock().expect("the prompt log is not poisoned").len();
+    let answered = |text: &str| {
+        harness
+            .state
+            .answered
+            .lock()
+            .expect("the answer log is not poisoned")
+            .iter()
+            .any(|prompt| prompt == text)
+    };
+
+    harness.session.send_prompt("await-steer".to_string());
+    until("the first turn", || prompts() >= 1);
+    harness.session.steer("steered".to_string());
+    until("the first turn's answer", || answered("await-steer"));
+
+    // The steered turn is still running: the signal must not have flipped,
+    // and must stay put while the follow-up works.
+    let deadline = Instant::now() + Duration::from_millis(400);
+    while Instant::now() < deadline {
+        assert!(!signal.is_idle(), "the steered turn is still running");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    harness.state.released.store(true, Ordering::SeqCst);
+    until("the idle edge", || signal.is_idle());
+    assert!(answered("steered"));
     harness.session.kill("killed");
 }
 

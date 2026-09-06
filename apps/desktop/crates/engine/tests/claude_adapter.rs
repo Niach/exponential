@@ -792,6 +792,58 @@ async fn a_cancel_interrupts_the_running_turn_and_settles_it_cancelled() {
     assert_eq!(interrupt["request"]["cancel_queued"], serde_json::json!(true));
 }
 
+/// EXP-746: a mid-turn steer is a second `session/prompt`, and the CLI may
+/// FOLD it into the running turn instead of queueing it — one `result` for
+/// both, `queued_turn_count: 0`. The fixture answers only after both user
+/// messages arrived, so both prompts must settle on that one `result`: a
+/// stranded one hangs forever and leaves every later turn settling the
+/// channel in front of it, which pins the run's `idle` at false for good.
+#[tokio::test]
+async fn a_steer_the_cli_folds_into_the_running_turn_settles_with_it() {
+    let work = workdir("foldin");
+    let adapter =
+        ClaudeAgent::new(spec("steer-foldin", &work.0, false)).expect("the adapter builds");
+    let driven = Client
+        .builder()
+        .name("exp746-test-client")
+        .on_receive_notification(
+            async move |_notification: SessionNotification, _cx| Ok(()),
+            on_receive_notification!(),
+        )
+        .connect_with(adapter, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(engine::client_capabilities()),
+            )
+            .block_task()
+            .await?;
+            let session = cx
+                .send_request(NewSessionRequest::new(std::env::temp_dir()))
+                .block_task()
+                .await?;
+            let turn = cx.send_request(PromptRequest::new(
+                session.session_id.clone(),
+                vec![ContentBlock::Text(TextContent::new("Reply with the single word ok."))],
+            ));
+            // The steer: sent while the first turn is still streaming, which
+            // is what the fixture's missing `result` stands for.
+            let steered = cx.send_request(PromptRequest::new(
+                session.session_id.clone(),
+                vec![ContentBlock::Text(TextContent::new("Make it two words."))],
+            ));
+            let turn = turn.block_task().await?;
+            let steered = steered.block_task().await?;
+            Ok::<_, Error>((turn.stop_reason, steered.stop_reason))
+        });
+
+    let (turn, steered) = tokio::time::timeout(Duration::from_secs(30), driven)
+        .await
+        .expect("both prompts settle inside the budget")
+        .expect("the connection runs cleanly");
+    assert_eq!(turn, StopReason::EndTurn);
+    assert_eq!(steered, StopReason::EndTurn);
+}
+
 #[tokio::test]
 async fn steering_the_mode_and_the_effort_reaches_the_cli_and_echoes_back() {
     let work = workdir("steer");

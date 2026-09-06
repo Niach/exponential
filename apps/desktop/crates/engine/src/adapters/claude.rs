@@ -344,7 +344,7 @@ struct State {
     /// An outcome held back while background subagents of that turn are still
     /// live — settling at the `result` would strand their permission requests
     /// on an RPC nobody answers.
-    deferred: Option<TurnOutcome>,
+    deferred: Option<DeferredSettle>,
     native_session_id: Option<String>,
     model: String,
     models: Vec<wire::ModelInfo>,
@@ -393,6 +393,38 @@ struct State {
     /// cleared by it — the CLI's own prewait latch, ported.
     cancel_epoch: u64,
     closed: bool,
+}
+
+/// One `result`'s settlement, kept whole so a deferral (a live subagent)
+/// replays it exactly as the `result` reported it — the fold-in count
+/// included.
+#[derive(Clone, Copy)]
+struct DeferredSettle {
+    outcome: TurnOutcome,
+    /// The `result`'s `queued_turn_count`; `None` = the CLI did not say.
+    queued: Option<u64>,
+}
+
+/// Settle the turn this `result` ends, plus every mid-turn prompt the CLI
+/// FOLDED INTO it. `queued` is the result's own `queued_turn_count`: what the
+/// CLI still holds behind this turn. Anything the queue keeps beyond that
+/// count was answered by THIS result and gets none of its own, so it settles
+/// here — a stranded steer would otherwise hang its `session/prompt` forever
+/// and leave every later turn settling the channel in front of it (EXP-746).
+/// A CLI that reports no count folds nothing in: each turn waits.
+fn settle_turns(state: &mut State, settle: DeferredSettle) {
+    if let Some(turn) = state.turns.pop_front() {
+        let _ = turn.send(settle.outcome);
+    }
+    let Some(queued) = settle.queued else { return };
+    while state.turns.len() as u64 > queued {
+        match state.turns.pop_front() {
+            Some(turn) => {
+                let _ = turn.send(settle.outcome);
+            }
+            None => break,
+        }
+    }
 }
 
 struct ToolEntry {
@@ -764,19 +796,13 @@ impl ClaudeSession {
         }
     }
 
-    fn settle(&self, state: &mut State, outcome: TurnOutcome) {
-        if let Some(turn) = state.turns.pop_front() {
-            let _ = turn.send(outcome);
-        }
-    }
-
     /// Settle, unless a background subagent this turn spawned is still live
     /// (issues #864/#866: settling early strands its permission request).
-    fn settle_or_defer(&self, state: &mut State, outcome: TurnOutcome) {
+    fn settle_or_defer(&self, state: &mut State, settle: DeferredSettle) {
         if state.tasks.values().any(|task| task.live) {
-            state.deferred = Some(outcome);
+            state.deferred = Some(settle);
         } else {
-            self.settle(state, outcome);
+            settle_turns(state, settle);
         }
     }
 
@@ -784,8 +810,8 @@ impl ClaudeSession {
         if state.tasks.values().any(|task| task.live) {
             return;
         }
-        if let Some(outcome) = state.deferred.take() {
-            self.settle(state, outcome);
+        if let Some(settle) = state.deferred.take() {
+            settle_turns(state, settle);
         }
     }
 
@@ -1776,7 +1802,13 @@ impl ClaudeSession {
         let mut state = self.lock();
         state.delivered_text = false;
         state.local_only_command = false;
-        self.settle_or_defer(&mut state, outcome);
+        self.settle_or_defer(
+            &mut state,
+            DeferredSettle {
+                outcome,
+                queued: result.queued_turn_count,
+            },
+        );
     }
 
     /// Continue the accepted plan in a fresh context: clear the conversation,
@@ -3218,6 +3250,60 @@ mod tests {
 
     fn cwd() -> PathBuf {
         PathBuf::from("/work/tree")
+    }
+
+    /// Two in-flight prompts, one `result`: `queued_turn_count` is the only
+    /// thing that says whether the second was FOLDED INTO this turn (settle it
+    /// too) or QUEUED behind it (leave it waiting for its own `result`).
+    #[test]
+    fn a_result_settles_the_steers_the_cli_folded_into_it() {
+        fn two_turns() -> (State, flume::Receiver<TurnOutcome>, flume::Receiver<TurnOutcome>) {
+            let mut state = State::default();
+            let (first_tx, first) = flume::bounded(1);
+            let (second_tx, second) = flume::bounded(1);
+            state.turns.push_back(first_tx);
+            state.turns.push_back(second_tx);
+            (state, first, second)
+        }
+
+        // Folded in: one `result`, nothing left queued behind it.
+        let (mut folded, first, second) = two_turns();
+        settle_turns(
+            &mut folded,
+            DeferredSettle {
+                outcome: TurnOutcome::EndTurn,
+                queued: Some(0),
+            },
+        );
+        assert_eq!(first.try_recv(), Ok(TurnOutcome::EndTurn));
+        assert_eq!(second.try_recv(), Ok(TurnOutcome::EndTurn));
+        assert!(folded.turns.is_empty());
+
+        // Queued: the CLI still holds one turn, which owns the NEXT `result`.
+        let (mut queued, first, second) = two_turns();
+        settle_turns(
+            &mut queued,
+            DeferredSettle {
+                outcome: TurnOutcome::EndTurn,
+                queued: Some(1),
+            },
+        );
+        assert_eq!(first.try_recv(), Ok(TurnOutcome::EndTurn));
+        assert!(second.try_recv().is_err(), "the queued turn keeps waiting");
+        assert_eq!(queued.turns.len(), 1);
+
+        // No count at all: nothing is assumed folded.
+        let (mut silent, first, second) = two_turns();
+        settle_turns(
+            &mut silent,
+            DeferredSettle {
+                outcome: TurnOutcome::EndTurn,
+                queued: None,
+            },
+        );
+        assert_eq!(first.try_recv(), Ok(TurnOutcome::EndTurn));
+        assert!(second.try_recv().is_err());
+        assert_eq!(silent.turns.len(), 1);
     }
 
     #[test]
