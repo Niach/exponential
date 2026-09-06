@@ -605,12 +605,11 @@ fn claude_effort() -> bool {
 }
 
 /// Checkpoint 8: a Task fan-out, and whether `task_started.task_id` equals a
-/// later `can_use_tool.agent_id`.
+/// later `can_use_tool.agent_id`. It DOES — measured, and the recording this
+/// checkpoint produced is `tests/fixtures/claude/subagent/` (EXP-753).
 fn claude_subagent() -> bool {
     header("claude", "subagent", "Task fan-out → task_started / agent_id");
     let cwd = scratch_dir("claude-subagent");
-    let _ = std::fs::write(cwd.join("a.txt"), "alpha\n");
-    let _ = std::fs::write(cwd.join("b.txt"), "beta\n");
     // `manual`, not bypass: the invariant under test is that a permission
     // raised INSIDE the subagent carries that subagent's id, and bypass mode
     // raises none at all.
@@ -629,7 +628,10 @@ fn claude_subagent() -> bool {
     let mut agent_ids: Vec<String> = Vec::new();
     process
         .send_user(
-            "Use the Task tool to launch one subagent whose only job is to run the shell command `cat a.txt` with the Bash tool and report the output. Do not read the file yourself.",
+            // A MUTATING command on purpose: `cat a.txt` is auto-allowed even
+            // under `manual`, so a read-only subagent raises no permission at
+            // all and the invariant under test never fires (measured).
+            "Use the Task tool to launch one subagent whose only job is to run the shell command `echo probe >> probe.txt` with the Bash tool and report what it did. Do not run the command yourself.",
             None,
         )
         .expect("stdin");
