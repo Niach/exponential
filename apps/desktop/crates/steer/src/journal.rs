@@ -20,6 +20,17 @@
 //! `config_state` and `usage` under the same rule — they are latest-wins
 //! STATE on every client, not transcript rows.
 //!
+//! EXP-758: those three live in their own SLOTS, outside `entries` and outside
+//! both budgets, exactly like the relay's `room.lastByKind` (hub.ts) and the
+//! engine's LocalFeed. Keeping them as tail entries was a slow leak: a run
+//! that never toggles model or mode publishes ONE `config_state`, at index 0,
+//! and after 2000 events it is the FIRST row evicted — so the next publisher
+//! reconnect (relay restart, the 90 s idle watchdog) replays a history with no
+//! config in it and every viewer nulls the slot: chips, mode switcher and `/`
+//! commands gone for the rest of the run. Replay therefore yields the log
+//! first and then the slots in the relay's own `LATEST_REPLAY_ORDER`
+//! (`config_state`, `usage`, `diff`).
+//!
 //! EXP-748 adds the other pressure valve, the relay's `hub.ts` rule mirrored
 //! here: a SUBAGENT's tool calls are second-class transcript. One fan-out of
 //! parallel agents publishes thousands of them, and every client collapses
@@ -53,10 +64,34 @@ struct Entry {
     subagent_tool: Option<String>,
 }
 
+/// EXP-758: the latest-wins slots, in the relay's replay order
+/// (`LATEST_REPLAY_ORDER` in hub.ts: `config_state`, `usage`, `diff` — the
+/// diff stays LAST, where it replayed before any of this became a map).
+const SLOT_CONFIG_STATE: usize = 0;
+const SLOT_USAGE: usize = 1;
+const SLOT_DIFF: usize = 2;
+const SLOT_COUNT: usize = 3;
+
+/// Which slot an event owns, if any. The ONE place the three latest-wins
+/// kinds are named.
+fn slot_of(event: &ActivityEvent) -> Option<usize> {
+    match event {
+        ActivityEvent::ConfigState { .. } => Some(SLOT_CONFIG_STATE),
+        ActivityEvent::Usage { .. } => Some(SLOT_USAGE),
+        ActivityEvent::Diff { .. } => Some(SLOT_DIFF),
+        _ => None,
+    }
+}
+
 /// The replay buffer described in the module docs.
 #[derive(Default)]
 pub struct ActivityJournal {
     entries: Vec<Entry>,
+    /// EXP-758: latest-wins STATE by kind, held OUTSIDE `entries`, `len()` and
+    /// `bytes()` so eviction can never reach it. Each payload is already
+    /// capped upstream (a diff at 512 KiB, a config at 8 options), so three
+    /// slots are a bounded overhead on top of the budgets, not a hole in them.
+    slots: [Option<ActivityEvent>; SLOT_COUNT],
     bytes: usize,
     /// Live tool-entry count per subagent (an id with none left is removed).
     subagent_tool_counts: HashMap<String, usize>,
@@ -75,26 +110,19 @@ impl ActivityJournal {
 
     /// Record one published event.
     pub fn push(&mut self, event: ActivityEvent) {
-        match &event {
-            // Latest-wins STATE, exactly like the relay's per-kind slots: the
-            // newest snapshot DROPS ITS PREDECESSOR and lands at the TAIL.
-            // Position is irrelevant because every client treats all three as
-            // slots, not ordered rows; what matters is that a chatty
-            // worktree, a per-turn usage meter (EXP-746) or a mode toggle can
-            // never evict the transcript out of the 2000-event / 4 MiB budget.
-            ActivityEvent::Diff { .. }
-            | ActivityEvent::ConfigState { .. }
-            | ActivityEvent::Usage { .. } => {
-                if let Some(pos) = self.entries.iter().position(|entry| {
-                    std::mem::discriminant(&entry.event) == std::mem::discriminant(&event)
-                }) {
-                    self.remove_entry(pos);
-                }
-            }
-            ActivityEvent::QuestionResolved { id, ask_id, .. } => {
-                self.unpin(id.as_deref(), ask_id.as_deref());
-            }
-            _ => {}
+        // EXP-758: latest-wins STATE, exactly like the relay's per-kind slots
+        // — the newest snapshot DROPS ITS PREDECESSOR into its own slot and
+        // never enters `entries` at all. Position among the log is irrelevant
+        // (every client treats all three as slots, not ordered rows); what
+        // matters is that a chatty worktree, a per-turn usage meter (EXP-746)
+        // or a mode toggle can neither evict the transcript out of the
+        // 2000-event / 4 MiB budget nor be evicted BY it.
+        if let Some(slot) = slot_of(&event) {
+            self.slots[slot] = Some(event);
+            return;
+        }
+        if let ActivityEvent::QuestionResolved { id, ask_id, .. } = &event {
+            self.unpin(id.as_deref(), ask_id.as_deref());
         }
         // A re-emitted question REPLACES its earlier card IN PLACE (the
         // options grew) — live clients upsert by id without moving the card
@@ -172,11 +200,20 @@ impl ActivityJournal {
         self.evict();
     }
 
-    /// The history to re-publish, oldest first.
+    /// The history to re-publish: the log oldest first, then the latest-wins
+    /// slots in the relay's `LATEST_REPLAY_ORDER` (EXP-758) so a reconnecting
+    /// publisher hands a joining viewer the same shape the relay's own join
+    /// replay does.
     pub fn replay(&self) -> impl Iterator<Item = &ActivityEvent> {
-        self.entries.iter().map(|entry| &entry.event)
+        self.entries
+            .iter()
+            .map(|entry| &entry.event)
+            .chain(self.slots.iter().flatten())
     }
 
+    /// LOG entries only — the latest-wins slots are outside the count budget
+    /// (EXP-758), so a journal holding nothing but slots still replays three
+    /// events at `len() == 0`.
     pub fn len(&self) -> usize {
         self.entries.len()
     }
@@ -185,6 +222,7 @@ impl ActivityJournal {
         self.entries.is_empty()
     }
 
+    /// LOG bytes only — see [`ActivityJournal::len`].
     pub fn bytes(&self) -> usize {
         self.bytes
     }
@@ -309,9 +347,28 @@ mod tests {
         }
     }
 
-    /// What [`ActivityJournal::bytes`] must equal at all times.
+    /// What [`ActivityJournal::bytes`] must equal at all times. EXP-758: the
+    /// LOG only — the latest-wins slots are deliberately outside the budget,
+    /// so this walks `entries` rather than `replay()`.
     fn replayed_bytes(journal: &ActivityJournal) -> usize {
-        journal.replay().map(serialized_bytes).sum()
+        journal
+            .entries
+            .iter()
+            .map(|entry| serialized_bytes(&entry.event))
+            .sum()
+    }
+
+    fn config(value: &str) -> ActivityEvent {
+        ActivityEvent::ConfigState {
+            options: vec![ConfigOption {
+                value: Some(value.to_string()),
+                ..ConfigOption::new("model", "Model")
+            }],
+            current_mode: None,
+            modes: None,
+            commands: None,
+            at: None,
+        }
     }
 
     fn tool_details(journal: &ActivityJournal) -> Vec<String> {
@@ -362,25 +419,17 @@ mod tests {
             .filter(|event| matches!(event, ActivityEvent::Diff { .. }))
             .collect();
         assert_eq!(diffs, vec![&ActivityEvent::diff("--- v2")]);
-        assert_eq!(journal.len(), 2);
+        // EXP-758: the diff lives in its own slot, so the LOG holds only the
+        // narration.
+        assert_eq!(journal.len(), 1);
     }
 
     /// EXP-746: `config_state` and `usage` follow the diff rule — the newest
-    /// drops its predecessor and lands at the tail. Without it a per-turn
-    /// usage meter would evict the whole transcript out of the replay budget,
-    /// and a reconnect would re-publish a truncated history.
+    /// drops its predecessor. Without it a per-turn usage meter would evict
+    /// the whole transcript out of the replay budget, and a reconnect would
+    /// re-publish a truncated history.
     #[test]
     fn only_the_latest_config_state_and_usage_survive() {
-        let config = |value: &str| ActivityEvent::ConfigState {
-            options: vec![ConfigOption {
-                value: Some(value.to_string()),
-                ..ConfigOption::new("model", "Model")
-            }],
-            current_mode: None,
-            modes: None,
-            commands: None,
-            at: None,
-        };
         let mut journal = ActivityJournal::new();
         journal.push(config("sonnet"));
         journal.push(ActivityEvent::usage(10, 200, None));
@@ -389,7 +438,9 @@ mod tests {
         journal.push(ActivityEvent::usage(20, 200, Some(0.5)));
 
         let replay: Vec<&ActivityEvent> = journal.replay().collect();
-        assert_eq!(journal.len(), 3, "one narration + one slot per kind");
+        // EXP-758: only the narration is a LOG row now; the two state kinds
+        // sit in slots outside the count budget.
+        assert_eq!(journal.len(), 1, "one narration; the rest are slots");
         assert_eq!(
             replay,
             vec![
@@ -397,7 +448,81 @@ mod tests {
                 &config("opus"),
                 &ActivityEvent::usage(20, 200, Some(0.5)),
             ],
-            "the newest of each kind survives, at the tail"
+            "the newest of each kind replays after the log, config then usage"
+        );
+    }
+
+    /// EXP-758: the whole point of the slots — a run that publishes ONE
+    /// `config_state` at the very start and then 2000 events used to lose it
+    /// to the count cap, so the next reconnect replayed a history with no
+    /// config in it and every viewer nulled its chips, mode switcher and `/`
+    /// commands for the rest of the run.
+    #[test]
+    fn latest_wins_slots_survive_count_eviction() {
+        let mut journal = ActivityJournal::new();
+        journal.push(config("opus"));
+        journal.push(ActivityEvent::usage(10, 200, None));
+        journal.push(ActivityEvent::diff("--- v1"));
+        for i in 0..JOURNAL_EVENT_CAP + 500 {
+            journal.push(ActivityEvent::narration(format!("line {i}")));
+        }
+
+        assert_eq!(journal.len(), JOURNAL_EVENT_CAP);
+        let replay: Vec<&ActivityEvent> = journal.replay().collect();
+        assert_eq!(
+            replay[replay.len() - 3..].to_vec(),
+            vec![
+                &config("opus"),
+                &ActivityEvent::usage(10, 200, None),
+                &ActivityEvent::diff("--- v1"),
+            ],
+            "the log first, then config_state, usage, diff — the relay's own \
+             LATEST_REPLAY_ORDER (hub.ts)"
+        );
+    }
+
+    /// The byte budget is the other eviction path, and it must not reach the
+    /// slots either (EXP-758).
+    #[test]
+    fn latest_wins_slots_survive_byte_eviction() {
+        let mut journal = ActivityJournal::new();
+        journal.push(config("opus"));
+        journal.push(ActivityEvent::usage(10, 200, None));
+        journal.push(ActivityEvent::diff("--- v1"));
+        let big = "x".repeat(600 * 1024);
+        for i in 0..12 {
+            journal.push(ActivityEvent::narration(format!("{i}{big}")));
+        }
+
+        assert!(journal.bytes() <= JOURNAL_BYTE_CAP, "{}", journal.bytes());
+        let replay: Vec<&ActivityEvent> = journal.replay().collect();
+        assert_eq!(
+            replay[replay.len() - 3..].to_vec(),
+            vec![
+                &config("opus"),
+                &ActivityEvent::usage(10, 200, None),
+                &ActivityEvent::diff("--- v1"),
+            ],
+            "a 4 MiB flood of narration never costs the state slots"
+        );
+    }
+
+    /// EXP-758: the slots are held OUTSIDE both budgets, like the relay's
+    /// `room.lastByKind` and the engine's LocalFeed ring.
+    #[test]
+    fn latest_wins_slots_are_outside_len_and_bytes() {
+        let mut journal = ActivityJournal::new();
+        journal.push(config("opus"));
+        journal.push(ActivityEvent::usage(10, 200, None));
+        journal.push(ActivityEvent::diff("--- v1"));
+
+        assert_eq!(journal.len(), 0);
+        assert_eq!(journal.bytes(), 0);
+        assert!(journal.is_empty(), "len/bytes count the LOG, not the slots");
+        assert_eq!(
+            journal.replay().count(),
+            3,
+            "…and the replay still carries all three"
         );
     }
 
