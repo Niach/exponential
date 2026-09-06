@@ -309,7 +309,6 @@ enum ChipLead {
     Status(domain::statuses::ResolvedStatus),
     /// EXP-746: a liveness tone dot — the session screen's chip, mirroring
     /// the terminal dock's remote chips.
-    #[allow(dead_code)] // built by `chip_content` for `Screen::Session`
     Dot(gpui::Hsla),
 }
 
@@ -343,7 +342,48 @@ fn lead_reserve_rems(lead: &ChipLead) -> f32 {
     }
 }
 
+/// EXP-746: a session chip's liveness dot. Deliberately the SAME tones the
+/// dock's remote chips wear (`terminal_dock::remote_chip_tone`) — one strip
+/// entry per run, one vocabulary, wherever it is hosted.
+fn session_chip_tone(session_id: &str, cx: &App) -> gpui::Hsla {
+    let muted = cx.theme().muted_foreground.opacity(0.5);
+    let Some(store) = Store::try_global(cx) else {
+        return muted;
+    };
+    let collections = store.collections();
+    let sessions = collections.coding_sessions.read(cx);
+    let Some(row) = sessions.get(session_id) else {
+        return muted;
+    };
+    // An ended run keeps its tab as a read-only transcript — its dot says so
+    // rather than claiming the agent is still working.
+    if row.status.as_deref() == Some(domain::contract::CODING_SESSION_STATUS_ENDED) {
+        return muted;
+    }
+    let pr_state = row
+        .issue_id
+        .as_deref()
+        .and_then(|issue_id| collections.issues.read(cx).get(issue_id).cloned())
+        .and_then(|issue| issue.pr_state);
+    match crate::queries::coding_session_display(row, pr_state.as_deref()) {
+        crate::queries::CodingSessionDisplay::NeedsInput => theme::tokens::YELLOW.to_hsla(),
+        crate::queries::CodingSessionDisplay::Done => theme::tokens::BLUE.to_hsla(),
+        crate::queries::CodingSessionDisplay::Review
+        | crate::queries::CodingSessionDisplay::Running => theme::tokens::GREEN.to_hsla(),
+    }
+}
+
 fn chip_content(screen: &Screen, cx: &App) -> ChipContent {
+    if let Screen::Session { session_id } = screen {
+        // The tab strip says WHAT is running and how it is doing without the
+        // tab having to be open — the dock's remote chips did this, and the
+        // session screen inherits it.
+        return ChipContent {
+            lead: ChipLead::Dot(session_chip_tone(session_id, cx)),
+            identifier: None,
+            title: Some(screen_title(screen, cx)),
+        };
+    }
     if let Screen::IssueDetail { issue_id } = screen {
         let store = Store::global(cx);
         let issues = store.collections().issues.read(cx);

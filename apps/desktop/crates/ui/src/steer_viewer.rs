@@ -440,6 +440,32 @@ impl SteerSessionView {
         )
     }
 
+    /// What to print on the header's agent pill: the run's own agent, which
+    /// for an EXTERNAL one is the user's label (the synced row cannot name
+    /// it — `coding_sessions.agent` takes contract values only).
+    pub(crate) fn agent_display_label(&self) -> String {
+        if let Some(session) = self.source.session() {
+            return session.agent_label().to_string();
+        }
+        match self.agent() {
+            SessionAgent::Claude => coding::CodingAgent::Claude.label().to_string(),
+            SessionAgent::Codex => coding::CodingAgent::Codex.label().to_string(),
+            SessionAgent::Pi => coding::CodingAgent::Pi.label().to_string(),
+            SessionAgent::External => "Agent".to_string(),
+        }
+    }
+
+    /// The builtin agent behind this session, for the usage sheet's device
+    /// cards (an external agent reports no usage windows of its own).
+    pub(crate) fn builtin_agent(&self) -> Option<coding::CodingAgent> {
+        match self.agent() {
+            SessionAgent::Claude => Some(coding::CodingAgent::Claude),
+            SessionAgent::Codex => Some(coding::CodingAgent::Codex),
+            SessionAgent::Pi => Some(coding::CodingAgent::Pi),
+            SessionAgent::External => None,
+        }
+    }
+
     /// The host machine's name, for the header caption.
     pub(crate) fn device_label(&self, cx: &App) -> Option<String> {
         self.device(cx).label
@@ -998,10 +1024,7 @@ impl SteerSessionView {
         self.source.steerable_session().is_some()
     }
 
-    /// Whether this view is replaying a finished run's transcript.
-    pub(crate) fn is_replay(&self) -> bool {
-        self.source.read_only()
-    }
+
 
     /// Re-derive the `/` menu from the draft. Pure in, pure out — the only
     /// state it carries is the Escape dismissal, which lasts exactly as long
@@ -2889,13 +2912,14 @@ impl SteerSessionView {
                 .into_any_element()
         };
         // EXP-746: a replay says what it is BEFORE anything else — its feed
-        // is history, and every other banner would read as live state.
+        // is history, and every other banner would read as live state. A run
+        // that ended with NOTHING to show says why: its transcript is not on
+        // this machine (it ran on the terminal transport, or elsewhere), and
+        // an ended session's relay room is gone.
         if self.source.read_only() {
-            banners.push(banner(if self.feed.is_empty() {
-                REPLAY_EMPTY_BANNER.to_string()
-            } else {
-                REPLAY_BANNER.to_string()
-            }));
+            banners.push(banner(REPLAY_BANNER.to_string()));
+        } else if self.feed.is_empty() && !self.is_local() && self.session_over() {
+            banners.push(banner(REPLAY_EMPTY_BANNER.to_string()));
         }
         match &self.phase {
             ViewerPhase::Ended { outcome } => banners.push(banner(

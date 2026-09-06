@@ -80,12 +80,6 @@ impl From<SteerCommand> for MenuCommand {
     }
 }
 
-/// The rows to draw for `draft`. Empty = no menu (either the draft is not a
-/// command token, or nothing in the agent's catalog matches).
-pub(crate) fn menu_matches(draft: &str, agent: SessionAgent) -> Vec<MenuCommand> {
-    menu_matches_with(draft, agent, &[])
-}
-
 /// EXP-746 — the same menu over the contract catalog UNION the commands the
 /// AGENT advertised for this run (`config_state.commands`, ACP
 /// `available_commands_update`).
@@ -166,11 +160,10 @@ pub(crate) fn confirm_button(name: &str) -> String {
 mod tests {
     use super::*;
 
+    /// The menu with no agent commands at all — every catalog assertion
+    /// below is about the contract half.
     fn names(draft: &str, agent: SessionAgent) -> Vec<String> {
-        menu_matches(draft, agent)
-            .into_iter()
-            .map(|command| command.name)
-            .collect()
+        agent_names(draft, agent, &[])
     }
 
     fn agent_names(
@@ -222,10 +215,10 @@ mod tests {
 
     #[test]
     fn accepting_adds_a_trailing_space_only_when_there_is_an_argument() {
-        let compact = menu_matches("/compact", SessionAgent::Claude).remove(0);
+        let compact = menu_matches_with("/compact", SessionAgent::Claude, &[]).remove(0);
         assert_eq!(compact.arg_hint, "instructions");
         assert_eq!(insertion(&compact), "/compact ");
-        let clear = menu_matches("/clear", SessionAgent::Claude).remove(0);
+        let clear = menu_matches_with("/clear", SessionAgent::Claude, &[]).remove(0);
         assert_eq!(clear.arg_hint, "");
         assert_eq!(insertion(&clear), "/clear");
     }
