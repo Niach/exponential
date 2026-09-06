@@ -1129,7 +1129,7 @@ fn remote_issue_start(
     let issue = fetched.issue;
     let mut seeds = HashMap::new();
     seeds.insert(issue.id.clone(), launch::issue_seed(&issue));
-    let deps = launch::coding_deps(ctx, seeds, launch::LaunchHost::Daemon);
+    let deps = launch::coding_deps(ctx, seeds, launch::LaunchHost::Daemon, runtime);
     // EXP-662: a recorded run relaunches its EXACT transcript (the recorded
     // agent, workspace and identity pin); only a record-less resume falls
     // through to a fresh session carrying the resume PROMPT.
@@ -1241,7 +1241,7 @@ fn remote_batch_start(
         origin,
         options,
     };
-    let deps = launch::coding_deps(ctx, seeds, launch::LaunchHost::Daemon);
+    let deps = launch::coding_deps(ctx, seeds, launch::LaunchHost::Daemon, runtime);
     let prepared = coding::prepare_with_hooks(
         &PrepareRequest::Batch(request),
         &deps,
@@ -1322,7 +1322,7 @@ fn remote_action_start(
         }
     }
 
-    let deps = launch::coding_deps(ctx, HashMap::new(), launch::LaunchHost::Daemon);
+    let deps = launch::coding_deps(ctx, HashMap::new(), launch::LaunchHost::Daemon, runtime);
     let prepared = coding::prepare_with_hooks(
         &PrepareRequest::Action(request),
         &deps,
@@ -1389,7 +1389,7 @@ fn remote_resume_start(
         model: None,
         effort: None,
     };
-    let deps = launch::coding_deps(ctx, seeds, launch::LaunchHost::Daemon);
+    let deps = launch::coding_deps(ctx, seeds, launch::LaunchHost::Daemon, runtime);
     let prepared = coding::prepare_with_hooks(
         &PrepareRequest::ResumeRun(request),
         &deps,
@@ -2230,7 +2230,12 @@ impl AutomationHost {
             Some(note),
             Some(action.triggered.automation_id.clone()),
         )?;
-        let deps = launch::coding_deps(&self.ctx, HashMap::new(), launch::LaunchHost::Daemon);
+        let deps = launch::coding_deps(
+            &self.ctx,
+            HashMap::new(),
+            launch::LaunchHost::Daemon,
+            self.runtime.as_ref(),
+        );
         let prepared = coding::prepare_with_hooks(
             &PrepareRequest::Action(request),
             &deps,

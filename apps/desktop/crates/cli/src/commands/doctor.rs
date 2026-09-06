@@ -2,10 +2,16 @@
 //! git + the three agent CLIs, probed with the login-shell PATH. Exit code
 //! is non-zero when git or the SELECTED default agent fails (the other
 //! agents are informational — the doctor never falsely blocks).
+//!
+//! EXP-746 added a second, NON-FATAL row per agent: ACP readiness. It decides
+//! whether a session runs on the session screen or in a terminal tab
+//! (`coding::resolve_transport`) and never touches the exit code — a
+//! not-supported agent still codes, just on the PTY path.
 
 use std::process::ExitCode;
 
 use coding::doctor::ToolCheck;
+use coding::CodingAgent;
 
 use super::{reject_unknown_flags, CommandResult};
 use crate::context;
@@ -14,12 +20,24 @@ pub fn run(args: &[String]) -> CommandResult {
     reject_unknown_flags(args)?;
     let data_dir = context::data_dir();
     let settings = coding::Settings::load(&coding::Settings::default_path(&data_dir));
-    let report = coding::run_doctor(&settings);
+    let mut report = coding::run_doctor(&settings);
+    // EXP-746: `run_doctor` also runs on the launch path and inline in the
+    // daemon every 5 minutes, so it takes codex's readiness on presence. A
+    // hand-typed `exponential doctor` can afford the real handshake, and it
+    // is the check a user running this command actually wants.
+    deep_probe_codex_acp(&settings, &mut report.codex);
 
     print_check("git", &report.git);
     print_check("claude", &report.claude);
     print_check("codex", &report.codex);
     print_check("pi", &report.pi);
+
+    if settings.start_in_terminal {
+        println!();
+        println!(
+            "  Note: \"Start in terminal\" is on, so every session runs in a terminal tab whatever the acp rows say."
+        );
+    }
 
     let default_agent = settings.default_agent;
     let gate_failed = report.first_failure_for(default_agent).is_some();
@@ -51,4 +69,38 @@ fn print_check(name: &str, check: &ToolCheck) {
         let error = check.error.as_deref().unwrap_or("not found");
         println!("  ✗ {name:<8} {error}");
     }
+    print_acp(check);
+}
+
+/// EXP-746: the agent's ACP readiness row, indented under its check. Silent
+/// where readiness has no meaning (git) or was never probed (an unparseable
+/// claude version — never falsely block a nonstandard build).
+fn print_acp(check: &ToolCheck) {
+    match check.acp {
+        Some(true) => println!("             acp: ready"),
+        Some(false) => {
+            let note = check
+                .acp_note
+                .as_deref()
+                .unwrap_or("sessions run in a terminal tab");
+            println!("             acp: not supported ({note})");
+        }
+        None => {}
+    }
+}
+
+/// The real `codex app-server` handshake, replacing the presence-only answer
+/// `run_doctor` gives (bounded by the doctor's own 10 s probe timeout, killed
+/// on drop). Only ever DOWNGRADES: a codex that is not installed or not
+/// signed in already reads as not supported, and there is nothing to probe.
+fn deep_probe_codex_acp(settings: &coding::Settings, check: &mut ToolCheck) {
+    if check.acp != Some(true) {
+        return;
+    }
+    let program = settings.resolved_path_for(CodingAgent::Codex);
+    if coding::doctor::probe_codex_acp(&program, &terminal::pty::login_path()) {
+        return;
+    }
+    check.acp = Some(false);
+    check.acp_note = Some("`codex app-server` did not answer".to_string());
 }
