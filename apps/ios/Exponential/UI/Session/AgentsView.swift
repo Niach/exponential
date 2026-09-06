@@ -66,6 +66,12 @@ struct AgentsView: View {
     // usually a conflict, so the failing row's caption offers the builtin
     // recovery run on any reachable machine.
     @State private var fixTarget: FixConflictsTarget?
+    // EXP-746 "Past": which finished rows are expanded (the summary and the
+    // Resume pill live behind a tap — a list of paragraphs is unreadable), the
+    // pending Resume confirm, and the rows with a send in flight.
+    @State private var expandedPastIds: Set<String> = []
+    @State private var resumeTarget: ResumeTarget?
+    @State private var resumingIds: Set<String> = []
     /// EXP-694 (S6): the action/automation editor a session row's trailing
     /// button opened.
     @State private var sessionEditTarget: SessionEditTarget?
@@ -91,6 +97,14 @@ struct AgentsView: View {
         let rowId: String
         let issueId: String
         var id: String { rowId }
+    }
+
+    /// The finished run a Resume confirm is pending for (EXP-746). Only the
+    /// ids are captured: the copy is fixed and the row may re-sync underneath.
+    private struct ResumeTarget: Identifiable {
+        let sessionId: String
+        let deviceId: String
+        var id: String { sessionId }
     }
 
     /// The machine a settings sheet is open for. EXP-490: the ID only — the
@@ -319,6 +333,118 @@ struct AgentsView: View {
         latestVersions = result ?? latestVersions
     }
 
+    // MARK: - Past (EXP-746)
+
+    /// The caller's finished runs: collapsed to title + byline, expanding to
+    /// the agent's close-out summary and — on the machine that ran it — a
+    /// Resume. Its own node so the confirm alert doesn't stack onto one that
+    /// already presents something (SwiftUI drops those).
+    ///
+    /// This re-adds what EXP-676 removed, for a different reason: a session is
+    /// a screen now, so a finished run is where its transcript and its Resume
+    /// live. Automation runs stay under Automations (`PastRuns.select` drops
+    /// every `started_reason` row).
+    @ViewBuilder
+    private func pastSection(_ vm: AgentsViewModel) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            GlassSectionHeader("Past")
+            ForEach(vm.pastRows) { row in
+                EndedRunRow(
+                    title: PastRuns.title(row.session, issue: row.issue),
+                    identifier: row.issue?.identifier,
+                    byline: pastByline(row),
+                    summary: row.session.summary,
+                    expanded: expandedPastIds.contains(row.id),
+                    canResume: steerEnabled && row.resume != nil,
+                    resuming: resumingIds.contains(row.id),
+                    onToggle: { togglePastRun(row.id) },
+                    onResume: {
+                        guard let device = row.resume else { return }
+                        resumeTarget = ResumeTarget(
+                            sessionId: row.session.id, deviceId: device.deviceId
+                        )
+                    },
+                    summary: { AgentMarkdownText(text: $0, context: markdownContext) }
+                )
+                .accessibilityIdentifier("past-run-row")
+            }
+        }
+        .alert(
+            "Resume this run?",
+            isPresented: Binding(
+                get: { resumeTarget != nil },
+                set: { if !$0 { resumeTarget = nil } }
+            ),
+            presenting: resumeTarget
+        ) { target in
+            Button("Resume") { resume(target) }
+            Button("Cancel", role: .cancel) { resumeTarget = nil }
+        } message: { _ in
+            Text("Reopens the run on the machine that ran it, in the same worktree, and continues where the agent stopped.")
+        }
+    }
+
+    /// "macbook · Claude Code · ended by you · 5m ago" — the ×4 rule, fed the
+    /// LIVE devices row's label (a rename never rewrites the session's
+    /// start-time snapshot) and this client's own relative time.
+    private func pastByline(_ row: AgentsViewModel.PastRow) -> String {
+        PastRuns.byline(
+            device: row.device.displayLabel,
+            agent: row.session.agent.map { LaunchVocabulary.agentLabel($0) },
+            endedBy: row.session.endedBy,
+            relativeTime: relativeDate(PastRuns.endedAt(row.session))
+        )
+    }
+
+    /// Everything an `AgentMarkdownText` needs to render the images a close-out
+    /// summary can carry (EXP-698: passing nil silently drops them).
+    private var markdownContext: AgentMarkdownContext {
+        AgentMarkdownContext(
+            baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
+            accountId: accountId,
+            httpClient: deps.httpClient
+        )
+    }
+
+    private func togglePastRun(_ id: String) {
+        if expandedPastIds.contains(id) {
+            expandedPastIds.remove(id)
+        } else {
+            expandedPastIds.insert(id)
+        }
+    }
+
+    /// Resume a finished run on its own machine (EXP-637's path, EXP-746's
+    /// entry point). Like every other remote start this is a COMMAND — the
+    /// watcher waits for the new row the desktop inserts (keyed on
+    /// `resumed_from_id`) and pushes the live screen.
+    private func resume(_ target: ResumeTarget) {
+        resumeTarget = nil
+        guard let device = (devices ?? []).first(where: { $0.deviceId == target.deviceId })
+        else { return }
+        resumingIds.insert(target.sessionId)
+        startWatcher.sending()
+        Task {
+            do {
+                try await deps.steerApi.resumeSession(
+                    accountId: accountId,
+                    sessionId: target.sessionId,
+                    deviceId: target.deviceId
+                )
+                startWatcher.begin(
+                    key: .resumed(fromId: target.sessionId),
+                    userId: deps.auth.userId,
+                    device: device,
+                    db: deps.db,
+                    accountId: accountId
+                )
+            } catch {
+                startWatcher.failed(error.userFacingMessage)
+            }
+            resumingIds.remove(target.sessionId)
+        }
+    }
+
     private var emptyState: some View {
         VStack(spacing: 12) {
             AppIcon(AppIcons.navDevices, size: 28)
@@ -384,6 +510,12 @@ struct AgentsView: View {
                     noAgentsRow
                 } else {
                     ForEach(vm.rows) { sessionRow($0) }
+                }
+
+                // EXP-746: the caller's finished runs. Absent entirely when
+                // there are none — an empty history is not news.
+                if !vm.pastRows.isEmpty {
+                    pastSection(vm)
                 }
             }
             .padding()
