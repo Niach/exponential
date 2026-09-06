@@ -547,10 +547,10 @@ fn subagent_edges_and_their_tool_rows_carry_the_parent_id() {
             // What the subagent ran, attributed to the card, never a top-level
             // row of its own.
             json!({"kind": "tool", "name": "Bash", "detail": "bun", "subagentId": "tc-parent"}),
-            // EXP-748 put `toolCalls` on the edge contract and the fixture's
-            // meta carries it; `Mapper::on_subagent` still emits `None`, so
-            // the wire row gains the count the day the mapper counts.
-            json!({"kind": "subagent", "id": "tc-parent", "agentType": "explore", "status": "completed"}),
+            // EXP-748: the completed edge carries the tool-call count — the
+            // mapper's own count of attributed calls, or the adapter's
+            // `toolCalls` meta when that is larger.
+            json!({"kind": "subagent", "id": "tc-parent", "agentType": "explore", "status": "completed", "toolCalls": 1}),
         ]
     );
 }
