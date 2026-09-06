@@ -1019,8 +1019,16 @@ fn apply_hook_env(
 /// be verified must fail the launch before anything server-side is created,
 /// while the WRITES now have to wait for the row id (the
 /// `X-Exp-Session-Id` header is part of the config).
-fn guard_agent_mcp(agent: CodingAgent, cwd: &Path) -> Result<(), CodingError> {
-    if agent == CodingAgent::Claude {
+/// EXP-746: it guards the FILE-writing arm only. On the ACP transport claude
+/// gets `AgentMcp::ClaudeInline` — nothing is written to the cwd and the key
+/// rides the child env — so refusing a repo that re-includes
+/// `.exp-mcp.json` there would block a launch that cannot leak anything.
+fn guard_agent_mcp(
+    agent: CodingAgent,
+    cwd: &Path,
+    transport: LaunchTransport,
+) -> Result<(), CodingError> {
+    if agent == CodingAgent::Claude && transport == LaunchTransport::Terminal {
         // EXP-474: the key never lands in a repo we cannot prove ignores it.
         crate::git_worktree::ensure_ignored(cwd, &[crate::mcp_json::MCP_JSON_FILE])?;
     }
@@ -1371,7 +1379,7 @@ pub fn prepare_with_hooks(
     let personal_key = key_handle
         .join()
         .map_err(|_| CodingError::Io("personal-key thread panicked".to_string()))??;
-    guard_agent_mcp(agent, &worktree)?;
+    guard_agent_mcp(agent, &worktree, transport)?;
 
     // Step 5 — the seed prompt (both shapes: direct argv delivery when
     // small, PROMPT.md + seed line otherwise). EXP-662: this path ALWAYS
@@ -2134,7 +2142,7 @@ fn prepare_action(
     let personal_key = key_handle
         .join()
         .map_err(|_| CodingError::Io("personal-key thread panicked".to_string()))??;
-    guard_agent_mcp(agent, &cwd)?;
+    guard_agent_mcp(agent, &cwd, transport)?;
 
     // Step 3 — the prompt (size-gated like a session's; the PROMPT.md
     // exclude write no-ops without a `.git`). The builtins render their
@@ -2821,7 +2829,7 @@ fn prepare_resume_run(
     let personal_key = key_handle
         .join()
         .map_err(|_| CodingError::Io("personal-key thread panicked".to_string()))??;
-    guard_agent_mcp(agent, &cwd)?;
+    guard_agent_mcp(agent, &cwd, transport)?;
 
     // Step 5 — a NEW session row in the recorded SUBJECT's shape, pointing
     // back at the run it continues.
@@ -3787,6 +3795,85 @@ mod tests {
         let record = crate::run_registry::get(&dir.0, "sess-1").expect("record");
         assert_eq!(record.transport(), LaunchTransport::Acp);
         assert_eq!(record.acp_session_id, None, "the engine upserts it");
+    }
+
+    /// EXP-746: the EXP-474 ignore guard belongs to the FILE-writing arm. A
+    /// repo whose committed `.gitignore` re-includes `.exp-mcp.json` still
+    /// refuses a TERMINAL claude launch, but the ACP arm writes no file at
+    /// all (the key rides the child env), so it must launch there.
+    #[cfg(unix)]
+    #[test]
+    fn the_key_file_guard_gates_the_terminal_arm_only() {
+        let dir = temp_dir("guard-transport");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let git = |args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .args(args)
+                .current_dir(&worktree)
+                .env("GIT_AUTHOR_NAME", "t")
+                .env("GIT_AUTHOR_EMAIL", "t@example.com")
+                .env("GIT_COMMITTER_NAME", "t")
+                .env("GIT_COMMITTER_EMAIL", "t@example.com")
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "git {args:?} failed");
+        };
+        git(&["init", "--quiet", "-b", "main"]);
+        fs::write(worktree.join(".gitignore"), "!.exp-mcp.json\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "--quiet", "-m", "reinclude"]);
+
+        // The guard itself: unguardable repo, both transports.
+        guard_agent_mcp(CodingAgent::Claude, &worktree, LaunchTransport::Acp)
+            .expect("the ACP arm has no file to guard");
+        let direct =
+            guard_agent_mcp(CodingAgent::Claude, &worktree, LaunchTransport::Terminal).unwrap_err();
+        assert!(matches!(direct, CodingError::Git(_)), "wrong error: {direct:?}");
+
+        // And through `prepare`, which is where the transport is resolved:
+        // the ACP launch goes through and leaves no key on disk.
+        let stub = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
+        let acp_base = canned_server(vec![
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (200, START_OK.to_string()),
+        ]);
+        let mut deps = make_deps(
+            &acp_base,
+            &dir.0,
+            Arc::new(FakeWorktrees {
+                worktree: worktree.clone(),
+                seen: Default::default(),
+            }),
+        );
+        deps.settings.claude_path = stub.clone();
+        let prepared = match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        assert_eq!(prepared.transport, LaunchTransport::Acp);
+        assert!(!worktree.join(crate::mcp_json::MCP_JSON_FILE).exists());
+
+        // Same repo under the PTY escape hatch: refused, before the session
+        // row (only the two pre-guard calls are ever served).
+        let pty_base = canned_server(vec![
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+        ]);
+        let mut pty = make_deps(
+            &pty_base,
+            &dir.0,
+            Arc::new(FakeWorktrees {
+                worktree: worktree.clone(),
+                seen: Default::default(),
+            }),
+        );
+        pty.settings.claude_path = stub;
+        pty.settings.start_in_terminal = true;
+        let err = prepare(&PrepareRequest::Issue(request("EXP-42")), &pty).unwrap_err();
+        assert!(matches!(err, CodingError::Git(_)), "wrong error: {err:?}");
+        assert!(!worktree.join(crate::mcp_json::MCP_JSON_FILE).exists());
     }
 
     /// EXP-746 (D8): a run recorded on the ACP path resumes into the ACP
