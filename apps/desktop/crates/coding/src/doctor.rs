@@ -363,10 +363,12 @@ pub struct AgentAdvertisement {
     /// wire serialization (the steer frames are byte-locked in tests).
     pub launch_defaults: BTreeMap<String, AgentLaunchDefaults>,
     /// EXP-746: the runnable agents that also speak ACP ([`ToolCheck::acp`]).
-    /// LOCAL use only for now — it is deliberately NOT on the
-    /// `devices.register` payload (that needs a `devices` column + shape
-    /// change; filed as a follow-up), so remote pickers still offer every
-    /// runnable agent and a not-ready one simply starts in a terminal tab.
+    /// EXP-749 puts it on the `devices.register` payload and the synced
+    /// `devices.acp_agents` column, so remote pickers can SAY which agents
+    /// would start in a terminal tab on that machine. They never filter on
+    /// it: a not-ready agent still runs there, on the PTY path. An empty
+    /// list is a real answer ("none of them"); only a NULL column — an older
+    /// build's row — means "unknown, assume all".
     pub acp_agents: Vec<String>,
 }
 
@@ -1959,12 +1961,13 @@ mod tests {
     /// spawn failure fails OPEN and caches a verdict the assertions must not
     /// read, so drop it and retry (see run_doctor_gates_on_the_stub_version).
     #[cfg(unix)]
-    fn probe_until_it_ran(stub: &PiStub, depth: DoctorDepth) -> ToolCheck {
+    fn probe_expecting_a_run(stub: &PiStub, depth: DoctorDepth) -> ToolCheck {
+        let before = stub.runs();
         let settings = stub.settings();
         for _ in 0..20 {
             let mut check = green(Tool::Pi, "0.80.10");
             probe_pi_rpc(&mut check, &settings, depth);
-            if stub.runs() > 0 {
+            if stub.runs() > before {
                 return check;
             }
             stub.forget();
@@ -1982,7 +1985,7 @@ mod tests {
     #[test]
     fn probe_pi_rpc_uses_the_configured_path_and_reuses_the_verdict_per_stamp() {
         let stub = PiStub::new("reuse", true);
-        let check = probe_until_it_ran(&stub, DoctorDepth::Quick);
+        let check = probe_expecting_a_run(&stub, DoctorDepth::Quick);
         assert_eq!(check.acp, Some(true), "{:?}", check.acp_note);
         assert_eq!(check.acp_note, None);
         assert_eq!(stub.runs(), 1, "the configured path must be the one probed");
@@ -2000,12 +2003,11 @@ mod tests {
     #[test]
     fn a_touched_pi_binary_re_probes() {
         let stub = PiStub::new("touched", true);
-        probe_until_it_ran(&stub, DoctorDepth::Quick);
+        probe_expecting_a_run(&stub, DoctorDepth::Quick);
         assert_eq!(stub.runs(), 1);
 
         stub.bump_mtime(2);
-        let mut check = green(Tool::Pi, "0.80.10");
-        probe_pi_rpc(&mut check, &stub.settings(), DoctorDepth::Quick);
+        let check = probe_expecting_a_run(&stub, DoctorDepth::Quick);
         assert_eq!(check.acp, Some(true));
         assert_eq!(stub.runs(), 2, "a changed binary invalidates its verdict");
     }
@@ -2016,11 +2018,10 @@ mod tests {
     #[test]
     fn a_deep_doctor_re_probes_the_same_stamp() {
         let stub = PiStub::new("deep", true);
-        probe_until_it_ran(&stub, DoctorDepth::Quick);
+        probe_expecting_a_run(&stub, DoctorDepth::Quick);
         assert_eq!(stub.runs(), 1);
 
-        let mut check = green(Tool::Pi, "0.80.10");
-        probe_pi_rpc(&mut check, &stub.settings(), DoctorDepth::Deep);
+        let check = probe_expecting_a_run(&stub, DoctorDepth::Deep);
         assert_eq!(check.acp, Some(true));
         assert_eq!(stub.runs(), 2, "a deep pass ignores the cache");
     }
@@ -2032,7 +2033,7 @@ mod tests {
     #[test]
     fn a_pi_without_rpc_mode_is_marked_not_supported() {
         let stub = PiStub::new("norpc", false);
-        let check = probe_until_it_ran(&stub, DoctorDepth::Quick);
+        let check = probe_expecting_a_run(&stub, DoctorDepth::Quick);
         assert_eq!(check.acp, Some(false));
         assert_eq!(check.acp_note.as_deref(), Some(PI_NO_RPC_MODE_NOTE));
         assert!(check

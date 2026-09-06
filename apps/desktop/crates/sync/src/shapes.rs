@@ -800,6 +800,17 @@ mod tests {
     }
 
     #[test]
+    fn devices_sync_the_acp_agents_column() {
+        // EXP-749: without it every remote picker loses the "runs in a
+        // terminal tab" note and silently claims the session screen.
+        let spec = shape_by_name("devices").unwrap();
+        assert!(spec.columns.contains(&"acp_agents"));
+        // It is a SUBSET of the runnable list, so both have to sync.
+        assert!(spec.columns.contains(&"agents"));
+        assert!(spec.columns.contains(&"unauthed_agents"));
+    }
+
+    #[test]
     fn ddl_is_all_text_with_pk() {
         let issues = shape_by_name("issues").unwrap().ddl();
         assert!(issues.contains("\"id\" TEXT NOT NULL"));

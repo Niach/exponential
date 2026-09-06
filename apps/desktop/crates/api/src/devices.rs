@@ -38,6 +38,14 @@ pub struct RegisterDevice<'a> {
     /// servers with a strict input schema never see the field.
     #[serde(skip_serializing_if = "<[String]>::is_empty")]
     pub unauthed_agents: &'a [String],
+    /// EXP-749: the subset of `agents` that can run on the ACP engine here.
+    /// ALWAYS sent by a build that knows about it, empty list included — the
+    /// column's NULL means "an older build registered this row, assume every
+    /// agent", so an omitted field and an empty one are different answers.
+    /// Remote pickers never FILTER on it; they say which agents would start
+    /// in a terminal tab on that machine.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub acp_agents: Option<&'a [String]>,
     pub caps: &'a [String],
     /// EXP-481: this machine's launch defaults, applied server-side ONLY as
     /// a first-ever seed (the server copy is authoritative after that). The
@@ -711,6 +719,7 @@ mod tests {
                 platform: None,
                 agents: &[],
                 unauthed_agents: &[],
+                acp_agents: None,
                 caps: &[],
                 launch_defaults: None,
                 agent_accounts: Some(&accounts),
@@ -734,6 +743,7 @@ mod tests {
                 platform: None,
                 agents: &[],
                 unauthed_agents: &[],
+                acp_agents: None,
                 caps: &[],
                 launch_defaults: None,
                 agent_accounts: None,
@@ -743,6 +753,60 @@ mod tests {
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(!request.contains("agentAccounts"), "{request}");
+    }
+
+    /// EXP-749: the ACP-ready subset rides the register. An EMPTY list is a
+    /// real answer ("nothing here speaks ACP") and must reach the wire — the
+    /// column's NULL is reserved for builds that never said anything, and
+    /// the pickers read the two differently.
+    #[test]
+    fn register_posts_the_acp_ready_subset() {
+        let agents = vec!["claude".to_string(), "pi".to_string()];
+        let acp = vec!["claude".to_string()];
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        register(
+            &client(&base),
+            &RegisterDevice {
+                device_id: "dev-1",
+                label: "buildbox",
+                kind: "server",
+                platform: None,
+                agents: &agents,
+                unauthed_agents: &[],
+                acp_agents: Some(&acp),
+                caps: &[],
+                launch_defaults: None,
+                agent_accounts: None,
+                version: None,
+            },
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(
+            r#"{"deviceId":"dev-1","label":"buildbox","kind":"server","agents":["claude","pi"],"acpAgents":["claude"],"caps":[]}"#
+        ), "{request}");
+
+        // Empty is sent; absent is omitted entirely.
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        register(
+            &client(&base),
+            &RegisterDevice {
+                device_id: "dev-1",
+                label: "buildbox",
+                kind: "server",
+                platform: None,
+                agents: &agents,
+                unauthed_agents: &[],
+                acp_agents: Some(&[]),
+                caps: &[],
+                launch_defaults: None,
+                agent_accounts: None,
+                version: None,
+            },
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.contains(r#""acpAgents":[]"#), "{request}");
     }
 
     /// EXP-484: the queued login command names its agent and whether it is a

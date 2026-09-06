@@ -908,6 +908,9 @@ fn register_device(
             platform: Some(std::env::consts::OS),
             agents: &advertised.agents,
             unauthed_agents: &advertised.unauthed_agents,
+            // EXP-749: the ACP-ready subset, sent even when empty (a NULL
+            // column means "older build, assume all").
+            acp_agents: Some(&advertised.acp_agents),
             caps: &caps,
             launch_defaults: Some(&launch_defaults),
             // EXP-484 (A3): who is signed in where, straight off the last
