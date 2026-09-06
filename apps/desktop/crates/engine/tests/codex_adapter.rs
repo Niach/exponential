@@ -56,7 +56,10 @@ struct FakeState {
 }
 
 struct FakeServer {
-    lines: flume::Sender<String>,
+    /// Taken by [`FakeServer::crash`]: this is the app-server's stdout, and
+    /// dropping the last sender is exactly what a dead child looks like to the
+    /// router.
+    lines: Mutex<Option<flume::Sender<String>>>,
     state: Mutex<FakeState>,
 }
 
@@ -64,7 +67,7 @@ impl FakeServer {
     fn new(turns: Vec<Vec<Value>>, late: Vec<Value>, after_answer: Vec<Value>) -> (Arc<FakeServer>, CodexConnection) {
         let (lines, incoming) = flume::unbounded();
         let fake = Arc::new(FakeServer {
-            lines,
+            lines: Mutex::new(Some(lines)),
             state: Mutex::new(FakeState {
                 turns: turns.into(),
                 late,
@@ -103,7 +106,18 @@ impl FakeServer {
     }
 
     fn push(&self, frame: &Value) {
-        let _ = self.lines.send(frame.to_string());
+        if let Ok(lines) = self.lines.lock() {
+            if let Some(lines) = lines.as_ref() {
+                let _ = lines.send(frame.to_string());
+            }
+        }
+    }
+
+    /// The app-server dies: stdout ends and nothing will ever answer again.
+    fn crash(&self) {
+        if let Ok(mut lines) = self.lines.lock() {
+            lines.take();
+        }
     }
 
     fn reply(&self, id: &Value, result: Value) {
@@ -651,4 +665,53 @@ async fn steering_supersedes_the_live_turn_and_resolves_both_prompts() {
 
     assert!(fake.saw("turn/steer"));
     assert!(recorded.texts().iter().any(|text| text == "steered mid turn"));
+}
+
+#[tokio::test]
+async fn the_app_server_going_away_closes_the_connection() {
+    // The crash path: codex is gone (OOM, `kill -9`, the reaper) while the
+    // client still holds the connection. Nothing but this close ends the run —
+    // the bye, the heartbeat and `coding::end_session` all hang off it, so a
+    // connection that stays open is a session that stays "coding now" forever
+    // (EXP-746 E1).
+    let (fake, connection) = FakeServer::new(vec![frames("turn.jsonl")], Vec::new(), Vec::new());
+    let agent = CodexAgent::with_connection(spec(), connection);
+    let crashing = fake.clone();
+
+    let driven = Client
+        .builder()
+        .on_receive_notification(
+            async move |_notification: SessionNotification, _cx| Ok(()),
+            agent_client_protocol::on_receive_notification!(),
+        )
+        .connect_with(agent, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(ClientCapabilities::new()),
+            )
+            .block_task()
+            .await?;
+            let session = cx
+                .send_request(NewSessionRequest::new(PathBuf::from("/work/tree")))
+                .block_task()
+                .await?;
+            let response = cx
+                .send_request(PromptRequest::new(
+                    session.session_id.clone(),
+                    vec![text("run the tests")],
+                ))
+                .block_task()
+                .await?;
+            assert_eq!(response.stop_reason, StopReason::EndTurn);
+            // Between turns, the way a crash usually lands.
+            crashing.crash();
+            // The host's own loop: it waits on the adapter and nothing else.
+            cx.incoming_closed().await;
+            Ok(())
+        });
+
+    tokio::time::timeout(Duration::from_secs(30), driven)
+        .await
+        .expect("the dead app-server closes the connection")
+        .expect("the session runs");
 }

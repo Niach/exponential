@@ -128,6 +128,7 @@ impl ConnectTo<Client> for ClaudeAgent {
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send {
         async move {
             let session = Arc::new(ClaudeSession::new(self.spec));
+            let main_session = session.clone();
             let on_initialize = session.clone();
             let on_new = session.clone();
             let on_load = session.clone();
@@ -288,7 +289,20 @@ impl ConnectTo<Client> for ClaudeAgent {
                     },
                     on_receive_notification!(),
                 )
-                .connect_to(client)
+                // NOT `connect_to`: its main_fn waits only on the client, and
+                // the host's loop waits only on us, so a claude that died
+                // would strand both halves (EXP-746 review E1). The child's
+                // EOF closes the connection here.
+                .connect_with(client, async move |cx: ConnectionTo<Client>| {
+                    let session = main_session;
+                    crate::host::until_either_closes(
+                        &cx,
+                        &session.spec.exit,
+                        session.child_gone(),
+                    )
+                    .await;
+                    Ok(())
+                })
                 .await
         }
     }
@@ -304,6 +318,13 @@ struct ClaudeSession {
     /// `--session-id` — so `acp_session_id` and claude's own transcript name
     /// are the same string and `--resume=<acp id>` reopens exactly this run.
     session_id: SessionId,
+    /// The child's stdout EOF, as a future the connection's `main_fn` waits
+    /// on. Held as the RECEIVER of a rendezvous channel whose sender the pump
+    /// drops: a receiver with no senders resolves immediately and forever, so
+    /// the edge survives whoever asks for it late.
+    gone: flume::Receiver<()>,
+    /// The pump's half of `gone`, dropped when stdout ends.
+    gone_gate: Mutex<Option<flume::Sender<()>>>,
     state: Mutex<State>,
 }
 
@@ -423,11 +444,25 @@ impl ClaudeSession {
             },
             ..State::default()
         };
-        ClaudeSession { spec, session_id: SessionId::new(session_id), state: Mutex::new(state) }
+        let (gone_gate, gone) = flume::bounded(0);
+        ClaudeSession {
+            spec,
+            session_id: SessionId::new(session_id),
+            gone,
+            gone_gate: Mutex::new(Some(gone_gate)),
+            state: Mutex::new(state),
+        }
     }
 
     fn cwd(&self) -> &Path {
         &self.spec.cwd
+    }
+
+    /// Resolves when the child's stdout ends — EOF, a crash, an external kill
+    /// — and never for a session that has no child at all (a `session/load`
+    /// replay), which ends when the client closes instead.
+    async fn child_gone(&self) {
+        let _ = self.gone.recv_async().await;
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
@@ -1067,13 +1102,21 @@ impl ClaudeSession {
         }
         // stdout closed: the query is over. Settle everything still waiting so
         // no `session/prompt` hangs on a dead process.
-        let mut state = self.lock();
-        state.closed = true;
-        let outcome =
-            if state.cancelled { TurnOutcome::Cancelled } else { TurnOutcome::EndTurn };
-        state.deferred = None;
-        while let Some(turn) = state.turns.pop_front() {
-            let _ = turn.send(outcome);
+        {
+            let mut state = self.lock();
+            state.closed = true;
+            let outcome =
+                if state.cancelled { TurnOutcome::Cancelled } else { TurnOutcome::EndTurn };
+            state.deferred = None;
+            while let Some(turn) = state.turns.pop_front() {
+                let _ = turn.send(outcome);
+            }
+        }
+        // Settled FIRST, announced second: `main_fn` closes the connection on
+        // this edge, and a turn that settles after the close never reaches the
+        // client.
+        if let Ok(mut gate) = self.gone_gate.lock() {
+            gate.take();
         }
     }
 

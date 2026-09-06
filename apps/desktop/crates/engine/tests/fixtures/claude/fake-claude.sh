@@ -17,6 +17,8 @@
 #   EXP_FAKE_CLAUDE_DIR    the scenario directory (required)
 #   EXP_FAKE_CLAUDE_ARGV   file to dump argv + the env facts into (optional)
 #   EXP_FAKE_CLAUDE_STDIN  file to append every stdin line to (optional)
+#   EXP_FAKE_CLAUDE_EXIT   exit with this code once the turn has replayed —
+#                          the crashed / OOM-killed / `kill -9`ed CLI
 set -u
 
 dir="${EXP_FAKE_CLAUDE_DIR:?EXP_FAKE_CLAUDE_DIR is required}"
@@ -79,6 +81,9 @@ while IFS= read -r line; do
                 cat "$dir/turn$turn.jsonl"
             else
                 replay "$dir/turn.jsonl"
+            fi
+            if [ -n "${EXP_FAKE_CLAUDE_EXIT:-}" ]; then
+                exit "$EXP_FAKE_CLAUDE_EXIT"
             fi
             ;;
     esac

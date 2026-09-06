@@ -326,6 +326,22 @@ impl Shared {
             .unwrap_or(false)
     }
 
+    /// Resolves once the app-server's stdout has ended ([`Shared::mark_closed`])
+    /// — immediately, if it already has. The connection's `main_fn` waits on
+    /// this: a codex that died must close the ACP connection, not leave the
+    /// host's loop waiting on an agent that will never speak again.
+    async fn child_gone(&self) {
+        loop {
+            // Registered BEFORE the check, like every other waiter on `wake`:
+            // a `mark_closed` between the two must still wake this one.
+            let notified = self.wake.notified();
+            if self.closed.load(Ordering::SeqCst) {
+                return;
+            }
+            notified.await;
+        }
+    }
+
     fn mark_closed(&self) {
         self.closed.store(true, Ordering::SeqCst);
         if let Ok(mut turns) = self.turns.lock() {
@@ -380,6 +396,7 @@ impl ConnectTo<Client> for CodexAgent {
             let notifications = connection.notifications.clone();
             let requests = connection.requests.clone();
 
+            let main_shared = shared.clone();
             let init = shared.clone();
             let new_session = shared.clone();
             let load = shared.clone();
@@ -507,7 +524,20 @@ impl ConnectTo<Client> for CodexAgent {
                     },
                     agent_client_protocol::on_receive_notification!(),
                 )
-                .connect_to(client)
+                // NOT `connect_to`: its main_fn waits only on the client, and
+                // the host's loop waits only on us, so an app-server that died
+                // would strand both halves (EXP-746 review E1). Its stdout
+                // ending closes the connection here.
+                .connect_with(client, async move |cx: ConnectionTo<Client>| {
+                    let shared = main_shared;
+                    crate::host::until_either_closes(
+                        &cx,
+                        &shared.spec.exit,
+                        shared.child_gone(),
+                    )
+                    .await;
+                    Ok(())
+                })
                 .await
         }
     }

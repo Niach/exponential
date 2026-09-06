@@ -151,6 +151,7 @@ impl ConnectTo<Client> for PiAgent {
         client: impl ConnectTo<Agent>,
     ) -> impl std::future::Future<Output = Result<(), agent_client_protocol::Error>> + Send {
         async move {
+            let exit = self.spec.exit.clone();
             let session = Arc::new(PiSession::new(&self.spec, self.child));
             let handler_session = Arc::clone(&session);
             let notification_session = Arc::clone(&session);
@@ -170,7 +171,7 @@ impl ConnectTo<Client> for PiAgent {
                     agent_client_protocol::on_receive_notification!(),
                 )
                 .connect_with(client, async move |cx: ConnectionTo<Client>| {
-                    pump(session, cx).await
+                    pump(session, exit, cx).await
                 })
                 .await
         }
@@ -365,7 +366,12 @@ impl PiSession {
 
 /// `main_fn`: read pi's stdout until EOF. Returning ends the connection, so
 /// the child's exit IS the session's end.
-async fn pump(session: Arc<PiSession>, cx: ConnectionTo<Client>) -> Result<(), Error> {
+async fn pump(
+    session: Arc<PiSession>,
+    exit: crate::ChildExitLink,
+    cx: ConnectionTo<Client>,
+) -> Result<(), Error> {
+    let mut child_gone = false;
     loop {
         tokio::select! {
             // The host ended the session (a kill, a quit, the screen closing):
@@ -376,11 +382,19 @@ async fn pump(session: Arc<PiSession>, cx: ConnectionTo<Client>) -> Result<(), E
             line = session.child.lines.recv_async() => match line {
                 Ok(line) => on_line(&session, &line, &cx),
                 // The child closed stdout: the run is over either way.
-                Err(_) => break,
+                Err(_) => {
+                    child_gone = true;
+                    break;
+                }
             },
         }
     }
     session.shutdown();
+    if child_gone {
+        // stdout ends a beat before `wait()` reaps: give the code its moment
+        // so the run ends as `exit:<code>` rather than a bare `ended`.
+        let _ = tokio::time::timeout(crate::host::CHILD_EXIT_GRACE, exit.reaped()).await;
+    }
     Ok(())
 }
 

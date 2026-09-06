@@ -865,3 +865,58 @@ async fn steering_the_mode_and_the_effort_reaches_the_cli_and_echoes_back() {
     assert!(shapes.contains(&"mode:plan".to_string()), "{shapes:?}");
     assert!(shapes.iter().filter(|shape| shape.starts_with("config:")).count() >= 2, "{shapes:?}");
 }
+
+#[tokio::test]
+async fn the_child_going_away_closes_the_connection_with_its_exit_code() {
+    // The crash path (a `kill -9`, an OOM, the reaper): the CLI is gone while
+    // the client is still holding the connection open. Nothing but the child's
+    // EOF can end this run, and the engine's whole end sequence — the bye, the
+    // heartbeat, `coding::end_session` — hangs off that close (EXP-746 E1).
+    let work = workdir("child-exit");
+    let mut adapter_spec = spec("basic", &work.0, false);
+    adapter_spec.spawn = adapter_spec.spawn.clone().env("EXP_FAKE_CLAUDE_EXIT", "3");
+    let exit = adapter_spec.exit.clone();
+    let adapter = ClaudeAgent::new(adapter_spec).expect("the adapter builds");
+
+    let driven = Client
+        .builder()
+        .name("exp746-test-client")
+        .on_receive_notification(
+            async move |_notification: SessionNotification, _cx| Ok(()),
+            on_receive_notification!(),
+        )
+        .connect_with(adapter, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(engine::client_capabilities()),
+            )
+            .block_task()
+            .await?;
+            let session = cx
+                .send_request(NewSessionRequest::new(std::env::temp_dir()))
+                .block_task()
+                .await?;
+            // The turn replays and the fake then exits 3, so this may settle
+            // either way; what matters is what happens next.
+            let _ = cx
+                .send_request(PromptRequest::new(
+                    session.session_id.clone(),
+                    vec![ContentBlock::Text(TextContent::new("Reply with the single word ok."))],
+                ))
+                .block_task()
+                .await;
+            // The host's own loop: it waits on the adapter and on nothing
+            // else, so a connection that never closes is a run that never ends.
+            cx.incoming_closed().await;
+            Ok::<_, Error>(())
+        });
+
+    tokio::time::timeout(Duration::from_secs(30), driven)
+        .await
+        .expect("the dead child closes the connection")
+        .expect("the connection runs cleanly");
+
+    // And it closed LATE enough for the exit code to be on the link: the end
+    // sequence turns this into the `exit:3` bye rather than a bare `ended`.
+    assert_eq!(exit.get().map(|exit| exit.code), Some(3));
+}

@@ -211,24 +211,86 @@ pub(crate) fn text_blocks(text: &str) -> Vec<ContentBlock> {
 /// It reaches the adapters as a field on `AdapterSpec` (E2/E3/E4 record into
 /// it; an adapter that owns no child never touches it, and the run then ends
 /// as `ended`).
-#[derive(Clone, Default)]
-pub struct ChildExitLink(Arc<Mutex<Option<terminal::pty::ChildExit>>>);
+#[derive(Clone)]
+pub struct ChildExitLink {
+    slot: Arc<Mutex<Option<terminal::pty::ChildExit>>>,
+    /// Held until the exit is recorded; dropping it is the signal
+    /// [`ChildExitLink::reaped`] waits on. A flume receiver whose senders are
+    /// all gone resolves immediately and KEEPS resolving, so the edge is
+    /// memoryful: a waiter that arrives after the child died sees it too.
+    gate: Arc<Mutex<Option<flume::Sender<()>>>>,
+    signal: flume::Receiver<()>,
+}
+
+impl Default for ChildExitLink {
+    fn default() -> ChildExitLink {
+        ChildExitLink::new()
+    }
+}
+
+/// How long a closing adapter waits for its child's exit CODE.
+///
+/// The child's stdout ends on one thread and `wait()` reaps it on another, so
+/// the two race by microseconds — but the end sequence reads the code once,
+/// right after the connection closes. Without this grace a crashed CLI would
+/// end the run as a bare `ended` instead of `exit:<code>`.
+pub(crate) const CHILD_EXIT_GRACE: Duration = Duration::from_secs(2);
 
 impl ChildExitLink {
     pub fn new() -> ChildExitLink {
-        ChildExitLink::default()
+        let (gate, signal) = flume::bounded(0);
+        ChildExitLink {
+            slot: Arc::new(Mutex::new(None)),
+            gate: Arc::new(Mutex::new(Some(gate))),
+            signal,
+        }
     }
 
     /// Adapter side: the child was reaped.
     pub fn record(&self, exit: terminal::pty::ChildExit) {
-        if let Ok(mut slot) = self.0.lock() {
+        if let Ok(mut slot) = self.slot.lock() {
             slot.get_or_insert(exit);
+        }
+        // Dropped last: a waiter woken by this must find the code already in
+        // the slot.
+        if let Ok(mut gate) = self.gate.lock() {
+            gate.take();
         }
     }
 
     /// Engine side: what the child exited with, if it did.
     pub fn get(&self) -> Option<terminal::pty::ChildExit> {
-        self.0.lock().ok().and_then(|slot| slot.clone())
+        self.slot.lock().ok().and_then(|slot| slot.clone())
+    }
+
+    /// Resolves once [`ChildExitLink::record`] has run — immediately, if it
+    /// already has. An adapter awaits this (bounded by [`CHILD_EXIT_GRACE`])
+    /// between its child's stdout EOF and closing the connection.
+    pub async fn reaped(&self) {
+        let _ = self.signal.recv_async().await;
+    }
+}
+
+/// The `main_fn` every stdio adapter runs: hold the connection open until
+/// EITHER half goes away, then return so the connection shuts down.
+///
+/// The child half is the load-bearing one. The SDK's own `connect_to` waits
+/// only on `incoming_closed`, and the host's loop waits only on the adapter,
+/// so an agent CLI that crashed (OOM, `kill -9`, the reaper) would leave the
+/// two halves waiting on each other forever: no `on_exit`, no `exit:<code>`,
+/// a heartbeat still marking the row `running` and a desktop tab still Live
+/// (EXP-746 review E1). On the child's edge the exit code gets
+/// [`CHILD_EXIT_GRACE`] to land so the run ends as `exit:<code>`.
+pub(crate) async fn until_either_closes(
+    cx: &agent_client_protocol::ConnectionTo<Client>,
+    exit: &ChildExitLink,
+    child_gone: impl std::future::Future<Output = ()>,
+) {
+    tokio::select! {
+        () = cx.incoming_closed() => {}
+        () = child_gone => {
+            let _ = tokio::time::timeout(CHILD_EXIT_GRACE, exit.reaped()).await;
+        }
     }
 }
 
@@ -1111,6 +1173,33 @@ mod tests {
             signal: None,
         });
         assert_eq!(link.get().map(|exit| exit.code), Some(3));
+    }
+
+    #[tokio::test]
+    async fn a_recorded_child_exit_wakes_waiters_before_and_after_it() {
+        let link = ChildExitLink::new();
+        // Nothing yet: an adapter parked here keeps the connection open.
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), link.reaped())
+                .await
+                .is_err()
+        );
+        let waiting = link.clone();
+        let parked = tokio::spawn(async move { waiting.reaped().await });
+        link.record(terminal::pty::ChildExit {
+            code: 3,
+            success: false,
+            signal: None,
+        });
+        tokio::time::timeout(Duration::from_secs(5), parked)
+            .await
+            .expect("the waiter parked before the exit is woken")
+            .expect("the waiter did not panic");
+        // And the edge is memoryful: an adapter that asks AFTER the child died
+        // must not park forever on an event it missed.
+        tokio::time::timeout(Duration::from_secs(5), link.reaped())
+            .await
+            .expect("a late waiter resolves immediately");
     }
 
     #[test]
