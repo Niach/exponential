@@ -376,9 +376,16 @@ impl SteerSessionView {
             }
         }
         if let Some(session) = this.source.session().cloned() {
-            // EXP-746: `subscribe` replays the buffered backlog first, so a
-            // view built long after the run started (a reopened tab, a
-            // rebuilt screen) sees the whole session and not just the tail.
+            // EXP-746 review UI-2: seed the phase from the engine, so a view
+            // built over a run that has been live for an hour is steerable on
+            // its FIRST paint rather than after the replay reaches it.
+            if let Some(phase) = session.phase() {
+                this.phase = viewer_phase(phase);
+                this.connected = phase != engine::EnginePhase::Ended;
+            }
+            // `subscribe` replays the buffered backlog first, so a view built
+            // long after the run started (a reopened tab, a rebuilt screen)
+            // sees the whole session and not just the tail.
             let events = session.subscribe();
             this._drain = cx.spawn_in(window, async move |this, cx| {
                 while let Ok(event) = events.recv_async().await {
@@ -699,11 +706,7 @@ impl SteerSessionView {
                 self.note_compaction(was_compacting, cx);
             }
             engine::LocalFeedEvent::Phase(phase) => {
-                self.phase = match phase {
-                    engine::EnginePhase::Connecting => ViewerPhase::Connecting,
-                    engine::EnginePhase::Live => ViewerPhase::Live,
-                    engine::EnginePhase::Ended => ViewerPhase::Ended { outcome: None },
-                };
+                self.phase = viewer_phase(phase);
                 // There is no socket on this path — "connected" is simply
                 // whether the engine is still talking to us.
                 self.connected = phase != engine::EnginePhase::Ended;
@@ -1546,6 +1549,18 @@ fn spawn_viewer(
 // ---------------------------------------------------------------------------
 // Pure presentation helpers (unit-tested)
 // ---------------------------------------------------------------------------
+
+/// What an engine phase means to this view. EXP-746 review UI-2: BOTH the
+/// replayed edge and the seed taken on attach go through it, so a reopened tab
+/// over a long-running session cannot end up in a different state than one
+/// that watched the run from the start.
+pub(crate) fn viewer_phase(phase: engine::EnginePhase) -> ViewerPhase {
+    match phase {
+        engine::EnginePhase::Connecting => ViewerPhase::Connecting,
+        engine::EnginePhase::Live => ViewerPhase::Live,
+        engine::EnginePhase::Ended => ViewerPhase::Ended { outcome: None },
+    }
+}
 
 /// The header/tooltip caption for a phase, mirroring the web `phaseLabel`.
 pub(crate) fn phase_label(
@@ -3720,5 +3735,23 @@ mod tests {
     fn the_paused_title_falls_back_to_a_nameless_device() {
         assert_eq!(paused_title(Some("macbook")), "macbook is offline");
         assert_eq!(paused_title(None), "The device is offline");
+    }
+
+    /// EXP-746 review UI-2: attaching to a live engine seeds the phase through
+    /// this, and `can_send` compares against `ViewerPhase::Live` — so a tab
+    /// reopened over a long-running session has a live composer on its first
+    /// paint, without waiting for a replayed edge that a full backlog may have
+    /// evicted (`engine::LocalFeed` replays the latest phase for that too).
+    #[test]
+    fn an_engine_phase_becomes_the_matching_viewer_phase() {
+        assert_eq!(
+            viewer_phase(engine::EnginePhase::Connecting),
+            ViewerPhase::Connecting
+        );
+        assert_eq!(viewer_phase(engine::EnginePhase::Live), ViewerPhase::Live);
+        assert!(matches!(
+            viewer_phase(engine::EnginePhase::Ended),
+            ViewerPhase::Ended { outcome: None }
+        ));
     }
 }

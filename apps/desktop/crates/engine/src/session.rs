@@ -24,7 +24,7 @@ use crate::host::{
     LocalFeed, LocalSink, PendingAsks, RunFacts, SessionCtx, SessionIds,
 };
 use crate::lifecycle::RunLifecycle;
-use crate::local::LocalFeedEvent;
+use crate::local::{EnginePhase, LocalFeedEvent};
 use crate::mapper::{Mapper, MapperConfig};
 use crate::sink::EventSink;
 
@@ -245,9 +245,18 @@ impl EngineSession {
 
     /// A fresh receiver that replays the buffered backlog FIRST, so a view
     /// attaching late (a tab reopened, the screen rebuilt) sees the whole
-    /// session rather than the tail.
+    /// session rather than the tail, and the latest-wins state (phase,
+    /// config, usage, diff) after it.
     pub fn subscribe(&self) -> flume::Receiver<LocalFeedEvent> {
         self.0.ctx.feed.subscribe()
+    }
+
+    /// Where the run is right now — `None` until the first phase edge. A view
+    /// attaching late seeds itself from this instead of painting one frame of
+    /// "Connecting" over a session that has been live for an hour; the replay
+    /// then carries the same answer (EXP-746 review UI-2).
+    pub fn phase(&self) -> Option<EnginePhase> {
+        self.0.ctx.feed.phase()
     }
 
     /// A new user message. Between turns this starts one; the engine never

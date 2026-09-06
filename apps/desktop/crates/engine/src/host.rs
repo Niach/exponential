@@ -66,10 +66,15 @@ pub type LocalSink = Arc<dyn Fn(LocalFeedEvent) + Send + Sync>;
 /// the same conversation would need.
 pub const NATIVE_SESSION_META_KEY: &str = "exponentialNativeSessionId";
 
-/// How many local feed events a session keeps for a late subscriber. A tab
+/// How many local feed ROWS a session keeps for a late subscriber. A tab
 /// reopened mid-session replays this much and no more: `Output` chunks are
 /// unbounded by nature, and an engine that kept every one of them would grow
 /// without limit on a long run.
+///
+/// The cap is on rows only. Latest-wins STATE — the phase, `config_state`,
+/// `usage`, `diff` — is held in its own slots ([`LocalFeed`]) and replayed
+/// whatever the ring did, because those are emitted once (or rarely) and
+/// evicting them leaves a reopened tab unsteerable (EXP-746 review UI-2).
 pub const BACKLOG_CAP: usize = 4096;
 
 /// Why the run must stop. Produced by the host's own kill source: the
@@ -351,42 +356,106 @@ impl PendingAsks {
 // ---------------------------------------------------------------------------
 
 /// The host-local feed: the attached sink (desktop/CLI), every `subscribe()`
-/// receiver, and the backlog a late subscriber replays first.
+/// receiver, the backlog a late subscriber replays first, and the latest-wins
+/// STATE that never enters that backlog.
 #[derive(Default)]
 pub(crate) struct LocalFeed {
-    backlog: Mutex<std::collections::VecDeque<LocalFeedEvent>>,
-    subscribers: Mutex<Vec<flume::Sender<LocalFeedEvent>>>,
+    inner: Mutex<FeedState>,
+}
+
+/// Everything one lock protects. The backlog, the subscribers and the state
+/// slots move together so an `emit` racing a `subscribe` can neither lose an
+/// event nor deliver it twice.
+#[derive(Default)]
+struct FeedState {
+    /// The ROWS, capped at [`BACKLOG_CAP`] — oldest evicted first.
+    backlog: std::collections::VecDeque<LocalFeedEvent>,
+    /// Latest-wins state, kept OUT of the ring because eviction would
+    /// otherwise silently drop it on a long run: the phase (the composer's
+    /// gate), and the three latest-wins activity kinds — the relay's own
+    /// `LATEST_WINS_KINDS` (D4: `config_state`, `usage`, `diff`), which are
+    /// slots in `SteerFeed` too and never feed rows.
+    phase: Option<EnginePhase>,
+    config_state: Option<LocalFeedEvent>,
+    usage: Option<LocalFeedEvent>,
+    diff: Option<LocalFeedEvent>,
+    subscribers: Vec<flume::Sender<LocalFeedEvent>>,
+}
+
+impl FeedState {
+    /// Which slot this event replaces, if it is state rather than a row.
+    fn slot(&mut self, event: &LocalFeedEvent) -> Option<&mut Option<LocalFeedEvent>> {
+        let LocalFeedEvent::Activity { event, .. } = event else {
+            return None;
+        };
+        match event {
+            steer::ActivityEvent::ConfigState { .. } => Some(&mut self.config_state),
+            steer::ActivityEvent::Usage { .. } => Some(&mut self.usage),
+            steer::ActivityEvent::Diff { .. } => Some(&mut self.diff),
+            _ => None,
+        }
+    }
 }
 
 impl LocalFeed {
+    fn lock(&self) -> std::sync::MutexGuard<'_, FeedState> {
+        self.inner.lock().unwrap_or_else(|err| err.into_inner())
+    }
+
     fn emit(&self, sink: Option<&LocalSink>, event: LocalFeedEvent) {
         if let Some(sink) = sink {
             sink(event.clone());
         }
-        if let Ok(mut backlog) = self.backlog.lock() {
-            if backlog.len() >= BACKLOG_CAP {
-                backlog.pop_front();
+        let mut state = self.lock();
+        if let LocalFeedEvent::Phase(phase) = &event {
+            state.phase = Some(*phase);
+        } else if let Some(slot) = state.slot(&event) {
+            *slot = Some(event.clone());
+        } else {
+            if state.backlog.len() >= BACKLOG_CAP {
+                state.backlog.pop_front();
             }
-            backlog.push_back(event.clone());
+            state.backlog.push_back(event.clone());
         }
-        if let Ok(mut subscribers) = self.subscribers.lock() {
-            subscribers.retain(|subscriber| subscriber.send(event.clone()).is_ok());
-        }
+        state
+            .subscribers
+            .retain(|subscriber| subscriber.send(event.clone()).is_ok());
     }
 
     /// A receiver that replays the backlog FIRST, so a view attaching late
-    /// sees the whole session rather than the tail.
+    /// sees the whole session rather than the tail — then the latest-wins
+    /// state, in the relay's own replay order (`hub.ts`: the log, then
+    /// `config_state`, `usage`, `diff`), with the phase last because it is
+    /// what the composer gates on.
+    ///
+    /// Replaying the state separately is what makes a REOPENED tab of a long
+    /// run steerable: the `Phase(Live)` edge is emitted once, before the first
+    /// agent frame, so a ring that overflowed would have evicted it and left
+    /// the view stuck in `Connecting` for the rest of the run (EXP-746 review
+    /// UI-2).
     pub(crate) fn subscribe(&self) -> flume::Receiver<LocalFeedEvent> {
         let (tx, rx) = flume::unbounded();
-        if let Ok(backlog) = self.backlog.lock() {
-            for event in backlog.iter() {
-                let _ = tx.send(event.clone());
-            }
+        let mut state = self.lock();
+        for event in state.backlog.iter() {
+            let _ = tx.send(event.clone());
         }
-        if let Ok(mut subscribers) = self.subscribers.lock() {
-            subscribers.push(tx);
+        for event in [&state.config_state, &state.usage, &state.diff]
+            .into_iter()
+            .flatten()
+        {
+            let _ = tx.send(event.clone());
         }
+        if let Some(phase) = state.phase {
+            let _ = tx.send(LocalFeedEvent::Phase(phase));
+        }
+        state.subscribers.push(tx);
         rx
+    }
+
+    /// Where the run is right now, for a host that wants the answer before the
+    /// replay reaches it.
+    pub(crate) fn phase(&self) -> Option<EnginePhase> {
+        self.lock().phase
     }
 }
 
@@ -1147,6 +1216,168 @@ mod tests {
             .elicitation
             .as_ref()
             .is_some_and(|elicitation| elicitation.supports_form()));
+    }
+
+    // ── The local feed's backlog and its latest-wins state (review UI-2) ───
+
+    fn narration(text: &str) -> LocalFeedEvent {
+        LocalFeedEvent::Activity {
+            event: steer::ActivityEvent::narration(text),
+            tool_call_id: None,
+        }
+    }
+
+    fn config_state(mode: &str) -> LocalFeedEvent {
+        LocalFeedEvent::Activity {
+            event: steer::ActivityEvent::ConfigState {
+                options: Vec::new(),
+                current_mode: Some(mode.to_string()),
+                modes: None,
+                commands: None,
+                at: None,
+            },
+            tool_call_id: None,
+        }
+    }
+
+    fn usage(used: i64) -> LocalFeedEvent {
+        LocalFeedEvent::Activity {
+            event: steer::ActivityEvent::usage(used, 200_000, None),
+            tool_call_id: None,
+        }
+    }
+
+    fn drain(rx: &flume::Receiver<LocalFeedEvent>) -> Vec<LocalFeedEvent> {
+        rx.drain().collect()
+    }
+
+    fn narrations(events: &[LocalFeedEvent]) -> Vec<String> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                LocalFeedEvent::Activity {
+                    event: steer::ActivityEvent::Narration { text, .. },
+                    ..
+                } => Some(text.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn modes(events: &[LocalFeedEvent]) -> Vec<String> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                LocalFeedEvent::Activity {
+                    event: steer::ActivityEvent::ConfigState { current_mode, .. },
+                    ..
+                } => current_mode.clone(),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn phases(events: &[LocalFeedEvent]) -> Vec<EnginePhase> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                LocalFeedEvent::Phase(phase) => Some(*phase),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_late_subscriber_replays_the_backlog_then_the_latest_state() {
+        let feed = LocalFeed::default();
+        feed.emit(None, LocalFeedEvent::Phase(EnginePhase::Connecting));
+        feed.emit(None, narration("first"));
+        feed.emit(None, config_state("plan"));
+        feed.emit(None, LocalFeedEvent::Phase(EnginePhase::Live));
+        feed.emit(None, usage(1_000));
+        feed.emit(None, narration("second"));
+        feed.emit(None, config_state("default"));
+        feed.emit(None, usage(2_000));
+
+        let replay = drain(&feed.subscribe());
+        // Rows in order, then the state, then the phase — the relay's own
+        // replay order, so a stale copy can never win.
+        assert_eq!(narrations(&replay), vec!["first", "second"]);
+        assert_eq!(modes(&replay), vec!["default"]);
+        assert_eq!(phases(&replay), vec![EnginePhase::Live]);
+        assert!(matches!(
+            replay.last(),
+            Some(LocalFeedEvent::Phase(EnginePhase::Live))
+        ));
+        assert_eq!(feed.phase(), Some(EnginePhase::Live));
+    }
+
+    /// The bug this guards: `Phase(Live)` is emitted ONCE, before the first
+    /// agent frame, so on a long run it is the oldest thing in the ring. A tab
+    /// reopened after the ring overflowed used to replay a backlog with no
+    /// phase in it at all and sat in `Connecting` — composer disabled, chips
+    /// and usage pill missing — for the rest of the live run.
+    #[test]
+    fn an_overflowing_backlog_never_evicts_the_phase_config_or_usage() {
+        let feed = LocalFeed::default();
+        feed.emit(None, LocalFeedEvent::Phase(EnginePhase::Connecting));
+        feed.emit(None, LocalFeedEvent::Phase(EnginePhase::Live));
+        feed.emit(None, config_state("plan"));
+        feed.emit(None, usage(1_234));
+        for index in 0..BACKLOG_CAP * 2 {
+            feed.emit(None, narration(&format!("row {index}")));
+        }
+
+        let replay = drain(&feed.subscribe());
+        let rows = narrations(&replay);
+        // The ring itself still drops its oldest rows.
+        assert_eq!(rows.len(), BACKLOG_CAP);
+        assert_eq!(rows.first().map(String::as_str), Some("row 4096"));
+        // …but the state a reopened tab needs survived every eviction.
+        assert_eq!(phases(&replay), vec![EnginePhase::Live]);
+        assert_eq!(modes(&replay), vec!["plan"]);
+        assert!(replay.iter().any(|event| matches!(
+            event,
+            LocalFeedEvent::Activity {
+                event: steer::ActivityEvent::Usage { context_used, .. },
+                ..
+            } if *context_used == 1_234
+        )));
+    }
+
+    #[test]
+    fn a_live_subscriber_still_sees_state_events_as_they_happen() {
+        let feed = LocalFeed::default();
+        let rx = feed.subscribe();
+        feed.emit(None, LocalFeedEvent::Phase(EnginePhase::Live));
+        feed.emit(None, config_state("plan"));
+        feed.emit(None, narration("row"));
+        feed.emit(None, usage(7));
+
+        let seen = drain(&rx);
+        assert_eq!(phases(&seen), vec![EnginePhase::Live]);
+        assert_eq!(modes(&seen), vec!["plan"]);
+        assert_eq!(narrations(&seen), vec!["row"]);
+        assert_eq!(seen.len(), 4);
+    }
+
+    /// An ended run keeps its own senders alive (the host holds the session),
+    /// so a tab reopened over it learns the run is over from the REPLAY or not
+    /// at all.
+    #[test]
+    fn a_reopened_tab_over_an_ended_run_replays_the_end() {
+        let feed = LocalFeed::default();
+        feed.emit(None, LocalFeedEvent::Phase(EnginePhase::Live));
+        for index in 0..BACKLOG_CAP + 10 {
+            feed.emit(None, narration(&format!("row {index}")));
+        }
+        feed.emit(None, LocalFeedEvent::Phase(EnginePhase::Ended));
+
+        assert_eq!(feed.phase(), Some(EnginePhase::Ended));
+        assert_eq!(
+            phases(&drain(&feed.subscribe())),
+            vec![EnginePhase::Ended]
+        );
     }
 
     #[test]
