@@ -244,6 +244,12 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// EXP-409: agents installed on the machine but SIGNED OUT, so unusable.
     /// Never offered in a picker — surfaced as a "not signed in" reason.
     public let unauthedAgents: [String]?
+    /// EXP-749: the subset of `agents` the machine's ACP engine can drive.
+    /// ABSENT = the build never reported it, so every runnable agent is
+    /// assumed ACP-ready (the pre-EXP-749 behaviour). An agent in `agents`
+    /// but not here still starts — in a terminal tab on that machine.
+    /// Never a filter: read it through `agentRunsInTerminal(_:)`.
+    public let acpAgents: [String]?
     /// Feature capabilities the desktop advertised (EXP-253: `actions`).
     /// Absent (old desktop/relay) = none — action starts are strictly gated
     /// on this, unlike the lenient agents fallback.
@@ -304,6 +310,7 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         connectedAt: Double? = nil,
         agents: [String]? = nil,
         unauthedAgents: [String]? = nil,
+        acpAgents: [String]? = nil,
         caps: [String]? = nil,
         kind: String? = nil,
         platform: String? = nil,
@@ -327,6 +334,7 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         self.connectedAt = connectedAt
         self.agents = agents
         self.unauthedAgents = unauthedAgents
+        self.acpAgents = acpAgents
         self.caps = caps
         self.kind = kind
         self.platform = platform
@@ -372,6 +380,22 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// EXP-409: agents installed on the machine but signed out.
     public var unauthedAgentIds: [String] {
         (unauthedAgents ?? []).filter { DomainContract.codingAgentValues.contains($0) }
+    }
+
+    /// EXP-749: the ACP-drivable agents as contract ids, or nil when the
+    /// machine reported none at all. Nil is UNKNOWN, never "none" — collapsing
+    /// it with `?? []` would claim every agent runs in a terminal there.
+    public var acpAgentIds: [String]? {
+        guard let acpAgents else { return nil }
+        return acpAgents.filter { DomainContract.codingAgentValues.contains($0) }
+    }
+
+    /// EXP-749: whether starting [agent] on this machine lands in a terminal
+    /// tab rather than the session screen — it runs there, just outside ACP.
+    /// Only ever true when the machine actually reported its ACP agents.
+    public func agentRunsInTerminal(_ agent: String) -> Bool {
+        guard let acpAgentIds else { return false }
+        return !acpAgentIds.contains(agent)
     }
 
     /// Whether anything can be launched here at all (EXP-409). A machine that
