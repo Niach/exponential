@@ -89,6 +89,16 @@ const JOIN_ACK_TIMEOUT_MS = 15_000
  *  nothing for minutes). A wakeup kick redials such a socket silently under
  *  the `live` phase. Mirrors Android `liveStaleMs` / iOS `liveStaleSeconds`. */
 const LIVE_STALE_MS = 45_000
+/** EXP-656/EXP-751: a join replay is STAGED, not applied — an `activity_reset`
+ *  opens a buffer instead of wiping the feed, and the whole replay swaps in as
+ *  ONE commit when the relay's `activity_synced` marker arrives. These bound
+ *  the fallback for a publisher-driven republish that carries no marker:
+ *  the replay arrives as one burst, so 400ms of silence means it is over, and
+ *  a stalled republish commits what it has at the cap rather than holding the
+ *  buffer. Android `SteerTimings.replayQuietMs`/`replayMaxMs`, iOS
+ *  `replayQuietSeconds`/`replayMaxSeconds` — move all three in lockstep. */
+export const REPLAY_QUIET_MS = 400
+export const REPLAY_MAX_MS = 3_000
 /** What the mint race resolves to when the deadline wins (EXP-625). */
 const MINT_TIMED_OUT = Symbol(`mint-timed-out`)
 
@@ -206,6 +216,9 @@ type ServerFrame =
   // Protocol v2: "clear your feed now" — sent before every join replay and
   // whenever the desktop re-publishes its full history.
   | { t: `activity_reset` }
+  // EXP-656: the relay's end-of-replay marker, sent to the joining viewer
+  // right after its join replay (never after a publisher-driven reset).
+  | { t: `activity_synced` }
   // EXP-648: the relay's liveness beat to joined viewers. Carries nothing;
   // its only effect is the `lastFrameAt` stamp taken above the switch.
   | { t: `keepalive` }
@@ -449,6 +462,23 @@ export function createSteerSessionStore(
   const recentEchoes: EchoEntry[] = []
   /** Per-card `answer_ack` deadlines (see ANSWER_ACK_TIMEOUT_MS). */
   const ackTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  /** EXP-751: the replay being staged, or null when nothing is staging. Holds
+   *  every `activity` event since the last `activity_reset`, in arrival
+   *  order; the visible feed is folded from them in one go at commit. */
+  let staged: ActivityEvent[] | null = null
+  /** Messages this client sent WHILE staging: the replay predates them, so
+   *  the commit re-appends whatever it did not carry back. */
+  let stagedEchoes: string[] = []
+  /** Commit deadlines: REPLAY_QUIET_MS since the last staged frame, and
+   *  REPLAY_MAX_MS since the reset. */
+  let stageQuietTimer: ReturnType<typeof setTimeout> | null = null
+  let stageCapTimer: ReturnType<typeof setTimeout> | null = null
+  /** `activity_reset` ops enqueued but not yet applied — a keepalive that
+   *  lands in that window still has to ride the queue to end the replay. */
+  let queuedResets = 0
+  /** True while `commitStaging` folds the replay: the replay is authoritative,
+   *  so its `user_message` rows never dedupe against a local echo. */
+  let foldingReplay = false
 
   let draftText = ``
   let draftImages: PendingSteerImage[] = []
@@ -558,27 +588,6 @@ export function createSteerSessionStore(
     return true
   }
 
-  /** `activity_reset`: the relay/desktop is about to (re)publish the whole
-   *  history — everything derived from the old feed goes with it. */
-  const resetFeed = () => {
-    for (const timer of ackTimers.values()) clearTimeout(timer)
-    ackTimers.clear()
-    feed = []
-    latestDiff = null
-    clearCompaction()
-    // EXP-746: the latest-wins slots go with the log. The relay replays its
-    // own latest `config_state`/`usage` immediately after it, and the
-    // coalescer applies reset + replay + commit in ONE synchronous batch, so
-    // the chips repaint before any render — the same flicker exposure the
-    // diff bar has always had.
-    config = null
-    usage = null
-    answerStates = {}
-    // After a reset the replayed transcript event is the ONLY copy of a sent
-    // message and must render.
-    recentEchoes.length = 0
-  }
-
   const append = (item: NewFeedItem) => {
     feed = [...feed, { ...item, id: nextId++ } as FeedItem].slice(-FEED_CAP)
   }
@@ -622,8 +631,10 @@ export function createSteerSessionStore(
       case `user_message`: {
         if (!event.text.trim()) return
         // A message this client just sent was already echoed locally — skip
-        // its transcript-derived twin.
-        if (consumeEcho(recentEchoes, event.text, Date.now())) return
+        // its transcript-derived twin. Never inside a replay fold: the replay
+        // is authoritative and the echo FIFO was emptied when it began.
+        if (!foldingReplay && consumeEcho(recentEchoes, event.text, Date.now()))
+          return
         append({ kind: `user_message`, text: event.text })
         return
       }
@@ -740,21 +751,188 @@ export function createSteerSessionStore(
     }
   }
 
+  // ── Staged replay (EXP-656 → web EXP-751) ────────────────────────────────
+  //
+  // The relay answers EVERY viewer join with `activity_reset` + a full replay
+  // of the room log, and a publisher reconnect fans out the same pair. Doing
+  // what the frame literally says — empty the feed, then re-append N events
+  // — painted the rows as they streamed, so a reconnect visibly rebuilt the
+  // feed (and blanked the chips and the usage line until their replayed
+  // snapshots landed). The burst is buffered and swapped in as ONE commit
+  // instead: same result, no intermediate state, and the replayed prefix
+  // keeps the row ids the reader is anchored on. Android
+  // `SteerConnection.commitStaging` / iOS `SteerReplayStaging` are the
+  // originals; the rules are theirs.
+
+  const clearStagingTimers = () => {
+    if (stageQuietTimer) {
+      clearTimeout(stageQuietTimer)
+      stageQuietTimer = null
+    }
+    if (stageCapTimer) {
+      clearTimeout(stageCapTimer)
+      stageCapTimer = null
+    }
+  }
+
+  /** The timer fallbacks commit OUTSIDE the coalescer's flush, so they
+   *  publish the snapshot themselves. */
+  const commitStagingFromTimer = (why: string) => {
+    if (disposed || staged === null) return
+    commitStaging(why)
+    reconcileResolvedAnswers()
+    commit()
+  }
+
+  /** `activity_reset`: open (or restart) the staging buffer. The VISIBLE feed
+   *  is untouched — a second reset mid-replay means the publisher restarted
+   *  its stream, so the half we buffered is dead, never committed. */
+  const beginStaging = () => {
+    clearStagingTimers()
+    staged = []
+    stagedEchoes = []
+    // The replay is the ONLY copy of everything sent before the reset, so
+    // its transcript rows must render — only echoes sent DURING the window
+    // (pushed after this) still dedupe their late twins.
+    recentEchoes.length = 0
+    // A republish that never goes quiet still has to land eventually.
+    stageCapTimer = setTimeout(() => commitStagingFromTimer(`cap`), REPLAY_MAX_MS)
+  }
+
+  /** Buffer one replayed event and push the quiet deadline out. */
+  const stageEvent = (event: ActivityEvent) => {
+    if (staged === null) return
+    staged.push(event)
+    if (stageQuietTimer) clearTimeout(stageQuietTimer)
+    stageQuietTimer = setTimeout(
+      () => commitStagingFromTimer(`quiet`),
+      REPLAY_QUIET_MS
+    )
+  }
+
+  /** Whether the folded feed already ends with this echo — the replay is
+   *  authoritative, so anything it carried back must not be duplicated. */
+  const tailCarriesEcho = (text: string, window: number): boolean => {
+    const needle = text.trim()
+    for (let i = feed.length - 1; i >= 0 && i >= feed.length - window; i--) {
+      const item = feed[i]
+      if (item.kind === `user_message` && item.text.trim() === needle) return true
+    }
+    return false
+  }
+
+  /**
+   * Swap the staged replay in as the feed — everything derived from the old
+   * log goes with it and is re-derived from the replay in the SAME pass: the
+   * feed, the diff bar and the EXP-746 slots (the relay replays its latest
+   * `config_state`/`usage` right after the log, so the chips repaint with the
+   * rows instead of blanking first), the compaction strip, the answer locks.
+   * Two things are carried across the swap: messages this client sent during
+   * the window (the replay predates them) and locks on cards the replay
+   * brought back — the tap that locked them may be milliseconds old, and a
+   * card that came back unlocked would fire twice.
+   */
+  const commitStaging = (_why: string) => {
+    const events = staged
+    if (events === null) return
+    clearStagingTimers()
+    staged = null
+    const echoes = stagedEchoes
+    stagedEchoes = []
+
+    const carried: AnswerStates = {}
+    for (const [key, state] of Object.entries(answerStates)) {
+      if (isAnswerLocked(state)) carried[key] = state
+    }
+    // The oldest visible row's id: replaying the same history from here hands
+    // the unchanged prefix the ids (React keys) it already had, so the rows
+    // the reader is anchored on keep their identity across the swap. Safe
+    // BECAUSE the swap is one commit — the old rows and the rewound counter
+    // never coexist in a render.
+    const anchorId = feed[0]?.id
+    feed = []
+    latestDiff = null
+    config = null
+    usage = null
+    clearCompaction()
+    // Seeded BEFORE the fold so a replayed `answer_ack`/`question_resolved`
+    // for a carried lock lands on it; locks whose card the replay did not
+    // bring back are dropped right after.
+    answerStates = carried
+    if (anchorId !== undefined) nextId = anchorId
+    foldingReplay = true
+    try {
+      for (const event of events) handleActivity(event)
+    } finally {
+      foldingReplay = false
+    }
+    for (const text of echoes) {
+      if (!tailCarriesEcho(text, echoes.length + 1)) {
+        append({ kind: `user_message`, text })
+      }
+    }
+    const liveKeys = new Set<string>()
+    for (const item of feed) {
+      if (item.kind === `question` && item.questionId !== undefined) {
+        liveKeys.add(item.questionId)
+      }
+    }
+    for (const key of Object.keys(answerStates)) {
+      if (!liveKeys.has(key)) answerStates = clearAnswer(answerStates, key)
+    }
+    // An ack deadline whose lock did not carry over guards nothing.
+    for (const key of [...ackTimers.keys()]) {
+      if (!(key in answerStates)) clearAckTimer(key)
+    }
+  }
+
+  /** Drop a staged replay and KEEP the visible feed: the socket went away
+   *  mid-burst, so the buffer is a partial history of a room this client is
+   *  no longer joined to. The next join replays from scratch. */
+  const discardStaging = () => {
+    if (staged === null) return
+    clearStagingTimers()
+    staged = null
+    stagedEchoes = []
+  }
+
   // REV-33: a join replay fans the relay's whole activity log (up to
   // FEED_CAP frames) out as individual ws messages. Handling each one
   // directly meant one notify per frame over the full non-virtualized feed
   // — O(n²) work that froze the tab on open/reconnect. Frames buffer here
   // and apply in one synchronous pass per window instead; `activity_reset`
-  // rides the same queue so a reset can never overtake buffered frames.
-  // The queue outlives redials (order is preserved across them) and only
-  // dispose cancels it.
+  // and `activity_synced` ride the same queue so neither can overtake
+  // buffered frames. The queue outlives redials (order is preserved across
+  // them) and only dispose cancels it.
   const activityQueue = createActivityCoalescer<
-    { t: `reset` } | { t: `event`; event: ActivityEvent }
+    | { t: `reset` }
+    | { t: `event`; event: ActivityEvent }
+    | { t: `synced` }
+    | { t: `keepalive` }
   >((batch) => {
     if (disposed) return
     for (const op of batch) {
-      if (op.t === `reset`) resetFeed()
-      else handleActivity(op.event)
+      switch (op.t) {
+        case `reset`:
+          queuedResets = Math.max(0, queuedResets - 1)
+          beginStaging()
+          break
+        case `event`:
+          if (staged !== null) stageEvent(op.event)
+          else handleActivity(op.event)
+          break
+        case `synced`:
+          // Outside a replay (a relay we joined before the window opened)
+          // there is nothing to commit — never a feed change.
+          commitStaging(`marker`)
+          break
+        case `keepalive`:
+          // The relay's own 15s beat: if it got a turn, the replay burst is
+          // over. This is what ends a publisher-driven republish, which
+          // carries no marker.
+          commitStaging(`keepalive`)
+          break
+      }
     }
     reconcileResolvedAnswers()
     commit()
@@ -780,6 +958,9 @@ export function createSteerSessionStore(
     if (ws) {
       ws.close()
       ws = null
+      // A replay the abandoned socket never finished delivering is a partial
+      // history of a room this dial is leaving — keep what the reader sees.
+      discardStaging()
       if (connected) {
         connected = false
         // Dim the composer honestly for the gap; the phase itself holds.
@@ -885,10 +1066,24 @@ export function createSteerSessionStore(
           case `keepalive`:
             // EXP-648: already counted by the `lastFrameAt` stamp above.
             // Never a phase change and never a commit — it must not touch
-            // the feed or re-render anything.
+            // the feed or re-render anything. The one exception: its 15s
+            // cadence proves a staged replay burst is over, so while a
+            // replay is staging (or a reset is still queued ahead of it) it
+            // rides the queue to end it.
+            if (staged !== null || queuedResets > 0) {
+              activityQueue.enqueue({ t: `keepalive` })
+            }
             return
           case `activity_reset`: {
+            queuedResets++
             activityQueue.enqueue({ t: `reset` })
+            if (markLive()) commit()
+            return
+          }
+          case `activity_synced`: {
+            // EXP-656: the relay's end-of-replay marker — the join succeeded
+            // and the staged replay commits as one swap.
+            activityQueue.enqueue({ t: `synced` })
             if (markLive()) commit()
             return
           }
@@ -918,11 +1113,7 @@ export function createSteerSessionStore(
             return
           }
           default:
-            // Unknown frames are inert — `activity_synced` (EXP-656) included:
-            // web deliberately does NOT stage a replay behind it. Both EXP-746
-            // kinds are latest-wins, so a mid-replay intermediate value is
-            // invisible by construction, and staging the whole feed is its own
-            // change. Not an oversight.
+            // Unknown frames from a newer relay are inert.
             return
         }
       }
@@ -931,6 +1122,9 @@ export function createSteerSessionStore(
         clearDialTimers()
         ws = null
         connected = false
+        // A half-delivered replay is worth less than the last complete
+        // picture — the reader keeps what they were reading (EXP-656).
+        discardStaging()
         if (sawEnd) {
           phase = { kind: `ended`, detail: detail ?? undefined }
           // A run that ended mid-fold is not compacting any more (EXP-724).
@@ -1155,6 +1349,9 @@ export function createSteerSessionStore(
       if (!text || !sendInput(text)) return false
       ws?.send(JSON.stringify({ t: `input`, data: `\r` }))
       pushEcho(recentEchoes, text, Date.now())
+      // Sent mid-replay: the staged history predates it, so the commit has
+      // to put it back (unless the replay turns out to carry it).
+      if (staged !== null) stagedEchoes.push(text)
       feed = [
         ...feed,
         { id: nextId++, kind: `user_message` as const, text },
@@ -1242,6 +1439,7 @@ export function createSteerSessionStore(
       clearRetryTimer()
       clearDialTimers()
       clearCompaction()
+      discardStaging()
       cancelSelfDispose()
       if (reapTimer) clearTimeout(reapTimer)
       activityQueue.cancel()
