@@ -16,7 +16,9 @@
 //! than a handful pending.
 //!
 //! Diffs replace rather than append (the relay keeps only the latest too), so
-//! a chatty worktree cannot evict the whole transcript.
+//! a chatty worktree cannot evict the whole transcript. EXP-746 put
+//! `config_state` and `usage` under the same rule — they are latest-wins
+//! STATE on every client, not transcript rows.
 
 use crate::frames::ActivityEvent;
 
@@ -47,12 +49,18 @@ impl ActivityJournal {
     /// Record one published event.
     pub fn push(&mut self, event: ActivityEvent) {
         match &event {
-            ActivityEvent::Diff { .. } => {
-                if let Some(pos) = self
-                    .entries
-                    .iter()
-                    .position(|entry| matches!(entry.event, ActivityEvent::Diff { .. }))
-                {
+            // Latest-wins STATE, exactly like the relay's per-kind slots: the
+            // newest snapshot DROPS ITS PREDECESSOR and lands at the TAIL.
+            // Position is irrelevant because every client treats all three as
+            // slots, not ordered rows; what matters is that a chatty
+            // worktree, a per-turn usage meter (EXP-746) or a mode toggle can
+            // never evict the transcript out of the 2000-event / 4 MiB budget.
+            ActivityEvent::Diff { .. }
+            | ActivityEvent::ConfigState { .. }
+            | ActivityEvent::Usage { .. } => {
+                if let Some(pos) = self.entries.iter().position(|entry| {
+                    std::mem::discriminant(&entry.event) == std::mem::discriminant(&event)
+                }) {
                     self.bytes -= self.entries[pos].bytes;
                     self.entries.remove(pos);
                 }
@@ -159,7 +167,7 @@ fn serialized_bytes(event: &ActivityEvent) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::frames::QuestionOption;
+    use crate::frames::{ConfigOption, QuestionOption};
 
     fn question(id: &str) -> ActivityEvent {
         ActivityEvent::Question {
@@ -200,6 +208,42 @@ mod tests {
             .collect();
         assert_eq!(diffs, vec![&ActivityEvent::diff("--- v2")]);
         assert_eq!(journal.len(), 2);
+    }
+
+    /// EXP-746: `config_state` and `usage` follow the diff rule — the newest
+    /// drops its predecessor and lands at the tail. Without it a per-turn
+    /// usage meter would evict the whole transcript out of the replay budget,
+    /// and a reconnect would re-publish a truncated history.
+    #[test]
+    fn only_the_latest_config_state_and_usage_survive() {
+        let config = |value: &str| ActivityEvent::ConfigState {
+            options: vec![ConfigOption {
+                value: Some(value.to_string()),
+                ..ConfigOption::new("model", "Model")
+            }],
+            current_mode: None,
+            modes: None,
+            commands: None,
+            at: None,
+        };
+        let mut journal = ActivityJournal::new();
+        journal.push(config("sonnet"));
+        journal.push(ActivityEvent::usage(10, 200, None));
+        journal.push(ActivityEvent::narration("between"));
+        journal.push(config("opus"));
+        journal.push(ActivityEvent::usage(20, 200, Some(0.5)));
+
+        let replay: Vec<&ActivityEvent> = journal.replay().collect();
+        assert_eq!(journal.len(), 3, "one narration + one slot per kind");
+        assert_eq!(
+            replay,
+            vec![
+                &ActivityEvent::narration("between"),
+                &config("opus"),
+                &ActivityEvent::usage(20, 200, Some(0.5)),
+            ],
+            "the newest of each kind survives, at the tail"
+        );
     }
 
     #[test]

@@ -1334,6 +1334,7 @@ pub fn attach_publisher(
             worktree.join(coding::launcher::STEER_IMAGES_DIR),
         )),
         commands: Some(command_link.clone()),
+        config: None,
     };
 
     // EXP-214: the needs-input forwarder's own handle — cloned before the

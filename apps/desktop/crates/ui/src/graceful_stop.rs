@@ -11,23 +11,18 @@
 //! agent never parks the teardown forever.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use gpui::App;
 use steer::TurnSignal;
 
-/// How long an agent-declared end waits for the turn to finish before it
-/// tears down anyway. Generous: the wait costs nothing while the agent is
-/// still producing the output the user wants to read, and the fallback only
-/// exists for agents whose idle edge never arrives (a hookless claude, a
-/// crashed emitter).
-pub const STOP_GRACE: Duration = Duration::from_secs(60);
-
-/// Should the teardown proceed NOW? Pure, so the policy is testable without
-/// a runtime: the agent is between turns, or the grace period ran out.
-pub fn stop_now(idle: bool, elapsed: Duration) -> bool {
-    idle || elapsed >= STOP_GRACE
-}
+// EXP-746: the bound and the policy moved into `steer` so the gpui-free ACP
+// engine — which hosts the same teardown for the desktop AND the CLI daemon —
+// obeys ONE definition instead of a hand-synced copy. Only `after_turn`, the
+// gpui half, stays here. `stop_now` has no in-crate caller yet (the timer path
+// below waits on the signal rather than polling), but it keeps this path so a
+// UI caller finds the policy and its bound together.
+#[allow(unused_imports)]
+pub use steer::{stop_now, STOP_GRACE};
 
 /// Run `then` on the gpui foreground once the agent is between turns — or
 /// after [`STOP_GRACE`], whichever comes first. Fires IMMEDIATELY when the
@@ -75,25 +70,19 @@ pub fn after_turn(
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
 
+    /// The policy itself is locked in `steer::activity`
+    /// (`stop_now_waits_for_idle_but_never_past_the_grace`); this only
+    /// asserts the re-export still names it, so a desktop caller of
+    /// `graceful_stop::STOP_GRACE` keeps compiling and keeps meaning the
+    /// same minute.
     #[test]
-    fn stop_now_waits_for_idle_but_never_past_the_grace() {
-        // Mid-turn: wait.
-        assert!(!stop_now(false, Duration::ZERO));
-        assert!(!stop_now(false, STOP_GRACE - Duration::from_millis(1)));
-        // Between turns: go, however early.
-        assert!(stop_now(true, Duration::ZERO));
-        // A turn that never ends must not park the teardown forever.
-        assert!(stop_now(false, STOP_GRACE));
-        assert!(stop_now(false, STOP_GRACE + Duration::from_secs(60)));
-    }
-
-    /// The grace has to be long enough for a real close-out message and
-    /// short enough that a hung agent's tab still resolves while someone is
-    /// watching it.
-    #[test]
-    fn stop_grace_is_a_minute() {
+    fn the_grace_is_the_steer_one() {
         assert_eq!(STOP_GRACE, Duration::from_secs(60));
+        assert!(stop_now(true, Duration::ZERO));
+        assert!(!stop_now(false, Duration::ZERO));
     }
 }

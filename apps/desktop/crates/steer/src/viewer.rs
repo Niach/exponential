@@ -280,6 +280,26 @@ impl ViewerHandle {
         .to_json()])
     }
 
+    /// EXP-746: change one live agent option (a chip the publisher advertised
+    /// in `config_state`). Fire-and-forget — the publisher's NEXT
+    /// `config_state` is the confirmation, so there is no optimistic lock and
+    /// no ack deadline (unlike [`ViewerHandle::send_answer`]). A BLANK
+    /// `value` is the "CLI default / unset" choice and rides the wire as
+    /// such. `false` when the socket is down or not joined.
+    pub fn send_config(&self, id: &str, value: &str) -> bool {
+        self.send_frames(vec![ClientFrame::SetConfig {
+            id: id.to_string(),
+            value: value.to_string(),
+        }
+        .to_json()])
+    }
+
+    /// EXP-746: switch to one of `config_state.modes`. Same fire-and-forget
+    /// contract as [`ViewerHandle::send_config`].
+    pub fn send_mode(&self, id: &str) -> bool {
+        self.send_frames(vec![ClientFrame::SetMode { id: id.to_string() }.to_json()])
+    }
+
     /// A wakeup nudge (the machine woke, the network came back, the host
     /// device came online): cut short a pending backoff and redial now.
     ///

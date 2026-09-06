@@ -33,6 +33,10 @@
 //! * **Diffs never enter the feed**: the latest replaces the previous one
 //!   behind the pinned "Latest changes" strip, and an EMPTY diff clears it
 //!   (EXP-688 — the branch no longer differs).
+//! * **`config_state` and `usage` are SLOTS too** (EXP-746): the publisher
+//!   re-sends the whole snapshot on every change, so the newest replaces the
+//!   previous one behind the composer chips / the context meter, and a
+//!   zero-size usage clears the meter the way an empty diff clears the strip.
 //!
 //! ## Timers belong to the caller
 //!
@@ -45,7 +49,10 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Duration;
 
-use crate::frames::{ActivityEvent, CompactionPhase, QuestionOption, SubagentStatus};
+use crate::frames::{
+    ActivityEvent, CompactionPhase, ConfigCommand, ConfigMode, ConfigOption, QuestionOption,
+    SubagentStatus,
+};
 
 /// Client-side feed cap — old items fall off the top. Matches the relay's
 /// `ACTIVITY_LOG_CAP` so a full-history replay renders in full (web
@@ -137,6 +144,29 @@ pub enum FeedKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Compaction {
     pub trigger: Option<String>,
+}
+
+/// EXP-746: the agent's live configuration behind the composer chips — the
+/// vocabulary AND the values in force. A SLOT beside [`SteerFeed::latest_diff`],
+/// never a feed row: the publisher always sends the FULL snapshot, so the
+/// newest one replaces the previous whole.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SessionConfig {
+    pub options: Vec<ConfigOption>,
+    pub current_mode: Option<String>,
+    pub modes: Vec<ConfigMode>,
+    /// The agent's OWN slash commands — the `/` menu shows the contract
+    /// catalog union these, contract first.
+    pub commands: Vec<ConfigCommand>,
+}
+
+/// EXP-746: the run's context/spend meter. Tokens, not a percent (the
+/// device-reported usage windows own the 0-100 rate-limit vocabulary).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SessionUsage {
+    pub context_used: i64,
+    pub context_size: i64,
+    pub cost_usd: Option<f64>,
 }
 
 /// One item of the visible feed.
@@ -268,6 +298,10 @@ pub struct SteerFeed {
     /// EXP-724: set by `compaction started`, cleared by `ended`, the swap,
     /// the caller's [`COMPACTION_TIMEOUT`] and session end.
     compacting: Option<Compaction>,
+    /// EXP-746: latest-wins state slots, exactly like `latest_diff` — the
+    /// composer chips and the context meter, never feed rows.
+    config: Option<SessionConfig>,
+    usage: Option<SessionUsage>,
     answers: HashMap<String, AnswerState>,
     next_id: FeedItemId,
     /// Locally-echoed sent messages awaiting their transcript-derived twin.
@@ -312,6 +346,17 @@ impl SteerFeed {
     /// [`COMPACTION_TIMEOUT`], or the session ending under it.
     pub fn clear_compaction(&mut self) {
         self.compacting = None;
+    }
+
+    /// EXP-746: the agent's live configuration behind the composer chips.
+    /// `None` = this run publishes none (every PTY run), so no chips render.
+    pub fn config(&self) -> Option<&SessionConfig> {
+        self.config.as_ref()
+    }
+
+    /// EXP-746: the context/spend meter, `None` while unknown.
+    pub fn usage(&self) -> Option<SessionUsage> {
+        self.usage
     }
 
     pub fn answer_state(&self, key: &str) -> Option<&AnswerState> {
@@ -657,6 +702,38 @@ impl SteerFeed {
                     self.push_item(FeedKind::Compaction);
                 }
             },
+            ActivityEvent::ConfigState {
+                options,
+                current_mode,
+                modes,
+                commands,
+                ..
+            } => {
+                // EXP-746: latest-wins, never a row — the publisher always
+                // sends the FULL config, so the whole snapshot replaces the
+                // previous one.
+                self.config = Some(SessionConfig {
+                    options,
+                    current_mode: current_mode.filter(|mode| !mode.trim().is_empty()),
+                    modes: modes.unwrap_or_default(),
+                    commands: commands.unwrap_or_default(),
+                });
+            }
+            ActivityEvent::Usage {
+                context_used,
+                context_size,
+                cost_usd,
+                ..
+            } => {
+                // A zero-size context is the engine saying "unknown" — clear
+                // the meter rather than draw 0/0 (the EXP-688 empty-diff
+                // rule, applied to the other latest-wins slot).
+                self.usage = (context_size > 0).then_some(SessionUsage {
+                    context_used: context_used.max(0),
+                    context_size,
+                    cost_usd,
+                });
+            }
         }
     }
 
@@ -743,6 +820,11 @@ impl SteerFeed {
         self.items.clear();
         self.latest_diff = None;
         self.compacting = None;
+        // EXP-746: the replay reinstates both slots inside the SAME staged
+        // burst (the relay replays its latest-wins entries after the log), so
+        // clearing them here never blanks the chips for a visible moment.
+        self.config = None;
+        self.usage = None;
         self.answers.clear();
         self.echoes.clear();
         if let Some(anchor) = anchor_id {
@@ -1047,6 +1129,7 @@ pub fn summarize_subagent_row(items: &[&FeedItem]) -> SubagentRowSummary {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::frames::ConfigValue;
 
     // Ported from apps/web/src/lib/steer-session-store.test.ts (the reducer
     // half — the socket half lives in `viewer`) and the agent-feed helpers.
@@ -1189,6 +1272,123 @@ mod tests {
         // compacting".
         assert_eq!(feed.compacting(), None);
         assert_eq!(texts(&feed), vec!["replayed".to_string()]);
+    }
+
+    // ── Live config + usage (EXP-746) ──────────────────────────────────────
+
+    fn config_event(model: &str, mode: Option<&str>) -> ActivityEvent {
+        ActivityEvent::ConfigState {
+            options: vec![ConfigOption {
+                value: Some(model.to_string()),
+                values: Some(vec![
+                    ConfigValue::new("opus", "Opus"),
+                    ConfigValue::new("sonnet", "Sonnet"),
+                ]),
+                ..ConfigOption::new("model", "Model")
+            }],
+            current_mode: mode.map(str::to_string),
+            modes: Some(vec![ConfigMode::new("plan", "Plan")]),
+            commands: Some(vec![ConfigCommand::new("review", "Review the diff")]),
+            at: None,
+        }
+    }
+
+    #[test]
+    fn config_state_is_a_slot_not_a_row() {
+        let mut feed = SteerFeed::new();
+        assert_eq!(feed.config(), None);
+        feed.apply(config_event("opus", Some("plan")));
+        let config = feed.config().expect("a config snapshot");
+        assert_eq!(config.options.len(), 1);
+        assert_eq!(config.options[0].value.as_deref(), Some("opus"));
+        assert_eq!(config.current_mode.as_deref(), Some("plan"));
+        assert_eq!(config.modes, vec![ConfigMode::new("plan", "Plan")]);
+        assert_eq!(
+            config.commands,
+            vec![ConfigCommand::new("review", "Review the diff")]
+        );
+        // The chips are state; nothing lands in the transcript.
+        assert!(feed.is_empty());
+        // A blank current_mode is "no mode", not a mode named "".
+        feed.apply(config_event("opus", Some("  ")));
+        assert_eq!(feed.config().unwrap().current_mode, None);
+    }
+
+    #[test]
+    fn a_newer_config_state_replaces_the_snapshot() {
+        let mut feed = SteerFeed::new();
+        feed.apply(config_event("opus", Some("plan")));
+        // The publisher always re-emits the FULL config — an absent modes /
+        // commands list is authoritative, not "keep the old ones".
+        feed.apply(ActivityEvent::ConfigState {
+            options: vec![ConfigOption::new("effort", "Effort")],
+            current_mode: None,
+            modes: None,
+            commands: None,
+            at: None,
+        });
+        let config = feed.config().unwrap();
+        assert_eq!(config.options, vec![ConfigOption::new("effort", "Effort")]);
+        assert_eq!(config.current_mode, None);
+        assert!(config.modes.is_empty());
+        assert!(config.commands.is_empty());
+        assert!(feed.is_empty());
+    }
+
+    #[test]
+    fn usage_is_a_slot_and_a_zero_size_clears_it() {
+        let mut feed = SteerFeed::new();
+        assert_eq!(feed.usage(), None);
+        feed.apply(ActivityEvent::usage(124_000, 200_000, Some(1.25)));
+        assert_eq!(
+            feed.usage(),
+            Some(SessionUsage {
+                context_used: 124_000,
+                context_size: 200_000,
+                cost_usd: Some(1.25),
+            })
+        );
+        assert!(feed.is_empty());
+        feed.apply(ActivityEvent::usage(130_000, 200_000, None));
+        assert_eq!(feed.usage().unwrap().context_used, 130_000);
+        assert_eq!(feed.usage().unwrap().cost_usd, None);
+        // A zero context size is the engine saying "unknown" — clear the
+        // meter rather than draw 0/0.
+        feed.apply(ActivityEvent::usage(0, 0, None));
+        assert_eq!(feed.usage(), None);
+    }
+
+    #[test]
+    fn a_replay_swap_repaints_config_and_usage_from_the_staged_events() {
+        let mut feed = SteerFeed::new();
+        feed.apply(config_event("opus", Some("plan")));
+        feed.apply(ActivityEvent::usage(10, 200, None));
+
+        feed.apply_reset();
+        // Still up while staging — the reset clears nothing on the spot.
+        assert!(feed.config().is_some());
+        assert!(feed.usage().is_some());
+
+        // The relay replays its latest-wins slots after the log, inside the
+        // same staged burst.
+        feed.apply(ActivityEvent::narration("replayed"));
+        feed.apply(config_event("sonnet", None));
+        feed.apply(ActivityEvent::usage(20, 200, Some(0.5)));
+        feed.apply_synced();
+        assert_eq!(
+            feed.config().unwrap().options[0].value.as_deref(),
+            Some("sonnet")
+        );
+        assert_eq!(feed.usage().unwrap().context_used, 20);
+        assert_eq!(texts(&feed), vec!["replayed".to_string()]);
+
+        // A replay that carried NEITHER kind (an old publisher, a PTY run)
+        // leaves both slots empty rather than showing stale chips.
+        feed.apply_reset();
+        feed.apply(ActivityEvent::narration("second"));
+        feed.apply_synced();
+        assert_eq!(feed.config(), None);
+        assert_eq!(feed.usage(), None);
     }
 
     // ── Echo dedupe (EXP-78) ───────────────────────────────────────────────

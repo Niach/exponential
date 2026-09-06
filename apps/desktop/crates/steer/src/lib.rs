@@ -92,18 +92,26 @@ pub use control_channel::{
     RemoteStartSubject, TrpcControlApi,
 };
 pub use activity::{
-    spawn_emitter as spawn_activity_emitter, AnswerLink, CommandLink, CommandSink, EmitterConfig,
-    Redactor, RemoteAnswer, Steering, TurnSignal,
+    clamp_config_state, launch_narration, normalize_compaction_trigger, pump_commands,
+    spawn_emitter as spawn_activity_emitter, stop_now, synthetic_question_id, truncate,
+    truncate_marked, worktree_diff, AnswerLink, CommandLink, CommandSink, ConfigChange, ConfigLink,
+    DiffSnapshots, EmitterConfig, NeedsInputForwarder, NeedsInputHook, Redactor, RemoteAnswer,
+    SessionAgent, Steering, TurnSignal, ANSWER_RETRY_TTL, CONFIG_CATEGORY_MAX,
+    CONFIG_COMMANDS_MAX, CONFIG_DESCRIPTION_MAX, CONFIG_HINT_MAX, CONFIG_ID_MAX, CONFIG_LABEL_MAX,
+    CONFIG_MODES_MAX, CONFIG_OPTIONS_MAX, CONFIG_VALUES_MAX, DIFF_INTERVAL, POLL_INTERVAL,
+    QUESTION_OPTIONS_MAX, STOP_GRACE, TRUNCATION_MARKER,
 };
 pub use feed::{
     active_question_ids, answer_key, collect_subagents, group_feed_rows, summarize_subagent_row,
-    AnswerState, AnswerStatus, FeedItem, FeedItemId, FeedKind, FeedRow, QuestionCard, SteerFeed,
-    SubagentSummary, ANSWER_ACK_TIMEOUT, ECHO_CAP, FEED_CAP, REPLAY_MAX, REPLAY_QUIET,
+    AnswerState, AnswerStatus, FeedItem, FeedItemId, FeedKind, FeedRow, QuestionCard,
+    SessionConfig, SessionUsage, SteerFeed, SubagentSummary, ANSWER_ACK_TIMEOUT, ECHO_CAP,
+    FEED_CAP, REPLAY_MAX, REPLAY_QUIET,
 };
 pub use frames::{
-    ActivityEvent, ClientFrame, QuestionOption, ServerFrame, StartInput, StartRepoGroup,
-    SteerRole, SubagentStatus, ViewerFrame, ACTIVITY_CHANNEL, CLOSE_REPLACED, CLOSE_SESSION_ENDED,
-    CLOSE_SLOW_CONSUMER, CLOSE_UNAUTHORIZED,
+    ActivityEvent, ClientFrame, ConfigCommand, ConfigMode, ConfigOption, ConfigValue,
+    QuestionOption, ServerFrame, StartInput, StartRepoGroup, SteerRole, SubagentStatus,
+    ViewerFrame, ACTIVITY_CHANNEL, CLOSE_REPLACED, CLOSE_SESSION_ENDED, CLOSE_SLOW_CONSUMER,
+    CLOSE_UNAUTHORIZED,
 };
 pub use image_message::{
     build_steer_image_message, image_marker, insert_image_marker, parse_steer_message,

@@ -107,12 +107,32 @@ pub const AGENT_TYPE_MAX: usize = 64;
 /// never rename it without a protocol bump.
 const SUBAGENT_TYPE_FALLBACK: &str = "agent";
 /// Relay-enforced option-count cap; also the range of digit keys we can map.
-pub(crate) const QUESTION_OPTIONS_MAX: usize = 9;
+pub const QUESTION_OPTIONS_MAX: usize = 9;
+
+/// EXP-746 `config_state` caps, mirrored from `protocol.ts`. An over-cap
+/// frame fails the relay's zod and the WHOLE frame is dropped in silence, so
+/// the chips would simply never paint — [`clamp_config_state`] truncates
+/// instead (claude forwards every project skill/custom command, which can
+/// clear 64 rows in a skill-heavy repo).
+pub const CONFIG_OPTIONS_MAX: usize = 8;
+pub const CONFIG_VALUES_MAX: usize = 32;
+pub const CONFIG_MODES_MAX: usize = 12;
+pub const CONFIG_COMMANDS_MAX: usize = 64;
+/// `option.id` / `value.id` / `mode.id` / `command.name` / `currentMode`.
+pub const CONFIG_ID_MAX: usize = 64;
+/// Every label, plus `option.value` (the zod caps both at 128).
+pub const CONFIG_LABEL_MAX: usize = 128;
+/// `mode.description` / `command.description`.
+pub const CONFIG_DESCRIPTION_MAX: usize = 256;
+/// `option.category` — the only 32-byte field of the kind.
+pub const CONFIG_CATEGORY_MAX: usize = 32;
+/// `command.hint`.
+pub const CONFIG_HINT_MAX: usize = 64;
 
 /// Minimum gap between worktree diff snapshots (only emitted when changed).
-pub(crate) const DIFF_INTERVAL: Duration = Duration::from_secs(3);
+pub const DIFF_INTERVAL: Duration = Duration::from_secs(3);
 /// Transcript tail poll cadence (also the answer-intake timeout).
-pub(crate) const POLL_INTERVAL: Duration = Duration::from_secs(1);
+pub const POLL_INTERVAL: Duration = Duration::from_secs(1);
 /// How long an `ExitPlanMode` hook waits for the grid to confirm the approval
 /// picker before the plan is published as a plain narration instead. The
 /// picker normally paints within a frame; this only fires when detection
@@ -154,7 +174,7 @@ pub(crate) const PLAN_SUBMIT_PROBE: Duration = Duration::from_millis(500);
 /// derived from this budget: retry TTL (4s) + [`ANSWER_SETTLE`] (2s) +
 /// [`PLAN_SUBMIT_PROBE`] (0.5s) + ~1.5s tick/relay margin. Grow them in
 /// lockstep or a worst-case ack lands after the card already flashed "Failed".
-pub(crate) const ANSWER_RETRY_TTL: Duration = Duration::from_secs(4);
+pub const ANSWER_RETRY_TTL: Duration = Duration::from_secs(4);
 /// Gap between injected keystrokes — the TUI processes one key per render.
 const KEYSTROKE_GAP: Duration = Duration::from_millis(60);
 /// Newest subagent sidechain transcripts tailed at once (a Task fan-out can
@@ -1340,7 +1360,7 @@ const SYNTHETIC_ID_TEXT_SEED: usize = 256;
 ///
 /// `ordinal` disambiguates two cards whose text is genuinely identical (the
 /// same picker re-asked later in the run); pass a per-session counter.
-pub(crate) fn synthetic_question_id(
+pub fn synthetic_question_id(
     session: &str,
     kind: &str,
     text: &str,
@@ -1829,7 +1849,7 @@ fn attribute_to_card(event: ActivityEvent, subagents: &Subagents) -> ActivityEve
 /// `None` = git itself failed (an index lock mid-commit, a rebase in flight,
 /// a vanished worktree): the caller keeps its last answer rather than
 /// publishing an authoritative empty diff off a transient error.
-pub(crate) fn worktree_diff(worktree: &Path, base_ref: Option<&str>) -> Option<String> {
+pub fn worktree_diff(worktree: &Path, base_ref: Option<&str>) -> Option<String> {
     if let Some(base) = base_ref.map(str::trim).filter(|base| !base.is_empty()) {
         if let Some(merge_base) = git_merge_base(worktree, base) {
             return git_out(worktree, &["diff", &merge_base]);
@@ -2074,6 +2094,123 @@ impl CommandLink {
     }
 }
 
+// ---------------------------------------------------------------------------
+// The publisher ↔ ENGINE live-config seam (EXP-746)
+// ---------------------------------------------------------------------------
+
+/// EXP-746: one live-config change from a steerer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ConfigChange {
+    /// `set_config` — the option id and the value in force from now on. A
+    /// BLANK value is the "CLI default / omit the flag" choice.
+    Option { id: String, value: String },
+    /// `set_mode` — one of the ids the publisher advertised in
+    /// `config_state.modes`.
+    Mode { id: String },
+}
+
+/// The publisher ↔ ENGINE seam for live config, sibling of [`AnswerLink`] and
+/// [`CommandLink`] (EXP-746).
+///
+/// The publisher only ROUTES: it has no ACP session and cannot know whether a
+/// model even exists. The engine drains this, calls `session/set_config_option`
+/// or `session/set_mode`, and re-emits `config_state` — that re-emit is the
+/// ONLY confirmation the wire has, which is why nothing here acks and nothing
+/// blocks.
+///
+/// One `Arc` is shared by both sides (the receiver lives inside), so the
+/// wiring builds it once and hands the same handle to
+/// [`crate::publisher::PublisherHooks`] and the engine.
+pub struct ConfigLink {
+    tx: flume::Sender<ConfigChange>,
+    rx: flume::Receiver<ConfigChange>,
+}
+
+impl ConfigLink {
+    pub fn new() -> Arc<Self> {
+        let (tx, rx) = flume::unbounded();
+        Arc::new(Self { tx, rx })
+    }
+
+    /// Publisher side: hand one change to the engine (fire-and-forget — a
+    /// dead engine just means it never applies).
+    pub fn submit(&self, change: ConfigChange) {
+        let _ = self.tx.send(change);
+    }
+
+    /// Engine side: the next queued change, if any.
+    pub fn try_recv(&self) -> Option<ConfigChange> {
+        self.rx.try_recv().ok()
+    }
+
+    /// Engine side: the receiver for its own `select!` arm.
+    pub fn receiver(&self) -> flume::Receiver<ConfigChange> {
+        self.rx.clone()
+    }
+}
+
+/// EXP-746: clamp an [`ActivityEvent::ConfigState`] to the relay's zod caps.
+/// A no-op for every other kind.
+///
+/// An over-cap frame does NOT degrade — `activityEventSchema` is a
+/// discriminated union, so the relay drops the whole frame in silence and the
+/// viewer's chips never paint at all. Truncating is always the better answer:
+/// a shortened label still names the model, and a 65th agent command is one a
+/// `/` menu filtered by draft would rarely have shown anyway.
+pub fn clamp_config_state(event: &mut ActivityEvent) {
+    let ActivityEvent::ConfigState {
+        options,
+        current_mode,
+        modes,
+        commands,
+        ..
+    } = event
+    else {
+        return;
+    };
+    options.truncate(CONFIG_OPTIONS_MAX);
+    for option in options.iter_mut() {
+        option.id = truncate(&option.id, CONFIG_ID_MAX);
+        option.label = truncate(&option.label, CONFIG_LABEL_MAX);
+        if let Some(category) = &mut option.category {
+            *category = truncate(category, CONFIG_CATEGORY_MAX);
+        }
+        if let Some(value) = &mut option.value {
+            *value = truncate(value, CONFIG_LABEL_MAX);
+        }
+        if let Some(values) = &mut option.values {
+            values.truncate(CONFIG_VALUES_MAX);
+            for value in values.iter_mut() {
+                value.id = truncate(&value.id, CONFIG_ID_MAX);
+                value.label = truncate(&value.label, CONFIG_LABEL_MAX);
+            }
+        }
+    }
+    if let Some(mode) = current_mode {
+        *mode = truncate(mode, CONFIG_ID_MAX);
+    }
+    if let Some(modes) = modes {
+        modes.truncate(CONFIG_MODES_MAX);
+        for mode in modes.iter_mut() {
+            mode.id = truncate(&mode.id, CONFIG_ID_MAX);
+            mode.label = truncate(&mode.label, CONFIG_LABEL_MAX);
+            if let Some(description) = &mut mode.description {
+                *description = truncate(description, CONFIG_DESCRIPTION_MAX);
+            }
+        }
+    }
+    if let Some(commands) = commands {
+        commands.truncate(CONFIG_COMMANDS_MAX);
+        for command in commands.iter_mut() {
+            command.name = truncate(&command.name, CONFIG_ID_MAX);
+            command.description = truncate(&command.description, CONFIG_DESCRIPTION_MAX);
+            if let Some(hint) = &mut command.hint {
+                *hint = truncate(hint, CONFIG_HINT_MAX);
+            }
+        }
+    }
+}
+
 /// Everything the emitter needs to ACT on a remote answer: the inbox, the flag
 /// channel back to the publisher, and the PTY writer the keystrokes go into
 /// (the same `Terminal::writer()` local typing uses — the child cannot tell
@@ -2210,7 +2347,7 @@ pub(crate) fn dispatch_command(
 /// command at all, and pi's `input` event never fires for one — so without
 /// this the steerer's own command would simply never appear in the feed.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn pump_commands(
+pub fn pump_commands(
     parked: &mut Vec<(crate::commands::ParsedCommand, Instant)>,
     link: &CommandLink,
     picker_pending: bool,
@@ -2722,7 +2859,7 @@ const LOGIN_DRIFT_WINDOW: Duration = Duration::from_secs(15);
 /// The relay's schema accepts `manual` | `auto` ONLY (pi reports
 /// `threshold`/`overflow`, a future claude could report anything else), and
 /// an unknown trigger would sever the publisher socket.
-pub(crate) fn normalize_compaction_trigger(trigger: Option<&str>) -> Option<&'static str> {
+pub fn normalize_compaction_trigger(trigger: Option<&str>) -> Option<&'static str> {
     match trigger {
         None => None,
         Some(trigger) if trigger.eq_ignore_ascii_case("manual") => Some("manual"),
@@ -4204,6 +4341,14 @@ pub enum SessionAgent {
     Claude,
     Codex,
     Pi,
+    /// EXP-746 (D13): a user-configured ACP agent binary. Deliberately
+    /// NEUTRAL everywhere the other three get per-agent treatment — its
+    /// [`crate::commands::catalog_for`] is empty (the contract knows no such
+    /// agent, so the `/` menu carries only what the agent itself advertises
+    /// through `config_state.commands`), and the codex sigil guard stays
+    /// codex-only. There is no PTY emitter for it: an external agent only
+    /// ever runs on the ACP path.
+    External,
 }
 
 /// What the emitter needs to run: the worktree to tail/diff, plus the live
@@ -4350,6 +4495,23 @@ impl TurnSignal {
     }
 }
 
+/// EXP-637: how long an agent-declared end waits for the turn to finish
+/// before it tears down anyway. Generous: the wait costs nothing while the
+/// agent is still producing the output the user wants to read, and the
+/// fallback only exists for agents whose idle edge never arrives (a hookless
+/// claude, a crashed emitter).
+///
+/// EXP-746 moved it here from `ui::graceful_stop` so the ACP engine — which
+/// is gpui-free and hosts the same teardown for the CLI daemon — obeys the
+/// same bound as the desktop; `ui::graceful_stop` re-exports both.
+pub const STOP_GRACE: Duration = Duration::from_secs(60);
+
+/// Should the teardown proceed NOW? Pure, so the policy is testable without a
+/// runtime: the agent is between turns, or the grace period ran out.
+pub fn stop_now(idle: bool, elapsed: Duration) -> bool {
+    idle || elapsed >= STOP_GRACE
+}
+
 /// Start the public activity emitter on a dedicated OS thread. `active` is the
 /// shared run flag — flip it to `false` (on session teardown) to stop the
 /// emitter promptly. Returns immediately; the thread self-terminates when
@@ -4361,6 +4523,14 @@ pub fn spawn_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<
             SessionAgent::Claude => run_emitter(config, sender, active),
             SessionAgent::Codex => crate::codex_activity::run_emitter(config, sender, active),
             SessionAgent::Pi => crate::pi_activity::run_emitter(config, sender, active),
+            // EXP-746: an external ACP agent has no transcript to tail and no
+            // TUI grid to scrape — the engine publishes its activity itself.
+            // Reaching here means a PTY launch was wired for an agent that
+            // cannot run on the PTY path; log and stop rather than spin a
+            // thread that would find nothing.
+            SessionAgent::External => {
+                log::warn!("activity: no PTY emitter for an external ACP agent — skipping");
+            }
         })
         .map(|_| ())
         .unwrap_or_else(|err| log::warn!("activity: emitter thread spawn failed: {err}"));
@@ -4368,49 +4538,59 @@ pub fn spawn_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<
 
 /// The debounced changed-only worktree diff snapshot — step 8 of every
 /// emitter, extracted verbatim so the codex/pi emitters share it (EXP-383).
-pub(crate) struct DiffSnapshots {
+pub struct DiffSnapshots {
     last: String,
     last_at: Option<Instant>,
 }
 
 impl DiffSnapshots {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             last: String::new(),
             last_at: None,
         }
     }
 
-    pub(crate) fn tick(
+    /// EXP-746: the whole rule WITHOUT a sink — the ACP engine drives its own
+    /// loop and routes the event to the publisher AND to the local feed, so
+    /// it cannot hand a bare [`ActivitySender`] over. `None` means "nothing
+    /// to publish this tick" (not due, git failed, or the diff is unchanged).
+    /// [`Self::tick`] is this plus the send.
+    pub fn next_diff(
         &mut self,
         worktree: &Path,
         base_ref: Option<&str>,
-        sender: &ActivitySender,
         redactor: &Redactor,
-    ) {
+    ) -> Option<ActivityEvent> {
         let due = self.last_at.is_none_or(|at| at.elapsed() >= DIFF_INTERVAL);
         if !due {
-            return;
+            return None;
         }
         self.last_at = Some(Instant::now());
         // A git failure (index lock, rebase in flight) is not an empty diff:
         // keep the last answer and try again next tick.
-        let Some(diff) = worktree_diff(worktree, base_ref) else {
-            return;
-        };
+        let diff = worktree_diff(worktree, base_ref)?;
         if diff == self.last {
-            return;
+            return None;
         }
         let had_diff = !self.last.is_empty();
         self.last = diff.clone();
         // EXP-688: a diff that goes EMPTY publishes an explicit empty frame
         // (the wire allows `""`, and every client treats it as "no diff").
         // Sending nothing left viewers looking at a stale patch forever.
-        if !diff.is_empty() || had_diff {
-            sender.send(ActivityEvent::diff(truncate(
-                &redactor.redact(&diff),
-                DIFF_MAX,
-            )));
+        (!diff.is_empty() || had_diff)
+            .then(|| ActivityEvent::diff(truncate(&redactor.redact(&diff), DIFF_MAX)))
+    }
+
+    pub fn tick(
+        &mut self,
+        worktree: &Path,
+        base_ref: Option<&str>,
+        sender: &ActivitySender,
+        redactor: &Redactor,
+    ) {
+        if let Some(event) = self.next_diff(worktree, base_ref, redactor) {
+            sender.send(event);
         }
     }
 }
@@ -4420,22 +4600,22 @@ impl DiffSnapshots {
 /// is born with the flag off. Forwarded on flips; an unconfirmed write
 /// re-attempts every [`NEEDS_INPUT_RETRY`] (EXP-355). Extracted verbatim from
 /// the claude emitter so the codex/pi emitters share it (EXP-383).
-pub(crate) struct NeedsInputForwarder {
+pub struct NeedsInputForwarder {
     forwarded: Option<bool>,
     retry_at: Option<Instant>,
 }
 
-pub(crate) type NeedsInputHook = Arc<dyn Fn(bool) -> bool + Send + Sync>;
+pub type NeedsInputHook = Arc<dyn Fn(bool) -> bool + Send + Sync>;
 
 impl NeedsInputForwarder {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             forwarded: Some(false),
             retry_at: None,
         }
     }
 
-    pub(crate) fn tick(&mut self, pending: bool, hook: &Option<NeedsInputHook>) {
+    pub fn tick(&mut self, pending: bool, hook: &Option<NeedsInputHook>) {
         if self.forwarded != Some(pending) && self.retry_at.is_none_or(|at| Instant::now() >= at) {
             let landed = match hook {
                 Some(hook) => hook(pending),
@@ -4448,7 +4628,7 @@ impl NeedsInputForwarder {
 
     /// Teardown tidiness: never leave the synced attention flag stuck on a
     /// session whose emitter is gone (the terminal-exit `end` supersedes).
-    pub(crate) fn clear_on_teardown(&mut self, hook: &Option<NeedsInputHook>) {
+    pub fn clear_on_teardown(&mut self, hook: &Option<NeedsInputHook>) {
         if self.forwarded != Some(false) {
             if let Some(hook) = hook {
                 hook(false);
@@ -4463,7 +4643,7 @@ impl NeedsInputForwarder {
 /// absence) answers that from any client, with no wire or client changes
 /// (static strings, no Redactor pass needed; the only client-matched
 /// narrations are the PLAN_RESOLVED/QUESTION_* constants).
-pub(crate) fn launch_narration(bypass_permissions: bool, plan_mode: bool) -> &'static str {
+pub fn launch_narration(bypass_permissions: bool, plan_mode: bool) -> &'static str {
     match (bypass_permissions, plan_mode) {
         (true, _) => "Session started · permissions skipped",
         (false, true) => "Session started · plan mode",
@@ -5313,7 +5493,7 @@ pub(crate) fn tail_transcript(
 /// so the byte cap is the strictest of the three. (A char-count cap let
 /// CJK/emoji-heavy diffs through at up to 4x the byte budget, and the relay
 /// answered an oversize frame by severing the shared publisher socket.)
-pub(crate) fn truncate(s: &str, max: usize) -> String {
+pub fn truncate(s: &str, max: usize) -> String {
     if s.len() <= max {
         return s.to_string();
     }
@@ -5327,11 +5507,11 @@ pub(crate) fn truncate(s: &str, max: usize) -> String {
 /// Appended when [`truncate_marked`] cuts a string — an unmarked hard cut
 /// read as the text simply ENDING mid-sentence (EXP-691: a long plan looked
 /// finished but wasn't).
-pub(crate) const TRUNCATION_MARKER: &str = "\n\n[truncated]";
+pub const TRUNCATION_MARKER: &str = "\n\n[truncated]";
 
 /// [`truncate`], but a cut string ends in [`TRUNCATION_MARKER`] (still within
 /// `max` bytes) so viewers can tell truncation from completion.
-pub(crate) fn truncate_marked(s: &str, max: usize) -> String {
+pub fn truncate_marked(s: &str, max: usize) -> String {
     if s.len() <= max {
         return s.to_string();
     }
@@ -5467,6 +5647,179 @@ mod tests {
         diffs.last_at = None;
         diffs.tick(&repo.0, None, &sender, &redactor);
         assert!(rx.try_recv().is_err(), "an unchanged empty diff is silent");
+    }
+
+    /// EXP-746: `next_diff` is the same rule with the send taken out, so the
+    /// ACP engine can route the event to the publisher AND its local feed.
+    /// Mirrors the sink-driven test above answer for answer.
+    #[test]
+    fn next_diff_returns_what_tick_would_have_published() {
+        let repo = DiffRepo::new("diff-next");
+        let redactor = Redactor::new(Vec::new());
+        let mut diffs = DiffSnapshots::new();
+
+        repo.write("base.txt", "a\nwip\n");
+        match diffs.next_diff(&repo.0, None, &redactor) {
+            Some(ActivityEvent::Diff { diff, .. }) => assert!(diff.contains("wip"), "{diff}"),
+            other => panic!("expected a diff event, got {other:?}"),
+        }
+
+        // The same 3s debounce, and it lives in `next_diff`, not in `tick`.
+        assert!(
+            diffs.next_diff(&repo.0, None, &redactor).is_none(),
+            "the 3s debounce still holds"
+        );
+
+        // EXP-688: the clear is an explicit empty event, not silence.
+        repo.commit("committed");
+        diffs.last_at = None;
+        match diffs.next_diff(&repo.0, None, &redactor) {
+            Some(ActivityEvent::Diff { diff, .. }) => {
+                assert_eq!(diff, "", "an empty event clears the viewer")
+            }
+            other => panic!("expected an empty diff event, got {other:?}"),
+        }
+
+        diffs.last_at = None;
+        assert!(
+            diffs.next_diff(&repo.0, None, &redactor).is_none(),
+            "an unchanged empty diff is silent"
+        );
+    }
+
+    /// EXP-746: an over-cap `config_state` must be TRUNCATED, never left to
+    /// the relay — `activityEventSchema` is a discriminated union, so one
+    /// oversize label drops the whole frame in silence and the viewer's chips
+    /// never paint at all.
+    #[test]
+    fn config_state_over_cap_is_truncated_not_dropped() {
+        use crate::frames::{ConfigCommand, ConfigMode, ConfigOption, ConfigValue};
+
+        let long = "x".repeat(1000);
+        let mut event = ActivityEvent::ConfigState {
+            options: (0..CONFIG_OPTIONS_MAX + 3)
+                .map(|i| ConfigOption {
+                    category: Some(long.clone()),
+                    value: Some(long.clone()),
+                    values: Some(
+                        (0..CONFIG_VALUES_MAX + 5)
+                            .map(|j| ConfigValue::new(format!("v{j}{long}"), long.clone()))
+                            .collect(),
+                    ),
+                    ..ConfigOption::new(format!("o{i}{long}"), long.clone())
+                })
+                .collect(),
+            current_mode: Some(long.clone()),
+            modes: Some(
+                (0..CONFIG_MODES_MAX + 4)
+                    .map(|i| ConfigMode {
+                        description: Some(long.clone()),
+                        ..ConfigMode::new(format!("m{i}{long}"), long.clone())
+                    })
+                    .collect(),
+            ),
+            commands: Some(
+                (0..CONFIG_COMMANDS_MAX + 20)
+                    .map(|i| ConfigCommand {
+                        hint: Some(long.clone()),
+                        ..ConfigCommand::new(format!("c{i}{long}"), long.clone())
+                    })
+                    .collect(),
+            ),
+            at: None,
+        };
+        clamp_config_state(&mut event);
+
+        let ActivityEvent::ConfigState {
+            options,
+            current_mode,
+            modes,
+            commands,
+            ..
+        } = &event
+        else {
+            panic!("still a config_state");
+        };
+        assert_eq!(options.len(), CONFIG_OPTIONS_MAX);
+        assert_eq!(modes.as_ref().unwrap().len(), CONFIG_MODES_MAX);
+        assert_eq!(commands.as_ref().unwrap().len(), CONFIG_COMMANDS_MAX);
+        assert_eq!(current_mode.as_ref().unwrap().len(), CONFIG_ID_MAX);
+        for option in options {
+            assert_eq!(option.id.len(), CONFIG_ID_MAX);
+            assert_eq!(option.label.len(), CONFIG_LABEL_MAX);
+            assert_eq!(option.category.as_ref().unwrap().len(), CONFIG_CATEGORY_MAX);
+            assert_eq!(option.value.as_ref().unwrap().len(), CONFIG_LABEL_MAX);
+            let values = option.values.as_ref().unwrap();
+            assert_eq!(values.len(), CONFIG_VALUES_MAX);
+            assert!(values
+                .iter()
+                .all(|v| v.id.len() == CONFIG_ID_MAX && v.label.len() == CONFIG_LABEL_MAX));
+        }
+        assert!(modes.as_ref().unwrap().iter().all(|mode| {
+            mode.id.len() == CONFIG_ID_MAX
+                && mode.label.len() == CONFIG_LABEL_MAX
+                && mode.description.as_ref().unwrap().len() == CONFIG_DESCRIPTION_MAX
+        }));
+        assert!(commands.as_ref().unwrap().iter().all(|command| {
+            command.name.len() == CONFIG_ID_MAX
+                && command.description.len() == CONFIG_DESCRIPTION_MAX
+                && command.hint.as_ref().unwrap().len() == CONFIG_HINT_MAX
+        }));
+        // Ids survive as PREFIXES: the engine still recognises the option a
+        // `set_config` names (truncation is a byte cut, not a rewrite).
+        assert!(options[0].id.starts_with("o0"));
+        // Every other kind passes through untouched.
+        let mut narration = ActivityEvent::narration("untouched");
+        clamp_config_state(&mut narration);
+        assert_eq!(narration, ActivityEvent::narration("untouched"));
+    }
+
+    /// EXP-746: the publisher→engine seam is a plain queue — submit, drain,
+    /// nothing acks (the re-emitted `config_state` is the confirmation).
+    #[test]
+    fn the_config_link_queues_changes_for_the_engine() {
+        let link = ConfigLink::new();
+        assert_eq!(link.try_recv(), None);
+        link.submit(ConfigChange::Option {
+            id: "model".to_string(),
+            value: String::new(),
+        });
+        link.submit(ConfigChange::Mode {
+            id: "plan".to_string(),
+        });
+        assert_eq!(
+            link.try_recv(),
+            Some(ConfigChange::Option {
+                id: "model".to_string(),
+                // A blank value is the "CLI default" choice and must survive
+                // the seam intact.
+                value: String::new(),
+            })
+        );
+        assert_eq!(
+            link.receiver().try_recv().ok(),
+            Some(ConfigChange::Mode {
+                id: "plan".to_string(),
+            })
+        );
+        assert_eq!(link.try_recv(), None);
+    }
+
+    /// EXP-637 (moved here by EXP-746, `ui::graceful_stop` re-exports it).
+    #[test]
+    fn stop_now_waits_for_idle_but_never_past_the_grace() {
+        // Mid-turn: wait.
+        assert!(!stop_now(false, Duration::ZERO));
+        assert!(!stop_now(false, STOP_GRACE - Duration::from_millis(1)));
+        // Between turns: go, however early.
+        assert!(stop_now(true, Duration::ZERO));
+        // A turn that never ends must not park the teardown forever.
+        assert!(stop_now(false, STOP_GRACE));
+        assert!(stop_now(false, STOP_GRACE + Duration::from_secs(60)));
+        // The grace has to be long enough for a real close-out message and
+        // short enough that a hung agent's tab still resolves while someone
+        // is watching it.
+        assert_eq!(STOP_GRACE, Duration::from_secs(60));
     }
 
     /// EXP-637: the graceful-stop signal. Already-idle subscribers fire

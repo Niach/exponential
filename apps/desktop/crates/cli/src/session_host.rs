@@ -272,6 +272,7 @@ pub fn launch(
                 worktree.join(coding::launcher::STEER_IMAGES_DIR),
             )),
             commands: Some(Arc::clone(&command_link)),
+            config: None,
         };
         let tickets: Arc<dyn PublisherTickets> = Arc::new(TrpcPublisherTickets {
             trpc: Arc::clone(&env.ctx.trpc),

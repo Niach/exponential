@@ -207,6 +207,7 @@ fn main() {
         text_sink: None,
         attachments: None,
         commands: None,
+        config: None,
     };
     let handle = publish(
         &runtime,
