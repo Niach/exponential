@@ -16,7 +16,10 @@ import {
   agentSupportsPlanMode,
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
-import type { SteerDevice } from "@/lib/steer-devices"
+import {
+  deviceAgentRunsInTerminal,
+  type SteerDevice,
+} from "@/lib/steer-devices"
 
 // The options column of the unified launch dialog (EXP-257) — a
 // presentational extraction of the Start-coding dialog's right half: device
@@ -121,6 +124,13 @@ type AgentOptionsFieldsProps = {
   onModelChange: (model: string) => void
   effortValue: string
   onEffortChange: (effort: string) => void
+  /**
+   * EXP-749: the machine the run lands on. Pickers never FILTER on what it
+   * can drive over ACP — an agent outside its ACP set still starts, just in a
+   * terminal tab — so the only thing this changes is the one-line hint under
+   * the strip. Absent (or a build that never reported) = no hint.
+   */
+  device?: SteerDevice
 } & (
   | ({ variant?: `launch` } & LaunchToggleProps)
   | { variant: `automation` }
@@ -140,6 +150,7 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
     onModelChange,
     effortValue,
     onEffortChange,
+    device,
   } = props
   const automation = props.variant === `automation`
   const toggles = props.variant === `automation` ? null : props
@@ -186,6 +197,13 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
             )
           })}
         </GlassTabsRow>
+      )}
+      {deviceAgentRunsInTerminal(device, agent) && (
+        /* EXP-749: not a warning and not a gate — the run starts either way,
+           it just opens as a terminal tab on that machine. */
+        <div className="px-4 py-2 text-[0.6875rem] text-muted-foreground">
+          {`Runs in a terminal tab on ${device!.deviceLabel || device!.deviceId}.`}
+        </div>
       )}
       <GlassPickerRow
         label="Model"
@@ -331,6 +349,7 @@ export function LaunchOptionsPane({
       )}
       <AgentOptionsFields
         idPrefix="start-coding"
+        device={device}
         agent={agent}
         availableAgents={availableAgents}
         onAgentChange={onAgentChange}

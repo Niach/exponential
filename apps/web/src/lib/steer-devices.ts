@@ -27,6 +27,12 @@ export interface SteerDevice {
   /** EXP-409: agents installed but signed out on the machine — never
    * offered in pickers; shown with a "sign in" hint instead. */
   unauthedAgents?: string[]
+  /** EXP-749: the subset of `agents` the machine's ACP engine can drive.
+   * `null`/absent = the build never reported (pre-EXP-749): assume every
+   * runnable agent is ACP-ready, the old behaviour. A runnable agent MISSING
+   * from this list still starts — on that machine it runs in a terminal tab,
+   * and pickers say so rather than filtering it away. */
+  acpAgents?: string[] | null
   /** EXP-253: launch capabilities beyond issue coding (e.g. `actions`);
    * absent = an older desktop with none. */
   caps?: string[]
@@ -149,6 +155,33 @@ export function deviceAgentIds(device: SteerDevice | undefined): string[] {
   )
 }
 
+/** EXP-749: the agents the device drives over ACP, contract-filtered like
+ * `deviceAgentIds`. `null` = the machine never reported (an older build):
+ * callers assume every runnable agent is ACP-ready. An EMPTY array is a real
+ * answer — that machine drives nothing over ACP and runs every start on the
+ * terminal transport. */
+export function deviceAcpAgentIds(
+  device: SteerDevice | undefined
+): string[] | null {
+  const reported = device?.acpAgents
+  if (reported === undefined || reported === null) return null
+  return reported.filter((a) => contract.codingAgent.values.includes(a))
+}
+
+/** EXP-749: starting `agent` on this device lands in a TERMINAL tab rather
+ * than on the session screen — it is runnable there but outside the machine's
+ * ACP set. Unknown (older build) = false: assume the ACP path and say
+ * nothing. */
+export function deviceAgentRunsInTerminal(
+  device: SteerDevice | undefined,
+  agent: string
+): boolean {
+  if (!agent) return false
+  const acp = deviceAcpAgentIds(device)
+  if (acp === null) return false
+  return deviceAgentIds(device).includes(agent) && !acp.includes(agent)
+}
+
 /** EXP-409: agents installed but signed out on the device. */
 export function deviceUnauthedAgentIds(device: SteerDevice | undefined): string[] {
   return (device?.unauthedAgents ?? []).filter((a) =>
@@ -221,6 +254,7 @@ export function steerDeviceFromRow(
     platform: row.platform,
     agents: row.agents,
     unauthedAgents: row.unauthedAgents,
+    acpAgents: row.acpAgents,
     caps: row.caps,
     launchDefaults: row.launchDefaults ?? undefined,
     agentAccounts: row.agentAccounts ?? undefined,
