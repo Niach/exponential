@@ -70,6 +70,25 @@ export const byeFrame = z.object({
   outcome: z.string().max(64).optional(),
 })
 
+// EXP-746 steering v2: the viewer changes ONE live agent option (model,
+// effort, a thinking toggle) by naming the option id and the new value the
+// publisher last advertised in `config_state`. FIRE-AND-FORGET: there is no
+// ack frame — the publisher re-emits `config_state` once it applied, and that
+// repaint IS the confirmation. Gated exactly like input/answer/kill.
+export const setConfigFrame = z.object({
+  t: z.literal(`set_config`),
+  id: z.string().min(1).max(64),
+  // NO `.min(1)`: a BLANK value is the "CLI default / omit the flag" choice
+  // the launch vocabulary already speaks (agentAllowsBlankModel).
+  value: z.string().max(128),
+})
+
+// EXP-746: switch to one of the ids `config_state.modes[]` advertised.
+export const setModeFrame = z.object({
+  t: z.literal(`set_mode`),
+  id: z.string().min(1).max(64),
+})
+
 // Publisher → relay: one activity event (the authenticated member activity
 // channel). The desktop emits these from the Claude session transcript +
 // worktree diffs, ALREADY REDACTED (known-secret masking + gitleaks-style
@@ -85,6 +104,8 @@ export const byeFrame = z.object({
 //   subagent:          subagent lifecycle     { kind, id, agentType, status }
 //   permission:        informational prompt   { kind, tool, detail? }  (NOT answerable)
 //   compaction:        context compaction     { kind, phase, trigger? }  (started|ended)
+//   config_state:      live agent config      { kind, options[], currentMode?, modes[]?, commands[]? }  (latest replaces prior)
+//   usage:             context + spend meter  { kind, contextUsed, contextSize, costUsd? }              (latest replaces prior)
 export const questionOptionSchema = z.object({
   label: z.string().max(256),
   // The `keys` member of the answer frame that picks this option — the
@@ -202,6 +223,76 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
     trigger: z.enum([`manual`, `auto`]).optional(),
     at: z.number().optional(),
   }),
+  // EXP-746: the agent's LIVE configuration as the engine knows it — the chip
+  // VOCABULARY and the values in force, re-emitted in full whenever anything
+  // changes (a set_config/set_mode that landed, a model the agent switched
+  // itself, an ACP current_mode_update / available_commands_update).
+  // LATEST-WINS STATE, not a transcript row: the relay keeps only the newest
+  // one per room and replays it after the log, so a joining viewer paints its
+  // chips from one frame. Every field must be declared here — the relay
+  // re-serializes the PARSED event, so an undeclared field is silently
+  // stripped.
+  z.object({
+    kind: z.literal(`config_state`),
+    options: z
+      .array(
+        z.object({
+          id: z.string().min(1).max(64),
+          label: z.string().max(128),
+          // Grouping hint for the chip row (`model`, `effort`, …); a client
+          // that doesn't know it renders one chip per option.
+          category: z.string().max(32).optional(),
+          // In force right now; blank = the CLI's own default.
+          value: z.string().max(128).optional(),
+          // Absent = read-only on this run (render the value, offer no menu).
+          values: z
+            .array(
+              z.object({
+                id: z.string().min(1).max(64),
+                label: z.string().max(128),
+              })
+            )
+            .max(32)
+            .optional(),
+        })
+      )
+      .max(8),
+    currentMode: z.string().max(64).optional(),
+    modes: z
+      .array(
+        z.object({
+          id: z.string().min(1).max(64),
+          label: z.string().max(128),
+          description: z.string().max(256).optional(),
+        })
+      )
+      .max(12)
+      .optional(),
+    // ACP available_commands_update: the AGENT's own slash commands. The `/`
+    // menu shows the contract catalog UNION these (contract first).
+    commands: z
+      .array(
+        z.object({
+          name: z.string().min(1).max(64),
+          description: z.string().max(256),
+          hint: z.string().max(64).optional(),
+        })
+      )
+      .max(64)
+      .optional(),
+    at: z.number().optional(),
+  }),
+  // EXP-746: the run's context window + spend as the engine last measured it.
+  // LATEST-WINS state like `config_state` — never a feed row. Deliberately a
+  // TOKEN count, not a percent: the device-reported DeviceUsageWindow already
+  // owns the 0-100 rate-limit vocabulary and this is a different quantity.
+  z.object({
+    kind: z.literal(`usage`),
+    contextUsed: z.number().int().min(0).max(1_000_000_000),
+    contextSize: z.number().int().min(0).max(1_000_000_000),
+    costUsd: z.number().min(0).max(1_000_000).optional(),
+    at: z.number().optional(),
+  }),
 ])
 
 export type ActivityEvent = z.infer<typeof activityEventSchema>
@@ -225,6 +316,8 @@ export const clientFrame = z.discriminatedUnion(`t`, [
   inputFrame,
   answerFrame,
   killFrame,
+  setConfigFrame,
+  setModeFrame,
   byeFrame,
   activityFrame,
   activityResetFrame,
@@ -324,6 +417,10 @@ export type ServerFrame =
     }
   | { t: `input`; data: string } // viewer keystrokes, relay → publisher
   | { t: `answer`; questionId: string; askId?: string; keys: string[]; text?: string } // relay → publisher
+  // EXP-746: live-config steering, relay → publisher. Fire-and-forget — the
+  // publisher's next `config_state` is the only confirmation there is.
+  | { t: `set_config`; id: string; value: string }
+  | { t: `set_mode`; id: string }
   | { t: `kill` }
   // EXP-481: fire-and-forget check-in nudge to a device's control socket —
   // the web server persisted new work (a queued command, edited launch

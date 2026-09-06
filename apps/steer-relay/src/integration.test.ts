@@ -267,6 +267,75 @@ describe(`steer relay end-to-end`, () => {
       event: { kind: `narration`, text: `republished` },
     })
 
+    // EXP-746: config_state and usage are latest-wins STATE — the room keeps
+    // only the newest of each, out of the log, and replays them AFTER it, so
+    // a late joiner paints its chips and meter from one frame apiece.
+    const configState = {
+      kind: `config_state`,
+      options: [
+        {
+          id: `model`,
+          label: `Model`,
+          category: `model`,
+          value: `opus`,
+          values: [
+            { id: `opus`, label: `Opus` },
+            { id: `sonnet`, label: `Sonnet` },
+          ],
+        },
+      ],
+      currentMode: `plan`,
+      modes: [{ id: `plan`, label: `Plan`, description: `Read-only` }],
+      commands: [{ name: `compact`, description: `Compact the context` }],
+    }
+    const usage = {
+      kind: `usage`,
+      contextUsed: 124_000,
+      contextSize: 200_000,
+      costUsd: 1.24,
+    }
+    pub.send(JSON.stringify({ t: `activity`, event: { ...configState, currentMode: `code` } }))
+    expect(await memberIn.nextJson()).toMatchObject({ t: `activity` })
+    pub.send(JSON.stringify({ t: `activity`, event: configState }))
+    expect(await memberIn.nextJson()).toEqual({ t: `activity`, event: configState })
+    pub.send(JSON.stringify({ t: `activity`, event: usage }))
+    expect(await memberIn.nextJson()).toEqual({ t: `activity`, event: usage })
+
+    const late = await connect(
+      ticket({ role: `viewer`, sub: `late-user`, sessionId })
+    )
+    const lateIn = collector(late)
+    late.send(JSON.stringify({ t: `join`, channel: `activity` }))
+    expect(await lateIn.nextJson()).toEqual({ t: `activity_reset` })
+    expect(await lateIn.nextJson()).toMatchObject({
+      t: `activity`,
+      event: { kind: `narration`, text: `republished` },
+    })
+    // The newest snapshot only, and after the log.
+    expect(await lateIn.nextJson()).toEqual({ t: `activity`, event: configState })
+    expect(await lateIn.nextJson()).toEqual({ t: `activity`, event: usage })
+    expect(await lateIn.nextJson()).toEqual({ t: `activity_synced` })
+    late.close()
+
+    // EXP-746: live-config steering rides the same viewer gate, and a BLANK
+    // value (the "CLI default" choice) survives the round trip.
+    member.send(
+      JSON.stringify({ t: `set_config`, id: `model`, value: `opus` })
+    )
+    expect(await pubIn.nextJson()).toEqual({
+      t: `set_config`,
+      id: `model`,
+      value: `opus`,
+    })
+    member.send(JSON.stringify({ t: `set_config`, id: `model`, value: `` }))
+    expect(await pubIn.nextJson()).toEqual({
+      t: `set_config`,
+      id: `model`,
+      value: ``,
+    })
+    member.send(JSON.stringify({ t: `set_mode`, id: `plan` }))
+    expect(await pubIn.nextJson()).toEqual({ t: `set_mode`, id: `plan` })
+
     // Kill from the joined viewer reaches the publisher.
     member.send(JSON.stringify({ t: `kill` }))
     expect(await pubIn.nextJson()).toMatchObject({ t: `kill` })

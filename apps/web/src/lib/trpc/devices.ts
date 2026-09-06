@@ -77,6 +77,12 @@ function clampLaunchDefaults(
   if (input.defaultAgent && agentIds.includes(input.defaultAgent)) {
     out.defaultAgent = input.defaultAgent
   }
+  // EXP-746: device-global and agent-independent, so the clamp is just the
+  // type check — `typeof === boolean` keeps an explicit null out of the
+  // stored jsonb like every toggle below.
+  if (typeof input.startInTerminal === `boolean`) {
+    out.startInTerminal = input.startInTerminal
+  }
   if (input.agents) {
     const agents: Record<string, DeviceAgentLaunchDefaults> = {}
     for (const [agent, d] of Object.entries(input.agents)) {
