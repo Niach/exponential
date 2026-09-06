@@ -52,6 +52,11 @@ use crate::sink::EventSink;
 
 /// Where the rich, host-local feed items go. `None` on the daemon, which
 /// publishes and nothing else.
+///
+/// It is called from INSIDE the ACP dispatch loop, so it must never block:
+/// the desktop pushes onto a channel and marshals to the gpui foreground
+/// itself (`EngineSession::subscribe` is the same stream, backlog first, for
+/// a view that attaches late).
 pub type LocalSink = Arc<dyn Fn(LocalFeedEvent) + Send + Sync>;
 
 /// The `_meta` key an adapter stamps its own session identity under, on the
@@ -725,6 +730,10 @@ where
             });
             ctx.dispatch(out);
             ctx.phase(EnginePhase::Live);
+            // Between turns from the very first moment: a kill that asks to
+            // wait for the turn (EXP-637) must not sit out `STOP_GRACE` on a
+            // session that never started one.
+            ctx.turn_signal.set_idle(true);
 
             if ctx.replay {
                 // A transcript replay has nothing to steer: `session/load`
