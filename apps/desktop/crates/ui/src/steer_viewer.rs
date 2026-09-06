@@ -62,7 +62,7 @@ use gpui_component::{
     v_flex, ActiveTheme as _, Disableable as _, Icon, Selectable as _, Sizable as _,
 };
 use steer::activity::SessionAgent;
-use steer::commands::{parse_command, SteerCommand};
+use steer::commands::parse_command;
 use steer::feed::{COMPACTED_LABEL, COMPACTING_LABEL, COMPACTION_TIMEOUT};
 use steer::{
     answer_key, build_steer_image_message, insert_image_marker, parse_steer_message,
@@ -97,7 +97,7 @@ const PENDING_THUMB: f32 = 48.;
 /// session's agent and the typed prefix ([`slash_commands::menu_matches`]);
 /// `selected` wraps under ↑/↓.
 struct SlashMenu {
-    items: Vec<SteerCommand>,
+    items: Vec<slash_commands::MenuCommand>,
     selected: usize,
 }
 
@@ -136,13 +136,37 @@ pub(crate) enum FeedSource {
 
 impl FeedSource {
     /// The relay handle, when this source HAS one. Steering, answers and
-    /// wakeups all go through it; the local sources answer `None` until lane
-    /// D3 routes them at their `EngineSession`.
+    /// wakeups all go through it; a local source answers `None` and drives its
+    /// [`engine::EngineSession`] directly instead.
     fn handle(&self) -> Option<&ViewerHandle> {
         match self {
             FeedSource::Remote { handle } => handle.as_ref(),
             FeedSource::Local { .. } | FeedSource::Replay { .. } => None,
         }
+    }
+
+    /// The in-process engine, when this source has one. `Replay` has one too
+    /// — it is a real (read-only) engine session replaying `session/load`.
+    fn session(&self) -> Option<&engine::EngineSession> {
+        match self {
+            FeedSource::Local { session } | FeedSource::Replay { session } => Some(session),
+            FeedSource::Remote { .. } => None,
+        }
+    }
+
+    /// The engine this source may be STEERED through. A replay is a
+    /// transcript: it has an engine, and answering it would mean answering
+    /// questions that were resolved days ago.
+    fn steerable_session(&self) -> Option<&engine::EngineSession> {
+        match self {
+            FeedSource::Local { session } => Some(session),
+            FeedSource::Replay { .. } | FeedSource::Remote { .. } => None,
+        }
+    }
+
+    /// A replay renders history and offers no composer at all.
+    fn read_only(&self) -> bool {
+        matches!(self, FeedSource::Replay { .. })
     }
 }
 
@@ -154,6 +178,10 @@ pub(crate) struct SteerSessionView {
     feed: SteerFeed,
     /// EXP-746: what drives the feed. The relay handle lives inside it.
     source: FeedSource,
+    /// Whether this view paints its OWN header. The dock's chip needs one;
+    /// the session screen paints a wider one around this view and turns it
+    /// off, so the transcript never carries two identity rows (EXP-746).
+    chrome: bool,
     phase: ViewerPhase,
     connected: bool,
     /// EXP-696 wakeups: the last seen edge states, so only a TRANSITION back
@@ -191,6 +219,13 @@ pub(crate) struct SteerSessionView {
     /// Expanded tool-run / subagent group rows, and expanded long bodies.
     expanded_groups: HashSet<FeedItemId>,
     expanded_bodies: HashSet<FeedItemId>,
+    /// EXP-746: the local-only cards (per-edit diffs, command output, the
+    /// pinned plan, thoughts) a `Local`/`Replay` source produces. Empty for
+    /// every remote session — the wire carries none of it.
+    extras: crate::session_extras::LocalExtras,
+    /// The extras cards expanded on a row (their own set: a folded tool BODY
+    /// and a folded diff are different questions about the same row).
+    expanded_extras: HashSet<FeedItemId>,
     scroll: ScrollHandle,
     focus_handle: FocusHandle,
     _drain: Task<()>,
@@ -313,6 +348,7 @@ impl SteerSessionView {
             row: None,
             feed: SteerFeed::new(),
             source,
+            chrome: true,
             phase: ViewerPhase::Connecting,
             connected: false,
             device_offline: false,
@@ -332,6 +368,8 @@ impl SteerSessionView {
             free_text_input,
             expanded_groups: HashSet::new(),
             expanded_bodies: HashSet::new(),
+            extras: crate::session_extras::LocalExtras::default(),
+            expanded_extras: HashSet::new(),
             scroll: ScrollHandle::new(),
             focus_handle: cx.focus_handle(),
             _drain: drain,
@@ -343,8 +381,8 @@ impl SteerSessionView {
         this.device_offline = this.device(cx).offline;
         this.sync_offline = sync_offline(cx);
         // Only the relay source dials — and only when the caller did not hand
-        // one in. A local/replay source keeps its `Connecting` phase until its
-        // engine reports (lane D3).
+        // one in. A local source subscribes to its engine instead: same
+        // reducer, same rendering, no socket.
         if let FeedSource::Remote { handle } = &mut this.source {
             if handle.is_none() {
                 *handle = spawn_viewer(&session_id, events_tx, cx);
@@ -355,7 +393,61 @@ impl SteerSessionView {
                 };
             }
         }
+        if let Some(session) = this.source.session().cloned() {
+            // EXP-746: `subscribe` replays the buffered backlog first, so a
+            // view built long after the run started (a reopened tab, a
+            // rebuilt screen) sees the whole session and not just the tail.
+            let events = session.subscribe();
+            this._drain = cx.spawn_in(window, async move |this, cx| {
+                while let Ok(event) = events.recv_async().await {
+                    if this
+                        .update_in(cx, |this, window, cx| this.apply_local(event, window, cx))
+                        .is_err()
+                    {
+                        return;
+                    }
+                }
+                // The engine dropped its sender: the run is over, whether or
+                // not a `Phase(Ended)` made it out first.
+                let _ = this.update(cx, |this, cx| {
+                    this.note_engine_gone(cx);
+                });
+            });
+        }
         this
+    }
+
+    /// EXP-746: hand the header to the hosting screen (see [`Self::chrome`]).
+    pub(crate) fn set_chrome(&mut self, chrome: bool) {
+        self.chrome = chrome;
+    }
+
+    /// `(identifier, subject)` for whoever paints the header.
+    pub(crate) fn header_identity(&self, cx: &App) -> (Option<SharedString>, SharedString) {
+        self.identity(cx)
+    }
+
+    /// The header's liveness dot tone and its caption, resolved together
+    /// because both read the same three facts (paused, awaiting an answer,
+    /// the phase).
+    pub(crate) fn header_status(&self, cx: &App) -> (gpui::Hsla, String) {
+        let paused = self.paused(cx);
+        let awaiting = !self.feed.active_question_ids().is_empty();
+        let device = self.device(cx);
+        (
+            self.phase_tone(cx, paused, awaiting),
+            phase_label(&self.phase, device.label.as_deref(), awaiting, paused),
+        )
+    }
+
+    /// The host machine's name, for the header caption.
+    pub(crate) fn device_label(&self, cx: &App) -> Option<String> {
+        self.device(cx).label
+    }
+
+    /// Whether the header may offer a kill.
+    pub(crate) fn killable(&self, cx: &App) -> bool {
+        self.can_kill(cx)
     }
 
     /// Take focus when the dock swaps this view in — otherwise keystrokes
@@ -390,8 +482,11 @@ impl SteerSessionView {
         self.row_ended() || matches!(self.phase, ViewerPhase::Ended { .. })
     }
 
-    /// The dock calls this when the chip goes away (the row ended, the user
-    /// signed out, the window closed).
+    /// The tab closed (the row ended, the user signed out, the window closed).
+    ///
+    /// EXP-746: this drops the FEED, never the run. A local engine keeps
+    /// working when its tab goes away — killing an agent because a tab closed
+    /// is exactly the surprise the dock's kill affordance exists to avoid.
     pub(crate) fn shutdown(&mut self) {
         // EXP-724: nothing is coming to close an open compaction strip once
         // the socket is gone.
@@ -507,6 +602,16 @@ impl SteerSessionView {
 
     /// EXP-312 mirrors the web `ownsLiveRow` + `live` gate.
     fn can_kill(&self, cx: &App) -> bool {
+        // EXP-746: a run this process hosts is ours by construction — the
+        // ownership question the remote gate asks is about someone ELSE's
+        // machine, and a live engine here is always killable (a replay never
+        // is: there is nothing running).
+        if self.source.steerable_session().is_some() {
+            return !matches!(self.phase, ViewerPhase::Ended { .. }) && !self.row_ended();
+        }
+        if self.source.read_only() {
+            return false;
+        }
         let Some(row) = self.row.as_ref() else {
             return false;
         };
@@ -559,6 +664,71 @@ impl SteerSessionView {
             }
         }
         self.note_compaction(was_compacting, cx);
+        cx.notify();
+    }
+
+    /// EXP-746 — one event off the in-process engine.
+    ///
+    /// `Activity` is the exact event the relay got, so it goes through the
+    /// SAME `SteerFeed::apply` a remote session uses (that is what "one
+    /// renderer, three sources" means); everything else is a local card and
+    /// lands in [`crate::session_extras`]. The `tool_call_id` riding the
+    /// activity is the join: the row it just appended is the row those cards
+    /// hang off.
+    fn apply_local(
+        &mut self,
+        event: engine::LocalFeedEvent,
+        _window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        match event {
+            engine::LocalFeedEvent::Activity {
+                event,
+                tool_call_id,
+            } => {
+                let was_compacting = self.feed.compacting().is_some();
+                let before = self.feed.items().last().map(|item| item.id);
+                self.feed.apply(event);
+                if let Some(tool_call_id) = tool_call_id {
+                    let after = self.feed.items().last().map(|item| item.id);
+                    // Only a row that was actually APPENDED gets bound — a
+                    // latest-wins kind (config/usage/diff) appends nothing.
+                    if after != before {
+                        if let Some(item) = after {
+                            self.extras.bind(item, tool_call_id);
+                        }
+                    }
+                }
+                self.note_compaction(was_compacting, cx);
+            }
+            engine::LocalFeedEvent::Phase(phase) => {
+                self.phase = match phase {
+                    engine::EnginePhase::Connecting => ViewerPhase::Connecting,
+                    engine::EnginePhase::Live => ViewerPhase::Live,
+                    engine::EnginePhase::Ended => ViewerPhase::Ended { outcome: None },
+                };
+                // There is no socket on this path — "connected" is simply
+                // whether the engine is still talking to us.
+                self.connected = phase != engine::EnginePhase::Ended;
+                if phase == engine::EnginePhase::Ended {
+                    // EXP-724: nothing is coming to close an open strip.
+                    self.feed.clear_compaction();
+                }
+            }
+            other => self.extras.apply(other),
+        }
+        cx.notify();
+    }
+
+    /// The engine's feed closed without (or after) a final phase — the run is
+    /// over either way, and a composer over a dead engine would silently
+    /// swallow every message.
+    fn note_engine_gone(&mut self, cx: &mut gpui::Context<Self>) {
+        self.connected = false;
+        if !matches!(self.phase, ViewerPhase::Ended { .. }) {
+            self.phase = ViewerPhase::Ended { outcome: None };
+            self.feed.clear_compaction();
+        }
         cx.notify();
     }
 
@@ -659,10 +829,26 @@ impl SteerSessionView {
         let Some(question_id) = card.question_id.as_deref() else {
             return;
         };
-        let Some(handle) = self.source.handle() else {
-            return;
+        // EXP-746: the OPTION KEYS are the same either way — an ACP option id
+        // travels the wire verbatim (D3 retired the keystroke path), so the
+        // only difference is who receives them.
+        let sent = match &self.source {
+            FeedSource::Local { session } => {
+                session.answer(steer::RemoteAnswer {
+                    question_id: question_id.to_string(),
+                    ask_id: card.ask_id.clone(),
+                    keys: keys.clone(),
+                    text: text.clone(),
+                });
+                true
+            }
+            // A replay is history: its questions were answered (or dropped)
+            // when the run happened.
+            FeedSource::Replay { .. } => false,
+            FeedSource::Remote { handle } => handle.as_ref().is_some_and(|handle| {
+                handle.send_answer(question_id, card.ask_id.as_deref(), &keys, text.as_deref())
+            }),
         };
-        let sent = handle.send_answer(question_id, card.ask_id.as_deref(), &keys, text.as_deref());
         if !sent {
             self.notice = Some(SharedString::from("The session is no longer connected"));
             cx.notify();
@@ -722,6 +908,7 @@ impl SteerSessionView {
         let has_content =
             !self.input.read(cx).value().trim().is_empty() || !self.pending.is_empty();
         !self.sending
+            && !self.source.read_only()
             && self.phase == ViewerPhase::Live
             && self.connected
             && !self.row_ended()
@@ -729,7 +916,10 @@ impl SteerSessionView {
     }
 
     fn composer_visible(&self) -> bool {
-        !self.row_ended() && !matches!(self.phase, ViewerPhase::Ended { .. })
+        // EXP-746: a replay is a transcript — there is nothing to type at.
+        !self.source.read_only()
+            && !self.row_ended()
+            && !matches!(self.phase, ViewerPhase::Ended { .. })
     }
 
     // ── Slash commands (EXP-724) ───────────────────────────────────────────
@@ -737,9 +927,80 @@ impl SteerSessionView {
     /// Which catalog this session's composer offers. A row that names no
     /// agent is a claude run (contract order).
     fn agent(&self) -> SessionAgent {
+        // EXP-746: a local run KNOWS its agent — including an external one,
+        // which the synced row cannot name at all (`coding_sessions.agent`
+        // takes contract values only, so an external run syncs `NULL`).
+        if let Some(session) = self.source.session() {
+            return match session.agent() {
+                coding::AgentKind::Builtin(coding::CodingAgent::Claude) => SessionAgent::Claude,
+                coding::AgentKind::Builtin(coding::CodingAgent::Codex) => SessionAgent::Codex,
+                coding::AgentKind::Builtin(coding::CodingAgent::Pi) => SessionAgent::Pi,
+                coding::AgentKind::External(_) => SessionAgent::External,
+            };
+        }
         self.row
             .as_ref()
             .map_or(SessionAgent::Claude, slash_commands::agent_of)
+    }
+
+    /// The `/` menu's agent half — what the AGENT advertised for this run
+    /// (`config_state.commands`), empty until it says.
+    fn agent_commands(&self) -> Vec<steer::frames::ConfigCommand> {
+        self.feed
+            .config()
+            .map(|config| config.commands.clone())
+            .unwrap_or_default()
+    }
+
+    /// EXP-746: the live option/mode chips this session offers.
+    pub(crate) fn config_chips(&self) -> Vec<crate::session_extras::ConfigChip> {
+        crate::session_extras::config_chips(self.feed.config())
+    }
+
+    /// EXP-746: the run's context/spend meter (the usage sheet's own block).
+    pub(crate) fn usage(&self) -> Option<steer::SessionUsage> {
+        self.feed.usage()
+    }
+
+    /// EXP-746 — set one live option. Fire-and-forget on BOTH sources: the
+    /// publisher's next `config_state` is the confirmation, so there is no
+    /// optimistic write to roll back (D4).
+    pub(crate) fn set_config(&self, id: &str, value: &str) {
+        match &self.source {
+            FeedSource::Local { session } => {
+                session.set_config(id, engine::ConfigValue::from_wire(value))
+            }
+            FeedSource::Replay { .. } => {}
+            FeedSource::Remote { handle } => {
+                if let Some(handle) = handle.as_ref() {
+                    handle.send_config(id, value);
+                }
+            }
+        }
+    }
+
+    /// EXP-746 — switch the session mode (`plan` ⇄ the agent's default).
+    pub(crate) fn set_mode(&self, id: &str) {
+        match &self.source {
+            FeedSource::Local { session } => session.set_mode(id),
+            FeedSource::Replay { .. } => {}
+            FeedSource::Remote { handle } => {
+                if let Some(handle) = handle.as_ref() {
+                    handle.send_mode(id);
+                }
+            }
+        }
+    }
+
+    /// Whether this view drives an in-process engine (the header's kill copy
+    /// and the screen's banners fork on it).
+    pub(crate) fn is_local(&self) -> bool {
+        self.source.steerable_session().is_some()
+    }
+
+    /// Whether this view is replaying a finished run's transcript.
+    pub(crate) fn is_replay(&self) -> bool {
+        self.source.read_only()
     }
 
     /// Re-derive the `/` menu from the draft. Pure in, pure out — the only
@@ -752,7 +1013,8 @@ impl SteerSessionView {
             return;
         }
         self.slash_dismissed_for = None;
-        let items = slash_commands::menu_matches(&draft, self.agent());
+        // EXP-746: the contract catalog UNION whatever this agent advertised.
+        let items = slash_commands::menu_matches_with(&draft, self.agent(), &self.agent_commands());
         self.slash = if items.is_empty() {
             None
         } else {
@@ -781,7 +1043,7 @@ impl SteerSessionView {
         let Some(menu) = self.slash.take() else {
             return;
         };
-        let Some(command) = menu.items.get(menu.selected).copied() else {
+        let Some(command) = menu.items.get(menu.selected).cloned() else {
             return;
         };
         let draft = slash_commands::insertion(&command);
@@ -989,12 +1251,25 @@ impl SteerSessionView {
         }
     }
 
-    /// Push a composed message onto the wire. `false` = the socket is down
-    /// and the caller keeps its draft.
+    /// Push a composed message at the agent. `false` = it did not go out and
+    /// the caller keeps its draft.
+    ///
+    /// EXP-746: a LOCAL session has no publisher in front of its composer, so
+    /// a `/` command has to be recognised here and handed to the engine as a
+    /// command — a remote one is recognised by the publisher instead, which is
+    /// why the wire keeps carrying commands as ordinary `input` text.
     fn deliver(&self, message: &str) -> bool {
-        self.source
-            .handle()
-            .is_some_and(|handle| handle.send_message(message))
+        let Some(session) = self.source.steerable_session() else {
+            return self
+                .source
+                .handle()
+                .is_some_and(|handle| handle.send_message(message));
+        };
+        match parse_command(message, self.agent()) {
+            Some(parsed) => session.run_command(parsed.command.name, &parsed.args),
+            None => session.send_prompt(message.to_string()),
+        }
+        true
     }
 
     fn clear_draft(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
@@ -1162,11 +1437,12 @@ impl SteerSessionView {
     pub(crate) fn prompt_kill(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let label = self.device(cx).label;
         let view = cx.entity().downgrade();
-        let spec = AlertSpec::new(
-            "Kill this coding session?",
-            kill_description(label.as_deref()),
-            "Kill session",
-        )
+        let description = if self.is_local() {
+            LOCAL_KILL_DESCRIPTION.to_string()
+        } else {
+            kill_description(label.as_deref())
+        };
+        let spec = AlertSpec::new("Kill this coding session?", description, "Kill session")
         .ok_variant(ButtonVariant::Danger)
         .on_ok(move |_, cx| {
             if let Some(view) = view.upgrade() {
@@ -1178,9 +1454,35 @@ impl SteerSessionView {
     }
 
     fn kill(&mut self, cx: &mut gpui::Context<Self>) {
+        // EXP-746: a run THIS process hosts is killed in process — going out
+        // to `steer.killSession` and waiting for the row to sync back would
+        // take the long way round to our own engine.
+        if let Some(session) = self.source.steerable_session() {
+            session.kill("killed");
+            return;
+        }
         kill_session(&self.session_id, cx);
     }
 }
+
+/// EXP-746: what an ended session's transcript says about itself. The
+/// remote wording ("The session has ended.") is the publisher's `bye`
+/// outcome when it sent one; this is the fallback every source shares.
+pub(crate) const ENDED_BANNER: &str = "Read-only — this session has ended";
+
+/// A Past row opened off its recorded transcript.
+pub(crate) const REPLAY_BANNER: &str = "Replaying transcript…";
+
+/// …and the same row when the run left nothing to replay (it ran on the
+/// terminal transport, or its workspace is gone).
+pub(crate) const REPLAY_EMPTY_BANNER: &str = "No transcript for this run";
+
+/// EXP-746: the confirm body for a run hosted IN this app. The remote copy
+/// talks about "the terminal", which an ACP run does not have — and the
+/// worktree promise is the part that matters either way.
+pub(crate) const LOCAL_KILL_DESCRIPTION: &str =
+    "The agent stops immediately and the session ends. Uncommitted work in the worktree is kept.";
+
 
 /// The confirm copy, byte-identical to the web `useKillSession` dialog.
 pub(crate) fn kill_description(device_label: Option<&str>) -> String {
@@ -1630,7 +1932,21 @@ impl SteerSessionView {
                 name,
                 detail,
                 subagent_id: _,
-            } => tool_row(name, detail.as_deref(), cx).into_any_element(),
+            } => {
+                let row = tool_row(name, detail.as_deref(), cx);
+                // EXP-746: a LOCAL run's per-edit diff and command output hang
+                // off this row (a remote one has none — the wire carries
+                // neither).
+                match self.render_extras(item.id, cx) {
+                    Some(extras) => v_flex()
+                        .w_full()
+                        .min_w_0()
+                        .child(row)
+                        .child(extras)
+                        .into_any_element(),
+                    None => row.into_any_element(),
+                }
+            }
             FeedKind::Permission { tool, detail } => {
                 let amber = theme::tokens::YELLOW.to_hsla();
                 v_flex()
@@ -1826,6 +2142,31 @@ impl SteerSessionView {
         self.render_body_folding(id, text, true, cx)
     }
 
+    /// EXP-746 — the local cards hanging off feed row `item` (per-edit
+    /// diffs, command output). `None` for every remote row: they exist only
+    /// where the engine runs.
+    ///
+    /// The fold flag is this view's, the rendering is
+    /// [`crate::session_extras`]' — the same split every other card here
+    /// uses, so the transcript owns interaction and the extras own shape.
+    fn render_extras(&self, item: FeedItemId, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        if !self.extras.has_extras(item) {
+            return None;
+        }
+        crate::session_extras::render_extras(
+            &self.extras,
+            item,
+            self.expanded_extras.contains(&item),
+            Box::new(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                if !this.expanded_extras.insert(item) {
+                    this.expanded_extras.remove(&item);
+                }
+                cx.notify();
+            })),
+            cx,
+        )
+    }
+
     /// A body that never folds: the plan a reader must approve is always
     /// shown in full (EXP-738, parity with iOS/Android).
     fn render_unfolded_body(
@@ -1930,6 +2271,11 @@ impl SteerSessionView {
             for item in items {
                 if let FeedKind::Tool { name, detail, .. } = &item.kind {
                     column = column.child(div().pl_5().child(tool_row(name, detail.as_deref(), cx)));
+                    // EXP-746: an expanded group shows each call's local
+                    // cards too — that is what expanding it is for.
+                    if let Some(extras) = self.render_extras(item.id, cx) {
+                        column = column.child(div().pl_5().child(extras));
+                    }
                 }
             }
         } else if live_tail {
@@ -2022,6 +2368,11 @@ impl SteerSessionView {
             for item in tools {
                 if let FeedKind::Tool { name, detail, .. } = &item.kind {
                     column = column.child(div().pl_5().child(tool_row(name, detail.as_deref(), cx)));
+                    // EXP-746: an expanded group shows each call's local
+                    // cards too — that is what expanding it is for.
+                    if let Some(extras) = self.render_extras(item.id, cx) {
+                        column = column.child(div().pl_5().child(extras));
+                    }
                 }
             }
         }
@@ -2537,11 +2888,20 @@ impl SteerSessionView {
                 .child(SharedString::from(text))
                 .into_any_element()
         };
+        // EXP-746: a replay says what it is BEFORE anything else — its feed
+        // is history, and every other banner would read as live state.
+        if self.source.read_only() {
+            banners.push(banner(if self.feed.is_empty() {
+                REPLAY_EMPTY_BANNER.to_string()
+            } else {
+                REPLAY_BANNER.to_string()
+            }));
+        }
         match &self.phase {
             ViewerPhase::Ended { outcome } => banners.push(banner(
                 outcome
                     .clone()
-                    .unwrap_or_else(|| "The session has ended.".to_string()),
+                    .unwrap_or_else(|| ENDED_BANNER.to_string()),
             )),
             ViewerPhase::Unauthorized { detail } => banners.push(banner(
                 detail
@@ -2581,10 +2941,15 @@ impl SteerSessionView {
 
     fn render_composer(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let can_send = self.can_send(cx);
+        let chips = self.render_config_chips(cx);
         let composer = crate::composer::GlassComposer::new(
             v_flex()
                 .w_full()
                 .min_w_0()
+                // EXP-746: the live model/effort/mode chips sit above the
+                // draft, where the agent's posture is visible while typing at
+                // it.
+                .when_some(chips, |this, chips| this.child(chips))
                 // EXP-724: the `/` menu sits INSIDE the composer card,
                 // above the textarea — no popover, no caret anchoring
                 // (the token is always the whole draft).
@@ -2642,6 +3007,91 @@ impl SteerSessionView {
                     .capture_action(cx.listener(Self::on_paste)),
             )
             .into_any_element()
+    }
+
+    /// EXP-746 — one pill per live agent option, the mode chip first.
+    ///
+    /// Fire-and-forget (D4): the pill repaints when the publisher's next
+    /// `config_state` lands, so there is no optimistic value and no spinner.
+    /// An option with no `values` is read-only — it renders its value and
+    /// opens nothing.
+    fn render_config_chips(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        use crate::session_extras::ChipKind;
+        let chips = self.config_chips();
+        if chips.is_empty() {
+            return None;
+        }
+        let muted = cx.theme().muted_foreground;
+        let mut row = h_flex().w_full().min_w_0().flex_wrap().gap_1().pb_1();
+        for (index, chip) in chips.into_iter().enumerate() {
+            let id = SharedString::from(format!("steer-chip-{index}"));
+            let label = SharedString::from(format!("{}: {}", chip.label, chip.value_label));
+            if chip.values.is_empty() {
+                row = row.child(
+                    crate::surface::glass_pill(
+                        id,
+                        crate::surface::PillSize::Sm,
+                        crate::surface::PillMode::Readonly,
+                        cx,
+                    )
+                    .child(div().text_xs().text_color(muted).child(label)),
+                );
+                continue;
+            }
+            let trigger = crate::surface::glass_pill_button(
+                id.clone(),
+                crate::surface::PillSize::Sm,
+                cx,
+            )
+            .label(label);
+            let kind = chip.kind;
+            let option_id = chip.id.clone();
+            let values = chip.values.clone();
+            let view = cx.entity().downgrade();
+            row = row.child(
+                gpui_component::popover::Popover::new(id)
+                    .p_1()
+                    .trigger(trigger)
+                    .content(move |_, _window, cx| {
+                        let mut menu = v_flex().min_w(px(160.)).gap_0p5();
+                        for value in &values {
+                            let view = view.clone();
+                            let option_id = option_id.clone();
+                            let value_id = value.id.clone();
+                            menu = menu.child(
+                                div()
+                                    .id(SharedString::from(format!(
+                                        "steer-chip-value-{option_id}-{value_id}"
+                                    )))
+                                    .w_full()
+                                    .px_2()
+                                    .py_1()
+                                    .rounded(px(theme::tokens::radius::SM))
+                                    .cursor_pointer()
+                                    .text_xs()
+                                    .hover(|this| this.bg(cx.theme().accent))
+                                    .child(SharedString::from(value.label.clone()))
+                                    .on_click(move |_: &ClickEvent, _window, cx| {
+                                        let Some(view) = view.upgrade() else {
+                                            return;
+                                        };
+                                        view.update(cx, |this, cx| {
+                                            match kind {
+                                                ChipKind::Mode => this.set_mode(&value_id),
+                                                ChipKind::Option => {
+                                                    this.set_config(&option_id, &value_id)
+                                                }
+                                            }
+                                            cx.notify();
+                                        });
+                                    }),
+                            );
+                        }
+                        menu
+                    }),
+            );
+        }
+        Some(row.into_any_element())
     }
 
     /// EXP-724: the `/` command rows — mono name, muted argument hint, muted
@@ -2989,7 +3439,7 @@ impl Focusable for SteerSessionView {
 
 impl Render for SteerSessionView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let header = self.render_header(cx);
+        let header = self.chrome.then(|| self.render_header(cx));
         let feed = self.render_feed(window, cx);
         let banners = self.render_banners(cx);
         let composer_visible = self.composer_visible();
@@ -2997,6 +3447,17 @@ impl Render for SteerSessionView {
         // web view puts it — and gone with the composer once the run ends.
         let compacting = (composer_visible && self.feed.compacting().is_some())
             .then(|| self.render_compaction_strip(cx));
+        // EXP-746: the local pinned state — the plan the agent is working
+        // through, and its latest thought. Both are STATE (replaced, not
+        // appended), which is why they sit above the composer instead of
+        // scrolling away in the feed.
+        let plan = (!self.extras.plan().is_empty())
+            .then(|| crate::session_extras::render_plan_card(self.extras.plan(), cx));
+        let thought = self
+            .extras
+            .thought()
+            .filter(|_| composer_visible)
+            .map(|text| crate::session_extras::render_thought(text, cx));
         let composer = composer_visible.then(|| self.render_composer(cx));
         v_flex()
             .key_context("SteerSession")
@@ -3004,9 +3465,11 @@ impl Render for SteerSessionView {
             .size_full()
             .min_h_0()
             .overflow_hidden()
-            .child(header)
+            .children(header)
             .child(feed)
             .children(banners)
+            .children(plan)
+            .children(thought)
             .children(compacting)
             .children(composer)
     }

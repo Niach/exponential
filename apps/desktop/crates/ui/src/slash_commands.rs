@@ -54,29 +54,100 @@ pub(crate) fn slash_query(draft: &str) -> Option<&str> {
         .then_some(rest)
 }
 
+/// One row of the `/` menu. Owned, unlike [`SteerCommand`]'s `&'static str`s,
+/// because an ACP session's own commands arrive on the wire
+/// (`config_state.commands`) and are as real a menu row as a contract one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct MenuCommand {
+    pub(crate) name: String,
+    pub(crate) description: String,
+    /// Empty = the command takes no argument.
+    pub(crate) arg_hint: String,
+    /// The client confirms before sending (context is discarded). Only the
+    /// contract knows this — an agent-advertised command never confirms,
+    /// because nothing here knows what it does.
+    pub(crate) confirm: bool,
+}
+
+impl From<SteerCommand> for MenuCommand {
+    fn from(command: SteerCommand) -> Self {
+        Self {
+            name: command.name.to_string(),
+            description: command.description.to_string(),
+            arg_hint: command.arg_hint.to_string(),
+            confirm: command.confirm,
+        }
+    }
+}
+
 /// The rows to draw for `draft`. Empty = no menu (either the draft is not a
 /// command token, or nothing in the agent's catalog matches).
-pub(crate) fn menu_matches(draft: &str, agent: SessionAgent) -> Vec<SteerCommand> {
+pub(crate) fn menu_matches(draft: &str, agent: SessionAgent) -> Vec<MenuCommand> {
+    menu_matches_with(draft, agent, &[])
+}
+
+/// EXP-746 — the same menu over the contract catalog UNION the commands the
+/// AGENT advertised for this run (`config_state.commands`, ACP
+/// `available_commands_update`).
+///
+/// Contract rows come FIRST because those are the ones the publisher is known
+/// to be able to execute on every transport; an agent row that shadows a
+/// contract name is dropped rather than listed twice (`/compact` is one
+/// command whoever ends up running it). Mirrored ×4 as `mergeAgentCommands`.
+pub(crate) fn menu_matches_with(
+    draft: &str,
+    agent: SessionAgent,
+    extra: &[steer::frames::ConfigCommand],
+) -> Vec<MenuCommand> {
     let Some(query) = slash_query(draft) else {
         return Vec::new();
     };
     let needle = query.to_ascii_lowercase();
-    catalog_for(agent)
+    let mut rows: Vec<MenuCommand> = catalog_for(agent)
         .into_iter()
-        .filter(|command| command.name.to_ascii_lowercase().starts_with(&needle))
-        .take(MENU_LIMIT)
-        .collect()
+        .map(MenuCommand::from)
+        .collect();
+    for command in extra {
+        let name = command.name.trim();
+        if name.is_empty()
+            || rows
+                .iter()
+                .any(|row| row.name.eq_ignore_ascii_case(name))
+        {
+            continue;
+        }
+        rows.push(MenuCommand {
+            name: name.to_string(),
+            description: command.description.clone(),
+            arg_hint: command.hint.clone().unwrap_or_default(),
+            confirm: false,
+        });
+    }
+    rows.retain(|row| row.name.to_ascii_lowercase().starts_with(&needle));
+    rows.truncate(MENU_LIMIT);
+    rows
 }
 
 /// What accepting `command` puts in the composer — with the trailing space
 /// when there is an argument to type, without when there is not.
-pub(crate) fn insertion(command: &SteerCommand) -> String {
+pub(crate) fn insertion(command: &MenuCommand) -> String {
     if command.arg_hint.is_empty() {
         format!("/{}", command.name)
     } else {
         format!("/{} ", command.name)
     }
 }
+
+// ── Composer chip copy (byte-identical ×4) ──────────────────────────────────
+
+/// EXP-746: a chip whose value is BLANK — the agent CLI's own default, which
+/// is a real choice (the relay's `set_config` deliberately allows an empty
+/// value) and not a missing one.
+pub(crate) const CONFIG_DEFAULT_VALUE_LABEL: &str = "CLI default";
+
+/// The mode chip's leading label. Every other chip's label arrives live on
+/// `config_state.options[].label`, so this is the only one a client owns.
+pub(crate) const CONFIG_MODE_LABEL: &str = "Mode";
 
 // ── Confirm copy (byte-identical ×4) ────────────────────────────────────────
 
@@ -95,8 +166,19 @@ pub(crate) fn confirm_button(name: &str) -> String {
 mod tests {
     use super::*;
 
-    fn names(draft: &str, agent: SessionAgent) -> Vec<&'static str> {
+    fn names(draft: &str, agent: SessionAgent) -> Vec<String> {
         menu_matches(draft, agent)
+            .into_iter()
+            .map(|command| command.name)
+            .collect()
+    }
+
+    fn agent_names(
+        draft: &str,
+        agent: SessionAgent,
+        extra: &[steer::frames::ConfigCommand],
+    ) -> Vec<String> {
+        menu_matches_with(draft, agent, extra)
             .into_iter()
             .map(|command| command.name)
             .collect()
@@ -140,12 +222,88 @@ mod tests {
 
     #[test]
     fn accepting_adds_a_trailing_space_only_when_there_is_an_argument() {
-        let compact = menu_matches("/compact", SessionAgent::Claude)[0];
+        let compact = menu_matches("/compact", SessionAgent::Claude).remove(0);
         assert_eq!(compact.arg_hint, "instructions");
         assert_eq!(insertion(&compact), "/compact ");
-        let clear = menu_matches("/clear", SessionAgent::Claude)[0];
+        let clear = menu_matches("/clear", SessionAgent::Claude).remove(0);
         assert_eq!(clear.arg_hint, "");
         assert_eq!(insertion(&clear), "/clear");
+    }
+
+    // ── EXP-746: the contract ∪ agent union (×4 `mergeAgentCommands`) ──────
+
+    fn agent_command(name: &str, hint: Option<&str>) -> steer::frames::ConfigCommand {
+        steer::frames::ConfigCommand {
+            hint: hint.map(str::to_string),
+            ..steer::frames::ConfigCommand::new(name, "an agent command")
+        }
+    }
+
+    #[test]
+    fn contract_rows_come_first() {
+        assert_eq!(
+            agent_names(
+                "/",
+                SessionAgent::Claude,
+                &[agent_command("agents", None), agent_command("review", None)]
+            ),
+            vec!["compact", "clear", "agents", "review"]
+        );
+        // The prefix filter applies to the whole union, not just the contract
+        // half.
+        assert_eq!(
+            agent_names("/a", SessionAgent::Claude, &[agent_command("agents", None)]),
+            vec!["agents"]
+        );
+    }
+
+    #[test]
+    fn an_agent_command_that_shadows_a_contract_name_is_dropped() {
+        let rows = menu_matches_with(
+            "/",
+            SessionAgent::Claude,
+            &[
+                agent_command("COMPACT", Some("only what matters")),
+                agent_command("  ", None),
+            ],
+        );
+        assert_eq!(
+            rows.iter().map(|row| row.name.as_str()).collect::<Vec<_>>(),
+            vec!["compact", "clear"]
+        );
+        // …and the CONTRACT row survives whole: its hint and its confirm are
+        // what the publisher acts on.
+        assert_eq!(rows[0].arg_hint, "instructions");
+    }
+
+    #[test]
+    fn the_union_respects_the_menu_limit() {
+        let extra: Vec<steer::frames::ConfigCommand> = (0..20)
+            .map(|n| agent_command(&format!("cmd{n}"), None))
+            .collect();
+        assert_eq!(
+            menu_matches_with("/", SessionAgent::Claude, &extra).len(),
+            MENU_LIMIT
+        );
+    }
+
+    /// An external ACP agent has no contract catalog at all (`agent_id`
+    /// returns an id `steerCommands` cannot name) — its menu is exactly what
+    /// the agent advertised.
+    #[test]
+    fn an_external_agent_offers_only_its_own_commands() {
+        assert!(names("/", SessionAgent::External).is_empty());
+        assert_eq!(
+            agent_names("/", SessionAgent::External, &[agent_command("review", None)]),
+            vec!["review"]
+        );
+    }
+
+    /// The two chip strings, spelled out where the ×4 mirror can see them.
+    #[test]
+    fn the_chip_copy_is_the_shared_wording() {
+        assert_eq!(CONFIG_DEFAULT_VALUE_LABEL, "CLI default");
+        assert_eq!(CONFIG_MODE_LABEL, "Mode");
     }
 
     #[test]
