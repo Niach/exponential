@@ -236,6 +236,12 @@ impl PiReply {
     }
 }
 
+/// Lock without ever poisoning a session: a panic in one handler must not
+/// take the rest of the run down with it.
+fn guard<T>(lock: &Mutex<T>) -> MutexGuard<'_, T> {
+    lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 impl PiSession {
     fn new(spec: &AdapterSpec, child: ChildLines) -> PiSession {
         PiSession {
@@ -252,15 +258,7 @@ impl PiSession {
             open_compaction: Mutex::new(None),
         }
     }
-}
 
-/// Lock without ever poisoning a session: a panic in one handler must not
-/// take the rest of the run down with it.
-fn guard<T>(lock: &Mutex<T>) -> MutexGuard<'_, T> {
-    lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
-impl PiSession {
     fn next_id(&self) -> String {
         self.next_id.fetch_add(1, Ordering::SeqCst).to_string()
     }
