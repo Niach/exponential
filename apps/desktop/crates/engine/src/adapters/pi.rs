@@ -366,8 +366,19 @@ impl PiSession {
 /// `main_fn`: read pi's stdout until EOF. Returning ends the connection, so
 /// the child's exit IS the session's end.
 async fn pump(session: Arc<PiSession>, cx: ConnectionTo<Client>) -> Result<(), Error> {
-    while let Ok(line) = session.child.lines.recv_async().await {
-        on_line(&session, &line, &cx);
+    loop {
+        tokio::select! {
+            // The host ended the session (a kill, a quit, the screen closing):
+            // stop reading, and let this session's drop kill pi through the
+            // `ChildLines` guard rather than waiting for it to notice its
+            // stdin closed.
+            () = cx.incoming_closed() => break,
+            line = session.child.lines.recv_async() => match line {
+                Ok(line) => on_line(&session, &line, &cx),
+                // The child closed stdout: the run is over either way.
+                Err(_) => break,
+            },
+        }
     }
     session.shutdown();
     Ok(())

@@ -1,0 +1,6 @@
+{"type":"agent_start"}
+{"type":"turn_start"}
+{"type":"message_update","message":{"role":"assistant","responseId":"resp-1","timestamp":1788687314849},"assistantMessageEvent":{"type":"thinking_delta","delta":"weighing the edit"}}
+{"type":"message_update","message":{"role":"assistant","responseId":"resp-1","timestamp":1788687314849},"assistantMessageEvent":{"type":"text_delta","delta":"first second"}}
+{"type":"tool_execution_start","toolCallId":"call-1","toolName":"edit","args":{"path":"notes.md","edits":[{"oldText":"before","newText":"after"}]}}
+{"type":"extension_ui_request","id":"ui-1","method":"confirm","title":"Apply the edit?","message":"notes.md"}
