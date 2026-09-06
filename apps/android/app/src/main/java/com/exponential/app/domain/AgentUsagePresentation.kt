@@ -209,6 +209,47 @@ object AgentUsagePresentation {
         else -> AgentUsageSeverity.Normal
     }
 
+    // ── EXP-746: this RUN's context window + spend ───────────────────────────
+    //
+    // Deliberately BESIDE [usageGroups], never inside it: those groups are the
+    // machine's rate-limit windows, fixture-locked ×4, and this is a different
+    // quantity (tokens in the current conversation, not a percentage of a
+    // plan). The Usage sheet renders this block first and the windows below.
+
+    /** EXP-746 context section title. Byte-identical ×4. */
+    const val CONTEXT_SECTION_TITLE = "Context"
+
+    /** How full the window is, floored; null when there is nothing to show. */
+    fun contextPercent(usage: SessionUsageState?): Int? {
+        if (usage == null || usage.contextSize <= 0) return null
+        return (usage.contextUsed.toLong() * 100 / usage.contextSize).toInt()
+    }
+
+    /**
+     * `124k / 200k (62%)` — thousands rounded down to `k` from 1000 up, no
+     * decimals, percent floored. Empty when there is nothing to show.
+     * Byte-identical ×4 (`formatContextUsage`).
+     */
+    fun formatContextUsage(usage: SessionUsageState?): String {
+        val percent = contextPercent(usage) ?: return ""
+        val used = usage ?: return ""
+        return "${compactTokens(used.contextUsed)} / ${compactTokens(used.contextSize)} ($percent%)"
+    }
+
+    /** `$1.24`, or null under half a cent — a run that has spent effectively
+     *  nothing shows no cost at all rather than `$0.00`. Byte-identical ×4. */
+    fun formatUsageCost(usage: SessionUsageState?): String? {
+        val cost = usage?.costUsd ?: return null
+        if (cost < 0.005) return null
+        // Locale.US, always: a comma decimal separator would break the ×4
+        // string parity on a German phone.
+        return String.format(java.util.Locale.US, "$%.2f", cost)
+    }
+
+    /** `1234` → `1k`; below 1000 the exact count. */
+    private fun compactTokens(count: Int): String =
+        if (count >= 1000) "${count / 1000}k" else count.toString()
+
     // ── Freshness + countdown ────────────────────────────────────────────────
 
     /**

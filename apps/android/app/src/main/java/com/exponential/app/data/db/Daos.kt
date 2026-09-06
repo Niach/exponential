@@ -258,6 +258,25 @@ interface CodingSessionDao {
     @Query("SELECT * FROM coding_sessions WHERE status IN (:statuses) ORDER BY started_at DESC")
     fun observeByStatuses(statuses: List<String>): Flow<List<CodingSessionEntity>>
 
+    // EXP-746: the Devices screen's "Past" feed — one user's finished
+    // PERSON-STARTED sessions in one team, newest first. `started_reason IS
+    // NULL` is in the SQL on purpose: an automation-heavy team's last 50 ended
+    // rows are mostly scheduled runs, so filtering in Kotlin after a LIMIT
+    // would silently truncate the list the other three clients show in full.
+    // A row swept before it ever stamped `ended_at` still orders sensibly off
+    // its heartbeat stamp, hence the COALESCE.
+    @Query(
+        "SELECT * FROM coding_sessions WHERE team_id = :teamId AND user_id = :userId " +
+            "AND status = :status AND started_reason IS NULL " +
+            "ORDER BY COALESCE(ended_at, updated_at) DESC LIMIT :limit",
+    )
+    fun observePastByTeamAndUser(
+        teamId: String,
+        userId: String,
+        status: String,
+        limit: Int,
+    ): Flow<List<CodingSessionEntity>>
+
     // EXP-734: the team's runs with an OPEN pull request of their OWN — an
     // action or chat run (issue_id NULL) whose PR links no issue, so nothing
     // in the issues table can represent it in Reviews. Newest first; the

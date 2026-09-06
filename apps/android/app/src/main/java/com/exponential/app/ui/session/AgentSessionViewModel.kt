@@ -33,7 +33,9 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.MergeTarget
 import com.exponential.app.domain.PendingAttachment
+import com.exponential.app.domain.SessionConfigState
 import com.exponential.app.domain.SessionDevicePresentation
+import com.exponential.app.domain.SessionUsageState
 import com.exponential.app.domain.SlashCommand
 import com.exponential.app.domain.SlashCommands
 import com.exponential.app.domain.resolveMergeTarget
@@ -254,22 +256,46 @@ class AgentSessionViewModel @Inject constructor(
     val draft: StateFlow<String> = connection.draft
 
     /**
+     * EXP-746: the agent's LIVE configuration behind the composer chips —
+     * the options and modes in force, and the commands the agent advertises.
+     * Latest-wins state off the activity stream, so a viewer that joins mid-run
+     * paints its chips from the replayed snapshot. Null on a PTY run, which
+     * publishes none.
+     */
+    val sessionConfig: StateFlow<SessionConfigState?> = connection.activity
+        .map { it.config }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** EXP-746: this run's context window + spend, same latest-wins rule —
+     *  the Usage sheet's "Context" block. Null when the engine reports none. */
+    val sessionUsage: StateFlow<SessionUsageState?> = connection.activity
+        .map { it.usage }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
      * EXP-724: the curated slash commands the `/` menu should offer for the
      * CURRENT draft — empty whenever the menu must stay shut. Filtered by the
      * run's own agent (a row with none ran the default one), so the menu never
-     * offers a command the desktop could not execute.
+     * offers a command the desktop could not execute. EXP-746: the run's OWN
+     * advertised commands follow the contract rows.
      */
     val slashMatches: StateFlow<List<SlashCommand>> = combine(
         draft,
         session,
-    ) { text, row ->
-        SlashCommands.matches(text, row?.agent)
+        sessionConfig,
+    ) { text, row, config ->
+        SlashCommands.matches(text, row?.agent, config?.commands.orEmpty())
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The catalog command the draft would RUN if sent, if any (EXP-724) — the
      *  screen confirms before sending the ones that discard context. */
-    fun pendingSlashCommand(): SlashCommand? =
-        SlashCommands.commandFor(draft.value, session.value?.agent)
+    fun pendingSlashCommand(): SlashCommand? = SlashCommands.commandFor(
+        draft.value,
+        session.value?.agent,
+        sessionConfig.value?.commands.orEmpty(),
+    )
 
     /**
      * EXP-678: the issue whose PR the Merge pill above the composer merges —
@@ -389,6 +415,14 @@ class AgentSessionViewModel @Inject constructor(
          *  resolves the ask. */
         labels: List<String> = emptyList(),
     ) = connection.sendQuestionAnswer(questionId, askId, keys, text, labels)
+
+    /** EXP-746: change one live agent option. Fire-and-forget — the
+     *  re-emitted `config_state` IS the confirmation, so nothing here waits,
+     *  locks or times out. */
+    fun setConfig(id: String, value: String) = connection.setConfig(id, value)
+
+    /** EXP-746: switch the run into one of its advertised modes. */
+    fun setMode(id: String) = connection.setMode(id)
 
     /**
      * Kill the session (EXP-268): tRPC `steer.killSession` flips the synced

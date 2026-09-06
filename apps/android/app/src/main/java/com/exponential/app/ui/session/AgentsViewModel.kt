@@ -29,11 +29,13 @@ import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.MergeTarget
+import com.exponential.app.domain.RunResumeTarget
 import com.exponential.app.domain.SessionDevicePresentation
 import com.exponential.app.domain.StartedRunKey
 import com.exponential.app.domain.StartedRunMatch
 import com.exponential.app.domain.resolveMergeTarget
 import com.exponential.app.domain.resolveSessionDevice
+import com.exponential.app.domain.resumeTargetFor
 import com.exponential.app.domain.stableDeviceOrder
 import com.exponential.app.domain.toSteerDevice
 import com.exponential.app.ui.issue.StartIssueOption
@@ -49,6 +51,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -81,6 +84,20 @@ data class AgentRow(
     // batch PR's representative) or, for an action/chat run that opened a PR
     // of its own, the SESSION. Null = nothing to merge.
     val mergeTarget: MergeTarget? = null,
+)
+
+/**
+ * EXP-746: one FINISHED run in the Devices screen's "Past" list — the session
+ * row, its issue when it had one, and the machine that ran it (for the byline
+ * and the Resume target).
+ */
+data class PastRunRow(
+    val session: CodingSessionEntity,
+    val issue: IssueEntity?,
+    val device: SessionDevicePresentation = SessionDevicePresentation.Unknown,
+    // Where a Resume would go, or null when the run can't be resumed right
+    // now (its machine is gone, offline, or too old to know how).
+    val resume: RunResumeTarget? = null,
 )
 
 data class AgentsState(
@@ -193,6 +210,55 @@ class AgentsViewModel @Inject constructor(
             steerEnabled = steerEnabled,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AgentsState())
+
+    // EXP-746: the caller's own FINISHED, person-started sessions in the
+    // selected team, newest first — the source of the "Past" list. Queried
+    // wider than the list shows so a row the pure filter drops can't push a
+    // real one off the end; the DAO already excludes automation runs, which
+    // belong to the Automations tab's "Recent automated runs" alone.
+    private val endedSessionRows = combine(
+        dbFlow,
+        selection.selectedId,
+        auth.userId,
+    ) { db, teamId, userId -> Triple(db, teamId, userId) }
+        .flatMapLatest { (db, teamId, userId) ->
+            if (db == null || teamId == null || userId == null) {
+                flowOf(emptyList())
+            } else {
+                db.codingSessionDao().observePastByTeamAndUser(
+                    teamId = teamId,
+                    userId = userId,
+                    status = DomainContract.codingSessionStatusEnded,
+                    limit = PAST_RUN_QUERY_LIMIT,
+                )
+            }
+        }
+
+    /**
+     * EXP-746: the runs that finished, newest first — each expandable to its
+     * summary and (on a capable, online machine) a Resume. Empty renders
+     * nothing at all.
+     */
+    val pastRuns: StateFlow<List<PastRunRow>> = combine(
+        endedSessionRows,
+        dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
+        deviceRowsAndFreshness,
+        combine(auth.userId, selection.selectedId) { userId, teamId -> userId to teamId },
+        DeviceLiveness.ticker(),
+    ) { sessions, issues, (devices, polledAt), (userId, teamId), now ->
+        pastRunRows(
+            sessions, issues, userId, teamId, devices, now,
+            devicesFresh = DeviceFreshness.isTrustworthy(polledAt, SystemClock.elapsedRealtime()),
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    // Session ids with a resume in flight — the row swaps its Resume pill for
+    // a spinner until the desktop's new row lands (or the watch gives up).
+    // Disjoint from ActionsViewModel's own set BY CONSTRUCTION: that one lists
+    // `started_reason != null` runs and this one only `started_reason == null`
+    // ones, so the two Resume paths can never double-fire on the same id.
+    private val _resuming = MutableStateFlow<Set<String>>(emptySet())
+    val resuming: StateFlow<Set<String>> = _resuming
 
     // Issues the Start-coding sheet can queue, scoped to the SELECTED team
     // (no current-issue exemption here — this tab has no "current" issue):
@@ -365,6 +431,32 @@ class AgentsViewModel @Inject constructor(
     }
 
     /**
+     * EXP-746: continue an ENDED run on the machine that ran it — the agent
+     * picks up in the same workspace with its own transcript. The resumed run
+     * keeps its recorded agent and options, so nothing else rides along; the
+     * new row is matched by its `resumed_from_id`, which is exact.
+     */
+    fun resumeRun(target: RunResumeTarget) {
+        if (target.sessionId in _resuming.value) return
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            _resuming.value = _resuming.value + target.sessionId
+            _startState.value = SteerStartState.Sending
+            try {
+                steerApi.resumeSession(accountId, target.sessionId, target.deviceId)
+                awaitStartedRun(StartedRunKey.Resumed(target.sessionId), target.deviceLabel)
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _startState.value = SteerStartState.Failed(
+                    trpcErrorMessage(t, "The run could not be resumed"),
+                )
+            } finally {
+                _resuming.value = _resuming.value - target.sessionId
+            }
+        }
+    }
+
+    /**
      * EXP-536: hold a "waiting for the desktop" caption until the run's
      * synced row appears (then hand it to the screen's navigation), or until
      * the deadline passes — a start the desktop REFUSED (conflicted worktree,
@@ -501,6 +593,63 @@ fun agentRows(
             mergeTarget = resolveMergeTarget(session, issue, batchPrIssue),
         )
     }
+}
+
+/** How many finished rows the DAO pulls before the pure filter narrows them. */
+const val PAST_RUN_QUERY_LIMIT = 50
+
+/** How many finished runs the "Past" list shows. Byte-identical ×4
+ *  (`PAST_RUN_CAP` on web, iOS `PastRuns.cap`, desktop `PAST_RUNS_CAP`). */
+const val PAST_RUN_LIMIT = 20
+
+/**
+ * EXP-746: the "Past" list — the caller's OWN finished PERSON-STARTED runs in
+ * the SELECTED team, newest first by when they ended, capped at [limit].
+ *
+ * `started_reason == null` is the whole predicate on top of ownership: a
+ * scheduled or event-triggered run belongs to the Automations tab's "Recent
+ * automated runs" and must NEVER list here (EXP-676's rule, kept). The DAO
+ * already scopes, filters and orders; the rules live here too so they are
+ * testable and so a wider query can't leak a foreign, still-live or automated
+ * row into the list. Signed out or no team selected lists nothing.
+ */
+fun pastRunRows(
+    sessions: List<CodingSessionEntity>,
+    issues: List<IssueEntity>,
+    currentUserId: String?,
+    teamId: String?,
+    // EXP-549/550: the synced machine rows, for the byline's live label.
+    devices: List<DeviceEntity> = emptyList(),
+    nowMs: Long = System.currentTimeMillis(),
+    limit: Int = PAST_RUN_LIMIT,
+    // EXP-656: see [agentRows] — an unrefreshed devices cursor renders unknown
+    // presence, never offline.
+    devicesFresh: Boolean = true,
+): List<PastRunRow> {
+    if (currentUserId == null || teamId == null) return emptyList()
+    val issuesById = issues.associateBy { it.id }
+    // Resolved once for the whole list: a Resume needs the run's OWN machine
+    // online and `resume-run`-capable, which only the live device row knows.
+    val steerDevices = devices.map { it.toSteerDevice(nowMs, currentUserId) }
+    return sessions
+        .filter {
+            it.userId == currentUserId &&
+                it.teamId == teamId &&
+                it.status == DomainContract.codingSessionStatusEnded &&
+                it.startedReason == null
+        }
+        // ISO-8601 UTC stamps order lexicographically; a row swept before it
+        // stamped `ended_at` still sorts off its heartbeat stamp.
+        .sortedByDescending { it.endedAt ?: it.updatedAt }
+        .take(limit)
+        .map { session ->
+            PastRunRow(
+                session = session,
+                issue = session.issueId?.let(issuesById::get),
+                device = resolveSessionDevice(session, devices, nowMs, devicesFresh),
+                resume = resumeTargetFor(session, steerDevices, currentUserId),
+            )
+        }
 }
 
 // An issueless, actionless in-review session — the only row shape whose merge
