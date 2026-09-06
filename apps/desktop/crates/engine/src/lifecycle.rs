@@ -74,7 +74,9 @@ impl RunLifecycle {
             coding::start_heartbeat(Arc::clone(&ctx.trpc), ctx.session_id.clone(), scope)
         });
 
-        let publisher = ctx.publish.then(|| attach_publisher(&ctx, &commands));
+        let publisher = ctx
+            .publish
+            .then(|| attach_publisher(&ctx, &commands, Arc::clone(&active)));
         if let Some(publisher) = &publisher {
             // The sink may already be set (a test's recording sink): the
             // publisher then still runs, but nothing double-publishes.
@@ -179,6 +181,7 @@ pub(crate) fn record_session_ids(ctx: &SessionCtx) {
 fn attach_publisher(
     ctx: &Arc<SessionCtx>,
     commands: &flume::Sender<EngineCommand>,
+    active: Arc<AtomicBool>,
 ) -> steer::PublisherHandle {
     let (answer_link, answers) = steer::AnswerLink::new();
     let command_link = steer::CommandLink::new(None);
@@ -229,37 +232,59 @@ fn attach_publisher(
 
     // The three receivers the publisher fills, drained into the ONE command
     // channel the connection loop owns.
-    spawn_drain("engine-answers", move |commands: flume::Sender<EngineCommand>| {
-        while let Ok(answer) = answers.recv() {
-            if commands.send(EngineCommand::Answer(answer)).is_err() {
-                return;
+    spawn_drain(
+        "engine-answers",
+        Arc::clone(&active),
+        commands.clone(),
+        move |commands, active| {
+            while active.load(Ordering::SeqCst) {
+                match answers.recv_timeout(DRAIN_POLL) {
+                    Ok(answer) => {
+                        if commands.send(EngineCommand::Answer(answer)).is_err() {
+                            return;
+                        }
+                    }
+                    Err(flume::RecvTimeoutError::Timeout) => {}
+                    Err(flume::RecvTimeoutError::Disconnected) => return,
+                }
             }
-        }
-    }, commands.clone());
+        },
+    );
     // `CommandLink` exposes only `try_recv` (its receiver is private, unlike
     // `ConfigLink::receiver`), so this one polls instead of blocking. A `/`
     // command is a human keystroke away either way.
     let commands_link = Arc::clone(&command_link);
-    spawn_drain("engine-commands", move |commands: flume::Sender<EngineCommand>| {
-        loop {
-            while let Some(parsed) = commands_link.try_recv() {
-                let sent = commands.send(EngineCommand::Command {
-                    name: parsed.command.name.to_string(),
-                    args: parsed.args.clone(),
-                });
-                if sent.is_err() {
-                    return;
+    spawn_drain(
+        "engine-commands",
+        Arc::clone(&active),
+        commands.clone(),
+        move |commands, active| {
+            while active.load(Ordering::SeqCst) {
+                while let Some(parsed) = commands_link.try_recv() {
+                    let sent = commands.send(EngineCommand::Command {
+                        name: parsed.command.name.to_string(),
+                        args: parsed.args.clone(),
+                    });
+                    if sent.is_err() {
+                        return;
+                    }
                 }
+                std::thread::sleep(DRAIN_POLL);
             }
-            if commands.is_disconnected() {
-                return;
-            }
-            std::thread::sleep(COMMAND_POLL);
-        }
-    }, commands.clone());
+        },
+    );
     let config_rx = config_link.receiver();
-    spawn_drain("engine-config", move |commands: flume::Sender<EngineCommand>| {
-        while let Ok(change) = config_rx.recv() {
+    spawn_drain(
+        "engine-config",
+        Arc::clone(&active),
+        commands.clone(),
+        move |commands, active| {
+        while active.load(Ordering::SeqCst) {
+            let change = match config_rx.recv_timeout(DRAIN_POLL) {
+                Ok(change) => change,
+                Err(flume::RecvTimeoutError::Timeout) => continue,
+                Err(flume::RecvTimeoutError::Disconnected) => return,
+            };
             let command = match change {
                 steer::ConfigChange::Option { id, value } => EngineCommand::SetConfig {
                     id: agent_client_protocol::schema::v1::SessionConfigId::new(id),
@@ -273,13 +298,16 @@ fn attach_publisher(
                 return;
             }
         }
-    }, commands.clone());
+    },
+    );
 
     handle
 }
 
-/// How often the `/`-command queue is drained (see `attach_publisher`).
-const COMMAND_POLL: std::time::Duration = std::time::Duration::from_millis(100);
+/// How often a drain thread wakes: to notice a queued `/` command
+/// (`CommandLink` exposes no receiver), and to notice the run ending so no
+/// thread outlives the session that owns it.
+const DRAIN_POLL: std::time::Duration = std::time::Duration::from_millis(100);
 
 /// The publisher's `write_input` on a path with no keystrokes: a steerer's
 /// raw bytes are buffered and submitted as ONE message on `\r`, which is
@@ -311,14 +339,17 @@ fn line_buffered_input(commands: flume::Sender<EngineCommand>) -> steer::publish
     })
 }
 
+/// One publisher→engine drain thread. Every one of them ends with the run:
+/// the `active` flag clears in the end sequence.
 fn spawn_drain(
     name: &str,
-    body: impl FnOnce(flume::Sender<EngineCommand>) + Send + 'static,
+    active: Arc<AtomicBool>,
     commands: flume::Sender<EngineCommand>,
+    body: impl FnOnce(flume::Sender<EngineCommand>, Arc<AtomicBool>) + Send + 'static,
 ) {
     let _ = std::thread::Builder::new()
         .name(name.to_string())
-        .spawn(move || body(commands));
+        .spawn(move || body(commands, active));
 }
 
 /// The kill feed: `Now` ends immediately, `AfterTurn` waits up to
@@ -334,10 +365,12 @@ fn spawn_kill_pump(
     let _ = std::thread::Builder::new()
         .name("engine-kill".to_string())
         .spawn(move || {
-            while let Ok(reason) = kills.recv() {
-                if !active.load(Ordering::SeqCst) {
-                    return;
-                }
+            while active.load(Ordering::SeqCst) {
+                let reason = match kills.recv_timeout(DRAIN_POLL) {
+                    Ok(reason) => reason,
+                    Err(flume::RecvTimeoutError::Timeout) => continue,
+                    Err(flume::RecvTimeoutError::Disconnected) => return,
+                };
                 let outcome = match reason {
                     KillReason::Now => "killed",
                     KillReason::AfterTurn => {
