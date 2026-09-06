@@ -16,10 +16,10 @@
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, App, Entity, InteractiveElement, IntoElement, ParentElement, Render, ScrollHandle,
-    SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window,
+    SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariant},
+    button::ButtonVariant,
     menu::{DropdownMenu as _, PopupMenuItem},
     switch::Switch,
     ActiveTheme as _, Disableable as _, Icon, Sizable as _,
@@ -27,11 +27,11 @@ use gpui_component::{
 
 use crate::actions_view::{page_scaffold, suggestions_button};
 use crate::surface::glass_section_header;
-use crate::controls::WebControl as _;
 use crate::icons::registry;
 use crate::navigation::{active_team_id, nav_for_window, Navigation};
 use crate::native_dialog::{self, AlertSpec};
 use crate::queries;
+use crate::run_rows;
 
 pub struct AutomationsView {
     nav: Entity<Navigation>,
@@ -339,9 +339,9 @@ impl AutomationsView {
         let recent = gpui_component::v_flex()
             .min_w_0()
             .child(glass_section_header("Recent automated runs", None, cx));
-        let mut run_rows = gpui_component::v_flex().min_w_0().gap_2();
+        let mut run_rows_column = gpui_component::v_flex().min_w_0().gap_2();
         if runs.is_empty() {
-            run_rows = run_rows.child(
+            run_rows_column = run_rows_column.child(
                 div()
                     .px_3()
                     .text_xs()
@@ -360,7 +360,7 @@ impl AutomationsView {
             // dock expands onto its tab (or its undocked window is raised).
             // A live run on ANOTHER machine has no terminal here, so its card
             // stays inert.
-            let live_tab = (!run_has_ended(session))
+            let live_tab = (!run_rows::run_has_ended(session))
                 .then(|| local_terminal_tab(&session_id, cx))
                 .flatten();
             let on_open: Option<Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App)>> =
@@ -379,31 +379,45 @@ impl AutomationsView {
                 });
             let toggle_id = session_id.clone();
             let resume_id = session_id.clone();
-            run_rows = run_rows.child(render_run_row(
-                index,
-                session,
-                expanded,
-                resumable,
-                cx.listener(move |this: &mut Self, _, _, cx| {
-                    if !this.expanded_runs.insert(toggle_id.clone()) {
-                        this.expanded_runs.remove(&toggle_id);
-                    }
-                    cx.notify();
-                }),
-                move |_, window, cx| {
-                    crate::action_run::resume_run(
-                        resume_id.clone(),
-                        Some(window.window_handle()),
-                        false,
-                        coding::LaunchOrigin::Local,
-                        cx,
-                    );
+            // EXP-746: the row itself lives in `run_rows` now — the Devices
+            // screen's Running and Past lists draw the same card. This list's
+            // shape is unchanged: the automation glyph leads, the action name
+            // titles it, the caption is EXP-686's status vocabulary.
+            let parts = run_rows::automation_row_parts(session, chrono::Utc::now().timestamp());
+            run_rows_column = run_rows_column.child(run_rows::render_run_row(
+                run_rows::RunRowSpec {
+                    id_prefix: "run",
+                    index,
+                    session,
+                    lead: run_rows::RunRowLead::Automation,
+                    identifier: None,
+                    title: parts.title,
+                    caption: Some(parts.caption),
+                    expandable: parts.expandable,
+                    expanded,
+                    resumable,
+                    on_toggle: Box::new(cx.listener(move |this: &mut Self, _, _, cx| {
+                        if !this.expanded_runs.insert(toggle_id.clone()) {
+                            this.expanded_runs.remove(&toggle_id);
+                        }
+                        cx.notify();
+                    })),
+                    on_resume: Box::new(move |_, window, cx| {
+                        crate::action_run::resume_run(
+                            resume_id.clone(),
+                            Some(window.window_handle()),
+                            false,
+                            coding::LaunchOrigin::Local,
+                            cx,
+                        );
+                    }),
+                    on_open,
+                    kill: None,
                 },
-                on_open,
                 cx,
             ));
         }
-        body = body.child(recent.child(run_rows));
+        body = body.child(recent.child(run_rows_column));
         body.into_any_element()
     }
 }
@@ -553,187 +567,29 @@ fn automated_runs(cx: &App, team_id: Option<&str>) -> Vec<domain::rows::CodingSe
         .collect();
     // ISO-8601 sorts lexicographically — newest first.
     runs.sort_by(|a, b| {
-        run_started_at(b)
-            .cmp(&run_started_at(a))
+        run_rows::run_started_at(b)
+            .cmp(&run_rows::run_started_at(a))
             .then_with(|| b.id.cmp(&a.id))
     });
     runs
-}
-
-fn run_started_at(session: &domain::rows::CodingSession) -> Option<&str> {
-    session
-        .started_at
-        .as_deref()
-        .or(session.created_at.as_deref())
 }
 
 /// "Last run ended, 2 hours ago" — the status word plus when it started.
 /// EXP-686 dropped the self-reported outcome vocabulary everywhere: a run is
 /// either still running or it ended, and the summary says the rest.
 fn last_run_label(session: &domain::rows::CodingSession) -> String {
-    let status = if run_has_ended(session) { "ended" } else { "running" };
-    match run_started_at(session) {
+    let status = if run_rows::run_has_ended(session) {
+        "ended"
+    } else {
+        "running"
+    };
+    match run_rows::run_started_at(session) {
         Some(at) => {
             let when = crate::comments::relative_time(at, chrono::Utc::now().timestamp());
             format!("Last run {status}, {when}")
         }
         None => format!("Last run {status}"),
     }
-}
-
-/// Whether the row's synced status is the terminal `ended`.
-fn run_has_ended(session: &domain::rows::CodingSession) -> bool {
-    session.status.as_deref() == Some(domain::contract::CODING_SESSION_STATUS_ENDED)
-}
-
-/// One "Recent automated runs" row: the action's name snapshot and the run's
-/// age. No "Automated" badge (EXP-643) — the list header already says so on
-/// every client, and EXP-686 dropped the outcome glyph/label with the column
-/// itself: an ENDED row shows the time alone, a LIVE one "Running · {when}".
-///
-/// EXP-637: an ended row is EXPANDABLE (decision 5) — expanded it adds the
-/// agent's own summary (rendered as real markdown since EXP-686, with an
-/// explicit fallback line when the run left none) and, when the run registry
-/// still holds its workspace, a Resume button. A LIVE row has no chevron:
-/// `on_open` (present only while THIS machine hosts the run) makes the whole
-/// card open that session's terminal instead. Same rule in every runs list on
-/// every client.
-fn render_run_row(
-    index: usize,
-    session: &domain::rows::CodingSession,
-    expanded: bool,
-    resumable: bool,
-    on_toggle: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
-    on_resume: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
-    on_open: Option<Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App)>>,
-    cx: &App,
-) -> gpui::AnyElement {
-    let theme = cx.theme();
-    let muted = theme.muted_foreground;
-    let name = session
-        .action_name
-        .clone()
-        // The snapshot survives the action's deletion; only a pre-EXP-253 row
-        // could lack it.
-        .unwrap_or_else(|| "Action".to_string());
-    let ended = run_has_ended(session);
-    let when = run_started_at(session)
-        .map(|at| crate::comments::relative_time(at, chrono::Utc::now().timestamp()))
-        .unwrap_or_default();
-    // The ONLY status word left is "Running" (EXP-686) — an ended row is just
-    // a name and a time.
-    let status = if ended {
-        when.clone()
-    } else {
-        format!("Running · {when}")
-    };
-    let summary = session.summary.clone().filter(|text| !text.trim().is_empty());
-    let session_id = session.id.clone();
-    let header = div()
-        .flex()
-        .w_full()
-        .min_w_0()
-        .items_center()
-        .gap_2()
-        .child(
-            Icon::from(registry::ACTION_AUTOMATION)
-                .xsmall()
-                .text_color(muted),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .text_sm()
-                .truncate()
-                .text_color(theme.foreground)
-                .child(SharedString::from(name)),
-        )
-        .child(
-            div()
-                .flex_shrink_0()
-                .text_xs()
-                .text_color(muted)
-                .child(SharedString::from(status)),
-        )
-        .when(ended, |this| {
-            this.child(
-                crate::controls::glass_icon_button(
-                    SharedString::from(format!("run-toggle-{session_id}")),
-                    Icon::from(if expanded {
-                        registry::UI_CHEVRON_UP
-                    } else {
-                        registry::UI_CHEVRON_DOWN
-                    }),
-                    cx,
-                )
-                    // The card itself may be clickable (a live local run) —
-                    // the chevron must never fall through to it.
-                    .on_click(move |event, window, cx| {
-                        cx.stop_propagation();
-                        on_toggle(event, window, cx);
-                    }),
-            )
-        });
-    let summary_id = session_id.clone();
-    crate::surface::glass_row_card()
-        .id(("run-card", index))
-        .flex()
-        .flex_col()
-        .w_full()
-        .min_w_0()
-        .gap_2()
-        .px_3()
-        .py_2p5()
-        .when_some(on_open, |this, on_open| {
-            this.cursor_pointer()
-                .on_click(move |event, window, cx| on_open(event, window, cx))
-        })
-        .child(header)
-        .when(expanded && ended, |this| {
-            this.child(match summary {
-                // EXP-686: the agent writes GFM — render it, don't dump the
-                // source (the `comments.rs` recipe: selectable so a summary
-                // joins the window selection layer).
-                Some(summary) => div()
-                    .w_full()
-                    .min_w_0()
-                    .text_xs()
-                    .child(
-                        crate::markdown::MarkdownView::new(
-                            SharedString::from(format!("run-summary-{summary_id}")),
-                            summary,
-                        )
-                        .selectable(true),
-                    )
-                    .into_any_element(),
-                None => div()
-                    .w_full()
-                    .min_w_0()
-                    .text_xs()
-                    .text_color(muted)
-                    .child("This run left no summary.")
-                    .into_any_element(),
-            })
-            .when(resumable, |this| {
-                this.child(
-                    // The row wrapper keeps the button at its label width —
-                    // a bare child of this `flex_col` card would stretch.
-                    div().flex().w_full().child(
-                        Button::new(SharedString::from(format!("run-resume-{session_id}")))
-                            .outline()
-                            .web_sm()
-                            .icon(Icon::from(registry::RUN_RESUME))
-                            .label("Resume")
-                            .on_click(move |event, window, cx| {
-                                cx.stop_propagation();
-                                on_resume(event, window, cx);
-                            }),
-                    ),
-                )
-            })
-        })
-        .into_any_element()
 }
 
 /// The dock tab a LIVE run occupies on THIS machine (EXP-686), if this
