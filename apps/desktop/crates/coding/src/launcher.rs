@@ -1046,6 +1046,15 @@ fn wire_agent_mcp(
     transport: LaunchTransport,
 ) -> Result<AgentMcp, CodingError> {
     match agent {
+        CodingAgent::Claude if transport == LaunchTransport::Acp => {
+            // EXP-746: no key file on the ACP arm — the engine passes inline
+            // `--mcp-config` JSON with a `${EXP_MCP_TOKEN}` header and the key
+            // rides the child env ([`apply_mcp_env`]).
+            Ok(AgentMcp::ClaudeInline {
+                url: mcp_url(base_url),
+                session_id: session_id.map(str::to_string),
+            })
+        }
         CodingAgent::Claude => {
             // Re-run the guard: cheap, and it keeps this function safe to
             // call on its own.
@@ -1117,8 +1126,14 @@ fn apply_mcp_env(
     base_url: &str,
     personal_key: &str,
     session_id: Option<&str>,
+    transport: LaunchTransport,
 ) -> SpawnSpec {
     let spawn = match agent {
+        // EXP-746: the ACP arm's inline `--mcp-config` reads the key from the
+        // env (`${EXP_MCP_TOKEN}`); the PTY arm keeps it in `.exp-mcp.json`.
+        CodingAgent::Claude if transport == LaunchTransport::Acp => spawn
+            .env(MCP_URL_ENV, mcp_url(base_url))
+            .env(MCP_TOKEN_ENV, personal_key),
         CodingAgent::Claude => spawn,
         CodingAgent::Codex => spawn.env(MCP_TOKEN_ENV, personal_key),
         CodingAgent::Pi => spawn
@@ -1709,6 +1724,7 @@ pub fn prepare_with_hooks(
         deps.trpc.base_url(),
         &personal_key,
         Some(&session.id),
+        transport,
     );
     // EXP-746: every sidecar env is PTY-era wiring (the hook curl config, the
     // pi observer, the pi plan-mode gate) and stays off the ACP arm; the MCP
@@ -2344,6 +2360,7 @@ fn prepare_action(
         deps.trpc.base_url(),
         &personal_key,
         Some(&session.id),
+        transport,
     );
     // EXP-746: PTY-era sidecar env only (see the session skeleton).
     if transport == LaunchTransport::Terminal {
@@ -2907,6 +2924,7 @@ fn prepare_resume_run(
         deps.trpc.base_url(),
         &personal_key,
         Some(&session.id),
+        transport,
     );
     // EXP-746: PTY-era sidecar env only.
     if transport == LaunchTransport::Terminal {
@@ -3209,7 +3227,8 @@ pub fn prepare_agent_shell(
     let mut spawn = SpawnSpec::new(&deps.settings.resolved_path_for(agent))
         .args(args)
         .cwd(&cwd);
-    spawn = apply_mcp_env(spawn, agent, deps.trpc.base_url(), &personal_key, None);
+    // Agent shells are always interactive TUIs (never the ACP transport).
+    spawn = apply_mcp_env(spawn, agent, deps.trpc.base_url(), &personal_key, None, LaunchTransport::Terminal);
     if agent == CodingAgent::Codex {
         // EXP-443: shells share the trunk cwd with action runs — a distinct
         // originator keeps their rollouts out of every session's strict pass.
@@ -3803,6 +3822,41 @@ mod tests {
             .unwrap_err();
         assert!(matches!(err, CodingError::Git(_)), "wrong error: {err:?}");
         assert!(!repo.join(crate::mcp_json::MCP_JSON_FILE).exists(), "key landed on disk");
+    }
+
+    /// EXP-746: the ACP arm never writes the key file — the engine passes the
+    /// MCP server inline and the key rides the child env.
+    #[test]
+    fn wire_agent_mcp_on_the_acp_arm_keeps_the_claude_key_off_disk() {
+        let dir = temp_dir("mcp-acp-inline");
+        let cwd = dir.0.join("wt");
+        fs::create_dir_all(&cwd).unwrap();
+        let mcp = wire_agent_mcp(
+            CodingAgent::Claude,
+            &cwd,
+            "http://localhost:1/",
+            "expu_x",
+            Some("sid-1"),
+            LaunchTransport::Acp,
+        )
+        .unwrap();
+        assert!(
+            matches!(&mcp, AgentMcp::ClaudeInline { url, session_id }
+                if url == "http://localhost:1/api/mcp" && session_id.as_deref() == Some("sid-1")),
+            "wrong wiring: {mcp:?}"
+        );
+        assert!(!cwd.join(crate::mcp_json::MCP_JSON_FILE).exists(), "key landed on disk");
+    }
+
+    #[test]
+    fn apply_mcp_env_gives_claude_the_token_only_on_the_acp_arm() {
+        let base = SpawnSpec::new("claude");
+        let pty = apply_mcp_env(base.clone(), CodingAgent::Claude, "http://x/", "expu_k", Some("s"), LaunchTransport::Terminal);
+        assert!(!pty.env.iter().any(|(k, _)| k == MCP_TOKEN_ENV), "the PTY arm keeps the key in the file");
+        let acp = apply_mcp_env(base, CodingAgent::Claude, "http://x/", "expu_k", Some("s"), LaunchTransport::Acp);
+        assert!(acp.env.iter().any(|(k, v)| k == MCP_TOKEN_ENV && v == "expu_k"));
+        assert!(acp.env.iter().any(|(k, v)| k == MCP_URL_ENV && v == "http://x/api/mcp"));
+        assert!(acp.env.iter().any(|(k, v)| k == MCP_SESSION_ID_ENV && v == "s"));
     }
 
     /// The repo-less action-scratch flow keeps working: no governing work

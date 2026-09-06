@@ -147,6 +147,17 @@ pub fn permission_args(plan_mode: bool) -> Vec<String> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AgentMcp {
     ClaudeFile,
+    /// EXP-746 (the ACP transport): claude gets the MCP server as INLINE
+    /// `--mcp-config` JSON whose `Authorization` header reads
+    /// `Bearer ${EXP_MCP_TOKEN}` — the CLI expands env refs inside header
+    /// values (measured in the phase-1 spike), so the `expu_` key rides the
+    /// child's env like codex/pi and never lands on disk. The engine renders
+    /// the JSON; this carries what it needs.
+    ClaudeInline {
+        url: String,
+        /// The `X-Exp-Session-Id` header value (EXP-637).
+        session_id: Option<String>,
+    },
     CodexOverrides {
         url: String,
         /// EXP-637: the launched `coding_sessions` row id, sent as the
