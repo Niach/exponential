@@ -964,9 +964,20 @@ impl Mapper {
                         });
                     }
                 }
-                // `terminal: false` is advertised, so a Terminal item can
-                // only be a protocol violation; everything else is a card
-                // detail the local renderer already has.
+                // EXP-750: the client DOES run terminals, so a Terminal item
+                // names the live command this call renders — for any kind,
+                // since an agent is free to embed one under a tool card that
+                // is not `Execute`. Local like everything else here: the
+                // engine binds the terminal to this call and its output
+                // streams in as `Output` chunks.
+                ToolCallContent::Terminal(terminal) => {
+                    out.local.push(LocalFeedEvent::TerminalBound {
+                        tool_call_id: id.to_string(),
+                        terminal_id: terminal.terminal_id.0.to_string(),
+                    })
+                }
+                // Everything else is a card detail the local renderer
+                // already has.
                 _ => {}
             }
         }
