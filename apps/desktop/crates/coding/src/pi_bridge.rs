@@ -386,12 +386,28 @@ pub fn write_pi_observer(worktree: &Path) -> io::Result<PathBuf> {
 
 pub const PI_PLAN_FILE: &str = ".exp-pi-plan.ts";
 
+/// The title of the plan-approval dialog the extension raises through
+/// `ctx.ui.confirm`. EXP-752: the rpc adapter recognises a confirm BY THIS
+/// TITLE — it is the one dialog that is really a mode switch, so the
+/// permission card gets [`ToolKind::SwitchMode`] and an approval flips the
+/// ACP session mode back to `default`. Keep the two in lockstep.
+pub const PI_PLAN_CONFIRM_TITLE: &str = "Approve plan?";
+
+/// The extension command the plan mode registers (`/exp-plan on|off`).
+/// EXP-752: pi has no native modes, so the rpc adapter switches plan mode by
+/// sending this command as a `prompt` — pi runs a registered extension
+/// command instead of prompting the model with it.
+pub const PI_PLAN_COMMAND: &str = "exp-plan";
+
 /// Plan mode for pi (EXP-441) — pi has no native plan mode, so this
 /// launcher-written extension implements one: a plan-first system-prompt
 /// section, a mutating-tool gate (`write`/`edit` plus mutating
 /// `exponential_*` MCP tools; bash stays available under read-only prompt
 /// discipline), and an `exit_plan_mode` tool whose approval runs through
-/// pi's native `ctx.ui.confirm` dialog. The plan lifecycle posts
+/// pi's native `ctx.ui.confirm` dialog, plus (EXP-752) an `/exp-plan on|off`
+/// extension command so the mode can be switched between turns — the ACP
+/// adapter's `session/set_mode` sends exactly that command as a prompt, and
+/// pi runs it instead of prompting the model. The plan lifecycle posts
 /// `plan_pending`/`plan_resolved` events to the observer sidecar so remote
 /// viewers get the standard plan-approval card and the emitter can resolve
 /// the dialog by pty keystroke on a remote answer (`steer::pi_activity`).
@@ -460,6 +476,21 @@ export default function (pi: any) {
     "  making changes. If rejected, wait for feedback, revise, and call",
     "  exit_plan_mode again.",
   ].join("\n")
+
+  // EXP-752: the mode SWITCH. pi has no native modes, so the ACP adapter
+  // turns plan mode on and off by sending "/exp-plan on" | "/exp-plan off" as
+  // a prompt — pi dispatches a registered extension command instead of
+  // prompting the model with it. Anything but "off" turns planning ON, so a
+  // bare "/exp-plan" re-enters plan mode.
+  try {
+    pi.registerCommand("exp-plan", {
+      description: "Turn Exponential plan mode on or off (/exp-plan on | off)",
+      handler: async (args: any, ctx: any) => {
+        planning = String(args ?? "").trim() !== "off"
+        setStatus(ctx, planning ? "plan mode" : undefined)
+      },
+    })
+  } catch {}
 
   try {
     pi.registerTool({
@@ -702,6 +733,20 @@ mod tests {
         // The sidecar wire shape matches the observer's /events contract.
         assert!(PI_PLAN_SOURCE.contains(r#"`${url}/events`"#));
         assert!(PI_PLAN_SOURCE.contains("cwd, events"));
+        // EXP-752: the dialog title the rpc adapter matches on, and the
+        // command it sends to switch the mode between turns. Both are the
+        // adapter's contract with this file, so both live in the source.
+        assert!(PI_PLAN_SOURCE.contains(&format!("\"{PI_PLAN_CONFIRM_TITLE}\"")));
+        assert!(PI_PLAN_SOURCE.contains(&format!("pi.registerCommand(\"{PI_PLAN_COMMAND}\"")));
+        // The handler's shape per pi's docs: (args, ctx), args parsed as the
+        // raw remainder — anything but `off` turns planning back on.
+        assert!(PI_PLAN_SOURCE.contains("handler: async (args: any, ctx: any) =>"));
+        assert!(PI_PLAN_SOURCE.contains(r#"String(args ?? "").trim() !== "off""#));
+        // Registration is wrapped like every other pi API call: an older pi
+        // without registerCommand must not wedge the session.
+        assert!(PI_PLAN_SOURCE.contains(&format!(
+            "try {{\n    pi.registerCommand(\"{PI_PLAN_COMMAND}\""
+        )));
     }
 
     #[test]
