@@ -173,7 +173,9 @@ export function deviceCanRunAutomations(device: SteerDevice): boolean {
 /** EXP-637: resuming an ENDED run (its worktree, its agent transcript) is a
  * launch path of its own — distinct from EXP-481's `resume`, which resumes an
  * issue's live worktree. Runs lists hide Resume on devices without it. */
-export function deviceCanResumeRun(device: SteerDevice): boolean {
+export function deviceCanResumeRun(
+  device: Pick<SteerDevice, `caps`>
+): boolean {
   return (device.caps ?? []).includes(`resume-run`)
 }
 

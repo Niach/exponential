@@ -15,6 +15,12 @@ import {
   sessionIsPaused,
   type SessionDevice,
 } from "@/lib/session-device"
+import { deviceCanResumeRun, deviceRowIsOnline } from "@/lib/steer-devices"
+import {
+  pastRunTitle,
+  selectPastRuns,
+  PAST_RUN_CAP,
+} from "@/lib/past-runs"
 
 /** EXP-734: what a run's Merge control acts on. An issue-scoped run merges
  * through its issue; a batch run through the representative issue of its ONE
@@ -299,4 +305,139 @@ export function useAgentsData(
     currentUserId,
     now,
   ])
+}
+
+// ── Past runs (EXP-746) ──────────────────────────────────────────────────────
+
+/** One row of the Devices screen's "Past" section. */
+export interface PastRunRow {
+  session: CodingSession
+  /** May be undefined while the issue row is still syncing (or for a
+   * batch/action/chat run, which links none). */
+  issue: Issue | undefined
+  board: Board | undefined
+  /** EXP-549: the host machine as the synced devices row knows it. */
+  device: SessionDevice
+  /** EXP-637: that machine is online and advertises `resume-run`. */
+  canResume: boolean
+  title: string
+  /** The issue's identifier, for the row's mono lead-in. */
+  identifier: string | null
+}
+
+/**
+ * EXP-746: the caller's OWN finished, PERSON-started runs in one team — the
+ * "Past" section under Devices, mirrored on iOS, Android and the desktop.
+ * Automated runs (`started_reason` set) belong to the Automations tab's
+ * "Recent automated runs" (EXP-676) and are filtered out by `selectPastRuns`.
+ *
+ * Known scoping caveat: the coding-sessions shape is team-scoped with the
+ * static trash/archive predicate (`buildTeamScopedChildWhere`), so an ended
+ * ISSUE run whose board was trashed or archived stops syncing and silently
+ * drops out of Past. Batch/action/chat rows keep NULL board mirrors and
+ * always sync. Ended rows survive the sweep either way —
+ * `coding-session-sweep.ts` only deletes `running`/`in_review`.
+ */
+export function usePastRuns(
+  teamId: string | undefined,
+  currentUserId: string | undefined
+) {
+  const { data: sessionRows, isReady } = useLiveQuery(
+    (query) =>
+      teamId && currentUserId
+        ? query
+            .from({ sessions: codingSessionCollection })
+            .where(({ sessions }) =>
+              and(
+                eq(sessions.teamId, teamId),
+                eq(sessions.userId, currentUserId),
+                eq(sessions.status, `ended`)
+              )
+            )
+        : undefined,
+    [teamId, currentUserId]
+  )
+  const past = useMemo(
+    () =>
+      selectPastRuns(
+        (sessionRows ?? []) as CodingSession[],
+        currentUserId,
+        teamId,
+        PAST_RUN_CAP
+      ),
+    [sessionRows, currentUserId, teamId]
+  )
+
+  // Sorted so the same id set always yields the same dep string (the
+  // useAgentsData idiom).
+  const issueIds = useMemo(() => {
+    const ids = [
+      ...new Set(
+        past
+          .map((session) => session.issueId)
+          .filter((id): id is string => id !== null)
+      ),
+    ]
+    ids.sort()
+    return ids
+  }, [past])
+
+  const { data: issueRows } = useLiveQuery(
+    (query) =>
+      issueIds.length > 0
+        ? query
+            .from({ issues: issueCollection })
+            .where(({ issues }) => inArray(issues.id, issueIds))
+        : undefined,
+    [issueIds.join(`,`)]
+  )
+
+  const { data: deviceRows } = useLiveQuery(
+    (query) =>
+      teamId && currentUserId ? query.from({ d: deviceCollection }) : undefined,
+    [teamId, currentUserId]
+  )
+  const devices = useMemo(() => (deviceRows ?? []) as Device[], [deviceRows])
+
+  const boards = useTeamBoards(teamId)
+  const now = useNow(30_000)
+
+  return useMemo(() => {
+    const issueMap = new Map(
+      ((issueRows ?? []) as Issue[]).map((issue) => [issue.id, issue])
+    )
+    const boardMap = new Map(boards.map((board) => [board.id, board]))
+    // EXP-637: Resume relaunches the run on the machine that still holds its
+    // worktree — hide the button when that machine is offline or too old to
+    // resume, rather than failing after the click.
+    const resumableDeviceIds = new Set(
+      devices
+        .filter(
+          (device) =>
+            deviceRowIsOnline(device.lastSeenAt, now) &&
+            deviceCanResumeRun({ caps: device.caps })
+        )
+        .map((device) => device.deviceId)
+    )
+    const rows: PastRunRow[] = past.map((session) => {
+      const issue = session.issueId ? issueMap.get(session.issueId) : undefined
+      return {
+        session,
+        issue,
+        board: issue ? boardMap.get(issue.boardId) : undefined,
+        device: resolveSessionDevice(session, devices, now),
+        canResume: Boolean(
+          session.deviceId && resumableDeviceIds.has(session.deviceId)
+        ),
+        title: pastRunTitle(session, issue),
+        identifier: issue?.identifier ?? null,
+      }
+    })
+    return {
+      past: rows,
+      // Without a team id or a signed-in user the query is skipped and can
+      // never deliver a snapshot — ready-empty, not loading forever.
+      isLoading: !isReady && Boolean(teamId && currentUserId),
+    }
+  }, [past, issueRows, boards, devices, now, isReady, teamId, currentUserId])
 }
