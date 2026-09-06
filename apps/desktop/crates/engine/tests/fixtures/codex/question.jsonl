@@ -1,0 +1,2 @@
+{"jsonrpc":"2.0","method":"turn/started","params":{"threadId":"thread_1","turn":{"id":"turn_1","status":"inProgress"}}}
+{"jsonrpc":"2.0","id":"srv-2","method":"item/tool/requestUserInput","params":{"threadId":"thread_1","turnId":"turn_1","itemId":"item_4","questions":[{"id":"q1","header":"Indentation","question":"Tabs or spaces?","isOther":false,"isSecret":false,"options":[{"label":"spaces","description":"four of them"},{"label":"tabs","description":"one of them"}]}]}}
