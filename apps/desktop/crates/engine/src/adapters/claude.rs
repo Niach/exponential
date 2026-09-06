@@ -226,10 +226,14 @@ impl ConnectTo<Client> for ClaudeAgent {
                     async move |request: PromptRequest, responder, cx: ConnectionTo<Client>| {
                         let session = on_prompt.clone();
                         let spawned = cx.clone();
+                        // Read synchronously, before the spawn: a cancel that
+                        // arrives while the turn task is still queued belongs
+                        // to THIS turn.
+                        let epoch = session.lock().cancel_epoch;
                         // The turn outlives this handler by design: `Cancel`
                         // has to be dispatchable while it runs.
                         cx.spawn(async move {
-                            match session.prompt(&spawned, request).await {
+                            match session.prompt(&spawned, request, epoch).await {
                                 Ok(response) => responder.respond(response),
                                 Err(error) => responder.respond_with_error(error),
                             }
@@ -358,6 +362,11 @@ struct State {
     /// answering `/clear` at all.
     skip_local_command_result: bool,
     cancelled: bool,
+    /// Bumped by every cancel. A `session/prompt` records the epoch when its
+    /// handler was DISPATCHED, so a cancel that lands between the dispatch and
+    /// the turn's first stdin write still cancels that turn instead of being
+    /// cleared by it — the CLI's own prewait latch, ported.
+    cancel_epoch: u64,
     closed: bool,
 }
 
@@ -640,6 +649,7 @@ impl ClaudeSession {
     fn cancel(&self) {
         let mut state = self.lock();
         state.cancelled = true;
+        state.cancel_epoch = state.cancel_epoch.wrapping_add(1);
         let closed = state.closed;
         drop(state);
         if closed {
@@ -663,6 +673,7 @@ impl ClaudeSession {
         self: &Arc<Self>,
         cx: &ConnectionTo<Client>,
         request: PromptRequest,
+        epoch: u64,
     ) -> Result<PromptResponse, Error> {
         let text = prompt_text(&request.prompt);
         // `/usage` is answered from the `get_usage` control request instead of
@@ -688,7 +699,9 @@ impl ClaudeSession {
         let (tx, rx) = flume::bounded(1);
         {
             let mut state = self.lock();
-            state.cancelled = false;
+            // A cancel between this prompt's dispatch and here already applies
+            // to it; anything older does not.
+            state.cancelled = state.cancel_epoch != epoch;
             state.delivered_text = false;
             state.local_only_command = wire::LOCAL_ONLY_COMMANDS
                 .iter()

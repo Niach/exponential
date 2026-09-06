@@ -20,11 +20,12 @@ use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::{
     ContentBlock, CreateElicitationRequest, CreateElicitationResponse, ElicitationAcceptAction,
     ElicitationAction, ElicitationContentValue, ElicitationMode, InitializeRequest,
-    ListSessionsRequest, LoadSessionRequest, NewSessionRequest, NewSessionResponse, PromptRequest,
-    RequestPermissionOutcome,
+    CancelNotification, ListSessionsRequest, LoadSessionRequest, NewSessionRequest,
+    NewSessionResponse, PromptRequest, RequestPermissionOutcome,
     RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome,
-    SessionConfigKind, SessionNotification, SessionUpdate, StopReason, TextContent, ToolCallContent,
-    ToolKind,
+    SessionConfigId, SessionConfigKind, SessionConfigOptionValue, SessionModeId,
+    SessionNotification, SessionUpdate, SetSessionConfigOptionRequest, SetSessionModeRequest,
+    StopReason, TextContent, ToolCallContent, ToolKind,
 };
 use agent_client_protocol::{
     on_receive_notification, on_receive_request, Client, ConnectionTo, Error,
@@ -736,4 +737,130 @@ async fn a_recorded_transcript_lists_and_replays_without_spawning_the_cli() {
         !work.0.join("argv.txt").exists(),
         "a transcript replay must not spawn claude"
     );
+}
+
+#[tokio::test]
+async fn a_cancel_interrupts_the_running_turn_and_settles_it_cancelled() {
+    let work = workdir("cancel");
+    let adapter = ClaudeAgent::new(spec("cancel", &work.0, false)).expect("the adapter builds");
+    let stop_reason = Client
+        .builder()
+        .name("exp746-test-client")
+        .on_receive_notification(
+            async move |_notification: SessionNotification, _cx| Ok(()),
+            on_receive_notification!(),
+        )
+        .connect_with(adapter, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(engine::client_capabilities()),
+            )
+            .block_task()
+            .await?;
+            let session = cx
+                .send_request(NewSessionRequest::new(std::env::temp_dir()))
+                .block_task()
+                .await?;
+            // The turn's fixture carries no `result`: it is still running when
+            // the cancel arrives, which is the case the interrupt exists for.
+            let turn = cx.send_request(PromptRequest::new(
+                session.session_id.clone(),
+                vec![ContentBlock::Text(TextContent::new("Work on something long."))],
+            ));
+            cx.send_notification(CancelNotification::new(session.session_id.clone()))?;
+            let response = turn.block_task().await?;
+            Ok::<_, Error>(response.stop_reason)
+        })
+        .await
+        .expect("the connection runs cleanly");
+
+    // The CLI's own `result` still says `end_turn`; a cancelled session is the
+    // adapter's fact, and it outranks the subtype.
+    assert_eq!(stop_reason, StopReason::Cancelled);
+    let stdin: Vec<Value> = std::fs::read_to_string(work.0.join("stdin.jsonl"))
+        .expect("the fake logged stdin")
+        .lines()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect();
+    let interrupt = stdin
+        .iter()
+        .find(|line| line["request"]["subtype"] == serde_json::json!("interrupt"))
+        .expect("the interrupt reached the CLI");
+    // `cancel_queued` is what makes one Stop halt the whole session rather
+    // than only the turn in flight.
+    assert_eq!(interrupt["request"]["cancel_queued"], serde_json::json!(true));
+}
+
+#[tokio::test]
+async fn steering_the_mode_and_the_effort_reaches_the_cli_and_echoes_back() {
+    let work = workdir("steer");
+    let adapter = ClaudeAgent::new(spec("basic", &work.0, false)).expect("the adapter builds");
+    let updates: Arc<Mutex<Vec<SessionNotification>>> = Arc::new(Mutex::new(Vec::new()));
+    let seen = updates.clone();
+    Client
+        .builder()
+        .name("exp746-test-client")
+        .on_receive_notification(
+            async move |notification: SessionNotification, _cx| {
+                seen.lock().expect("updates").push(notification);
+                Ok(())
+            },
+            on_receive_notification!(),
+        )
+        .connect_with(adapter, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(engine::client_capabilities()),
+            )
+            .block_task()
+            .await?;
+            let session = cx
+                .send_request(NewSessionRequest::new(std::env::temp_dir()))
+                .block_task()
+                .await?;
+            cx.send_request(SetSessionModeRequest::new(
+                session.session_id.clone(),
+                SessionModeId::new("plan"),
+            ))
+            .block_task()
+            .await?;
+            let options = cx
+                .send_request(SetSessionConfigOptionRequest::new(
+                    session.session_id.clone(),
+                    SessionConfigId::new("effort"),
+                    SessionConfigOptionValue::value_id("high"),
+                ))
+                .block_task()
+                .await?;
+            Ok::<_, Error>(options)
+        })
+        .await
+        .expect("the connection runs cleanly");
+
+    let stdin: Vec<Value> = std::fs::read_to_string(work.0.join("stdin.jsonl"))
+        .expect("the fake logged stdin")
+        .lines()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect();
+    let requests: Vec<&Value> = stdin.iter().map(|line| &line["request"]).collect();
+    assert!(requests.iter().any(|request| {
+        request["subtype"] == serde_json::json!("set_permission_mode")
+            && request["mode"] == serde_json::json!("plan")
+    }));
+    // Effort is a settings-layer flag mid-session; `--effort` is spawn-only.
+    assert!(requests.iter().any(|request| {
+        request["subtype"] == serde_json::json!("apply_flag_settings")
+            && request["settings"]["effortLevel"] == serde_json::json!("high")
+    }));
+
+    let shapes: Vec<String> = updates
+        .lock()
+        .expect("updates")
+        .iter()
+        .map(|notification| shape(&notification.update))
+        .collect();
+    // The mode echo the four clients key their chip on, then the full option
+    // set both changes re-publish.
+    assert!(shapes.contains(&"mode:plan".to_string()), "{shapes:?}");
+    assert!(shapes.iter().filter(|shape| shape.starts_with("config:")).count() >= 2, "{shapes:?}");
 }

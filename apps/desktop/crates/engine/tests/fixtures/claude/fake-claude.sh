@@ -8,6 +8,7 @@
 #
 # The state machine is the protocol's own, in the order a session hits it:
 #   control_request initialize  -> the recorded initialize response
+#   control_request interrupt   -> a bare success + the turn's recorded trailer
 #   control_request <other>     -> a bare success (set_permission_mode, …)
 #   user message                -> the next turn's frames (turn1, turn2, …)
 #   control_response            -> the frames recorded AFTER that answer
@@ -59,6 +60,11 @@ while IFS= read -r line; do
             else
                 sed "s/@@REQUEST_ID@@/$id/g" "$dir/../initialize.jsonl"
             fi
+            ;;
+        *'"subtype":"interrupt"'*)
+            success "$(request_id "$line")"
+            # An interrupt ends the running turn: the CLI's own trailer.
+            replay "$dir/after-interrupt.jsonl"
             ;;
         *'"type":"control_request"'*)
             success "$(request_id "$line")"
