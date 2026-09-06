@@ -98,6 +98,29 @@ pub(crate) fn session_views(
         .collect()
 }
 
+/// EXP-746: hand the open tab of `resumed_from` to `session_id` in THIS
+/// window's panel (D5's resume swap), reporting whether a tab changed hands.
+///
+/// The open-time half of the rule `sync_session_tabs` applies to synced rows:
+/// a local resume opens its screen before the new row's echo can arrive, so
+/// without this the run it continues would keep a second tab beside it. Only
+/// this window's panel is consulted — the tab being taken over is the one the
+/// user is looking at; a copy undocked into another window is that window's
+/// own sync to swap.
+pub(crate) fn take_over_session_tab(
+    resumed_from: &str,
+    session_id: &str,
+    window: &mut Window,
+    cx: &mut App,
+) -> bool {
+    let Some(panel) = screens_for_window(window, cx) else {
+        return false;
+    };
+    panel.update(cx, |panel, cx| {
+        panel.take_over_session_tab(resumed_from, session_id, window, cx)
+    })
+}
+
 /// Drop a closed window's entry (called from the `Shell` release hook,
 /// mirroring `sidebar::remove_window`).
 pub(crate) fn remove_window(window_id: WindowId, cx: &mut App) {
@@ -409,22 +432,34 @@ fn chip_content(screen: &Screen, cx: &App) -> ChipContent {
     }
 }
 
-/// EXP-746, pure core of the resume swap: which OPEN session tab each new row
-/// takes over.
+/// EXP-746, THE rule of the resume swap: an open tab for `resumed_from`
+/// becomes `session_id`'s.
 ///
 /// `Screen::Session` keys on the row id and a resume mints a new one, so
 /// without this a resumed run opens a SECOND tab beside the one it continues.
-/// A row only takes a tab over when it resumes an id that is open and is not
-/// itself open yet (a resume of a resume converges one step per tick). Sorted
-/// by the displaced id, because the synced rows arrive in no useful order and
-/// the swap must be deterministic.
+/// A run only takes a tab over when it resumes an id that is open and is not
+/// itself open yet: a resume of a resume converges one step per tick, and two
+/// tabs the user opened by hand stay two tabs.
+///
+/// Two paths can see the link first and both call this, so the swap happens
+/// exactly once whichever wins the race: the synced row ([`resume_swaps`],
+/// the only path for a resume started on another device) and, for a LOCAL
+/// resume, [`take_over_session_tab`] at open time — the engine starts
+/// synchronously while the new row's Electric echo is a network round trip,
+/// so the tab is usually already open by the time the row lands.
+fn takes_over_tab(open: &[String], resumed_from: &str, session_id: &str) -> bool {
+    open.iter().any(|tab| tab == resumed_from) && !open.iter().any(|tab| tab == session_id)
+}
+
+/// EXP-746, pure core of the synced half: which OPEN session tab each new row
+/// takes over ([`takes_over_tab`]). Sorted by the displaced id, because the
+/// synced rows arrive in no useful order and the swap must be deterministic.
 fn resume_swaps(open: &[String], rows: &[(String, Option<String>)]) -> Vec<(String, String)> {
     let mut swaps: Vec<(String, String)> = rows
         .iter()
         .filter_map(|(id, resumed_from)| {
             let resumed_from = resumed_from.as_ref()?;
-            (open.iter().any(|tab| tab == resumed_from) && !open.iter().any(|tab| tab == id))
-                .then(|| (resumed_from.clone(), id.clone()))
+            takes_over_tab(open, resumed_from, id).then(|| (resumed_from.clone(), id.clone()))
         })
         .collect();
     swaps.sort();
@@ -861,14 +896,7 @@ impl ScreensPanel {
     fn sync_session_tabs(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let (swaps, ended) = {
             let sessions = Store::global(cx).collections().coding_sessions.read(cx);
-            let open: Vec<String> = self
-                .tabs
-                .iter()
-                .filter_map(|tab| match &tab.screen {
-                    Screen::Session { session_id } => Some(session_id.clone()),
-                    _ => None,
-                })
-                .collect();
+            let open = self.open_session_ids();
             if open.is_empty() {
                 return;
             }
@@ -896,24 +924,53 @@ impl ScreensPanel {
             }
         }
         for (old_id, new_id) in swaps {
-            let old = Screen::Session {
-                session_id: old_id.clone(),
-            };
-            let new = Screen::Session {
-                session_id: new_id,
-            };
-            if resolved_screen(&self.nav, cx).as_ref() == Some(&old) {
-                // EXP-48's in-place swap: `sync_tabs` consumes the marker,
-                // keeps the tab's slot and origin, and builds the new view.
-                crate::navigation::replace_screen(window, cx, new);
-            } else if let Some(ix) = self.tabs.iter().position(|tab| tab.screen == old) {
-                // A background tab: nothing is navigating, so swap its
-                // identity directly (its view, if it has one, is dropped
-                // below and rebuilt when the tab is next activated).
-                self.tabs[ix].screen = new;
-            }
-            self.shutdown_session_view(&old, cx);
+            self.take_over_session_tab(&old_id, &new_id, window, cx);
         }
+    }
+
+    /// The row ids of this panel's open session tabs, in strip order.
+    fn open_session_ids(&self) -> Vec<String> {
+        self.tabs
+            .iter()
+            .filter_map(|tab| match &tab.screen {
+                Screen::Session { session_id } => Some(session_id.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// EXP-746: hand `resumed_from`'s open tab to `session_id` — D5's in-place
+    /// resume swap, applied to whichever of the two paths in
+    /// [`takes_over_tab`] gets here first. `false` when there is nothing to
+    /// take over (the swap already happened, or the user has both tabs open).
+    fn take_over_session_tab(
+        &mut self,
+        resumed_from: &str,
+        session_id: &str,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> bool {
+        if !takes_over_tab(&self.open_session_ids(), resumed_from, session_id) {
+            return false;
+        }
+        let old = Screen::Session {
+            session_id: resumed_from.to_string(),
+        };
+        let new = Screen::Session {
+            session_id: session_id.to_string(),
+        };
+        if resolved_screen(&self.nav, cx).as_ref() == Some(&old) {
+            // EXP-48's in-place swap: `sync_tabs` consumes the marker,
+            // keeps the tab's slot and origin, and builds the new view.
+            crate::navigation::replace_screen(window, cx, new);
+        } else if let Some(ix) = self.tabs.iter().position(|tab| tab.screen == old) {
+            // A background tab: nothing is navigating, so swap its
+            // identity directly (its view, if it has one, is dropped
+            // below and rebuilt when the tab is next activated).
+            self.tabs[ix].screen = new;
+        }
+        self.shutdown_session_view(&old, cx);
+        true
     }
 
     /// This panel's screen for `session_id`, if that tab is open and has been
@@ -2026,7 +2083,7 @@ fn pinned_panel_root(
 
 #[cfg(test)]
 mod tests {
-    use super::{lead_reserve_rems, partition_tabs, resume_swaps, ChipLead};
+    use super::{lead_reserve_rems, partition_tabs, resume_swaps, takes_over_tab, ChipLead};
 
     fn ids(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()
@@ -2055,11 +2112,43 @@ mod tests {
             vec![("s1".to_string(), "s3".to_string())]
         );
 
-        // Both rows already have tabs: the resume happened while both were
-        // open, so there is nothing left to swap.
+        // Both rows already have tabs: either the swap already happened at
+        // open time, or the user opened the continuation itself (Devices →
+        // Running) beside the run it continues. Neither is ours to undo.
         assert!(resume_swaps(&ids(&["s1", "s3"]), &rows).is_empty());
         // No session tabs at all.
         assert!(resume_swaps(&[], &rows).is_empty());
+    }
+
+    /// EXP-746 regression: the swap must not depend on which side sees the
+    /// resume first. A desktop-initiated resume reaches
+    /// `session_screen::open_session` — and through it
+    /// `ScreensPanel::take_over_session_tab`, i.e. [`takes_over_tab`] — a
+    /// round trip BEFORE the resumed row syncs, so both orderings have to end
+    /// with exactly one tab. Keying the swap on the synced row alone left the
+    /// continued run's transcript sitting beside its live continuation on the
+    /// common (local) path.
+    #[test]
+    fn a_resume_swaps_once_whichever_side_sees_it_first() {
+        let rows = vec![row("s2", Some("s1"))];
+
+        // The local start wins the race: the tab is taken over at open
+        // time, and the row's echo then finds nothing left to do.
+        assert!(takes_over_tab(&ids(&["s1"]), "s1", "s2"));
+        assert!(resume_swaps(&ids(&["s2"]), &rows).is_empty());
+
+        // The echo wins: the sync swaps, and the open-time call that
+        // follows finds the tab already renamed.
+        assert_eq!(
+            resume_swaps(&ids(&["s1"]), &rows),
+            vec![("s1".to_string(), "s2".to_string())]
+        );
+        assert!(!takes_over_tab(&ids(&["s2"]), "s1", "s2"));
+
+        // Nothing open for the run being continued (Past → Resume without
+        // opening it first, the usual case): a plain new tab either way.
+        assert!(!takes_over_tab(&ids(&["s9"]), "s1", "s2"));
+        assert!(resume_swaps(&ids(&["s9"]), &rows).is_empty());
     }
 
     /// A chain (`s3` resumed `s1`, `s5` resumed `s3`) converges one step per

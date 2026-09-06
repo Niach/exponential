@@ -57,6 +57,16 @@ pub(crate) fn open_session(session_id: &str, window: &mut Window, cx: &mut App) 
         crate::terminal_dock::reveal_pty_tab(tab, &manager, window, cx);
         return;
     }
+    // EXP-746 D5: a resume mints a NEW row id, so opening it plainly would put
+    // a second tab beside the run it continues. `screens::sync_session_tabs`
+    // reads that link off the synced row, but a LOCAL resume gets here first
+    // — `engine::start` returns as soon as the thread is spawned while the
+    // row's Electric echo is a network round trip — so the swap has to run at
+    // open time too. Both call the same rule, and the loser finds the tab
+    // already renamed.
+    if let Some(resumed_from) = resumed_from_id(session_id) {
+        crate::screens::take_over_session_tab(&resumed_from, session_id, window, cx);
+    }
     crate::navigation::navigate(
         window,
         cx,
@@ -64,6 +74,16 @@ pub(crate) fn open_session(session_id: &str, window: &mut Window, cx: &mut App) 
             session_id: session_id.to_string(),
         },
     );
+}
+
+/// The run `session_id` continues (EXP-662 `resumed_from_id`), read off this
+/// device's run registry — the local half of the link the synced row carries,
+/// written by `prepare_resume_run` before the launch ever reaches this window.
+/// `None` for a fresh run, and for a session hosted on another machine.
+fn resumed_from_id(session_id: &str) -> Option<String> {
+    crate::window_size::app_data_dir()
+        .and_then(|data_dir| coding::run_registry::get(&data_dir, session_id))
+        .and_then(|record| record.resumed_from_id)
 }
 
 /// Mark every open screen for `session_id` ended (the engine's `on_exit` edge,
