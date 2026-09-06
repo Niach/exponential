@@ -22,9 +22,9 @@ import SwiftUI
 // repo / board / pr / icon) — the SAME agent/model/effort/toggle options
 // apply, action runs are no longer Claude-only.
 //
-// EXP-615: Chat is the third subject — a free prompt on one repository,
-// riding the HIDDEN `builtin:chat` action (constructed locally, listed
-// nowhere) through the very same `onRunAction` rails.
+// EXP-615: Chat is the third subject — a free prompt with an OPTIONAL
+// repository (EXP-756), riding the HIDDEN `builtin:chat` action (constructed
+// locally, listed nowhere) through the very same `onRunAction` rails.
 //
 // EXP-672: every subject shares ONE device pool — online with a runnable
 // agent. The per-subject capability filters (`actions`, `action-inputs`,
@@ -202,8 +202,10 @@ struct StartCodingSheet: View {
     /// `""` = unset). Reset on action switch.
     @State private var inputValues: [String: String] = [:]
 
-    // EXP-615 Chat: a free prompt on ONE repository. The values ride the
-    // hidden `builtin:chat` action's `prompt` + `repo` inputs.
+    // EXP-615 Chat: a free prompt with an OPTIONAL repository. The values
+    // ride the hidden `builtin:chat` action's `prompt` + `repo` inputs; an
+    // empty `chatRepoId` is "No repository" (EXP-739/EXP-756), a chat that
+    // runs worktree-less in the agent's scratch dir.
     @State private var chatPrompt = ""
     @State private var chatRepoId = ""
 
@@ -918,7 +920,8 @@ struct StartCodingSheet: View {
             actionsError = "The local database is unavailable."
         }
         repos = (try? await deps.repositoriesApi.list(accountId: accountId, teamId: teamId)) ?? []
-        // EXP-615: one repository is no choice — pre-pick it for the Chat tab.
+        // EXP-615: one repository pre-picks for the Chat tab (web parity);
+        // the picker still offers "No repository".
         if chatRepoId.isEmpty, repos.count == 1 {
             chatRepoId = repos[0].id
         }
@@ -967,10 +970,12 @@ struct StartCodingSheet: View {
 
     // MARK: - Chat (EXP-615)
 
-    /// The Chat pane: a free prompt plus the repository the agent session runs
-    /// in. Both ride the HIDDEN `builtin:chat` action's `prompt` + `repo`
-    /// inputs, so the value rules (trim, the contract's text cap) are the
-    /// action-input ones and the server re-validates them.
+    /// The Chat pane: a free prompt plus an OPTIONAL repository — with one the
+    /// run gets its own `exp/chat-<id8>` worktree, without one (EXP-739/
+    /// EXP-756) it runs in the agent's scratch dir. Both ride the HIDDEN
+    /// `builtin:chat` action's `prompt` + `repo` inputs, so the value rules
+    /// (trim, the contract's text cap) are the action-input ones and the
+    /// server re-validates them.
     @ViewBuilder
     private var chatSection: some View {
         Section {
@@ -991,16 +996,25 @@ struct StartCodingSheet: View {
         // (Android/web parity, EXP-615).
         Section {
             if repos.isEmpty {
-                Text("Connect a repository to this team to chat.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                // Nothing to pick from: the chat simply runs without a
+                // repository (web parity, EXP-756).
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Repository")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("No repository connected. The chat runs without one.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             } else {
+                // The leading `""` is the "No repository" choice, like an
+                // optional `repo` input's "None".
                 GlassPickerRow(
                     "Repository",
                     selection: $chatRepoId,
                     options: [""] + repos.map(\.id),
                     label: { id in
-                        guard !id.isEmpty else { return "Select a repository" }
+                        guard !id.isEmpty else { return "No repository" }
                         return repos.first { $0.id == id }?.fullName ?? id
                     }
                 )
@@ -1009,13 +1023,13 @@ struct StartCodingSheet: View {
         .listRowBackground(glassFormRowFill)
     }
 
-    /// Chat's run gate: a startable machine, a non-blank prompt within the
-    /// contract's text cap, and the required repository.
+    /// Chat's run gate: a startable machine and a non-blank prompt within the
+    /// contract's text cap. The repository is optional (EXP-739/EXP-756), so
+    /// it never gates.
     private var canStartChat: Bool {
         device != nil
             && !chatPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && chatPrompt.count <= DomainContract.actionInputTextMax
-            && !chatRepoId.isEmpty
     }
 
     // MARK: - Bindings
@@ -1208,7 +1222,8 @@ struct StartCodingSheet: View {
 
     /// EXP-615: a chat start is an ordinary action run of the HIDDEN
     /// `builtin:chat` action, constructed locally (it is in no list, on any
-    /// client) and carrying its two inputs.
+    /// client) and carrying its inputs. `wireValues` drops the empty `repo`,
+    /// so a "No repository" pick sends only the prompt (EXP-756).
     private func submitChat() {
         guard let device, let teamId, let onRunAction, canStartChat else { return }
         let action = ActionDto.builtinChatAction(teamId: teamId)
