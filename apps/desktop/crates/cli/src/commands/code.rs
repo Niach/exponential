@@ -242,11 +242,14 @@ fn print_event(event: &engine::LocalFeedEvent, state: &Mutex<AttachState>) {
         },
         // Deliberately unrendered on a line printer: `ToolCall` repeats the
         // wire `tool` event this feed already carries, `EditDiff` is covered
-        // by the worktree diff summary, and `Thought` is exactly the noise a
-        // scrolling transcript should not carry (the session screen shows all
-        // three as collapsible cards instead).
+        // by the worktree diff summary, `TerminalBound` is a card edge with
+        // no line of its own (its output prints through `Output` like any
+        // other command's), and `Thought` is exactly the noise a scrolling
+        // transcript should not carry (the session screen shows all four as
+        // collapsible cards instead).
         engine::LocalFeedEvent::ToolCall { .. }
         | engine::LocalFeedEvent::EditDiff { .. }
+        | engine::LocalFeedEvent::TerminalBound { .. }
         | engine::LocalFeedEvent::Thought { .. } => {}
     }
 }

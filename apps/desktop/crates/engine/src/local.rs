@@ -40,12 +40,23 @@ pub enum LocalFeedEvent {
         new_text: String,
     },
     /// Output of an `Execute` tool call, streamed. `exit_code` arrives with
-    /// the final chunk. Never `ToolCallContent::Terminal`: the client
-    /// advertises `terminal: false` (D5).
+    /// the final chunk. Two producers: `ToolCallContent::Content` on an
+    /// `Execute` call, and a live `terminal/*` one (EXP-750), whose chunks
+    /// start flowing at the [`LocalFeedEvent::TerminalBound`] below.
     Output {
         tool_call_id: String,
         chunk: String,
         exit_code: Option<i32>,
+    },
+    /// EXP-750 — `ToolCallContent::Terminal`: the tool call `tool_call_id`
+    /// renders the terminal the client created as `terminal_id`. The engine
+    /// intercepts this to flush what the command already wrote (the agent
+    /// creates the terminal BEFORE it publishes the call embedding it), and
+    /// the renderer turns the card live until an `Output` carrying an
+    /// `exit_code` closes it.
+    TerminalBound {
+        tool_call_id: String,
+        terminal_id: String,
     },
     /// ACP `Plan` — the pinned plan card, replaced wholesale each time.
     Plan { entries: Vec<PlanEntryView> },

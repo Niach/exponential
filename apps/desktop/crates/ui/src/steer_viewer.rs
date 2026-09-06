@@ -2169,6 +2169,10 @@ impl SteerSessionView {
         if !self.extras.has_extras(item) {
             return None;
         }
+        // EXP-750: the Stop on a live terminal card goes straight to the
+        // in-process engine — a remote viewer has no terminal to stop, so a
+        // source without one simply drops the click.
+        let session = self.source.steerable_session().cloned();
         crate::session_extras::render_extras(
             &self.extras,
             item,
@@ -2179,6 +2183,11 @@ impl SteerSessionView {
                 }
                 cx.notify();
             })),
+            Box::new(move |terminal_id: &str, _window: &mut Window, _cx: &mut App| {
+                if let Some(session) = session.as_ref() {
+                    session.kill_terminal(terminal_id);
+                }
+            }),
             cx,
         )
     }
