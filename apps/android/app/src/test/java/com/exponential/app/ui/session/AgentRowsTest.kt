@@ -5,6 +5,7 @@ import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.domain.MergeTarget
 import com.exponential.app.domain.pastRunByline
+import com.exponential.app.domain.pastRunTitle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -71,6 +72,7 @@ class AgentRowsTest {
         startedAt: String = "2026-07-17T09:00:00Z",
         startedReason: String? = null,
         agent: String? = "claude",
+        actionName: String? = null,
     ) = session(
         id = id,
         userId = userId,
@@ -83,6 +85,7 @@ class AgentRowsTest {
         startedAt = startedAt,
         startedReason = startedReason,
         agent = agent,
+        actionName = actionName,
     )
 
     private fun issue(
@@ -92,12 +95,13 @@ class AgentRowsTest {
         prState: String? = null,
         branch: String? = null,
         createdAt: String = "2026-07-17T09:00:00Z",
+        title: String = "An issue",
     ) = IssueEntity(
         id = id,
         boardId = boardId,
         number = 1,
         identifier = "EXP-1",
-        title = "An issue",
+        title = title,
         status = "in_progress",
         priority = "none",
         sortOrder = 1.0,
@@ -616,6 +620,30 @@ class AgentRowsTest {
         )
         assertEquals("EXP-1", rows.first().issue?.identifier)
         assertNull(rows.last().issue)
+    }
+
+    @Test
+    fun `a row titles itself from whatever it has`() {
+        // Byte-identical ×4 — web `pastRunTitle`, iOS `PastRuns.title`,
+        // desktop `session_title` name the same ended run the same way.
+        assertEquals(
+            "An issue",
+            pastRunTitle(pastRun("r", issueId = "issue-1"), issue("issue-1")),
+        )
+        assertEquals(
+            "Untitled issue",
+            pastRunTitle(pastRun("r", issueId = "issue-1"), issue("issue-1", title = "  ")),
+        )
+        // The issue row has not synced yet.
+        assertEquals("Issue syncing…", pastRunTitle(pastRun("r", issueId = "issue-1"), null))
+        assertEquals(
+            "Release train",
+            pastRunTitle(pastRun("r", actionName = "Release train"), null),
+        )
+        // A chat run carries "Chat" as its action snapshot (EXP-615).
+        assertEquals("Chat", pastRunTitle(pastRun("r", actionName = "Chat"), null))
+        assertEquals("Batch run", pastRunTitle(pastRun("r", actionName = "  "), null))
+        assertEquals("Batch run", pastRunTitle(pastRun("r"), null))
     }
 
     @Test

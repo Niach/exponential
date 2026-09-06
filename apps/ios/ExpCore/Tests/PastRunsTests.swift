@@ -146,14 +146,29 @@ final class PastRunsTests: XCTestCase {
         )
     }
 
-    func testTitleFallsBackToTheActionSnapshotForAnIssuelessRun() {
+    func testARowTitlesItselfFromWhateverItHas() {
+        // Byte-identical ×4 — web `pastRunTitle`, Android `pastRunTitle`,
+        // desktop `session_title` name the same ended run the same way.
         XCTAssertEqual(PastRuns.title(session(id: "a"), issue: issue()), "Fix the sync loop")
-        XCTAssertEqual(PastRuns.title(session(id: "a"), issue: nil), "Untitled issue")
+        XCTAssertEqual(
+            PastRuns.title(session(id: "a"), issue: issue(title: "  ")), "Untitled issue"
+        )
+        // The issue row has not synced yet.
+        XCTAssertEqual(PastRuns.title(session(id: "a"), issue: nil), "Issue syncing…")
         XCTAssertEqual(
             PastRuns.title(
                 session(id: "a", issueId: nil, actionName: "Release train"), issue: nil
             ),
             "Release train"
+        )
+        // A chat run carries "Chat" as its action snapshot (EXP-615).
+        XCTAssertEqual(
+            PastRuns.title(session(id: "a", issueId: nil, actionName: "Chat"), issue: nil),
+            "Chat"
+        )
+        XCTAssertEqual(
+            PastRuns.title(session(id: "a", issueId: nil, actionName: "  "), issue: nil),
+            "Batch run"
         )
         XCTAssertEqual(PastRuns.title(session(id: "a", issueId: nil), issue: nil), "Batch run")
     }

@@ -453,9 +453,12 @@ fn watch_run_collections<V: 'static>(cx: &mut gpui::Context<V>) -> Vec<Subscript
     ]
 }
 
-/// The row's subject line (web `sessionIdentity`): the issue title, the
-/// action name, else the batch. Mirrors the dock chip's rule — EXP-746 D6
-/// deletes that copy with the chips.
+/// The row's subject line: the issue title, a sync placeholder while that
+/// issue row is missing, the action-name snapshot (a chat run's reads "Chat",
+/// EXP-615), else the batch. Mirrors the dock chip's rule — EXP-746 D6
+/// deletes that copy with the chips — and is byte-identical ×4 for the Past
+/// rows below: web `pastRunTitle`, iOS `PastRuns.title`, Android
+/// `pastRunTitle`, all locked by `a row titles itself from whatever it has`.
 fn session_title(
     session: &domain::rows::CodingSession,
     issue: Option<&domain::rows::Issue>,
@@ -570,12 +573,35 @@ mod tests {
 
     /// The subject line falls back the way the dock chip always did: the
     /// issue's title, a sync placeholder while the issue is missing, the
-    /// action's name, else the batch.
+    /// action's name, else the batch. Byte-identical ×4 (web `pastRunTitle`,
+    /// iOS `PastRuns.title`, Android `pastRunTitle`) so Running and Past name
+    /// the same run the same way on every client.
     #[test]
     fn a_row_titles_itself_from_whatever_it_has() {
         let row = |value: serde_json::Value| -> domain::rows::CodingSession {
             serde_json::from_value(value).expect("row")
         };
+        let issue = |title: &str| -> domain::rows::Issue {
+            serde_json::from_value(serde_json::json!({
+                "id": "i-1",
+                "board_id": "b-1",
+                "identifier": "EXP-1",
+                "number": 1,
+                "title": title,
+                "status": "in_progress",
+                "priority": "none",
+            }))
+            .expect("issue")
+        };
+        let scoped = row(serde_json::json!({ "id": "s-0", "issue_id": "i-1" }));
+        assert_eq!(
+            session_title(&scoped, Some(&issue("Fix the sync loop"))),
+            SharedString::from("Fix the sync loop")
+        );
+        assert_eq!(
+            session_title(&scoped, Some(&issue("  "))),
+            SharedString::from("Untitled issue")
+        );
         let batch = row(serde_json::json!({ "id": "s-1" }));
         assert_eq!(session_title(&batch, None), SharedString::from("Batch run"));
         let action = row(serde_json::json!({ "id": "s-2", "action_name": "Release train" }));
@@ -583,6 +609,12 @@ mod tests {
             session_title(&action, None),
             SharedString::from("Release train")
         );
+        // A chat run carries "Chat" as its action snapshot (EXP-615), so no
+        // client sniffs the `exp/chat-` branch for a name.
+        let chat = row(serde_json::json!({
+            "id": "s-4", "action_name": "Chat", "branch": "exp/chat-1a2b3c4d"
+        }));
+        assert_eq!(session_title(&chat, None), SharedString::from("Chat"));
         let syncing = row(serde_json::json!({ "id": "s-3", "issue_id": "i-1" }));
         assert_eq!(
             session_title(&syncing, None),

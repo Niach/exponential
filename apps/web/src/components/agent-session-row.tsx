@@ -177,10 +177,12 @@ export function SessionRow({
                   : `—`}
           </span>
           <span className="truncate font-medium">
+            {/* EXP-746: the same words the Past rows and the three native
+                clients use for an issue-less run (`lib/past-runs.ts`). */}
             {isAction
               ? session.actionName
               : isBatch
-                ? `Batch session`
+                ? `Batch run`
                 : (issue?.title ?? `Issue syncing…`)}
           </span>
         </div>

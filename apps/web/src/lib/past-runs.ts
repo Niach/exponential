@@ -1,8 +1,8 @@
 // EXP-746: the "Past" section under Devices — the caller's own FINISHED runs
 // on the machines they own. The rules live here so the four clients agree:
-// iOS PastRuns.swift, Android AgentsViewModel + Daos.kt, desktop
-// queries::own_ended_runs. Same predicate, same ordering key, same cap, same
-// byline, same test names.
+// iOS PastRuns.swift, Android PastRuns.kt + AgentsViewModel, desktop
+// queries::own_ended_runs + sessions_section::session_title. Same predicate,
+// same ordering key, same cap, same title, same byline, same test names.
 //
 // An AUTOMATED run (`started_reason` set — schedule, event or a
 // sessions_start child) is NOT past work of the person: it belongs to the
@@ -68,17 +68,19 @@ export function selectPastRuns<T extends PastRunSession>(
 }
 
 /** The row's name: the issue's title, else the action snapshot (which
- *  survives the action's deletion), else the run's own kind. */
+ *  survives the action's deletion and is how a chat run reads "Chat" — the
+ *  name is reserved for it, EXP-615), else the batch. Every fallback string is
+ *  byte-identical ×4 (iOS `PastRuns.title`, Android `pastRunTitle`, desktop
+ *  `sessions_section::session_title`), so the same ended row is named the same
+ *  on every client; test `a row titles itself from whatever it has`. */
 export function pastRunTitle(
-  session: Pick<CodingSession, `issueId` | `actionName` | `branch`>,
+  session: Pick<CodingSession, `issueId` | `actionName`>,
   issue: Pick<Issue, `title`> | undefined
 ): string {
-  if (session.issueId) return issue?.title ?? `Issue syncing…`
-  if (session.actionName) return session.actionName
-  // The launcher's own branch vocabulary: `exp/chat-<id8>` is a chat run,
-  // `exp/batch-<id8>` (and anything else issue-less) a batch one.
-  if (session.branch?.startsWith(`exp/chat-`)) return `Chat session`
-  return `Batch session`
+  if (issue) return issue.title.trim() || `Untitled issue`
+  // An issue-scoped run whose issue row has not landed yet.
+  if (session.issueId) return `Issue syncing…`
+  return session.actionName?.trim() || `Batch run`
 }
 
 /** How the run ended, as the byline says it. NULL `ended_by` (a row ended by

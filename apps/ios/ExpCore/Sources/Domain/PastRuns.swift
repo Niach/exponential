@@ -44,14 +44,21 @@ public enum PastRuns {
         session.endedAt ?? session.updatedAt
     }
 
-    /// What the row is called: the issue's title, or — for a run with no issue
-    /// at all — its action-name snapshot, else "Batch run" (the live rows'
-    /// rule, applied to rows whose issue may no longer be synced).
+    /// What the row is called: the issue's title, else — while that issue row
+    /// has not synced yet — "Issue syncing…", else the run's action-name
+    /// snapshot (which outlives the action, and is how a chat run reads
+    /// "Chat", EXP-615), else "Batch run". Byte-identical ×4 with web
+    /// `pastRunTitle`, Android `pastRunTitle` and desktop `session_title`, so
+    /// the same ended run is named the same everywhere. Locked by
+    /// `a row titles itself from whatever it has`.
     public static func title(_ session: CodingSessionEntity, issue: IssueEntity?) -> String {
-        if issue == nil, session.issueId == nil {
-            return session.actionName ?? "Batch run"
+        if let issue {
+            let title = issue.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            return title.isEmpty ? "Untitled issue" : title
         }
-        return issue?.title ?? "Untitled issue"
+        if session.issueId != nil { return "Issue syncing…" }
+        let action = (session.actionName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return action.isEmpty ? "Batch run" : action
     }
 
     /// The row's caption: `<device> · <agent label> · ended by <who> · <rel

@@ -117,26 +117,40 @@ describe(`selectPastRuns`, () => {
 })
 
 describe(`pastRunTitle`, () => {
-  it(`title falls back through issue, action, batch`, () => {
+  it(`a row titles itself from whatever it has`, () => {
     const issue = { title: `Fix the sync loop` } as Pick<Issue, `title`>
     expect(pastRunTitle(run({ issueId: `issue-1` }), issue)).toBe(
       `Fix the sync loop`
     )
+    // A synced issue with a blank title still names the row.
+    expect(
+      pastRunTitle(run({ issueId: `issue-1` }), { title: `  ` } as Pick<
+        Issue,
+        `title`
+      >)
+    ).toBe(`Untitled issue`)
     // The issue row has not synced yet.
     expect(pastRunTitle(run({ issueId: `issue-1` }), undefined)).toBe(
       `Issue syncing…`
     )
-    // The action-name SNAPSHOT survives the action's deletion.
+    // The action-name SNAPSHOT survives the action's deletion, and a chat run
+    // carries "Chat" as that snapshot (EXP-615) — no branch sniffing.
     expect(pastRunTitle(run({ actionName: `Release train` }), undefined)).toBe(
       `Release train`
     )
     expect(
-      pastRunTitle(run({ branch: `exp/chat-1a2b3c4d` }), undefined)
-    ).toBe(`Chat session`)
+      pastRunTitle(
+        run({ actionName: `Chat`, branch: `exp/chat-1a2b3c4d` }),
+        undefined
+      )
+    ).toBe(`Chat`)
+    // Byte-identical ×4: iOS `PastRuns.title`, Android `pastRunTitle`,
+    // desktop `session_title` name an issue-less run the same way.
     expect(
       pastRunTitle(run({ branch: `exp/batch-1a2b3c4d` }), undefined)
-    ).toBe(`Batch session`)
-    expect(pastRunTitle(run(), undefined)).toBe(`Batch session`)
+    ).toBe(`Batch run`)
+    expect(pastRunTitle(run({ actionName: `  ` }), undefined)).toBe(`Batch run`)
+    expect(pastRunTitle(run(), undefined)).toBe(`Batch run`)
   })
 })
 

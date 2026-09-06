@@ -52,6 +52,7 @@ import com.exponential.app.domain.SessionDevicePresentation
 import com.exponential.app.domain.canOfferFixConflicts
 import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.domain.pastRunByline
+import com.exponential.app.domain.pastRunTitle
 import com.exponential.app.ui.actions.ActionEditSheet
 import com.exponential.app.ui.actions.ActionsViewModel
 import com.exponential.app.ui.actions.AutomationFormSheet
@@ -362,15 +363,11 @@ fun AgentsScreen(
                         item(key = "__past_header__") { SectionHeader("Past") }
                         items(pastRuns, key = { "past_${it.session.id}" }) { row ->
                             EndedRunRow(
-                                // An issueless run is an action or chat run
-                                // when it carries its action_name snapshot,
-                                // else a batch run (same rule as the live row).
-                                title = when {
-                                    row.issue != null -> row.issue.title
-                                    row.session.issueId == null ->
-                                        row.session.actionName ?: "Batch run"
-                                    else -> "Issue not synced yet"
-                                },
+                                // The ×4 rule (domain `pastRunTitle`): the
+                                // issue's title, a sync placeholder while it
+                                // is missing, the action_name snapshot (a
+                                // chat run's reads "Chat"), else the batch.
+                                title = pastRunTitle(row.session, row.issue),
                                 identifier = row.issue?.identifier,
                                 summary = row.session.summary,
                                 // Unused while `byline` carries the whole
