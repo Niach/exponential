@@ -1,0 +1,40 @@
+# EXP-746: the ACP session engine — the in-process host that drives an agent CLI
+# over agent-client-protocol, the four adapters (claude/codex/pi/external), the
+# ONE SessionUpdate → ActivityEvent mapper, and the run lifecycle both hosts
+# share. Deliberately gpui-free so the headless CLI daemon links it too.
+#
+# Dependency direction (§3.1, extended): engine sits ABOVE coding and steer and
+# depends on both; `coding` still depends on neither (it never learns about the
+# relay), and nothing below engine may depend on engine. `crates/ui` (the IDE)
+# and `crates/cli` (the daemon) are its only consumers.
+[package]
+name = "engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+api = { path = "../api" }
+domain = { path = "../domain" }
+# default-features = false: the engine only needs the gpui-free launcher core
+# (PreparedLaunch/AcpLaunch, settings, run registry). The desktop re-enables
+# coding's gpui half through crates/ui.
+coding = { path = "../coding", default-features = false }
+# The publisher, the wire vocabulary (ActivityEvent) and the tokio runtime the
+# ACP connection futures are driven on — the engine never spins up a second one.
+steer = { path = "../steer" }
+# SpawnSpec + login_path for the adapter child processes; gpui half off, same
+# reason as coding above.
+terminal = { path = "../terminal", default-features = false }
+agent-client-protocol = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+flume = { workspace = true }
+uuid = { workspace = true }
+anyhow = { workspace = true }
+log = "0.4"
+# Signal delivery to an agent child that ignores its stdin close (SIGTERM →
+# grace → SIGKILL), matching coding's stop semantics.
+libc = { workspace = true }

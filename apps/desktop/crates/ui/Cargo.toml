@@ -19,6 +19,9 @@ api = { path = "../api" }
 terminal = { path = "../terminal" }
 coding = { path = "../coding" }
 steer = { path = "../steer" }
+# EXP-746: the ACP session engine — `Screen::Session` drives an `EngineSession`
+# instead of a PTY tab whenever the launch resolves to the Acp transport.
+engine = { path = "../engine" }
 # §08 steer wiring: foreground-marshal channels between the steer tokio runtime
 # and the gpui foreground (control-channel start_session inbox + per-session
 # publisher UI events).
