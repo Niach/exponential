@@ -410,7 +410,7 @@ impl SteerSessionView {
                 // The engine dropped its sender: the run is over, whether or
                 // not a `Phase(Ended)` made it out first.
                 let _ = this.update(cx, |this, cx| {
-                    this.note_engine_gone(cx);
+                    this.note_run_ended(cx);
                 });
             });
         }
@@ -746,10 +746,12 @@ impl SteerSessionView {
         cx.notify();
     }
 
-    /// The engine's feed closed without (or after) a final phase — the run is
-    /// over either way, and a composer over a dead engine would silently
-    /// swallow every message.
-    fn note_engine_gone(&mut self, cx: &mut gpui::Context<Self>) {
+    /// The run is over. Two callers, one edge: the engine's feed closing
+    /// (with or without a final `Phase`), and the HOST's own exit callback,
+    /// which can land a round trip before the synced row flips. A composer
+    /// over a dead engine would silently swallow every message, so this is
+    /// deliberately idempotent and never waits for the row.
+    pub(crate) fn note_run_ended(&mut self, cx: &mut gpui::Context<Self>) {
         self.connected = false;
         if !matches!(self.phase, ViewerPhase::Ended { .. }) {
             self.phase = ViewerPhase::Ended { outcome: None };
@@ -3062,8 +3064,10 @@ impl SteerSessionView {
                 );
                 continue;
             }
+            // The popover and its trigger are two elements in one subtree —
+            // gpui ids must not collide.
             let trigger = crate::surface::glass_pill_button(
-                id.clone(),
+                SharedString::from(format!("steer-chip-trigger-{index}")),
                 crate::surface::PillSize::Sm,
                 cx,
             )

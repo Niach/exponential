@@ -304,11 +304,17 @@ impl SessionScreenView {
     }
 
     /// The run is over — the screen turns into a read-only transcript.
+    ///
+    /// This is the HOST's edge (the engine's `on_exit`), which can beat both
+    /// the synced row and the engine's own feed closing; the transcript is
+    /// told directly so its composer goes at the same moment the header's
+    /// affordances do.
     pub(crate) fn mark_ended(&mut self, cx: &mut gpui::Context<Self>) {
         if self.ended {
             return;
         }
         self.ended = true;
+        self.inner.update(cx, |view, cx| view.note_run_ended(cx));
         cx.notify();
     }
 
@@ -417,8 +423,10 @@ impl SessionScreenView {
         // The pill only exists for a LIVE run's own meter (see the header
         // below) — resolving the machine's windows for a header that will not
         // show them is a settings read and a jsonb parse per repaint.
-        let shows_usage =
-            usage_summary.is_some() && !over && self.feed != SessionFeed::Replay;
+        let shows_usage = usage_summary.is_some()
+            && !over
+            && !self.ended
+            && self.feed != SessionFeed::Replay;
         // The HOST machine's rate-limit windows: this install's own probe for
         // a run we host, the synced `devices.agent_usage` for one we do not.
         let windows = agent.filter(|_| shows_usage).and_then(|agent| {
@@ -512,7 +520,7 @@ impl SessionScreenView {
                     )
                 },
             )
-            .when(can_kill, |this| {
+            .when(can_kill && !self.ended, |this| {
                 let inner = self.inner.clone();
                 this.child(
                     Button::new("session-kill")
