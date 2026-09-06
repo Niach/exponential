@@ -87,6 +87,7 @@ impl FakeServer {
                 notifications,
                 requests,
                 exit: None,
+                pid: None,
             },
         )
     }

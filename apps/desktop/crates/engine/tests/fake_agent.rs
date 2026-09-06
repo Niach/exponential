@@ -562,6 +562,7 @@ fn prepared(session_id: &str, worktree: PathBuf) -> coding::PreparedLaunch {
         codex_originator: None,
         codex_resume_id: None,
         launch_hold: None,
+        transport_notice: None,
     }
 }
 

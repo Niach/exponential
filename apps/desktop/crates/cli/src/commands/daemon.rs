@@ -3014,6 +3014,8 @@ mod tests {
             transport: None,
             acp_session_id: None,
             agent_native_session_id: None,
+            acp_child_pid: None,
+            host_pid: None,
             external_agent: None,
             recorded_at: coding::run_registry::now_secs(),
             extra: std::collections::BTreeMap::new(),

@@ -748,6 +748,11 @@ pub struct PreparedLaunch {
     /// (trunk-clone and scratch-dir action runs — the prune skips the clone
     /// root itself).
     pub launch_hold: Option<crate::launch_gate::LaunchHold>,
+    /// EXP-758: a one-line notice about HOW this launch was resolved that the
+    /// host shows on the run (a tab banner / a CLI line) — today "started in
+    /// a terminal because <agent>'s ACP check failed". `None` when the
+    /// transport resolved the way the settings asked.
+    pub transport_notice: Option<String>,
 }
 
 /// [`prepare`]'s outcome: ready to spawn, or disabled-with-reason.
@@ -1702,6 +1707,8 @@ pub fn prepare_with_hooks(
             transport: Some(transport.id().to_string()),
             acp_session_id: None,
             agent_native_session_id: None,
+            acp_child_pid: None,
+            host_pid: None,
             external_agent: options.external.clone(),
             recorded_at: crate::run_registry::now_secs(),
             extra: BTreeMap::new(),
@@ -1844,6 +1851,7 @@ pub fn prepare_with_hooks(
         // `prepare_resume_run`'s.
         codex_resume_id: None,
         launch_hold: Some(launch_hold),
+        transport_notice: None,
     }))
 }
 
@@ -2491,6 +2499,8 @@ fn prepare_action(
             transport: Some(transport.id().to_string()),
             acp_session_id: None,
             agent_native_session_id: None,
+            acp_child_pid: None,
+            host_pid: None,
             external_agent: options.external.clone(),
             recorded_at: crate::run_registry::now_secs(),
             extra: BTreeMap::new(),
@@ -2551,6 +2561,7 @@ fn prepare_action(
         codex_originator,
         codex_resume_id: None,
         launch_hold,
+        transport_notice: None,
     }))
 }
 
@@ -3048,6 +3059,8 @@ fn prepare_resume_run(
             transport: Some(transport.id().to_string()),
             acp_session_id: None,
             agent_native_session_id: None,
+            acp_child_pid: None,
+            host_pid: None,
             recorded_at: crate::run_registry::now_secs(),
             ..record.clone()
         },
@@ -3149,6 +3162,7 @@ fn prepare_resume_run(
         codex_originator,
         codex_resume_id,
         launch_hold,
+        transport_notice: None,
     }))
 }
 
@@ -5547,6 +5561,8 @@ mod tests {
             transport: None,
             acp_session_id: None,
             agent_native_session_id: None,
+            acp_child_pid: None,
+            host_pid: None,
             external_agent: None,
         }
     }

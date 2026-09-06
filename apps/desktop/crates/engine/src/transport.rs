@@ -55,6 +55,7 @@ impl ChildLines {
     /// each message to a single receiver): an adapter that wants the code too
     /// reads the link, never a second clone of the receiver.
     pub fn forward_exit(&self, link: &ChildExitLink) {
+        link.record_pid(self.pid);
         forward_exit(self.exit.clone(), link.clone());
     }
 }

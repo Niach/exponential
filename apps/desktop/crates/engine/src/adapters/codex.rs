@@ -140,6 +140,9 @@ pub struct CodexConnection {
     pub notifications: flume::Receiver<(String, Value)>,
     pub requests: flume::Receiver<ServerRequest>,
     pub exit: Option<flume::Receiver<terminal::pty::ChildExit>>,
+    /// EXP-758: the app-server child's pid (`None` on the in-process test
+    /// fake) — recorded into the run record for the orphan reaper.
+    pub pid: Option<u32>,
 }
 
 impl CodexConnection {
@@ -153,12 +156,13 @@ impl CodexConnection {
             "--listen".to_string(),
             "stdio://".to_string(),
         ];
-        let (server, notifications, requests, exit) = AppServer::spawn(&spec)?;
+        let (server, notifications, requests, exit, pid) = AppServer::spawn(&spec)?;
         Ok(CodexConnection {
             server,
             notifications,
             requests,
             exit: Some(exit),
+            pid: Some(pid),
         })
     }
 }
@@ -172,6 +176,9 @@ pub struct CodexAgent {
 impl CodexAgent {
     pub fn new(spec: AdapterSpec) -> Result<CodexAgent, EngineError> {
         let connection = CodexConnection::spawn(&spec.spawn).map_err(EngineError::Spawn)?;
+        if let Some(pid) = connection.pid {
+            spec.exit.record_pid(pid);
+        }
         if let Some(exit) = &connection.exit {
             crate::transport::forward_exit(exit.clone(), spec.exit.clone());
         }

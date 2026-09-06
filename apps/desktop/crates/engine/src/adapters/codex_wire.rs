@@ -135,6 +135,7 @@ impl AppServer {
         flume::Receiver<(String, Value)>,
         flume::Receiver<ServerRequest>,
         flume::Receiver<terminal::pty::ChildExit>,
+        u32,
     )> {
         let child = spawn_lines(spec, StderrPolicy::Log)?;
         let lines = child.lines.clone();
@@ -143,7 +144,7 @@ impl AppServer {
         let writer: Arc<dyn LineSink> = Arc::new(child.writer.clone());
         let (server, notifications, requests) =
             AppServer::route(lines, writer, Some(child), &format!("codex-router-{pid}"))?;
-        Ok((server, notifications, requests, exit))
+        Ok((server, notifications, requests, exit, pid))
     }
 
     /// Route an already-open line stream. The production caller is [`spawn`];

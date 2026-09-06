@@ -241,6 +241,12 @@ pub(crate) fn text_blocks(text: &str) -> Vec<ContentBlock> {
 #[derive(Clone)]
 pub struct ChildExitLink {
     slot: Arc<Mutex<Option<terminal::pty::ChildExit>>>,
+    /// EXP-758: the child's pid, recorded at spawn. The lifecycle writes it
+    /// onto the run record so a host that died without its end sequence
+    /// (Cmd-Q, a crash) leaves a pid the next start can reap
+    /// (`coding::reaper::reap_recorded`) — codex/pi/external children carry
+    /// no `claude-hooks` anchor, so this is the only handle on them.
+    pid: Arc<Mutex<Option<u32>>>,
     /// Held until the exit is recorded; dropping it is the signal
     /// [`ChildExitLink::reaped`] waits on. A flume receiver whose senders are
     /// all gone resolves immediately and KEEPS resolving, so the edge is
@@ -268,6 +274,7 @@ impl ChildExitLink {
         let (gate, signal) = flume::bounded(0);
         ChildExitLink {
             slot: Arc::new(Mutex::new(None)),
+            pid: Arc::new(Mutex::new(None)),
             gate: Arc::new(Mutex::new(Some(gate))),
             signal,
         }
@@ -283,6 +290,18 @@ impl ChildExitLink {
         if let Ok(mut gate) = self.gate.lock() {
             gate.take();
         }
+    }
+
+    /// Adapter side: the child was spawned as `pid`.
+    pub fn record_pid(&self, pid: u32) {
+        if let Ok(mut slot) = self.pid.lock() {
+            *slot = Some(pid);
+        }
+    }
+
+    /// The spawned child's pid, once an adapter recorded it.
+    pub fn pid(&self) -> Option<u32> {
+        self.pid.lock().ok().and_then(|slot| *slot)
     }
 
     /// Engine side: what the child exited with, if it did.
@@ -459,7 +478,7 @@ impl LocalFeed {
         }
         let mut state = self.lock();
         if let LocalFeedEvent::Phase(phase) = &event {
-            state.phase = Some(*phase);
+            state.phase = Some(phase.clone());
         } else if let Some(slot) = state.slot(&event) {
             *slot = Some(event.clone());
         } else if !state.coalesce(&event) {
@@ -496,7 +515,7 @@ impl LocalFeed {
         {
             let _ = tx.send(event.clone());
         }
-        if let Some(phase) = state.phase {
+        if let Some(phase) = state.phase.clone() {
             let _ = tx.send(LocalFeedEvent::Phase(phase));
         }
         state.subscribers.push(tx);
@@ -506,7 +525,7 @@ impl LocalFeed {
     /// Where the run is right now, for a host that wants the answer before the
     /// replay reaches it.
     pub(crate) fn phase(&self) -> Option<EnginePhase> {
-        self.lock().phase
+        self.lock().phase.clone()
     }
 }
 
@@ -1469,7 +1488,7 @@ mod tests {
         events
             .iter()
             .filter_map(|event| match event {
-                LocalFeedEvent::Phase(phase) => Some(*phase),
+                LocalFeedEvent::Phase(phase) => Some(phase.clone()),
                 _ => None,
             })
             .collect()

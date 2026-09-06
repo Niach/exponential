@@ -230,6 +230,18 @@ pub fn reap(data_dir: &Path) -> usize {
     targets.len()
 }
 
+/// EXP-758: kill the ACP children a DEAD host left behind. Every ACP run
+/// records its child's pid (`RunRecord::acp_child_pid`) and the host pid that
+/// owns it; a record whose host is gone while the child still runs is an
+/// orphan (Cmd-Q with a live codex run, a crashed daemon). Runs on every
+/// desktop/daemon start, next to [`reap`]. Never signals a pid whose host is
+/// still alive (the sibling process on a shared data dir, REV-20) or whose
+/// command no longer looks like the recorded agent (a recycled pid).
+pub fn reap_recorded(_data_dir: &Path) -> usize {
+    // Filled by the coding lane of EXP-758.
+    0
+}
+
 #[cfg(not(unix))]
 pub fn reap(_data_dir: &Path) -> usize {
     // The coalition/ASN mechanic is macOS-only, and Windows has no equivalent

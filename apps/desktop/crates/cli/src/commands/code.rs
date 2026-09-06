@@ -237,6 +237,7 @@ fn print_event(event: &engine::LocalFeedEvent, state: &Mutex<AttachState>) {
         engine::LocalFeedEvent::Phase(phase) => match phase {
             engine::EnginePhase::Connecting => println!("Connecting to the agent..."),
             engine::EnginePhase::Live => println!("Connected."),
+            engine::EnginePhase::Failed(error) => println!("Session failed: {error}"),
             // `attend_acp` prints the exit line itself once `wait` returns.
             engine::EnginePhase::Ended => {}
         },

@@ -198,6 +198,15 @@ pub struct RunRecord {
     /// pins above stay the PTY-side truth; this is the ACP-side one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_native_session_id: Option<String>,
+    /// EXP-758: the ACP child's pid and the pid of the host process that
+    /// spawned it, written by the engine at spawn and CLEARED by its end
+    /// sequence. A record still carrying both while its host is dead names
+    /// an orphan (Cmd-Q with a live codex run) for
+    /// [`crate::reaper::reap_recorded`] on the next start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acp_child_pid: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_pid: Option<u32>,
     /// EXP-746 (D13): the external ACP agent this run used, when it was not
     /// one of the three builtins. `agent` above then carries the settings
     /// default and means nothing — an older host reading this record still
@@ -581,6 +590,8 @@ pub(crate) fn sample_record(session_id: &str) -> RunRecord {
             transport: None,
             acp_session_id: None,
             agent_native_session_id: None,
+            acp_child_pid: None,
+            host_pid: None,
             external_agent: None,
     }
 }

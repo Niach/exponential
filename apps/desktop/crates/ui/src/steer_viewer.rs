@@ -404,7 +404,7 @@ impl SteerSessionView {
             // built over a run that has been live for an hour is steerable on
             // its FIRST paint rather than after the replay reaches it.
             if let Some(phase) = session.phase() {
-                this.phase = viewer_phase(phase);
+                this.phase = viewer_phase(phase.clone());
                 this.connected = phase != engine::EnginePhase::Ended;
             }
             // `subscribe` replays the buffered backlog first, so a view built
@@ -744,7 +744,7 @@ impl SteerSessionView {
                 self.note_compaction(was_compacting, cx);
             }
             engine::LocalFeedEvent::Phase(phase) => {
-                self.phase = viewer_phase(phase);
+                self.phase = viewer_phase(phase.clone());
                 // There is no socket on this path — "connected" is simply
                 // whether the engine is still talking to us.
                 self.connected = phase != engine::EnginePhase::Ended;
@@ -1603,7 +1603,11 @@ pub(crate) fn viewer_phase(phase: engine::EnginePhase) -> ViewerPhase {
     match phase {
         engine::EnginePhase::Connecting => ViewerPhase::Connecting,
         engine::EnginePhase::Live => ViewerPhase::Live,
-        engine::EnginePhase::Ended => ViewerPhase::Ended { outcome: None },
+        // EXP-758: the failure banner is rendered off `EngineExit::error` by
+        // the session screen; the viewer's own phase reads it as ended.
+        engine::EnginePhase::Failed(_) | engine::EnginePhase::Ended => {
+            ViewerPhase::Ended { outcome: None }
+        }
     }
 }
 
