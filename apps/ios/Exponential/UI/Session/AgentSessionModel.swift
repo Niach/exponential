@@ -1562,7 +1562,10 @@ final class AgentSessionModel {
                 subagentId: subagentId,
                 agentType: Self.trimmedField(event["agentType"]) ?? "agent",
                 status: status,
-                detail: Self.trimmedField(event["detail"])
+                detail: Self.trimmedField(event["detail"]),
+                // EXP-748: the publisher's count, stamped on the completed
+                // edge — it outlives the tool rows replay evicts first.
+                toolCalls: event["toolCalls"] as? Int
             ))
         case "permission":
             guard let tool = Self.trimmedField(event["tool"]) else { return }
