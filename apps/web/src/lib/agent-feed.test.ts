@@ -959,7 +959,10 @@ describe(`config state`, () => {
     ).toEqual({ contextUsed: 10, contextSize: 20 })
   })
 
-  it(`configChips puts the mode chip first, then options in publisher order`, () => {
+  // EXP-746: this name is mirrored ×4 - Android carries it verbatim, iOS as
+  // `testConfigChipsPutsTheModeChipFirst`, desktop as
+  // `config_chips_puts_the_mode_chip_first`; keep the four in step.
+  it(`configChips puts the mode chip first`, () => {
     const config = parseConfigState(
       state({
         options: [
