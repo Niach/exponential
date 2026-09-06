@@ -439,10 +439,21 @@ export function AgentSessionView({
     [live, feed, questionIds]
   )
   /** EXP-724: the slash commands THIS session's agent can run (an agent-less
-   *  row is a claude run). Empty catalog = no menu, no hint, no "…" entry. */
+   *  row is a claude run). Empty catalog = no menu, no hint, no "…" entry.
+   *  EXP-746: an ACP run's agent advertises commands of its own, so the
+   *  catalog is the same MERGE the composer's `/` menu offers — otherwise a
+   *  steered `/<agent command>` came back as a prose bubble here while the
+   *  menu that sent it listed the row (Android and iOS merge on both sides
+   *  too). The "…" Compact entry follows: a run whose agent advertises
+   *  `/compact` can run it. */
   const agentCommands = useMemo(
-    () => steerCommandsFor(session.agent),
-    [session.agent]
+    () =>
+      mergeAgentCommands(
+        steerCommandsFor(session.agent),
+        config?.commands ?? [],
+        session.agent
+      ),
+    [session.agent, config?.commands]
   )
   /** EXP-389: the agent is actively working — live and nothing waiting on
    *  the user (no active question card, synced needs_input clear; all three

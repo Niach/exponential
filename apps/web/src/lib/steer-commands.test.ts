@@ -205,6 +205,38 @@ describe(`mergeAgentCommands`, () => {
     // an agent that happens to ship the same name.
     expect(merged).toEqual(claude)
   })
+
+  // The feed's command pill and the `/` menu read ONE catalog: a command the
+  // agent advertised is a command when it comes back down the transcript too,
+  // not a prose bubble. Mirrors Android's `the menu and the command lookup
+  // both see the advertised rows` and iOS's
+  // testTheMenuAndTheCommandLookupBothSeeTheAdvertisedRows.
+  it(`the command lookup sees advertised agent commands`, () => {
+    const advertised = [{ name: `review`, description: `Review the diff` }]
+    const merged = mergeAgentCommands(claude, advertised, `claude`)
+    expect(merged.map((command) => command.name)).toEqual([
+      `compact`,
+      `clear`,
+      `review`,
+    ])
+    // The `/` menu offers it...
+    expect(
+      filterSteerCommands(merged, matchSlashDraft(`/rev`) ?? ``).map(
+        (command) => command.name
+      )
+    ).toEqual([`review`])
+    // ...and the sent message resolves back to the same row, argument and all.
+    expect(parseSteerCommand(`/review src/a.ts`, merged)).toMatchObject({
+      command: { name: `review`, confirm: false },
+      args: `src/a.ts`,
+    })
+    expect(parseSteerCommand(`/REVIEW`, merged)?.command.name).toBe(`review`)
+    // Without the advertisement the very same text is prose again.
+    expect(parseSteerCommand(`/review src/a.ts`, claude)).toBeNull()
+    // Prose rules do not soften for an agent row.
+    expect(parseSteerCommand(`please /review this`, merged)).toBeNull()
+    expect(parseSteerCommand(`/reviewer`, merged)).toBeNull()
+  })
 })
 
 describe(`config chip copy (EXP-746)`, () => {

@@ -143,9 +143,23 @@ public enum SlashCommands {
     /// Anything else — `/compactify`, `hello /compact`, `//compact` — is
     /// ordinary prose and goes out untouched.
     public static func command(for text: String, agent: String?) -> SlashCommand? {
+        command(for: text, agent: agent, extra: [])
+    }
+
+    /// EXP-746: `command(for:agent:)` over the MERGED catalog — a command the
+    /// agent advertised in `config_state` is a command here too, so a steered
+    /// `/review` comes back into the transcript as a command pill instead of a
+    /// prose bubble. The menu and the lookup read one catalog, exactly as they
+    /// do on web (`parseSteerCommand` over `mergeAgentCommands`) and Android
+    /// (`SlashCommands.commandFor(text, agent, agentCommands)`). The matching
+    /// rules are unchanged: still the first whitespace token, still exact and
+    /// case-insensitive, and an empty `extra` is the contract catalog.
+    public static func command(
+        for text: String, agent: String?, extra: [AgentConfigCommand]
+    ) -> SlashCommand? {
         guard let token = text.split(whereSeparator: { $0.isWhitespace }).first else { return nil }
         let needle = token.lowercased()
-        return catalog(for: agent).first { $0.token.lowercased() == needle }
+        return merged(catalog(for: agent), agent: extra).first { $0.token.lowercased() == needle }
     }
 
     // MARK: - Confirm dialog copy (byte-identical ×4)

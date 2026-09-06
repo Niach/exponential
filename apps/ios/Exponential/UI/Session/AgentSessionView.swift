@@ -723,7 +723,14 @@ struct AgentSessionView: View {
             case let .userMessage(_, text):
                 // EXP-724: a steered slash command is a control action, not
                 // prose — it renders as a compact pill instead of a bubble.
-                if let command = SlashCommands.command(for: text, agent: model?.session?.agent) {
+                // EXP-746: over the MERGED catalog, so a command the agent
+                // itself advertised gets the pill too (the `/` menu that sent
+                // it reads the same merge).
+                if let command = SlashCommands.command(
+                    for: text,
+                    agent: model?.session?.agent,
+                    extra: model?.sessionConfig?.commands ?? []
+                ) {
                     CommandPill(command: command, text: text)
                 } else {
                     UserMessageBubble(text: text, context: markdownContext)

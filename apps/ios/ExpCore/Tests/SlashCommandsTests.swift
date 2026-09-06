@@ -193,7 +193,12 @@ final class SlashCommandsTests: XCTestCase {
         XCTAssertEqual(merged[0].description, DomainContract.steerCommandDescriptions[0])
     }
 
-    func testTheMenuMatchesOverTheMergedCatalog() {
+    /// The `/` menu and the transcript's command lookup read ONE catalog, so a
+    /// command the agent advertised is offered AND, once sent, comes back as a
+    /// command pill. Mirrors Android's `the menu and the command lookup both
+    /// see the advertised rows` and web's `the command lookup sees advertised
+    /// agent commands`.
+    func testTheMenuAndTheCommandLookupBothSeeTheAdvertisedRows() {
         let extra = [AgentConfigCommand(name: "review", description: "Review the diff")]
         XCTAssertEqual(
             SlashCommands.matches(draft: "/", agent: "claude", extra: extra).map(\.name),
@@ -208,6 +213,29 @@ final class SlashCommandsTests: XCTestCase {
         XCTAssertEqual(
             SlashCommands.matches(draft: "/c", agent: "claude", extra: []).map(\.name),
             SlashCommands.matches(draft: "/c", agent: "claude").map(\.name)
+        )
+        // The sent message resolves back to the same row, argument and all.
+        XCTAssertEqual(
+            SlashCommands.command(for: "/review Sources/a.swift", agent: "claude", extra: extra)?.name,
+            "review"
+        )
+        XCTAssertEqual(
+            SlashCommands.command(for: "/REVIEW", agent: "claude", extra: extra)?.name,
+            "review"
+        )
+        XCTAssertEqual(
+            SlashCommands.command(for: "/review", agent: "claude", extra: extra)?.confirm,
+            false
+        )
+        // Without the advertisement the very same text is prose again, and the
+        // prose rules do not soften for an agent row.
+        XCTAssertNil(SlashCommands.command(for: "/review Sources/a.swift", agent: "claude"))
+        XCTAssertNil(SlashCommands.command(for: "please /review this", agent: "claude", extra: extra))
+        XCTAssertNil(SlashCommands.command(for: "/reviewer", agent: "claude", extra: extra))
+        // An empty advertisement is the contract catalog, unchanged.
+        XCTAssertEqual(
+            SlashCommands.command(for: "/compact keep the plan", agent: "claude", extra: [])?.name,
+            SlashCommands.command(for: "/compact keep the plan", agent: "claude")?.name
         )
     }
 
