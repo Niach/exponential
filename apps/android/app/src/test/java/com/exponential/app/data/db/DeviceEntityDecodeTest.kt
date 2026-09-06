@@ -156,6 +156,29 @@ class DeviceEntityDecodeTest {
         assertNull(bare.agentUsageAt)
     }
 
+    // EXP-749: the ACP-agent advertisement rides as raw JSON text like agents
+    // and caps, and NULL (an older server) means "unknown", not "none".
+    @Test
+    fun `acp_agents decodes as text and defaults absent`() {
+        val entity = json.decodeFromString(
+            DeviceEntity.serializer(),
+            """{"id": "row-1", "user_id": "u", "device_id": "d", "acp_agents": ["claude", "codex"]}""",
+        )
+        assertTrue(entity.acpAgents!!.contains("codex"))
+
+        val camel = json.decodeFromString(
+            DeviceEntity.serializer(),
+            """{"id": "row-1", "userId": "u", "deviceId": "d", "acpAgents": ["claude"]}""",
+        )
+        assertTrue(camel.acpAgents!!.contains("claude"))
+
+        val bare = json.decodeFromString(
+            DeviceEntity.serializer(),
+            """{"id": "row-1", "user_id": "u", "device_id": "d"}""",
+        )
+        assertNull(bare.acpAgents)
+    }
+
     @Test
     fun `worktree row decodes with Postgres text booleans and absent optionals`() {
         val row = """

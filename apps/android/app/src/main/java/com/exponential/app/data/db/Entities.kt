@@ -531,6 +531,12 @@ data class DeviceEntity(
     @Serializable(with = JsonAsStringSerializer::class) val caps: String? = null,
     @ColumnInfo(name = "unauthed_agents") @SerialName("unauthed_agents") @JsonNames("unauthedAgents")
     @Serializable(with = JsonAsStringSerializer::class) val unauthedAgents: String? = null,
+    // EXP-749: the agents this machine runs through the in-process ACP engine
+    // (the session screen). NULL is UNKNOWN, not empty: an older build never
+    // advertises it and every runnable agent is assumed ACP-ready. A runnable
+    // agent missing from this list starts on a terminal tab instead.
+    @ColumnInfo(name = "acp_agents") @SerialName("acp_agents") @JsonNames("acpAgents")
+    @Serializable(with = JsonAsStringSerializer::class) val acpAgents: String? = null,
     // The server-authoritative per-agent launch defaults (EXP-481) — a jsonb
     // object stored as its raw JSON text; NULL = never set, clients seed
     // static contract defaults.

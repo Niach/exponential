@@ -191,4 +191,30 @@ class DeviceRowsTest {
         // An older machine advertises no caps at all.
         assertFalse(entity { copy(caps = null) }.toSteerDevice(nowMs, "me").supportsAcp)
     }
+
+    @Test
+    fun `acp_agents maps through and null means every agent is assumed ready`() {
+        // EXP-749: an agent the machine runs but does NOT drive through the
+        // engine starts on a terminal tab; nothing is filtered on it.
+        val partial = entity { copy(acpAgents = """["claude"]""") }
+            .toSteerDevice(nowMs, "me")
+        assertEquals(listOf("claude"), partial.acpAgentIds)
+        assertFalse(partial.agentRunsInTerminal("claude"))
+        assertTrue(partial.agentRunsInTerminal("codex"))
+
+        // Unknown (an older machine, or one that never advertised): assume
+        // every runnable agent is ACP-ready, the pre-EXP-749 reading.
+        val unknown = entity().toSteerDevice(nowMs, "me")
+        assertNull(unknown.acpAgentIds)
+        assertFalse(unknown.agentRunsInTerminal("codex"))
+
+        // Explicitly empty is NOT unknown: everything runs in a terminal.
+        val none = entity { copy(acpAgents = "[]") }.toSteerDevice(nowMs, "me")
+        assertEquals(emptyList<String>(), none.acpAgentIds)
+        assertTrue(none.agentRunsInTerminal("claude"))
+
+        // Malformed jsonb degrades to unknown, never drops the row.
+        val broken = entity { copy(acpAgents = "not json") }.toSteerDevice(nowMs, "me")
+        assertNull(broken.acpAgentIds)
+    }
 }
