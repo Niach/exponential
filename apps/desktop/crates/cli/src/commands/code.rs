@@ -1,8 +1,11 @@
 //! `exponential code <ISSUE>` — the desktop's Start-coding flow, headless:
 //! resolve the issue over tRPC, run the ONE shared launcher
-//! (`coding::prepare_with_hooks`), spawn the agent TUI on a real PTY. With
-//! a tty the PTY attaches raw (use it exactly like the desktop terminal);
-//! detached it runs to completion, steerable from the web.
+//! (`coding::prepare_with_hooks`), hand the result to `session_host::launch`.
+//! Detached it runs to completion, steerable from the web; with a tty it
+//! attaches, in one of two shapes (EXP-746) decided by the transport `prepare`
+//! resolved: [`attend`] tees a PTY run's raw bytes and takes raw keystrokes
+//! (use it exactly like the desktop terminal), [`attend_acp`] prints an ACP
+//! run's feed as a line transcript and composes whole lines.
 
 use std::collections::HashMap;
 use std::io::BufRead as _;
@@ -303,9 +306,16 @@ fn print_activity(event: &steer::ActivityEvent, state: &Mutex<AttachState>) {
                 println!("[{line}]");
             }
         }
-        steer::ActivityEvent::Question { text, options, id, ask_id, .. } => {
+        steer::ActivityEvent::Question { text, options, plan_mode, id, ask_id, .. } => {
             println!();
-            println!("? {}", text.trim_end());
+            if plan_mode == &Some(true) {
+                // EXP-97: a plan card's `text` IS the plan markdown, so it
+                // gets a heading of its own instead of riding the `?` line.
+                println!("? Plan ready");
+                println!("{}", text.trim_end());
+            } else {
+                println!("? {}", text.trim_end());
+            }
             // One option per line rather than a packed row: an ACP option
             // label is a whole sentence often enough that columns wrap into
             // an unreadable mess.
