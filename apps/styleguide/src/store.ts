@@ -251,8 +251,9 @@ export function missingPairs(data: GalleryData): string[] {
 
 /**
  * Pairs waiting on a person rather than on a lane: a desktop drive of kind
- * `manual` has no automated path by construction (the steering view needs a
- * live agent session on screen), so it is reported separately and never fails
+ * `manual` has no automated path by construction (the chat view needs a chat
+ * started by hand; steering became a driven session tab in EXP-732), so it is
+ * reported separately and never fails
  * `--check`.
  */
 export function manualPairs(data: GalleryData): string[] {

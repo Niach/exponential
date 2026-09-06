@@ -373,6 +373,7 @@ export function AutomationAgentFields({
       <AgentOptionsFields
         variant="automation"
         idPrefix={idPrefix}
+        device={device}
         agent={agent}
         availableAgents={availableAgents}
         onAgentChange={onAgentChange}
