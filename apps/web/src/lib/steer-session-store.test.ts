@@ -3,6 +3,8 @@ import {
   acquireSteerSession,
   createSteerSessionStore,
   disposeAllSteerSessions,
+  REPLAY_MAX_MS,
+  REPLAY_QUIET_MS,
   type SteerSessionStore,
 } from "@/lib/steer-session-store"
 import { COMPACTION_TIMEOUT_MS, FEED_CAP } from "@/lib/agent-feed"
@@ -70,13 +72,16 @@ function makeStore(overrides?: {
   return { store, sockets, disposed }
 }
 
-/** Connect and drive the newest socket to a joined, live state. */
+/** Connect and drive the newest socket to a joined, live state — the relay
+ *  answers a join with `activity_reset` + (an empty) replay + the
+ *  `activity_synced` marker (EXP-656). */
 async function goLive(store: SteerSessionStore, sockets: FakeSocket[]) {
   store.connect()
   await vi.advanceTimersByTimeAsync(0)
   const socket = sockets[sockets.length - 1]
   socket.open()
   socket.frame({ t: `activity_reset` })
+  socket.frame({ t: `activity_synced` })
   await vi.advanceTimersByTimeAsync(100)
   return socket
 }
@@ -137,13 +142,14 @@ describe(`connection lifecycle`, () => {
     store.dispose()
   })
 
-  it(`activity_reset clears the retained feed`, async () => {
+  it(`an empty replay (activity_reset + activity_synced) clears the retained feed`, async () => {
     const { store, sockets } = makeStore()
     const socket = await goLive(store, sockets)
     socket.frame({ t: `activity`, event: { kind: `narration`, text: `hi` } })
     await vi.advanceTimersByTimeAsync(1_000)
     expect(store.getSnapshot().feed).toHaveLength(1)
     socket.frame({ t: `activity_reset` })
+    socket.frame({ t: `activity_synced` })
     await vi.advanceTimersByTimeAsync(1_000)
     expect(store.getSnapshot().feed).toHaveLength(0)
     store.dispose()
@@ -789,12 +795,16 @@ describe(`compaction`, () => {
     store.dispose()
   })
 
-  it(`an activity_reset drops the strip`, async () => {
+  it(`a committed replay that carries no started drops the strip`, async () => {
     const { store, sockets } = makeStore()
     const socket = await goLive(store, sockets)
     socket.frame(compaction(`started`))
     await vi.advanceTimersByTimeAsync(100)
     socket.frame({ t: `activity_reset` })
+    // Staged, not applied (EXP-751): the strip holds until the replay lands.
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().compacting).not.toBeNull()
+    socket.frame({ t: `activity_synced` })
     await vi.advanceTimersByTimeAsync(100)
     expect(store.getSnapshot().compacting).toBeNull()
     store.dispose()
@@ -925,13 +935,14 @@ describe(`live config + usage (EXP-746)`, () => {
     store.dispose()
   })
 
-  it(`an activity_reset drops the config and usage slots`, async () => {
+  it(`a committed replay that carries neither drops the config and usage slots`, async () => {
     const { store, sockets } = makeStore()
     const socket = await goLive(store, sockets)
     socket.frame(configEvent())
     socket.frame(usageEvent())
     await vi.advanceTimersByTimeAsync(100)
     socket.frame({ t: `activity_reset` })
+    socket.frame({ t: `activity_synced` })
     await vi.advanceTimersByTimeAsync(100)
     expect(store.getSnapshot().config).toBeNull()
     expect(store.getSnapshot().usage).toBeNull()
@@ -992,6 +1003,354 @@ describe(`live config + usage (EXP-746)`, () => {
     expect(store.getSnapshot().feed).toEqual([])
     expect(store.getSnapshot().config).toBeNull()
     expect(store.getSnapshot().usage).toBeNull()
+    store.dispose()
+  })
+})
+
+// EXP-656 (natives) → EXP-751 (web): the relay answers EVERY viewer join with
+// `activity_reset` + a full replay of the room log, and a publisher reconnect
+// fans out the same pair. Applying that literally emptied the feed and then
+// painted the rows as they streamed, so a reconnect visibly rebuilt the feed
+// and blanked the chips and the usage line until their replayed snapshots
+// landed. The replay is staged and swapped in as ONE commit instead. Test
+// names mirror Android `SteerConnectionTest` / iOS `SteerReplayStagingTests`.
+describe(`replay staging (EXP-751)`, () => {
+  const narration = (text: string) => ({
+    t: `activity`,
+    event: { kind: `narration`, text },
+  })
+  const configFrame = {
+    t: `activity`,
+    event: {
+      kind: `config_state`,
+      options: [
+        {
+          id: `model`,
+          label: `Model`,
+          value: `opus`,
+          values: [{ id: `opus`, label: `Opus` }],
+        },
+      ],
+    },
+  }
+  const usageFrame = {
+    t: `activity`,
+    event: { kind: `usage`, contextUsed: 10_000, contextSize: 200_000 },
+  }
+  const questionFrame = {
+    t: `activity`,
+    event: {
+      kind: `question`,
+      id: `q1`,
+      text: `Approve the plan?`,
+      options: [{ label: `Yes`, key: `1` }],
+    },
+  }
+  const texts = (store: SteerSessionStore) =>
+    store.getSnapshot().feed.map((item) =>
+      item.kind === `narration` || item.kind === `user_message` ? item.text : ``
+    )
+
+  /** A live connection with an established feed — the state a reader parked
+   *  mid-plan is in when the relay decides to replay at them. */
+  async function liveWithFeed() {
+    const made = makeStore()
+    const socket = await goLive(made.store, made.sockets)
+    socket.frame(narration(`original one`))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(made.store.getSnapshot().feed).toHaveLength(1)
+    return { ...made, socket }
+  }
+
+  it(`a reset and replay commits once and never shows an empty feed`, async () => {
+    const { store, socket } = await liveWithFeed()
+    const sizes: number[] = []
+    const unsubscribe = store.subscribe(() => {
+      sizes.push(store.getSnapshot().feed.length)
+    })
+
+    socket.frame({ t: `activity_reset` })
+    socket.frame(narration(`replayed one`))
+    socket.frame(narration(`replayed two`))
+    socket.frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(REPLAY_QUIET_MS * 3)
+    unsubscribe()
+
+    // One notify for the whole burst, and never an empty feed in between
+    // (which is what repainted the rows one by one).
+    expect(sizes).toEqual([2])
+    expect(texts(store)).toEqual([`replayed one`, `replayed two`])
+    // The replayed prefix keeps its ids, so the React keys still line up.
+    expect(store.getSnapshot().feed.map((item) => item.id)).toEqual([0, 1])
+    store.dispose()
+  })
+
+  it(`the visible feed holds while a replay is staging`, async () => {
+    const { store, socket } = await liveWithFeed()
+    socket.frame({ t: `activity_reset` })
+    socket.frame(narration(`replayed one`))
+    await vi.advanceTimersByTimeAsync(100)
+    // Still the OLD feed: nothing painted until the marker.
+    expect(texts(store)).toEqual([`original one`])
+    socket.frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(texts(store)).toEqual([`replayed one`])
+    store.dispose()
+  })
+
+  it(`a replay with no end marker commits on the quiet timeout`, async () => {
+    const { store, socket } = await liveWithFeed()
+    // An old relay: reset + replay, no activity_synced.
+    socket.frame({ t: `activity_reset` })
+    socket.frame(narration(`replayed one`))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(texts(store)).toEqual([`original one`])
+    await vi.advanceTimersByTimeAsync(REPLAY_QUIET_MS)
+    expect(texts(store)).toEqual([`replayed one`])
+    store.dispose()
+  })
+
+  it(`events arriving during staging land in the committed feed`, async () => {
+    const { store, socket } = await liveWithFeed()
+    socket.frame({ t: `activity_reset` })
+    socket.frame(narration(`replayed one`))
+    // A genuinely new event racing the tail of the replay is
+    // indistinguishable on the wire — it must not be dropped.
+    socket.frame(narration(`live during replay`))
+    socket.frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(texts(store)).toEqual([`replayed one`, `live during replay`])
+    store.dispose()
+  })
+
+  it(`a keepalive ends a staged replay`, async () => {
+    const { store, socket } = await liveWithFeed()
+    const before = store.getSnapshot()
+    socket.frame({ t: `activity_reset` })
+    socket.frame(narration(`replayed one`))
+    await vi.advanceTimersByTimeAsync(100)
+    // The relay's own 15s beat proves the burst is over — long before the
+    // quiet window would have.
+    socket.frame({ t: `keepalive` })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(texts(store)).toEqual([`replayed one`])
+    // Outside a replay a keepalive stays inert: no commit, same snapshot.
+    const committed = store.getSnapshot()
+    expect(committed).not.toBe(before)
+    socket.frame({ t: `keepalive` })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot()).toBe(committed)
+    store.dispose()
+  })
+
+  it(`a never-quiet replay commits at the hard cap`, async () => {
+    const { store, socket } = await liveWithFeed()
+    socket.frame({ t: `activity_reset` })
+    // Quiet can never fire: something arrives every few ms.
+    let n = 0
+    const pump = setInterval(() => socket.frame(narration(`replayed ${n++}`)), 5)
+    await vi.advanceTimersByTimeAsync(REPLAY_MAX_MS - 100)
+    expect(texts(store)).toEqual([`original one`])
+    await vi.advanceTimersByTimeAsync(200)
+    clearInterval(pump)
+    const committed = store.getSnapshot().feed.length
+    expect(committed).toBeGreaterThan(1)
+    expect(texts(store)[0]).toBe(`replayed 0`)
+    // …and the stream keeps appending normally afterwards.
+    socket.frame(narration(`after the cap`))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().feed.length).toBeGreaterThan(committed)
+    expect(texts(store).at(-1)).toBe(`after the cap`)
+    store.dispose()
+  })
+
+  it(`a socket close during staging keeps the visible feed`, async () => {
+    const { store, socket } = await liveWithFeed()
+    socket.frame({ t: `activity_reset` })
+    socket.frame(narration(`half delivered`))
+    await vi.advanceTimersByTimeAsync(100)
+    socket.serverClose(1006)
+    await vi.advanceTimersByTimeAsync(REPLAY_MAX_MS + 100)
+    // A half-delivered replay is worth less than the last complete picture
+    // — the reader keeps what they were reading.
+    expect(texts(store)).toEqual([`original one`])
+    expect(store.getSnapshot().phase.kind).toBe(`closed`)
+    store.dispose()
+  })
+
+  it(`a second reset restarts staging`, async () => {
+    const { store, socket } = await liveWithFeed()
+    socket.frame({ t: `activity_reset` })
+    socket.frame(narration(`abandoned`))
+    // The publisher republished mid-replay: the first buffer is dead.
+    socket.frame({ t: `activity_reset` })
+    socket.frame(narration(`restarted`))
+    socket.frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(texts(store)).toEqual([`restarted`])
+    store.dispose()
+  })
+
+  it(`the marker commits only while staging`, async () => {
+    const { store, socket } = await liveWithFeed()
+    const before = store.getSnapshot()
+    // An `activity_synced` outside a replay (a relay we joined before the
+    // window opened) has nothing to commit — never a feed change.
+    socket.frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().feed).toBe(before.feed)
+    store.dispose()
+  })
+
+  it(`an answer sent during staging keeps its lock`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(questionFrame)
+    await vi.advanceTimersByTimeAsync(100)
+    const card = store.getSnapshot().feed[0]
+    expect(card.kind).toBe(`question`)
+
+    // The replay window is ≤400ms in production — a plan-approval click
+    // lands inside it more often than one would like, and its card must
+    // not come back unlocked (a double-click would re-answer the ask).
+    socket.frame({ t: `activity_reset` })
+    await vi.advanceTimersByTimeAsync(100)
+    if (card.kind === `question`) store.answerQuestion(card, [`1`], [`Yes`])
+    expect(store.getSnapshot().answerStates[`q1`]).toMatchObject({
+      status: `sending`,
+    })
+    socket.frame(questionFrame)
+    socket.frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().feed).toHaveLength(1)
+    expect(store.getSnapshot().answerStates[`q1`]).toMatchObject({
+      status: `sending`,
+      labels: [`Yes`],
+    })
+    store.dispose()
+  })
+
+  it(`a lock whose card the replay did not bring back is released`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(questionFrame)
+    await vi.advanceTimersByTimeAsync(100)
+    const card = store.getSnapshot().feed[0]
+    if (card.kind === `question`) store.answerQuestion(card, [`1`], [`Yes`])
+    socket.frame({ t: `activity_reset` })
+    socket.frame(narration(`no card here`))
+    socket.frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().answerStates).toEqual({})
+    // …and its ack deadline with it: nothing flips to the retry state later.
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(store.getSnapshot().answerStates).toEqual({})
+    store.dispose()
+  })
+
+  it(`a message sent during staging survives the commit`, async () => {
+    const { store, socket } = await liveWithFeed()
+    socket.frame({ t: `activity_reset` })
+    await vi.advanceTimersByTimeAsync(100)
+    // The replay predates this message, so only the local record of it can
+    // put it back.
+    expect(store.sendMessage(`steered mid-replay`)).toBe(true)
+    socket.frame(narration(`replayed one`))
+    socket.frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(texts(store)).toEqual([`replayed one`, `steered mid-replay`])
+    // Its transcript-derived twin, arriving live later, still dedupes.
+    socket.frame({
+      t: `activity`,
+      event: { kind: `user_message`, text: `steered mid-replay` },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(texts(store)).toEqual([`replayed one`, `steered mid-replay`])
+    store.dispose()
+  })
+
+  it(`a message the replay carries back is not shown twice`, async () => {
+    const { store, socket } = await liveWithFeed()
+    socket.frame({ t: `activity_reset` })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.sendMessage(`steered mid-replay`)).toBe(true)
+    socket.frame(narration(`replayed one`))
+    // The desktop published the message before the burst ended.
+    socket.frame({
+      t: `activity`,
+      event: { kind: `user_message`, text: `steered mid-replay` },
+    })
+    socket.frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(texts(store)).toEqual([`replayed one`, `steered mid-replay`])
+    store.dispose()
+  })
+
+  it(`a staged replay re-derives config, usage and the diff on commit`, async () => {
+    const { store, socket } = await liveWithFeed()
+    socket.frame(configFrame)
+    socket.frame(usageFrame)
+    socket.frame({ t: `activity`, event: { kind: `diff`, diff: `--- a` } })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().config).not.toBeNull()
+
+    // Every viewer join triggers a replay: the commit folds from a FRESH
+    // state, so the slots must come back off the replayed snapshots in the
+    // SAME commit as the rows — never blank in between.
+    const seen: Array<[number, string | undefined, number | undefined, string | null]> = []
+    const unsubscribe = store.subscribe(() => {
+      const snap = store.getSnapshot()
+      seen.push([
+        snap.feed.length,
+        snap.config?.options[0]?.value,
+        snap.usage?.contextSize,
+        snap.latestDiff,
+      ])
+    })
+    socket.frame({ t: `activity_reset` })
+    socket.frame(narration(`replayed one`))
+    socket.frame({
+      t: `activity`,
+      event: { kind: `usage`, contextUsed: 20_000, contextSize: 100_000 },
+    })
+    socket.frame(configFrame)
+    socket.frame({ t: `activity`, event: { kind: `diff`, diff: `--- b` } })
+    socket.frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(100)
+    unsubscribe()
+    expect(seen).toEqual([[1, `opus`, 100_000, `--- b`]])
+
+    // A replay that carries none of them leaves the slots empty — they are
+    // state derived from the log, not a sticky client cache.
+    socket.frame({ t: `activity_reset` })
+    socket.frame(narration(`replayed two`))
+    socket.frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().config).toBeNull()
+    expect(store.getSnapshot().usage).toBeNull()
+    expect(store.getSnapshot().latestDiff).toBeNull()
+    store.dispose()
+  })
+
+  it(`a replayed compaction start re-arms the strip and its backstop`, async () => {
+    const { store, socket } = await liveWithFeed()
+    const started = (at: number) => ({
+      t: `activity`,
+      event: { kind: `compaction`, phase: `started`, at },
+    })
+    socket.frame({ t: `activity_reset` })
+    socket.frame(started(Date.now()))
+    socket.frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(100)
+    // The fold re-derived the strip from the replay…
+    expect(store.getSnapshot().compacting).not.toBeNull()
+    // …and its backstop is measured from the replayed start: one from long
+    // ago expires on the next tick instead of running a fresh 3 minutes.
+    socket.frame({ t: `activity_reset` })
+    socket.frame(started(Date.now() - COMPACTION_TIMEOUT_MS * 2))
+    socket.frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().compacting).toBeNull()
     store.dispose()
   })
 })
