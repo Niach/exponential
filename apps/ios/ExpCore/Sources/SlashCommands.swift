@@ -96,6 +96,47 @@ public enum SlashCommands {
         }
     }
 
+    /// EXP-746: the `/` menu's catalog for a session whose agent advertises
+    /// commands of its own (`config_state.commands`, ACP
+    /// `available_commands_update`): the CONTRACT rows first, then the agent's
+    /// extras, deduped by lowercased name — a contract name always wins, so an
+    /// agent's `/compact` can never shadow the curated row and its confirm
+    /// copy. `contract` is expected to be agent-filtered already
+    /// (`catalog(for:)`); the extras came off THIS session's agent, so they
+    /// carry no `agents` of their own and never leak into another agent's
+    /// catalog. They also carry `confirm: false`: nothing an agent advertises
+    /// is destructive enough for us to promise a dialog for it.
+    public static func merged(
+        _ contract: [SlashCommand], agent commands: [AgentConfigCommand]
+    ) -> [SlashCommand] {
+        var seen = Set(contract.map { $0.name.lowercased() })
+        var merged = contract
+        for command in commands {
+            let name = command.name.trimmingCharacters(in: .whitespaces)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            guard !name.isEmpty, seen.insert(name.lowercased()).inserted else { continue }
+            merged.append(SlashCommand(
+                name: name,
+                description: command.description,
+                argHint: command.hint ?? "",
+                agents: [],
+                confirm: false
+            ))
+        }
+        return merged
+    }
+
+    /// `matches(draft:agent:)` over the merged catalog (EXP-746).
+    public static func matches(
+        draft: String, agent: String?, extra: [AgentConfigCommand]
+    ) -> [SlashCommand] {
+        guard let query = partialName(in: draft) else { return [] }
+        let needle = query.lowercased()
+        return merged(catalog(for: agent), agent: extra).filter {
+            needle.isEmpty || $0.name.lowercased().hasPrefix(needle)
+        }
+    }
+
     /// The command a message about to be sent IS, if any: its first
     /// whitespace-separated token has to equal `/name` exactly
     /// (case-insensitively) and the command has to be runnable by this agent.

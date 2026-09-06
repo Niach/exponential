@@ -646,6 +646,110 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertEqual(AgentFeed.compactionTimeoutSeconds, 180)
     }
 
+    // MARK: - Live agent config + usage (EXP-746)
+
+    func testApplyConfigStateFoldsAFullSnapshot() {
+        let config = AgentFeed.applyConfigState(nil, event: [
+            "kind": "config_state",
+            "options": [
+                ["id": "model", "label": "Model", "category": "model", "value": "opus",
+                 "values": [["id": "opus", "label": "Opus"], ["id": "sonnet", "label": "Sonnet"]]],
+                ["id": "effort", "label": "Effort"],
+            ],
+            "currentMode": "plan",
+            "modes": [
+                ["id": "plan", "label": "Plan", "description": "Ask before editing"],
+                ["id": "bypassPermissions", "label": "Bypass permissions"],
+            ],
+            "commands": [["name": "review", "description": "Review the diff", "hint": "<path>"]],
+        ])
+        XCTAssertEqual(config?.options.count, 2)
+        XCTAssertEqual(config?.options.first?.values.map(\.id), ["opus", "sonnet"])
+        XCTAssertEqual(config?.options.first?.value, "opus")
+        XCTAssertEqual(config?.currentMode, "plan")
+        XCTAssertEqual(config?.modes.map(\.id), ["plan", "bypassPermissions"])
+        XCTAssertEqual(config?.commands.first?.hint, "<path>")
+    }
+
+    /// A newer snapshot REPLACES the previous one — the chips are a slot, not
+    /// a feed.
+    func testANewerConfigStateReplacesTheSnapshot() {
+        let first = AgentFeed.applyConfigState(nil, event: [
+            "options": [["id": "model", "label": "Model", "value": "opus"]],
+        ])
+        let second = AgentFeed.applyConfigState(first, event: [
+            "options": [["id": "model", "label": "Model", "value": "sonnet"]],
+        ])
+        XCTAssertEqual(second?.options.count, 1)
+        XCTAssertEqual(second?.options.first?.value, "sonnet")
+    }
+
+    func testAMalformedConfigStateKeepsThePreviousSnapshot() {
+        let previous = AgentFeed.applyConfigState(nil, event: [
+            "options": [["id": "model", "label": "Model", "value": "opus"]],
+        ])
+        XCTAssertEqual(AgentFeed.applyConfigState(previous, event: [:]), previous)
+        XCTAssertEqual(
+            AgentFeed.applyConfigState(previous, event: ["options": "nope"]), previous
+        )
+        // An id-less option is dropped, not fatal.
+        let partial = AgentFeed.applyConfigState(previous, event: [
+            "options": [["label": "Model"], ["id": "effort", "label": "Effort"]],
+        ])
+        XCTAssertEqual(partial?.options.map(\.id), ["effort"])
+    }
+
+    func testApplyUsageRefusesAZeroContextSize() {
+        let usage = AgentFeed.applyUsage(nil, event: [
+            "contextUsed": 124_000, "contextSize": 200_000, "costUsd": 1.24,
+        ])
+        XCTAssertEqual(usage, AgentSessionUsage(
+            contextUsed: 124_000, contextSize: 200_000, costUsd: 1.24
+        ))
+        XCTAssertEqual(usage?.percent, 62)
+        // A size of zero knows nothing worth drawing: the slot CLEARS.
+        XCTAssertNil(AgentFeed.applyUsage(usage, event: ["contextUsed": 10, "contextSize": 0]))
+        // An unreadable payload leaves the previous numbers standing.
+        XCTAssertEqual(AgentFeed.applyUsage(usage, event: ["contextUsed": 10]), usage)
+    }
+
+    func testConfigChipsPutsTheModeChipFirst() {
+        let config = AgentSessionConfig(
+            options: [
+                AgentConfigOption(
+                    id: "model", label: "Model", value: "opus",
+                    values: [AgentConfigValue(id: "opus", label: "Opus")]
+                ),
+                AgentConfigOption(id: "effort", label: "Effort"),
+            ],
+            currentMode: "plan",
+            modes: [AgentConfigMode(id: "plan", label: "Plan")]
+        )
+        let chips = AgentFeed.configChips(config)
+        XCTAssertEqual(chips.map(\.id), ["mode", "model", "effort"])
+        XCTAssertEqual(chips[0].kind, .mode)
+        XCTAssertEqual(chips[0].label, "Mode")
+        XCTAssertEqual(chips[0].valueLabel, "Plan")
+        XCTAssertEqual(chips[1].valueLabel, "Opus")
+        XCTAssertTrue(AgentFeed.configChips(nil).isEmpty)
+    }
+
+    func testAValuesLessOptionIsReadOnly() {
+        let chips = AgentFeed.configChips(AgentSessionConfig(
+            options: [AgentConfigOption(id: "effort", label: "Effort")]
+        ))
+        XCTAssertEqual(chips.count, 1)
+        XCTAssertTrue(chips[0].isReadOnly)
+        // No value at all reads as the CLI's own default, not as blank.
+        XCTAssertEqual(chips[0].valueLabel, "CLI default")
+    }
+
+    /// The two labels every client draws (EXP-746), byte-for-byte.
+    func testTheConfigDefaultLabelIsTheOneEveryClientShows() {
+        XCTAssertEqual(AgentFeed.configDefaultValueLabel, "CLI default")
+        XCTAssertEqual(AgentFeed.configModeLabel, "Mode")
+    }
+
     // MARK: - Fixtures
 
     private func tool(_ id: Int, subagentId: String? = nil) -> AgentFeedItem {

@@ -70,6 +70,10 @@ struct DeviceSettingsSheet: View {
     @State private var savingShare = false
     @State private var savingDefaultDevice = false
     @State private var defaultAgent = "claude"
+    /// EXP-746: the machine's device-global transport choice. Lives beside the
+    /// per-agent drafts because it rides the SAME `launchDefaults` object, but
+    /// it is not per agent — see `startInTerminalSection`.
+    @State private var startInTerminal = false
     @State private var selectedAgent = "claude"
     @State private var drafts: [String: AgentDraft] = [:]
     @State private var savingDefaults = false
@@ -215,6 +219,9 @@ struct DeviceSettingsSheet: View {
         let agents = editableAgents(device)
         let advertisedDefault = device.launchDefaults?.defaultAgent
         defaultAgent = agents.contains(advertisedDefault ?? "") ? advertisedDefault! : (agents.first ?? "claude")
+        // EXP-746: device-global, so it seeds and re-seeds with the rest of
+        // the launch defaults. Absent = false (a machine that never wrote it).
+        startInTerminal = device.launchDefaults?.startInTerminal ?? false
         // The tab may be a report-only agent (EXP-688) — a re-seed must not
         // yank it back to an editable one.
         selectedAgent = keepTab && tabAgents(device).contains(selectedAgent) ? selectedAgent : defaultAgent
@@ -461,6 +468,7 @@ struct DeviceSettingsSheet: View {
             }
             .listRowBackground(glassFormRowFill)
         }
+        startInTerminalSection
         LaunchOptionsSection(
             variant: .device,
             devices: [],
@@ -501,6 +509,32 @@ struct DeviceSettingsSheet: View {
             set: { newValue in
                 guard newValue != defaultAgent else { return }
                 defaultAgent = newValue
+                defaultsPending = true
+                scheduleDefaultsAutosave()
+            }
+        )
+    }
+
+    /// EXP-746: the machine's transport choice, in its own group ABOVE the
+    /// agent tabs and OUTSIDE the "more than one agent" guard — it is a
+    /// property of the MACHINE, not of the agent whose tab is open, and a
+    /// one-agent machine needs it just as much. Saved through the same
+    /// debounced `launchDefaults` write as everything else here.
+    private var startInTerminalSection: some View {
+        Section {
+            Toggle("Start in terminal", isOn: startInTerminalBinding)
+        } footer: {
+            Text("Runs the agent in a terminal tab instead of the session screen.")
+        }
+        .listRowBackground(glassFormRowFill)
+    }
+
+    private var startInTerminalBinding: Binding<Bool> {
+        Binding(
+            get: { startInTerminal },
+            set: { newValue in
+                guard newValue != startInTerminal else { return }
+                startInTerminal = newValue
                 defaultsPending = true
                 scheduleDefaultsAutosave()
             }
@@ -552,7 +586,9 @@ struct DeviceSettingsSheet: View {
         }
         // Built synchronously: the payload is what the drafts say NOW, and a
         // later edit re-arms the debounce on its own.
-        let payload = DeviceLaunchDefaultsInput(defaultAgent: defaultAgent, agents: agents)
+        let payload = DeviceLaunchDefaultsInput(
+            defaultAgent: defaultAgent, agents: agents, startInTerminal: startInTerminal
+        )
         defaultsPending = false
         savingDefaults = true
         errorMessage = nil

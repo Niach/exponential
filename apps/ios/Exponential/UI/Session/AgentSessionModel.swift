@@ -106,6 +106,17 @@ final class AgentSessionModel {
     /// `compaction` activity event and cleared by its `ended` edge, the replay
     /// swap, the end of the session, and a backstop timer.
     private(set) var compacting: AgentCompaction?
+    /// EXP-746: the agent's live configuration behind the composer chips —
+    /// model, effort, mode, and the agent's own slash commands. Latest-wins
+    /// STATE beside the feed, never a row: the relay replays the newest
+    /// `config_state` after its log, so a join and a reconnect both repaint
+    /// from one frame.
+    private(set) var sessionConfig: AgentSessionConfig?
+    /// EXP-746: this run's context window and spend, as the engine last
+    /// measured them. A different quantity from `agentUsage` (the machine's
+    /// rate-limit windows), so it lives beside it and renders in its own
+    /// block.
+    private(set) var sessionUsage: AgentSessionUsage?
     /// The synced coding_sessions row — flips to ended via Electric.
     private(set) var session: CodingSessionEntity?
     /// EXP-549/550: the host machine as it presents right now — the LIVE
@@ -156,7 +167,17 @@ final class AgentSessionModel {
     /// current draft — empty whenever the menu must not open (the pure rule
     /// lives in ExpCore's SlashCommands, mirrored ×4).
     var slashMatches: [SlashCommand] {
-        SlashCommands.matches(draft: draftText, agent: session?.agent)
+        // EXP-746: the contract catalog UNION whatever the agent itself
+        // advertised on `config_state` (contract first, dedupe by name).
+        SlashCommands.matches(
+            draft: draftText, agent: session?.agent, extra: sessionConfig?.commands ?? []
+        )
+    }
+
+    /// EXP-746: the composer's config chips — the mode chip first, then every
+    /// option the agent advertised. Empty until the first `config_state`.
+    var configChips: [AgentConfigChip] {
+        AgentFeed.configChips(sessionConfig)
     }
 
     /// The catalog command the draft would SEND as, if any — what the confirm
@@ -723,6 +744,32 @@ final class AgentSessionModel {
         lockAnswer(questionId, labels: labels)
     }
 
+    /// EXP-746: change one live agent option (model, effort, thinking level).
+    /// Fire-and-forget — the publisher re-emits `config_state` once it
+    /// applied, and THAT repaint is the confirmation, so there is no lock and
+    /// no expiry task (unlike `sendAnswer`). A blank value is a real choice:
+    /// "the CLI's own default, omit the flag".
+    ///
+    /// Gated on `canSteer`, not merely `connected`, so the chips dim as
+    /// honestly as the send button on a paused or ended run.
+    func sendConfig(id: String, value: String) {
+        guard !id.isEmpty, canSteer else { return }
+        send(frame: ["t": "set_config", "id": id, "value": value])
+    }
+
+    /// EXP-746: switch to one of the modes `config_state.modes[]` advertised.
+    /// Fire-and-forget on the same terms as `sendConfig`.
+    func sendMode(id: String) {
+        guard !id.isEmpty, canSteer else { return }
+        send(frame: ["t": "set_mode", "id": id])
+    }
+
+    private func send(frame: [String: Any]) {
+        guard let data = try? JSONSerialization.data(withJSONObject: frame),
+              let json = String(data: data, encoding: .utf8) else { return }
+        sendText(json)
+    }
+
     /// Lock a card and arm ITS OWN expiry that frees it again (flagged
     /// `failed`, so the card shows a retry hint) if neither an `answer_ack`
     /// nor a `question_resolved` ever lands. Per-card timers (EXP-334): a
@@ -1245,6 +1292,14 @@ final class AgentSessionModel {
         answerTracker.reset()
         cancelAnswerExpiries()
         clearCompaction()
+        // EXP-746: the config/usage slots go too. `resetFeed` only ever runs
+        // inside `commitStaging`, which re-applies every staged frame at once,
+        // and the relay's join replay always carries the current
+        // `config_state`/`usage` after the log (latest-wins kinds) — so the
+        // chips repaint inside the same batch and never blank. Keeping a stale
+        // config across a session swap would be the actual bug.
+        sessionConfig = nil
+        sessionUsage = nil
     }
 
     // MARK: - Compaction strip (EXP-724)
@@ -1505,6 +1560,12 @@ final class AgentSessionModel {
                 tool: tool,
                 detail: Self.trimmedField(event["detail"])
             ))
+        case "config_state":
+            // EXP-746: latest-wins STATE, not a row. A malformed frame keeps
+            // whatever the chips already show (the fold's contract).
+            sessionConfig = AgentFeed.applyConfigState(sessionConfig, event: event)
+        case "usage":
+            sessionUsage = AgentFeed.applyUsage(sessionUsage, event: event)
         case "compaction":
             // EXP-724. The strip's state is the pure fold; the marker row is
             // the caller's job because only `ended` writes one — and it writes

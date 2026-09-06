@@ -211,6 +211,30 @@ final class SteerDeviceDecodingTests: XCTestCase {
 
     /// The advertised default agent is only ever a SUGGESTION: a machine that
     /// names one it can't run right now (signed out since it last saved its
+    /// EXP-746: the ACP cap and the device-global "Start in terminal"
+    /// preference ride the same two carriers as everything else — a `caps`
+    /// entry and a `launchDefaults` key — so an older machine simply reads as
+    /// terminal-only, never as a decode failure.
+    func testDecodesTheAcpCapAndTheStartInTerminalDefault() throws {
+        let result = try decode("""
+        {"devices":[
+        {"deviceId":"d10","deviceLabel":"macbook","agents":["claude"],
+        "caps":["actions","acp","resume-run"],"online":true,
+        "launchDefaults":{"defaultAgent":"claude","startInTerminal":true}},
+        {"deviceId":"d11","deviceLabel":"old-box","agents":["claude"],
+        "caps":["actions"],"online":true,"launchDefaults":{"defaultAgent":"claude"}}]}
+        """)
+        let acp = try XCTUnwrap(result.devices.first)
+        XCTAssertTrue(acp.supportsAcp)
+        XCTAssertTrue(acp.startsInTerminal)
+        XCTAssertEqual(acp.launchDefaults?.startInTerminal, true)
+
+        let old = try XCTUnwrap(result.devices.last)
+        XCTAssertFalse(old.supportsAcp)
+        XCTAssertFalse(old.startsInTerminal)
+        XCTAssertNil(old.launchDefaults?.startInTerminal)
+    }
+
     /// settings) must not preselect it, or the sheet offers an agent the
     /// launcher would refuse.
     func testDefaultLaunchAgentClampsToRunnableAgents() throws {

@@ -115,6 +115,150 @@ public struct AgentCompaction: Equatable, Sendable {
     }
 }
 
+// MARK: - Live agent configuration (EXP-746)
+
+/// One selectable value of an `AgentConfigOption` (ACP
+/// `SessionConfigOption.values`).
+public struct AgentConfigValue: Equatable, Sendable, Identifiable {
+    public let id: String
+    public let label: String
+
+    public init(id: String, label: String) {
+        self.id = id
+        self.label = label
+    }
+}
+
+/// One live agent option — model, effort, thinking level, whatever the adapter
+/// advertised. `values` ABSENT (empty here) means read-only on this run: draw
+/// the value, offer no menu.
+public struct AgentConfigOption: Equatable, Sendable, Identifiable {
+    public let id: String
+    public let label: String
+    /// Grouping hint (`model`, `effort`, …); a client that doesn't know it
+    /// still draws one chip per option.
+    public let category: String?
+    /// In force right now; blank/absent = the CLI's own default.
+    public let value: String?
+    public let values: [AgentConfigValue]
+
+    public init(
+        id: String, label: String, category: String? = nil,
+        value: String? = nil, values: [AgentConfigValue] = []
+    ) {
+        self.id = id
+        self.label = label
+        self.category = category
+        self.value = value
+        self.values = values
+    }
+}
+
+/// One permission/collaboration mode the agent offers (`set_mode` switches).
+public struct AgentConfigMode: Equatable, Sendable, Identifiable {
+    public let id: String
+    public let label: String
+    public let description: String?
+
+    public init(id: String, label: String, description: String? = nil) {
+        self.id = id
+        self.label = label
+        self.description = description
+    }
+}
+
+/// One slash command the AGENT itself advertises (ACP
+/// `available_commands_update`) — the `/` menu shows the contract catalog
+/// UNION these, contract first.
+public struct AgentConfigCommand: Equatable, Sendable {
+    public let name: String
+    public let description: String
+    public let hint: String?
+
+    public init(name: String, description: String, hint: String? = nil) {
+        self.name = name
+        self.description = description
+        self.hint = hint
+    }
+}
+
+/// EXP-746: the agent's live configuration behind the composer chips.
+/// Latest-wins state beside the feed, never a row (the `AgentCompaction`
+/// shape) — the relay replays the newest `config_state` after its log, so a
+/// join and a reconnect both repaint from one frame.
+public struct AgentSessionConfig: Equatable, Sendable {
+    public let options: [AgentConfigOption]
+    public let currentMode: String?
+    public let modes: [AgentConfigMode]
+    public let commands: [AgentConfigCommand]
+
+    public init(
+        options: [AgentConfigOption] = [],
+        currentMode: String? = nil,
+        modes: [AgentConfigMode] = [],
+        commands: [AgentConfigCommand] = []
+    ) {
+        self.options = options
+        self.currentMode = currentMode
+        self.modes = modes
+        self.commands = commands
+    }
+}
+
+/// EXP-746: the run's context window and spend as the engine last measured it.
+/// Deliberately a TOKEN count, not a percent: the device-reported rate-limit
+/// windows already own the 0-100 vocabulary and this is a different quantity.
+public struct AgentSessionUsage: Equatable, Sendable {
+    public let contextUsed: Int
+    public let contextSize: Int
+    public let costUsd: Double?
+
+    public init(contextUsed: Int, contextSize: Int, costUsd: Double? = nil) {
+        self.contextUsed = contextUsed
+        self.contextSize = contextSize
+        self.costUsd = costUsd
+    }
+
+    /// Clamped 0-100; nil when the size is unknown.
+    public var percent: Int? {
+        guard contextSize > 0 else { return nil }
+        let share = Double(contextUsed) * 100 / Double(contextSize)
+        return min(100, max(0, Int(share.rounded(.down))))
+    }
+}
+
+/// One composer chip: the mode chip (when the agent offers modes) followed by
+/// the advertised options, in publisher order.
+public struct AgentConfigChip: Equatable, Sendable, Identifiable {
+    public enum Kind: Sendable, Equatable {
+        case mode
+        case option
+    }
+
+    public let kind: Kind
+    /// What a pick addresses: the OPTION id (`set_config`), or the `mode`
+    /// sentinel for the mode chip (whose picks carry the MODE id to
+    /// `set_mode`).
+    public let id: String
+    public let label: String
+    public let valueLabel: String
+    public let values: [AgentConfigValue]
+
+    public init(
+        kind: Kind, id: String, label: String, valueLabel: String,
+        values: [AgentConfigValue] = []
+    ) {
+        self.kind = kind
+        self.id = id
+        self.label = label
+        self.valueLabel = valueLabel
+        self.values = values
+    }
+
+    /// A chip with nothing to pick from is a read-only badge.
+    public var isReadOnly: Bool { values.isEmpty }
+}
+
 /// One rendered feed entry. Diffs never enter the feed — the latest one lives
 /// behind the pinned "Latest changes" chip.
 public enum AgentFeedItem: Equatable, Sendable, Identifiable {
@@ -385,6 +529,127 @@ public enum AgentFeed {
         default:
             return current
         }
+    }
+
+    // MARK: - Live agent configuration (EXP-746)
+
+    /// The value label a chip shows when the option carries no value at all —
+    /// the CLI's own default, which is a real choice, not an absence.
+    /// Byte-identical ×4 (web `steer-commands.ts` `CONFIG_DEFAULT_VALUE_LABEL`,
+    /// Android `AgentFeed.kt`, desktop `ui/src/slash_commands.rs`).
+    public static let configDefaultValueLabel = "CLI default"
+    /// The mode chip's leading label. Every OTHER chip label arrives live on
+    /// `config_state.options[].label`, so only this one has to be mirrored.
+    public static let configModeLabel = "Mode"
+
+    /// Fold a `config_state` activity event. Nil = an unusable payload, and
+    /// the caller then KEEPS `current`: a malformed frame must never blank the
+    /// chips (the `applyCompaction` contract, one level stricter because this
+    /// carries arrays).
+    public static func applyConfigState(
+        _ current: AgentSessionConfig?, event: [String: Any]
+    ) -> AgentSessionConfig? {
+        // `options` is required on the wire (possibly empty) — its absence
+        // means this is not a config_state we can read.
+        guard let rawOptions = event["options"] as? [[String: Any]] else { return current }
+        let options: [AgentConfigOption] = rawOptions.compactMap { raw in
+            guard let id = string(raw["id"]) else { return nil }
+            return AgentConfigOption(
+                id: id,
+                label: string(raw["label"]) ?? id,
+                category: string(raw["category"]),
+                value: raw["value"] as? String,
+                values: configValues(raw["values"])
+            )
+        }
+        let modes: [AgentConfigMode] = (event["modes"] as? [[String: Any]] ?? []).compactMap { raw in
+            guard let id = string(raw["id"]) else { return nil }
+            return AgentConfigMode(
+                id: id,
+                label: string(raw["label"]) ?? id,
+                description: string(raw["description"])
+            )
+        }
+        let commands: [AgentConfigCommand] = (event["commands"] as? [[String: Any]] ?? [])
+            .compactMap { raw in
+                guard let name = string(raw["name"]) else { return nil }
+                return AgentConfigCommand(
+                    name: name,
+                    description: (raw["description"] as? String) ?? "",
+                    hint: string(raw["hint"])
+                )
+            }
+        return AgentSessionConfig(
+            options: options,
+            currentMode: string(event["currentMode"]),
+            modes: modes,
+            commands: commands
+        )
+    }
+
+    /// Fold a `usage` activity event. Nil CLEARS the slot — a run whose engine
+    /// reports a zero context size knows nothing worth drawing — while an
+    /// unreadable payload keeps `current` standing.
+    public static func applyUsage(
+        _ current: AgentSessionUsage?, event: [String: Any]
+    ) -> AgentSessionUsage? {
+        guard let used = (event["contextUsed"] as? NSNumber)?.intValue,
+              let size = (event["contextSize"] as? NSNumber)?.intValue
+        else { return current }
+        guard size > 0 else { return nil }
+        let cost = (event["costUsd"] as? NSNumber)?.doubleValue
+        return AgentSessionUsage(
+            contextUsed: max(0, used),
+            contextSize: size,
+            costUsd: (cost ?? -1) >= 0 ? cost : nil
+        )
+    }
+
+    /// The composer's chips: the mode chip FIRST (only when the agent offers
+    /// modes), then every advertised option in publisher order. Locked ×4 by
+    /// the test `configChips puts the mode chip first`.
+    public static func configChips(_ config: AgentSessionConfig?) -> [AgentConfigChip] {
+        guard let config else { return [] }
+        var chips: [AgentConfigChip] = []
+        if !config.modes.isEmpty {
+            let current = config.modes.first { $0.id == config.currentMode }
+            chips.append(AgentConfigChip(
+                kind: .mode,
+                id: "mode",
+                label: configModeLabel,
+                valueLabel: current?.label ?? config.currentMode ?? configDefaultValueLabel,
+                values: config.modes.map { AgentConfigValue(id: $0.id, label: $0.label) }
+            ))
+        }
+        for option in config.options {
+            let picked = option.values.first { $0.id == option.value }
+            let value = option.value ?? ""
+            chips.append(AgentConfigChip(
+                kind: .option,
+                id: option.id,
+                label: option.label,
+                valueLabel: picked?.label ?? (value.isEmpty ? configDefaultValueLabel : value),
+                values: option.values
+            ))
+        }
+        return chips
+    }
+
+    private static func configValues(_ raw: Any?) -> [AgentConfigValue] {
+        guard let rows = raw as? [[String: Any]] else { return [] }
+        return rows.compactMap { row in
+            guard let id = string(row["id"]) else { return nil }
+            return AgentConfigValue(id: id, label: string(row["label"]) ?? id)
+        }
+    }
+
+    /// A wire string field, nil unless it carries something (the model's
+    /// `trimmedField`, lifted here so the folds are testable without a view).
+    private static func string(_ value: Any?) -> String? {
+        guard let text = value as? String,
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
+        return text
     }
 
     /// Ids of the question items still answerable: every card the desktop has
