@@ -929,11 +929,22 @@ fn agent_kind(options: &LaunchOptions) -> AgentKind {
 /// separate from the launch gate) and the HOST can drive one
 /// ([`CodingDeps::acp_available`]). An external agent is ACP by definition;
 /// it only needs the host.
-fn acp_ready(report: &crate::doctor::DoctorReport, agent: &AgentKind, deps: &CodingDeps) -> bool {
+///
+/// One agent-shaped exception: pi's plan mode IS the injected
+/// `.exp-pi-plan.ts` extension gated on `EXP_PI_PLAN_MODE` (EXP-441), and pi's
+/// rpc mode has no equivalent — so a pi launch that asked for plan mode falls
+/// back to the terminal rather than silently dropping the mode.
+fn acp_ready(
+    report: &crate::doctor::DoctorReport,
+    agent: &AgentKind,
+    plan_mode: bool,
+    deps: &CodingDeps,
+) -> bool {
     if !deps.acp_available {
         return false;
     }
     match agent.builtin() {
+        Some(CodingAgent::Pi) if plan_mode => false,
         Some(agent) => report.check_for(agent).acp == Some(true),
         None => true,
     }
@@ -1251,7 +1262,7 @@ pub fn prepare_with_hooks(
         &deps.settings,
         &agent_kind,
         false,
-        acp_ready(&report, &agent_kind, deps),
+        acp_ready(&report, &agent_kind, options.plan_mode, deps),
         None,
     );
 
@@ -1913,7 +1924,7 @@ fn prepare_action(
         &deps.settings,
         &agent_kind,
         false,
-        acp_ready(&report, &agent_kind, deps),
+        acp_ready(&report, &agent_kind, options.plan_mode, deps),
         None,
     );
 
@@ -2612,7 +2623,7 @@ fn prepare_resume_run(
         &deps.settings,
         &agent_kind,
         false,
-        acp_ready(&report, &agent_kind, deps),
+        acp_ready(&report, &agent_kind, options.plan_mode, deps),
         Some(record.transport()),
     );
 
@@ -3561,6 +3572,50 @@ mod tests {
             Some(LaunchTransport::Terminal)
         );
         assert_eq!(LaunchTransport::parse("quantum"), None);
+    }
+
+    /// EXP-746: pi's plan mode is the injected `.exp-pi-plan.ts` extension
+    /// (EXP-441) and rpc mode has no equivalent, so a pi launch that asked
+    /// for it prepares on the TERMINAL — never silently without the mode.
+    #[test]
+    fn pi_plan_mode_is_not_acp_ready() {
+        let dir = temp_dir("pi-plan-acp");
+        let base = canned_server(Vec::new());
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+        let ready = |tool| ToolCheck {
+            tool,
+            ok: true,
+            version: Some("1.0.0".to_string()),
+            error: None,
+            authed: None,
+            account: None,
+            usage_eligible: false,
+            acp: Some(true),
+            acp_note: None,
+        };
+        let report = crate::doctor::DoctorReport {
+            claude: ready(crate::doctor::Tool::Claude),
+            codex: ready(crate::doctor::Tool::Codex),
+            pi: ready(crate::doctor::Tool::Pi),
+            git: ready(crate::doctor::Tool::Git),
+        };
+        let pi = AgentKind::Builtin(CodingAgent::Pi);
+        assert!(acp_ready(&report, &pi, false, &deps));
+        assert!(!acp_ready(&report, &pi, true, &deps), "pi plan mode is PTY-only");
+        // Only pi: claude's plan mode is a native ACP mode.
+        let claude = AgentKind::Builtin(CodingAgent::Claude);
+        assert!(acp_ready(&report, &claude, true, &deps));
+        // And a host with no engine is never ready, whatever the agent says.
+        let mut hostless = make_deps(&base, &dir.0, Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        }));
+        hostless.acp_available = false;
+        assert!(!acp_ready(&report, &claude, false, &hostless));
     }
 
     /// A stub `claude` that answers `--version` with an ACP-ready version and
