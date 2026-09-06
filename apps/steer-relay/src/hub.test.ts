@@ -1653,6 +1653,31 @@ describe(`two-tier activity eviction (EXP-748)`, () => {
     expect(texts.at(-1)).toBe(`n2099`)
   })
 
+  test(`a toolCalls count above u32 drops the whole completed edge`, () => {
+    // The desktop wire type is `Option<u32>`, so a bigger count makes the
+    // Rust viewer's frame parse fail and swallow the entire activity frame.
+    // The relay rejects it here instead, exactly as it does every other
+    // out-of-bounds activity field.
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const member = connectMember(hub)
+    const edge = (toolCalls: number) => ({
+      kind: `subagent`,
+      id: `sa`,
+      agentType: `explore`,
+      status: `completed`,
+      toolCalls,
+    })
+
+    activity(hub, pub, edge(4_294_967_295))
+    activity(hub, pub, edge(4_294_967_296))
+    activity(hub, pub, edge(1e21))
+
+    // Only the in-bounds edge survived, with its count intact.
+    expect(member.events()).toEqual([edge(4_294_967_295)] as never)
+    expect(room(hub).activityLog.length).toBe(1)
+  })
+
   test(`activity_reset clears the subagent bookkeeping`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub)

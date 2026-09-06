@@ -282,6 +282,50 @@ describe(`devices.register`, () => {
       (h.state.inserted[0] as { launchDefaults: unknown }).launchDefaults
     ).toEqual({ startInTerminal: true })
   })
+
+  // EXP-749: `acpAgents` is the subset of the runnable agents this build can
+  // drive over ACP, and register is its SOLE writer.
+  it(`writes the ACP-capable subset on insert and on the conflict update`, async () => {
+    await caller.register({
+      deviceId: `dev-1`,
+      label: `buildbox`,
+      kind: `server`,
+      agents: [`claude`, `codex`, `pi`],
+      acpAgents: [`claude`, `codex`],
+    })
+    expect(h.state.inserted[0]).toMatchObject({
+      acpAgents: [`claude`, `codex`],
+    })
+    const upsert = h.state.upserts[0] as { set: Record<string, unknown> }
+    expect(upsert.set.acpAgents).toEqual([`claude`, `codex`])
+  })
+
+  it(`keeps an empty acpAgents list empty — "none over ACP" is not "unknown"`, async () => {
+    await caller.register({
+      deviceId: `dev-1`,
+      label: `buildbox`,
+      kind: `server`,
+      agents: [`claude`],
+      acpAgents: [],
+    })
+    expect((h.state.inserted[0] as { acpAgents: unknown }).acpAgents).toEqual([])
+    const upsert = h.state.upserts[0] as { set: Record<string, unknown> }
+    expect(upsert.set.acpAgents).toEqual([])
+  })
+
+  it(`resets acpAgents to NULL when a build that omits it re-registers`, async () => {
+    // An older build knows nothing about ACP: its register must return the
+    // row to "unknown" rather than leave a newer build's stale list behind.
+    await caller.register({
+      deviceId: `dev-1`,
+      label: `buildbox`,
+      kind: `server`,
+      agents: [`claude`],
+    })
+    expect((h.state.inserted[0] as { acpAgents: unknown }).acpAgents).toBeNull()
+    const upsert = h.state.upserts[0] as { set: Record<string, unknown> }
+    expect(upsert.set.acpAgents).toBeNull()
+  })
 })
 
 describe(`devices.requestUpdate + heartbeat`, () => {
