@@ -53,7 +53,14 @@ export function useMobileChromeVisible(): boolean {
     to: `/t/$teamSlug/reviews/$issueIdentifier`,
     fuzzy: true,
   })
-  return !onIssueDetail && !onReviewDetail
+  // EXP-740/EXP-739: the two session pages are full-screen steering views
+  // with their own back header — the native apps push them bar-less too.
+  const onSessionDetail = matchRoute({
+    to: `/t/$teamSlug/sessions/$sessionId`,
+    fuzzy: true,
+  })
+  const onChat = matchRoute({ to: `/t/$teamSlug/chat`, fuzzy: true })
+  return !onIssueDetail && !onReviewDetail && !onSessionDetail && !onChat
 }
 
 // The board the Issues tab / compose FAB / topbar switcher target: the
@@ -265,25 +272,15 @@ export function MobileTabBar({
         </Link>
       </nav>
       {/* EXP-631: the Devices tab's FAB slot starts a chat instead of an
-          issue — the same launcher the device rows open, on its Chat tab
-          (native parity: iOS/Android hide compose on Devices too).
+          issue (native parity: iOS/Android hide compose on Devices too).
           EXP-694: the Actions tab gets the same chat FAB — there is no issue
-          to compose there either, and every client offers chat from both. */}
-      {onDevices ? (
+          to compose there either, and every client offers chat from both.
+          EXP-739: both now LINK to the team's chat page, which holds the live
+          conversation and its history, instead of opening a one-shot dialog. */}
+      {onDevices || onActions ? (
         <Link
-          to="/t/$teamSlug/devices"
+          to="/t/$teamSlug/chat"
           params={{ teamSlug }}
-          search={{ chat: 1 }}
-          aria-label="Start chat"
-          className={FAB_CLASS}
-        >
-          <ActionChatIcon className="size-5" />
-        </Link>
-      ) : onActions ? (
-        <Link
-          to="/t/$teamSlug/actions"
-          params={{ teamSlug }}
-          search={{ chat: 1 }}
           aria-label="Start chat"
           className={FAB_CLASS}
         >

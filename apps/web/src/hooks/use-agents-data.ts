@@ -307,6 +307,106 @@ export function useAgentsData(
   ])
 }
 
+// ── One session by id (EXP-740) ──────────────────────────────────────────────
+
+/**
+ * EXP-740: the row behind `/t/$teamSlug/sessions/$sessionId`. The session
+ * route has only an id, but everything the view renders (the issue join, the
+ * Merge target, the device label) is row-shaped — so this resolves ONE id to
+ * the same `AgentSessionRow` the strip and the Devices list carry.
+ *
+ * A RUNNING row comes straight off `useAgentsData` (joins included). Anything
+ * else — a run that ended while the page was open, a deliberately opened
+ * finished run — is queried by id in ANY status and synthesized here, so the
+ * page stays readable instead of blanking the moment the run stops.
+ *
+ * EXP-312 stays the caller's job: this resolves a row, it does not decide who
+ * may steer it. The team guard below is only scoping — a session id from
+ * another team must not render under this team's slug.
+ */
+export function useSessionRow(
+  teamId: string | undefined,
+  currentUserId: string | undefined,
+  sessionId: string | undefined
+): {
+  row: AgentSessionRow | null
+  session: CodingSession | null
+  /** The by-id query delivered a snapshot — `session === null` then means
+   *  "no such session", not "still loading". */
+  isReady: boolean
+} {
+  const { running } = useAgentsData(teamId, currentUserId)
+  const boards = useTeamBoards(teamId)
+
+  const { data: sessionRows, isReady } = useLiveQuery(
+    (query) =>
+      sessionId
+        ? query
+            .from({ s: codingSessionCollection })
+            .where(({ s }) => eq(s.id, sessionId))
+        : undefined,
+    [sessionId]
+  )
+  const found = ((sessionRows ?? []) as CodingSession[])[0] ?? null
+  const session = found && found.teamId === teamId ? found : null
+
+  const runningById = useMemo(
+    () => new Map(running.map((row) => [row.session.id, row])),
+    [running]
+  )
+
+  // The issue join only when the row is NOT among the running ones — those
+  // already carry it.
+  const needsIssueJoin = Boolean(
+    session && session.issueId && !runningById.has(session.id)
+  )
+  const { data: issueRows } = useLiveQuery(
+    (query) =>
+      needsIssueJoin && session?.issueId
+        ? query
+            .from({ i: issueCollection })
+            .where(({ i }) => eq(i.id, session.issueId))
+        : undefined,
+    [needsIssueJoin, session?.issueId]
+  )
+
+  const row = useMemo<AgentSessionRow | null>(() => {
+    if (!session) return null
+    const existing = runningById.get(session.id)
+    if (existing) return existing
+    const issue = session.issueId
+      ? ((issueRows ?? [])[0] as Issue | undefined)
+      : undefined
+    const board = issue ? boards.find((b) => b.id === issue.boardId) : undefined
+    return {
+      session,
+      issue,
+      board,
+      user: undefined,
+      // EXP-734: an issue-less run held open past its live listing still
+      // carries its OWN chore PR on the row — keep its Merge pill.
+      mergeTarget: issue
+        ? { kind: `issue`, issue }
+        : session.prUrl && session.prNumber != null
+          ? { kind: `session`, session }
+          : undefined,
+      // A row resolved past its live listing: the snapshot label suffices and
+      // nothing there is "paused" — the session view resolves the live device
+      // itself.
+      device: { label: session.deviceLabel, online: null },
+      paused: false,
+    }
+  }, [session, runningById, issueRows, boards])
+
+  return {
+    row,
+    session,
+    // Without a session id the query is skipped and can never deliver a
+    // snapshot — treat that as ready-empty rather than loading forever.
+    isReady: sessionId ? isReady : true,
+  }
+}
+
 // ── Past runs (EXP-746) ──────────────────────────────────────────────────────
 
 /** One row of the Devices screen's "Past" section. */
@@ -340,8 +440,15 @@ export interface PastRunRow {
  */
 export function usePastRuns(
   teamId: string | undefined,
-  currentUserId: string | undefined
+  currentUserId: string | undefined,
+  options?: {
+    /** EXP-739: narrow the list BEFORE the 20-row cap — the chat page's
+     * "Past chats" wants the newest 20 CHATS, not whatever chats survive the
+     * newest 20 runs. Pass a module-level predicate: it is a memo dependency. */
+    only?: (session: CodingSession) => boolean
+  }
 ) {
+  const only = options?.only
   const { data: sessionRows, isReady } = useLiveQuery(
     (query) =>
       teamId && currentUserId
@@ -357,16 +464,15 @@ export function usePastRuns(
         : undefined,
     [teamId, currentUserId]
   )
-  const past = useMemo(
-    () =>
-      selectPastRuns(
-        (sessionRows ?? []) as CodingSession[],
-        currentUserId,
-        teamId,
-        PAST_RUN_CAP
-      ),
-    [sessionRows, currentUserId, teamId]
-  )
+  const past = useMemo(() => {
+    const rows = (sessionRows ?? []) as CodingSession[]
+    return selectPastRuns(
+      only ? rows.filter(only) : rows,
+      currentUserId,
+      teamId,
+      PAST_RUN_CAP
+    )
+  }, [sessionRows, currentUserId, teamId, only])
 
   // Sorted so the same id set always yields the same dep string (the
   // useAgentsData idiom).

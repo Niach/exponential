@@ -142,8 +142,9 @@ fun builtinFixConflictsAction(teamId: String): ActionDto = ActionDto(
 )
 
 /**
- * The HIDDEN "Chat" builtin (EXP-615): a free-prompt agent session on a
- * repository's trunk clone at its default branch. Deliberately in NO list —
+ * The HIDDEN "Chat" builtin (EXP-615): a conversation with your agent over the
+ * tracker's MCP tools, OPTIONALLY anchored to a repository (EXP-739).
+ * Deliberately in NO list —
  * the start-coding sheet's Chat tab constructs this row directly, so it never
  * shows up as a runnable action anywhere. Mirrors
  * apps/web/src/lib/builtin-actions.ts field-for-field.
@@ -166,7 +167,7 @@ fun builtinChatAction(teamId: String): ActionDto = ActionDto(
             key = "repo",
             label = "Repository",
             type = "repo",
-            required = true,
+            required = false,
         ),
     ),
     sortOrder = 1e9 + 2,

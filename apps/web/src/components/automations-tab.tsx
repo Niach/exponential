@@ -14,7 +14,7 @@ import {
 } from "@/lib/steer-devices"
 import { EndedSessionRow } from "@/components/agent-session-row"
 import { SuggestionsButton } from "@/components/getting-started/getting-started-sheet"
-import { useAgentDock } from "@/components/agent-dock/agent-dock-provider"
+import { useOpenSession } from "@/hooks/use-open-session"
 import { getActionIcon } from "@/lib/board-icons"
 import {
   automationCollection,
@@ -266,7 +266,7 @@ export function AutomationsTab({
   editAutomationId?: string | null
   onEditAutomationConsumed?: () => void
 }) {
-  const dock = useAgentDock()
+  const openSession = useOpenSession()
   const { data: automationRows } = useLiveQuery(
     (query) =>
       query
@@ -442,7 +442,7 @@ export function AutomationsTab({
                 // EXP-637: an ENDED run has a close-out to expand into.
                 // EXP-686: a live one has no self-reported state left to
                 // show — it just says "Running", and the whole row opens the
-                // session in the dock.
+                // run's session page.
                 session.status === `ended` ? (
                   <EndedSessionRow
                     key={session.id}
@@ -466,7 +466,7 @@ export function AutomationsTab({
                     key={session.id}
                     interactive
                     className="gap-2 text-sm"
-                    onClick={() => dock?.openDock(session.id)}
+                    onClick={() => openSession(session)}
                     data-testid={`automated-run-${session.id}`}
                   >
                     <span className="min-w-0 flex-1 truncate">

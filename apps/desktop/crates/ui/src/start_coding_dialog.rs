@@ -1030,8 +1030,9 @@ impl StartCodingDialogView {
                     // An action selected before the fetch landed couldn't
                     // seed its repo inputs yet (EXP-349) — retry now.
                     this.seed_action_repo_inputs();
-                    // EXP-615: chat REQUIRES a repo — with exactly one there
-                    // is nothing to pick (web parity).
+                    // EXP-615: with exactly one repo there is nothing to
+                    // pick, so preselect it (web parity). EXP-739 made the
+                    // pick optional; the convenience stands.
                     if this.chat_repo.is_none() {
                         if let [only] = &this.team_repos[..] {
                             this.chat_repo = Some(only.clone());
@@ -1517,14 +1518,13 @@ impl StartCodingDialogView {
                 }
             }
         }
-        // EXP-615: the Chat tab's gate is its builtin's two required inputs,
+        // EXP-615: the Chat tab's gate is its builtin's REQUIRED inputs,
         // named exactly like the Actions tab names an unfilled input.
+        // EXP-739: the repository is optional — a repo-less chat runs
+        // worktree-less — so only the prompt gates the submit.
         if self.subject_tab == SubjectTab::Chat {
             if self.chat_prompt.read(cx).value().trim().is_empty() {
                 return Some("Fill in Prompt.".into());
-            }
-            if self.chat_repo.is_none() {
-                return Some("Fill in Repository.".into());
             }
             return None;
         }
@@ -1712,27 +1712,29 @@ impl StartCodingDialogView {
         // its two inputs, and the same runner (which resolves the repo and
         // spawns into the opener window).
         if self.subject_tab == SubjectTab::Chat {
-            let Some(repo) = self.chat_repo.clone() else {
-                return;
-            };
+            let repo = self.chat_repo.clone();
             let prompt = self.chat_prompt.read(cx).value().trim().to_string();
             let action = api::actions::builtin_chat_action(&self.team_id);
+            // EXP-739: the `repo` input is emitted ONLY when one was picked —
+            // an empty one would read as "resolve nothing" downstream, and a
+            // repo-less chat must reach the launcher with no repo at all.
             let inputs: Vec<ActionInputValue> = action
                 .inputs
                 .iter()
-                .map(|input| {
+                .filter_map(|input| {
                     let (value, display) = if input.key == "prompt" {
                         (prompt.clone(), prompt.clone())
                     } else {
+                        let repo = repo.as_ref()?;
                         (repo.id.clone(), repo.full_name.clone())
                     };
-                    ActionInputValue {
+                    Some(ActionInputValue {
                         key: input.key.clone(),
                         label: input.label.clone(),
                         input_type: input.input_type.clone(),
                         value,
                         display: Some(display),
-                    }
+                    })
                 })
                 .collect();
             let options = self.options(cx);
@@ -1751,7 +1753,7 @@ impl StartCodingDialogView {
                     reservation: None,
                     trigger: None,
                     automation_id: None,
-                    on_failed: None,
+                    on_settled: None,
                 },
                 cx,
             );
@@ -1786,7 +1788,7 @@ impl StartCodingDialogView {
                     // there is no poison-pill state to back off either.
                     trigger: None,
                     automation_id: None,
-                    on_failed: None,
+                    on_settled: None,
                 },
                 cx,
             );
@@ -1880,15 +1882,20 @@ impl StartCodingDialogView {
         };
         match self.subject_tab {
             SubjectTab::Chat => {
-                let repo = self.chat_repo.clone()?;
+                let repo = self.chat_repo.clone();
                 let prompt = self.chat_prompt.read(cx).value().trim().to_string();
                 let action = api::actions::builtin_chat_action(&self.team_id);
                 let mut inputs = std::collections::BTreeMap::new();
                 for definition in &action.inputs {
+                    // EXP-739: no repo picked = no `repo` key on the frame,
+                    // so the target machine runs a repo-less chat.
                     let value = if definition.key == "prompt" {
                         prompt.clone()
                     } else {
-                        repo.id.clone()
+                        match repo.as_ref() {
+                            Some(repo) => repo.id.clone(),
+                            None => continue,
+                        }
                     };
                     inputs.insert(definition.key.clone(), value);
                 }
@@ -2247,7 +2254,9 @@ impl StartCodingDialogView {
             ))
     }
 
-    /// The Chat pane (EXP-615): the prompt editor + the repository picker.
+    /// The Chat pane (EXP-615): the prompt editor + the OPTIONAL repository
+    /// picker (EXP-739 — without a pick the chat runs worktree-less, so the
+    /// dropdown carries a "None" row and no repositories is not a blocker).
     /// Both fields come from the hidden builtin's own input definitions, so
     /// their labels/placeholder cannot drift from the other three clients.
     fn chat_pane(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
@@ -2257,14 +2266,14 @@ impl StartCodingDialogView {
             div()
                 .text_xs()
                 .text_color(muted)
-                .child("Connect a repository to this team to chat.")
+                .child("No repositories connected. The chat runs without one.")
                 .into_any_element()
         } else {
             action_run::repo_dropdown(
                 "sc-chat-repo".into(),
                 self.chat_repo.as_ref(),
                 repos,
-                false,
+                true,
                 |this: &mut Self, repo, cx| {
                     this.chat_repo = repo;
                     cx.notify();
@@ -2813,8 +2822,8 @@ impl Render for StartCodingDialogView {
                     ));
             }
             SubjectTab::Chat => {
-                // EXP-615: the free prompt + its repository — no picker, no
-                // list; the pane IS the form.
+                // EXP-615: the free prompt + its OPTIONAL repository
+                // (EXP-739) — no picker, no list; the pane IS the form.
                 left = left.child(self.chat_pane(cx));
             }
             SubjectTab::Actions => {

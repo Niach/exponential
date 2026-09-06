@@ -31,8 +31,9 @@ describe(`MAIN_PANEL_CLASS`, () => {
   })
 
   // The panel would become the containing block for `position: fixed`
-  // descendants, and the fullscreen AgentDock (`fixed inset-0`) has to escape
-  // it. Every one of these creates that containing block.
+  // descendants, and every full-viewport overlay the panel hosts (`fixed
+  // inset-0`) has to escape it. Every one of these creates that containing
+  // block.
   it(`never creates a containing block for fixed children`, () => {
     for (const token of TOKENS) {
       const name = base(token)
@@ -49,7 +50,7 @@ describe(`MAIN_PANEL_CLASS`, () => {
         `perspective`,
       ]) {
         expect(
-          name.startsWith(banned) ? `${token} traps the fullscreen dock` : token
+          name.startsWith(banned) ? `${token} traps fixed descendants` : token
         ).toBe(token)
       }
     }

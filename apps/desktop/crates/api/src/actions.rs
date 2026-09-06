@@ -375,9 +375,11 @@ pub fn builtin_fix_conflicts_action(team_id: &str) -> Action {
     }
 }
 
-/// The client-constructed hidden "Chat" row (EXP-615): a free-prompt agent
-/// session on the picked repository's trunk clone at its default branch — no
-/// worktree, no branch, no PR contract. Deliberately appended to NO list; the
+/// The client-constructed hidden "Chat" row (EXP-615): a conversation with your
+/// agent over the tracker's MCP tools, OPTIONALLY anchored to a repository
+/// (EXP-739). With a repo it gets its own `exp/chat-<id8>` worktree; without
+/// one it runs worktree-less in a scratch dir holding nothing but the MCP
+/// config. No PR contract either way. Deliberately appended to NO list; the
 /// Start-coding dialog's Chat tab builds it directly. Mirrors the web's
 /// `builtinChatAction`.
 pub fn builtin_chat_action(team_id: &str) -> Action {
@@ -402,7 +404,7 @@ pub fn builtin_chat_action(team_id: &str) -> Action {
                 key: "repo".to_string(),
                 label: "Repository".to_string(),
                 input_type: "repo".to_string(),
-                required: true,
+                required: false,
                 placeholder: None,
             },
         ],
@@ -653,7 +655,8 @@ mod tests {
     }
 
     /// EXP-615: the hidden chat builtin — byte parity with the web factory
-    /// (`builtinChatAction`), including its two required inputs and the
+    /// (`builtinChatAction`), including its required prompt, its OPTIONAL repo
+    /// (EXP-739 — a repo-less chat runs worktree-less in a scratch dir) and the
     /// sortOrder that keeps it behind the other two builtins wherever a naive
     /// renderer ever sees it.
     #[test]
@@ -679,7 +682,7 @@ mod tests {
         );
         assert_eq!(builtin.inputs[1].key, "repo");
         assert_eq!(builtin.inputs[1].input_type, "repo");
-        assert!(builtin.inputs[1].required);
+        assert!(!builtin.inputs[1].required);
         assert_eq!(builtin.sort_order, 1e9 + 2.0);
         // The name snapshot the session row carries.
         assert_eq!(builtin_action_name(BUILTIN_CHAT_ID), Some("Chat"));

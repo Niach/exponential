@@ -6,11 +6,14 @@ import { Label } from "@/components/ui/label"
 import { GlassGroup, GlassPickerRow } from "@/components/ui/glass-rows"
 import { Textarea } from "@/components/ui/textarea"
 
-// The Chat tab of the unified launch dialog (EXP-615): a free prompt on a
-// repository's trunk clone — the web twin of opening a terminal tab in the
-// desktop IDE. It rides the hidden "Chat" builtin action, so the field labels
-// and the prompt placeholder come from that definition and can never drift
-// from the other three clients. All state lives in the dialog shell.
+// The Chat tab of the unified launch dialog (EXP-615): a free prompt with an
+// OPTIONAL repository (EXP-739) — pick one and the run gets its own
+// `exp/chat-<id8>` worktree cut from that repo's default branch, leave it and
+// the chat runs in the agent's scratch dir with only the Exponential MCP
+// server wired up. It rides the
+// hidden "Chat" builtin action, so the field labels and the prompt placeholder
+// come from that definition and can never drift from the other three clients.
+// All state lives in the dialog shell.
 
 export function ChatPane({
   prompt,
@@ -59,7 +62,7 @@ export function ChatPane({
         <div className="space-y-2">
           <Label>Repository</Label>
           <p className="text-xs text-muted-foreground">
-            Connect a repository to this team to chat.
+            No repository connected. The chat runs without one.
           </p>
         </div>
       ) : (
@@ -68,7 +71,7 @@ export function ChatPane({
             label="Repository"
             value={repoId || undefined}
             onValueChange={onRepoChange}
-            placeholder="Select a repository"
+            placeholder="No repository"
             options={repos.map((repo) => ({
               value: repo.id,
               label: repo.fullName,

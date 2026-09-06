@@ -43,6 +43,7 @@ import {
   modelLabel,
 } from "@/components/launch-dialog/launch-options-pane"
 import type { SessionDevice } from "@/lib/session-device"
+import type { SessionIdentity } from "@/lib/session-identity"
 import {
   activeQuestionIds,
   answerKey,
@@ -143,8 +144,7 @@ const CodingToolIcon = conceptIcon(`coding-tool`)
 const EditorImageIcon = conceptIcon(`editor-image`)
 const UiAddIcon = conceptIcon(`ui-add`)
 const UiDeviceOfflineIcon = conceptIcon(`ui-device-offline`)
-const UiFullscreenIcon = conceptIcon(`ui-fullscreen`)
-const UiFullscreenExitIcon = conceptIcon(`ui-fullscreen-exit`)
+const UiBackIcon = conceptIcon(`ui-back`)
 const UiHelpIcon = conceptIcon(`ui-help`)
 const UiLoadingIcon = conceptIcon(`ui-loading`)
 const UiMoreIcon = conceptIcon(`ui-more`)
@@ -169,16 +169,19 @@ const UiUnselectedIcon = conceptIcon(`ui-unselected`)
 // semantic `answer` frame (steer protocol v2, EXP-249) — the ONLY answer
 // path since EXP-672; a card from a desktop that publishes no question id
 // renders read-only.
-// Since EXP-106 this view is mounted ONLY by the global agent dock
-// (components/agent-dock) — one at a time — so it always auto-connects and
-// delegates its chrome (title, collapse) to the dock; the "coding now" rows +
-// remote-start affordances moved to issue-coding-rows.tsx.
+// EXP-740: this view is mounted by the two SESSION ROUTES —
+// `/t/$teamSlug/sessions/$sessionId` and the team's `/t/$teamSlug/chat` —
+// filling the content panel on every breakpoint. It always auto-connects; the
+// route owns the membership + config.enabled gating (the relay enforces both
+// regardless) and supplies `identity` + `onBack`. The "coding now" rows +
+// remote-start affordances live in issue-coding-rows.tsx.
 
 // ── Wire protocol ────────────────────────────────────────────────────────────
 // EXP-621: the relay protocol handling, the connection lifecycle and the feed
 // reducer all moved to lib/steer-session-store.ts — a module-level per-session
-// store that OUTLIVES this view, so collapsing the dock or navigating away
-// keeps the socket, the feed and the composer draft. This file only renders.
+// store that OUTLIVES this view, so leaving the session page or navigating
+// away keeps the socket, the feed and the composer draft. This file only
+// renders.
 
 
 // ── steer.config, fetched once per app lifetime (env-derived, static) ─────────
@@ -217,44 +220,29 @@ export function useSteerConfig(): SteerConfig | null {
 
 // ── The agent-session view: structured activity feed over the relay ─────────
 
-/** EXP-688: one run's identity, resolved once by the dock and rendered by
- * both the dock tab and the mobile session header so they cannot drift. */
-export interface SessionIdentity {
-  /** `EXP-688` — null for action, batch and not-yet-synced issue runs. */
-  identifier: string | null
-  /** The issue title, an action's name snapshot, or `Batch run`. */
-  subject: string
-}
-
-// Mounted ONLY by the global agent dock (one at a time), keyed by session id.
-// Always auto-connects; the caller owns the membership + config.enabled gating
-// (the relay enforces both regardless) and supplies the `title` + `onCollapse`
-// chrome. Session-scoped — the "coding now" rows live in issue-coding-rows.tsx.
+// Mounted by the session routes (EXP-740), keyed by session id. Always
+// auto-connects; the caller owns the membership + config.enabled gating (the
+// relay enforces both regardless) and supplies `identity` + `onBack`.
+// Session-scoped — the "coding now" rows live in issue-coding-rows.tsx.
 export function AgentSessionView({
   session,
   currentUserId,
   identity,
   mergeTarget,
-  onCollapse,
-  isFullscreen,
-  onToggleFullscreen,
+  onBack,
 }: {
   session: CodingSession
   currentUserId: string
-  /** EXP-688: what this run IS — the mono identifier (absent for action and
-   *  batch runs) and its human subject. The MOBILE header names it; the
-   *  desktop header carries no identity at all, because the dock tab under
-   *  the panel already does. */
+  /** EXP-688: what this run IS — the mono identifier (absent for action,
+   *  chat and batch runs) and its human subject. The ONE header names it on
+   *  every breakpoint (EXP-740: the dock tab no longer sits under a panel). */
   identity: SessionIdentity
   /** EXP-678: what this session's Merge pill acts on — the linked issue, a
    *  batch run's resolved representative (EXP-535), or the run's own chore PR
    *  row (EXP-734). Absent (no open PR, still syncing) = no Merge pill. */
   mergeTarget?: SessionMergeTarget
-  /** Collapse the dock panel (the socket tears down on unmount). */
-  onCollapse: () => void
-  /** Fullscreen toggle chrome (EXP-184) — owned by the dock; absent = no button. */
-  isFullscreen?: boolean
-  onToggleFullscreen?: () => void
+  /** Leave the session page (the socket outlives the unmount, EXP-621). */
+  onBack: () => void
 }) {
   // EXP-621: the connection lives in a module-level per-session store that
   // outlives this view — mounting subscribes to the retained state (feed,
@@ -385,8 +373,8 @@ export function AgentSessionView({
   const mergeProps = mergeTarget ? mergeTargetProps(mergeTarget) : null
   const canMerge = composerVisible && mergeProps?.prState === `open`
   // EXP-706: a conflicted merge swaps the pill for the "Fix conflicts" run,
-  // which needs the relay. The dock only mounts this view for a member with
-  // steering on, but the config is the honest gate.
+  // which needs the relay. The session routes only mount this view for a
+  // member with steering on, but the config is the honest gate.
   const steerConfig = useSteerConfig()
   const steerEnabled = Boolean(steerConfig?.enabled)
 
@@ -590,152 +578,98 @@ export function AgentSessionView({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* EXP-688: two headers, because the two surfaces already say different
-          things. On DESKTOP the dock tab under the panel carries the identity,
-          the phase and the kill, so the header keeps only the panel controls.
-          On MOBILE the takeover IS the whole screen: it names the run over the
-          phase caption and hides usage + kill behind a "…" menu, exactly like
-          the native session screens. */}
-      {isMobile ? (
-        <div className="flex items-center gap-1 border-b border-border px-1 py-1.5">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="shrink-0"
-            aria-label="Collapse session"
-            onClick={onCollapse}
-          >
-            <ChevronDown />
-          </Button>
-          <div className="flex min-w-0 flex-1 flex-col items-center">
-            <div className="flex w-full min-w-0 items-center justify-center gap-1.5">
-              <PhaseDot
-                phase={phase}
-                awaitingInput={awaitingInput}
-                paused={paused}
-              />
-              {identity.identifier && (
-                <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                  {identity.identifier}
-                </span>
-              )}
-              <span className="min-w-0 truncate text-sm font-medium">
-                {identity.subject}
+      {/* EXP-740: ONE header on every breakpoint. The session is a PAGE
+          now, not a dock panel, so there is no tab under it to carry the
+          identity: this header names the run over the phase caption and hides
+          usage + kill behind a "…" menu, exactly like the native session
+          screens.  */}
+      <div className="flex items-center gap-1 border-b border-border px-1 py-1.5">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="shrink-0"
+          aria-label="Back"
+          onClick={onBack}
+        >
+          <UiBackIcon />
+        </Button>
+        <div className="flex min-w-0 flex-1 flex-col items-center">
+          <div className="flex w-full min-w-0 items-center justify-center gap-1.5">
+            <PhaseDot
+              phase={phase}
+              awaitingInput={awaitingInput}
+              paused={paused}
+            />
+            {identity.identifier && (
+              <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                {identity.identifier}
               </span>
-            </div>
-            <span className="max-w-full truncate text-[11px] text-muted-foreground">
-              {phaseLabel(phase, device, awaitingInput, paused, compactingNow)}
+            )}
+            <span className="min-w-0 truncate text-sm font-medium">
+              {identity.subject}
             </span>
           </div>
-          {/* A dropped stream redials from here too — a phone has no desktop
-              header to fall back on. */}
-          {phase.kind === `closed` && !paused && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="shrink-0"
-              onClick={() => store.reconnect()}
-            >
-              <UiRefreshIcon />
-              Reconnect
-            </Button>
-          )}
-          {/* A finished run with no fresh numbers has nothing to offer, so the
-              trigger goes away rather than opening an empty menu (its width
-              stays, so the title does not jump). */}
-          {!agentUsage && !sessionUsage && !canKill && !canCompact && (
-            <span className="size-8 shrink-0" />
-          )}
-          {(agentUsage || sessionUsage || canKill || canCompact) && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  className="h-8 w-8 shrink-0 p-0"
-                  aria-label="Session actions"
-                >
-                  <UiMoreIcon />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {(agentUsage || sessionUsage) && (
-                  <DropdownMenuItem onSelect={() => setUsageOpen(true)}>
-                    <UiUsageIcon className="size-4" />
-                    Usage
-                  </DropdownMenuItem>
-                )}
-                {/* EXP-724: the one command worth a menu entry — the others
-                    are typed with `/` in the composer. */}
-                {canCompact && (
-                  <DropdownMenuItem
-                    onSelect={() => store.sendMessage(`/compact`)}
-                  >
-                    <CodingCompactIcon className="size-4" />
-                    Compact context
-                  </DropdownMenuItem>
-                )}
-                {canKill && (
-                  <DropdownMenuItem variant="destructive" onSelect={requestKill}>
-                    <CodingStopIcon className="size-4" />
-                    Kill session
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+          <span className="max-w-full truncate text-[11px] text-muted-foreground">
+            {phaseLabel(phase, device, awaitingInput, paused, compactingNow)}
+          </span>
         </div>
-      ) : (
-        <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
-          <span className="flex-1" />
-          {/* EXP-746: desktop web had no usage affordance at all — the dock
-              tab under the panel carries identity and kill, so the sheet used
-              to be mobile-only. The run's own context meter belongs on every
-              viewport. */}
-          {(agentUsage || sessionUsage) && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="shrink-0"
-              aria-label="Usage"
-              title="Usage"
-              onClick={() => setUsageOpen(true)}
-            >
-              <UiUsageIcon />
-            </Button>
-          )}
-          {phase.kind === `closed` && !paused && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="shrink-0"
-              onClick={() => store.reconnect()}
-            >
-              <UiRefreshIcon />
-              Reconnect
-            </Button>
-          )}
-          {onToggleFullscreen && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="shrink-0"
-              aria-label={isFullscreen ? `Exit fullscreen` : `Fullscreen`}
-              onClick={onToggleFullscreen}
-            >
-              {isFullscreen ? <UiFullscreenExitIcon /> : <UiFullscreenIcon />}
-            </Button>
-          )}
+        {/* A dropped stream redials from here too — a phone has no desktop
+            header to fall back on. */}
+        {phase.kind === `closed` && !paused && (
           <Button
-            variant="ghost"
-            size="icon"
+            variant="outline"
+            size="sm"
             className="shrink-0"
-            aria-label="Collapse session"
-            onClick={onCollapse}
+            onClick={() => store.reconnect()}
           >
-            <ChevronDown />
+            <UiRefreshIcon />
+            Reconnect
           </Button>
-        </div>
-      )}
+        )}
+        {/* A finished run with no fresh numbers has nothing to offer, so the
+            trigger goes away rather than opening an empty menu (its width
+            stays, so the title does not jump). */}
+        {!agentUsage && !sessionUsage && !canKill && !canCompact && (
+          <span className="size-8 shrink-0" />
+        )}
+        {(agentUsage || sessionUsage || canKill || canCompact) && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                className="h-8 w-8 shrink-0 p-0"
+                aria-label="Session actions"
+              >
+                <UiMoreIcon />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {(agentUsage || sessionUsage) && (
+                <DropdownMenuItem onSelect={() => setUsageOpen(true)}>
+                  <UiUsageIcon className="size-4" />
+                  Usage
+                </DropdownMenuItem>
+              )}
+              {/* EXP-724: the one command worth a menu entry — the others
+                  are typed with `/` in the composer. */}
+              {canCompact && (
+                <DropdownMenuItem
+                  onSelect={() => store.sendMessage(`/compact`)}
+                >
+                  <CodingCompactIcon className="size-4" />
+                  Compact context
+                </DropdownMenuItem>
+              )}
+              {canKill && (
+                <DropdownMenuItem variant="destructive" onSelect={requestKill}>
+                  <CodingStopIcon className="size-4" />
+                  Kill session
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-card/40">
           {/* EXP-356: conversation tabs — Main plus one per RUNNING subagent
@@ -763,9 +697,9 @@ export function AgentSessionView({
             <div
               ref={scrollRef}
               onScroll={handleFeedScroll}
-              // EXP-619: the feed rides its own bottom edge, so without
-              // containment every downward wheel tick over the terminal
-              // scrolled the page behind the dock instead.
+              // EXP-619: the feed rides its own bottom edge, and
+              // `overscroll-contain` keeps a downward wheel tick past the
+              // last row from chaining out to the page behind it.
               // `agent-feed`: the hook the inline-code tint keys on
               // (EXP-698, styles.css) — chat-sized markdown alone is not it,
               // comment bodies render that way too.

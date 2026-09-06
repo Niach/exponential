@@ -380,7 +380,7 @@ impl CreateActionDialogView {
                 // A person clicked Create — never an automation firing.
                 trigger: None,
                 automation_id: None,
-                on_failed: None,
+                on_settled: None,
             },
             cx,
         );

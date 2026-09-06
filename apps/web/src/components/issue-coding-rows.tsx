@@ -41,7 +41,7 @@ import {
 } from "@/components/ui/dialog"
 import { GlassRow } from "@/components/ui/glass-rows"
 import { useSteerConfig } from "@/components/agent-session"
-import { useAgentDock } from "@/components/agent-dock/agent-dock-provider"
+import { useOpenSession } from "@/hooks/use-open-session"
 import { useRemoteStart } from "@/hooks/use-remote-start"
 import { LaunchDialog } from "@/components/launch-dialog/launch-dialog"
 
@@ -73,9 +73,9 @@ function CodingRowStack({ children }: { children: ReactNode }) {
 }
 
 // The coding affordances of the issue detail (EXP-106): a compact "coding now"
-// / remote-start control that FOCUSES the global dock (never mounts the live
-// viewer itself), plus a PR / pushed-branch row that links to the review-detail
-// route. Repo presence + membership + relay availability gate them (the same
+// / remote-start control that NAVIGATES to the run's session page (EXP-740 —
+// it never mounts the live viewer itself), plus a PR / pushed-branch row that
+// links to the review-detail route. Repo presence + membership + relay availability gate them (the same
 // signals the server enforces); everything degrades to nothing when absent.
 // EXP-184 split them: IssueCodingControl renders as the full-width main-column
 // row (variant='row', both viewports since EXP-568) or as the phone bottom
@@ -382,7 +382,7 @@ function AgentRow({
   steerEnabled: boolean | null
   variant: CodingControlVariant
 }) {
-  const dock = useAgentDock()
+  const openSession = useOpenSession()
 
   const { data: sessionRows } = useLiveQuery(
     (query) =>
@@ -433,8 +433,8 @@ function AgentRow({
     )
 
     // EXP-568 phone bar: one 52px circle, no words. Own live session → tap to
-    // open the dock; someone else's → a static badge circle that says "busy,
-    // not yours" (EXP-312 keeps live sessions owner-only).
+    // open its session page; someone else's → a static badge circle that says
+    // "busy, not yours" (EXP-312 keeps live sessions owner-only).
     // EXP-698 r7: the circle NAMES what it opens — the Devices/monitor glyph —
     // and the state dot rides its top-trailing corner as a badge, clear of the
     // glyph's own bounds (iOS/Android `sessionGlyph`). A bare dot in a glass
@@ -456,7 +456,7 @@ function AgentRow({
           <button
             type="button"
             aria-label="Open coding session"
-            onClick={() => dock?.openDock(ownLatest.id)}
+            onClick={() => openSession(ownLatest)}
             className={cn(FAB_CIRCLE_CLASS, `text-foreground`)}
           >
             {glyph}
@@ -505,7 +505,7 @@ function AgentRow({
                 size="sm"
                 mode="action"
                 primary
-                onClick={() => dock?.openDock(ownLatest.id)}
+                onClick={() => openSession(ownLatest)}
               >
                 <WatchIcon />
                 Watch

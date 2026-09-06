@@ -1,26 +1,16 @@
-import { useEffect, useState } from "react"
-import {
-  createFileRoute,
-  redirect,
-  useNavigate,
-} from "@tanstack/react-router"
+import { useState } from "react"
+import { createFileRoute, redirect } from "@tanstack/react-router"
 import { MyMachines } from "@/components/my-machines"
 import {
   EndedSessionRow,
+  pastRunRowByline,
   SessionRow,
 } from "@/components/agent-session-row"
-import { agentLabel } from "@/components/agent-usage-bar"
-import { relativeTime } from "@/components/comment-rows/format"
 import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import { useSteerConfig } from "@/components/agent-session"
-import { useAgentDock } from "@/components/agent-dock/agent-dock-provider"
+import { useOpenSession } from "@/hooks/use-open-session"
 import { LaunchDialog } from "@/components/launch-dialog/launch-dialog"
-import { pastRunByline, pastRunEndedAt } from "@/lib/past-runs"
-import {
-  useAgentsData,
-  usePastRuns,
-  type PastRunRow,
-} from "@/hooks/use-agents-data"
+import { useAgentsData, usePastRuns } from "@/hooks/use-agents-data"
 import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug } from "@/hooks/use-team-data"
@@ -33,15 +23,11 @@ import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 // apps' Running section below them on every viewport (EXP-697). The
 // LaunchDialog here serves the device rows' "Start coding".
 //
-// EXP-631: `?chat=1` is the mobile FAB's one-shot open — the tab bar owns the
-// button, this route owns the launcher, so the request rides the URL (the
-// board route's `?new=1` compose pattern).
-type DevicesSearch = { chat?: 1 }
+// EXP-739: the mobile chat FAB is a LINK to `/t/$teamSlug/chat` now — the
+// launcher's Chat tab keeps working from the dialog, but this route no longer
+// carries a `?chat=1` one-shot.
 
 export const Route = createFileRoute(`/t/$teamSlug/devices`)({
-  validateSearch: (search: Record<string, unknown>): DevicesSearch => ({
-    chat: search.chat === 1 || search.chat === `1` ? 1 : undefined,
-  }),
   beforeLoad: async ({ context, location }) => {
     if (!context.session) {
       throw redirect({
@@ -53,29 +39,13 @@ export const Route = createFileRoute(`/t/$teamSlug/devices`)({
   component: DevicesPage,
 })
 
-/** EXP-746: the Past row's caption. The ORDER and the "ended by" wording are
- * the ×4 rule (lib/past-runs.ts); the agent label and the relative time are
- * this client's own vocabulary and formatter. */
-function rowByline(row: PastRunRow): string {
-  // A row that stamped neither end nor heartbeat has no honest time to show
-  // (0 would render as 1970), so that segment simply drops.
-  const endedAt = pastRunEndedAt(row.session)
-  return pastRunByline(row.session, {
-    deviceLabel: row.device.label ?? row.session.deviceLabel,
-    agentLabel: row.session.agent ? agentLabel(row.session.agent) : null,
-    relativeTime: endedAt > 0 ? relativeTime(new Date(endedAt)) : ``,
-  })
-}
-
 function DevicesPage() {
   const { teamSlug } = Route.useParams()
-  const search = Route.useSearch()
-  const navigate = useNavigate()
   const { data: session } = useSession()
   const team = useTeamBySlug(teamSlug)
   const { isMember, isOwner } = useTeamPermissions(team)
   const steerConfig = useSteerConfig()
-  const dock = useAgentDock()
+  const openSession = useOpenSession()
 
   const currentUserId = session?.user?.id
   const teamId = team?.id
@@ -100,27 +70,8 @@ function DevicesPage() {
   // The device rows' "Start coding" dialog, opened on the Issues tab
   // pre-targeted at the picked machine.
   const [launchDeviceId, setLaunchDeviceId] = useState<string | null>(null)
-  // The mobile FAB's Chat launcher — the SAME dialog, opened on its Chat tab
-  // with no device preference.
-  const [chatOpen, setChatOpen] = useState(false)
 
-  // Consume `?chat=1` once, then drop the key so a back/refresh doesn't
-  // re-open the dialog.
-  useEffect(() => {
-    if (search.chat !== 1) return
-    setChatOpen(true)
-    void navigate({
-      to: `/t/$teamSlug/devices`,
-      params: { teamSlug },
-      search: {},
-      replace: true,
-    })
-  }, [search.chat, navigate, teamSlug])
-
-  const closeLaunch = () => {
-    setLaunchDeviceId(null)
-    setChatOpen(false)
-  }
+  const closeLaunch = () => setLaunchDeviceId(null)
 
   if (!team) {
     return <div className="text-muted-foreground text-sm p-6">Loading…</div>
@@ -142,8 +93,9 @@ function DevicesPage() {
         )}
 
         {/* The native apps' Running section, on every viewport (EXP-697 —
-            it used to be mobile-only because the AgentDock strip covers
-            desktop, but the machines page lists sessions everywhere now). */}
+            it used to be mobile-only because the dock strip covers desktop,
+            but the machines page lists sessions everywhere now). A row opens
+            the run's own session page (EXP-740). */}
         {isLoading ? (
           <div className="text-muted-foreground p-6 text-sm">Loading…</div>
         ) : (
@@ -159,7 +111,7 @@ function DevicesPage() {
                     isOwner={isOwner}
                     currentUserId={currentUserId}
                     steerEnabled={steerEnabled}
-                    onOpen={() => dock?.openDock(row.session.id)}
+                    onOpen={() => openSession(row.session)}
                   />
                 ))}
               </div>
@@ -184,7 +136,7 @@ function DevicesPage() {
                   row={{ session: row.session, canResume: row.canResume }}
                   title={row.title}
                   identifier={row.identifier ?? undefined}
-                  byline={rowByline(row)}
+                  byline={pastRunRowByline(row)}
                 />
               ))}
             </div>
@@ -193,17 +145,14 @@ function DevicesPage() {
       </div>
 
       <LaunchDialog
-        open={launchDeviceId !== null || chatOpen}
+        open={launchDeviceId !== null}
         onOpenChange={(next) => {
-          if (!next) {
-            setLaunchDeviceId(null)
-            setChatOpen(false)
-          }
+          if (!next) setLaunchDeviceId(null)
         }}
         devices={remote.devices ?? []}
         starting={remote.starting}
         teamId={team.id}
-        initialTab={chatOpen ? `chat` : `issues`}
+        initialTab="issues"
         initialDeviceId={launchDeviceId ?? undefined}
         onStartIssues={(device, options, issueIds) => {
           remote

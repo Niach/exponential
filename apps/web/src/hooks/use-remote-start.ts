@@ -13,7 +13,7 @@ import { trpc } from "@/lib/trpc-client"
 import { isBuiltinActionId } from "@/lib/builtin-actions"
 import type { CodingLaunchPrefs } from "@/lib/coding-launch-prefs"
 import { composeDeviceList, type SteerDevice } from "@/lib/steer-devices"
-import { useAgentDock } from "@/components/agent-dock/agent-dock-provider"
+import { useOpenSession } from "@/hooks/use-open-session"
 import {
   findStartedRun,
   startedRunKeyForIssues,
@@ -33,9 +33,9 @@ import {
 // `devices.latestVersions`, fetched once per mount.
 //
 // EXP-536: after ANY send — a single issue, a batch, an action run — the hook
-// watches the synced coding_sessions rows for the desktop's run and focuses
-// the dock on it once (on mobile web the dock IS the full-viewport session
-// takeover, so that reads as "navigate to the session", matching the natives).
+// watches the synced coding_sessions rows for the desktop's run and opens it
+// once (EXP-740: that is a navigation to the run's session page, or to the
+// team chat page for a chat run, on every breakpoint — matching the natives).
 // `lib/started-run-match.ts` owns the matching rules; note an action never
 // matches on actionId — the builtin "Create action" run is inserted with
 // actionId NULL.
@@ -46,7 +46,7 @@ export type StartCodingOptions = CodingLaunchPrefs
 
 /** The minimal action identity a run needs: `teamId` rides the mutation only
  * for the builtin (there is no DB row to derive the team from), and `name`
- * keys the post-send dock watch. */
+ * keys the post-send session watch. */
 export interface RemoteStartAction {
   id: string
   name: string
@@ -59,8 +59,8 @@ export interface RemoteStart {
   devices: SteerDevice[] | null
   starting: boolean
   /** Device label a start was just delivered to — cleared once the run's
-   * synced row appears (dock auto-focused) or once the watch deadline passes
-   * without one. */
+   * synced row appears (its session page opens) or once the watch deadline
+   * passes without one. */
   sentTo: string | null
   /** Resolves on delivery, rejects on failure (toast already shown). */
   startIssues: (
@@ -90,8 +90,8 @@ export function useRemoteStart({
 }: {
   /** Member + relay configured — gates the device list + version fetch. */
   enabled?: boolean
-  /** Keys the action dock watch to the caller's own runs — and, EXP-481,
-   * splits own vs shared rows off the synced devices shape. */
+  /** Keys the post-send session watch to the caller's own runs — and,
+   * EXP-481, splits own vs shared rows off the synced devices shape. */
   currentUserId?: string
   /** EXP-432: also list teammates' server devices shared with this team. */
   teamId?: string
@@ -104,11 +104,11 @@ export function useRemoteStart({
   const [pending, setPending] = useState<{
     deviceLabel: string
     sentAt: number
-    /** What the dock watch below is looking for in the synced rows. */
+    /** What the session watch below is looking for in the synced rows. */
     key: StartedRunKey
   } | null>(null)
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const dock = useAgentDock()
+  const openSession = useOpenSession()
 
   // EXP-481: device rows off the synced shape (already server-scoped to own
   // rows + team-shared servers); user rows resolve shared owners' names.
@@ -178,12 +178,12 @@ export function useRemoteStart({
       pending.sentAt - STARTED_RUN_SKEW_MS
     )
     if (!match) return
-    // Focus the dock exactly once — clearing `pending` stops this effect from
-    // ever matching again for this send.
-    dock?.openDock(match.id)
+    // EXP-740: navigate to the run exactly once — clearing `pending` stops
+    // this effect from ever matching again for this send.
+    openSession(match)
     if (resetTimerRef.current) clearTimeout(resetTimerRef.current)
     setPending(null)
-  }, [sessionRows, pending, currentUserId, dock])
+  }, [sessionRows, pending, currentUserId, openSession])
 
   // The desktop inserts the coding_sessions row when the launcher spins up.
   // The deadline is not a silent re-enable: a run the desktop REFUSED — a

@@ -266,12 +266,16 @@ pub enum ActionRunKind {
         /// argument (EXP-324).
         issue_id: String,
     },
-    /// The hidden "Chat" builtin (EXP-615): a free-prompt session on the
-    /// picked repository's TRUNK CLONE at its default branch — no worktree,
-    /// no branch, no PR contract. The `prompt` input rides to the agent
-    /// VERBATIM (no action preamble, no inputs section): this is the "open a
-    /// terminal tab on the repo" shape, so anything we wrapped around it
-    /// would be words the user did not write.
+    /// The hidden "Chat" builtin (EXP-615): a conversation with the agent over
+    /// the tracker's MCP tools, no PR contract. The repository is an OPTIONAL
+    /// ANCHOR (EXP-739): given one, the run gets its own `exp/chat-<id8>`
+    /// worktree cut from the repo's default (EXP-637 — never the trunk clone);
+    /// without one it runs WORKTREE-LESS in the scratch dir every repo-less
+    /// action uses, holding nothing but `.exp-mcp.json` (no git, no token, no
+    /// launch hold, no cleanup). The `prompt` input rides to the agent
+    /// VERBATIM (no action preamble, no inputs section): this is the "just
+    /// talk to the agent" shape, so anything we wrapped around it would be
+    /// words the user did not write.
     Chat,
 }
 
@@ -1901,21 +1905,19 @@ fn prepare_action(
     // for). Computed up front because the chat validation below depends on it.
     let run_reason = started_reason(&req.origin, req.trigger.as_ref());
     let unattended = run_reason.is_some();
-    // EXP-615: a chat run is repo-BOUND (its `repo` input is required — a
-    // scratch-dir chat would be a shell with no code in it). EXP-703: the
-    // prompt is optional for an ATTENDED chat — the terminal dock's "+"
-    // launches exactly that shape (a steerable promptless session in its own
-    // worktree, the agent waiting at its prompt) — but stays required for an
-    // unattended one, where nobody is at the keyboard to type the first
-    // message and a promptless run would idle forever. Validated here,
-    // before any doctor/git/network work, so a malformed start costs nothing.
+    // EXP-739: a chat run is NOT repo-bound. The chat is a conversation with
+    // the tracker over MCP and code is an optional ANCHOR, so a repo-less one
+    // is a perfectly good run — it just lands worktree-less in the scratch dir
+    // below. (The old "a scratch-dir chat would be a shell with no code in it"
+    // rule is retired.) EXP-703 still holds: the prompt is optional for an
+    // ATTENDED chat — the terminal dock's "+" and "Chat" buttons launch
+    // exactly that shape (a steerable promptless session, the agent waiting at
+    // its prompt) — but stays required for an unattended one, where nobody is
+    // at the keyboard to type the first message and a promptless run would
+    // idle forever. Validated here, before any doctor/git/network work, so a
+    // malformed start costs nothing.
     let chat_user_prompt = match &req.kind {
         ActionRunKind::Chat => {
-            if repo.is_none() {
-                return Err(CodingError::Io(
-                    "the chat run needs a repository".to_string(),
-                ));
-            }
             let prompt = req
                 .inputs
                 .iter()
@@ -2354,19 +2356,14 @@ fn prepare_action(
         // EXP-746: the ACP adapter composes its own argv.
         LaunchTransport::Acp => Vec::new(),
     };
-    // EXP-615: a chat tab is named after the REPO it opened on — every chat
-    // carries the same action name ("Chat"), so `action · Chat` would make a
-    // strip of them unreadable.
-    let tab_prefix = match &req.kind {
-        ActionRunKind::Chat => repo
-            .as_ref()
-            .map(|repo| repo_short_name(&repo.full_name).to_string())
-            .unwrap_or_else(|| req.action_name.clone()),
-        _ => req.action_name.clone(),
-    };
-    let tab_title = match &req.kind {
-        ActionRunKind::Chat => format!("chat · {tab_prefix}"),
-        _ => format!("action · {tab_prefix}"),
+    let (tab_prefix, tab_title) = match &req.kind {
+        ActionRunKind::Chat => chat_tab_title(
+            repo.as_ref().map(|repo| repo_short_name(&repo.full_name)),
+        ),
+        _ => (
+            req.action_name.clone(),
+            format!("action · {}", req.action_name),
+        ),
     };
     let mut spawn = SpawnSpec::new(&deps.settings.resolved_path_for(agent))
         .args(args)
@@ -2960,11 +2957,22 @@ fn prepare_resume_run(
     // EXP-662: a resumed SESSION is titled like a fresh one (`claude ·
     // EXP-42` / `claude · EXP-42 +1`) — the strip must not tell a resume
     // apart from the launch it continues.
-    let tab_prefix = record.display_name();
-    let tab_title = match record.kind {
-        RunKind::Issue | RunKind::Batch => format!("{} · {tab_prefix}", agent.id()),
-        RunKind::Chat => format!("chat · {tab_prefix}"),
-        _ => format!("action · {tab_prefix}"),
+    let (tab_prefix, tab_title) = match record.kind {
+        RunKind::Issue | RunKind::Batch => {
+            let prefix = record.display_name();
+            let title = format!("{} · {prefix}", agent.id());
+            (prefix, title)
+        }
+        // EXP-739: the resume reads the REPO off the record, exactly like the
+        // launch does — `display_name()` would answer "Chat" for every chat.
+        RunKind::Chat => {
+            chat_tab_title(record.repo.as_deref().map(repo_short_name))
+        }
+        _ => {
+            let prefix = record.display_name();
+            let title = format!("action · {prefix}");
+            (prefix, title)
+        }
     };
     let mut spawn = SpawnSpec::new(&deps.settings.resolved_path_for(agent))
         .args(args)
@@ -3318,6 +3326,21 @@ fn agent_shell_cwd(req: &AgentShellRequest, clone: &Path) -> PathBuf {
 /// the agent-shell and the EXP-615 chat tabs share (`acme/web` → `web`).
 fn repo_short_name(full_name: &str) -> &str {
     full_name.rsplit('/').next().unwrap_or(full_name)
+}
+
+/// EXP-615/EXP-739: `(tab prefix, tab title)` for a chat run, on BOTH the
+/// launch and the resume path. Anchored to a repo the tab is named after the
+/// REPO — every chat carries the same action name ("Chat"), so `chat · Chat`
+/// would make a strip of them unreadable. Repo-LESS there is nothing to
+/// disambiguate by, so the tab is simply "Chat" rather than the tautological
+/// `chat · Chat`.
+fn chat_tab_title(repo_short: Option<&str>) -> (String, String) {
+    match repo_short {
+        Some(short) => (short.to_string(), format!("chat · {short}")),
+        // The chat builtin's own name (`api::actions::BUILTIN_CHAT_NAME`),
+        // which the `coding` crate does not depend on.
+        None => ("Chat".to_string(), "Chat".to_string()),
+    }
 }
 
 /// The agent-shell tab title: `claude · <repo>` on the trunk clone, and
@@ -5068,32 +5091,129 @@ mod tests {
         req
     }
 
-    /// EXP-615: chat is repo-BOUND — its `repo` input is required, and a
-    /// scratch-dir chat would be a shell with no code in it. Refused before
-    /// any doctor/network work.
+    /// EXP-615/EXP-739: the ONE chat tab namer, shared by the launch and the
+    /// resume. Anchored to a repo the tab wears the repo's short name;
+    /// repo-LESS there is nothing to disambiguate by, so it is just "Chat"
+    /// (never the tautological `chat · Chat` a naive `display_name()` gives,
+    /// since every chat carries the same action name).
     #[test]
-    fn prepare_action_chat_requires_the_repo() {
+    fn chat_tab_title_names_the_repo_or_just_chat() {
+        assert_eq!(
+            chat_tab_title(Some(repo_short_name("acme/web"))),
+            ("web".to_string(), "chat · web".to_string())
+        );
+        assert_eq!(
+            chat_tab_title(None),
+            ("Chat".to_string(), "Chat".to_string())
+        );
+    }
+
+    /// EXP-739: the repo is an optional ANCHOR — a chat without one is a
+    /// conversation with the tracker over MCP, so it runs WORKTREE-LESS in
+    /// the same scratch dir every repo-less action uses. No git, no token
+    /// mint, no branch, no cleanup, no launch hold: ONE request total
+    /// (`codingSessions.start`).
+    #[test]
+    fn prepare_action_chat_without_a_repo_runs_in_the_scratch_dir() {
         let dir = temp_dir("action-chat-repoless");
+        let (base, captured) = canned_server_recording(vec![(
+            200,
+            r#"{"result":{"data":{"session":{"id":"sess-chat","issueId":null,"teamId":"ws-1","actionId":null,"actionName":"Chat","status":"running"}}}}"#
+                .to_string(),
+        )]);
         let worktrees = Arc::new(FakeWorktrees {
             worktree: dir.0.join("unused"),
             seen: Default::default(),
         });
-        let deps = make_deps("http://127.0.0.1:1", &dir.0, worktrees);
+        let deps = make_deps(&base, &dir.0, worktrees.clone());
         let mut req = chat_request("repo-chat-none");
+        req.run_id = "1a2b3c4d".to_string();
         req.repo = None;
+        req.inputs.retain(|input| input.key == "prompt");
 
-        match prepare(&PrepareRequest::Action(req), &deps) {
-            Err(CodingError::Io(message)) => {
-                assert_eq!(message, "the chat run needs a repository");
-            }
-            other => panic!("expected the missing-repo error, got {other:?}"),
-        }
+        let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+
+        // The CreateAction scratch shape, per run, holding only the MCP config.
+        let scratch = dir.0.join("actions").join("builtin_chat").join("1a2b3c4d");
+        assert_eq!(prepared.worktree, scratch);
+        assert!(scratch.join(crate::mcp_json::MCP_JSON_FILE).exists());
+        assert_eq!(prepared.repository_id, None);
+        assert_eq!(prepared.branch, "");
+        assert_eq!(prepared.base_branch, None);
+        // Nothing to clean up and no clone whose prune gate needs holding.
+        assert!(prepared.run_cleanup.is_none());
+        assert!(prepared.launch_hold.is_none());
+        assert!(worktrees.seen.lock().unwrap().is_empty());
+        // Nothing to disambiguate by, so the tab is just "Chat" — never the
+        // tautological `chat · Chat`.
+        assert_eq!(prepared.tab_title, "Chat");
+        assert_eq!(prepared.tab_title_prefix, "Chat");
+        // The user's own words, last and verbatim; no branch preamble, since
+        // there is no branch.
+        let prompt = prepared.spawn.args.last().unwrap();
+        assert!(!prompt.contains("You work on branch"), "{prompt}");
+        assert!(
+            prompt.ends_with("where does the widget rate limit live?"),
+            "{prompt}"
+        );
+        assert_eq!(prepared.session_id, "sess-chat");
+        // One request: the session start. No token mint — there is no repo.
+        let requests = captured.lock().unwrap();
+        assert_eq!(requests.len(), 1, "{requests:?}");
+        assert!(requests[0].contains(r#""actionId":"builtin:chat""#), "{:?}", requests[0]);
+        assert!(!requests[0].contains("branch"), "{:?}", requests[0]);
+    }
+
+    /// EXP-703 × EXP-739: the dock's "Chat" button — an ATTENDED, repo-LESS,
+    /// promptless chat. It still spawns, in the scratch dir, with NOTHING
+    /// delivered: no positional prompt, no PROMPT.md — the agent waits for
+    /// the first message.
+    #[test]
+    fn prepare_action_chat_without_a_repo_attended_promptless_spawns_waiting() {
+        let dir = temp_dir("action-chat-repoless-no-prompt");
+        let (base, _captured) = canned_server_recording(vec![(
+            200,
+            r#"{"result":{"data":{"session":{"id":"sess-chat","issueId":null,"teamId":"ws-1","actionId":null,"actionName":"Chat","status":"running"}}}}"#
+                .to_string(),
+        )]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+        let mut req = chat_request("repo-chat-none");
+        req.run_id = "1a2b3c4d".to_string();
+        req.repo = None;
+        req.inputs.clear();
+
+        let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        let scratch = dir.0.join("actions").join("builtin_chat").join("1a2b3c4d");
+        assert_eq!(prepared.worktree, scratch);
+        assert_eq!(prepared.session_id, "sess-chat");
+        assert!(
+            !prepared
+                .spawn
+                .args
+                .iter()
+                .any(|arg| arg.contains("You work on branch")
+                    || arg.contains("session stays open")),
+            "{:?}",
+            prepared.spawn.args
+        );
+        assert!(!scratch.join("PROMPT.md").exists());
     }
 
     /// EXP-703 flipped EXP-615's rule for ATTENDED chats only: an UNATTENDED
     /// chat (here: an agent-started one) still requires its prompt — nobody
     /// is at the keyboard to type the first message, so a promptless run
-    /// would idle forever.
+    /// would idle forever. EXP-739: the rule is the same with and without a
+    /// repository.
     #[test]
     fn prepare_action_chat_unattended_requires_the_prompt() {
         let dir = temp_dir("action-chat-promptless");
@@ -5102,20 +5222,26 @@ mod tests {
             seen: Default::default(),
         });
         let deps = make_deps("http://127.0.0.1:1", &dir.0, worktrees);
-        let mut req = chat_request("repo-chat-empty");
-        req.inputs.retain(|input| input.key != "prompt");
-        req.origin = LaunchOrigin::Relay {
-            device_id: "dev-1".to_string(),
-            claimant: "claim-1".to_string(),
-            started_by: None,
-            started_reason: Some("agent".to_string()),
-        };
-
-        match prepare(&PrepareRequest::Action(req), &deps) {
-            Err(CodingError::Io(message)) => {
-                assert_eq!(message, "the chat run is missing its prompt");
+        for repo_less in [false, true] {
+            let mut req = chat_request("repo-chat-empty");
+            req.inputs.retain(|input| input.key != "prompt");
+            if repo_less {
+                req.repo = None;
+                req.inputs.clear();
             }
-            other => panic!("expected the missing-prompt error, got {other:?}"),
+            req.origin = LaunchOrigin::Relay {
+                device_id: "dev-1".to_string(),
+                claimant: "claim-1".to_string(),
+                started_by: None,
+                started_reason: Some("agent".to_string()),
+            };
+
+            match prepare(&PrepareRequest::Action(req), &deps) {
+                Err(CodingError::Io(message)) => {
+                    assert_eq!(message, "the chat run is missing its prompt");
+                }
+                other => panic!("expected the missing-prompt error (repo_less={repo_less}), got {other:?}"),
+            }
         }
     }
 

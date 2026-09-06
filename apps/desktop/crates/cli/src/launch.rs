@@ -227,8 +227,9 @@ pub fn resolve_action_request(
 ) -> anyhow::Result<ActionLaunchRequest> {
     let builtin = api::actions::is_builtin_action_id(action_id);
     let fixing = action_id == BUILTIN_FIX_CONFLICTS_ID;
-    // EXP-615: the hidden chat builtin — a free prompt on a repo's trunk
-    // clone (desktop `action_run.rs` parity).
+    // EXP-615: the hidden chat builtin — a free prompt with the tracker's MCP
+    // tools wired, OPTIONALLY anchored to a repo (EXP-739; desktop
+    // `action_run.rs` parity).
     let chatting = action_id == BUILTIN_CHAT_ID;
 
     // EXP-259: the fix-conflicts PR target — resolved from the `pr` input
@@ -273,28 +274,36 @@ pub fn resolve_action_request(
         // is a dialog-side concern only (desktop parity).
         action.inputs = Vec::new();
         let repo_group = if chatting {
-            // EXP-615: chat runs IN the picked repository's trunk clone, so
-            // its `repo` input is the run's cwd.
+            // EXP-615/EXP-739: a chat's `repo` input picks the run's own cwd,
+            // and it is OPTIONAL — no `--input repo=<id>` is a repo-LESS chat
+            // the launcher runs worktree-less in a scratch dir. Only a pick
+            // that no longer resolves is an error.
             match repo {
                 ActionRepo::Provided(group) => group,
                 ActionRepo::Resolve => {
-                    let repository_id = inputs
+                    match inputs
                         .iter()
                         .find(|input| input.key == "repo")
                         .map(|input| input.value.trim().to_string())
                         .filter(|value| !value.is_empty())
-                        .ok_or_else(|| anyhow!("Pick a repository for the chat."))?;
-                    let rows = fetch_repositories(&ctx.trpc, &action.team_id)
-                        .context("resolve the repository")?;
-                    let row = rows
-                        .into_iter()
-                        .find(|row| row.id == repository_id)
-                        .ok_or_else(|| anyhow!("That repository is no longer connected."))?;
-                    Some(RepoGroup {
-                        repository_id: row.id,
-                        full_name: row.full_name,
-                        default_branch: row.default_branch.unwrap_or_default(),
-                    })
+                    {
+                        None => None,
+                        Some(repository_id) => {
+                            let rows = fetch_repositories(&ctx.trpc, &action.team_id)
+                                .context("resolve the repository")?;
+                            let row = rows
+                                .into_iter()
+                                .find(|row| row.id == repository_id)
+                                .ok_or_else(|| {
+                                    anyhow!("That repository is no longer connected.")
+                                })?;
+                            Some(RepoGroup {
+                                repository_id: row.id,
+                                full_name: row.full_name,
+                                default_branch: row.default_branch.unwrap_or_default(),
+                            })
+                        }
+                    }
                 }
             }
         } else if fixing {

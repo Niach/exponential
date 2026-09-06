@@ -779,6 +779,63 @@ mod tests {
         );
     }
 
+    /// EXP-739: the hidden chat builtin's `repo` input became OPTIONAL, so a
+    /// remote start may arrive with NO repo group at all. That is a
+    /// conforming action frame — the launcher runs it worktree-less in the
+    /// scratch dir.
+    #[test]
+    fn remote_start_from_frame_accepts_a_repo_less_chat_frame() {
+        assert_eq!(
+            remote_start_from_frame(
+                None,
+                None,
+                Some("builtin:chat".into()),
+                Some("Chat".into()),
+                Some("ws-1".into()),
+                None,
+                Some(vec![StartInput {
+                    key: "prompt".into(),
+                    label: Some("Prompt".into()),
+                    input_type: Some("textarea".into()),
+                    value: "what does trunk_sync do?".into(),
+                    display: None,
+                }]),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                None,
+            ),
+            Some(RemoteStart {
+                subject: RemoteStartSubject::Action {
+                    action_id: "builtin:chat".into(),
+                    action_name: "Chat".into(),
+                    team_id: "ws-1".into(),
+                    repo: None,
+                    inputs: vec![StartInput {
+                        key: "prompt".into(),
+                        label: Some("Prompt".into()),
+                        input_type: Some("textarea".into()),
+                        value: "what does trunk_sync do?".into(),
+                        display: None,
+                    }],
+                },
+                started_by: None,
+                started_reason: None,
+                agent: None,
+                model: None,
+                effort: None,
+                ultracode: None,
+                plan_mode: None,
+                resume: false,
+            })
+        );
+    }
+
     #[test]
     fn remote_start_from_frame_threads_started_by() {
         // EXP-432: shared-device attribution rides through verbatim.

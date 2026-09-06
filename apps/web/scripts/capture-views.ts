@@ -39,6 +39,7 @@ import {
   DEMO_EMAIL,
   DEMO_INVITE_TOKEN,
   DEMO_PASSWORD,
+  DEMO_STEERED_SESSION_ID,
   NEWCOMER_EMAIL,
   NEWCOMER_PASSWORD,
   STARTER_EMAIL,
@@ -116,6 +117,8 @@ function resolveRoute(route: string, ctx: RecipeCtx, supportToken?: string): str
   return route
     .replaceAll(`$teamSlug`, ctx.demo.teamSlug)
     .replaceAll(`$boardSlug`, ctx.demo.boardSlug)
+    // EXP-740: a session is its own route, and the seed pins the id.
+    .replaceAll(`$sessionId`, DEMO_STEERED_SESSION_ID)
     .replaceAll(`$inviteToken`, DEMO_INVITE_TOKEN)
     .replaceAll(DB_PLACEHOLDER, supportToken ?? ``)
 }

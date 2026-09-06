@@ -34,8 +34,8 @@ import type { CodingSession } from "@/db/schema"
 // EXP-621: the viewer connection to the steer relay, lifted OUT of
 // AgentSessionView into a module-level per-session store (the pattern of
 // lib/collections.ts). The socket, feed, phase, answer state AND the
-// composer draft all live here, so collapsing the dock, switching tabs or
-// navigating around the app detaches the VIEW without dropping the
+// composer draft all live here, so leaving the session page, switching dock
+// tabs or navigating around the app detaches the VIEW without dropping the
 // CONNECTION — reopening renders the retained feed instantly, no
 // "Connecting…" phase and no full activity replay. The relay explicitly
 // allows multiple concurrent viewers and an established socket outlives its
@@ -64,9 +64,9 @@ const CLOSE_SLOW_CONSUMER = 4008
  *  browser reports as 1006 — rightly retryable, every redial mints a fresh
  *  ticket), so this is protocol completeness rather than a hot path. */
 const CLOSE_UNAUTHORIZED = 4003
-/** A disposal grace once a store is neither kept by the dock's reaper nor
- *  subscribed — long enough to survive transient empty live-query results
- *  and dock remounts, which must never kill a background socket. */
+/** A disposal grace once a store is neither kept by the dock strip's reaper
+ *  nor subscribed — long enough to survive transient empty live-query results
+ *  and route remounts, which must never kill a background socket. */
 const RETAIN_GRACE_MS = 60_000
 /** A store whose session ENDED and lost its last subscriber lingers briefly
  *  so a quick re-open still shows the tail, then self-disposes. */
@@ -1244,7 +1244,7 @@ export function createSteerSessionStore(
     },
     _subscriberCount: () => listeners.size,
     _scheduleReap() {
-      // Grace before reaping: transient empty live-query results and dock
+      // Grace before reaping: transient empty live-query results and route
       // remounts must never kill a background socket (they resolve well
       // within the window); a truly gone session also closes via `bye`.
       if (reapTimer) return

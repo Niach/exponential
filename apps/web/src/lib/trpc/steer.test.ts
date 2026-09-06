@@ -843,20 +843,49 @@ describe(`steer.startSession — builtin chat (EXP-615)`, () => {
     ])
   })
 
-  it(`enforces the required prompt and repo inputs`, async () => {
+  it(`enforces the required prompt`, async () => {
     const error = await rejectionOf(
       caller.startSession({
         actionId: CHAT_ID,
         teamId: BUILTIN_TEAM_ID,
         deviceId: `dev-1`,
-        inputs: { prompt: `hello` },
+        inputs: { repo: REPO_INPUT_ID },
       })
     )
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
     expect((error as TRPCError).message).toContain(
-      `Missing required input "repo"`
+      `Missing required input "prompt"`
     )
     expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  // EXP-739: the repo is OPTIONAL now — a chat without one runs in the
+  // agent's scratch dir, so the frame must carry no `repo` group at all
+  // (the launcher keys its whole git/worktree path on its presence).
+  it(`a repo-less chat start carries no repo on the frame`, async () => {
+    queueOwnDevice({ caps: [`actions`, `action-inputs`] })
+    const result = await caller.startSession({
+      actionId: CHAT_ID,
+      teamId: BUILTIN_TEAM_ID,
+      deviceId: `dev-1`,
+      inputs: { prompt: `What is on my plate?` },
+    })
+    expect(result).toEqual({ ok: true })
+    expect(lastStartBody()).toMatchObject({
+      actionId: CHAT_ID,
+      actionName: `Chat`,
+      teamId: BUILTIN_TEAM_ID,
+    })
+    expect(lastStartBody().repo).toBeUndefined()
+    expect(lastStartBody().inputs).toEqual([
+      {
+        key: `prompt`,
+        label: `Prompt`,
+        type: `textarea`,
+        value: `What is on my plate?`,
+        display: `What is on my plate?`,
+      },
+    ])
   })
 
   it(`starts without the chat cap — actions + action-inputs is enough (EXP-624)`, async () => {

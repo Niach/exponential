@@ -46,14 +46,13 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-threaded-comments",
-    date: "2026-09-05",
-    title: "Threaded comments",
-    summary: "Reply under a comment on web, desktop, iOS and Android, and see when an agent posted a comment over MCP.",
-    body: r#"- **Replies**: every comment card ends with a Leave a reply row. On web and desktop the reply composer opens right there; on iOS and Android the docked composer switches to Replying to, with an x to go back to a plain comment. Replies sit under their comment with a smaller avatar, edit and delete like any comment, and threads stay one level deep.
-- **Replies for agents**: the MCP comments tool takes a parentId, and listed comments carry it.
-- **Via MCP**: a comment an agent posted over MCP says so in its header on every client, so it never reads as its key owner's words.
-- **Desktop dock as a bubble**: the terminal and steering dock can collapse into a floating bubble instead of the bottom strip; switch from the dock header, and the choice sticks per device."#,
+    id: "2026-09-session-pages-and-chat",
+    date: "2026-09-06",
+    title: "Session pages and chat",
+    summary: "A coding session opens on its own page from the bottom strip, and a Chat button talks to your agent without an issue or a repository.",
+    body: r#"- **Sessions on their own page**: the bottom bar on the web is now only the strip of your running sessions. Click one and the steering view fills the page; the resizable panel and its fullscreen switch are gone.
+- **Chat**: the strip ends in a Chat button. On the web it opens the Chat page: your newest running chat, or a start card that picks a machine and an agent, plus your past chats with Resume. In the desktop app the terminal dock's strip has the same button, and the chat opens as a session tab (or a terminal tab when you start agents in the terminal).
+- **Chat without a repository**: a chat started from the web Chat page or the desktop dock no longer needs a repository. Without one it runs in a scratch folder with only the Exponential tools, so nothing is cloned or branched; pick a repository in the start-coding dialog to work on code as before."#,
 };
 
 /// Whether the rail's "What's new" card renders, given the stored

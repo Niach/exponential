@@ -78,6 +78,7 @@ import {
   DEMO_DUE_DATES,
   DEMO_SERVER_VERSION,
   DEMO_SHOWCASE_COMMENT_HOURS_AGO,
+  DEMO_STEERED_SESSION_ID,
   EMPTY_BOARD_SLUG,
   NEWCOMER_EMAIL,
   NEWCOMER_NAME,
@@ -1064,9 +1065,14 @@ async function main() {
   // both to join the session to the stub desktop's synced usage report, which
   // is what puts the usage strip on the steering shot and the Usage sheet on
   // mobile. Mira's row stays bare: her machine never registers.
+  //
+  // EXP-740: the showcase run carries a PINNED id — a session has its own
+  // route now, so the capturer has to be able to name it before the seed runs
+  // (screenshot-demo.ts `DEMO_STEERED_SESSION_ID`).
   const reviewIssue = inserted[13]
   await db.insert(codingSessions).values([
     {
+      id: DEMO_STEERED_SESSION_ID,
       issueId: showcase.id,
       teamId: ws.id,
       userId: demoId,
@@ -1093,6 +1099,25 @@ async function main() {
       agent: `codex`,
       status: `in_review`,
       startedAt: hoursAgo(3),
+    },
+    // EXP-739: one FINISHED chat, so the `chat` view photographs its start
+    // card over a "Past chats" list instead of an empty page. Issue-less and
+    // action-less with the reserved `Chat` name snapshot IS what makes a row
+    // a chat run (lib/session-identity.ts, ×4).
+    {
+      teamId: ws.id,
+      userId: demoId,
+      actionId: null,
+      actionName: `Chat`,
+      deviceId: DEMO_DEVICE_ID,
+      deviceLabel: DEMO_DEVICE_LABEL,
+      agent: `claude`,
+      status: `ended`,
+      endedBy: `user`,
+      // No `summary`: only an UNATTENDED run reports one through
+      // `exponential_sessions_end` (EXP-673), and this is a person's chat.
+      startedAt: hoursAgo(27),
+      endedAt: hoursAgo(26),
     },
   ])
 

@@ -257,6 +257,17 @@ export const DEMO_SHOWCASE_COMMENT_HOURS_AGO = {
 export const DEMO_FEED_QUESTION = `Cold start is at 740ms (target <800ms). Lazy-load the markdown editor too, or open the PR with what we have?`
 
 /**
+ * The `coding_sessions` row the `steering` view is photographed on.
+ *
+ * EXP-740 gave a session its own route (`/t/$teamSlug/sessions/$sessionId`),
+ * and a route needs an id the capturer can write down BEFORE the seed runs —
+ * so the seed stamps this fixed v4 UUID on the demo user's running showcase
+ * session instead of letting the database mint one. Pinned like every other
+ * capture-addressable id here; changing it re-shoots the view.
+ */
+export const DEMO_STEERED_SESSION_ID = `7c1f0a52-6f3c-4e19-9a2b-2d5d0f7c8e41`
+
+/**
  * The helpdesk thread the `support-reporter` view is captured on.
  *
  * That view is the ANONYMOUS magic-link page (`/support/<token>`), so it is

@@ -426,34 +426,6 @@ async function recipeOpenStartCodingChat(page: Page): Promise<void> {
   await openLaunchTab(page, `Chat`, page.getByText(`Repository`, { exact: true }))
 }
 
-/**
- * Expand the issue's live coding session and wait for the scripted transcript's
- * final unanswered question. An empty feed still renders the feed container, so
- * waiting on the container alone happily photographs a "Reconnecting…" state
- * when the relay is unreachable.
- */
-async function recipeOpenAgentDock(page: Page, ctx: RecipeCtx): Promise<void> {
-  // Desktop-web renders a labelled Watch button; the phone layout collapses it
-  // into the 52px session FAB (EXP-568, aria-label "Open coding session").
-  const watch = page.getByRole(`button`, { name: `Watch` })
-  const fab = page.getByRole(`button`, { name: `Open coding session` })
-  if (await appears(watch, 15_000)) {
-    await watch.first().click()
-  } else if (await appears(fab, 15_000)) {
-    await fab.first().click()
-  } else {
-    throw new Error(
-      `no Watch button and no session FAB — is the relay stub running and the ` +
-        `session yours? (EXP-312 keeps live sessions owner-only)`
-    )
-  }
-  await page
-    .getByText(ctx.demo.feedQuestion.slice(0, 40))
-    .filter({ visible: true })
-    .first()
-    .waitFor({ timeout: 30_000 })
-}
-
 // ---------------------------------------------------------------- reviews
 
 /**
@@ -714,7 +686,6 @@ export const RECIPES: Record<string, Recipe> = {
   openStartCoding: recipeOpenStartCoding,
   openStartCodingActions: recipeOpenStartCodingActions,
   openStartCodingChat: recipeOpenStartCodingChat,
-  openAgentDock: recipeOpenAgentDock,
   expandFirstDiffFile: recipeExpandFirstDiffFile,
   openFirstThread: recipeOpenFirstThread,
   openMachineSettings: recipeOpenMachineSettings,

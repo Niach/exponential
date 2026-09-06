@@ -21,7 +21,7 @@
     {
       "id": "coding",
       "label": "Coding",
-      "blurb": "The Actions surface plus the start-coding launcher and the live steering dock.",
+      "blurb": "The Actions surface plus the start-coding launcher, the chat page and one live session being steered.",
       "order": 4
     },
     {
@@ -973,15 +973,14 @@
       "id": "steering",
       "group": "coding",
       "title": "Steering a session",
-      "blurb": "The agent dock mid-run: scrubbed activity feed, the agent's open question, and the reply box that answers it.",
+      "blurb": "One coding session on its own page: scrubbed activity feed, the agent's open question, and the reply box that answers it.",
       "order": 6,
       "web": {
-        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-5",
+        "route": "/t/$teamSlug/sessions/$sessionId",
         "anchor": {
           "text": "Lazy-load the markdown editor too",
           "timeoutMs": 30000
         },
-        "recipe": "openAgentDock",
         "settleMs": 1200
       },
       "webMobile": "inherit",
@@ -994,8 +993,34 @@
         "lane": "store"
       },
       "notes": {
-        "web": "Needs `bun run screenshots:desktop` running: the feed is relay-fed, and an unreachable relay photographs a Reconnecting state instead. The anchor is the tail fragment of DEMO_FEED_QUESTION in apps/web/scripts/screenshot-demo.ts.",
+        "web": "EXP-740 gave a session its own full-page route \u2014 the dock below is the tab strip alone, so there is no recipe to expand: `$sessionId` resolves to DEMO_STEERED_SESSION_ID (apps/web/scripts/screenshot-demo.ts), the id the seed stamps on the demo user's running showcase run. Needs `bun run screenshots:desktop` running: the feed is relay-fed, and an unreachable relay photographs a Reconnecting state instead. The anchor is the tail fragment of DEMO_FEED_QUESTION.",
         "desktop": "The owning desktop app HOSTS and RENDERS the session since EXP-746: a `Screen::Session` tab in the center panel, not a dock. `EXP_DEV_SCREEN=session:<coding_sessions row id>` opens that tab, but the transcript only fills while an agent is actually running, so the shot stays a hand capture: `bun run shots -- --manual steering` with a live session on screen."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "manual"
+        }
+      }
+    },
+    {
+      "id": "chat",
+      "group": "coding",
+      "title": "Chat",
+      "blurb": "A conversation with the agent that is bound to no issue and needs no repository \u2014 start card, agent options, and the past chats you can resume.",
+      "order": 7,
+      "web": {
+        "route": "/t/$teamSlug/chat",
+        "anchor": {
+          "text": "Start a chat",
+          "timeoutMs": 30000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "notes": {
+        "desktop": "The IDE has no chat PAGE: the dock strip's Chat glyph starts a repo-less chat with the default agent and the run lands as a session tab (ACP) or a terminal tab (PTY). Capture it by hand from a started chat.",
+        "ios": "EXP-739 is web + desktop first; the phone still starts a chat from the launcher's Chat tab (start-coding-chat) and steers it on the session screen.",
+        "android": "See ios."
       },
       "desktop": {
         "drive": {
@@ -1008,7 +1033,7 @@
       "group": "coding",
       "title": "Machine settings",
       "blurb": "One device up close: its name, whether it is your default, what it shares with the team, its per-agent defaults and its worktrees.",
-      "order": 7,
+      "order": 8,
       "web": {
         "route": "/t/$teamSlug/devices",
         "anchor": {
@@ -1043,7 +1068,7 @@
       "group": "coding",
       "title": "Add a device",
       "blurb": "Both ways to put a machine on the account: download the desktop app, or run the one-liner that installs the CLI daemon on a server.",
-      "order": 8,
+      "order": 9,
       "web": {
         "route": "/t/$teamSlug/devices",
         "anchor": {

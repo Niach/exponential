@@ -1,7 +1,7 @@
 // EXP-536: a remote start is only a COMMAND — the desktop inserts the
 // `coding_sessions` row a moment later — so every surface that sends one waits
-// for that row to sync in and then opens the live session (the agent dock on
-// desktop web, its full-viewport takeover on mobile web). These are the
+// for that row to sync in and then opens the live session (EXP-740: a
+// navigation to the run's own session page, on every viewport). These are the
 // matching rules, mirrored on Android (`domain/StartedRunMatch.kt`) and iOS
 // (`Domain/StartedRunMatch.swift`); a mismatch there is a start that never
 // navigates.
