@@ -1105,3 +1105,174 @@ mod tests {
         assert_eq!(params["input"], json!([{ "type": "text", "text": "hi", "text_elements": [] }]));
     }
 }
+
+#[cfg(test)]
+mod wire_tests {
+    use super::*;
+
+    #[test]
+    fn the_default_mode_is_full_access() {
+        // D3: the ACP path must be as permissive as the PTY path, which always
+        // passed --dangerously-bypass-approvals-and-sandbox.
+        assert_eq!(CodexMode::default(), CodexMode::AgentFullAccess);
+        assert_eq!(CodexMode::parse("agent"), Some(CodexMode::Agent));
+        assert_eq!(CodexMode::parse("nonsense"), None);
+    }
+
+    #[test]
+    fn a_workspace_mode_keeps_its_writable_roots() {
+        let roots = vec![std::path::PathBuf::from("/work/tree")];
+        assert_eq!(
+            CodexMode::Agent.sandbox_policy(&roots),
+            json!({ "type": "workspaceWrite", "writableRoots": ["/work/tree"] })
+        );
+        assert_eq!(CodexMode::Agent.approvals_reviewer(), "auto_review");
+    }
+
+    #[test]
+    fn a_fast_turn_carries_the_service_tier() {
+        let params = turn_start_request(&TurnRequest {
+            thread_id: "t1",
+            input: &[json!({ "type": "text", "text": "hi", "text_elements": [] })],
+            model: Some("gpt-5.4-codex"),
+            effort: Some("high"),
+            mode: CodexMode::AgentFullAccess,
+            service_tier: Some("fast"),
+            writable_roots: &[],
+        });
+        assert_eq!(params["serviceTier"], json!("fast"));
+        assert_eq!(params["effort"], json!("high"));
+        assert_eq!(params["input"][0]["text"], json!("hi"));
+    }
+
+    #[test]
+    fn the_model_id_round_trips_the_bracket_form() {
+        let parsed = ModelId::parse("gpt-5.4-codex[high]");
+        assert_eq!(parsed, ModelId::new("gpt-5.4-codex", Some("high".to_string())));
+        assert_eq!(parsed.to_string(), "gpt-5.4-codex[high]");
+        // A bare name is not an error: an older codex, or a model with no
+        // reasoning efforts at all.
+        assert_eq!(ModelId::parse("gpt-5.4").effort, None);
+        assert_eq!(ModelId::parse("gpt-5.4").to_string(), "gpt-5.4");
+    }
+
+    #[test]
+    fn the_command_headline_drops_the_shell_wrapper() {
+        assert_eq!(strip_shell_prefix("bash -lc 'cargo test -p engine'"), "cargo test -p engine");
+        assert_eq!(strip_shell_prefix("sh -c \"ls\""), "ls");
+        assert_eq!(strip_shell_prefix("  git status  "), "git status");
+    }
+
+    #[test]
+    fn command_approval_options_come_from_available_decisions() {
+        // 0.153.3 sends the set; the installed 0.144.5 does not, and the
+        // defaults stand in.
+        let params = json!({ "availableDecisions": ["accept", "cancel", "somethingNew"] });
+        let choices = command_approval_choices(&params);
+        assert_eq!(
+            choices.iter().map(|choice| choice.option_id.as_str()).collect::<Vec<_>>(),
+            ["allow_once", "cancel"]
+        );
+        // An unknown decision is skipped, never guessed at.
+        assert!(choices.iter().all(|choice| choice.option_id != "somethingNew"));
+        assert_eq!(choices[0].result, json!({ "decision": "accept" }));
+
+        let defaults = command_approval_choices(&json!({}));
+        assert_eq!(
+            defaults.iter().map(|choice| choice.option_id.as_str()).collect::<Vec<_>>(),
+            ["allow_once", "allow_for_session", "decline", "cancel"]
+        );
+    }
+
+    #[test]
+    fn an_execpolicy_amendment_becomes_its_own_option() {
+        let params = json!({
+            "availableDecisions": ["accept", "cancel"],
+            "proposedExecpolicyAmendment": ["git", "status"],
+        });
+        let choices = command_approval_choices(&params);
+        let amendment = choices
+            .iter()
+            .find(|choice| choice.option_id == "accept_execpolicy_amendment")
+            .expect("the amendment is offered");
+        assert_eq!(amendment.kind, ApprovalKind::AllowAlways);
+        assert_eq!(
+            amendment.result,
+            json!({ "decision": { "acceptWithExecpolicyAmendment": { "execpolicy_amendment": ["git", "status"] } } })
+        );
+        // Allows lead, rejects trail.
+        assert_eq!(choices.last().expect("options").kind, ApprovalKind::RejectOnce);
+    }
+
+    #[test]
+    fn an_option_set_with_no_reject_is_dropped_wholesale() {
+        let choices = command_approval_choices(&json!({ "availableDecisions": ["accept"] }));
+        assert!(choices.is_empty());
+    }
+
+    #[test]
+    fn a_permission_grant_echoes_the_requested_profile() {
+        let params = json!({ "permissions": { "network": { "enabled": true } } });
+        let choices = permission_approval_choices(&params);
+        assert_eq!(choices.len(), 4);
+        assert_eq!(
+            choices[0].result,
+            json!({ "permissions": { "network": { "enabled": true } }, "scope": "turn" })
+        );
+        let reject = choices.last().expect("a reject");
+        assert_eq!(reject.result, json!({ "permissions": {}, "scope": "turn" }));
+    }
+
+    #[test]
+    fn every_unanswerable_approval_cancels() {
+        assert_eq!(
+            cancel_result("item/commandExecution/requestApproval"),
+            json!({ "decision": "cancel" })
+        );
+        assert_eq!(cancel_result("item/tool/requestUserInput"), json!({ "answers": {} }));
+        assert_eq!(cancel_result("mcpServer/elicitation/request"), json!({ "action": "cancel" }));
+        // An approval kind a newer codex adds still gets a decision, never a
+        // silent approval.
+        assert_eq!(cancel_result("item/somethingNew/requestApproval"), json!({ "decision": "cancel" }));
+    }
+
+    #[test]
+    fn a_file_change_diff_applies_and_reverts() {
+        let original = "one\ntwo\nthree\n";
+        let diff = "@@ -1,3 +1,3 @@\n one\n-two\n+TWO\n three\n";
+        let patched = apply_unified_diff(original, diff).expect("the hunk applies");
+        assert_eq!(patched, "one\nTWO\nthree\n");
+        // The revert is what rescues a card whose file already carries the
+        // change by the time the item is surfaced.
+        assert_eq!(
+            revert_unified_diff(&patched, diff).expect("the hunk reverts"),
+            original
+        );
+    }
+
+    #[test]
+    fn a_diff_that_does_not_match_the_file_is_refused() {
+        // Anchors that do not exist must fail rather than produce a plausible
+        // wrong card.
+        assert!(apply_unified_diff("one\ntwo\n", "@@ -1,2 +1,2 @@\n one\n-nope\n+TWO\n").is_none());
+        assert!(apply_unified_diff("one\n", "not a diff at all").is_none());
+    }
+
+    #[test]
+    fn the_opt_out_list_keeps_the_streams_we_read() {
+        // Opting out of these would silently kill the command-output card and
+        // the token stream.
+        for method in [
+            "item/commandExecution/outputDelta",
+            "item/agentMessage/delta",
+            "item/reasoning/textDelta",
+            "thread/tokenUsage/updated",
+        ] {
+            assert!(
+                !OPT_OUT_NOTIFICATIONS.contains(&method),
+                "{method} must keep arriving"
+            );
+        }
+        assert!(OPT_OUT_NOTIFICATIONS.contains(&"process/outputDelta"));
+    }
+}

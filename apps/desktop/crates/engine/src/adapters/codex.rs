@@ -247,7 +247,7 @@ struct Shared {
     config: Mutex<Config>,
     /// Item id → what we surfaced it as, so an update can patch the right card
     /// and a delta knows whether its item ever produced one.
-    items: Mutex<HashMap<String, ItemView>>,
+    items: Items,
     /// Server-request ids already answered (a cancel races the client's own
     /// outcome; whoever gets there first wins and the other is dropped).
     answered: Mutex<HashSet<String>>,
@@ -256,8 +256,46 @@ struct Shared {
     /// keeps the first error of a turn from vanishing.
     pending_errors: Mutex<Vec<String>>,
     compaction: Mutex<Option<String>>,
+    /// Turns whose compaction already reached the feed as a `contextCompaction`
+    /// item, so the `thread/compacted` notification for the SAME compaction
+    /// does not draw a second strip.
+    compacted: Mutex<HashSet<String>>,
     usage: CodexUsage,
     closed: AtomicBool,
+}
+
+/// The item table. A value of its own so the whole notification → update
+/// mapping is a function of (items, method, params) and can be unit-tested
+/// without an app-server.
+#[derive(Default)]
+struct Items(Mutex<HashMap<String, ItemView>>);
+
+impl Items {
+    fn seen_deltas(&self, id: &str) -> bool {
+        self.0
+            .lock()
+            .map(|items| items.get(id).is_some_and(|view| view.deltas))
+            .unwrap_or(false)
+    }
+
+    fn mark_delta(&self, id: &str) {
+        if let Ok(mut items) = self.0.lock() {
+            items.entry(id.to_string()).or_insert_with(ItemView::message).deltas = true;
+        }
+    }
+
+    fn has_card(&self, id: &str) -> bool {
+        self.0
+            .lock()
+            .map(|items| items.get(id).is_some_and(|view| view.tool))
+            .unwrap_or(false)
+    }
+
+    fn add_card(&self, id: &str) {
+        if let Ok(mut items) = self.0.lock() {
+            items.insert(id.to_string(), ItemView::card());
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -323,10 +361,11 @@ impl ConnectTo<Client> for CodexAgent {
                 turns: Mutex::new(Turns::default()),
                 wake: Notify::new(),
                 config: Mutex::new(Config::default()),
-                items: Mutex::new(HashMap::new()),
+                items: Items::default(),
                 answered: Mutex::new(HashSet::new()),
                 pending_errors: Mutex::new(Vec::new()),
                 compaction: Mutex::new(None),
+                compacted: Mutex::new(HashSet::new()),
                 usage,
                 closed: AtomicBool::new(false),
             });
@@ -1224,10 +1263,19 @@ fn on_notification(
                 .store(coding::agent_usage::parse_codex_rate_limits(params));
         }
         "thread/compacted" => {
-            if let Ok(mut slot) = shared.compaction.lock() {
-                *slot = None;
+            finish_compaction(shared);
+        }
+        "item/completed"
+            if params
+                .get("item")
+                .and_then(|item| item.get("type"))
+                .and_then(Value::as_str)
+                == Some("contextCompaction") =>
+        {
+            finish_compaction(shared);
+            if let (Some(turn_id), Ok(mut compacted)) = (turn_id.clone(), shared.compacted.lock()) {
+                compacted.insert(turn_id);
             }
-            shared.wake.notify_waiters();
         }
         "error" => {
             let message = params
@@ -1257,10 +1305,36 @@ fn on_notification(
         }
     }
 
+    // The compaction the `contextCompaction` item already drew: codex reports
+    // one compaction through two channels and the strip must appear once.
+    if method == "thread/compacted" {
+        let drawn = turn_id
+            .as_ref()
+            .and_then(|turn_id| {
+                shared
+                    .compacted
+                    .lock()
+                    .ok()
+                    .map(|compacted| compacted.contains(turn_id))
+            })
+            .unwrap_or(false);
+        if drawn {
+            return;
+        }
+    }
+
     // 3. The feed.
-    for update in feed_updates(shared, method, params) {
+    for update in feed_updates(&shared.items, method, params) {
         emit(shared, cx, update);
     }
+}
+
+/// A compaction ended: release whatever `/compact` is waiting on it.
+fn finish_compaction(shared: &Arc<Shared>) {
+    if let Ok(mut slot) = shared.compaction.lock() {
+        *slot = None;
+    }
+    shared.wake.notify_waiters();
 }
 
 fn emit(shared: &Arc<Shared>, cx: &ConnectionTo<Client>, update: SessionUpdate) {
@@ -1289,7 +1363,7 @@ fn error_update(message: &str) -> SessionUpdate {
 /// The notification → `SessionUpdate` table. Anything not listed produces
 /// nothing on purpose: with two codex versions in play, an unknown method is
 /// the normal case, not an error.
-fn feed_updates(shared: &Arc<Shared>, method: &str, params: &Value) -> Vec<SessionUpdate> {
+fn feed_updates(items: &Items, method: &str, params: &Value) -> Vec<SessionUpdate> {
     let item_id = params
         .get("itemId")
         .and_then(Value::as_str)
@@ -1297,8 +1371,8 @@ fn feed_updates(shared: &Arc<Shared>, method: &str, params: &Value) -> Vec<Sessi
     match method {
         "item/agentMessage/delta" => {
             let Some(delta) = delta_text(params) else { return Vec::new() };
-            if let (Some(id), Ok(mut items)) = (item_id.clone(), shared.items.lock()) {
-                items.entry(id).or_insert_with(ItemView::message).deltas = true;
+            if let Some(id) = &item_id {
+                items.mark_delta(id);
             }
             let mut chunk = ContentChunk::new(ContentBlock::Text(TextContent::new(delta)));
             if let Some(id) = item_id {
@@ -1308,8 +1382,8 @@ fn feed_updates(shared: &Arc<Shared>, method: &str, params: &Value) -> Vec<Sessi
         }
         "item/reasoning/textDelta" | "item/reasoning/summaryTextDelta" => {
             let Some(delta) = delta_text(params) else { return Vec::new() };
-            if let (Some(id), Ok(mut items)) = (item_id.clone(), shared.items.lock()) {
-                items.entry(id).or_insert_with(ItemView::message).deltas = true;
+            if let Some(id) = &item_id {
+                items.mark_delta(id);
             }
             let mut chunk = ContentChunk::new(ContentBlock::Text(TextContent::new(delta)));
             if let Some(id) = item_id {
@@ -1329,11 +1403,11 @@ fn feed_updates(shared: &Arc<Shared>, method: &str, params: &Value) -> Vec<Sessi
         }
         "item/started" => params
             .get("item")
-            .map(|item| item_updates(shared, item, false, false))
+            .map(|item| item_updates(items, item, false, false))
             .unwrap_or_default(),
         "item/completed" => params
             .get("item")
-            .map(|item| item_updates(shared, item, true, false))
+            .map(|item| item_updates(items, item, true, false))
             .unwrap_or_default(),
         "thread/tokenUsage/updated" => usage_update(params).into_iter().collect(),
         "turn/plan/updated" => plan_update(params).into_iter().collect(),
@@ -1440,7 +1514,7 @@ fn acp_status(status: Option<&str>) -> ToolCallStatus {
 /// One `ThreadItem` → the updates it produces. `history` replays a stored
 /// thread, where no deltas ever arrived, so text items must render themselves.
 fn item_updates(
-    shared: &Arc<Shared>,
+    items: &Items,
     item: &Value,
     completed: bool,
     history: bool,
@@ -1450,11 +1524,7 @@ fn item_updates(
     };
     let kind = item.get("type").and_then(Value::as_str).unwrap_or_default();
     let status = acp_status(item.get("status").and_then(Value::as_str));
-    let seen_deltas = shared
-        .items
-        .lock()
-        .map(|items| items.get(id).is_some_and(|view| view.deltas))
-        .unwrap_or(false);
+    let seen_deltas = items.seen_deltas(id);
 
     match kind {
         "agentMessage" => {
@@ -1517,15 +1587,15 @@ fn item_updates(
                 ContentBlock::Text(TextContent::new(text)),
             ))]
         }
-        "commandExecution" => command_updates(shared, id, item, completed, status),
-        "fileChange" => file_change_updates(shared, id, item, completed, status),
+        "commandExecution" => command_updates(items, id, item, completed, status),
+        "fileChange" => file_change_updates(items, id, item, completed, status),
         "mcpToolCall" => {
             let title = format!(
                 "mcp.{}.{}",
                 item.get("server").and_then(Value::as_str).unwrap_or("?"),
                 item.get("tool").and_then(Value::as_str).unwrap_or("?")
             );
-            surface(shared, id, item, completed, status, ToolKind::Other, title, Vec::new())
+            surface(items, id, item, completed, status, ToolKind::Other, title, Vec::new())
         }
         "dynamicToolCall" => {
             let title = item
@@ -1533,19 +1603,19 @@ fn item_updates(
                 .and_then(Value::as_str)
                 .unwrap_or("tool")
                 .to_string();
-            surface(shared, id, item, completed, status, ToolKind::Other, title, Vec::new())
+            surface(items, id, item, completed, status, ToolKind::Other, title, Vec::new())
         }
         "webSearch" => {
             let title = match item.get("query").and_then(Value::as_str) {
                 Some(query) if !query.is_empty() => format!("Search the web for '{query}'"),
                 _ => "Search the web".to_string(),
             };
-            surface(shared, id, item, completed, status, ToolKind::Fetch, title, Vec::new())
+            surface(items, id, item, completed, status, ToolKind::Fetch, title, Vec::new())
         }
         "imageView" => {
             let path = item.get("path").and_then(Value::as_str).unwrap_or_default();
             surface(
-                shared,
+                items,
                 id,
                 item,
                 completed,
@@ -1561,12 +1631,6 @@ fn item_updates(
             } else {
                 CompactionStatus::InProgress
             };
-            if completed {
-                if let Ok(mut slot) = shared.compaction.lock() {
-                    *slot = None;
-                }
-                shared.wake.notify_waiters();
-            }
             vec![SessionUpdate::CompactionUpdate(CompactionUpdate::new(
                 CompactionId::new(id),
                 status,
@@ -1583,7 +1647,7 @@ fn item_updates(
                 .get("agentThreadId")
                 .and_then(Value::as_str)
                 .unwrap_or(id);
-            subagent(shared, id, completed, status, title, thread, name, activity)
+            subagent(items, id, completed, status, title, thread, name, activity)
         }
         "collabAgentToolCall" => {
             let tool = item.get("tool").and_then(Value::as_str).unwrap_or("subagent");
@@ -1594,7 +1658,7 @@ fn item_updates(
                 .and_then(Value::as_str)
                 .unwrap_or(id);
             subagent(
-                shared,
+                items,
                 id,
                 completed,
                 status,
@@ -1659,7 +1723,7 @@ fn locations(path: &str) -> Vec<ToolCallLocation> {
 /// never from these (§4.2).
 #[allow(clippy::too_many_arguments)]
 fn surface(
-    shared: &Arc<Shared>,
+    items: &Items,
     id: &str,
     item: &Value,
     completed: bool,
@@ -1668,15 +1732,9 @@ fn surface(
     title: String,
     locations: Vec<ToolCallLocation>,
 ) -> Vec<SessionUpdate> {
-    let known = shared
-        .items
-        .lock()
-        .map(|items| items.get(id).is_some_and(|view| view.tool))
-        .unwrap_or(false);
+    let known = items.has_card(id);
     if !known {
-        if let Ok(mut items) = shared.items.lock() {
-            items.insert(id.to_string(), ItemView::card());
-        }
+        items.add_card(id);
         let mut call = ToolCall::new(ToolCallId::new(id), title)
             .kind(kind)
             .status(status)
@@ -1714,7 +1772,7 @@ fn complete(id: &str, item: &Value, status: ToolCallStatus) -> Vec<SessionUpdate
 
 #[allow(clippy::too_many_arguments)]
 fn subagent(
-    shared: &Arc<Shared>,
+    items: &Items,
     id: &str,
     completed: bool,
     status: ToolCallStatus,
@@ -1737,15 +1795,9 @@ fn subagent(
             }
         }),
     );
-    let known = shared
-        .items
-        .lock()
-        .map(|items| items.get(id).is_some_and(|view| view.tool))
-        .unwrap_or(false);
+    let known = items.has_card(id);
     if !known {
-        if let Ok(mut items) = shared.items.lock() {
-            items.insert(id.to_string(), ItemView::card());
-        }
+        items.add_card(id);
         return vec![SessionUpdate::ToolCall(
             ToolCall::new(ToolCallId::new(id), title)
                 .kind(ToolKind::Other)
@@ -1759,7 +1811,7 @@ fn subagent(
 }
 
 fn command_updates(
-    shared: &Arc<Shared>,
+    items: &Items,
     id: &str,
     item: &Value,
     completed: bool,
@@ -1780,16 +1832,10 @@ fn command_updates(
             Vec::new(),
         ),
     };
-    let known = shared
-        .items
-        .lock()
-        .map(|items| items.get(id).is_some_and(|view| view.tool))
-        .unwrap_or(false);
+    let known = items.has_card(id);
     let mut updates = Vec::new();
     if !known {
-        if let Ok(mut items) = shared.items.lock() {
-            items.insert(id.to_string(), ItemView::card());
-        }
+        items.add_card(id);
         updates.push(SessionUpdate::ToolCall(
             ToolCall::new(ToolCallId::new(id), title).kind(kind).status(status).locations(locations),
         ));
@@ -1857,17 +1903,13 @@ fn command_action(action: &Value, command: &str) -> (ToolKind, String, Vec<ToolC
 }
 
 fn file_change_updates(
-    shared: &Arc<Shared>,
+    items: &Items,
     id: &str,
     item: &Value,
     completed: bool,
     status: ToolCallStatus,
 ) -> Vec<SessionUpdate> {
-    let known = shared
-        .items
-        .lock()
-        .map(|items| items.get(id).is_some_and(|view| view.tool))
-        .unwrap_or(false);
+    let known = items.has_card(id);
     if known {
         return vec![SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
                 ToolCallId::new(id),
@@ -1892,9 +1934,7 @@ fn file_change_updates(
         [one] => format!("Edit {}", short_name(one)),
         _ => "Editing files".to_string(),
     };
-    if let Ok(mut items) = shared.items.lock() {
-        items.insert(id.to_string(), ItemView::card());
-    }
+    items.add_card(id);
     let mut updates = vec![SessionUpdate::ToolCall(
         ToolCall::new(ToolCallId::new(id), title)
             .kind(ToolKind::Edit)
@@ -2220,7 +2260,7 @@ async fn replay_thread(
         .unwrap_or_default();
     for turn in turns {
         for item in turn.get("items").and_then(Value::as_array).unwrap_or(&Vec::new()) {
-            for update in item_updates(shared, item, true, true) {
+            for update in item_updates(&shared.items, item, true, true) {
                 emit(shared, cx, update);
             }
         }
@@ -2266,4 +2306,234 @@ async fn list_threads(
         response = response.next_cursor(cursor.to_string());
     }
     Ok(response)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn only(updates: Vec<SessionUpdate>) -> SessionUpdate {
+        assert_eq!(updates.len(), 1, "expected exactly one update");
+        updates.into_iter().next().expect("one update")
+    }
+
+    fn text_of(update: &SessionUpdate) -> String {
+        let chunk = match update {
+            SessionUpdate::AgentMessageChunk(chunk)
+            | SessionUpdate::AgentThoughtChunk(chunk)
+            | SessionUpdate::UserMessageChunk(chunk) => chunk,
+            other => panic!("expected a chunk, got {other:?}"),
+        };
+        match &chunk.content {
+            ContentBlock::Text(text) => text.text.clone(),
+            other => panic!("expected text, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_command_item_becomes_an_execute_card_and_its_output_is_content() {
+        let items = Items::default();
+        let started = json!({
+            "threadId": "t1", "turnId": "turn_1",
+            "item": { "id": "item_1", "type": "commandExecution",
+                      "command": "bash -lc 'cargo test'", "commandActions": [],
+                      "status": "inProgress" },
+        });
+        let update = only(feed_updates(&items, "item/started", &started));
+        let SessionUpdate::ToolCall(call) = update else {
+            panic!("expected a tool call");
+        };
+        assert_eq!(call.title, "cargo test");
+        assert_eq!(call.kind, ToolKind::Execute);
+
+        let completed = json!({
+            "threadId": "t1", "turnId": "turn_1",
+            "item": { "id": "item_1", "type": "commandExecution", "command": "bash -lc 'cargo test'",
+                      "commandActions": [], "status": "completed",
+                      "aggregatedOutput": "3 passed", "exitCode": 0 },
+        });
+        let update = only(feed_updates(&items, "item/completed", &completed));
+        let SessionUpdate::ToolCallUpdate(patch) = update else {
+            panic!("expected a tool call update");
+        };
+        assert_eq!(patch.fields.status, Some(ToolCallStatus::Completed));
+        // D5: the client advertises `terminal: false`, so output rides as
+        // CONTENT and renders as a local card.
+        let content = patch.fields.content.expect("output content");
+        assert!(matches!(content.first(), Some(ToolCallContent::Content(_))));
+        assert_eq!(
+            patch.fields.raw_output,
+            Some(json!({ "formatted_output": "3 passed", "exit_code": 0 }))
+        );
+    }
+
+    #[test]
+    fn a_read_action_names_the_file_instead_of_the_command() {
+        let items = Items::default();
+        let started = json!({
+            "turnId": "turn_1",
+            "item": { "id": "item_2", "type": "commandExecution", "command": "sed -n 1,40p src/lib.rs",
+                      "commandActions": [{ "type": "read", "path": "src/lib.rs", "command": "sed" }],
+                      "status": "inProgress" },
+        });
+        let SessionUpdate::ToolCall(call) = only(feed_updates(&items, "item/started", &started))
+        else {
+            panic!("expected a tool call");
+        };
+        assert_eq!(call.title, "Read file 'src/lib.rs'");
+        assert_eq!(call.kind, ToolKind::Read);
+        assert_eq!(call.locations.len(), 1);
+    }
+
+    #[test]
+    fn a_delta_suppresses_the_repeated_completion_text() {
+        let items = Items::default();
+        let delta = json!({ "turnId": "turn_1", "itemId": "item_3", "delta": "hello " });
+        assert_eq!(
+            text_of(&only(feed_updates(&items, "item/agentMessage/delta", &delta))),
+            "hello "
+        );
+        // The completed item repeats the whole message; a client that already
+        // streamed it must not print it twice.
+        let completed = json!({
+            "turnId": "turn_1",
+            "item": { "id": "item_3", "type": "agentMessage", "text": "hello world" },
+        });
+        assert!(feed_updates(&items, "item/completed", &completed).is_empty());
+    }
+
+    #[test]
+    fn an_item_that_never_streamed_renders_at_completion() {
+        let items = Items::default();
+        let completed = json!({
+            "turnId": "turn_1",
+            "item": { "id": "item_4", "type": "agentMessage", "text": "done" },
+        });
+        assert_eq!(
+            text_of(&only(feed_updates(&items, "item/completed", &completed))),
+            "done"
+        );
+    }
+
+    #[test]
+    fn token_usage_needs_both_halves() {
+        let items = Items::default();
+        let both = json!({
+            "turnId": "turn_1",
+            "tokenUsage": { "last": { "totalTokens": 1200 }, "modelContextWindow": 200000 },
+        });
+        let SessionUpdate::UsageUpdate(usage) =
+            only(feed_updates(&items, "thread/tokenUsage/updated", &both))
+        else {
+            panic!("expected a usage update");
+        };
+        assert_eq!((usage.used, usage.size), (1200, 200000));
+        // A context window we do not know turns the percentage into a lie.
+        let half = json!({ "turnId": "turn_1", "tokenUsage": { "last": { "totalTokens": 1200 } } });
+        assert!(feed_updates(&items, "thread/tokenUsage/updated", &half).is_empty());
+    }
+
+    #[test]
+    fn a_plan_update_becomes_plan_entries() {
+        let items = Items::default();
+        let params = json!({
+            "turnId": "turn_1",
+            "plan": [
+                { "step": "read the code", "status": "completed" },
+                { "step": "write the test", "status": "inProgress" },
+                { "step": "run it", "status": "pending" },
+            ],
+        });
+        let SessionUpdate::Plan(plan) = only(feed_updates(&items, "turn/plan/updated", &params))
+        else {
+            panic!("expected a plan");
+        };
+        assert_eq!(plan.entries.len(), 3);
+        assert_eq!(plan.entries[0].status, PlanEntryStatus::Completed);
+        assert_eq!(plan.entries[1].status, PlanEntryStatus::InProgress);
+        assert_eq!(plan.entries[2].content, "run it");
+    }
+
+    #[test]
+    fn a_file_change_add_carries_the_whole_file_not_a_diff() {
+        let items = Items::default();
+        let params = json!({
+            "turnId": "turn_1",
+            "item": { "id": "item_5", "type": "fileChange", "status": "inProgress",
+                      "changes": [{ "path": "/work/new.rs", "kind": { "type": "add" },
+                                    "diff": "fn main() {}\n" }] },
+        });
+        let SessionUpdate::ToolCall(call) = only(feed_updates(&items, "item/started", &params))
+        else {
+            panic!("expected a tool call");
+        };
+        assert_eq!(call.kind, ToolKind::Edit);
+        let Some(ToolCallContent::Diff(diff)) = call.content.first() else {
+            panic!("expected a diff");
+        };
+        // `add` and `delete` carry the FULL FILE in `diff`; rendering it as a
+        // patch would be wrong on both sides.
+        assert_eq!(diff.new_text, "fn main() {}\n");
+        assert_eq!(diff.old_text, None);
+    }
+
+    #[test]
+    fn a_subagent_item_carries_its_edge_in_meta() {
+        let items = Items::default();
+        let params = json!({
+            "turnId": "turn_1",
+            "item": { "id": "item_6", "type": "subAgentActivity", "status": "inProgress",
+                      "agentPath": "agents/reviewer", "agentThreadId": "thread_9",
+                      "kind": "started" },
+        });
+        let SessionUpdate::ToolCall(call) = only(feed_updates(&items, "item/started", &params))
+        else {
+            panic!("expected a tool call");
+        };
+        assert_eq!(call.title, "Start subagent reviewer");
+        // ACP v1 has no subagent update, so the edge rides `_meta` for the
+        // engine mapper to publish as the relay `subagent` kind.
+        let meta = call.meta.expect("subagent meta");
+        assert_eq!(
+            meta.get("exp").and_then(|exp| exp.get("subagent")),
+            Some(&json!({ "id": "thread_9", "agentType": "reviewer", "status": "started" }))
+        );
+    }
+
+    #[test]
+    fn an_unknown_notification_produces_nothing() {
+        let items = Items::default();
+        // Two codex versions are in play: an unknown method is the normal
+        // case, never an error.
+        for method in ["thread/reverted", "model/verification", "item/somethingNew"] {
+            assert!(feed_updates(&items, method, &json!({ "turnId": "turn_1" })).is_empty());
+        }
+        // An item type we do not know is just as ordinary.
+        let params = json!({ "item": { "id": "item_7", "type": "imageGeneration" } });
+        assert!(feed_updates(&items, "item/completed", &params).is_empty());
+    }
+
+    #[test]
+    fn a_prompt_becomes_codex_user_input() {
+        let blocks = vec![
+            ContentBlock::Text(TextContent::new("fix the test")),
+            ContentBlock::ResourceLink(
+                agent_client_protocol::schema::v1::ResourceLink::new("lib.rs", "file:///work/lib.rs"),
+            ),
+        ];
+        let input = prompt_input(&blocks);
+        assert_eq!(input[0], json!({ "type": "text", "text": "fix the test", "text_elements": [] }));
+        assert_eq!(input[1]["text"], json!("[@lib.rs](file:///work/lib.rs)"));
+    }
+
+    #[test]
+    fn the_turn_outcome_follows_a_steer_to_the_new_turn() {
+        let mut turns = Turns::default();
+        turns.successor.insert("turn_1".to_string(), "turn_2".to_string());
+        turns.outcomes.insert("turn_2".to_string(), TurnOutcome::Completed);
+        // A prompt parked on the turn that was steered must still resolve.
+        assert_eq!(turns.outcome("turn_1"), Some(TurnOutcome::Completed));
+        assert_eq!(turns.outcome("turn_3"), None);
+        assert_eq!(TurnOutcome::Interrupted.stop_reason(), StopReason::Cancelled);
+    }
 }
