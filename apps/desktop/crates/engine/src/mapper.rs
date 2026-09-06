@@ -155,6 +155,13 @@ pub struct Mapper {
     questions: HashMap<String, AskRef>,
     /// The live `config_state` snapshot — always published WHOLE (D4).
     config_state: ConfigSnapshot,
+    /// EXP-758: the last snapshot of each latest-wins slot that actually went
+    /// out. One `set_config` used to publish two identical `config_state`
+    /// frames and one `set_mode` three (the request's answer, the engine's
+    /// own mirror, the agent's echo of it), which every client then re-rendered
+    /// and the journal stored. An identical re-emit says nothing.
+    last_config_state: Option<ActivityEvent>,
+    last_usage: Option<ActivityEvent>,
     compacting_since: Option<Instant>,
     /// Disambiguates two synthetic ids whose text is identical.
     ordinal: u32,
@@ -230,10 +237,28 @@ struct Coalescer {
 impl Coalescer {
     /// Returns the text of a buffer that has to flush BEFORE this chunk (a
     /// new `message_id` starts a new message).
+    ///
+    /// EXP-758: an ID-LESS chunk is a WHOLE message everywhere the adapters
+    /// produce one (pi's error narration and its extension notices, codex's
+    /// `codex error:` lines, claude's usage markdown): every streamed delta
+    /// carries an id, pi's falling back to the message timestamp. Two of them
+    /// in one flush window used to glue into
+    /// `pi: Codex error: …pi: Codex error: …`, so they are SEPARATED by a
+    /// newline instead. Deliberately not a hard boundary: an external ACP
+    /// agent that streams id-less deltas would then publish one feed row per
+    /// delta, which is the far worse failure.
     fn push(&mut self, message_id: Option<String>, text: &str) -> Option<String> {
         let boundary = self.message_id != message_id && !self.buf.is_empty();
         let flushed = boundary.then(|| std::mem::take(&mut self.buf));
+        let separate = message_id.is_none()
+            && self.message_id.is_none()
+            && !self.buf.is_empty()
+            && !self.buf.ends_with('\n')
+            && !text.starts_with('\n');
         self.message_id = message_id;
+        if separate {
+            self.buf.push('\n');
+        }
         self.buf.push_str(text);
         self.since = Some(Instant::now());
         flushed
@@ -280,6 +305,8 @@ impl Mapper {
             elicitations: HashMap::new(),
             questions: HashMap::new(),
             config_state: ConfigSnapshot::default(),
+            last_config_state: None,
+            last_usage: None,
             compacting_since: None,
             ordinal: 0,
         }
@@ -381,7 +408,8 @@ impl Mapper {
                 out.local.push(LocalFeedEvent::Plan { entries });
             }
             SessionUpdate::AvailableCommandsUpdate(update) => {
-                self.config_state.commands = Some(map_commands(&update.available_commands));
+                let mapped = self.map_commands(&update.available_commands);
+                self.config_state.commands = Some(mapped);
                 self.emit_config_state(out);
             }
             SessionUpdate::CurrentModeUpdate(update) => {
@@ -403,11 +431,7 @@ impl Mapper {
                     // else is not one this client can label.
                     .filter(|cost| cost.currency.eq_ignore_ascii_case("usd"))
                     .map(|cost| cost.amount);
-                emit(
-                    out,
-                    ActivityEvent::usage(usage.used as i64, usage.size as i64, cost),
-                    None,
-                );
+                self.emit_usage(usage.used, usage.size, cost, out);
             }
             SessionUpdate::CompactionUpdate(update) => {
                 use agent_client_protocol::schema::v1::CompactionStatus;
@@ -655,7 +679,8 @@ impl Mapper {
             self.config_state.options = self.map_options(options);
         }
         if !commands.is_empty() {
-            self.config_state.commands = Some(map_commands(commands));
+            let mapped = self.map_commands(commands);
+            self.config_state.commands = Some(mapped);
         }
         self.emit_config_state(out);
     }
@@ -1148,6 +1173,30 @@ impl Mapper {
             .collect()
     }
 
+    /// The agent's own `/` commands. EXP-758: their three labels go through
+    /// [`Mapper::clean`] like every other published string: an agent's
+    /// command catalog is built from files in the REPO (claude's
+    /// `.claude/commands`, pi's extensions), so a description is exactly as
+    /// likely to quote a token as any other text the run produces.
+    fn map_commands(&self, commands: &[AvailableCommand]) -> Vec<steer::ConfigCommand> {
+        commands
+            .iter()
+            .map(|command| steer::ConfigCommand {
+                name: self.clean(&command.name, steer::activity::CONFIG_ID_MAX),
+                description: self.clean(
+                    &command.description,
+                    steer::activity::CONFIG_DESCRIPTION_MAX,
+                ),
+                hint: command.input.as_ref().and_then(|input| match input {
+                    agent_client_protocol::schema::v1::AvailableCommandInput::Unstructured(
+                        unstructured,
+                    ) => Some(self.clean(&unstructured.hint, steer::activity::CONFIG_HINT_MAX)),
+                    _ => None,
+                }),
+            })
+            .collect()
+    }
+
     fn build_config_state(&self) -> ActivityEvent {
         let mut event = ActivityEvent::ConfigState {
             options: self.config_state.options.clone(),
@@ -1165,6 +1214,31 @@ impl Mapper {
 
     fn emit_config_state(&mut self, out: &mut MapOut) {
         let event = self.build_config_state();
+        // EXP-758: latest-wins state that did not change is not news.
+        if self.last_config_state.as_ref() == Some(&event) {
+            return;
+        }
+        self.last_config_state = Some(event.clone());
+        emit(out, event, None);
+    }
+
+    /// The context/spend meter, clamped to the relay's bounds and deduped
+    /// like the `config_state` slot above (EXP-758).
+    fn emit_usage(&mut self, used: u64, size: u64, cost: Option<f64>, out: &mut MapOut) {
+        let mut event = ActivityEvent::usage(
+            // SATURATING: a `u64` that does not fit an `i64` used to wrap to
+            // a NEGATIVE token count, which the relay's zod bounds reject,
+            // dropping the frame WHOLE and freezing every viewer's meter on
+            // the last good one.
+            i64::try_from(used).unwrap_or(i64::MAX),
+            i64::try_from(size).unwrap_or(i64::MAX),
+            cost,
+        );
+        clamp_usage(&mut event);
+        if self.last_usage.as_ref() == Some(&event) {
+            return;
+        }
+        self.last_usage = Some(event.clone());
         emit(out, event, None);
     }
 
@@ -1722,21 +1796,37 @@ fn permission_options(options: &[PermissionOption]) -> Vec<(String, String, Opti
         .collect()
 }
 
-fn map_commands(commands: &[AvailableCommand]) -> Vec<steer::ConfigCommand> {
-    commands
-        .iter()
-        .map(|command| steer::ConfigCommand {
-            name: command.name.clone(),
-            description: command.description.clone(),
-            hint: command.input.as_ref().and_then(|input| match input {
-                agent_client_protocol::schema::v1::AvailableCommandInput::Unstructured(
-                    unstructured,
-                ) => Some(unstructured.hint.clone()),
-                _ => None,
-            }),
-        })
-        .collect()
+/// The relay's zod bounds on `usage` (`apps/steer-relay/src/protocol.ts`):
+/// `contextUsed`/`contextSize` are `int().min(0).max(1e9)` and `costUsd` is
+/// `number().min(0).max(1e6)`.
+const USAGE_TOKENS_MAX: i64 = 1_000_000_000;
+const USAGE_COST_MAX: f64 = 1_000_000.0;
+
+/// EXP-758: clamp an [`ActivityEvent::Usage`] to those bounds: the sibling
+/// of `steer::clamp_config_state`, and for the same reason. `activityEvent`
+/// is a discriminated union, so an out-of-bounds meter is not clipped by the
+/// relay, it is DROPPED: the viewer's context pill then freezes on the last
+/// good frame for the rest of the run. An agent reporting a nonsense number
+/// (a `u64` sentinel, a negative cost) is worth a pinned meter, not a dead
+/// one. A no-op for every other kind.
+pub fn clamp_usage(event: &mut ActivityEvent) {
+    let ActivityEvent::Usage {
+        context_used,
+        context_size,
+        cost_usd,
+        ..
+    } = event
+    else {
+        return;
+    };
+    *context_used = (*context_used).clamp(0, USAGE_TOKENS_MAX);
+    *context_size = (*context_size).clamp(0, USAGE_TOKENS_MAX);
+    // NaN and the infinities have no JSON spelling zod would accept either.
+    *cost_usd = cost_usd
+        .filter(|cost| cost.is_finite())
+        .map(|cost| cost.clamp(0.0, USAGE_COST_MAX));
 }
+
 
 /// The relay's `option.category` grouping hint. Deliberately the four names
 /// the clients already know (`model`, `effort`, `mode`), never the ACP enum's

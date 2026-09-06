@@ -863,7 +863,7 @@ fn run_codex(checkpoint: &str) -> bool {
     let spec = SpawnSpec::new("codex")
         .args(["app-server", "--listen", "stdio://"])
         .cwd(cwd.clone());
-    let Ok((server, notifications, requests, exit)) = AppServer::spawn(&spec) else {
+    let Ok((server, notifications, requests, exit, _pid)) = AppServer::spawn(&spec) else {
         println!("  !! codex app-server did not spawn");
         return false;
     };
@@ -1247,7 +1247,7 @@ fn codex_interrupt() -> bool {
     let spec = SpawnSpec::new("codex")
         .args(["app-server", "--listen", "stdio://"])
         .cwd(cwd.clone());
-    let Ok((server, notifications, _requests, _exit)) = AppServer::spawn(&spec) else {
+    let Ok((server, notifications, _requests, _exit, _pid)) = AppServer::spawn(&spec) else {
         println!("  !! codex app-server did not spawn");
         return false;
     };

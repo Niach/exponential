@@ -529,6 +529,74 @@ fn every_wire_string_is_capped() {
 }
 
 
+/// EXP-758: the meter is clamped to the relay's zod bounds, and an
+/// unchanged one is not re-sent.
+///
+/// The relay's `activityEvent` is a discriminated union: a `contextUsed` a
+/// `u64 as i64` cast turned NEGATIVE (or a cost below zero) fails the schema
+/// and the WHOLE frame is dropped in silence, freezing every viewer's meter
+/// for the rest of the run.
+#[test]
+fn a_nonsense_meter_is_clamped_into_the_relays_bounds_and_never_repeated() {
+    assert_eq!(
+        wire("usage.jsonl"),
+        vec![
+            json!({
+                "kind": "usage",
+                "contextUsed": 1_000_000_000,
+                "contextSize": 1_000_000_000,
+                "costUsd": 0.0
+            }),
+            // The identical second frame said nothing and went nowhere.
+            json!({
+                "kind": "usage",
+                "contextUsed": 12000,
+                "contextSize": 200_000,
+                "costUsd": 0.12
+            }),
+        ]
+    );
+}
+
+/// EXP-758: an agent's `/` command catalog is built from files in the REPO,
+/// so its three labels are redacted like every other published string; and
+/// an unchanged `config_state` is not published twice (one `set_config` used
+/// to emit two identical frames, one `set_mode` three).
+#[test]
+fn command_labels_are_redacted_and_an_unchanged_snapshot_is_not_republished() {
+    let wire = wire("commands.jsonl");
+    assert_eq!(wire.len(), 1, "the identical second snapshot is dropped");
+    assert_eq!(
+        wire[0],
+        json!({
+            "kind": "config_state",
+            "options": [],
+            "commands": [{
+                "name": "deploy",
+                "description": "Ship it with [redacted]",
+                "hint": "target [redacted]"
+            }]
+        })
+    );
+}
+
+/// EXP-758: two id-less chunks are two whole messages (pi's error narration,
+/// codex's `codex error:` lines), never one glued string; chunks that share a
+/// `message_id` still coalesce into one.
+#[test]
+fn id_less_chunks_are_separated_and_streamed_ones_still_coalesce() {
+    assert_eq!(
+        wire("idless.jsonl"),
+        vec![
+            json!({
+                "kind": "narration",
+                "text": "pi: Codex error: stream closed\npi: Codex error: no response"
+            }),
+            json!({"kind": "narration", "text": "Looking at the repo"}),
+        ]
+    );
+}
+
 /// EXP-753 — a subagent's edge and the rows it produced name the SAME id.
 ///
 /// The claude adapter rides the edge on a no-op patch of the Task call that

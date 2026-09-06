@@ -1083,6 +1083,84 @@ fn kill_terminal_ends_a_running_command() {
     harness.session.kill("killed");
 }
 
+/// EXP-758: a run that dies before it is live must SAY why. `EngineExit`
+/// carried the error to `on_exit` and nowhere else, so the CLI printed
+/// nothing and the session tab showed an empty transcript that had simply
+/// "ended"; the reason is now a `Failed` phase, emitted before `Ended` and
+/// replayed in that order to whoever attaches later.
+#[test]
+fn a_run_that_dies_in_its_handshake_ends_as_a_failed_phase() {
+    /// An agent binary that is gone by the time we speak ACP to it.
+    struct DeadAgent;
+
+    impl ConnectTo<Client> for DeadAgent {
+        fn connect_to(
+            self,
+            _client: impl ConnectTo<Agent>,
+        ) -> impl std::future::Future<Output = Result<(), Error>> + Send {
+            async move {
+                Err(Error::internal_error().data(serde_json::Value::String(
+                    "the agent binary is gone".to_string(),
+                )))
+            }
+        }
+    }
+
+    let worktree = std::env::temp_dir().join(format!(
+        "exp758-engine-dead-{}-{}",
+        std::process::id(),
+        Instant::now().elapsed().as_nanos()
+    ));
+    std::fs::create_dir_all(&worktree).expect("the scratch worktree is creatable");
+    let _hold = coding::launch_gate::hold(&worktree);
+    let runtime = steer::SteerRuntime::new().expect("a steer runtime");
+    let host = Arc::new(TestHost::default());
+    let session = engine::start_with(
+        EngineStart {
+            prepared: prepared("sess-dead", worktree.clone()),
+            trpc: Arc::new(api::TrpcClient::new("http://127.0.0.1:1", Arc::new(|| None))),
+            runtime: Arc::clone(&runtime),
+            data_dir: worktree.clone(),
+            account_id: "acct-1".to_string(),
+            own_user_id: Some("user-1".to_string()),
+            personal_key: None,
+            issue_id: Some("issue-1".to_string()),
+            foreign_host: false,
+            publish: false,
+            kill: KillFeed::inert(),
+            local_sink: None,
+        },
+        host.clone(),
+        EngineParts {
+            adapter: DeadAgent,
+            child_exit: ChildExitLink::new(),
+            sink: None,
+        },
+    )
+    .expect("the engine starts");
+
+    let exit = session.wait_timeout(BUDGET).expect("the run ends");
+    let error = exit.error.expect("the exit carries the handshake error");
+    assert!(!error.is_empty());
+
+    // A view attaching after the end still learns the reason, and learns it
+    // BEFORE the end.
+    let mut phases = Vec::new();
+    let replay = session.subscribe();
+    while let Ok(event) = replay.recv_timeout(Duration::from_millis(100)) {
+        if let LocalFeedEvent::Phase(phase) = event {
+            phases.push(phase);
+        }
+    }
+    assert_eq!(
+        phases,
+        vec![
+            engine::EnginePhase::Failed(error),
+            engine::EnginePhase::Ended
+        ]
+    );
+}
+
 #[test]
 fn starting_never_releases_the_hosts_launch_hold() {
     let harness = start_fake("hold");

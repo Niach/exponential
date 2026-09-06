@@ -417,6 +417,12 @@ struct FeedState {
     /// `LATEST_WINS_KINDS` (D4: `config_state`, `usage`, `diff`), which are
     /// slots in `SteerFeed` too and never feed rows.
     phase: Option<EnginePhase>,
+    /// EXP-758: the [`EnginePhase::Failed`] edge, kept even after `Ended`
+    /// overwrote the phase slot a millisecond later. Without it the ONE line
+    /// that says why a run died would be invisible to every view that
+    /// attached after the end sequence, which is every view of a run that
+    /// failed in its handshake.
+    failure: Option<EnginePhase>,
     config_state: Option<LocalFeedEvent>,
     usage: Option<LocalFeedEvent>,
     diff: Option<LocalFeedEvent>,
@@ -478,6 +484,9 @@ impl LocalFeed {
         }
         let mut state = self.lock();
         if let LocalFeedEvent::Phase(phase) = &event {
+            if matches!(phase, EnginePhase::Failed(_)) {
+                state.failure = Some(phase.clone());
+            }
             state.phase = Some(phase.clone());
         } else if let Some(slot) = state.slot(&event) {
             *slot = Some(event.clone());
@@ -514,6 +523,16 @@ impl LocalFeed {
             .flatten()
         {
             let _ = tx.send(event.clone());
+        }
+        // EXP-758: the failure first, then the phase, in the same order the
+        // end sequence emitted them in, so a late view reads the error and
+        // then the end instead of an ended run with no explanation.
+        if let Some(failure) = state
+            .failure
+            .clone()
+            .filter(|failure| Some(failure) != state.phase.as_ref())
+        {
+            let _ = tx.send(LocalFeedEvent::Phase(failure));
         }
         if let Some(phase) = state.phase.clone() {
             let _ = tx.send(LocalFeedEvent::Phase(phase));
@@ -1195,6 +1214,13 @@ fn handle_command(
         }
         EngineCommand::Shutdown { outcome } => {
             ctx.set_outcome(outcome);
+            // EXP-758: ask before the transport insists. The connection is
+            // about to go away and the child's stdin with it (`ChildGuard`
+            // closes it, then SIGTERMs), so this is the agent's chance to
+            // abandon a live turn on its own terms; an idle session ignores
+            // it. Not routed through the mapper: a shutdown is not a user's
+            // cancel and needs no card of its own.
+            let _ = cx.send_notification(CancelNotification::new(session_id.clone()));
             return false;
         }
     }
@@ -1691,6 +1717,28 @@ mod tests {
             phases(&drain(&feed.subscribe())),
             vec![EnginePhase::Ended]
         );
+    }
+
+    /// EXP-758: `Ended` follows `Failed` by a millisecond, so the failure has
+    /// to survive the latest-wins phase slot: otherwise `EngineExit::error`
+    /// reaches nobody and a run that never got past its handshake renders as
+    /// an empty transcript that says "ended".
+    #[test]
+    fn a_failed_run_replays_its_reason_before_the_end() {
+        let feed = LocalFeed::default();
+        feed.emit(None, LocalFeedEvent::Phase(EnginePhase::Connecting));
+        let failure = EnginePhase::Failed("the agent binary is gone".to_string());
+        feed.emit(None, LocalFeedEvent::Phase(failure.clone()));
+        // While it is the latest phase, it IS the phase a late host reads.
+        assert_eq!(feed.phase(), Some(failure.clone()));
+        feed.emit(None, LocalFeedEvent::Phase(EnginePhase::Ended));
+
+        assert_eq!(
+            phases(&drain(&feed.subscribe())),
+            vec![failure, EnginePhase::Ended]
+        );
+        // The terminal phase is still what a "is this run over" check reads.
+        assert_eq!(feed.phase(), Some(EnginePhase::Ended));
     }
 
     #[test]
