@@ -500,15 +500,104 @@ pub fn probe_codex_acp(program: &str, path_env: &str) -> bool {
     crate::codex_app_server::probe(program, path_env, PROBE_TIMEOUT).is_ok()
 }
 
-/// EXP-746: pi's ACP readiness. Placeholder for the E4 lane's real
-/// `pi --mode rpc` handshake — a resolved, signed-in pi reads as ready, and
-/// the adapter's own handshake is authoritative. Same never-block-the-launch
-/// posture as the two above.
+/// EXP-746: pi's ACP readiness — a real `pi --mode rpc` handshake, bounded
+/// by [`PROBE_TIMEOUT`] and killed on every exit path.
+///
+/// It has to be a handshake: `pi --mode <anything>` parses leniently and
+/// exits 0 with no output on stdin EOF, so PRESENCE proves nothing and only
+/// an answered `get_state` distinguishes a build that has the rpc mode from
+/// one that does not. That also rules out [`output_with_timeout`], which
+/// pins `Stdio::null()` on stdin; the recipe below is the same otherwise
+/// (own process group, drained pipes, killed at the deadline).
+///
+/// Fails OPEN in every ambiguous case (no spawn, no PATH match, a wedged
+/// child): the engine's own handshake is the authoritative one, and a false
+/// negative here silently demotes a working install to the terminal
+/// transport. Same never-block-the-launch posture as the two above.
 fn probe_pi_rpc(check: &mut ToolCheck) {
-    check.acp = Some(check.ok);
+    use std::io::{Read as _, Write as _};
+    use std::process::Stdio;
+    use wait_timeout::ChildExt as _;
+
     if !check.ok {
+        check.acp = Some(false);
         check.acp_note = Some("pi is not available".to_string());
+        return;
     }
+    check.acp = Some(true);
+
+    // The probe runs from `run_doctor`, which has no settings in hand here,
+    // so it resolves pi the standard way. A pi installed at a hand-configured
+    // path simply does not resolve, the spawn fails, and the check stays
+    // green — never wrong, only uninformative.
+    let program = Settings::default().resolved_path_for(CodingAgent::Pi);
+    let mut cmd = background_command(&program);
+    cmd.env("PATH", terminal::pty::login_path())
+        .args(["--mode", "rpc"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt as _;
+        cmd.process_group(0);
+    }
+    let Ok(mut child) = cmd.spawn() else { return };
+    let Some(mut stdin) = child.stdin.take() else { return };
+    let Some(mut stdout) = child.stdout.take() else { return };
+    // One command, then EOF: pi's rpc loop ends with its stdin, so the child
+    // reaps itself and the deadline below is only the wedged-child guard.
+    let asked = stdin
+        .write_all(b"{\"id\":\"1\",\"type\":\"get_state\"}\n")
+        .and_then(|()| stdin.flush())
+        .is_ok();
+    drop(stdin);
+    if !asked {
+        let _ = child.kill();
+        let _ = child.wait();
+        return;
+    }
+    // Drain on a thread: a child that fills the pipe buffer would never exit.
+    let reader = std::thread::spawn(move || {
+        let mut answer = String::new();
+        let _ = stdout.read_to_string(&mut answer);
+        answer
+    });
+    let exited = matches!(child.wait_timeout(PROBE_TIMEOUT), Ok(Some(_)));
+    if !exited {
+        #[cfg(unix)]
+        unsafe {
+            libc::killpg(child.id() as i32, libc::SIGKILL);
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+        return;
+    }
+    let answer = reader.join().unwrap_or_default();
+    if answered_get_state(&answer) {
+        return;
+    }
+    check.acp = Some(false);
+    check.acp_note = Some(
+        "This pi build has no rpc mode. Update pi for the session screen; \
+sessions run in a terminal tab until then."
+            .to_string(),
+    );
+}
+
+/// Did the child answer our `get_state` on its rpc stream? Line-delimited
+/// JSON, so a stray log line before or after the answer is fine.
+fn answered_get_state(stdout: &str) -> bool {
+    stdout.lines().any(|line| {
+        serde_json::from_str::<serde_json::Value>(line.trim()).is_ok_and(|value| {
+            value.get("type").and_then(serde_json::Value::as_str) == Some("response")
+                && value.get("command").and_then(serde_json::Value::as_str) == Some("get_state")
+                && value
+                    .get("success")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false)
+        })
+    })
 }
 
 /// EXP-409: stamp `authed` on a still-green agent check and flip it red when

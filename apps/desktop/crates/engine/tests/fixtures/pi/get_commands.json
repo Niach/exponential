@@ -1,0 +1,1 @@
+{"commands":[{"name":"review","description":"Review the working tree","source":"prompt","sourceInfo":{"path":"~/.pi/commands/review.md"}},{"name":"compact","description":"an extension shadowing the builtin verb","source":"extension","sourceInfo":{"path":"ext"}}]}
