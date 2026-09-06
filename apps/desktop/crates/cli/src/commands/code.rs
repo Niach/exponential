@@ -47,10 +47,13 @@ pub fn run(args: &[String]) -> CommandResult {
     let request = launch::issue_launch_request(&issue, options, coding::LaunchOrigin::Local, false);
     let mut seeds = HashMap::new();
     seeds.insert(issue.id.clone(), launch::issue_seed(&issue));
-    let deps = launch::coding_deps(&ctx, seeds, launch::LaunchHost::Foreground);
+    // EXP-746: the runtime is resolved BEFORE `prepare` — it decides the
+    // launch's transport (`CodingDeps::acp_available`), and the two
+    // transports compose different argv.
+    let runtime = steer::SteerRuntime::new().ok();
+    let deps = launch::coding_deps(&ctx, seeds, launch::LaunchHost::Foreground, runtime.as_ref());
 
     let sidecars = Sidecars::start();
-    let runtime = steer::SteerRuntime::new().ok();
     let personal_key = context::ensure_personal_key(&ctx).ok();
 
     let prepared = coding::prepare_with_hooks(

@@ -62,9 +62,16 @@ pub fn run(args: &[String]) -> CommandResult {
     )?;
     println!("Running action: {}", request.action_name);
 
-    let deps = launch::coding_deps(&ctx, HashMap::new(), launch::LaunchHost::Foreground);
-    let sidecars = Sidecars::start();
+    // EXP-746: the runtime decides the transport (`CodingDeps::acp_available`)
+    // and the transport composes the argv, so it is resolved before `prepare`.
     let runtime = steer::SteerRuntime::new().ok();
+    let deps = launch::coding_deps(
+        &ctx,
+        HashMap::new(),
+        launch::LaunchHost::Foreground,
+        runtime.as_ref(),
+    );
+    let sidecars = Sidecars::start();
     let personal_key = context::ensure_personal_key(&ctx).ok();
 
     let prepared = coding::prepare_with_hooks(

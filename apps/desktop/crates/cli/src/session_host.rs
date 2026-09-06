@@ -5,6 +5,20 @@
 //! heartbeat, the steer publisher + per-agent activity emitter, and the
 //! own-row kill-switch (tRPC poll of `codingSessions.get` — no Electric
 //! sync here).
+//!
+//! EXP-746 added a SECOND transport: `launch` dispatches on
+//! [`coding::LaunchTransport`] into [`launch_pty`] (everything above,
+//! unchanged) or [`launch_acp`], which hands the run to the in-process ACP
+//! engine and keeps only the two things this host owns either way — the
+//! registry entry and the tRPC kill poll. [`RunningSession`]'s public shape
+//! is identical across both, so `daemon.rs`'s `LiveSession` bookkeeping, its
+//! 1 Hz reap block and the quit sweep never learn there are two.
+//!
+//! What the engine owns on the ACP arm (D14) and this file therefore does
+//! NOT: the publisher (attach, `bye`, shutdown), the heartbeat, the activity
+//! vocabulary and `coding::end_session`. What stays here: the kill DECISION
+//! ([`kill_poll_decision`], EXP-681's [`GATED_KILL_AFTER`]) — the engine only
+//! consumes decided edges through an [`engine::KillFeed`].
 
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -53,68 +67,228 @@ enum Control {
     Resize(u16, u16),
 }
 
+/// EXP-746: which engine a [`RunningSession`] rides. The public methods are
+/// the same on both — the PTY-only ones (`write_stdin`, `resize`) degrade to
+/// no-ops on the ACP arm, where the composer is [`RunningSession::send_prompt`]
+/// and there is no grid to resize.
+enum Backend {
+    Pty {
+        done_rx: flume::Receiver<ChildExit>,
+        control_tx: flume::Sender<Control>,
+        writer: Arc<Mutex<Box<dyn std::io::Write + Send>>>,
+    },
+    Acp {
+        session: engine::EngineSession,
+    },
+}
+
+/// The pure half of [`Backend`] — which capabilities a transport has. Split
+/// out so the dispatch rules are unit-testable without an engine session
+/// (constructing one spawns an agent).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BackendKind {
+    Pty,
+    Acp,
+}
+
+impl BackendKind {
+    /// Raw bytes reach a child only through a PTY.
+    fn supports_stdin(self) -> bool {
+        matches!(self, BackendKind::Pty)
+    }
+
+    /// Only a PTY has a grid whose geometry can change.
+    fn supports_resize(self) -> bool {
+        matches!(self, BackendKind::Pty)
+    }
+
+    /// The ACP arm takes whole MESSAGES ([`RunningSession::send_prompt`]);
+    /// the PTY arm types them as keystrokes and needs a trailing `\r`.
+    fn steers_by_message(self) -> bool {
+        matches!(self, BackendKind::Acp)
+    }
+}
+
+impl From<coding::LaunchTransport> for BackendKind {
+    fn from(transport: coding::LaunchTransport) -> Self {
+        match transport {
+            coding::LaunchTransport::Terminal => BackendKind::Pty,
+            coding::LaunchTransport::Acp => BackendKind::Acp,
+        }
+    }
+}
+
+impl Backend {
+    fn kind(&self) -> BackendKind {
+        match self {
+            Backend::Pty { .. } => BackendKind::Pty,
+            Backend::Acp { .. } => BackendKind::Acp,
+        }
+    }
+}
+
 pub struct RunningSession {
     pub session_id: String,
     pub issue_identifier: String,
     pub worktree: PathBuf,
     pub branch: String,
-    done_rx: flume::Receiver<ChildExit>,
-    control_tx: flume::Sender<Control>,
-    writer: Arc<Mutex<Box<dyn std::io::Write + Send>>>,
+    /// EXP-746: which vocabulary the local attach speaks to this run — the
+    /// contract catalog is agent-scoped (`steer::commands::catalog_for`).
+    pub agent: steer::SessionAgent,
+    backend: Backend,
 }
 
 impl RunningSession {
     /// Block until the agent child exits.
     pub fn wait(&self) -> ChildExit {
-        self.done_rx
-            .recv()
-            .unwrap_or(ChildExit { code: -1, success: false, signal: None })
+        match &self.backend {
+            Backend::Pty { done_rx, .. } => done_rx
+                .recv()
+                .unwrap_or(ChildExit { code: -1, success: false, signal: None }),
+            Backend::Acp { session } => engine_child_exit(&session.wait()),
+        }
     }
 
     /// `Some(exit)` once the child has exited, `None` on timeout.
     pub fn wait_timeout(&self, timeout: Duration) -> Option<ChildExit> {
-        self.done_rx.recv_timeout(timeout).ok()
+        match &self.backend {
+            Backend::Pty { done_rx, .. } => done_rx.recv_timeout(timeout).ok(),
+            Backend::Acp { session } => {
+                session.wait_timeout(timeout).map(|exit| engine_child_exit(&exit))
+            }
+        }
     }
 
     pub fn is_done(&self) -> bool {
-        // The supervisor sends the exit into the bounded(1) channel and then
-        // drops its sender — flume keeps the buffered message after
-        // disconnect, so "done" is EITHER an exit waiting to be read OR a
-        // dead channel (supervisor gone). `disconnected && empty` alone
-        // never fires for a finished-but-unwaited daemon session, which
-        // jammed the reaper and every dedup gate (review finding, EXP-403).
-        !self.done_rx.is_empty() || self.done_rx.is_disconnected()
+        match &self.backend {
+            // The supervisor sends the exit into the bounded(1) channel and
+            // then drops its sender — flume keeps the buffered message after
+            // disconnect, so "done" is EITHER an exit waiting to be read OR a
+            // dead channel (supervisor gone). `disconnected && empty` alone
+            // never fires for a finished-but-unwaited daemon session, which
+            // jammed the reaper and every dedup gate (review finding,
+            // EXP-403).
+            Backend::Pty { done_rx, .. } => !done_rx.is_empty() || done_rx.is_disconnected(),
+            Backend::Acp { session } => session.is_done(),
+        }
     }
 
     pub fn kill(&self) {
-        let _ = self.control_tx.send(Control::Kill { outcome: "ended" });
+        match &self.backend {
+            Backend::Pty { control_tx, .. } => {
+                let _ = control_tx.send(Control::Kill { outcome: "ended" });
+            }
+            // Same `bye` outcome the PTY supervisor publishes, so a viewer
+            // cannot tell the transports apart.
+            Backend::Acp { session } => session.kill("ended"),
+        }
     }
 
     /// Local stdin bytes (interactive attach) — the same shared PTY writer
-    /// remote steer input uses; the child cannot tell them apart.
+    /// remote steer input uses; the child cannot tell them apart. A no-op on
+    /// the ACP arm: there is no byte stream to write into (EXP-746), and its
+    /// attach composes whole messages with [`RunningSession::send_prompt`].
     pub fn write_stdin(&self, bytes: &[u8]) {
-        if let Ok(mut writer) = self.writer.lock() {
+        let Backend::Pty { writer, .. } = &self.backend else {
+            return;
+        };
+        if let Ok(mut writer) = writer.lock() {
             let _ = writer.write_all(bytes);
             let _ = writer.flush();
         }
     }
 
+    /// A no-op on the ACP arm — it has no grid.
     pub fn resize(&self, cols: u16, rows: u16) {
-        let _ = self.control_tx.send(Control::Resize(cols, rows));
+        let Backend::Pty { control_tx, .. } = &self.backend else {
+            return;
+        };
+        let _ = control_tx.send(Control::Resize(cols, rows));
+    }
+
+    /// EXP-746: one whole message from the local attach — a fresh prompt
+    /// between turns, steering mid-turn. On the PTY arm it is typed into the
+    /// TUI exactly like a remote `input` frame (text then `\r`).
+    pub fn send_prompt(&self, text: String) {
+        match &self.backend {
+            Backend::Pty { .. } => {
+                self.write_stdin(text.as_bytes());
+                self.write_stdin(b"\r");
+            }
+            Backend::Acp { session } => session.send_prompt(text),
+        }
+    }
+
+    /// EXP-746: answer a pending question card. PTY answers ride the relay's
+    /// keystroke choreography instead, so this is ACP-only.
+    pub fn answer(&self, answer: steer::RemoteAnswer) {
+        if let Backend::Acp { session } = &self.backend {
+            session.answer(answer);
+        }
+    }
+
+    /// EXP-746: a `/` command from the local attach — the same sink a remote
+    /// one takes. ACP-only for the same reason as [`RunningSession::answer`].
+    pub fn run_command(&self, name: &str, args: &str) {
+        if let Backend::Acp { session } = &self.backend {
+            session.run_command(name, args);
+        }
+    }
+
+    /// EXP-746: the engine's local feed, for `exponential code`'s line
+    /// printer. `None` on the PTY arm, whose attach is the raw byte tee.
+    pub fn feed(&self) -> Option<flume::Receiver<engine::LocalFeedEvent>> {
+        match &self.backend {
+            Backend::Pty { .. } => None,
+            Backend::Acp { session } => Some(session.subscribe()),
+        }
     }
 }
 
-/// Everything after `coding::prepare_with_hooks` said `Ready`: spawn the
-/// agent on a fresh PTY and wire heartbeat/publisher/emitter/kill-watch.
-/// `interactive` mirrors the raw PTY bytes to stdout and leaves terminal
-/// query replies (DA/DSR) to the REAL terminal; detached lets the emulator
-/// answer them (the child's queries must never hang).
+/// EXP-746: an engine exit in the `ChildExit` vocabulary every caller of this
+/// module already speaks (`code`/`run` print it, `daemon` logs it). A run
+/// whose adapter owned a child reports the child's real exit; a handshake
+/// failure that never got one reports failure; every other end (a kill, the
+/// agent's own close-out) is a clean zero.
+fn engine_child_exit(exit: &engine::EngineExit) -> ChildExit {
+    if let Some(child) = &exit.child {
+        return child.clone();
+    }
+    let failed = exit.error.is_some();
+    ChildExit {
+        code: if failed { -1 } else { 0 },
+        success: !failed,
+        signal: None,
+    }
+}
+
+/// Everything after `coding::prepare_with_hooks` said `Ready`. Dispatches on
+/// the transport `prepare` resolved (EXP-746): the PTY host below, or the ACP
+/// engine. `interactive` is a PTY concern only — it mirrors the raw bytes to
+/// stdout and leaves terminal query replies (DA/DSR) to the REAL terminal.
 pub fn launch(
     env: &LaunchEnv,
     prepared: PreparedLaunch,
     interactive: bool,
     // The steer room's issue id — `Some` only for real issue sessions
     // (batch/action rooms send none; desktop parity).
+    issue_id: Option<String>,
+) -> anyhow::Result<RunningSession> {
+    match prepared.transport {
+        coding::LaunchTransport::Terminal => launch_pty(env, prepared, interactive, issue_id),
+        coding::LaunchTransport::Acp => launch_acp(env, prepared, issue_id),
+    }
+}
+
+/// The PTY host: spawn the agent on a fresh PTY and wire
+/// heartbeat/publisher/emitter/kill-watch. `interactive` mirrors the raw PTY
+/// bytes to stdout and leaves terminal query replies (DA/DSR) to the REAL
+/// terminal; detached lets the emulator answer them (the child's queries must
+/// never hang).
+fn launch_pty(
+    env: &LaunchEnv,
+    prepared: PreparedLaunch,
+    interactive: bool,
     issue_id: Option<String>,
 ) -> anyhow::Result<RunningSession> {
     let PreparedLaunch {
@@ -196,6 +370,11 @@ pub fn launch(
     let (control_tx, control_rx) = flume::unbounded::<Control>();
     let (done_tx, done_rx) = flume::bounded::<ChildExit>(1);
     let writer = pty.writer();
+    let session_agent = match agent {
+        CodingAgent::Claude => steer::SessionAgent::Claude,
+        CodingAgent::Codex => steer::SessionAgent::Codex,
+        CodingAgent::Pi => steer::SessionAgent::Pi,
+    };
 
     // --- Steer publisher + activity emitter (attach_publisher parity) ------
     let mut publisher: Option<steer::PublisherHandle> = None;
@@ -214,11 +393,6 @@ pub fn launch(
         // (EXP-441) resolves by keystroke too.
         let steers_by_keystroke = is_claude || agent == CodingAgent::Codex;
         let answers_remotely = steers_by_keystroke || agent == CodingAgent::Pi;
-        let session_agent = match agent {
-            CodingAgent::Claude => steer::activity::SessionAgent::Claude,
-            CodingAgent::Codex => steer::activity::SessionAgent::Codex,
-            CodingAgent::Pi => steer::activity::SessionAgent::Pi,
-        };
         let pi_subscription = (agent == CodingAgent::Pi)
             .then(|| env.sidecars.subscribe_pi(&worktree))
             .flatten();
@@ -316,89 +490,25 @@ pub fn launch(
         publisher = Some(handle);
     }
 
-    // --- Kill-switch poll: the desktop's own-row kill-watch, over tRPC.
-    // Fires ONLY on an explicit own-row `ended` (vanished row ≠ kill; a
-    // resurrected row owned by someone else must never kill this run).
-    // EXP-674: this edge is the daemon's ONLY reaper besides the child's
-    // own exit — deliberately no idle bound. A person-started run never
-    // reports at all: since EXP-679 `exponential_sessions_end` is registered
-    // only for UNATTENDED runs, so this one just keeps waiting for the next
-    // reply, exactly like in a desktop tab or an attached terminal, until a
-    // web/mobile "Kill session", a merge or the sweep ends the row.
-    // Unattended runs (schedule/event/agent-started) do get the tool, and
-    // their close-out ends the row and reaps right away.
-    // EXP-681: the ONE exception to "vanished row ≠ kill" — a SUSTAINED 426
-    // min-version gate. This build can no longer read the edge (the poll is
-    // rejected) nor keep the row alive (so is the heartbeat), so once the
-    // server sweep has provably deleted it ([`GATED_KILL_AFTER`]) nothing
-    // remote can end the run any more and the watcher ends it itself. -----
-    let watch_done = Arc::new(AtomicBool::new(false));
-    {
-        let trpc = Arc::clone(&env.ctx.trpc);
-        let session_id = session_id.clone();
-        let own_user = env.ctx.account.user_id.clone();
+    // The PTY arm's kill sink: wait out the agent's own close-out here (this
+    // host owns the emitter's `TurnSignal`), then tell the supervisor.
+    let watch_done = spawn_kill_watch(env, &session_id, {
         let kill_tx = control_tx.clone();
         let kill_turn_signal = Arc::clone(&turn_signal);
-        let watch_done = Arc::clone(&watch_done);
-        std::thread::spawn(move || {
-            // EXP-681: when the CURRENT run of consecutive 426 polls began.
-            let mut first_gated_at: Option<Instant> = None;
-            while !watch_done.load(Ordering::SeqCst) {
-                std::thread::sleep(KILL_POLL_INTERVAL);
-                if watch_done.load(Ordering::SeqCst) {
-                    return;
-                }
-                let result = api::coding_sessions::get(&trpc, &session_id);
-                if !matches!(result, Err(api::ApiError::UpgradeRequired)) {
-                    // Any answer but the gate (a row, a vanished row, a
-                    // transport blip) means the server talks to this build
-                    // again — a lifted gate resets the clock.
-                    first_gated_at = None;
-                }
-                match result {
-                    Ok(Some(row)) => match kill_poll_decision(&row, &own_user) {
-                        PollDecision::Kill { graceful } => {
-                            if graceful {
-                                // EXP-637: the agent said it was done — let
-                                // it finish the turn it is mid-way through
-                                // (its close-out message), then kill. The
-                                // grace is the bound for an idle edge that
-                                // never arrives.
-                                let waiter = kill_turn_signal.subscribe();
-                                let _ = waiter.recv_timeout(STOP_GRACE);
-                            }
-                            let _ = kill_tx.send(Control::Kill {
-                                outcome: if graceful { "ended" } else { "killed" },
-                            });
-                            return;
-                        }
-                        PollDecision::StopWatching => return,
-                        PollDecision::Continue => {}
-                    },
-                    // EXP-681: the min-version gate — see [`GATED_KILL_AFTER`].
-                    Err(api::ApiError::UpgradeRequired) => {
-                        let now = Instant::now();
-                        if first_gated_at.is_none() {
-                            log::warn!(
-                                "coding session {session_id}: HTTP 426 on the kill poll — the server no longer accepts this build; the run ends itself in {}s unless the gate lifts",
-                                GATED_KILL_AFTER.as_secs()
-                            );
-                        }
-                        if gated_poll_kills(&mut first_gated_at, now) {
-                            log::warn!(
-                                "coding session {session_id}: gated for {}s — its row is swept and no remote kill can reach it, ending the run",
-                                GATED_KILL_AFTER.as_secs()
-                            );
-                            let _ = kill_tx.send(Control::Kill { outcome: "killed" });
-                            return;
-                        }
-                    }
-                    // Swept/foreign row or a transport blip: never a kill.
-                    Ok(None) | Err(_) => {}
-                }
+        Box::new(move |graceful| {
+            if graceful {
+                // EXP-637: the agent said it was done — let it finish the
+                // turn it is mid-way through (its close-out message), then
+                // kill. The grace is the bound for an idle edge that never
+                // arrives.
+                let waiter = kill_turn_signal.subscribe();
+                let _ = waiter.recv_timeout(STOP_GRACE);
             }
-        });
-    }
+            let _ = kill_tx.send(Control::Kill {
+                outcome: if graceful { "ended" } else { "killed" },
+            });
+        })
+    });
 
     // EXP-447: the CLI counterpart of the desktop's `TokenRefreshers` — the
     // launch-time token dies after GitHub's hard 1h cap, and the credential
@@ -439,11 +549,264 @@ pub fn launch(
         issue_identifier,
         worktree,
         branch,
-        done_rx,
-        control_tx,
-        writer,
+        agent: session_agent,
+        backend: Backend::Pty { done_rx, control_tx, writer },
     })
 }
+
+/// EXP-746: the ACP host. Everything the PTY arm above does with a terminal —
+/// spawn, pump, publisher, emitter, heartbeat, end — belongs to the engine
+/// here (D14). This function owns exactly the two facts that are the CLI's
+/// and not the engine's: the crash-recovery registry entry and the tRPC kill
+/// poll's DECISION.
+fn launch_acp(
+    env: &LaunchEnv,
+    mut prepared: PreparedLaunch,
+    issue_id: Option<String>,
+) -> anyhow::Result<RunningSession> {
+    // Unreachable by construction: `resolve_transport` only answers `Acp`
+    // when `CodingDeps::acp_available` said this host has a runtime
+    // (`launch::coding_deps`). There is deliberately no spawn-time fallback —
+    // an ACP-prepared launch carries an EMPTY `spawn.args`, so there is no
+    // TUI invocation left to run.
+    let runtime = env
+        .runtime
+        .context("the ACP engine needs the steer runtime")?;
+
+    let session_id = prepared.session_id.clone();
+    let issue_identifier = prepared.issue_identifier.clone();
+    let worktree = prepared.worktree.clone();
+    let branch = prepared.branch.clone();
+    let repository_id = prepared.repository_id.clone();
+    let clone = prepared.clone.clone();
+    let session_agent = acp_session_agent(&prepared);
+    // EXP-444/EXP-432: a start whose requester is not this daemon's account
+    // runs on a shared host — snapshot it before the engine takes ownership.
+    let foreign_host = prepared
+        .heartbeat_scope
+        .started_by_id
+        .as_deref()
+        .is_some_and(|requester| requester != env.ctx.account.user_id);
+
+    registry::record(&env.ctx.data_dir, &session_id, &env.ctx.account.id);
+
+    // EXP-447: the launch-time GitHub token dies after the hard 1h cap and
+    // the credential helper is a deliberate dumb `cat`, so the clone's
+    // ambient auth is kept fresh for the run's life. The hold moves into the
+    // host and drops in `on_exit` — the ACP arm has no supervisor thread to
+    // scope it to.
+    let refresher_hold = repository_id.as_deref().map(|repository_id| {
+        coding::clone_refreshers().retain(Arc::clone(&env.ctx.trpc), repository_id, &clone)
+    });
+
+    // EXP-283: registered BEFORE `engine::start`, so no `ended` edge can slip
+    // through between the row's creation and the first frame. The engine
+    // drops the feed FIRST in its end sequence, which unwatches — our own end
+    // flip can never bounce back as a second kill.
+    let kill = trpc_kill_feed(env, &session_id);
+
+    // EXP-478: the launch gate has to outlive registration, and
+    // `EngineStart`'s destructure would drop it pre-spawn — so the host holds
+    // it and releases it only once the session is registered.
+    let launch_hold = prepared.launch_hold.take();
+
+    let host = Arc::new(CliEngineHost {
+        data_dir: env.ctx.data_dir.clone(),
+        refresher_hold: Mutex::new(refresher_hold),
+    });
+    let session = engine::start(
+        engine::EngineStart {
+            prepared,
+            trpc: Arc::clone(&env.ctx.trpc),
+            runtime: Arc::clone(runtime),
+            data_dir: env.ctx.data_dir.clone(),
+            account_id: env.ctx.account.id.clone(),
+            own_user_id: Some(env.ctx.account.user_id.clone()),
+            personal_key: env.personal_key.clone(),
+            issue_id,
+            foreign_host,
+            // A runtime-less host never gets here, so the room is always on.
+            publish: true,
+            kill,
+            // The line printer subscribes on demand (`RunningSession::feed`);
+            // a detached daemon run wants no local fan-out at all.
+            local_sink: None,
+        },
+        host,
+    )
+    .map_err(|err| {
+        // Nothing ran, so nothing will end the row: do it here or the badge
+        // ghosts until the server sweep (PTY parity, `pty::open` above).
+        coding::end_session_best_effort(&env.ctx.trpc, &session_id);
+        anyhow::anyhow!("{err}")
+    })?;
+    drop(launch_hold);
+
+    Ok(RunningSession {
+        session_id,
+        issue_identifier,
+        worktree,
+        branch,
+        agent: session_agent,
+        backend: Backend::Acp { session },
+    })
+}
+
+/// EXP-746: which steer agent vocabulary an ACP run speaks. An EXTERNAL agent
+/// (D13) is deliberately its own value — the contract's curated `/` catalog
+/// describes claude/codex/pi behaviour we verified, so an external agent's
+/// menu carries only what it advertised itself.
+fn acp_session_agent(prepared: &PreparedLaunch) -> steer::SessionAgent {
+    let external = prepared
+        .acp
+        .as_ref()
+        .is_some_and(|acp| acp.options.external.is_some());
+    if external {
+        return steer::SessionAgent::External;
+    }
+    match prepared.agent {
+        CodingAgent::Claude => steer::SessionAgent::Claude,
+        CodingAgent::Codex => steer::SessionAgent::Codex,
+        CodingAgent::Pi => steer::SessionAgent::Pi,
+    }
+}
+
+/// EXP-746: the ACP arm's kill source — today's poll thread, producing
+/// [`engine::KillFeed`] edges instead of `Control::Kill`. The engine does the
+/// after-turn wait itself (D14: `STOP_GRACE` on its own `TurnSignal`), so
+/// this sink never blocks — it only decides.
+fn trpc_kill_feed(env: &LaunchEnv, session_id: &str) -> engine::KillFeed {
+    let (tx, rx) = flume::unbounded::<engine::KillReason>();
+    let watch_done = spawn_kill_watch(
+        env,
+        session_id,
+        Box::new(move |graceful| {
+            let _ = tx.send(if graceful {
+                engine::KillReason::AfterTurn
+            } else {
+                engine::KillReason::Now
+            });
+        }),
+    );
+    engine::KillFeed {
+        rx,
+        unwatch: Some(Box::new(move || watch_done.store(true, Ordering::SeqCst))),
+    }
+}
+
+/// EXP-746: the CLI's `EngineHost`. The engine owns the publisher, the
+/// heartbeat and `coding::end_session`; this is what is left over.
+struct CliEngineHost {
+    data_dir: PathBuf,
+    /// EXP-447: released exactly when the run ends, on every path.
+    refresher_hold: Mutex<Option<coding::RefresherHold>>,
+}
+
+impl engine::EngineHost for CliEngineHost {
+    fn on_exit(&self, exit: engine::EngineExit) {
+        if let Some(error) = &exit.error {
+            log::warn!("coding session {}: {error}", exit.session_id);
+        }
+        // EXP-641/EXP-746: a RESOLVED end drops the registry entry, anything
+        // else keeps it for the next start's reconcile — decided ONCE, by the
+        // process-wide observer `coding::end_session` fires
+        // (`registry::install_end_observer`), so the PTY supervisor and the
+        // engine share one implementation. The only case that never reaches
+        // it is a run that died before the end sequence ran at all: its entry
+        // still carries THIS process's live pid, which no later reconcile
+        // would touch, so clear it here.
+        if exit.end.is_none() {
+            registry::mark_ended(&self.data_dir, &exit.session_id);
+        }
+        if let Ok(mut hold) = self.refresher_hold.lock() {
+            drop(hold.take());
+        }
+    }
+}
+
+/// The own-row kill-switch poll, shared by both transports (EXP-746).
+///
+/// Fires ONLY on an explicit own-row `ended` (vanished row ≠ kill; a
+/// resurrected row owned by someone else must never kill this run).
+/// EXP-674: this edge is the daemon's ONLY reaper besides the child's own
+/// exit — deliberately no idle bound. A person-started run never reports at
+/// all: since EXP-679 `exponential_sessions_end` is registered only for
+/// UNATTENDED runs, so this one just keeps waiting for the next reply,
+/// exactly like in a desktop tab or an attached terminal, until a web/mobile
+/// "Kill session", a merge or the sweep ends the row. Unattended runs
+/// (schedule/event/agent-started) do get the tool, and their close-out ends
+/// the row and reaps right away.
+/// EXP-681: the ONE exception to "vanished row ≠ kill" — a SUSTAINED 426
+/// min-version gate. This build can no longer read the edge (the poll is
+/// rejected) nor keep the row alive (so is the heartbeat), so once the server
+/// sweep has provably deleted it ([`GATED_KILL_AFTER`]) nothing remote can
+/// end the run any more and the watcher ends it itself.
+///
+/// `sink` receives the decided edge (`graceful` = EXP-637's agent-declared
+/// end) and is the ONLY thing that differs per transport: the PTY arm waits
+/// out the close-out inline and posts `Control::Kill`, the ACP arm hands the
+/// reason to the engine, which does its own wait. Returns the watcher's stop
+/// flag — set it BEFORE the run's own end flip becomes visible (EXP-283) or
+/// the poll reads that end as a remote kill.
+fn spawn_kill_watch(env: &LaunchEnv, session_id: &str, sink: KillSink) -> Arc<AtomicBool> {
+    let watch_done = Arc::new(AtomicBool::new(false));
+    let trpc = Arc::clone(&env.ctx.trpc);
+    let session_id = session_id.to_string();
+    let own_user = env.ctx.account.user_id.clone();
+    let stop = Arc::clone(&watch_done);
+    std::thread::spawn(move || {
+        // EXP-681: when the CURRENT run of consecutive 426 polls began.
+        let mut first_gated_at: Option<Instant> = None;
+        while !stop.load(Ordering::SeqCst) {
+            std::thread::sleep(KILL_POLL_INTERVAL);
+            if stop.load(Ordering::SeqCst) {
+                return;
+            }
+            let result = api::coding_sessions::get(&trpc, &session_id);
+            if !matches!(result, Err(api::ApiError::UpgradeRequired)) {
+                // Any answer but the gate (a row, a vanished row, a transport
+                // blip) means the server talks to this build again — a lifted
+                // gate resets the clock.
+                first_gated_at = None;
+            }
+            match result {
+                Ok(Some(row)) => match kill_poll_decision(&row, &own_user) {
+                    PollDecision::Kill { graceful } => {
+                        sink(graceful);
+                        return;
+                    }
+                    PollDecision::StopWatching => return,
+                    PollDecision::Continue => {}
+                },
+                // EXP-681: the min-version gate — see [`GATED_KILL_AFTER`].
+                Err(api::ApiError::UpgradeRequired) => {
+                    let now = Instant::now();
+                    if first_gated_at.is_none() {
+                        log::warn!(
+                            "coding session {session_id}: HTTP 426 on the kill poll — the server no longer accepts this build; the run ends itself in {}s unless the gate lifts",
+                            GATED_KILL_AFTER.as_secs()
+                        );
+                    }
+                    if gated_poll_kills(&mut first_gated_at, now) {
+                        log::warn!(
+                            "coding session {session_id}: gated for {}s — its row is swept and no remote kill can reach it, ending the run",
+                            GATED_KILL_AFTER.as_secs()
+                        );
+                        sink(false);
+                        return;
+                    }
+                }
+                // Swept/foreign row or a transport blip: never a kill.
+                Ok(None) | Err(_) => {}
+            }
+        }
+    });
+    watch_done
+}
+
+/// What [`spawn_kill_watch`] does with a decided kill: `true` = EXP-637's
+/// agent-declared end (the close-out is still being written), `false` = now.
+type KillSink = Box<dyn Fn(bool) + Send>;
 
 /// One kill-poll observation → what the watcher thread does next.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -785,5 +1148,52 @@ mod tests {
             GATED_KILL_AFTER
                 >= Duration::from_millis(domain::contract::CODING_SESSION_STALE_MS as u64)
         );
+    }
+
+    /// EXP-746: the two backends differ in exactly the PTY-shaped
+    /// capabilities. `daemon.rs`'s bookkeeping, its reap block and the quit
+    /// sweep only use `is_done`/`kill`/`wait*`, which both answer — so the
+    /// only thing a caller may branch on is this, and an ACP run must never
+    /// be handed raw bytes or a geometry.
+    #[test]
+    fn running_session_backend_dispatch() {
+        let pty = BackendKind::from(coding::LaunchTransport::Terminal);
+        let acp = BackendKind::from(coding::LaunchTransport::Acp);
+        assert_eq!(pty, BackendKind::Pty);
+        assert_eq!(acp, BackendKind::Acp);
+
+        assert!(pty.supports_stdin());
+        assert!(pty.supports_resize());
+        assert!(!pty.steers_by_message());
+
+        assert!(!acp.supports_stdin());
+        assert!(!acp.supports_resize());
+        assert!(acp.steers_by_message());
+    }
+
+    /// EXP-746: `code`/`run` print an exit code and the daemon logs one, so an
+    /// engine exit has to read as a child exit. A real child's exit wins; a
+    /// handshake failure that never produced one is a failure; a kill or the
+    /// agent's own close-out is a clean zero.
+    #[test]
+    fn an_engine_exit_reads_as_a_child_exit() {
+        let exit = |child, error: Option<&str>| engine::EngineExit {
+            session_id: "sess-1".to_string(),
+            outcome: "ended".to_string(),
+            child,
+            error: error.map(str::to_string),
+            end: None,
+        };
+
+        let real = ChildExit { code: 3, success: false, signal: None };
+        assert_eq!(engine_child_exit(&exit(Some(real), None)).code, 3);
+
+        let failed = engine_child_exit(&exit(None, Some("the agent did not connect")));
+        assert!(!failed.success);
+        assert_eq!(failed.code, -1);
+
+        let clean = engine_child_exit(&exit(None, None));
+        assert!(clean.success);
+        assert_eq!(clean.code, 0);
     }
 }
