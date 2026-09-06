@@ -1,0 +1,7 @@
+{"sessionId":"acp-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Looking at "},"messageId":"m1"}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"the repo"},"messageId":"m1"}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"They want the tests green"},"messageId":"t1"}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"tool_call","toolCallId":"tc-1","title":"Read src/main.rs","kind":"read","status":"pending","content":[],"locations":[{"path":"/tmp/worktree/src/main.rs"}],"rawInput":{"file_path":"/tmp/worktree/src/main.rs"}}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"tool_call_update","toolCallId":"tc-1","status":"completed","content":[{"type":"content","content":{"type":"text","text":"fn main() {}"}}]}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"usage_update","used":12000,"size":200000,"cost":{"amount":0.12,"currency":"USD"}}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Done."},"messageId":"m2"}}

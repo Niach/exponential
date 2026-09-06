@@ -116,3 +116,118 @@ pub enum PlanEntryStatusView {
     InProgress,
     Completed,
 }
+
+// ---------------------------------------------------------------------------
+// The adapter-facing subagent seam (EXP-746)
+// ---------------------------------------------------------------------------
+
+/// The `_meta` key an adapter stamps a subagent edge under.
+///
+/// Subagents have no ACP shape of their own: an adapter that learns one
+/// (claude's `system/task_started`, codex's `subAgentActivity`) puts the edge
+/// into the `_meta` of ANY `session/update` notification it is already
+/// sending, and [`crate::mapper::Mapper::on_update`] turns it into the relay
+/// `subagent` event. A tool call belonging to a subagent carries
+/// `_meta.subagentId` instead, which becomes `Tool { subagentId }`.
+pub const SUBAGENT_META_KEY: &str = "exponentialSubagent";
+
+/// One subagent lifecycle edge. Deliberately tiny: the relay vocabulary has
+/// exactly `{id, agentType, status, detail?}` and nothing an adapter adds
+/// beyond that could be rendered anywhere.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SubagentEdge {
+    pub id: String,
+    pub agent_type: String,
+    pub status: SubagentEdgeStatus,
+    pub detail: Option<String>,
+}
+
+/// A local mirror of `steer::SubagentStatus`, so an adapter never has to
+/// name a relay type.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SubagentEdgeStatus {
+    Started,
+    Completed,
+}
+
+impl SubagentEdge {
+    /// Adapter side: the `_meta` object to attach to a notification.
+    pub fn to_meta(&self) -> serde_json::Map<String, serde_json::Value> {
+        let mut meta = serde_json::Map::new();
+        let mut edge = serde_json::Map::new();
+        edge.insert("id".to_string(), serde_json::Value::String(self.id.clone()));
+        edge.insert(
+            "agentType".to_string(),
+            serde_json::Value::String(self.agent_type.clone()),
+        );
+        edge.insert(
+            "status".to_string(),
+            serde_json::Value::String(
+                match self.status {
+                    SubagentEdgeStatus::Started => "started",
+                    SubagentEdgeStatus::Completed => "completed",
+                }
+                .to_string(),
+            ),
+        );
+        if let Some(detail) = &self.detail {
+            edge.insert(
+                "detail".to_string(),
+                serde_json::Value::String(detail.clone()),
+            );
+        }
+        meta.insert(SUBAGENT_META_KEY.to_string(), serde_json::Value::Object(edge));
+        meta
+    }
+
+    /// Engine side: the edge an adapter stamped, if any. A malformed one is
+    /// ignored rather than failing the notification it rode on.
+    pub fn from_meta(
+        meta: &serde_json::Map<String, serde_json::Value>,
+    ) -> Option<SubagentEdge> {
+        let edge = meta.get(SUBAGENT_META_KEY)?.as_object()?;
+        let id = edge.get("id")?.as_str()?.to_string();
+        if id.is_empty() {
+            return None;
+        }
+        let status = match edge.get("status").and_then(serde_json::Value::as_str) {
+            Some("completed") => SubagentEdgeStatus::Completed,
+            _ => SubagentEdgeStatus::Started,
+        };
+        Some(SubagentEdge {
+            id,
+            agent_type: edge
+                .get("agentType")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("agent")
+                .to_string(),
+            status,
+            detail: edge
+                .get("detail")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string),
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_subagent_edge_round_trips_through_meta() {
+        let edge = SubagentEdge {
+            id: "task-1".to_string(),
+            agent_type: "explore".to_string(),
+            status: SubagentEdgeStatus::Completed,
+            detail: Some("found it".to_string()),
+        };
+        assert_eq!(SubagentEdge::from_meta(&edge.to_meta()), Some(edge));
+    }
+
+    #[test]
+    fn a_meta_without_an_edge_is_ignored() {
+        let meta = serde_json::Map::new();
+        assert_eq!(SubagentEdge::from_meta(&meta), None);
+    }
+}
