@@ -52,9 +52,9 @@ use crate::steer_viewer::{FeedSource, SteerSessionView};
 /// no ACP conversation to render and nothing to steer remotely about a child
 /// whose grid is right there. Everything else (a local ACP run, a run on
 /// another machine, an ended one) is a center screen.
-// EXP-746: the remaining callers land with their lanes — D5 (Devices →
-// Running / Past) and D6 (the issue header's pill).
-#[allow(dead_code)]
+// EXP-746: the launch seam calls this on every ACP start; the remaining
+// callers land with their lanes — D5 (Devices → Running / Past) and D6 (the
+// issue header's "coding now" pill).
 pub(crate) fn open_session(session_id: &str, window: &mut Window, cx: &mut App) {
     if hosted_on_a_pty_tab(session_id, cx) {
         // The `Some(tab)` half of the dock's opener; lane D6 narrows it to
@@ -197,7 +197,6 @@ fn local_engine(session_id: &str, cx: &App) -> Option<engine::EngineSession> {
 }
 
 /// Whether the run this process hosts occupies a dock terminal.
-#[allow(dead_code)] // with [`open_session`]
 fn hosted_on_a_pty_tab(session_id: &str, cx: &App) -> bool {
     LocalSessions::global_ref(cx).is_some_and(|sessions| {
         sessions
