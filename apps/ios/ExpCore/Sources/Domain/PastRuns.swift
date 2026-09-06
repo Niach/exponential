@@ -19,6 +19,13 @@ public enum PastRuns {
     /// How many rows the section ever shows. Locked ×4.
     public static let cap = 20
 
+    /// EXP-758: how many rows the SQL observation fetches — Android's
+    /// `PAST_RUN_QUERY_LIMIT`. Wider than `cap` on purpose: the query is the
+    /// bound that keeps an unscoped whole-history fetch off the main thread,
+    /// while the extra rows leave `select` room to drop one without pulling a
+    /// real row off the end.
+    public static let queryLimit = 50
+
     /// The section's rows: own + active-team + `ended` + PERSON-started,
     /// newest first, capped. Ordering key is `ended_at ?? updated_at` — a row
     /// whose end never landed still sorts by its last heartbeat, and ISO-8601

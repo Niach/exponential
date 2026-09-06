@@ -3,7 +3,11 @@ import { MAX_ACTION_INPUT_TEXT } from "@exp/db-schema/domain"
 import { builtinChatAction } from "@/lib/builtin-actions"
 import type { ActionRepoOption } from "@/components/action-editor-dialog"
 import { Label } from "@/components/ui/label"
-import { GlassGroup, GlassPickerRow } from "@/components/ui/glass-rows"
+import {
+  GlassGroup,
+  GlassPickerRow,
+  type GlassPickerOption,
+} from "@/components/ui/glass-rows"
 import { Textarea } from "@/components/ui/textarea"
 
 // The Chat tab of the unified launch dialog (EXP-615): a free prompt with an
@@ -14,6 +18,13 @@ import { Textarea } from "@/components/ui/textarea"
 // hidden "Chat" builtin action, so the field labels and the prompt placeholder
 // come from that definition and can never drift from the other three clients.
 // All state lives in the dialog shell.
+
+// EXP-758: repo-less is a real choice, so it needs a real option — without one
+// a picked repo could never be cleared again. Radix Select forbids an
+// empty-string item value, so it rides a sentinel inside the picker only (the
+// CLI_DEFAULT_MODEL/EFFORT pattern); `onRepoChange` still speaks the empty
+// string the shell and the server understand.
+export const NO_REPO = `no-repo`
 
 export function ChatPane({
   prompt,
@@ -33,6 +44,10 @@ export function ChatPane({
 }) {
   const inputDefs = useMemo(() => builtinChatAction(teamId).inputs, [teamId])
   const promptDef = inputDefs.find((def) => def.key === `prompt`)
+  const repoOptions: GlassPickerOption[] = [
+    { value: NO_REPO, label: `No repository` },
+    ...repos.map((repo) => ({ value: repo.id, label: repo.fullName })),
+  ]
 
   return (
     // Shrink only under `sm:` — see the actions pane's note (EXP-313).
@@ -69,13 +84,11 @@ export function ChatPane({
         <GlassGroup>
           <GlassPickerRow
             label="Repository"
-            value={repoId || undefined}
-            onValueChange={onRepoChange}
-            placeholder="No repository"
-            options={repos.map((repo) => ({
-              value: repo.id,
-              label: repo.fullName,
-            }))}
+            value={repoId || NO_REPO}
+            onValueChange={(value) =>
+              onRepoChange(value === NO_REPO ? `` : value)
+            }
+            options={repoOptions}
           />
         </GlassGroup>
       )}

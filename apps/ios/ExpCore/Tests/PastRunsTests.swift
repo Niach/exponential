@@ -126,6 +126,21 @@ final class PastRunsTests: XCTestCase {
         XCTAssertEqual(rows.last?.id, "s10")
     }
 
+    /// EXP-758: the SQL observation bounds the fetch, the pure filter bounds
+    /// the list — so the query has to read WIDER than the cap (Android's
+    /// `PAST_RUN_QUERY_LIMIT`), or a dropped row would shorten the section.
+    func testTheQueryReadsWiderThanTheCap() {
+        XCTAssertEqual(PastRuns.queryLimit, 50)
+        XCTAssertGreaterThan(PastRuns.queryLimit, PastRuns.cap)
+        // The cap still holds when the query hands over its full page.
+        let sessions = (0..<PastRuns.queryLimit).map { i in
+            session(id: "s\(i)", endedAt: String(format: "2026-09-01T%02d:00:00Z", i % 24))
+        }
+        XCTAssertEqual(
+            PastRuns.select(sessions, userId: "user-1", teamId: "team-1").count, PastRuns.cap
+        )
+    }
+
     func testThePastBylineNamesDeviceAgentAndWhoEndedIt() {
         XCTAssertEqual(
             PastRuns.byline(
