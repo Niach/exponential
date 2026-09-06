@@ -220,6 +220,9 @@ fn main() {
         }),
         worktrees: Arc::new(GitWorktrees),
         codex_sessions_root: None,
+        // EXP-746: this e2e locks the PTY argv, so it prepares as a host
+        // that cannot run the ACP engine.
+        acp_available: false,
         claude_projects_root: None,
         device_id: None,
         data_dir: data_dir.to_path_buf(),
@@ -240,6 +243,7 @@ fn main() {
             effort: "".to_string(),
             ultracode: false,
             plan_mode: false,
+            external: None,
         },
         resume_prompt: false,
     });
@@ -330,6 +334,11 @@ fn main() {
         ]
     );
     assert_eq!(prepared.spawn.cwd.as_deref(), Some(expected_worktree.as_path()));
+    // EXP-746: this whole argv lock is the TERMINAL transport's — the ACP
+    // arm carries no args at all, so the assertion above only keeps its
+    // meaning while the transport is Terminal.
+    assert_eq!(prepared.transport, coding::LaunchTransport::Terminal);
+    assert!(prepared.acp.is_none());
     assert_eq!(prepared.tab_title, "claude · GATE-99");
     // EXP-145: the identifier rides along so live OSC titles keep it.
     assert_eq!(prepared.tab_title_prefix, "GATE-99");

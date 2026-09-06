@@ -168,6 +168,38 @@ pub fn end_outcome_resolves(result: &Result<api::coding_sessions::CodingSession,
     }
 }
 
+/// Apply an end outcome to this registry: a RESOLVED end drops the entry,
+/// anything else keeps it for the next start's reconcile with its pid
+/// cleared (EXP-641 — the 426 min-version gate mid-deploy, a dead network).
+pub fn apply_end_outcome(
+    data_dir: &Path,
+    session_id: &str,
+    result: &Result<api::coding_sessions::CodingSession, api::ApiError>,
+) {
+    if end_outcome_resolves(result) {
+        remove(data_dir, session_id);
+        return;
+    }
+    mark_ended(data_dir, session_id);
+    if let Err(err) = result {
+        log::info!(
+            "end of coding session {session_id} did not resolve ({err}) — kept for the next start's reconcile"
+        );
+    }
+}
+
+/// EXP-746: install the process-wide [`coding::SessionEndObserver`] that
+/// applies [`apply_end_outcome`] to EVERY end the coding crate issues —
+/// desktop parity (`ui::session_registry::install_end_observer`). Call once
+/// at startup, before any session can launch: the PTY supervisor and the ACP
+/// engine both end their rows through `coding::end_session`, so this is the
+/// ONE place the CLI's registry decision lives. First caller wins.
+pub fn install_end_observer(data_dir: PathBuf) {
+    coding::set_session_end_observer(std::sync::Arc::new(move |session_id, result| {
+        apply_end_outcome(&data_dir, session_id, result);
+    }));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

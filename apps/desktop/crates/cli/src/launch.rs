@@ -102,6 +102,11 @@ pub fn coding_deps(ctx: &Ctx, seeds: HashMap<String, IssueSeed>, host: LaunchHos
         // (`attribution` prefers it) — this is only the fallback for starts
         // that name no device.
         device_id: host.device_id(ctx),
+        // EXP-746: the ACP host is not wired into the CLI yet (the engine
+        // lane owns `session_host::launch_acp`), so every launch prepares
+        // for the PTY path. Flip this to `env.runtime.is_some()` with that
+        // lane — `resolve_transport` reads it as "this host can run one".
+        acp_available: false,
         data_dir: ctx.data_dir.clone(),
     }
 }

@@ -408,6 +408,10 @@ mod tests {
             authed: None,
             account: None,
             usage_eligible: false,
+            // EXP-746: ACP readiness is non-fatal and never touches these
+            // severity rules.
+            acp: None,
+            acp_note: None,
         }
     }
 
@@ -420,6 +424,10 @@ mod tests {
             authed: None,
             account: None,
             usage_eligible: false,
+            // EXP-746: ACP readiness is non-fatal and never touches these
+            // severity rules.
+            acp: None,
+            acp_note: None,
         }
     }
 
@@ -483,6 +491,8 @@ mod tests {
             tool,
             account: None,
             usage_eligible: false,
+            acp: None,
+            acp_note: None,
         };
         let one_ok = DoctorReport {
             claude: green(Tool::Claude),

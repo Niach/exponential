@@ -541,54 +541,12 @@ pub fn refresh_device_advertisement(cx: &mut App) {
     }
 }
 
-/// The caps this build advertises for a doctor snapshot (EXP-253/EXP-257: the
-/// actions capabilities ride only while ANY agent is usable — action runs
-/// stopped being Claude-only — plus `action-inputs` for builtin +
-/// inputs-carrying starts and `fix-conflicts` for the EXP-259 builtin, whose
-/// ids a pre-EXP-259 desktop would treat as real actions and fail to fetch).
-/// EXP-481's `resume`/`worktrees`/`launch-defaults`, EXP-484's `agent-login`
-/// and EXP-679's `agent-start` are BUILD capabilities and ride even with zero
-/// runnable agents (a machine with nothing signed in is exactly the one a
-/// remote Login button targets; `agent-start` is a property of the FRAME
-/// parser, not of the agent list). Hand-synced with the CLI daemon's
-/// `DEVICE_CAPS` + `ACTION_CAPS`.
+/// EXP-746 (D9): the caps this device advertises — ONE list, owned by
+/// [`coding::doctor::DEVICE_CAPS`] + [`coding::doctor::ACTION_CAPS`] and
+/// shared with the CLI daemon. They used to be hand-synced copies, and a
+/// one-sided edit silently made one host un-targetable for the new feature.
 fn device_caps(advertisement: &coding::AgentAdvertisement) -> Vec<String> {
-    let mut caps: Vec<String> = [
-        "resume",
-        "worktrees",
-        "launch-defaults",
-        "agent-login",
-        // EXP-679: this build reads `started_reason` off a `StartSession`
-        // frame and forwards it into `codingSessions.start`, so an
-        // agent-parented start (MCP `exponential_sessions_start`) lands
-        // UNATTENDED. The server refuses one against a device lacking it.
-        "agent-start",
-    ]
-    .iter()
-    .map(|cap| cap.to_string())
-    .collect();
-    if !advertisement.agents.is_empty() {
-        caps.extend(
-            [
-                "actions",
-                "action-inputs",
-                "fix-conflicts",
-                // EXP-530: this build runs the automation host, so a trigger
-                // may be BOUND to this device. Agent-gated with the rest — an
-                // automation is an action run, and a machine with no runnable
-                // agent could only fail every firing.
-                "automations",
-                // EXP-615: this build runs the hidden `builtin:chat` action.
-                "chat",
-                // EXP-637: this build can RESUME an ended run out of its own
-                // run registry — since EXP-662 issue and batch sessions too.
-                "resume-run",
-            ]
-            .iter()
-            .map(|cap| cap.to_string()),
-        );
-    }
-    caps
+    coding::device_caps(advertisement)
 }
 
 /// Best-effort `devices.register` on the background executor (EXP-403) — the

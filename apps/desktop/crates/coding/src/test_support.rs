@@ -164,6 +164,10 @@ pub(crate) fn make_deps(base: &str, data_dir: &Path, worktrees: Arc<FakeWorktree
         codex_sessions_root: None,
         claude_projects_root: None,
         device_id: None,
+        // EXP-746: the tests' host CAN run the engine — the transport then
+        // hangs off the settings + the agent's readiness, which is what the
+        // `resolve_transport` and prepare tests exercise.
+        acp_available: true,
         data_dir: data_dir.to_path_buf(),
     }
 }

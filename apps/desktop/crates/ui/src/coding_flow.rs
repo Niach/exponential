@@ -1197,6 +1197,10 @@ pub fn build_launch(
         codex_sessions_root: None,
         claude_projects_root: None,
         device_id: Some(steer::persistent_device_id(&data_dir)),
+        // EXP-746: the desktop ACP host lands with the engine lane
+        // (`spawn_acp_into_window`); until then every launch prepares for
+        // the PTY path. Flip this to "a steer runtime exists" there.
+        acp_available: false,
         data_dir,
     };
     Some((request, deps))
@@ -1222,6 +1226,8 @@ pub fn build_batch_deps(cx: &mut App) -> Option<CodingDeps> {
         codex_sessions_root: None,
         claude_projects_root: None,
         device_id: Some(steer::persistent_device_id(&data_dir)),
+        // EXP-746: see `build_launch` above.
+        acp_available: false,
         data_dir,
     })
 }

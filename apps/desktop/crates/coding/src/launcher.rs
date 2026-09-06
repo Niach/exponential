@@ -39,7 +39,7 @@ use terminal::tab::{TabId, TabKind};
 #[cfg(feature = "gpui")]
 use terminal::TerminalManager;
 
-use crate::agent::CodingAgent;
+use crate::agent::{AgentKind, CodingAgent};
 use crate::argv::{
     session_args, AgentMcp, LaunchOptions, SessionIdentity, SessionTail, HOOK_CONFIG_ENV,
     HOOK_PORT_ENV, MCP_SESSION_ID_ENV, MCP_TOKEN_ENV, MCP_URL_ENV, OBSERVER_TOKEN_ENV,
@@ -458,6 +458,112 @@ pub struct CodingDeps {
     /// row's `device_id` and snapshots the machine's CURRENT label
     /// (EXP-549). `None` only in tests.
     pub device_id: Option<String>,
+    /// EXP-746: whether THIS host can run the ACP engine at all — a HOST
+    /// fact, not a machine one: the engine drives its connection on the
+    /// steer runtime, so a host that failed to start one (or has no engine
+    /// linked in) has nowhere to run a session. `false` keeps every launch
+    /// on the PTY path ([`resolve_transport`]) instead of preparing an argv
+    /// nothing can spawn — the decision belongs at PREPARE time, because the
+    /// two transports compose different argv.
+    pub acp_available: bool,
+}
+
+/// EXP-746: which engine runs a launch — today's terminal PTY, or the
+/// in-process ACP engine. Resolved at PREPARE time by [`resolve_transport`]
+/// (the argv differs per transport, so it can never be a spawn-time branch)
+/// and recorded on the run ([`crate::run_registry::RunRecord::transport`]) so
+/// a resume re-enters the engine that owns the conversation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LaunchTransport {
+    Terminal,
+    Acp,
+}
+
+impl LaunchTransport {
+    /// The `runs.json` value.
+    pub fn id(self) -> &'static str {
+        match self {
+            LaunchTransport::Terminal => "pty",
+            LaunchTransport::Acp => "acp",
+        }
+    }
+
+    /// Parse a recorded id; `None` for anything this build does not know (a
+    /// newer host's transport), so the caller can fall back deliberately.
+    pub fn parse(raw: &str) -> Option<LaunchTransport> {
+        match raw {
+            "pty" => Some(LaunchTransport::Terminal),
+            "acp" => Some(LaunchTransport::Acp),
+            _ => None,
+        }
+    }
+}
+
+/// EXP-746: the ONE transport decision, in precedence order:
+///
+/// 1. **A login flow is always Terminal** — signing in is each CLI's own
+///    interactive flow, grid-scraped by `steer::agent_login_driver`.
+/// 2. **A recorded transport wins** (D8): a resume re-enters the engine that
+///    holds the conversation — an ACP run has no TUI resume handle, and a PTY
+///    run has no ACP session id.
+/// 3. `Settings::start_in_terminal` — the device-global escape hatch.
+/// 4. An EXTERNAL agent is ACP-only (it has no TUI argv at all).
+/// 5. A builtin agent without ACP readiness (`ToolCheck::acp`, and the host's
+///    [`CodingDeps::acp_available`]) falls back to Terminal.
+pub fn resolve_transport(
+    settings: &Settings,
+    agent: &AgentKind,
+    login_flow: bool,
+    acp_ready: bool,
+    recorded: Option<LaunchTransport>,
+) -> LaunchTransport {
+    if login_flow {
+        return LaunchTransport::Terminal;
+    }
+    if let Some(recorded) = recorded {
+        return recorded;
+    }
+    if settings.start_in_terminal {
+        return LaunchTransport::Terminal;
+    }
+    match agent {
+        AgentKind::External(_) => LaunchTransport::Acp,
+        AgentKind::Builtin(_) if !acp_ready => LaunchTransport::Terminal,
+        AgentKind::Builtin(_) => LaunchTransport::Acp,
+    }
+}
+
+/// EXP-746: how an ACP run reopens the conversation it continues.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ResumeSeed {
+    /// The recorded ACP `sessionId` — `session/load` takes it.
+    Acp(String),
+    /// The agent's OWN id (claude's session uuid, codex's rollout id) when
+    /// the run was recorded on the PTY path.
+    Native(String),
+    /// pi resumes by FILE, not by id.
+    PiSessionFile(PathBuf),
+}
+
+/// EXP-746: everything the ACP engine needs that the PTY path expresses as
+/// argv — the prompt as TEXT (the engine sends it as a `session/prompt`
+/// message; PROMPT.md delivery is a TUI affordance and never happens here),
+/// the normalized options, the per-agent MCP posture already wired by
+/// [`wire_agent_mcp`], the `coding_sessions` row id and the resume seed.
+#[derive(Clone, Debug)]
+pub struct AcpLaunch {
+    pub prompt: Option<String>,
+    pub options: LaunchOptions,
+    pub mcp: AgentMcp,
+    pub session_id: String,
+    pub resume: Option<ResumeSeed>,
+    /// The claude `--settings <path>` file, written as an empty `{}`: NOT a
+    /// hooks sidecar (the ACP path has none) but the REAPER's only process
+    /// selection anchor — `reaper::select` matches the `claude-hooks/<pid>/`
+    /// segment in the process command line, so an ACP claude that dropped the
+    /// flag would be invisible to the quit sweep (EXP-300 all over again).
+    /// `None` for every other agent, which the reaper never anchored either.
+    pub reaper_settings_path: Option<PathBuf>,
 }
 
 /// §7.1's non-fatal "why Start coding can't run" set — each renders as a
@@ -574,8 +680,15 @@ pub struct PreparedLaunch {
     /// issue/batch sessions (their worktrees survive by design) and for
     /// runs with no worktree of their own.
     pub run_cleanup: Option<RunCleanup>,
-    /// The claude invocation in the worktree (§7.1 step 7).
+    /// The claude invocation in the worktree (§7.1 step 7). On the ACP arm
+    /// the program/cwd/env are the same and `args` is EMPTY — the adapter
+    /// composes the ACP argv itself.
     pub spawn: SpawnSpec,
+    /// EXP-746: which engine spawns this launch ([`resolve_transport`]).
+    pub transport: LaunchTransport,
+    /// EXP-746: the ACP engine's half of the spawn, `Some` iff `transport`
+    /// is [`LaunchTransport::Acp`].
+    pub acp: Option<AcpLaunch>,
     /// Tab strip default title (`claude · EXP-42` / `claude · EXP-42 +2`).
     pub tab_title: String,
     /// Issue identity re-attached to live OSC titles (EXP-145): `EXP-42` /
@@ -775,6 +888,57 @@ fn write_hook_settings(
     Some(HookFiles { settings, curl_config })
 }
 
+/// EXP-746: the ACP arm's stand-in for [`write_hook_settings`] — an EMPTY
+/// `{}` settings file at the same per-pid path. There is no hooks sidecar on
+/// this path (the engine reads `session/update` notifications instead), but
+/// claude's `--settings <path>` argv is the REAPER's only process-selection
+/// anchor (`reaper::select` matches the `claude-hooks/<pid>/` segment in the
+/// process COMMAND LINE, reaper.rs:111), so an ACP claude that dropped the
+/// flag would be invisible to the quit sweep and EXP-300's escaped processes
+/// would return. `None` for every other agent — the reaper never anchored
+/// those either (their children die with the engine's kill-on-drop guard).
+fn write_acp_reaper_anchor(
+    data_dir: &Path,
+    session_id: &str,
+    agent: &AgentKind,
+) -> Option<PathBuf> {
+    if agent.builtin() != Some(CodingAgent::Claude) {
+        return None;
+    }
+    let root = data_dir.join(HOOK_SETTINGS_DIR);
+    prune_hook_settings(&root);
+    let dir = root.join(std::process::id().to_string());
+    std::fs::create_dir_all(&dir).ok()?;
+    let segment = path_segment(session_id)?;
+    let settings = dir.join(format!("{segment}.settings.json"));
+    std::fs::write(&settings, "{}").ok()?;
+    Some(settings)
+}
+
+/// EXP-746: the launch's [`AgentKind`] — the picked external agent, else the
+/// builtin the options name.
+fn agent_kind(options: &LaunchOptions) -> AgentKind {
+    match &options.external {
+        Some(spec) => AgentKind::External(spec.clone()),
+        None => AgentKind::Builtin(options.agent),
+    }
+}
+
+/// EXP-746: can this launch actually run on the ACP engine? Both halves must
+/// hold — the AGENT speaks the protocol ([`ToolCheck::acp`], non-fatal and
+/// separate from the launch gate) and the HOST can drive one
+/// ([`CodingDeps::acp_available`]). An external agent is ACP by definition;
+/// it only needs the host.
+fn acp_ready(report: &crate::doctor::DoctorReport, agent: &AgentKind, deps: &CodingDeps) -> bool {
+    if !deps.acp_available {
+        return false;
+    }
+    match agent.builtin() {
+        Some(agent) => report.check_for(agent).acp == Some(true),
+        None => true,
+    }
+}
+
 /// Drop settings files past the TTL wherever they sit in the tree — per-pid
 /// dirs and pre-REV-20 flat files alike — and clear pid dirs that end up
 /// empty (`remove_dir` refuses non-empty ones, so a live dir is never lost).
@@ -857,12 +1021,18 @@ fn guard_agent_mcp(agent: CodingAgent, cwd: &Path) -> Result<(), CodingError> {
 /// resolve `exponential_sessions_end` (and spare a self-merged session).
 /// `None` = no session (agent shells), which keeps the pre-EXP-637 wiring
 /// byte-identical.
+///
+/// EXP-746: `transport` only reaches the pi arm — the ACP engine drives pi
+/// over its rpc mode, where the observer and plan-mode extensions have no
+/// job (their PTY-era events are what `session/update` replaces). The MCP
+/// BRIDGE is written on both paths: it is how pi reaches `/api/mcp` at all.
 fn wire_agent_mcp(
     agent: CodingAgent,
     cwd: &Path,
     base_url: &str,
     personal_key: &str,
     session_id: Option<&str>,
+    transport: LaunchTransport,
 ) -> Result<AgentMcp, CodingError> {
     match agent {
         CodingAgent::Claude => {
@@ -880,16 +1050,18 @@ fn wire_agent_mcp(
         CodingAgent::Pi => {
             write_pi_bridge(cwd)
                 .map_err(|e| CodingError::Io(format!("write .exp-pi-mcp.ts: {e}")))?;
-            // The observer extension rides along unconditionally (EXP-383):
-            // static file, inert without the EXP_OBSERVER_* env — but its
-            // absence with the env set would fail the `-e` load, so a write
-            // failure is only logged when no observer is wired anyway.
-            write_pi_observer(cwd)
-                .map_err(|e| CodingError::Io(format!("write .exp-pi-observer.ts: {e}")))?;
-            // Same posture for the plan-mode extension (EXP-441): always on
-            // the argv, inert without EXP_PI_PLAN_MODE.
-            write_pi_plan(cwd)
-                .map_err(|e| CodingError::Io(format!("write .exp-pi-plan.ts: {e}")))?;
+            if transport == LaunchTransport::Terminal {
+                // The observer extension rides along unconditionally (EXP-383):
+                // static file, inert without the EXP_OBSERVER_* env — but its
+                // absence with the env set would fail the `-e` load, so a write
+                // failure is only logged when no observer is wired anyway.
+                write_pi_observer(cwd)
+                    .map_err(|e| CodingError::Io(format!("write .exp-pi-observer.ts: {e}")))?;
+                // Same posture for the plan-mode extension (EXP-441): always on
+                // the argv, inert without EXP_PI_PLAN_MODE.
+                write_pi_plan(cwd)
+                    .map_err(|e| CodingError::Io(format!("write .exp-pi-plan.ts: {e}")))?;
+            }
             Ok(AgentMcp::PiExtension)
         }
     }
@@ -1060,6 +1232,7 @@ pub fn prepare_with_hooks(
     options.plan_mode &= !resume_prompt;
     let options = &options;
     let agent = options.agent;
+    let agent_kind = agent_kind(options);
 
     // Step 0 — the doctor gate, PER-AGENT (EXP-201: git + the SELECTED
     // agent must resolve — a missing pi never blocks a claude launch).
@@ -1071,6 +1244,16 @@ pub fn prepare_with_hooks(
             failed.clone(),
         )));
     }
+    // EXP-746: which engine runs this launch, decided HERE — the two
+    // transports compose different argv, so it can never be deferred to the
+    // spawn.
+    let transport = resolve_transport(
+        &deps.settings,
+        &agent_kind,
+        false,
+        acp_ready(&report, &agent_kind, deps),
+        None,
+    );
 
     // Step 1 — resolve the repository (the coding-first gate).
     let (repository_id, full_name) = match req {
@@ -1218,8 +1401,16 @@ pub fn prepare_with_hooks(
             unreachable!("dispatched above")
         }
     };
-    let delivery = deliver_prompt(&worktree, &clone, &rendered)
-        .map_err(|e| CodingError::Io(format!("deliver prompt: {e}")))?;
+    // EXP-746: only the TUI needs a delivery — the ACP engine sends the same
+    // rendered text as the run's first `session/prompt` message, so nothing
+    // rides the argv and no PROMPT.md is written on that arm.
+    let delivery = match transport {
+        LaunchTransport::Terminal => Some(
+            deliver_prompt(&worktree, &clone, &rendered)
+                .map_err(|e| CodingError::Io(format!("deliver prompt: {e}")))?,
+        ),
+        LaunchTransport::Acp => None,
+    };
 
     // Step 6 — the session row, BEFORE spawn (the id keys everything).
     let session = match req {
@@ -1267,6 +1458,7 @@ pub fn prepare_with_hooks(
             deps.trpc.base_url(),
             &personal_key,
             Some(&session.id),
+            transport,
         ),
     )?;
 
@@ -1340,7 +1532,11 @@ pub fn prepare_with_hooks(
             unreachable!("dispatched above")
         }
     };
-    let tail = SessionTail::Prompt(delivery.positional());
+    let tail = match &delivery {
+        Some(delivery) => SessionTail::Prompt(delivery.positional()),
+        // EXP-746: the ACP arm has no argv at all (see `args` below).
+        None => SessionTail::None,
+    };
     // EXP-389: pre-trust the clone in codex's own config — a remotely
     // started session would otherwise park forever on the TUI's
     // directory-trust screen (codex resolves a linked worktree's trust
@@ -1355,7 +1551,21 @@ pub fn prepare_with_hooks(
         // bypasses, and even a plan-mode run is one Shift+Tab from it.
         crate::claude_trust::ensure_onboarded(&worktree, true);
     }
-    let hook_settings = write_hook_settings(&deps.data_dir, &session.id, agent, hooks);
+    // EXP-746: the hooks sidecar is PTY-only — on the ACP arm the engine
+    // reads `session/update` notifications instead, and the settings file
+    // shrinks to the reaper's empty-`{}` anchor.
+    let hook_settings = match transport {
+        LaunchTransport::Terminal => {
+            write_hook_settings(&deps.data_dir, &session.id, agent, hooks)
+        }
+        LaunchTransport::Acp => None,
+    };
+    let reaper_anchor = match transport {
+        LaunchTransport::Terminal => None,
+        LaunchTransport::Acp => {
+            write_acp_reaper_anchor(&deps.data_dir, &session.id, &agent_kind)
+        }
+    };
     // EXP-443: identity minted BEFORE spawn, so the transcript pin and the
     // hook router's bound set exist from tick zero — a foreign agent sharing
     // the cwd can never be tailed into this session's feed. Always fresh
@@ -1438,21 +1648,33 @@ pub fn prepare_with_hooks(
             // `agent`-started issue/batch run is unattended too.
             started_reason: run_reason.map(str::to_string),
             resumed_from_id: None,
+            // EXP-746: which engine ran it — a resume re-enters the same one.
+            // The ACP ids land later: the engine upserts this record once
+            // `session/new` answers.
+            transport: Some(transport.id().to_string()),
+            acp_session_id: None,
+            agent_native_session_id: None,
+            external_agent: options.external.clone(),
             recorded_at: crate::run_registry::now_secs(),
             extra: BTreeMap::new(),
         },
     );
 
-    let args = session_args(
-        options,
-        &agent_mcp,
-        hook_settings.as_ref().map(|files| files.settings.as_path()),
-        SessionIdentity {
-            claude_session_id: claude_session_id.as_deref(),
-            pi_session_file: pi_session.as_deref(),
-        },
-        tail,
-    );
+    // EXP-746: the TUI argv, or NOTHING — the ACP adapter composes its own
+    // (stream-json / app-server / rpc) from `AcpLaunch` below.
+    let args = match transport {
+        LaunchTransport::Terminal => session_args(
+            options,
+            &agent_mcp,
+            hook_settings.as_ref().map(|files| files.settings.as_path()),
+            SessionIdentity {
+                claude_session_id: claude_session_id.as_deref(),
+                pi_session_file: pi_session.as_deref(),
+            },
+            tail,
+        ),
+        LaunchTransport::Acp => Vec::new(),
+    };
     let tab_title = format!("{} · {tab_title_prefix}", agent.id());
     let mut spawn = SpawnSpec::new(&deps.settings.resolved_path_for(agent))
         .args(args)
@@ -1477,9 +1699,14 @@ pub fn prepare_with_hooks(
         &personal_key,
         Some(&session.id),
     );
-    spawn = apply_hook_env(spawn, hooks, hook_settings.as_ref());
-    spawn = apply_observer_env(spawn, agent, observer);
-    spawn = apply_pi_plan_env(spawn, agent, options.plan_mode);
+    // EXP-746: every sidecar env is PTY-era wiring (the hook curl config, the
+    // pi observer, the pi plan-mode gate) and stays off the ACP arm; the MCP
+    // env above is NOT — it is how codex and pi reach `/api/mcp` either way.
+    if transport == LaunchTransport::Terminal {
+        spawn = apply_hook_env(spawn, hooks, hook_settings.as_ref());
+        spawn = apply_observer_env(spawn, agent, observer);
+        spawn = apply_pi_plan_env(spawn, agent, options.plan_mode);
+    }
     if let Some(originator) = &codex_originator {
         spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
     }
@@ -1527,6 +1754,9 @@ pub fn prepare_with_hooks(
         }
     };
 
+    // The row id the ACP arm hands the engine (the literal below moves
+    // `session.id` into the launch).
+    let session_id_for_acp = session.id.clone();
     Ok(Prepared::Ready(PreparedLaunch {
         session_id: session.id,
         issue_identifier,
@@ -1543,6 +1773,17 @@ pub fn prepare_with_hooks(
         tab_title,
         tab_title_prefix,
         heartbeat_scope,
+        transport,
+        acp: (transport == LaunchTransport::Acp).then(|| AcpLaunch {
+            prompt: Some(rendered.clone()),
+            options: options.clone(),
+            mcp: agent_mcp.clone(),
+            session_id: session_id_for_acp.clone(),
+            // A fresh session has nothing to reopen (EXP-662: an exact
+            // relaunch is `prepare_resume_run`'s).
+            resume: None,
+            reaper_settings_path: reaper_anchor.clone(),
+        }),
         tab_kind: TabKind::Claude,
         bypass_permissions: agent != CodingAgent::Pi && !options.plan_mode,
         plan_mode: options.plan_mode,
@@ -1666,6 +1907,15 @@ fn prepare_action(
             )));
         }
     }
+    // EXP-746: an action run picks its engine exactly like a session run.
+    let agent_kind = agent_kind(&options);
+    let transport = resolve_transport(
+        &deps.settings,
+        &agent_kind,
+        false,
+        acp_ready(&report, &agent_kind, deps),
+        None,
+    );
 
     // §7.2 — the personal key (the MCP credential), raced like a session's.
     let key_handle = {
@@ -1948,12 +2198,14 @@ fn prepare_action(
     };
     // EXP-637: the PROMPT.md exclude belongs in the CLONE's shared
     // `.git/info/exclude` — a run worktree has no `.git` dir of its own.
-    let delivery = match &rendered {
-        Some(rendered) => Some(
+    // EXP-746: on the ACP arm the rendered text becomes the run's first
+    // `session/prompt` message instead of an argv positional / PROMPT.md.
+    let delivery = match (&rendered, transport) {
+        (Some(rendered), LaunchTransport::Terminal) => Some(
             deliver_prompt(&cwd, trunk_clone.as_deref().unwrap_or(&cwd), rendered)
                 .map_err(|e| CodingError::Io(format!("deliver prompt: {e}")))?,
         ),
-        None => None,
+        _ => None,
     };
 
     // Step 4 — the session row, BEFORE spawn. Only the builtin literals
@@ -1991,6 +2243,7 @@ fn prepare_action(
             deps.trpc.base_url(),
             &personal_key,
             Some(&session.id),
+            transport,
         ),
     )?;
 
@@ -2015,7 +2268,20 @@ fn prepare_action(
     if agent == CodingAgent::Claude {
         crate::claude_trust::ensure_onboarded(&cwd, true);
     }
-    let hook_settings = write_hook_settings(&deps.data_dir, &session.id, agent, hooks);
+    // EXP-746: PTY-only sidecar files; the ACP arm keeps only the reaper's
+    // empty-`{}` claude anchor (see [`write_acp_reaper_anchor`]).
+    let hook_settings = match transport {
+        LaunchTransport::Terminal => {
+            write_hook_settings(&deps.data_dir, &session.id, agent, hooks)
+        }
+        LaunchTransport::Acp => None,
+    };
+    let reaper_anchor = match transport {
+        LaunchTransport::Terminal => None,
+        LaunchTransport::Acp => {
+            write_acp_reaper_anchor(&deps.data_dir, &session.id, &agent_kind)
+        }
+    };
     // EXP-443: action runs mint identities like a session — they share the
     // trunk-clone cwd with each other and with agent shells, exactly the
     // collision the pin/originator disambiguate. Always fresh (no resume).
@@ -2026,20 +2292,24 @@ fn prepare_action(
     let pi_session = (agent == CodingAgent::Pi)
         .then(|| pi_session_file(&deps.data_dir, &session.id))
         .flatten();
-    let args = session_args(
-        &options,
-        &agent_mcp,
-        hook_settings.as_ref().map(|files| files.settings.as_path()),
-        SessionIdentity {
-            claude_session_id: claude_session_id.as_deref(),
-            pi_session_file: pi_session.as_deref(),
-        },
-        match &delivery {
-            Some(delivery) => SessionTail::Prompt(delivery.positional()),
-            // EXP-703: the promptless chat — the agent waits for input.
-            None => SessionTail::None,
-        },
-    );
+    let args = match transport {
+        LaunchTransport::Terminal => session_args(
+            &options,
+            &agent_mcp,
+            hook_settings.as_ref().map(|files| files.settings.as_path()),
+            SessionIdentity {
+                claude_session_id: claude_session_id.as_deref(),
+                pi_session_file: pi_session.as_deref(),
+            },
+            match &delivery {
+                Some(delivery) => SessionTail::Prompt(delivery.positional()),
+                // EXP-703: the promptless chat — the agent waits for input.
+                None => SessionTail::None,
+            },
+        ),
+        // EXP-746: the ACP adapter composes its own argv.
+        LaunchTransport::Acp => Vec::new(),
+    };
     // EXP-615: a chat tab is named after the REPO it opened on — every chat
     // carries the same action name ("Chat"), so `action · Chat` would make a
     // strip of them unreadable.
@@ -2064,9 +2334,12 @@ fn prepare_action(
         &personal_key,
         Some(&session.id),
     );
-    spawn = apply_hook_env(spawn, hooks, hook_settings.as_ref());
-    spawn = apply_observer_env(spawn, agent, observer);
-    spawn = apply_pi_plan_env(spawn, agent, options.plan_mode);
+    // EXP-746: PTY-era sidecar env only (see the session skeleton).
+    if transport == LaunchTransport::Terminal {
+        spawn = apply_hook_env(spawn, hooks, hook_settings.as_ref());
+        spawn = apply_observer_env(spawn, agent, observer);
+        spawn = apply_pi_plan_env(spawn, agent, options.plan_mode);
+    }
     if let Some(originator) = &codex_originator {
         spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
     }
@@ -2166,11 +2439,17 @@ fn prepare_action(
             },
             started_reason: run_reason.map(str::to_string),
             resumed_from_id: None,
+            // EXP-746: same transport record as a session run.
+            transport: Some(transport.id().to_string()),
+            acp_session_id: None,
+            agent_native_session_id: None,
+            external_agent: options.external.clone(),
             recorded_at: crate::run_registry::now_secs(),
             extra: BTreeMap::new(),
         },
     );
 
+    let session_id_for_acp = session.id.clone();
     Ok(Prepared::Ready(PreparedLaunch {
         session_id: session.id,
         issue_identifier: req.action_name.clone(),
@@ -2207,6 +2486,15 @@ fn prepare_action(
             branch: run_branch.clone(),
             agent: Some(agent.id().to_string()),
         },
+        transport,
+        acp: (transport == LaunchTransport::Acp).then(|| AcpLaunch {
+            prompt: rendered.clone(),
+            options: options.clone(),
+            mcp: agent_mcp.clone(),
+            session_id: session_id_for_acp.clone(),
+            resume: None,
+            reaper_settings_path: reaper_anchor.clone(),
+        }),
         tab_kind: TabKind::Action(req.action_id.clone()),
         bypass_permissions: agent != CodingAgent::Pi && !options.plan_mode,
         plan_mode: options.plan_mode,
@@ -2229,8 +2517,10 @@ fn munge_claude_project_dir(path: &Path) -> String {
         .collect()
 }
 
-/// `~/.claude/projects` unless the caller injected a fixture root.
-fn claude_projects_root(deps: &CodingDeps) -> Option<PathBuf> {
+/// `~/.claude/projects` unless the caller injected a fixture root. EXP-746:
+/// `pub` because the ACP engine replays a claude transcript from the same
+/// tree (Past → Replay) and must resolve it exactly as the resume probe does.
+pub fn claude_projects_root(deps: &CodingDeps) -> Option<PathBuf> {
     if let Some(root) = &deps.claude_projects_root {
         return Some(root.clone());
     }
@@ -2244,8 +2534,9 @@ fn claude_projects_root(deps: &CodingDeps) -> Option<PathBuf> {
 /// directory names (~200 chars) and appends a short hash instead, so a miss
 /// falls back to scanning every project directory for `<session_id>.jsonl`
 /// — the uuid is unique, so the first hit IS the transcript. Never depend on
-/// claude's naming rule beyond the fast path.
-fn claude_transcript_exists(deps: &CodingDeps, cwd: &Path, session_id: &str) -> bool {
+/// claude's naming rule beyond the fast path. EXP-746: `pub` for the engine's
+/// replay, like [`claude_projects_root`] above.
+pub fn claude_transcript_exists(deps: &CodingDeps, cwd: &Path, session_id: &str) -> bool {
     let Some(root) = claude_projects_root(deps) else {
         return false;
     };
@@ -2295,6 +2586,7 @@ fn prepare_resume_run(
         ultracode: record.ultracode,
         // The plan already happened in the run being continued.
         plan_mode: false,
+        external: None,
     };
 
     // Step 0 — doctor: the RECORDED agent (a resume never switches agents),
@@ -2311,6 +2603,18 @@ fn prepare_resume_run(
             failed.clone(),
         )));
     }
+    // EXP-746 (D8): a resume re-enters the RECORDED engine — an ACP run has
+    // no TUI resume handle and a PTY run has no ACP session id, so the
+    // record beats the setting. A pre-746 record (no `transport`) resumes
+    // into the terminal, which is where it ran.
+    let agent_kind = agent_kind(&options);
+    let transport = resolve_transport(
+        &deps.settings,
+        &agent_kind,
+        false,
+        acp_ready(&report, &agent_kind, deps),
+        Some(record.transport()),
+    );
 
     // Step 1 — the workspace. A scratch dir the user cleared, or a worktree
     // the prune reclaimed, is a hard stop: there is nothing to resume INTO
@@ -2420,11 +2724,11 @@ fn prepare_resume_run(
     // (`agent` — another coding session resumed this run); a person's resume
     // stays open like any other person-started run.
     let run_reason = started_reason(&req.origin, None);
-    let delivery = if native_resume {
+    let rendered = if native_resume {
         let _ = std::fs::remove_file(cwd.join(PROMPT_FILE));
         None
     } else {
-        let rendered = match record.kind {
+        Some(match record.kind {
             RunKind::Issue => {
                 let identifier = record.issue_identifier.as_deref().unwrap_or_default();
                 let seed = record
@@ -2438,11 +2742,16 @@ fn prepare_resume_run(
                 render_resume_prompt(identifier, title, &default_branch, run_reason.is_some())
             }
             _ => render_run_resume_prompt(record, run_reason.is_some()),
-        };
-        Some(
-            deliver_prompt(&cwd, record.clone.as_deref().unwrap_or(&cwd), &rendered)
+        })
+    };
+    // EXP-746: the ACP arm sends the same text as a message instead (the
+    // engine takes it off [`AcpLaunch::prompt`]), so nothing is delivered.
+    let delivery = match (&rendered, transport) {
+        (Some(rendered), LaunchTransport::Terminal) => Some(
+            deliver_prompt(&cwd, record.clone.as_deref().unwrap_or(&cwd), rendered)
                 .map_err(|e| CodingError::Io(format!("deliver prompt: {e}")))?,
-        )
+        ),
+        _ => None,
     };
 
     let personal_key = key_handle
@@ -2505,6 +2814,7 @@ fn prepare_resume_run(
             deps.trpc.base_url(),
             &personal_key,
             Some(&session.id),
+            transport,
         ),
     )?;
     let _ = crate::worktree_agents::record_worktree_agent(&cwd, agent);
@@ -2521,7 +2831,19 @@ fn prepare_resume_run(
     if agent == CodingAgent::Claude {
         crate::claude_trust::ensure_onboarded(&cwd, true);
     }
-    let hook_settings = write_hook_settings(&deps.data_dir, &session.id, agent, hooks);
+    // EXP-746: PTY-only, like the two paths above.
+    let hook_settings = match transport {
+        LaunchTransport::Terminal => {
+            write_hook_settings(&deps.data_dir, &session.id, agent, hooks)
+        }
+        LaunchTransport::Acp => None,
+    };
+    let reaper_anchor = match transport {
+        LaunchTransport::Terminal => None,
+        LaunchTransport::Acp => {
+            write_acp_reaper_anchor(&deps.data_dir, &session.id, &agent_kind)
+        }
+    };
     // A native claude resume keeps the recorded conversation's id; anything
     // else mints a fresh pin.
     let claude_session_id = (agent == CodingAgent::Claude && claude_resume_id.is_none())
@@ -2542,16 +2864,20 @@ fn prepare_resume_run(
         // pi resumes purely through `--session <recorded file>`.
         (None, None, None) => SessionTail::None,
     };
-    let args = session_args(
-        &options,
-        &agent_mcp,
-        hook_settings.as_ref().map(|files| files.settings.as_path()),
-        SessionIdentity {
-            claude_session_id: claude_session_id.as_deref(),
-            pi_session_file: pi_session.as_deref(),
-        },
-        tail,
-    );
+    let args = match transport {
+        LaunchTransport::Terminal => session_args(
+            &options,
+            &agent_mcp,
+            hook_settings.as_ref().map(|files| files.settings.as_path()),
+            SessionIdentity {
+                claude_session_id: claude_session_id.as_deref(),
+                pi_session_file: pi_session.as_deref(),
+            },
+            tail,
+        ),
+        // EXP-746: the ACP adapter composes its own argv.
+        LaunchTransport::Acp => Vec::new(),
+    };
     // EXP-662: a resumed SESSION is titled like a fresh one (`claude ·
     // EXP-42` / `claude · EXP-42 +1`) — the strip must not tell a resume
     // apart from the launch it continues.
@@ -2571,8 +2897,11 @@ fn prepare_resume_run(
         &personal_key,
         Some(&session.id),
     );
-    spawn = apply_hook_env(spawn, hooks, hook_settings.as_ref());
-    spawn = apply_observer_env(spawn, agent, observer);
+    // EXP-746: PTY-era sidecar env only.
+    if transport == LaunchTransport::Terminal {
+        spawn = apply_hook_env(spawn, hooks, hook_settings.as_ref());
+        spawn = apply_observer_env(spawn, agent, observer);
+    }
     if let Some(originator) = &codex_originator {
         spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
     }
@@ -2611,6 +2940,13 @@ fn prepare_resume_run(
             effort: options.effort.clone(),
             started_reason: run_reason.map(str::to_string),
             resumed_from_id: Some(record.session_id.clone()),
+            // EXP-746: the transport this resume actually re-entered. The
+            // ACP ids are the ENGINE's to upsert once `session/load` (or
+            // `session/new`) answers — the recorded ones belong to the run
+            // being continued, not to this one.
+            transport: Some(transport.id().to_string()),
+            acp_session_id: None,
+            agent_native_session_id: None,
             recorded_at: crate::run_registry::now_secs(),
             ..record.clone()
         },
@@ -2668,6 +3004,18 @@ fn prepare_resume_run(
         _ => TabKind::Action(record.action_id.clone()),
     };
 
+    // EXP-746 (D8): how the ACP engine reopens the conversation — the
+    // recorded ACP session id when the run WAS an ACP run, else the agent's
+    // own handle (a PTY-recorded run the engine loads natively).
+    let acp_resume = match record.transport() {
+        LaunchTransport::Acp => record.acp_session_id.clone().map(ResumeSeed::Acp),
+        LaunchTransport::Terminal => claude_resume_id
+            .clone()
+            .or_else(|| codex_resume_id.clone())
+            .map(ResumeSeed::Native)
+            .or_else(|| pi_resume_file.clone().map(ResumeSeed::PiSessionFile)),
+    };
+    let session_id_for_acp = session.id.clone();
     Ok(Prepared::Ready(PreparedLaunch {
         session_id: session.id,
         issue_identifier,
@@ -2683,6 +3031,15 @@ fn prepare_resume_run(
         tab_title,
         tab_title_prefix: tab_prefix,
         heartbeat_scope,
+        transport,
+        acp: (transport == LaunchTransport::Acp).then(|| AcpLaunch {
+            prompt: rendered.clone(),
+            options: options.clone(),
+            mcp: agent_mcp.clone(),
+            session_id: session_id_for_acp.clone(),
+            resume: acp_resume.clone(),
+            reaper_settings_path: reaper_anchor.clone(),
+        }),
         tab_kind,
         bypass_permissions: agent != CodingAgent::Pi,
         plan_mode: false,
@@ -2807,7 +3164,15 @@ pub fn prepare_agent_shell(
     let personal_key = key_handle
         .join()
         .map_err(|_| CodingError::Io("personal-key thread panicked".to_string()))??;
-    let agent_mcp = wire_agent_mcp(agent, &cwd, deps.trpc.base_url(), &personal_key, None)?;
+    let agent_mcp = wire_agent_mcp(
+        agent,
+        &cwd,
+        deps.trpc.base_url(),
+        &personal_key,
+        None,
+        // EXP-746: an agent shell is a TERMINAL tab by definition (EXP-325).
+        LaunchTransport::Terminal,
+    )?;
 
     // The spawn spec: no prompt, no hooks sidecar (hooks are per-session —
     // there is no session row to scope one to). EXP-389: same codex
@@ -2895,6 +3260,47 @@ fn agent_shell_tab_title(agent: CodingAgent, req: &AgentShellRequest, cwd: &Path
     format!("{} · {label}", agent.id())
 }
 
+/// EXP-746: the live handle on a session's heartbeat thread. DROP it (on the
+/// child-exit edge, a spawn failure, a teardown) and the thread ends — the
+/// channel it waits on disconnects.
+pub struct HeartbeatStop(#[allow(dead_code)] std::sync::mpsc::Sender<()>);
+
+/// Liveness heartbeat for a live `coding_sessions` row: the server's
+/// staleness sweep deletes `running` rows whose `updated_at` stopped
+/// advancing, so a long-lived session (an IDE tab open over a weekend, a
+/// multi-issue batch run) must keep pinging or it loses its badge and its
+/// steerability. Best-effort by design — a failed ping is at worst a swept
+/// badge, never a killed process (the sweep deletes the row; it never flips
+/// it to `ended`, which is the kill-switch signal).
+///
+/// EXP-701: the FIRST beat fires IMMEDIATELY — it stamps the row's
+/// `acked_at` (the server coalesces it on every heartbeat), so a remote
+/// starter can tell "agent spawned" from "row created, then the machine
+/// died" within seconds instead of after the first 30-minute interval.
+///
+/// EXP-746: gpui-free and extracted from [`spawn_prepared_with`] so all
+/// THREE hosts share one implementation — the desktop PTY tab, the CLI's
+/// `session_host`, and the ACP engine's lifecycle.
+pub fn start_heartbeat(
+    trpc: Arc<TrpcClient>,
+    session_id: String,
+    scope: coding_sessions::HeartbeatScope,
+) -> HeartbeatStop {
+    let (stop, stopped) = std::sync::mpsc::channel::<()>();
+    std::thread::spawn(move || {
+        let _ = coding_sessions::heartbeat(&trpc, &session_id, Some(&scope));
+        loop {
+            match stopped.recv_timeout(SESSION_HEARTBEAT_INTERVAL) {
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    let _ = coding_sessions::heartbeat(&trpc, &session_id, Some(&scope));
+                }
+                _ => return,
+            }
+        }
+    });
+    HeartbeatStop(stop)
+}
+
 /// Foreground follow-up to the child-exit edge (§7.5): the ui layer passes
 /// one of these into [`spawn_prepared_with`] to flip its play↔stop state /
 /// clear its local-session registry / detach the steer publisher when the
@@ -2942,37 +3348,9 @@ pub fn spawn_prepared_with(
         tab_kind, ..
     } = prepared;
 
-    // Liveness heartbeat: the server's staleness sweep deletes `running`
-    // rows whose `updated_at` stopped advancing, so a long-lived session (an
-    // IDE tab open over a weekend, a multi-issue batch run) must keep
-    // pinging or it loses its badge and steerability. The stop sender rides
-    // the exit hook: when the hook fires (child exited) or is dropped (spawn
-    // failure, tab teardown) the channel disconnects and the thread ends.
-    // Best-effort by design — a failed ping is at worst a swept badge, never
-    // a killed process (the sweep deletes the row; it never flips it to
-    // `ended`, which is the kill-switch signal).
-    let (heartbeat_stop, heartbeat_stopped) = std::sync::mpsc::channel::<()>();
-    {
-        let trpc = Arc::clone(&trpc);
-        let session_id = session_id.clone();
-        std::thread::spawn(move || {
-            // EXP-701: the FIRST beat fires immediately — it stamps the row's
-            // `acked_at` (the server coalesces it on every heartbeat), so a
-            // remote starter can tell "agent spawned" from "row created, then
-            // the machine died" within seconds instead of after the first
-            // 30-minute interval.
-            let _ = coding_sessions::heartbeat(&trpc, &session_id, Some(&heartbeat_scope));
-            loop {
-                match heartbeat_stopped.recv_timeout(SESSION_HEARTBEAT_INTERVAL) {
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                        let _ =
-                            coding_sessions::heartbeat(&trpc, &session_id, Some(&heartbeat_scope));
-                    }
-                    _ => return,
-                }
-            }
-        });
-    }
+    // Liveness heartbeat — [`start_heartbeat`]; the stop handle rides the
+    // exit hook below, so the thread ends with the child.
+    let heartbeat_stop = start_heartbeat(Arc::clone(&trpc), session_id.clone(), heartbeat_scope);
 
     let end_session_id = session_id.clone();
     let exit_trpc = Arc::clone(&trpc);
@@ -3097,9 +3475,247 @@ mod tests {
                 effort: "".to_string(),
                 ultracode: false,
                 plan_mode: true,
+                external: None,
             },
             resume_prompt: false,
         }
+    }
+
+    // ---- EXP-746: the transport decision ----
+
+    fn external_spec() -> crate::settings::ExternalAgentSpec {
+        crate::settings::ExternalAgentSpec {
+            id: "acme".to_string(),
+            label: "Acme ACP".to_string(),
+            command: "acme".to_string(),
+            ..Default::default()
+        }
+    }
+
+    /// The whole precedence order in one place: a login flow and a recorded
+    /// transport beat the setting, the setting beats readiness, an external
+    /// agent is ACP-only, and a builtin without readiness falls back.
+    #[test]
+    fn resolve_transport_matrix() {
+        let engine = Settings::default();
+        let mut terminal = Settings::default();
+        terminal.start_in_terminal = true;
+        let claude = AgentKind::Builtin(CodingAgent::Claude);
+        let external = AgentKind::External(external_spec());
+
+        // 1. Signing in is always the CLI's own interactive flow.
+        assert_eq!(
+            resolve_transport(&engine, &claude, true, true, None),
+            LaunchTransport::Terminal
+        );
+        assert_eq!(
+            resolve_transport(&engine, &external, true, true, None),
+            LaunchTransport::Terminal
+        );
+
+        // 2. A recorded transport wins over the setting, both ways (D8).
+        assert_eq!(
+            resolve_transport(&terminal, &claude, false, true, Some(LaunchTransport::Acp)),
+            LaunchTransport::Acp
+        );
+        assert_eq!(
+            resolve_transport(
+                &engine,
+                &claude,
+                false,
+                true,
+                Some(LaunchTransport::Terminal)
+            ),
+            LaunchTransport::Terminal
+        );
+
+        // 3. The device-global escape hatch.
+        assert_eq!(
+            resolve_transport(&terminal, &claude, false, true, None),
+            LaunchTransport::Terminal
+        );
+        assert_eq!(
+            resolve_transport(&terminal, &external, false, true, None),
+            LaunchTransport::Terminal
+        );
+
+        // 4/5. Readiness decides for a builtin; an external agent has no TUI
+        // path at all, so it is ACP whenever the host can run one.
+        assert_eq!(
+            resolve_transport(&engine, &claude, false, false, None),
+            LaunchTransport::Terminal
+        );
+        assert_eq!(
+            resolve_transport(&engine, &claude, false, true, None),
+            LaunchTransport::Acp
+        );
+        assert_eq!(
+            resolve_transport(&engine, &external, false, false, None),
+            LaunchTransport::Acp
+        );
+
+        // The recorded ids round-trip through runs.json.
+        assert_eq!(LaunchTransport::parse("acp"), Some(LaunchTransport::Acp));
+        assert_eq!(
+            LaunchTransport::parse("pty"),
+            Some(LaunchTransport::Terminal)
+        );
+        assert_eq!(LaunchTransport::parse("quantum"), None);
+    }
+
+    /// A stub `claude` that answers `--version` with an ACP-ready version and
+    /// nothing else — the doctor then reports `acp: Some(true)` without any
+    /// real CLI on the machine.
+    #[cfg(unix)]
+    fn acp_ready_claude_stub(dir: &Path) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let stub = dir.join("bin").join("claude-acp-stub");
+        fs::create_dir_all(stub.parent().unwrap()).unwrap();
+        fs::write(
+            &stub,
+            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo '9.9.9 (Claude Code stub)'; exit 0; fi\nexit 0\n",
+        )
+        .unwrap();
+        fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+        stub
+    }
+
+    /// EXP-746: with the escape hatch on, an ACP-READY claude still prepares
+    /// the byte-identical TUI argv (`tests/dry_run.rs` locks the vector) and
+    /// carries no ACP half at all.
+    #[cfg(unix)]
+    #[test]
+    fn prepare_under_start_in_terminal_keeps_the_terminal_launch() {
+        let dir = temp_dir("transport-terminal");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let base = canned_server(vec![
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (200, START_OK.to_string()),
+        ]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: worktree.clone(),
+            seen: Default::default(),
+        });
+        let mut deps = make_deps(&base, &dir.0, worktrees);
+        deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
+        deps.settings.start_in_terminal = true;
+
+        let prepared = match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        assert_eq!(prepared.transport, LaunchTransport::Terminal);
+        assert!(prepared.acp.is_none());
+        assert_eq!(prepared.spawn.args[..2], ["--model", "fable"]);
+        assert!(prepared
+            .spawn
+            .args
+            .windows(2)
+            .any(|pair| pair == ["--mcp-config", ".exp-mcp.json"]));
+        // The prompt still rides the argv positional-last.
+        assert!(prepared.spawn.args.last().unwrap().contains("EXP-42"));
+    }
+
+    /// EXP-746: the ACP arm carries NO argv — the prompt is a message, the
+    /// hooks sidecar is gone, and the only file left behind is the reaper's
+    /// empty `{}` anchor (reaper.rs:111 matches it in the command line).
+    #[cfg(unix)]
+    #[test]
+    fn prepare_on_the_acp_arm_has_no_argv_and_keeps_the_reaper_anchor() {
+        let dir = temp_dir("transport-acp");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let base = canned_server(vec![
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (200, START_OK.to_string()),
+        ]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: worktree.clone(),
+            seen: Default::default(),
+        });
+        let mut deps = make_deps(&base, &dir.0, worktrees);
+        deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
+
+        let prepared = match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        assert_eq!(prepared.transport, LaunchTransport::Acp);
+        assert!(prepared.spawn.args.is_empty(), "{:?}", prepared.spawn.args);
+        let acp = prepared.acp.as_ref().expect("the ACP half");
+        assert_eq!(acp.session_id, "sess-1");
+        assert!(acp.prompt.as_deref().unwrap().contains("EXP-42"));
+        assert_eq!(acp.mcp, AgentMcp::ClaudeFile);
+        assert!(acp.resume.is_none());
+        // No PROMPT.md and no hooks/curl files — but the anchor is written.
+        assert!(!worktree.join(PROMPT_FILE).exists());
+        let anchor = acp.reaper_settings_path.as_ref().expect("reaper anchor");
+        assert_eq!(fs::read_to_string(anchor).unwrap(), "{}");
+        assert!(
+            anchor.starts_with(dir.0.join("claude-hooks")),
+            "the anchor must sit under the marker dir: {anchor:?}"
+        );
+        assert!(!anchor.with_extension("cfg").exists(), "no curl config");
+        // The record says which engine ran it, so the resume re-enters it.
+        let record = crate::run_registry::get(&dir.0, "sess-1").expect("record");
+        assert_eq!(record.transport(), LaunchTransport::Acp);
+        assert_eq!(record.acp_session_id, None, "the engine upserts it");
+    }
+
+    /// EXP-746 (D8): a run recorded on the ACP path resumes into the ACP
+    /// engine, seeded with the recorded `session/load` handle.
+    #[test]
+    fn an_acp_resume_prepares_with_the_recorded_acp_session_id() {
+        let dir = temp_dir("resume-acp");
+        let base = canned_server(vec![(200, START_ACTION_OK.to_string())]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+        let mut record = resume_record(&dir.0, "sess-old");
+        record.transport = Some("acp".to_string());
+        record.acp_session_id = Some("acp-42".to_string());
+        // The PTY-side pin is present too and must NOT win.
+        record.claude_session_id = Some("claude-1".to_string());
+
+        let prepared =
+            match prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps).unwrap() {
+                Prepared::Ready(prepared) => prepared,
+                other => panic!("expected Ready, got {other:?}"),
+            };
+        assert_eq!(prepared.transport, LaunchTransport::Acp);
+        assert!(prepared.spawn.args.is_empty());
+        let acp = prepared.acp.as_ref().expect("the ACP half");
+        assert_eq!(acp.resume, Some(ResumeSeed::Acp("acp-42".to_string())));
+    }
+
+    /// EXP-746 (D8): every pre-746 record (no `transport`) resumes into the
+    /// terminal — where it ran, and the only engine holding a handle on it.
+    #[test]
+    fn a_pre_746_record_resumes_into_the_terminal() {
+        let dir = temp_dir("resume-pre746");
+        let base = canned_server(vec![(200, START_ACTION_OK.to_string())]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+        let record = resume_record(&dir.0, "sess-old");
+        assert_eq!(record.transport, None, "the pre-746 shape");
+        assert_eq!(record.transport(), LaunchTransport::Terminal);
+
+        let prepared =
+            match prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps).unwrap() {
+                Prepared::Ready(prepared) => prepared,
+                other => panic!("expected Ready, got {other:?}"),
+            };
+        assert_eq!(prepared.transport, LaunchTransport::Terminal);
+        assert!(prepared.acp.is_none());
+        assert!(!prepared.spawn.args.is_empty());
     }
 
     /// EXP-474: the write-site guard — a repo whose committed `.gitignore`
@@ -3128,7 +3744,7 @@ mod tests {
         git(&["add", "."]);
         git(&["commit", "--quiet", "-m", "reinclude"]);
 
-        let err = wire_agent_mcp(CodingAgent::Claude, &repo, "http://localhost:1", "expu_x", None)
+        let err = wire_agent_mcp(CodingAgent::Claude, &repo, "http://localhost:1", "expu_x", None, LaunchTransport::Terminal)
             .unwrap_err();
         assert!(matches!(err, CodingError::Git(_)), "wrong error: {err:?}");
         assert!(!repo.join(crate::mcp_json::MCP_JSON_FILE).exists(), "key landed on disk");
@@ -3140,7 +3756,7 @@ mod tests {
     #[test]
     fn wire_agent_mcp_writes_the_key_file_in_a_repo_less_scratch_dir() {
         let dir = temp_dir("mcp-scratch");
-        let wired = wire_agent_mcp(CodingAgent::Claude, &dir.0, "http://localhost:1", "expu_x", None)
+        let wired = wire_agent_mcp(CodingAgent::Claude, &dir.0, "http://localhost:1", "expu_x", None, LaunchTransport::Terminal)
             .unwrap();
         assert_eq!(wired, AgentMcp::ClaudeFile);
         assert!(dir.0.join(crate::mcp_json::MCP_JSON_FILE).exists());
@@ -3153,6 +3769,7 @@ mod tests {
             effort: "high".to_string(),
             ultracode: true,
             plan_mode: false,
+            external: None,
         }
     }
 
@@ -3322,6 +3939,7 @@ mod tests {
                 effort: String::new(),
                 ultracode: false,
                 plan_mode: false,
+                external: None,
             },
         }
     }
@@ -3531,6 +4149,9 @@ mod tests {
         });
         let mut deps = make_deps(&base, &dir.0, worktrees);
         deps.settings.codex_path = "git".to_string(); // runnable stub
+        // EXP-746: this test pins the TUI argv, so it launches on the
+        // terminal transport (a runnable codex/pi reads as ACP-ready).
+        deps.settings.start_in_terminal = true;
         let mut req = action_request();
         req.options = LaunchOptions {
             agent: CodingAgent::Codex,
@@ -3538,6 +4159,7 @@ mod tests {
             effort: "high".to_string(),
             ultracode: false,
             plan_mode: false,
+            external: None,
         };
 
         let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
@@ -3586,6 +4208,9 @@ mod tests {
         });
         let mut deps = make_deps(&base, &dir.0, worktrees);
         deps.settings.pi_path = "git".to_string(); // runnable stub
+        // EXP-746: this test pins the TUI argv, so it launches on the
+        // terminal transport (a runnable codex/pi reads as ACP-ready).
+        deps.settings.start_in_terminal = true;
         // EXP-409: the pi auth gate checks credential presence (auth.json or
         // a provider env key) — CI runners have neither, so satisfy the real
         // probe the way a real pi setup would.
@@ -3597,6 +4222,7 @@ mod tests {
             effort: String::new(),
             ultracode: false,
             plan_mode: false,
+            external: None,
         };
 
         let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
@@ -3759,6 +4385,9 @@ mod tests {
         });
         let mut deps = make_deps(&base, &dir.0, worktrees);
         deps.settings.codex_path = "git".to_string(); // runnable stub
+        // EXP-746: this test pins the TUI argv, so it launches on the
+        // terminal transport (a runnable codex/pi reads as ACP-ready).
+        deps.settings.start_in_terminal = true;
         let mut req = request("EXP-42");
         req.options = LaunchOptions {
             agent: CodingAgent::Codex,
@@ -3766,6 +4395,7 @@ mod tests {
             effort: String::new(),
             ultracode: false,
             plan_mode: false,
+            external: None,
         };
         let hooks = hook_setup();
         let prepared =
@@ -4417,6 +5047,10 @@ mod tests {
             resumed_from_id: None,
             recorded_at: crate::run_registry::now_secs(),
             extra: BTreeMap::new(),
+            transport: None,
+            acp_session_id: None,
+            agent_native_session_id: None,
+            external_agent: None,
         }
     }
 
@@ -5449,6 +6083,9 @@ mod tests {
         });
         let mut deps = make_deps(&base, &dir.0, worktrees);
         deps.settings.codex_path = "git".to_string(); // runnable stub
+        // EXP-746: this test pins the TUI argv, so it launches on the
+        // terminal transport (a runnable codex/pi reads as ACP-ready).
+        deps.settings.start_in_terminal = true;
         let mut req = request("EXP-42");
         req.options = LaunchOptions {
             agent: CodingAgent::Codex,
@@ -5456,6 +6093,7 @@ mod tests {
             effort: "high".to_string(),
             ultracode: false,
             plan_mode: false,
+            external: None,
         };
 
         let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
@@ -5530,6 +6168,9 @@ mod tests {
         });
         let mut deps = make_deps(&base, &dir.0, worktrees);
         deps.settings.pi_path = "git".to_string(); // runnable stub
+        // EXP-746: this test pins the TUI argv, so it launches on the
+        // terminal transport (a runnable codex/pi reads as ACP-ready).
+        deps.settings.start_in_terminal = true;
         // EXP-409: the pi auth gate checks credential presence (auth.json or
         // a provider env key) — CI runners have neither, so satisfy the real
         // probe the way a real pi setup would.
@@ -5541,6 +6182,7 @@ mod tests {
             effort: "high".to_string(),
             ultracode: false,
             plan_mode: false,
+            external: None,
         };
 
         let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
@@ -5611,6 +6253,9 @@ mod tests {
         });
         let mut deps = make_deps(&base, &dir.0, worktrees);
         deps.settings.pi_path = "git".to_string(); // runnable stub
+        // EXP-746: this test pins the TUI argv, so it launches on the
+        // terminal transport (a runnable codex/pi reads as ACP-ready).
+        deps.settings.start_in_terminal = true;
         // EXP-409: the pi auth gate checks credential presence (auth.json or
         // a provider env key) — CI runners have neither, so satisfy the real
         // probe the way a real pi setup would.
@@ -6041,6 +6686,7 @@ mod tests {
                 effort: String::new(),
                 ultracode: false,
                 plan_mode: false,
+                external: None,
             },
             repository_id: "repo-1".to_string(),
             full_name: "acme/web".to_string(),

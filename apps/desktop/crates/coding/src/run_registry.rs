@@ -181,6 +181,29 @@ pub struct RunRecord {
     /// The ended session THIS run resumed (a resume of a resume chains).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resumed_from_id: Option<String>,
+    /// EXP-746: which engine ran it — `"pty"` or `"acp"`, written by
+    /// `prepare`. A resume RE-ENTERS this transport
+    /// ([`crate::launcher::resolve_transport`]): an ACP run has no TUI
+    /// resume handle and a PTY run has no ACP session id. Missing (every
+    /// pre-746 record) reads as the terminal — see [`RunRecord::transport`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transport: Option<String>,
+    /// EXP-746: the ACP `sessionId` `session/load` takes — upserted by the
+    /// engine once `session/new` answers (this file is written at PREPARE
+    /// time, before any handshake).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acp_session_id: Option<String>,
+    /// EXP-746: what the ADAPTER reports underneath (claude's stream-json
+    /// session id, codex's thread id, pi's session file). The three EXP-443
+    /// pins above stay the PTY-side truth; this is the ACP-side one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_native_session_id: Option<String>,
+    /// EXP-746 (D13): the external ACP agent this run used, when it was not
+    /// one of the three builtins. `agent` above then carries the settings
+    /// default and means nothing — an older host reading this record still
+    /// resumes something sane instead of failing to parse.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_agent: Option<crate::settings::ExternalAgentSpec>,
     /// Unix seconds — the TTL prune's key.
     pub recorded_at: u64,
     /// Every field of this entry this build does not know — the desktop app
@@ -193,6 +216,18 @@ pub struct RunRecord {
 }
 
 impl RunRecord {
+    /// EXP-746: the engine this run was recorded under. A missing value
+    /// (every pre-746 record) and an id this build does not know both read
+    /// as [`crate::launcher::LaunchTransport::Terminal`] — where a resume
+    /// can always land,
+    /// since the TUI takes the agent's own resume handles.
+    pub fn transport(&self) -> crate::launcher::LaunchTransport {
+        self.transport
+            .as_deref()
+            .and_then(crate::launcher::LaunchTransport::parse)
+            .unwrap_or(crate::launcher::LaunchTransport::Terminal)
+    }
+
     /// Whether the recorded workspace still exists: the resume spawns IN
     /// this cwd, and a repo-backed run also needs its worktree's `.git`
     /// link (a removed worktree leaves the dir gone, or gutted).
@@ -465,6 +500,10 @@ mod tests {
             resumed_from_id: None,
             recorded_at: now_secs(),
             extra: BTreeMap::new(),
+            transport: None,
+            acp_session_id: None,
+            agent_native_session_id: None,
+            external_agent: None,
         }
     }
 
@@ -476,6 +515,95 @@ mod tests {
         assert_eq!(get(&dir, "sess-nope"), None);
         remove(&dir, "sess-1");
         assert_eq!(get(&dir, "sess-1"), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-746: an ACP run round-trips its transport and both session ids,
+    /// and a record without them still reads as a terminal run — the four
+    /// fields are skip-none, so a PTY record's JSON is byte-unchanged.
+    #[test]
+    fn an_acp_record_round_trips() {
+        let dir = temp_dir("acp-record");
+        let mut acp = sample("sess-acp");
+        acp.transport = Some("acp".to_string());
+        acp.acp_session_id = Some("acp-42".to_string());
+        acp.agent_native_session_id = Some("claude-99".to_string());
+        acp.external_agent = Some(crate::settings::ExternalAgentSpec {
+            id: "acme".to_string(),
+            label: "Acme ACP".to_string(),
+            command: "acme".to_string(),
+            args: vec!["--acp".to_string()],
+            ..Default::default()
+        });
+        record(&dir, acp.clone());
+        let loaded = get(&dir, "sess-acp").expect("record");
+        assert_eq!(loaded, acp);
+        assert_eq!(loaded.transport(), crate::launcher::LaunchTransport::Acp);
+
+        // A PTY record carries none of the four keys at all.
+        record(&dir, sample("sess-pty"));
+        let entries: Vec<serde_json::Value> =
+            serde_json::from_str(&std::fs::read_to_string(registry_path(&dir)).unwrap()).unwrap();
+        let pty = entries
+            .iter()
+            .find(|entry| entry["sessionId"] == "sess-pty")
+            .expect("the pty record");
+        for key in ["transport", "acpSessionId", "agentNativeSessionId", "externalAgent"] {
+            assert_eq!(pty.get(key), None, "{key} must not be serialized");
+        }
+        assert_eq!(
+            get(&dir, "sess-pty").unwrap().transport(),
+            crate::launcher::LaunchTransport::Terminal
+        );
+        // An id this build does not know degrades to the terminal too — the
+        // engine that owns it is not this one.
+        let mut future = sample("sess-future");
+        future.transport = Some("quantum".to_string());
+        assert_eq!(
+            future.transport(),
+            crate::launcher::LaunchTransport::Terminal
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-746: the four new fields ride the SAME forward-compat contract as
+    /// the rest — an older host that rewrites this file must hand a newer
+    /// host's ACP record back untouched.
+    #[test]
+    fn a_record_written_by_a_newer_host_survives_a_load_modify_save() {
+        let dir = temp_dir("acp-forward-compat");
+        let now = now_secs();
+        let json = format!(
+            r#"[{{
+                "sessionId":"sess-1","accountId":"acc-1","agent":"claude","kind":"issue",
+                "cwd":"/repos/owner/name.worktrees/exp-EXP-42","recordedAt":{now},
+                "transport":"acp","acpSessionId":"acp-42",
+                "agentNativeSessionId":"claude-99","acpProtocolVersion":3
+            }}]"#
+        );
+        std::fs::write(registry_path(&dir), json).unwrap();
+
+        let loaded = get(&dir, "sess-1").expect("record");
+        assert_eq!(loaded.transport(), crate::launcher::LaunchTransport::Acp);
+        assert_eq!(loaded.acp_session_id.as_deref(), Some("acp-42"));
+        assert_eq!(loaded.agent_native_session_id.as_deref(), Some("claude-99"));
+        // A field this build has never heard of rides `extra`, as ever.
+        assert_eq!(
+            loaded.extra.get("acpProtocolVersion"),
+            Some(&serde_json::json!(3))
+        );
+
+        record(&dir, sample("sess-2"));
+        let entries: Vec<serde_json::Value> =
+            serde_json::from_str(&std::fs::read_to_string(registry_path(&dir)).unwrap()).unwrap();
+        let kept = entries
+            .iter()
+            .find(|entry| entry["sessionId"] == "sess-1")
+            .expect("the record survives");
+        assert_eq!(kept["transport"], "acp");
+        assert_eq!(kept["acpSessionId"], "acp-42");
+        assert_eq!(kept["agentNativeSessionId"], "claude-99");
+        assert_eq!(kept["acpProtocolVersion"], 3);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

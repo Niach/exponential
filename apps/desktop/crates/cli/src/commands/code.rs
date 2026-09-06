@@ -35,6 +35,9 @@ pub fn run(args: &[String]) -> CommandResult {
     let ctx = context::load()?;
     let interactive = !detach && term::stdin_is_tty() && term::stdout_is_tty();
     let options = launch::agent_options(&ctx.settings, &flags, interactive)?;
+    // EXP-746: the shared registry decision for every end this process
+    // issues (daemon parity — `registry::install_end_observer`).
+    crate::registry::install_end_observer(ctx.data_dir.clone());
 
     let fetched = api::issues::issues_get(&ctx.trpc, issue_ref)
         .with_context(|| format!("resolve issue `{issue_ref}`"))?;

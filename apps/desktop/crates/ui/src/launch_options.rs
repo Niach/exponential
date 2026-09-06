@@ -679,6 +679,9 @@ impl LaunchOptionsSection {
             // agent that doesn't support it.
             ultracode: self.ultracode && self.agent.supports_ultracode(),
             plan_mode: self.plan_mode && self.agent.supports_plan_mode() && !resume_active,
+            // EXP-746 (D13): the external-agent pill lands with the D5 lane;
+            // this cluster picks a BUILTIN agent.
+            external: None,
         }
     }
 

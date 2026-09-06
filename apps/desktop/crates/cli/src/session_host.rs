@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
-use coding::{CodingAgent, PreparedLaunch, SESSION_HEARTBEAT_INTERVAL};
+use coding::{CodingAgent, PreparedLaunch};
 use steer::publisher::pty_writer_input_hook;
 use steer::{
     AnswerLink, CommandLink, EmitterConfig, PublishSpec, PublisherHooks, PublisherTickets,
@@ -183,32 +183,15 @@ pub fn launch(
 
     registry::record(&env.ctx.data_dir, &session_id, &env.ctx.account.id);
 
-    // --- Liveness heartbeat (launcher.rs parity): the stale sweep deletes
-    // rows whose updated_at stops advancing; the scope re-creates a swept
-    // row under the same id. Stop sender disconnects on exit. ---------------
-    let (heartbeat_stop, heartbeat_stopped) = std::sync::mpsc::channel::<()>();
-    {
-        let trpc = Arc::clone(&env.ctx.trpc);
-        let session_id = session_id.clone();
-        std::thread::spawn(move || {
-            // EXP-701: first beat immediately (launcher.rs parity) — it
-            // stamps the row's `acked_at` so a remote starter sees the agent
-            // spawned within seconds, not after the first 30-minute interval.
-            let _ = api::coding_sessions::heartbeat(&trpc, &session_id, Some(&heartbeat_scope));
-            loop {
-                match heartbeat_stopped.recv_timeout(SESSION_HEARTBEAT_INTERVAL) {
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                        let _ = api::coding_sessions::heartbeat(
-                            &trpc,
-                            &session_id,
-                            Some(&heartbeat_scope),
-                        );
-                    }
-                    _ => return,
-                }
-            }
-        });
-    }
+    // --- Liveness heartbeat: EXP-746 replaced this host's copy with the
+    // shared `coding::start_heartbeat` (same immediate first beat, same
+    // 30-minute cadence, same swept-row scope) — the ACP engine runs the
+    // very same one. Dropping the handle in the teardown ends the thread.
+    let heartbeat_stop = coding::start_heartbeat(
+        Arc::clone(&env.ctx.trpc),
+        session_id.clone(),
+        heartbeat_scope,
+    );
 
     let (control_tx, control_rx) = flume::unbounded::<Control>();
     let (done_tx, done_rx) = flume::bounded::<ChildExit>(1);
@@ -430,7 +413,6 @@ pub fn launch(
     // coalesce wake bursts, pump every wake, final sweep after close). ------
     let supervisor_ctx = SupervisorCtx {
         trpc: Arc::clone(&env.ctx.trpc),
-        data_dir: env.ctx.data_dir.clone(),
         session_id: session_id.clone(),
         heartbeat_stop,
         publisher,
@@ -540,9 +522,10 @@ fn kill_poll_decision(row: &api::coding_sessions::CodingSession, own_user: &str)
 
 struct SupervisorCtx {
     trpc: Arc<api::trpc::TrpcClient>,
-    data_dir: PathBuf,
+    // EXP-746: no `data_dir` here any more — the registry decision moved to
+    // the process-wide session-end observer.
     session_id: String,
-    heartbeat_stop: std::sync::mpsc::Sender<()>,
+    heartbeat_stop: coding::HeartbeatStop,
     publisher: Option<steer::PublisherHandle>,
     activity_active: Arc<AtomicBool>,
     watch_done: Arc<AtomicBool>,
@@ -630,25 +613,12 @@ fn supervise(
         publisher.shutdown(Some(outcome));
     }
     ctx.activity_active.store(false, Ordering::SeqCst);
-    // EXP-641: the registry entry goes only with a RESOLVED end. An end the
-    // server rejects (the 426 min-version gate mid-deploy, a dead network)
-    // keeps it for the restarted daemon's reconcile instead of stranding the
-    // row `running` for the server sweep's 2h window.
-    let result = api::coding_sessions::end(&ctx.trpc, &ctx.session_id);
-    if registry::end_outcome_resolves(&result) {
-        registry::remove(&ctx.data_dir, &ctx.session_id);
-    } else {
-        // Kept for the reconcile, but no longer LIVE: clearing the pid stops
-        // `exponential update` reading a stranded entry as a running agent
-        // and refusing to restart an idle daemon.
-        registry::mark_ended(&ctx.data_dir, &ctx.session_id);
-        if let Err(err) = &result {
-            log::info!(
-                "end of coding session {} did not resolve ({err}) — kept for the next start's reconcile",
-                ctx.session_id
-            );
-        }
-    }
+    // EXP-641: the registry entry goes only with a RESOLVED end. EXP-746
+    // moved that decision behind `coding::end_session`'s process-wide
+    // observer (`registry::install_end_observer`, installed at every entry
+    // point), so the PTY path here and the ACP engine share ONE
+    // implementation of it.
+    let _ = coding::end_session(&ctx.trpc, &ctx.session_id);
     let _ = done_tx.send(exit);
 }
 
