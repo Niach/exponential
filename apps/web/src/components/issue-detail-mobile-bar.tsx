@@ -1,8 +1,7 @@
-import { useEffect, useState, type ReactNode } from "react"
+import { useState, type ReactNode } from "react"
 import type { User } from "@/db/schema"
 import { conceptIcon } from "@/lib/icons.generated"
 import { CommentComposer } from "@/components/comment-composer"
-import { setFeedbackLauncherHidden } from "@/components/feedback-widget-provider"
 import {
   Sheet,
   SheetContent,
@@ -47,17 +46,11 @@ export function IssueDetailMobileBar({
   const [propertiesOpen, setPropertiesOpen] = useState(false)
   const [composing, setComposing] = useState(false)
 
-  // EXP-642 — the widget's mobile edge tab sits mid-right, exactly where the
-  // properties sheet slides in. Hide the launcher for as long as the sheet
-  // is up (and restore it on unmount, so navigating away mid-sheet can't
-  // strand it hidden). Only the launcher goes; an open feedback panel keeps
-  // its typed contents.
-  const launcherHidden = propertiesOpen && !hidden
-  useEffect(() => {
-    if (!launcherHidden) return
-    setFeedbackLauncherHidden(true)
-    return () => setFeedbackLauncherHidden(false)
-  }, [launcherHidden])
+  // EXP-771: nothing to dodge here any more. The widget's mobile edge tab sat
+  // mid-right, exactly where the properties sheet slides in, so this bar hid
+  // the launcher for as long as the sheet was up (EXP-642). The in-app widget
+  // is headless now — it only opens from the sidebar's Report bug entry — so
+  // the corner is ours and the hide/restore dance is gone.
 
   if (hidden) return null
 
