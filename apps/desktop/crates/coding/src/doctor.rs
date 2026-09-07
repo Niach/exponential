@@ -68,6 +68,20 @@ pub const MIN_CLAUDE_VERSION: (u32, u32, u32) = (2, 1, 215);
 /// [`ToolCheck::acp`] is not `Some(true)`).
 pub const MIN_CLAUDE_ACP_VERSION: (u32, u32, u32) = (2, 1, 263);
 
+/// EXP-758: the same floor for codex, and for the same reason — an older
+/// `codex app-server` resolves to ACP, fails the `initialize` + `thread/start`
+/// handshake the adapter is written against, and leaves a session row nobody
+/// can end but by hand.
+///
+/// The 0.144 line is what the adapter and its fixtures were recorded from
+/// (`engine/tests/codex_adapter.rs`: "recorded from the installed codex
+/// 0.144.5"), and nothing older was ever exercised — so it is the lowest
+/// version this build claims. Pinned at `.0` rather than `.5` because the
+/// patch releases inside that minor share the app-server shape; anything
+/// below it is unverified, not known-broken, which is exactly why the check
+/// is NON-FATAL: an older codex still launches, on the PTY path.
+pub const MIN_CODEX_ACP_VERSION: (u32, u32, u32) = (0, 144, 0);
+
 /// EXP-746 (D9): the BUILD capabilities every host advertises to
 /// `devices.register`, whatever it can currently run. ONE list — the desktop
 /// (`ui::steer_wiring`) and the CLI daemon both call [`device_caps`], which
@@ -484,17 +498,38 @@ sessions run in a terminal tab until then."
 }
 
 /// EXP-746: codex's ACP readiness. `codex app-server` is what the adapter
-/// drives, and every codex build the doctor accepts ships it — so a resolved,
-/// signed-in codex reads as ready HERE, without a probe: [`run_doctor`] runs
-/// on the launch path (step 0) and inline in the daemon every 5 minutes, and
-/// a 10-second app-server handshake on either would be paid on every launch.
-/// [`probe_codex_acp`] is the deep check for `exponential doctor`, and the
-/// engine's own `initialize` is the authoritative one.
+/// drives, so a resolved, signed-in codex reads as ready HERE, without a
+/// probe: [`run_doctor`] runs on the launch path (step 0) and inline in the
+/// daemon every 5 minutes, and a 10-second app-server handshake on either
+/// would be paid on every launch. [`probe_codex_acp`] is the deep check for
+/// `exponential doctor`, and the engine's own `initialize` is the
+/// authoritative one.
+///
+/// EXP-758: with a VERSION FLOOR ([`MIN_CODEX_ACP_VERSION`]) — claude has one
+/// and pi has its probe, so codex was the one agent an unusably old build of
+/// which still resolved to the engine and then died in the handshake. Like
+/// claude's, the floor is non-fatal (the run falls back to the PTY) and an
+/// unparseable version stays ready: never falsely demote a nonstandard build.
 fn apply_codex_acp(check: &mut ToolCheck) {
     check.acp = Some(check.ok);
     if !check.ok {
         check.acp_note = Some("codex is not available".to_string());
+        return;
     }
+    let Some(version) = check.version.as_deref().and_then(parse_codex_version) else {
+        return;
+    };
+    if version >= MIN_CODEX_ACP_VERSION {
+        return;
+    }
+    let (major, minor, patch) = version;
+    let (min_major, min_minor, min_patch) = MIN_CODEX_ACP_VERSION;
+    check.acp = Some(false);
+    check.acp_note = Some(format!(
+        "Codex {major}.{minor}.{patch} has no app-server this build can drive. \
+Update to {min_major}.{min_minor}.{min_patch}+ for the session screen; \
+sessions run in a terminal tab until then."
+    ));
 }
 
 /// The DEEP codex ACP check: the real `codex app-server --listen stdio://`
@@ -929,6 +964,14 @@ pub fn parse_claude_version(line: &str) -> Option<(u32, u32, u32)> {
         return None;
     }
     Some((major, minor, patch))
+}
+
+/// EXP-758: the same parse for codex. [`parse_version_output`] has already
+/// stripped the `codex-cli ` prefix, so the stored version is the bare
+/// `0.144.5` triple [`parse_claude_version`] reads — named separately so the
+/// two ACP floors read alike at their call sites.
+pub fn parse_codex_version(line: &str) -> Option<(u32, u32, u32)> {
+    parse_claude_version(line)
 }
 
 /// `<program> --version`, capturing stdout/stderr — never a shell. Resolves
@@ -1535,6 +1578,51 @@ mod tests {
         apply_version_gate(&mut odd);
         assert!(odd.ok);
         assert_eq!(odd.acp, None);
+    }
+
+    /// EXP-758: codex gets the same non-fatal version floor claude has. Below
+    /// it the app-server handshake the adapter is written against is
+    /// unverified, so the run belongs on the PTY — with a note saying why.
+    #[test]
+    fn codex_acp_gate_has_a_version_floor() {
+        let mut old = green(Tool::Codex, "0.143.9");
+        apply_codex_acp(&mut old);
+        assert!(old.ok, "the launch gate is presence + sign-in alone");
+        assert_eq!(old.acp, Some(false));
+        assert!(
+            old.acp_note
+                .as_deref()
+                .is_some_and(|note| note.contains("0.144.0")),
+            "{:?}",
+            old.acp_note
+        );
+
+        let mut floor = green(Tool::Codex, "0.144.0");
+        apply_codex_acp(&mut floor);
+        assert_eq!(floor.acp, Some(true));
+        assert_eq!(floor.acp_note, None);
+
+        let mut newer = green(Tool::Codex, "0.153.3");
+        apply_codex_acp(&mut newer);
+        assert_eq!(newer.acp, Some(true));
+
+        // Unparseable stays READY: never falsely demote a nonstandard build
+        // (the engine's own `initialize` is the authoritative check).
+        let mut odd = green(Tool::Codex, "nightly");
+        apply_codex_acp(&mut odd);
+        assert_eq!(odd.acp, Some(true));
+        assert_eq!(odd.acp_note, None);
+
+        // A codex that is not there at all keeps the presence note.
+        let mut missing = red(Tool::Codex);
+        apply_codex_acp(&mut missing);
+        assert_eq!(missing.acp, Some(false));
+        assert_eq!(missing.acp_note.as_deref(), Some("codex is not available"));
+
+        // The version parse takes the bare triple `parse_version_output`
+        // leaves behind once the `codex-cli ` prefix is stripped.
+        assert_eq!(parse_codex_version("0.144.5"), Some((0, 144, 5)));
+        assert_eq!(parse_codex_version("nightly"), None);
     }
 
     /// EXP-437: the advertisement carries the machine's per-agent launch
