@@ -896,6 +896,68 @@ pub struct ObserverSetup {
     pub token: String,
 }
 
+/// EXP-761: where a launch gets its PTY sidecars from — LAZILY. The launcher
+/// asks on its Terminal arm only, after [`resolve_transport`] has spoken, and
+/// only for the sidecar the launched CLI can use (hooks are claude's, the
+/// observer is pi's): an ACP run, a codex run and an external agent never
+/// ask, so a host that binds on first use binds nothing for them. Both hosts
+/// (`crates/cli/src/sidecars.rs`, `crates/ui/src/steer_wiring.rs`) bind
+/// their loopback servers inside these two methods, which is why the
+/// launcher, not the host, decides whether a launch asks: a host guessing
+/// the transport ahead of `prepare` either bound a port for an ACP launch
+/// (the bug) or lost hook detection on a launch that fell back to the PTY.
+pub trait SidecarSource: Sync {
+    /// The claude hooks sidecar (EXP-249); `None` = bind failed, grid-only.
+    fn hooks(&self) -> Option<HookSetup>;
+    /// The pi observer sidecar (EXP-383); `None` = bind failed, diffs-only.
+    fn observer(&self) -> Option<ObserverSetup>;
+}
+
+/// No sidecars at all: [`prepare`] and every headless caller.
+pub struct NoSidecars;
+
+impl SidecarSource for NoSidecars {
+    fn hooks(&self) -> Option<HookSetup> {
+        None
+    }
+    fn observer(&self) -> Option<ObserverSetup> {
+        None
+    }
+}
+
+/// Setups a caller already holds (tests).
+impl SidecarSource for (Option<HookSetup>, Option<ObserverSetup>) {
+    fn hooks(&self) -> Option<HookSetup> {
+        self.0.clone()
+    }
+    fn observer(&self) -> Option<ObserverSetup> {
+        self.1.clone()
+    }
+}
+
+/// EXP-761: the launcher's ONE sidecar gate — `(hooks, observer)` for a
+/// launch of `builtin` on `transport`. Asks the source on the Terminal arm
+/// alone, and there only for the launched CLI's own sidecar; everything
+/// else is `(None, None)` without the source ever being touched. `pub` so
+/// each host's tests can run the real gate against the real host.
+pub fn resolve_pty_sidecars(
+    source: &dyn SidecarSource,
+    transport: LaunchTransport,
+    builtin: Option<CodingAgent>,
+) -> (Option<HookSetup>, Option<ObserverSetup>) {
+    if transport != LaunchTransport::Terminal {
+        return (None, None);
+    }
+    (
+        (builtin == Some(CodingAgent::Claude))
+            .then(|| source.hooks())
+            .flatten(),
+        (builtin == Some(CodingAgent::Pi))
+            .then(|| source.observer())
+            .flatten(),
+    )
+}
+
 /// Where the per-session `--settings` files live: under the app data dir,
 /// NEVER in the worktree. A `.claude/settings.json` inside the tree would be
 /// committable by the agent AND would land in claude's project-approval scan
@@ -1397,28 +1459,30 @@ fn map_token_error(err: ApiError, full_name: &str) -> Result<Prepared, CodingErr
 /// 6. `codingSessions.start` / `start_batch` — BEFORE spawn; its id keys
 ///    tab + steer room.
 pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, CodingError> {
-    prepare_with_hooks(req, deps, None, None)
+    prepare_with_hooks(req, deps, &NoSidecars)
 }
 
-/// [`prepare`] with the EXP-249 claude hooks sidecar wired in. The caller
-/// (app/ui, which owns both crates) starts a `steer::hooks::HookServer`,
-/// passes its port/token/settings JSON as a [`HookSetup`], holds the server
-/// for the session's lifetime, and hands its event receiver to the activity
-/// emitter. `coding` never sees the server itself (§3.1: no `steer`
-/// dependency), only the three values the spawn needs.
+/// [`prepare`] with the PTY sidecars wired in (EXP-249 claude hooks, EXP-383
+/// pi observer). The caller (app/ui or the CLI, which own both crates) is a
+/// [`SidecarSource`]: it owns the `steer::hooks::HookServer` and the
+/// observer server, hands their port/token/settings JSON over as
+/// [`HookSetup`]/[`ObserverSetup`], keeps the servers alive for the
+/// session's lifetime and routes their event receivers to the activity
+/// emitter. `coding` never sees the servers themselves (§3.1: no `steer`
+/// dependency), only the values the spawn needs — and asks for them on the
+/// Terminal arm alone (EXP-761, [`resolve_pty_sidecars`]).
 pub fn prepare_with_hooks(
     req: &PrepareRequest,
     deps: &CodingDeps,
-    hooks: Option<&HookSetup>,
-    observer: Option<&ObserverSetup>,
+    sidecars: &dyn SidecarSource,
 ) -> Result<Prepared, CodingError> {
     // Action runs share none of the worktree/branch/PR skeleton below —
     // they get their own sequence (EXP-253).
     if let PrepareRequest::Action(action_req) = req {
-        return prepare_action(action_req, deps, hooks, observer);
+        return prepare_action(action_req, deps, sidecars);
     }
     if let PrepareRequest::ResumeRun(resume_req) = req {
-        return prepare_resume_run(resume_req, deps, hooks, observer);
+        return prepare_resume_run(resume_req, deps, sidecars);
     }
     let resume_prompt =
         matches!(req, PrepareRequest::Issue(issue_req) if issue_req.resume_prompt);
@@ -1768,10 +1832,13 @@ pub fn prepare_with_hooks(
     }
     // EXP-746: the hooks sidecar is PTY-only — on the ACP arm the engine
     // reads `session/update` notifications instead, and the settings file
-    // shrinks to the reaper's empty-`{}` anchor.
+    // shrinks to the reaper's empty-`{}` anchor. EXP-761: the sidecars are
+    // ASKED FOR here, on the resolved transport, so an ACP launch never
+    // binds one.
+    let (hooks, observer) = resolve_pty_sidecars(sidecars, transport, agent_kind.builtin());
     let hook_settings = match transport {
         LaunchTransport::Terminal => {
-            write_hook_settings(&deps.data_dir, &session.id, agent, hooks)
+            write_hook_settings(&deps.data_dir, &session.id, agent, hooks.as_ref())
         }
         LaunchTransport::Acp => None,
     };
@@ -1933,8 +2000,8 @@ pub fn prepare_with_hooks(
     // and pi reach `/api/mcp` either way. EXP-752: neither is the pi
     // plan-mode gate, which is pi's plan mode on BOTH transports.
     if transport == LaunchTransport::Terminal {
-        spawn = apply_hook_env(spawn, hooks, hook_settings.as_ref());
-        spawn = apply_observer_env(spawn, agent_kind.builtin(), observer);
+        spawn = apply_hook_env(spawn, hooks.as_ref(), hook_settings.as_ref());
+        spawn = apply_observer_env(spawn, agent_kind.builtin(), observer.as_ref());
     }
     spawn = apply_pi_plan_env(spawn, agent_kind.builtin(), options.plan_mode);
     if let Some(originator) = &codex_originator {
@@ -2062,8 +2129,7 @@ pub fn prepare_with_hooks(
 fn prepare_action(
     req: &ActionLaunchRequest,
     deps: &CodingDeps,
-    hooks: Option<&HookSetup>,
-    observer: Option<&ObserverSetup>,
+    sidecars: &dyn SidecarSource,
 ) -> Result<Prepared, CodingError> {
     // EXP-257: options apply AS-IS — same per-agent vocabulary as an issue
     // run (the server validates remote starts identically).
@@ -2501,10 +2567,12 @@ fn prepare_action(
         crate::claude_trust::ensure_onboarded(&cwd, true);
     }
     // EXP-746: PTY-only sidecar files; the ACP arm keeps only the reaper's
-    // empty-`{}` claude anchor (see [`write_acp_reaper_anchor`]).
+    // empty-`{}` claude anchor (see [`write_acp_reaper_anchor`]). EXP-761:
+    // sidecars resolved on the transport, like the session skeleton.
+    let (hooks, observer) = resolve_pty_sidecars(sidecars, transport, agent_kind.builtin());
     let hook_settings = match transport {
         LaunchTransport::Terminal => {
-            write_hook_settings(&deps.data_dir, &session.id, agent, hooks)
+            write_hook_settings(&deps.data_dir, &session.id, agent, hooks.as_ref())
         }
         LaunchTransport::Acp => None,
     };
@@ -2568,8 +2636,8 @@ fn prepare_action(
     // EXP-746: PTY-era sidecar env only (see the session skeleton); EXP-752's
     // plan-mode gate rides both transports.
     if transport == LaunchTransport::Terminal {
-        spawn = apply_hook_env(spawn, hooks, hook_settings.as_ref());
-        spawn = apply_observer_env(spawn, agent_kind.builtin(), observer);
+        spawn = apply_hook_env(spawn, hooks.as_ref(), hook_settings.as_ref());
+        spawn = apply_observer_env(spawn, agent_kind.builtin(), observer.as_ref());
     }
     spawn = apply_pi_plan_env(spawn, agent_kind.builtin(), options.plan_mode);
     if let Some(originator) = &codex_originator {
@@ -2742,17 +2810,6 @@ fn prepare_action(
     }))
 }
 
-/// Claude Code's per-cwd transcript dir name: every non-alphanumeric
-/// character becomes `-` (mirror of `steer::activity::munge_claude_project_dir`
-/// — the two crates cannot depend on each other, §3.1). "projects" is CLAUDE
-/// CODE's own directory name, never our renamed product entity (EXP-191).
-fn munge_claude_project_dir(path: &Path) -> String {
-    path.to_string_lossy()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect()
-}
-
 /// `~/.claude/projects` unless the caller injected a fixture root. EXP-746:
 /// `pub` because the ACP engine replays a claude transcript from the same
 /// tree (Past → Replay) and must resolve it exactly as the resume probe does.
@@ -2764,33 +2821,33 @@ pub fn claude_projects_root(deps: &CodingDeps) -> Option<PathBuf> {
     Some(PathBuf::from(home).join(".claude").join("projects"))
 }
 
-/// Does claude still hold the recorded conversation for this cwd?
-///
-/// The munged-cwd directory is the fast path; claude caps very long project
-/// directory names (~200 chars) and appends a short hash instead, so a miss
-/// falls back to scanning every project directory for `<session_id>.jsonl`
-/// — the uuid is unique, so the first hit IS the transcript. Never depend on
-/// claude's naming rule beyond the fast path. EXP-746: `pub` for the engine's
-/// replay, like [`claude_projects_root`] above.
-pub fn claude_transcript_exists(deps: &CodingDeps, cwd: &Path, session_id: &str) -> bool {
-    let Some(root) = claude_projects_root(deps) else {
-        return false;
-    };
+/// EXP-761: the ONE way to find a claude transcript — `<root>/*/<session
+/// id>.jsonl`, `root` being `~/.claude/projects` (or the child's
+/// `CLAUDE_CONFIG_DIR/projects`). Claude names the per-cwd directory by
+/// munging the cwd (every non-alphanumeric byte → `-`), but caps the name at
+/// roughly 200 chars and appends a 6-char hash beyond that
+/// (`…-actions-5ecb3c42-…--71h4ur`), so recomputing the name from the cwd
+/// misses exactly the long worktree paths a daemon data dir produces. The
+/// session uuid is unique across the tree, so the first hit IS the
+/// transcript; nothing here depends on the naming rule. Steer's PTY emitter,
+/// the resume probe and the engine's replay all resolve through this.
+pub fn locate_claude_transcript(root: &Path, session_id: &str) -> Option<PathBuf> {
     let file_name = format!("{session_id}.jsonl");
-    if root
-        .join(munge_claude_project_dir(cwd))
-        .join(&file_name)
-        .is_file()
-    {
-        return true;
-    }
-    let Ok(entries) = std::fs::read_dir(&root) else {
-        return false;
-    };
-    entries
+    std::fs::read_dir(root)
+        .ok()?
         .flatten()
         .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
-        .any(|entry| entry.path().join(&file_name).is_file())
+        .map(|entry| entry.path().join(&file_name))
+        .find(|path| path.is_file())
+}
+
+/// Does claude still hold the recorded conversation? (`cwd` is what the
+/// record says; the transcript is found by session id, never by cwd —
+/// [`locate_claude_transcript`].) EXP-746: `pub` for the engine's replay,
+/// like [`claude_projects_root`] above.
+pub fn claude_transcript_exists(deps: &CodingDeps, _cwd: &Path, session_id: &str) -> bool {
+    claude_projects_root(deps)
+        .is_some_and(|root| locate_claude_transcript(&root, session_id).is_some())
 }
 
 /// EXP-637/EXP-662 — RESUME an ended run or SESSION (blocking, background
@@ -2810,8 +2867,7 @@ pub fn claude_transcript_exists(deps: &CodingDeps, cwd: &Path, session_id: &str)
 fn prepare_resume_run(
     req: &ResumeRunRequest,
     deps: &CodingDeps,
-    hooks: Option<&HookSetup>,
-    observer: Option<&ObserverSetup>,
+    sidecars: &dyn SidecarSource,
 ) -> Result<Prepared, CodingError> {
     let record = &req.record;
     let agent = record.agent;
@@ -3132,10 +3188,12 @@ fn prepare_resume_run(
     if builtin == Some(CodingAgent::Claude) {
         crate::claude_trust::ensure_onboarded(&cwd, true);
     }
-    // EXP-746: PTY-only, like the two paths above.
+    // EXP-746: PTY-only, like the two paths above (EXP-761: sidecars
+    // resolved on the RECORDED transport's outcome, never on the request).
+    let (hooks, observer) = resolve_pty_sidecars(sidecars, transport, agent_kind.builtin());
     let hook_settings = match transport {
         LaunchTransport::Terminal => {
-            write_hook_settings(&deps.data_dir, &session.id, agent, hooks)
+            write_hook_settings(&deps.data_dir, &session.id, agent, hooks.as_ref())
         }
         LaunchTransport::Acp => None,
     };
@@ -3217,8 +3275,8 @@ fn prepare_resume_run(
     );
     // EXP-746: PTY-era sidecar env only.
     if transport == LaunchTransport::Terminal {
-        spawn = apply_hook_env(spawn, hooks, hook_settings.as_ref());
-        spawn = apply_observer_env(spawn, agent_kind.builtin(), observer);
+        spawn = apply_hook_env(spawn, hooks.as_ref(), hook_settings.as_ref());
+        spawn = apply_observer_env(spawn, agent_kind.builtin(), observer.as_ref());
     }
     if let Some(originator) = &codex_originator {
         spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
@@ -4169,6 +4227,172 @@ Claude Code 2.1.240 has no ACP control protocol."
         assert_eq!(record.acp_session_id, None, "the engine upserts it");
     }
 
+    /// EXP-761: a counting [`SidecarSource`] — records every ask, answers
+    /// with fixed setups.
+    struct CountingSidecars {
+        hooks_asked: std::sync::atomic::AtomicUsize,
+        observer_asked: std::sync::atomic::AtomicUsize,
+    }
+
+    impl CountingSidecars {
+        fn new() -> Self {
+            Self {
+                hooks_asked: Default::default(),
+                observer_asked: Default::default(),
+            }
+        }
+        fn asked(&self) -> (usize, usize) {
+            use std::sync::atomic::Ordering;
+            (
+                self.hooks_asked.load(Ordering::SeqCst),
+                self.observer_asked.load(Ordering::SeqCst),
+            )
+        }
+    }
+
+    impl SidecarSource for CountingSidecars {
+        fn hooks(&self) -> Option<HookSetup> {
+            self.hooks_asked
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Some(hook_setup())
+        }
+        fn observer(&self) -> Option<ObserverSetup> {
+            self.observer_asked
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Some(ObserverSetup {
+                port: 45322,
+                token: "observer-token-1".to_string(),
+            })
+        }
+    }
+
+    /// EXP-761: an ACP launch never ASKS for a sidecar — both hosts bind
+    /// their loopback servers inside the ask, so this is what keeps a
+    /// daemon on the ACP default at zero listening ports after its first
+    /// claude start. The same launch on the PTY asks for claude's hooks and
+    /// nothing else.
+    #[cfg(unix)]
+    #[test]
+    fn an_acp_launch_never_asks_for_a_sidecar() {
+        let dir = temp_dir("sidecars-acp");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let base = canned_server(vec![
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (200, START_OK.to_string()),
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (200, START_OK.to_string()),
+        ]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: worktree.clone(),
+            seen: Default::default(),
+        });
+        let mut deps = make_deps(&base, &dir.0, worktrees);
+        deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
+
+        let source = CountingSidecars::new();
+        let prepared =
+            match prepare_with_hooks(&PrepareRequest::Issue(request("EXP-42")), &deps, &source)
+                .unwrap()
+            {
+                Prepared::Ready(prepared) => prepared,
+                other => panic!("expected Ready, got {other:?}"),
+            };
+        assert_eq!(prepared.transport, LaunchTransport::Acp);
+        assert_eq!(source.asked(), (0, 0), "an ACP launch asks for nothing");
+
+        // The device-global PTY hatch: the same claude launch asks for its
+        // hooks, once, and never for pi's observer.
+        deps.settings.start_in_terminal = true;
+        let prepared =
+            match prepare_with_hooks(&PrepareRequest::Issue(request("EXP-43")), &deps, &source)
+                .unwrap()
+            {
+                Prepared::Ready(prepared) => prepared,
+                other => panic!("expected Ready, got {other:?}"),
+            };
+        assert_eq!(prepared.transport, LaunchTransport::Terminal);
+        assert_eq!(source.asked(), (1, 0));
+        assert!(prepared.spawn.args.iter().any(|arg| arg == "--settings"));
+    }
+
+    /// EXP-761: the gate itself, agent by agent: only the launched CLI's own
+    /// sidecar is ever asked for, and only on the PTY.
+    #[test]
+    fn the_sidecar_gate_asks_for_the_agents_own_sidecar_on_the_pty_only() {
+        let source = CountingSidecars::new();
+        let every_agent =
+            [Some(CodingAgent::Claude), Some(CodingAgent::Pi), Some(CodingAgent::Codex), None];
+        for builtin in every_agent {
+            let (hooks, observer) = resolve_pty_sidecars(&source, LaunchTransport::Acp, builtin);
+            assert!(hooks.is_none() && observer.is_none(), "{builtin:?}");
+        }
+        assert_eq!(source.asked(), (0, 0));
+        let (hooks, observer) =
+            resolve_pty_sidecars(&source, LaunchTransport::Terminal, Some(CodingAgent::Claude));
+        assert!(hooks.is_some() && observer.is_none());
+        assert_eq!(source.asked(), (1, 0));
+        let (hooks, observer) =
+            resolve_pty_sidecars(&source, LaunchTransport::Terminal, Some(CodingAgent::Pi));
+        assert!(hooks.is_none() && observer.is_some());
+        assert_eq!(source.asked(), (1, 1));
+        for builtin in [Some(CodingAgent::Codex), None] {
+            let (hooks, observer) =
+                resolve_pty_sidecars(&source, LaunchTransport::Terminal, builtin);
+            assert!(hooks.is_none() && observer.is_none(), "{builtin:?}");
+        }
+        assert_eq!(source.asked(), (1, 1));
+    }
+
+    /// EXP-761: claude caps a long cwd's project dir name (~200 chars) and
+    /// appends a hash; the transcript is found by session id under ANY
+    /// project dir, and the recomputed full-length name is never consulted.
+    #[test]
+    fn locate_claude_transcript_finds_a_hash_suffixed_project_dir() {
+        let dir = temp_dir("locate-transcript");
+        let projects = dir.0.join("projects");
+        let cwd = format!(
+            "/private/tmp/{}/daemon-data/actions/5ecb3c42-1f2e-4c7a-9d1b-0a7b6c5d4e3f/wt",
+            "x".repeat(160)
+        );
+        assert!(cwd.len() > 200, "{}", cwd.len());
+        let munged: String = cwd
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+            .collect();
+        // What claude actually creates: the first ~200 chars plus `-<hash>`.
+        let capped = format!("{}--71h4ur", &munged[..200]);
+        let project_dir = projects.join(&capped);
+        fs::create_dir_all(&project_dir).unwrap();
+        fs::write(project_dir.join("sess-1.jsonl"), "{}\n").unwrap();
+        // Noise: a stray file at the root, an empty sibling dir, and a
+        // sibling holding a DIFFERENT session.
+        fs::write(projects.join("notes.txt"), "").unwrap();
+        fs::create_dir_all(projects.join("-other")).unwrap();
+        fs::write(projects.join("-other").join("sess-2.jsonl"), "{}\n").unwrap();
+
+        assert_eq!(
+            locate_claude_transcript(&projects, "sess-1"),
+            Some(project_dir.join("sess-1.jsonl"))
+        );
+        assert!(!projects.join(&munged).exists(), "the full name is never created");
+        assert_eq!(locate_claude_transcript(&projects, "sess-3"), None);
+        assert_eq!(locate_claude_transcript(&dir.0.join("missing"), "sess-1"), None);
+        let mut deps = make_deps(
+            &canned_server(vec![]),
+            &dir.0,
+            Arc::new(FakeWorktrees {
+                worktree: dir.0.join("unused"),
+                seen: Default::default(),
+            }),
+        );
+        deps.claude_projects_root = Some(projects);
+        assert!(claude_transcript_exists(&deps, Path::new(&cwd), "sess-1"));
+        assert!(!claude_transcript_exists(&deps, Path::new(&cwd), "sess-2-missing"));
+    }
+
     /// EXP-746: the EXP-474 ignore guard belongs to the FILE-writing arm. A
     /// repo whose committed `.gitignore` re-includes `.exp-mcp.json` still
     /// refuses a TERMINAL claude launch, but the ACP arm writes no file at
@@ -4408,7 +4632,9 @@ Claude Code 2.1.240 has no ACP control protocol."
         record.claude_session_id = None;
         record.agent_native_session_id = Some("claude-native-7".to_string());
         let projects = dir.0.join("claude-projects");
-        let project_dir = projects.join(munge_claude_project_dir(&record.cwd));
+        // The dir name is claude's business (EXP-761: capped + hashed on a
+        // long cwd); the launcher finds the file by session id alone.
+        let project_dir = projects.join("-Users-u-some-long-worktree-path--71h4ur");
         fs::create_dir_all(&project_dir).unwrap();
         fs::write(project_dir.join("claude-native-7.jsonl"), "{}\n").unwrap();
         deps.claude_projects_root = Some(projects);
@@ -5162,8 +5388,7 @@ Claude Code 2.1.240 has no ACP control protocol."
         let prepared = match prepare_with_hooks(
             &PrepareRequest::Issue(request("EXP-42")),
             &deps,
-            Some(&hooks),
-            None,
+            &(Some(hooks.clone()), None),
         )
         .unwrap()
         {
@@ -5279,7 +5504,7 @@ Claude Code 2.1.240 has no ACP control protocol."
         };
         let hooks = hook_setup();
         let prepared =
-            match prepare_with_hooks(&PrepareRequest::Issue(req), &deps, Some(&hooks), None)
+            match prepare_with_hooks(&PrepareRequest::Issue(req), &deps, &(Some(hooks), None))
                 .unwrap()
             {
                 Prepared::Ready(prepared) => prepared,
@@ -5346,8 +5571,7 @@ Claude Code 2.1.240 has no ACP control protocol."
         let prepared = match prepare_with_hooks(
             &PrepareRequest::Action(action_request()),
             &deps,
-            Some(&hooks),
-            None,
+            &(Some(hooks.clone()), None),
         )
         .unwrap()
         {
@@ -6068,7 +6292,9 @@ Claude Code 2.1.240 has no ACP control protocol."
         let record = resume_record(&dir.0, "sess-old");
         // Seed the transcript claude would have written for this cwd.
         let projects = dir.0.join("claude-projects");
-        let project_dir = projects.join(munge_claude_project_dir(&record.cwd));
+        // The dir name is claude's business (EXP-761: capped + hashed on a
+        // long cwd); the launcher finds the file by session id alone.
+        let project_dir = projects.join("-Users-u-some-long-worktree-path--71h4ur");
         fs::create_dir_all(&project_dir).unwrap();
         fs::write(project_dir.join("claude-1.jsonl"), "{}\n").unwrap();
         deps.claude_projects_root = Some(projects);
@@ -6146,9 +6372,9 @@ Claude Code 2.1.240 has no ACP control protocol."
         assert_eq!(fresh.started_reason.as_deref(), Some("agent"));
     }
 
-    /// Claude caps long project directory names and appends a hash, so the
-    /// munged-cwd fast path misses; the probe then finds the transcript by
-    /// its uuid anywhere under the projects root.
+    /// Claude caps long project directory names and appends a hash; the
+    /// probe finds the transcript by its uuid anywhere under the projects
+    /// root (EXP-761: there is no munged-cwd path at all any more).
     #[test]
     fn prepare_resume_run_finds_the_transcript_under_a_hashed_project_dir() {
         let dir = temp_dir("resume-claude-hashed");
@@ -6783,7 +7009,9 @@ Claude Code 2.1.240 has no ACP control protocol."
         let record = issue_resume_record(&dir.0, "sess-old", "repo-resume-issue");
         // The transcript claude recorded for this worktree.
         let projects = dir.0.join("claude-projects");
-        let project_dir = projects.join(munge_claude_project_dir(&record.cwd));
+        // The dir name is claude's business (EXP-761: capped + hashed on a
+        // long cwd); the launcher finds the file by session id alone.
+        let project_dir = projects.join("-Users-u-some-long-worktree-path--71h4ur");
         fs::create_dir_all(&project_dir).unwrap();
         fs::write(project_dir.join("claude-1.jsonl"), "{}\n").unwrap();
         deps.claude_projects_root = Some(projects);
@@ -6932,7 +7160,9 @@ Claude Code 2.1.240 has no ACP control protocol."
         ];
         record.branch = Some("exp/batch-a1b2c3d4".to_string());
         let projects = dir.0.join("claude-projects");
-        let project_dir = projects.join(munge_claude_project_dir(&record.cwd));
+        // The dir name is claude's business (EXP-761: capped + hashed on a
+        // long cwd); the launcher finds the file by session id alone.
+        let project_dir = projects.join("-Users-u-some-long-worktree-path--71h4ur");
         fs::create_dir_all(&project_dir).unwrap();
         fs::write(project_dir.join("claude-1.jsonl"), "{}\n").unwrap();
         deps.claude_projects_root = Some(projects);
@@ -7292,8 +7522,7 @@ Claude Code 2.1.240 has no ACP control protocol."
         let prepared = match prepare_with_hooks(
             &PrepareRequest::Issue(req),
             &deps,
-            None,
-            Some(&observer),
+            &(None, Some(observer.clone())),
         )
         .unwrap()
         {

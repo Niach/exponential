@@ -328,6 +328,52 @@ struct ClaudeSession {
     state: Mutex<State>,
 }
 
+/// EXP-761: the session's context window, from ONE source per session. The
+/// heuristic (`wire::infer_context_window`, off the model id) only bridges the
+/// gap until the first `result` reports the real number; that report is then
+/// final — a later result's `modelUsage` is per turn and can name only the
+/// haiku helper (200000), so re-deriving on every result made the published
+/// `usage.contextSize` alternate within one run. A window reported for the
+/// session's OWN model id is exact and locks immediately; one taken from the
+/// map's largest entry (the id spelled differently) is kept until an exact
+/// one shows up, never re-derived per turn.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum ContextWindow {
+    #[default]
+    Unknown,
+    /// Guessed from the model id; replaced by the first report.
+    Inferred(u64),
+    /// From `result.modelUsage`; `exact` = the session model's own entry.
+    Reported { window: u64, exact: bool },
+}
+
+impl ContextWindow {
+    fn size(self) -> u64 {
+        match self {
+            ContextWindow::Unknown => 0,
+            ContextWindow::Inferred(window) | ContextWindow::Reported { window, .. } => window,
+        }
+    }
+
+    /// The heuristic, taken only while nothing at all is known.
+    fn infer(&mut self, model: &str) {
+        if *self == ContextWindow::Unknown {
+            *self = ContextWindow::Inferred(wire::infer_context_window(model));
+        }
+    }
+
+    /// An authoritative report; the first exact one is final.
+    fn report(&mut self, report: wire::ContextWindowReport) {
+        if matches!(self, ContextWindow::Reported { exact: true, .. }) {
+            return;
+        }
+        if matches!(self, ContextWindow::Reported { exact: false, .. }) && !report.exact {
+            return;
+        }
+        *self = ContextWindow::Reported { window: report.window, exact: report.exact };
+    }
+}
+
 #[derive(Default)]
 struct State {
     /// The live child. Held whole: dropping `ChildLines` kills the process
@@ -381,7 +427,7 @@ struct State {
     /// parent tool call (a subagent streams beside the main thread).
     current_message: HashMap<String, String>,
     usage: wire::TokenSnapshot,
-    context_size: u64,
+    context_window: ContextWindow,
     compaction: Option<String>,
     tasks: HashMap<String, TaskEntry>,
     plan_tasks: BTreeMap<String, PlanTask>,
@@ -1108,7 +1154,7 @@ impl ClaudeSession {
     }
 
     fn publish_usage(&self, cx: &ConnectionTo<Client>, used: u64, cost: Option<f64>) {
-        let size = self.lock().context_size;
+        let size = self.lock().context_window.size();
         if size == 0 {
             return;
         }
@@ -1247,9 +1293,7 @@ impl ClaudeSession {
                 }
                 if !system.model.is_empty() {
                     state.model = system.model.clone();
-                    if state.context_size == 0 {
-                        state.context_size = wire::infer_context_window(&system.model);
-                    }
+                    state.context_window.infer(&system.model);
                 }
                 let mode_changed = match &system.permission_mode {
                     Some(mode) if !mode.is_empty() && *mode != state.mode => {
@@ -1723,10 +1767,7 @@ impl ClaudeSession {
                     self.lock().current_message.insert(parent_key, id.to_string());
                 }
                 if let Some(model) = message.get("model").and_then(Value::as_str) {
-                    let mut state = self.lock();
-                    if state.context_size == 0 {
-                        state.context_size = wire::infer_context_window(model);
-                    }
+                    self.lock().context_window.infer(model);
                 }
                 self.merge_usage(cx, &message["usage"], None);
             }
@@ -1826,13 +1867,17 @@ impl ClaudeSession {
     }
 
     fn on_result(self: &Arc<Self>, cx: &ConnectionTo<Client>, result: wire::ResultMsg) {
-        // The authoritative context window only ever arrives here.
+        // The authoritative context window only ever arrives here. EXP-761:
+        // it is taken ONCE per session ([`ContextWindow::report`]) — a
+        // later result's map may lack the session's model (a turn only the
+        // haiku helper worked on), and re-deriving from it every turn made
+        // the published size alternate 1000000 ↔ 200000 within one run.
         {
             let mut state = self.lock();
             let model = state.model.clone();
             if let Some(window) = wire::context_window_from_model_usage(&result.model_usage, &model)
             {
-                state.context_size = window;
+                state.context_window.report(window);
             }
         }
         // `result.usage` is the turn's CUMULATIVE token count (every request
@@ -3304,14 +3349,11 @@ fn claude_projects_root(env: &[(String, String)]) -> Option<PathBuf> {
     projects.is_dir().then_some(projects)
 }
 
+/// EXP-761: `coding::locate_claude_transcript`, the ONE locator (by session
+/// id under every project dir — claude hash-suffixes long cwd names).
 fn transcript_path(env: &[(String, String)], session_id: &str) -> Option<PathBuf> {
     let root = claude_projects_root(env)?;
-    let name = format!("{session_id}.jsonl");
-    std::fs::read_dir(root)
-        .ok()?
-        .filter_map(Result::ok)
-        .map(|entry| entry.path().join(&name))
-        .find(|path| path.is_file())
+    coding::locate_claude_transcript(&root, session_id)
 }
 
 /// Past conversations for `session/list`, newest first. `cwd` filters to the
@@ -3557,6 +3599,38 @@ mod tests {
             },
             other => panic!("expected content, got {other:?}"),
         }
+    }
+
+    /// EXP-761: one context window per session. The id heuristic bridges
+    /// until the first report; a report for the session's own model is
+    /// final, so a later helper-only turn (haiku, 200000) cannot flip the
+    /// published size back and forth.
+    #[test]
+    fn the_context_window_is_taken_once_per_session() {
+        use wire::ContextWindowReport;
+        let mut window = ContextWindow::default();
+        assert_eq!(window.size(), 0, "nothing published before a model is known");
+        window.infer("claude-opus-5");
+        assert_eq!(window.size(), 200_000);
+        // A second inference (message_start) never re-guesses.
+        window.infer("claude-opus-5[1m]");
+        assert_eq!(window.size(), 200_000);
+        // The turn's result: exact for the session model — final.
+        window.report(ContextWindowReport { window: 1_000_000, exact: true });
+        assert_eq!(window.size(), 1_000_000);
+        window.report(ContextWindowReport { window: 200_000, exact: false });
+        window.report(ContextWindowReport { window: 200_000, exact: true });
+        assert_eq!(window.size(), 1_000_000, "locked for the session");
+
+        // A fallback read (the id spelled differently) holds until an exact
+        // one arrives, and is never re-derived by another fallback.
+        let mut window = ContextWindow::Inferred(200_000);
+        window.report(ContextWindowReport { window: 1_000_000, exact: false });
+        assert_eq!(window.size(), 1_000_000);
+        window.report(ContextWindowReport { window: 200_000, exact: false });
+        assert_eq!(window.size(), 1_000_000);
+        window.report(ContextWindowReport { window: 500_000, exact: true });
+        assert_eq!(window.size(), 500_000);
     }
 
     #[test]

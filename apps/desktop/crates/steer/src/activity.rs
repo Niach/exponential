@@ -1541,15 +1541,24 @@ pub fn transcript_root() -> Option<PathBuf> {
     Some(PathBuf::from(home).join(".claude").join("projects"))
 }
 
-/// Claude Code munges a cwd into its transcript dir name by replacing every
-/// non-alphanumeric character with `-` (verified against live dirs, e.g.
-/// `/home/x/Projects/2026/foo.com` → `-home-x-Projects-2026-foo-com`).
-/// "project" here is Claude Code's vocabulary (see [`transcript_root`]).
-pub fn munge_claude_project_dir(path: &Path) -> String {
-    path.to_string_lossy()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect()
+/// EXP-761: the project dir this session's transcripts live in, found by
+/// the pinned session ids (`<root>/*/<id>.jsonl`, the ONE locator
+/// `coding::locate_claude_transcript`) — never by recomputing claude's
+/// munged-cwd name, which claude caps at ~200 chars and hash-suffixes on a
+/// long cwd, so the recomputed name missed exactly the daemon's long
+/// worktree paths and the feed went silent after "Session started". `None`
+/// until claude has written the first line of any pinned session (the
+/// emitter retries every tick until then); the dir is cwd-keyed, so the
+/// sessions a `/clear` rotates in land in the same one.
+fn locate_transcript_dir(root: &Path, pin: &TranscriptPin) -> Option<PathBuf> {
+    let mut ids: Vec<&String> = pin.sessions.iter().collect();
+    // Deterministic under a multi-id pin (a rotated session): the order the
+    // ids are tried in never changes the answer, only which path is stat'd
+    // first.
+    ids.sort();
+    ids.into_iter()
+        .find_map(|id| coding::locate_claude_transcript(root, id))
+        .and_then(|path| path.parent().map(Path::to_path_buf))
 }
 
 /// EXP-429: the ownership pin for cwd-keyed transcript discovery. The
@@ -4724,8 +4733,11 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
             .unwrap_or_default();
         format!("{}:{nanos}", config.worktree.display())
     });
-    let transcript_dir =
-        transcript_root().map(|root| root.join(munge_claude_project_dir(&config.worktree)));
+    // EXP-761: resolved lazily, by session id, once claude has written the
+    // transcript (see [`locate_transcript_dir`]); nothing is derived from
+    // `config.worktree` any more.
+    let transcript_root = transcript_root();
+    let mut transcript_dir: Option<PathBuf> = None;
 
     let mut current: Option<PathBuf> = None;
     let mut offset: u64 = 0;
@@ -4788,6 +4800,11 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
         //    plain "+" agent-shell tab sharing the trunk cwd would hijack the
         //    feed of a completed run. (A pin learned from a hook this tick
         //    takes effect next tick — a 1-tick discovery lag, nothing more.)
+        if transcript_dir.is_none() {
+            transcript_dir = transcript_root
+                .as_deref()
+                .and_then(|root| locate_transcript_dir(root, &steer.pin));
+        }
         if let Some(dir) = &transcript_dir {
             if let Some(newest) = newest_transcript(dir, spawn_time, &steer.pin) {
                 if current.as_deref() != Some(newest.as_path()) {
@@ -4802,15 +4819,25 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
                 if steer.pin.pinned() && current.take().is_some() {
                     offset = 0;
                 }
-                if let Some(deadline) = transcript_deadline {
-                    if Instant::now() >= deadline {
-                        log::info!(
-                            "activity: no transcript in {} within {}s — diffs only",
-                            dir.display(),
-                            TRANSCRIPT_WAIT.as_secs()
-                        );
-                        transcript_deadline = None;
-                    }
+            }
+        }
+        // Nothing tailed yet — no project dir located for the pin, or one
+        // whose only file predates the spawn (a `--resume` claude has not
+        // written yet): one log line at the deadline, never more.
+        if current.is_none() {
+            if let Some(deadline) = transcript_deadline {
+                if Instant::now() >= deadline {
+                    log::info!(
+                        "activity: no transcript for {:?} under {} within {}s — diffs only",
+                        steer.pin.sessions,
+                        transcript_dir
+                            .as_deref()
+                            .or(transcript_root.as_deref())
+                            .map(|dir| dir.display().to_string())
+                            .unwrap_or_else(|| "<no home dir>".to_string()),
+                        TRANSCRIPT_WAIT.as_secs()
+                    );
+                    transcript_deadline = None;
                 }
             }
         }
@@ -11165,16 +11192,49 @@ mod tests {
         assert!(!link.take_login_refusal_note(), "disarm leaves no note");
     }
 
+    /// EXP-761: the transcript dir comes from the pinned session id, under
+    /// whatever name claude gave the project dir — here the capped, hash-
+    /// suffixed one a >200-char cwd gets — and the pre-EXP-761 recomputed
+    /// full-length name is never consulted (it does not exist).
     #[test]
-    fn munge_matches_claude_code_scheme() {
-        assert_eq!(
-            munge_claude_project_dir(Path::new("/home/x/Projects/2026/foo.com")),
-            "-home-x-Projects-2026-foo-com"
+    fn transcript_dir_is_found_by_session_id_under_a_hash_suffixed_project_dir() {
+        let root = std::env::temp_dir().join(format!(
+            "exp-761-locate-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or_default()
+        ));
+        let cwd = format!(
+            "/private/tmp/{}/daemon-data/actions/5ecb3c42-1f2e-4c7a-9d1b-0a7b6c5d4e3f/wt",
+            "x".repeat(160)
         );
-        assert_eq!(
-            munge_claude_project_dir(Path::new("/a/b/worktrees/exp/EXP-1")),
-            "-a-b-worktrees-exp-EXP-1"
-        );
+        assert!(cwd.len() > 200);
+        let munged: String = cwd
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+            .collect();
+        let capped = root.join(format!("{}--71h4ur", &munged[..200]));
+        std::fs::create_dir_all(&capped).unwrap();
+        std::fs::write(capped.join("sess-1.jsonl"), "{}\n").unwrap();
+        // A foreign session in a sibling dir must not resolve for this pin.
+        std::fs::create_dir_all(root.join("-other")).unwrap();
+        std::fs::write(root.join("-other").join("sess-9.jsonl"), "{}\n").unwrap();
+
+        let mut pin = TranscriptPin::default();
+        assert_eq!(locate_transcript_dir(&root, &pin), None, "unpinned = nothing");
+        pin.seed("sess-1");
+        assert_eq!(locate_transcript_dir(&root, &pin), Some(capped.clone()));
+        assert!(!root.join(&munged).exists());
+        // A rotated-in id (a /clear) whose file is not there yet still
+        // resolves through the id that is.
+        pin.seed("sess-2");
+        assert_eq!(locate_transcript_dir(&root, &pin), Some(capped));
+        let mut missing = TranscriptPin::default();
+        missing.seed("sess-3");
+        assert_eq!(locate_transcript_dir(&root, &missing), None);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// The mid-session `/login` method picker (captured, v2.1.222).

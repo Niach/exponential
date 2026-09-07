@@ -2031,14 +2031,15 @@ impl StartCodingDialogView {
         self.error = None;
         cx.notify();
 
-        // EXP-758: the PTY sidecars come up here, and only when this launch
-        // resolves to the terminal transport.
-        let (hooks, observer) = crate::steer_wiring::pty_sidecars(&request, cx);
+        // EXP-761: the PTY sidecars come up inside `prepare`, and only when
+        // this launch resolves to the terminal transport.
         let opener = self.opener;
         cx.spawn_in(window, async move |this, window| {
             let prepared = window
                 .background_executor()
-                .spawn(async move { coding::prepare_with_hooks(&request, &deps, hooks.as_ref(), observer.as_ref()) })
+                .spawn(async move {
+                    coding::prepare_with_hooks(&request, &deps, crate::steer_wiring::sidecars())
+                })
                 .await;
             // The terminal tab spawns into the OPENER window's dock
             // (EXP-284) — a fresh cross-window update from the async

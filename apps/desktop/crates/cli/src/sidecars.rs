@@ -1,5 +1,5 @@
 //! Process-wide agent sidecars — the CLI's mirror of the desktop's
-//! `ui/src/steer_wiring.rs` HookSidecar + PiObserverGlobal: ONE claude
+//! `ui/src/steer_wiring.rs` `PtySidecars` host: ONE claude
 //! hooks loopback server whose events fan out per worktree (bound by
 //! claude's own session id once seen), and ONE pi observer server that
 //! routes internally by canonicalized worktree.
@@ -9,17 +9,19 @@
 //! `apply_observer_env` are Terminal-transport only), and each is
 //! agent-specific on top: hooks are claude's, the observer is pi's. A daemon
 //! that starts no session, or only sessions of the other agent, used to bind
-//! two loopback ports and a router thread for their whole life anyway. The
-//! launch path asks through [`Sidecars::for_launch`], which binds only what
-//! the launch's agent could actually use; a terminal-default device warms
-//! both at boot ([`Sidecars::ensure_started_if`]) so the first launch does
-//! not pay for it.
+//! two loopback ports and a router thread for their whole life anyway.
+//! EXP-761: WHEN to bind is the launcher's call, not this host's — it is a
+//! [`coding::SidecarSource`], asked from `prepare_with_hooks`'s Terminal arm
+//! only, and only for the launched CLI's own sidecar. (EXP-758 bound per
+//! agent ahead of `prepare`, which could not know the transport yet, so a
+//! claude launch that resolved to ACP still bound the hooks server.) A
+//! terminal-default device warms both at boot ([`Sidecars::ensure_started_if`])
+//! so the first launch does not pay for it.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use coding::CodingAgent;
 use steer::{HookEvent, HookServer};
 
 struct HookSubscriber {
@@ -47,36 +49,10 @@ pub struct Sidecars {
     observer: OnceLock<Option<Arc<steer::pi_observer::ObserverServer>>>,
 }
 
-/// EXP-758: what one launch may read out of the sidecars, resolved (and
-/// bound) once, per launch, by [`Sidecars::for_launch`].
-pub struct LaunchSidecars {
-    pub hooks: Option<coding::HookSetup>,
-    pub observer: Option<coding::ObserverSetup>,
-}
-
 impl Sidecars {
     /// A sidecar host that has bound NOTHING yet.
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// EXP-758: the setups `prepare` needs for a launch of `agent`, binding
-    /// only the sidecar that agent can use: hooks are claude-only wiring and
-    /// the observer is pi-only (`coding::launcher` filters on exactly that),
-    /// so a codex device binds neither, ever. `None` (an external ACP agent,
-    /// `launch::request_agent`) binds nothing at all.
-    ///
-    /// The transport is NOT known here: `prepare` decides it (it needs the
-    /// doctor report) and it needs these values in the same call. So a claude
-    /// launch that ends up on the ACP arm still binds the hooks server once.
-    /// Erring that way is deliberate: the other way round would lose hook
-    /// detection on exactly the launches that FELL BACK to the terminal.
-    pub fn for_launch(&self, agent: Option<CodingAgent>) -> LaunchSidecars {
-        let (wants_hooks, wants_observer) = wanted_sidecars(agent);
-        LaunchSidecars {
-            hooks: wants_hooks.then(|| self.hook_setup()).flatten(),
-            observer: wants_observer.then(|| self.observer_setup()).flatten(),
-        }
     }
 
     /// EXP-758: bind both up front when this device starts every run in a
@@ -89,13 +65,9 @@ impl Sidecars {
         }
     }
 
-    fn hooks(&self) -> &Hooks {
-        self.hooks.get_or_init(Hooks::start)
-    }
-
     /// EXP-758: BINDS the hooks server on the first call.
     pub fn hook_setup(&self) -> Option<coding::HookSetup> {
-        self.hooks().setup.clone()
+        self.hooks.get_or_init(Hooks::start).setup.clone()
     }
 
     /// EXP-758: BINDS the pi observer server on the first call. A failed bind
@@ -124,13 +96,15 @@ impl Sidecars {
     /// the receiver unsubscribes on the next delivery. `session_id`
     /// (EXP-443) is the launcher-minted `--session-id`: pre-seeding `bound`
     /// makes [`route_hook_event`]'s rule 1 authoritative from the first
-    /// delivery — no cwd guess, no insertion-order race.
+    /// delivery — no cwd guess, no insertion-order race. EXP-761: never
+    /// binds — a PTY claude launch already asked for the server; `None`
+    /// when it never came up (or the launch was not a PTY one).
     pub fn subscribe_hooks(
         &self,
         worktree: &Path,
         session_id: Option<&str>,
     ) -> Option<flume::Receiver<HookEvent>> {
-        let hooks = self.hooks();
+        let hooks = self.hooks.get()?;
         hooks.setup.as_ref()?;
         let (tx, rx) = flume::unbounded();
         let mut subscribers = lock(&hooks.subscribers);
@@ -153,9 +127,21 @@ impl Sidecars {
         flume::Receiver<steer::pi_observer::PiEvent>,
         steer::pi_observer::PiSteerHandle,
     )> {
-        self.observer_server()
-            .as_ref()
+        // EXP-761: read-only, like `subscribe_hooks` — a pi PTY launch bound it.
+        self.observer
+            .get()
+            .and_then(Option::as_ref)
             .map(|server| server.subscribe(worktree))
+    }
+}
+
+/// EXP-761: the launcher asks here, on its Terminal arm only.
+impl coding::SidecarSource for Sidecars {
+    fn hooks(&self) -> Option<coding::HookSetup> {
+        self.hook_setup()
+    }
+    fn observer(&self) -> Option<coding::ObserverSetup> {
+        self.observer_setup()
     }
 }
 
@@ -201,18 +187,6 @@ impl Hooks {
             _server: hook_server,
         }
     }
-}
-
-/// EXP-758: `(hooks, observer)`, which sidecars a launch of `agent` can use,
-/// decided WITHOUT touching either server. The rule is `coding::launcher`'s:
-/// `write_hook_settings` wires hooks for claude alone and `apply_observer_env`
-/// the observer for pi alone, so every other launch (codex, and an external
-/// ACP agent, `None`) needs neither.
-fn wanted_sidecars(agent: Option<CodingAgent>) -> (bool, bool) {
-    (
-        agent == Some(CodingAgent::Claude),
-        agent == Some(CodingAgent::Pi),
-    )
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -271,6 +245,7 @@ fn route_hook_event(subscribers: &Arc<Mutex<Vec<HookSubscriber>>>, event: HookEv
 #[cfg(test)]
 mod tests {
     use super::*;
+    use coding::CodingAgent;
 
     fn subscriber(
         subscribers: &Arc<Mutex<Vec<HookSubscriber>>>,
@@ -304,47 +279,73 @@ mod tests {
         .expect("fixture parses")
     }
 
-    /// EXP-758: a host nobody asked anything of binds nothing: no loopback
-    /// port, no router thread. The daemon builds one at boot and (on an
-    /// all-ACP device) never queries it.
+    /// EXP-758/EXP-761: a host nobody asked anything of binds nothing: no
+    /// loopback port, no router thread. The daemon builds one at boot and,
+    /// on an all-ACP device, is never asked — the launcher's gate
+    /// (`coding::resolve_pty_sidecars`, run here against the real host)
+    /// asks on the Terminal arm alone, so an ACP launch of ANY agent leaves
+    /// both handles unset, and a subscription never binds either.
     #[test]
-    fn a_fresh_host_binds_nothing() {
+    fn an_acp_launch_leaves_the_sidecar_handles_unset() {
         let sidecars = Sidecars::new();
         assert!(sidecars.hooks.get().is_none());
         assert!(sidecars.observer.get().is_none());
-        // A codex launch asks for neither, so it binds neither.
-        let wired = sidecars.for_launch(Some(CodingAgent::Codex));
-        assert!(wired.hooks.is_none() && wired.observer.is_none());
+        let every_agent =
+            [Some(CodingAgent::Claude), Some(CodingAgent::Pi), Some(CodingAgent::Codex), None];
+        for agent in every_agent {
+            let wired =
+                coding::resolve_pty_sidecars(&sidecars, coding::LaunchTransport::Acp, agent);
+            assert!(wired.0.is_none() && wired.1.is_none(), "{agent:?}");
+        }
+        assert!(sidecars.hooks.get().is_none(), "an ACP launch must not bind hooks");
+        assert!(sidecars.observer.get().is_none(), "…nor the observer");
+        // Subscribing (the emitter attach) reads, never binds.
+        assert!(sidecars.subscribe_hooks(&std::env::temp_dir(), Some("sess-a")).is_none());
+        assert!(sidecars.subscribe_pi(&std::env::temp_dir()).is_none());
+        assert!(sidecars.hooks.get().is_none() && sidecars.observer.get().is_none());
+        // A codex PTY launch asks for neither, so it binds neither.
+        let wired = coding::resolve_pty_sidecars(
+            &sidecars,
+            coding::LaunchTransport::Terminal,
+            Some(CodingAgent::Codex),
+        );
+        assert!(wired.0.is_none() && wired.1.is_none());
         assert!(sidecars.hooks.get().is_none(), "codex must not bind hooks");
         assert!(sidecars.observer.get().is_none());
     }
 
-    /// EXP-758: hooks are claude's wiring and the observer is pi's
-    /// (`coding::launcher` filters on exactly that); an external ACP agent
-    /// (`None`) has neither.
+    /// EXP-758: the first ask binds, later ones reuse: a second claude PTY
+    /// launch must not open a second loopback port, and a claude launch
+    /// never binds pi's observer. (A failed bind is the documented degrade:
+    /// the cell is still initialised, to `None`.)
     #[test]
-    fn only_the_agents_own_sidecar_is_wanted() {
-        assert_eq!(wanted_sidecars(Some(CodingAgent::Claude)), (true, false));
-        assert_eq!(wanted_sidecars(Some(CodingAgent::Pi)), (false, true));
-        assert_eq!(wanted_sidecars(Some(CodingAgent::Codex)), (false, false));
-        assert_eq!(wanted_sidecars(None), (false, false));
-    }
-
-    /// EXP-758: the first query binds, later ones reuse: a second claude
-    /// launch must not open a second loopback port. (A failed bind is the
-    /// documented degrade: the cell is still initialised, to `None`.)
-    #[test]
-    fn querying_binds_once() {
+    fn a_pty_launch_binds_its_agents_sidecar_once() {
         let sidecars = Sidecars::new();
-        let first = sidecars.for_launch(Some(CodingAgent::Claude));
+        let claude = |sidecars: &Sidecars| {
+            coding::resolve_pty_sidecars(
+                sidecars,
+                coding::LaunchTransport::Terminal,
+                Some(CodingAgent::Claude),
+            )
+        };
+        let first = claude(&sidecars);
         assert!(sidecars.hooks.get().is_some(), "claude binds the hooks server");
         assert!(sidecars.observer.get().is_none(), "and only that one");
-        let second = sidecars.for_launch(Some(CodingAgent::Claude));
+        let second = claude(&sidecars);
         assert_eq!(
-            first.hooks.map(|setup| setup.port),
-            second.hooks.map(|setup| setup.port),
+            first.0.map(|setup| setup.port),
+            second.0.map(|setup| setup.port),
             "the same server serves every claude launch"
         );
+        // Now the subscription finds it.
+        assert!(sidecars.subscribe_hooks(&std::env::temp_dir(), Some("sess-a")).is_some());
+        let pi = coding::resolve_pty_sidecars(
+            &sidecars,
+            coding::LaunchTransport::Terminal,
+            Some(CodingAgent::Pi),
+        );
+        assert!(pi.0.is_none() && pi.1.is_some());
+        assert!(sidecars.observer.get().is_some());
     }
 
     /// EXP-443: a pre-seeded bound id wins over an earlier same-cwd

@@ -11,6 +11,12 @@ publish = false
 # headless CLI. The desktop re-enables terminal's gpui half via ui/app.
 terminal = { path = "../terminal", default-features = false }
 api = { path = "../api" }
+# EXP-761: the ONE claude transcript locator (`coding::locate_claude_transcript`)
+# — the PTY emitter tails the same file the resume probe and the engine's
+# replay resolve. default-features = false keeps coding's gpui half off, as
+# the headless CLI already links it (§3.1: coding never depends on steer;
+# steer depending on coding's gpui-free core is the direction that stays a DAG).
+coding = { path = "../coding", default-features = false }
 # EXP-724: the generated steer-command catalog (contract.generated.rs) —
 # gpui-free, so the headless CLI links it too.
 domain = { path = "../domain" }

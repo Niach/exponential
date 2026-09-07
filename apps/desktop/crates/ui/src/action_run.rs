@@ -678,15 +678,14 @@ pub(crate) fn resume_run(
         model: None,
         effort: None,
     });
-    // EXP-758: a resume re-enters its RECORDED transport, so this starts the
-    // PTY sidecars only for a run that was on the terminal to begin with.
-    let (hooks, observer) = crate::steer_wiring::pty_sidecars(&request, cx);
+    // EXP-761: a resume re-enters its RECORDED transport, and `prepare`
+    // binds the PTY sidecars only on its Terminal arm.
     cx.spawn(async move |cx| {
         let _reservation = reservation;
         let prepared = cx
             .background_executor()
             .spawn(async move {
-                coding::prepare_with_hooks(&request, &deps, hooks.as_ref(), observer.as_ref())
+                coding::prepare_with_hooks(&request, &deps, crate::steer_wiring::sidecars())
             })
             .await;
         let _ = window.update(cx, |_, window, cx| match prepared {
@@ -759,14 +758,14 @@ fn launch_action(
         return;
     };
     let request = PrepareRequest::Action(request);
-    // EXP-758: an ACP action run binds no loopback sidecar port.
-    let (hooks, observer) = crate::steer_wiring::pty_sidecars(&request, cx);
+    // EXP-761: an ACP action run binds no loopback sidecar port — `prepare`
+    // binds them on its Terminal arm only.
     cx.spawn(async move |cx| {
         let _reservation = reservation;
         let prepared = cx
             .background_executor()
             .spawn(async move {
-                coding::prepare_with_hooks(&request, &deps, hooks.as_ref(), observer.as_ref())
+                coding::prepare_with_hooks(&request, &deps, crate::steer_wiring::sidecars())
             })
             .await;
         let _ = target.update(cx, |_, window, cx| match prepared {
