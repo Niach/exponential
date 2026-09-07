@@ -15,8 +15,9 @@ import { TeamMobileTopbar } from "@/components/team/mobile-topbar"
 import { MobileTabBar } from "@/components/team/mobile-tab-bar"
 import { TeamSidebar } from "@/components/team/sidebar"
 import {
+  MAIN_COLUMN_CLASS,
   MAIN_OUTLET_CLASS,
-  MAIN_PANEL_CLASS,
+  mainPanelClass,
 } from "@/components/team/app-shell"
 import { IssueSearchSheet } from "@/components/issue-search-sheet"
 import { OfflineBanner } from "@/components/offline-banner"
@@ -108,6 +109,11 @@ function TeamLayout() {
   // Child-route params (loose match): `boardSlug` is set while any
   // board-scoped route (board, issue detail) is active.
   const { boardSlug } = useParams({ strict: false })
+  // EXP-771: whether the dock band renders under the card — it decides the
+  // card's bottom margin (6px with the band, 10px without). The dock itself
+  // renders nothing on phones, and the margin is `md:`-gated, so the two
+  // agree without asking the viewport twice.
+  const dockVisible = Boolean(team && user)
 
   // EXP-69: remember this device's last-used team/board so the root
   // redirect can jump straight back on the next app entry.
@@ -164,36 +170,43 @@ function TeamLayout() {
               onOpenSearch={() => setSearchOpen(true)}
             />
 
-            {/* EXP-723: the content column is the CUTOUT panel — a rounded
-                card floating on the page gradient from `md` up, full-bleed on
-                phones. `min-w-0` on both the flex child and the content
+            {/* EXP-723 + EXP-771: the content column is the CUTOUT panel —
+                a rounded card floating on the page gradient from `md` up,
+                full-bleed on phones — plus, BELOW it on the bare ground, the
+                agent dock's band. The column owns the viewport height so the
+                card can be `flex-1` and the band end flush with the window's
+                bottom edge (IDE parity: its title band sits outside the card
+                too). `min-w-0` on the column, the card and the content
                 wrapper is what keeps ANY wide descendant from widening the
                 whole page (flex children default to min-width:auto);
                 `overflow-x-clip` contains stragglers inside the content
                 region. */}
-            <main className={MAIN_PANEL_CLASS}>
-              {/* EXP-533: above the mobile topbar (which is `md:hidden` and
-                  hides itself on detail routes), so the "showing cached data"
-                  notice is the first thing in the content column on every
-                  breakpoint. Renders nothing while the server is reachable. */}
-              <OfflineBanner />
-              <TeamMobileTopbar
-                teamSlug={teamSlug}
-                team={team}
-                boards={boards}
-              />
-              {/* EXP-740: NO dock inset here. The dock is the tab STRIP
-                  alone now — a fixed `h-9` last flex child of the definite
-                  height panel (`h-[calc(100dvh-20px)]`), so this wrapper
-                  simply takes what is left and the content already ends at
-                  the strip's top edge. Reserving `--dock-h` on top of that
-                  would open a second, empty strip-sized gap. The strip is
-                  `md`-only (phones render none), and still publishes its
-                  measured height for a page that owns a viewport-sized
-                  scroller of its own. */}
-              <div className={MAIN_OUTLET_CLASS}>
-                <Outlet />
-              </div>
+            <div className={MAIN_COLUMN_CLASS}>
+              <main className={mainPanelClass(dockVisible)}>
+                {/* EXP-533: above the mobile topbar (which is `md:hidden` and
+                    hides itself on detail routes), so the "showing cached
+                    data" notice is the first thing in the content column on
+                    every breakpoint. Renders nothing while the server is
+                    reachable. */}
+                <OfflineBanner />
+                <TeamMobileTopbar
+                  teamSlug={teamSlug}
+                  team={team}
+                  boards={boards}
+                />
+                {/* EXP-771: NO dock inset here, and none needed. The dock is
+                    a SIBLING of the card now, not its last flex child — the
+                    card's own box already ends above the band, so reserving
+                    `--dock-h` inside it would open a second, empty
+                    band-sized gap. The strip still publishes its measured
+                    height for anything that wants it. */}
+                <div className={MAIN_OUTLET_CLASS}>
+                  <Outlet />
+                </div>
+              </main>
+              {/* Renders null on phones (EXP-193) — `dockVisible` above is
+                  this same condition, keeping the card's bottom margin in
+                  step with it. */}
               {team && user && (
                 <AgentDock
                   teamId={team.id}
@@ -201,7 +214,7 @@ function TeamLayout() {
                   currentUserId={user.id}
                 />
               )}
-            </main>
+            </div>
 
             {/* Native-style bottom navigation (EXP-189) — fixed-position,
                 so JSX placement only affects stacking. */}
