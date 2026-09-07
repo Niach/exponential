@@ -338,6 +338,15 @@ struct State {
     pending_control: HashMap<String, flume::Sender<wire::ControlResp>>,
     /// Control requests the CLI cancelled while we were still answering them.
     aborted_requests: HashSet<String>,
+    /// EXP-758: the control requests we are STILL answering. A cancel for one
+    /// of these is worth remembering; a cancel that trails an answer already
+    /// sent is not, and recording it anyway grew `aborted_requests` by one id
+    /// per late cancel for the life of the run.
+    answering: HashSet<String>,
+    /// EXP-758: a `session/cancel` that arrived before the child existed (the
+    /// window between a prompt spawning its task and `start` returning). The
+    /// interrupt is delivered as soon as there IS a process to send it to.
+    interrupt_pending: bool,
     /// One settle channel per in-flight `session/prompt`, oldest first: claude
     /// emits one `result` per turn, so the front of the queue owns the next.
     turns: VecDeque<flume::Sender<TurnOutcome>>,
@@ -736,6 +745,36 @@ impl ClaudeSession {
             &wire::new_request_id(),
             wire::interrupt(true),
         )) {
+            // EXP-758: the usual reason is that the child is not up YET (a
+            // cancel racing a prompt's lazy spawn), and a cancel dropped
+            // there leaves the turn it meant to stop running. Remember it;
+            // `start` delivers it the moment there is a process.
+            log::warn!("engine: claude interrupt deferred: {error}");
+            self.lock().interrupt_pending = true;
+        }
+    }
+
+    /// EXP-758: deliver a cancel that could not reach a child that did not
+    /// exist yet. Called once the turn it belongs to is really running, which
+    /// is the only moment the CLI can act on an interrupt.
+    ///
+    /// The flag is ALWAYS consumed: a deferred interrupt that no longer
+    /// applies (a cancel with no turn behind it, then an unrelated prompt)
+    /// must not fire at some later turn. `cancelled` is the test for "still
+    /// applies": `prompt` recomputes it from the cancel epoch, so it is true
+    /// exactly when the cancel landed after this turn was dispatched.
+    fn deliver_pending_interrupt(&self) {
+        let mut state = self.lock();
+        let deferred = std::mem::take(&mut state.interrupt_pending);
+        let deliver = deferred && state.cancelled && !state.closed;
+        drop(state);
+        if !deliver {
+            return;
+        }
+        if let Err(error) = self.send(wire::control_request(
+            &wire::new_request_id(),
+            wire::interrupt(true),
+        )) {
             log::warn!("engine: claude interrupt failed: {error}");
         }
     }
@@ -751,11 +790,16 @@ impl ClaudeSession {
         epoch: u64,
     ) -> Result<PromptResponse, Error> {
         let text = prompt_text(&request.prompt);
+        // A child spawned lazily here is the `session/load` → prompt path: a
+        // replay that the user decided to continue. EXP-758: `/usage` takes
+        // the SAME handle. Spawning it fresh with a new `--session-id` forked
+        // the conversation, so the next real prompt landed in an empty one.
+        let resume = self.lock().child.is_none().then(|| self.session_id.0.to_string());
         // `/usage` is answered from the `get_usage` control request instead of
         // a turn; `get_context_usage` is never sent at all (it stalls ~15 s
         // before the first turn and serializes ahead of an awaited set_model).
         if wire::is_usage_command(&text) {
-            self.start(cx, None).await?;
+            self.start(cx, resume.as_deref()).await?;
             let usage = self.control_request(wire::get_usage_without_behaviors()).await?;
             self.notify(
                 cx,
@@ -766,9 +810,6 @@ impl ClaudeSession {
             return Ok(PromptResponse::new(StopReason::EndTurn));
         }
 
-        // A child spawned lazily here is the `session/load` → prompt path: a
-        // replay that the user decided to continue.
-        let resume = self.lock().child.is_none().then(|| self.session_id.0.to_string());
         self.start(cx, resume.as_deref()).await?;
 
         let (tx, rx) = flume::bounded(1);
@@ -784,6 +825,9 @@ impl ClaudeSession {
             state.turns.push_back(tx);
         }
         self.send(claude_user_message(&request.prompt, &text))?;
+        // EXP-758: a cancel that raced this turn's lazy spawn had no child to
+        // reach. It does now, and the turn it meant to stop is running.
+        self.deliver_pending_interrupt();
         let outcome = rx.recv_async().await.unwrap_or(TurnOutcome::EndTurn);
         match outcome {
             TurnOutcome::EndTurn => Ok(PromptResponse::new(StopReason::EndTurn)),
@@ -1140,6 +1184,13 @@ impl ClaudeSession {
             while let Some(turn) = state.turns.pop_front() {
                 let _ = turn.send(outcome);
             }
+            // EXP-758: and every CONTROL request too. A `set_mode`,
+            // `set_config`, `/usage` or `initialize` in flight when the CLI
+            // died used to sit out the whole 90 s `CONTROL_TIMEOUT` before
+            // its caller learned that nothing was ever going to answer.
+            for (request_id, waiter) in std::mem::take(&mut state.pending_control) {
+                let _ = waiter.send(wire::ControlResp::failed(&request_id, "claude exited"));
+            }
         }
         // Settled FIRST, announced second: `main_fn` closes the connection on
         // this edge, and a turn that settles after the close never reaches the
@@ -1165,8 +1216,18 @@ impl ClaudeSession {
             }
             ClaudeOut::ControlCancelRequest(cancel) => {
                 // The CLI abandoned a request it sent us: never answer it.
-                log::debug!("engine: claude cancelled control request {}", cancel.request_id);
-                self.lock().aborted_requests.insert(cancel.request_id);
+                // EXP-758: unless we already did. A cancel that trails its
+                // own answer is noise, and remembering it leaked the id.
+                let mut state = self.lock();
+                if state.answering.contains(&cancel.request_id) {
+                    log::debug!("engine: claude cancelled control request {}", cancel.request_id);
+                    state.aborted_requests.insert(cancel.request_id);
+                } else {
+                    log::debug!(
+                        "engine: claude cancelled control request {} after it was answered",
+                        cancel.request_id
+                    );
+                }
             }
             // Answering a keep_alive is a protocol error; unknown frame types
             // are how the CLI ships new features. `rate_limit_event` lands here
@@ -1882,6 +1943,9 @@ impl ClaudeSession {
             "can_use_tool" => {
                 let session = self.clone();
                 let cx = cx.clone();
+                // EXP-758: on the books BEFORE the spawn, so a cancel that
+                // races the answer is recorded and one that trails it is not.
+                session.lock().answering.insert(request_id.clone());
                 let _ = cx.clone().spawn(async move {
                     session.answer_can_use_tool(&cx, request_id, frame.request).await;
                     Ok(())
@@ -1915,7 +1979,12 @@ impl ClaudeSession {
         };
         // The CLI cancelled this request while we were asking: answering it
         // now would be answering a request that no longer exists.
-        if self.lock().aborted_requests.remove(&request_id) {
+        let aborted = {
+            let mut state = self.lock();
+            state.answering.remove(&request_id);
+            state.aborted_requests.remove(&request_id)
+        };
+        if aborted {
             log::debug!("engine: claude abandoned control request {request_id}; not answering");
             return;
         }

@@ -123,6 +123,10 @@ pub struct AppServer {
     _child: Option<ChildLines>,
 }
 
+/// EXP-758: how many routed frames may wait on a consumer that is not keeping
+/// up, per queue. See [`AppServer::route`].
+const ROUTER_QUEUE_MAX: usize = 4096;
+
 impl AppServer {
     /// Spawn `codex app-server --listen stdio://` and start routing its lines.
     /// Returns the connection plus the notification stream, the server-request
@@ -183,8 +187,16 @@ impl AppServer {
             _child: child,
         });
 
-        let (notification_tx, notifications) = flume::unbounded();
-        let (request_tx, requests) = flume::unbounded();
+        // EXP-758: BOUNDED. An unbounded queue turns an adapter that stops
+        // draining (a wedged handler, a paused pump) into unbounded memory
+        // growth fed by the app-server's stdout, with no symptom until the
+        // machine notices. The cap is deliberately far above any real backlog
+        // (a session that is 4096 frames behind is already broken), and a
+        // full queue drops the frame with a line in the log rather than
+        // blocking the router thread, which is the one thread that also
+        // resolves responses.
+        let (notification_tx, notifications) = flume::bounded(ROUTER_QUEUE_MAX);
+        let (request_tx, requests) = flume::bounded(ROUTER_QUEUE_MAX);
         // WEAK on purpose: a strong reference here would keep the child alive
         // for as long as the router thread runs, which is precisely as long as
         // the child lives — a cycle nothing could break.
@@ -197,10 +209,22 @@ impl AppServer {
                     match classify_line(&line) {
                         Incoming::Response { id, result } => router.resolve(id, result),
                         Incoming::ServerRequest { id, method, params } => {
-                            let _ = request_tx.send(ServerRequest { id, method, params });
+                            let method_name = method.clone();
+                            if request_tx
+                                .try_send(ServerRequest { id, method, params })
+                                .is_err()
+                            {
+                                log::warn!(
+                                    "engine: codex request queue full, dropped {method_name}"
+                                );
+                            }
                         }
                         Incoming::Notification { method, params } => {
-                            let _ = notification_tx.send((method, params));
+                            if notification_tx.try_send((method.clone(), params)).is_err() {
+                                log::warn!(
+                                    "engine: codex notification queue full, dropped {method}"
+                                );
+                            }
                         }
                         // A codex log line on stdout is normal; dropping it is
                         // the point of the fourth arm.
@@ -1024,6 +1048,49 @@ fn parse_range_start(range: &str) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-758: the router's queues are BOUNDED, so an app-server that talks
+    /// faster than the adapter reads cannot grow the process without bound.
+    /// A full queue drops the frame with a log line rather than blocking the
+    /// router thread, which is also the thread that resolves responses.
+    #[test]
+    fn the_router_queues_are_bounded_and_drop_rather_than_grow() {
+        struct Discard;
+        impl LineSink for Discard {
+            fn write_line(&self, _line: &str) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let (lines, incoming) = flume::unbounded();
+        let overflow = ROUTER_QUEUE_MAX + 64;
+        for index in 0..overflow {
+            lines
+                .send(
+                    json!({
+                        "jsonrpc": "2.0",
+                        "method": "item/updated",
+                        "params": { "n": index },
+                    })
+                    .to_string(),
+                )
+                .expect("the fake stdout accepts the frame");
+        }
+        // Nobody ever reads `notifications`: that is the wedged consumer.
+        let (server, notifications, _requests) =
+            AppServer::attach(incoming, Arc::new(Discard)).expect("the router starts");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !lines.is_empty() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert_eq!(lines.len(), 0, "the router drained the whole stream");
+        assert_eq!(
+            notifications.len(),
+            ROUTER_QUEUE_MAX,
+            "the queue held its cap and dropped the rest"
+        );
+        drop(server);
+    }
 
     #[test]
     fn classify_line_routes_a_response() {
