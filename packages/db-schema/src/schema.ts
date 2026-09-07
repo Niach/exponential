@@ -1921,6 +1921,36 @@ export const conversionEvents = pgTable(
   ]
 )
 
+// EXP-759: durable per-user client-platform ledger (SERVER-ONLY, admin
+// console; never synced — no shape proxy). Touched by lib/auth/resolve-bearer.ts
+// on every authenticated API request (in-process throttled): natives identify
+// themselves through the `x-client-version` header, a cookie session is the
+// web app. `platform` = web|ios|android|desktop|cli — a documented varchar
+// (the typed union lives in lib/client-platforms.ts), not a pg enum. Sessions
+// expire and devices rows get re-registered, so this is the ONE durable
+// "which clients has this user used" record.
+export const userClientPlatforms = pgTable(
+  `user_client_platforms`,
+  {
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    platform: varchar({ length: 16 }).notNull(),
+    firstSeenAt: timestamp(`first_seen_at`, { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastSeenAt: timestamp(`last_seen_at`, { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    // Marketing version from x-client-version (`0.14.24`); NULL for web.
+    lastVersion: varchar(`last_version`, { length: 32 }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.platform] }),
+    index(`idx_user_client_platforms_platform`).on(table.platform),
+  ]
+)
+
 // Embeddable feedback-widget configs (server-only, NOT Electric-synced; read
 // via the `widgets` tRPC router). One row = one paste-in snippet: a public
 // key scoped to a destination team+board, plus the domain allowlist
@@ -2313,6 +2343,7 @@ export type UserNotificationPrefs = InferSelectModel<
 >
 export type EmailDelivery = InferSelectModel<typeof emailDeliveries>
 export type ConversionEvent = InferSelectModel<typeof conversionEvents>
+export type UserClientPlatformRow = InferSelectModel<typeof userClientPlatforms>
 export type WidgetConfig = InferSelectModel<typeof widgetConfigs>
 export type WidgetSubmission = InferSelectModel<typeof widgetSubmissions>
 export type SupportThread = InferSelectModel<typeof supportThreads>

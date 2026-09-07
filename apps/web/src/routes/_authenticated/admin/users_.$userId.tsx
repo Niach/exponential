@@ -27,9 +27,11 @@ import { getInitials } from "@/lib/utils"
 import {
   EmailDeliveriesTable,
   PlanBadge,
+  PlatformPills,
   formatDate,
   formatDateTime,
   formatRelative,
+  platformLabel,
 } from "./-shared"
 
 export const Route = createFileRoute(`/_authenticated/admin/users_/$userId`)({
@@ -133,6 +135,14 @@ function AdminUserDetail() {
                   {detail.createdIssuesCount}{` `}
                   {detail.createdIssuesCount === 1 ? `issue` : `issues`} created
                 </span>
+                {detail.platforms.length > 0 && (
+                  <>
+                    <span aria-hidden>·</span>
+                    <PlatformPills
+                      platforms={detail.platforms.map((p) => p.platform)}
+                    />
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -209,6 +219,99 @@ function AdminUserDetail() {
           )}
         </CardContent>
       </Card>
+
+      {/* EXP-759: which clients this user runs, and their registered machines. */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Platforms</CardTitle>
+            <CardDescription className="text-xs">
+              Clients seen on authenticated requests, first use first.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {detail.platforms.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No client activity recorded yet.
+              </p>
+            ) : (
+              <div className="rounded-md border">
+                <div className="grid grid-cols-[90px_1fr_1fr_80px] items-center gap-3 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
+                  <div>Client</div>
+                  <div>First seen</div>
+                  <div>Last seen</div>
+                  <div>Version</div>
+                </div>
+                {detail.platforms.map((p) => (
+                  <div
+                    key={p.platform}
+                    className="grid grid-cols-[90px_1fr_1fr_80px] items-center gap-3 border-b px-3 py-2 last:border-b-0 text-xs"
+                  >
+                    <div className="font-medium">{platformLabel(p.platform)}</div>
+                    <div
+                      className="text-muted-foreground"
+                      title={formatDateTime(p.firstSeenAt)}
+                    >
+                      {formatDate(p.firstSeenAt)}
+                    </div>
+                    <div title={formatDateTime(p.lastSeenAt)}>
+                      {formatRelative(p.lastSeenAt)}
+                    </div>
+                    <div className="text-muted-foreground tabular-nums">
+                      {p.lastVersion ?? `—`}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Devices</CardTitle>
+            <CardDescription className="text-xs">
+              Registered desktops and CLI daemons.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {detail.devices.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No devices.</p>
+            ) : (
+              <div className="rounded-md border">
+                <div className="grid grid-cols-[1fr_70px_80px_70px_80px] items-center gap-3 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
+                  <div>Device</div>
+                  <div>Kind</div>
+                  <div>OS</div>
+                  <div>Version</div>
+                  <div>Last seen</div>
+                </div>
+                {detail.devices.map((d) => (
+                  <div
+                    key={d.id}
+                    className="grid grid-cols-[1fr_70px_80px_70px_80px] items-center gap-3 border-b px-3 py-2 last:border-b-0 text-xs"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate font-medium">{d.label}</div>
+                      <div className="truncate text-muted-foreground">
+                        {d.agents.length > 0 ? d.agents.join(`, `) : `no agents`}
+                        {d.sharedTeamId ? ` · shared` : ``}
+                      </div>
+                    </div>
+                    <div>{d.kind === `server` ? `CLI` : `Desktop`}</div>
+                    <div className="text-muted-foreground">{d.platform ?? `—`}</div>
+                    <div className="text-muted-foreground tabular-nums">
+                      {d.version ?? `—`}
+                    </div>
+                    <div title={formatDateTime(d.lastSeenAt)}>
+                      {formatRelative(d.lastSeenAt)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       <Card>
         <CardHeader>

@@ -13,6 +13,8 @@ import {
   emailBounces,
   emailDeliveries,
   creem_subscriptions,
+  devices,
+  userClientPlatforms,
 } from "@/db/schema"
 import { suppressSesDestination } from "@/lib/email"
 import { escapeLikePattern } from "@/lib/like-pattern"
@@ -43,6 +45,7 @@ import {
 } from "@/lib/billing/creem-subscriptions"
 import { assertTeamDeletableBilling } from "@/lib/billing/billing-handover"
 import type { db as Database } from "@/db/connection"
+import { platformsByUserSubquery } from "@/lib/client-platforms"
 
 function bytesToMb(bytes: number): number {
   return Math.round((bytes / (1024 * 1024)) * 10) / 10
@@ -89,6 +92,9 @@ export const EMAIL_DELIVERY_STATUSES = [
 
 export const adminRouter = router({
   listUsers: adminProcedure.query(async ({ ctx }) => {
+    // EXP-759: one grouped 1:0..1 subquery per user for the client-platform
+    // ledger, so the existing join fan-out stays as it is.
+    const ucp = platformsByUserSubquery(ctx.db)
     const rows = await ctx.db
       .select({
         id: users.id,
@@ -99,19 +105,88 @@ export const adminRouter = router({
         createdAt: users.createdAt,
         teamCount: sql<number>`count(distinct ${teamMembers.teamId})::int`,
         providers: sql<string[]>`coalesce(array_agg(distinct ${accounts.providerId}) filter (where ${accounts.providerId} is not null), '{}')`,
+        platforms: sql<string[]>`coalesce(${ucp.platforms}, '{}')`,
         // max() is duplicate-insensitive, so the join fan-out that forces the
         // count(distinct …) above is harmless here.
         lastLoginAt: sql<Date | null>`max(${sessions.createdAt})`,
-        lastActiveAt: sql<Date | null>`max(${sessions.updatedAt})`,
+        // Native-only users never refresh a web session cookie; the platform
+        // ledger's last touch keeps them from reading "—" (sessions.updated_at
+        // is timestamp WITHOUT tz — cast so greatest() compares one type).
+        lastActiveAt: sql<
+          Date | null
+        >`greatest(max(${sessions.updatedAt})::timestamptz, ${ucp.lastSeenAt})`,
       })
       .from(users)
       .leftJoin(teamMembers, eq(teamMembers.userId, users.id))
       .leftJoin(accounts, eq(accounts.userId, users.id))
       .leftJoin(sessions, eq(sessions.userId, users.id))
-      .groupBy(users.id)
+      .leftJoin(ucp, eq(ucp.userId, users.id))
+      .groupBy(users.id, ucp.platforms, ucp.lastSeenAt)
       .orderBy(desc(users.createdAt))
 
     return rows
+  }),
+
+  // EXP-759: who uses which client. Rows come from user_client_platforms
+  // (touched on every authenticated API request); "first platform" is the
+  // platform with the earliest first_seen_at per user — for accounts older
+  // than the ledger that is the migration backfill's guess.
+  platforms: adminProcedure.query(async ({ ctx }) => {
+    const perUser = ctx.db
+      .select({
+        userId: userClientPlatforms.userId,
+        n: sql<number>`count(*)::int`.as(`n`),
+      })
+      .from(userClientPlatforms)
+      .groupBy(userClientPlatforms.userId)
+      .as(`per_user`)
+    const firstPlatform = ctx.db
+      .selectDistinctOn([userClientPlatforms.userId], {
+        userId: userClientPlatforms.userId,
+        platform: userClientPlatforms.platform,
+      })
+      .from(userClientPlatforms)
+      .orderBy(
+        userClientPlatforms.userId,
+        userClientPlatforms.firstSeenAt,
+        userClientPlatforms.platform
+      )
+      .as(`first_platform`)
+    const [byPlatform, [breadth], firstByPlatform, [userTotal]] =
+      await Promise.all([
+        ctx.db
+          .select({
+            platform: userClientPlatforms.platform,
+            users: sql<number>`count(*)::int`,
+            active7d: sql<number>`count(*) filter (where ${userClientPlatforms.lastSeenAt} >= now() - interval '7 days')::int`,
+            active30d: sql<number>`count(*) filter (where ${userClientPlatforms.lastSeenAt} >= now() - interval '30 days')::int`,
+          })
+          .from(userClientPlatforms)
+          .groupBy(userClientPlatforms.platform)
+          .orderBy(sql`count(*) desc`),
+        ctx.db
+          .select({
+            usersWithAny: sql<number>`count(*)::int`,
+            multiPlatform: sql<number>`count(*) filter (where ${perUser.n} >= 2)::int`,
+          })
+          .from(perUser),
+        ctx.db
+          .select({
+            platform: firstPlatform.platform,
+            users: sql<number>`count(*)::int`,
+          })
+          .from(firstPlatform)
+          .groupBy(firstPlatform.platform)
+          .orderBy(sql`count(*) desc`),
+        ctx.db.select({ count: sql<number>`count(*)::int` }).from(users),
+      ])
+    return {
+      byPlatform,
+      usersWithAny: breadth?.usersWithAny ?? 0,
+      multiPlatform: breadth?.multiPlatform ?? 0,
+      usersTotal: userTotal?.count ?? 0,
+      firstPlatform: firstByPlatform,
+    }
   }),
 
   setUserAdmin: adminProcedure
@@ -560,7 +635,15 @@ export const adminRouter = router({
         throw new TRPCError({ code: `NOT_FOUND`, message: `User not found` })
       }
 
-      const [providerRows, membershipRows, sessionRows, emailRows, [issueCountRow]] =
+      const [
+        providerRows,
+        membershipRows,
+        sessionRows,
+        emailRows,
+        [issueCountRow],
+        platformRows,
+        deviceRows,
+      ] =
         await Promise.all([
           ctx.db
             .select({ providerId: accounts.providerId })
@@ -614,6 +697,32 @@ export const adminRouter = router({
             .select({ count: sql<number>`count(*)::int` })
             .from(issues)
             .where(eq(issues.creatorId, input.userId)),
+          // EXP-759: the client-platform ledger + registered machines.
+          ctx.db
+            .select({
+              platform: userClientPlatforms.platform,
+              firstSeenAt: userClientPlatforms.firstSeenAt,
+              lastSeenAt: userClientPlatforms.lastSeenAt,
+              lastVersion: userClientPlatforms.lastVersion,
+            })
+            .from(userClientPlatforms)
+            .where(eq(userClientPlatforms.userId, input.userId))
+            .orderBy(userClientPlatforms.firstSeenAt),
+          ctx.db
+            .select({
+              id: devices.id,
+              label: devices.label,
+              kind: devices.kind,
+              platform: devices.platform,
+              version: devices.version,
+              lastSeenAt: devices.lastSeenAt,
+              createdAt: devices.createdAt,
+              sharedTeamId: devices.sharedTeamId,
+              agents: devices.agents,
+            })
+            .from(devices)
+            .where(eq(devices.userId, input.userId))
+            .orderBy(desc(devices.lastSeenAt)),
         ])
 
       // One grouped subscription query for all of the user's teams —
@@ -667,6 +776,8 @@ export const adminRouter = router({
         sessions: sessionRows,
         emailDeliveries: emailRows,
         createdIssuesCount: issueCountRow?.count ?? 0,
+        platforms: platformRows,
+        devices: deviceRows,
       }
     }),
 

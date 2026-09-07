@@ -1,9 +1,22 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { desc, eq, sql, type SQL } from "drizzle-orm"
+import { and, desc, eq, inArray, isNotNull, sql, type SQL } from "drizzle-orm"
 import { router, adminProcedure, type Context } from "@/lib/trpc"
-import { conversionEvents, teams, users } from "@/db/schema"
+import {
+  boards,
+  conversionEvents,
+  creem_subscriptions,
+  devices,
+  issues,
+  sessions,
+  teamInvites,
+  teamMembers,
+  teams,
+  users,
+} from "@/db/schema"
 import { isCloudInstance } from "@/lib/bootstrap-cloud"
+import { platformsByUserSubquery } from "@/lib/client-platforms"
+import { ACTIVE_SUBSCRIPTION_STATUSES } from "@/lib/billing/creem-subscriptions"
 
 // Admin console → Conversions (EXP-362). One aggregate procedure feeding the
 // whole /admin/conversions page in a single loader call (the admin.overview
@@ -50,6 +63,164 @@ export function buildSignupSourcesQuery(db: Context[`db`], windowStart: SQL) {
     .limit(50)
 }
 
+// EXP-759: the signup COHORT — every user who signed up in the window,
+// followed through the onboarding chain by STATE tables rather than events,
+// so it stays correct whatever the event vocabulary covers (board and device
+// steps emit no conversion event; invited users complete onboarding silently
+// in teamInvites.accept). Same shape rule as buildSignupSourcesQuery: one
+// grouped 1:0..1 subquery per stage, LEFT JOINed to users, never a correlated
+// subquery in the select list.
+export function signupCohortSources(db: Context[`db`]) {
+  const n = (alias: string) => sql<number>`count(*)::int`.as(alias)
+  return {
+    membership: db
+      .select({ userId: teamMembers.userId, teams: n(`teams`) })
+      .from(teamMembers)
+      .groupBy(teamMembers.userId)
+      .as(`m`),
+    // Boards in ANY of the user's teams (trashed/archived included — "made
+    // one" is the fact), plus the newest so the cohort can tell "created a
+    // board after signing up" from "joined a team that already had boards".
+    boardsByUser: db
+      .select({
+        userId: teamMembers.userId,
+        boards: sql<number>`count(${boards.id})::int`.as(`boards`),
+        lastBoardAt: sql<Date>`max(${boards.createdAt})`.as(`last_board_at`),
+      })
+      .from(teamMembers)
+      .innerJoin(boards, eq(boards.teamId, teamMembers.teamId))
+      .groupBy(teamMembers.userId)
+      .as(`b`),
+    issuesByUser: db
+      .select({ userId: issues.creatorId, issues: n(`issues`) })
+      .from(issues)
+      .where(isNotNull(issues.creatorId))
+      .groupBy(issues.creatorId)
+      .as(`i`),
+    invitesByUser: db
+      .select({ userId: teamInvites.invitedById, invites: n(`invites`) })
+      .from(teamInvites)
+      .groupBy(teamInvites.invitedById)
+      .as(`inv`),
+    devicesByUser: db
+      .select({ userId: devices.userId, devices: n(`devices`) })
+      .from(devices)
+      .groupBy(devices.userId)
+      .as(`d`),
+    // return_visit is recorded on WEB document loads only (attribution.ts);
+    // natives never "return" by this metric — the platform ledger's last
+    // touch is the cross-client signal.
+    returnsByUser: db
+      .select({
+        userId: conversionEvents.userId,
+        lastDay: sql<string>`max(${conversionEvents.properties}->>'day')`.as(
+          `last_day`
+        ),
+        returnDays: n(`return_days`),
+      })
+      .from(conversionEvents)
+      .where(
+        sql`${conversionEvents.name} = 'return_visit' and ${conversionEvents.userId} is not null`
+      )
+      .groupBy(conversionEvents.userId)
+      .as(`rv`),
+    // State, not event: member of a team with a live subscription.
+    paidByUser: db
+      .select({ userId: teamMembers.userId, paidTeams: n(`paid_teams`) })
+      .from(teamMembers)
+      .innerJoin(
+        creem_subscriptions,
+        and(
+          eq(creem_subscriptions.teamId, teamMembers.teamId),
+          inArray(creem_subscriptions.status, ACTIVE_SUBSCRIPTION_STATUSES)
+        )
+      )
+      .groupBy(teamMembers.userId)
+      .as(`paid`),
+    platformsByUser: platformsByUserSubquery(db),
+    lastSessionByUser: db
+      .select({
+        userId: sessions.userId,
+        lastActiveAt: sql<Date>`max(${sessions.updatedAt})`.as(`last_active_at`),
+      })
+      .from(sessions)
+      .groupBy(sessions.userId)
+      .as(`s`),
+  }
+}
+
+export function buildSignupCohortQuery(db: Context[`db`], windowStart: SQL) {
+  const s = signupCohortSources(db)
+  return db
+    .select({
+      signups: sql<number>`count(*)::int`,
+      onboarded: sql<number>`count(${users.onboardingCompletedAt})::int`,
+      withTeam: sql<number>`count(${s.membership.userId})::int`,
+      withBoard: sql<number>`count(${s.boardsByUser.userId})::int`,
+      boardAfterSignup: sql<number>`count(*) filter (where ${s.boardsByUser.lastBoardAt} > ${users.createdAt}::timestamptz)::int`,
+      withIssue: sql<number>`count(${s.issuesByUser.userId})::int`,
+      withInvite: sql<number>`count(${s.invitesByUser.userId})::int`,
+      withDevice: sql<number>`count(${s.devicesByUser.userId})::int`,
+      returned: sql<number>`count(*) filter (where ${s.returnsByUser.lastDay} > to_char(${users.createdAt}, 'YYYY-MM-DD'))::int`,
+      // Any client seen on a later day than the signup — the cross-platform
+      // "came back" (return_visit above is web-only).
+      returnedAnyClient: sql<number>`count(*) filter (where ${s.platformsByUser.lastSeenAt}::date > ${users.createdAt}::date)::int`,
+      paid: sql<number>`count(${s.paidByUser.userId})::int`,
+    })
+    .from(users)
+    .leftJoin(s.membership, eq(s.membership.userId, users.id))
+    .leftJoin(s.boardsByUser, eq(s.boardsByUser.userId, users.id))
+    .leftJoin(s.issuesByUser, eq(s.issuesByUser.userId, users.id))
+    .leftJoin(s.invitesByUser, eq(s.invitesByUser.userId, users.id))
+    .leftJoin(s.devicesByUser, eq(s.devicesByUser.userId, users.id))
+    .leftJoin(s.returnsByUser, eq(s.returnsByUser.userId, users.id))
+    .leftJoin(s.platformsByUser, eq(s.platformsByUser.userId, users.id))
+    .leftJoin(s.paidByUser, eq(s.paidByUser.userId, users.id))
+    .where(sql`${users.createdAt} >= ${windowStart}`)
+}
+
+// The per-user journey behind the cohort: newest 50 signups in the window
+// with every stage as a count, so the admin can see WHERE each one stopped.
+export function buildSignupJourneyQuery(db: Context[`db`], windowStart: SQL) {
+  const s = signupCohortSources(db)
+  return db
+    .select({
+      id: users.id,
+      email: users.email,
+      name: users.name,
+      createdAt: users.createdAt,
+      onboardingCompletedAt: users.onboardingCompletedAt,
+      signupRef: users.signupRef,
+      signupUtmSource: users.signupUtmSource,
+      signupReferrer: users.signupReferrer,
+      teams: sql<number>`coalesce(${s.membership.teams}, 0)`,
+      boards: sql<number>`coalesce(${s.boardsByUser.boards}, 0)`,
+      boardAfterSignup: sql<boolean>`coalesce(${s.boardsByUser.lastBoardAt} > ${users.createdAt}::timestamptz, false)`,
+      issues: sql<number>`coalesce(${s.issuesByUser.issues}, 0)`,
+      invites: sql<number>`coalesce(${s.invitesByUser.invites}, 0)`,
+      devices: sql<number>`coalesce(${s.devicesByUser.devices}, 0)`,
+      returnDays: sql<number>`coalesce(${s.returnsByUser.returnDays}, 0)`,
+      paidTeams: sql<number>`coalesce(${s.paidByUser.paidTeams}, 0)`,
+      platforms: sql<string[]>`coalesce(${s.platformsByUser.platforms}, '{}')`,
+      lastActiveAt: sql<
+        Date | null
+      >`greatest(${s.lastSessionByUser.lastActiveAt}::timestamptz, ${s.platformsByUser.lastSeenAt})`,
+    })
+    .from(users)
+    .leftJoin(s.membership, eq(s.membership.userId, users.id))
+    .leftJoin(s.boardsByUser, eq(s.boardsByUser.userId, users.id))
+    .leftJoin(s.issuesByUser, eq(s.issuesByUser.userId, users.id))
+    .leftJoin(s.invitesByUser, eq(s.invitesByUser.userId, users.id))
+    .leftJoin(s.devicesByUser, eq(s.devicesByUser.userId, users.id))
+    .leftJoin(s.returnsByUser, eq(s.returnsByUser.userId, users.id))
+    .leftJoin(s.paidByUser, eq(s.paidByUser.userId, users.id))
+    .leftJoin(s.platformsByUser, eq(s.platformsByUser.userId, users.id))
+    .leftJoin(s.lastSessionByUser, eq(s.lastSessionByUser.userId, users.id))
+    .where(sql`${users.createdAt} >= ${windowStart}`)
+    .orderBy(desc(users.createdAt))
+    .limit(50)
+}
+
 export const adminConversionsRouter = router({
   overview: adminProcedure
     .input(
@@ -79,6 +250,8 @@ export const adminConversionsRouter = router({
         sources,
         paidConversions,
         recentEvents,
+        [cohortCounts],
+        recentSignups,
       ] = await Promise.all([
         ctx.db
           .select({
@@ -143,6 +316,8 @@ export const adminConversionsRouter = router({
           .where(sql`${conversionEvents.createdAt} >= ${windowStart}`)
           .orderBy(desc(conversionEvents.createdAt))
           .limit(50),
+        buildSignupCohortQuery(ctx.db, windowStart),
+        buildSignupJourneyQuery(ctx.db, windowStart),
       ])
 
       return {
@@ -171,6 +346,20 @@ export const adminConversionsRouter = router({
               : null,
         })),
         recentEvents,
+        cohort: {
+          signups: cohortCounts?.signups ?? 0,
+          onboarded: cohortCounts?.onboarded ?? 0,
+          withTeam: cohortCounts?.withTeam ?? 0,
+          withBoard: cohortCounts?.withBoard ?? 0,
+          boardAfterSignup: cohortCounts?.boardAfterSignup ?? 0,
+          withIssue: cohortCounts?.withIssue ?? 0,
+          withInvite: cohortCounts?.withInvite ?? 0,
+          withDevice: cohortCounts?.withDevice ?? 0,
+          returned: cohortCounts?.returned ?? 0,
+          returnedAnyClient: cohortCounts?.returnedAnyClient ?? 0,
+          paid: cohortCounts?.paid ?? 0,
+        },
+        recentSignups,
       }
     }),
 })

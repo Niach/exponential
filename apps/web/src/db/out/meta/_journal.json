@@ -722,6 +722,13 @@
       "when": 1788720187669,
       "tag": "0102_strange_black_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1788755535225,
+      "tag": "0103_user_client_platforms",
+      "breakpoints": true
     }
   ]
 }

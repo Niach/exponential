@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto"
 import { auth } from "@/lib/auth"
+import { db } from "@/db/connection"
+import {
+  deriveClientPlatform,
+  touchUserClientPlatform,
+} from "@/lib/client-platforms"
 import { authDbFailureCount } from "@/lib/auth/db-failure-signal"
 import { TtlPromiseCache } from "@/lib/ttl-promise-cache"
 
@@ -48,6 +53,20 @@ export function invalidateSessionCache(): void {
 // the MCP tool layer enforces that scope — so /api/mcp is the only endpoint
 // that resolves them (see lib/mcp/scope.ts).
 export async function resolveSession(request: Request): Promise<Session> {
+  const session = await resolveSessionCore(request)
+  // EXP-759: the ONE place every authenticated API request passes (tRPC, all
+  // shape proxies, attachments) — record which client made it. Runs on cache
+  // hits too (the request is always in hand); throttled + fire-and-forget
+  // inside, never awaited, never throws.
+  const userId = session?.user?.id
+  if (userId) {
+    const client = deriveClientPlatform(request)
+    if (client) touchUserClientPlatform(db, { userId, ...client })
+  }
+  return session
+}
+
+async function resolveSessionCore(request: Request): Promise<Session> {
   const authorization = request.headers.get(`authorization`)
   const apiKey = request.headers.get(`x-api-key`)
   if (!authorization && !apiKey) {

@@ -119,7 +119,7 @@ function AdminLayout() {
           ref={navRef}
           className={cn(
             SEGMENTED_LIST,
-            `ml-4 min-w-0 gap-1 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden`
+            `ml-4 min-w-0 gap-1 overflow-x-auto px-1 scrollbar-none`
           )}
         >
           <AdminNavLink to="/admin" exact icon={LayoutDashboard}>

@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router"
-import { Ellipsis, Trash2 } from "lucide-react"
+import { ArrowDown, ArrowUp, Ellipsis, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { useSession } from "@/hooks/use-session"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -23,18 +23,98 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { getInitials } from "@/lib/utils"
-import { formatRelative } from "./-shared"
+import { cn, getInitials } from "@/lib/utils"
+import { formatDate, formatRelative, PlatformPills } from "./-shared"
 
 type AdminUser = Awaited<ReturnType<typeof trpc.admin.listUsers.query>>[number]
 
+// EXP-759: client-side sort over the (unpaginated) list; the choice rides
+// the URL so a reload or a back-navigation keeps it.
+type SortKey = `name` | `joined` | `active` | `teams`
+type SortDir = `asc` | `desc`
+const SORT_KEYS: SortKey[] = [`name`, `joined`, `active`, `teams`]
+const DEFAULT_DIR: Record<SortKey, SortDir> = {
+  name: `asc`,
+  joined: `desc`,
+  active: `desc`,
+  teams: `desc`,
+}
+
+function timeOf(value: Date | string | null | undefined): number {
+  if (!value) return 0
+  const t = new Date(value).getTime()
+  return Number.isNaN(t) ? 0 : t
+}
+
+function compareUsers(a: AdminUser, b: AdminUser, key: SortKey): number {
+  switch (key) {
+    case `name`:
+      return (a.name || a.email).localeCompare(b.name || b.email, undefined, {
+        sensitivity: `base`,
+      })
+    case `joined`:
+      return timeOf(a.createdAt) - timeOf(b.createdAt)
+    case `active`:
+      return timeOf(a.lastActiveAt) - timeOf(b.lastActiveAt)
+    case `teams`:
+      return a.teamCount - b.teamCount
+  }
+}
+
 export const Route = createFileRoute(`/_authenticated/admin/users`)({
+  validateSearch: (
+    search: Record<string, unknown>
+  ): { sort?: SortKey; dir?: SortDir } => ({
+    sort: SORT_KEYS.includes(search.sort as SortKey)
+      ? (search.sort as SortKey)
+      : undefined,
+    dir:
+      search.dir === `asc` || search.dir === `desc`
+        ? (search.dir as SortDir)
+        : undefined,
+  }),
   loader: async () => {
     const users = await trpc.admin.listUsers.query()
     return { users }
   },
   component: AdminUsers,
 })
+
+const GRID = `md:grid-cols-[minmax(0,1fr)_120px_130px_60px_95px_100px_60px_40px]`
+
+function SortHeader({
+  label,
+  sortKey,
+  active,
+  dir,
+}: {
+  label: string
+  sortKey: SortKey
+  active: boolean
+  dir: SortDir
+}) {
+  const nextDir: SortDir = active
+    ? dir === `asc`
+      ? `desc`
+      : `asc`
+    : DEFAULT_DIR[sortKey]
+  const Arrow = dir === `asc` ? ArrowUp : ArrowDown
+  return (
+    <Link
+      to="/admin/users"
+      search={{ sort: sortKey, dir: nextDir }}
+      replace
+      className={cn(
+        `inline-flex items-center gap-1 hover:text-foreground`,
+        active && `text-foreground`
+      )}
+      aria-sort={active ? (dir === `asc` ? `ascending` : `descending`) : `none`}
+    >
+      {label}
+      {active && <Arrow className="h-3 w-3" />}
+    </Link>
+  )
+}
 
 function AdminUsers() {
   const router = useRouter()
@@ -45,12 +125,30 @@ function AdminUsers() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<AdminUser | null>(null)
+  const sortSearch = Route.useSearch()
+  const sortKey: SortKey = sortSearch.sort ?? `joined`
+  const sortDir: SortDir = sortSearch.dir ?? DEFAULT_DIR[sortKey]
 
-  const filteredUsers = users.filter((u: AdminUser) => {
-    if (!search) return true
-    const q = search.toLowerCase()
-    return u.name?.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
-  })
+  const filteredUsers = users
+    .filter((u: AdminUser) => {
+      if (!search) return true
+      const q = search.toLowerCase()
+      return (
+        u.name?.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
+      )
+    })
+    .sort((a, b) => {
+      const cmp = compareUsers(a, b, sortKey)
+      // Users without the sort value ("—" last-active) sink to the bottom in
+      // both directions; ties fall back to newest first.
+      if (sortKey === `active`) {
+        const aMissing = !a.lastActiveAt
+        const bMissing = !b.lastActiveAt
+        if (aMissing !== bMissing) return aMissing ? 1 : -1
+      }
+      const ordered = sortDir === `asc` ? cmp : -cmp
+      return ordered !== 0 ? ordered : timeOf(b.createdAt) - timeOf(a.createdAt)
+    })
 
   const handleToggleAdmin = async (user: AdminUser, next: boolean) => {
     setError(null)
@@ -108,11 +206,43 @@ function AdminUsers() {
 
       <div className="rounded-md border">
         {/* Desktop column header */}
-        <div className="hidden md:grid grid-cols-[1fr_130px_90px_110px_70px_40px] items-center gap-3 border-b px-4 py-2 text-xs font-medium text-muted-foreground">
-          <div>User</div>
+        <div
+          className={`hidden md:grid ${GRID} items-center gap-3 border-b px-4 py-2 text-xs font-medium text-muted-foreground`}
+        >
+          <div>
+            <SortHeader
+              label="User"
+              sortKey="name"
+              active={sortKey === `name`}
+              dir={sortDir}
+            />
+          </div>
           <div>Providers</div>
-          <div>Teams</div>
-          <div>Last active</div>
+          <div>Platforms</div>
+          <div>
+            <SortHeader
+              label="Teams"
+              sortKey="teams"
+              active={sortKey === `teams`}
+              dir={sortDir}
+            />
+          </div>
+          <div>
+            <SortHeader
+              label="Joined"
+              sortKey="joined"
+              active={sortKey === `joined`}
+              dir={sortDir}
+            />
+          </div>
+          <div>
+            <SortHeader
+              label="Last active"
+              sortKey="active"
+              active={sortKey === `active`}
+              dir={sortDir}
+            />
+          </div>
           <div>Admin</div>
           <div />
         </div>
@@ -121,7 +251,7 @@ function AdminUsers() {
           return (
             <div
               key={user.id}
-              className="flex flex-col md:grid md:grid-cols-[1fr_130px_90px_110px_70px_40px] md:items-center gap-3 border-b px-4 py-3 last:border-b-0"
+              className={`flex flex-col md:grid ${GRID} md:items-center gap-3 border-b px-4 py-3 last:border-b-0`}
             >
               <div className="flex items-center gap-3 min-w-0">
                 <Link
@@ -203,6 +333,12 @@ function AdminUsers() {
                     ))
                   )}
                 </div>
+                {user.platforms.length > 0 && (
+                  <>
+                    <span aria-hidden>·</span>
+                    <PlatformPills platforms={user.platforms} />
+                  </>
+                )}
               </div>
               {/* Desktop columns */}
               <div className="hidden md:flex flex-wrap gap-1">
@@ -216,8 +352,17 @@ function AdminUsers() {
                   ))
                 )}
               </div>
+              <div className="hidden md:block">
+                <PlatformPills platforms={user.platforms} />
+              </div>
               <div className="hidden md:block text-sm tabular-nums">
                 {user.teamCount}
+              </div>
+              <div
+                className="hidden md:block text-xs text-muted-foreground"
+                title={new Date(user.createdAt).toLocaleString()}
+              >
+                {formatDate(user.createdAt)}
               </div>
               <div
                 className="hidden md:block text-xs text-muted-foreground"

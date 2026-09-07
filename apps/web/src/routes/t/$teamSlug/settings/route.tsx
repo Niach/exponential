@@ -71,7 +71,7 @@ function SettingsLayout() {
           ref={navRef}
           className={cn(
             SEGMENTED_LIST,
-            `max-w-full gap-1 self-start overflow-x-auto px-1 [scrollbar-width:none] md:hidden [&::-webkit-scrollbar]:hidden`
+            `max-w-full gap-1 self-start overflow-x-auto px-1 scrollbar-none md:hidden`
           )}
         >
           {navItems.map((item) => (
