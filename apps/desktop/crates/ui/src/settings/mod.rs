@@ -519,9 +519,9 @@ impl Render for SettingsView {
             |id| board_ids.as_ref().is_none_or(|ids| ids.contains(id)),
         );
 
-        // A switch INTO a Personal server-read pane refetches it (the
-        // screen-level staleness only fires on Settings entry, not on
-        // section clicks within it).
+        // A switch INTO a server-read pane refetches it (the screen-level
+        // staleness only fires on Settings entry, not on section clicks
+        // within it).
         if self.last_section.as_ref() != Some(&effective) {
             match &effective {
                 SettingsSection::Account => {
@@ -532,6 +532,12 @@ impl Render for SettingsView {
                     .update(cx, |pane, cx| pane.mark_stale(cx)),
                 SettingsSection::ApiKeys => {
                     self.api_keys.update(cx, |pane, cx| pane.mark_stale(cx))
+                }
+                // The widget list is tRPC too, and its one affordance sends
+                // the user to the web to change it — so coming back must see
+                // the change.
+                SettingsSection::Widget => {
+                    self.widget.update(cx, |pane, cx| pane.mark_stale(cx))
                 }
                 _ => {}
             }
@@ -1237,6 +1243,17 @@ pub(crate) fn open_url(cx: &mut App, url: String) {
         .detach();
 }
 
+/// The inline error a settings form shows (EXP-771, web parity): the SERVER's
+/// own message when the rejection carried one (the web's
+/// `err instanceof Error ? err.message : …`), otherwise the form's own fallback
+/// sentence — a transport or decode fault never reaches the user as a dump.
+pub(crate) fn form_error(err: &api::ApiError, fallback: &str) -> String {
+    match err {
+        api::ApiError::Http { message, .. } if !message.trim().is_empty() => message.clone(),
+        _ => fallback.to_string(),
+    }
+}
+
 /// A plan-cap rejection (`planLimitError` → PRECONDITION_FAILED / HTTP 412
 /// with the "Your plan allows" prefix). Drives the §4.9 "Upgrade on the web"
 /// notice. Delegates to the ONE prefix-checking classifier — a bare-412 match
@@ -1399,6 +1416,33 @@ mod tests {
         assert_eq!(
             team_delete_error_message(&err).as_ref(),
             "Only team owners can delete a team"
+        );
+    }
+
+    /// EXP-771: the settings forms show the SERVER's sentence when there is
+    /// one and the web's own fallback otherwise — never a transport dump.
+    #[test]
+    fn form_errors_prefer_the_server_message_then_the_web_fallback() {
+        let err = api::ApiError::Http {
+            status: 409,
+            message: "A status with this name already exists.".to_string(),
+        };
+        assert_eq!(
+            form_error(&err, "Failed to create status."),
+            "A status with this name already exists."
+        );
+        let blank = api::ApiError::Http {
+            status: 500,
+            message: "   ".to_string(),
+        };
+        assert_eq!(
+            form_error(&blank, "Failed to create status."),
+            "Failed to create status."
+        );
+        let offline = api::ApiError::transport("connection reset".to_string());
+        assert_eq!(
+            form_error(&offline, "Failed to rename label."),
+            "Failed to rename label."
         );
     }
 

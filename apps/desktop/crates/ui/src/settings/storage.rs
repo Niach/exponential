@@ -486,8 +486,6 @@ impl Render for StoragePane {
         };
         self.ensure_loaded(&team_id, cx);
 
-        // EXP-771: the web's description under the title — the pane's rows
-        // never said what a deletion costs, and it is permanent.
         // EXP-771: the web's description under the title — the rows never
         // said what a deletion costs, and it is permanent. Written out here
         // rather than through `section_description`: that recipe carries the

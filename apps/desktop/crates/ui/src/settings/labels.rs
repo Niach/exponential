@@ -241,9 +241,31 @@ impl LabelsPane {
         self.row_error = None;
         let team_id = label.team_id.clone();
         let label_id = label_id.to_string();
-        spawn_trpc(cx, "labels.update(name)", move |trpc| {
-            api::labels::labels_update(trpc, &team_id, &label_id, Some(&typed), None)
-        });
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            return;
+        };
+        // Web `LabelRow`: a rejected rename says so under the row instead of
+        // vanishing into the log.
+        cx.spawn(async move |this, cx| {
+            let call_id = label_id.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    api::labels::labels_update(&trpc, &team_id, &call_id, Some(&typed), None)
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if let Err(err) = &result {
+                    log::warn!("[ui] labels.update(name) failed: {err}");
+                    this.row_error = Some((
+                        label_id.clone(),
+                        super::form_error(err, "Failed to rename label."),
+                    ));
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     fn create(&mut self, cx: &mut gpui::Context<Self>) {
@@ -278,11 +300,10 @@ impl LabelsPane {
                 if let Err(err) = &result {
                     log::warn!("[ui] labels.create failed: {err}");
                     // Server reject (e.g. the duplicate-name CONFLICT racing
-                    // a not-yet-synced label) — show its clean message inline.
-                    this.create_error = Some(match err {
-                        api::ApiError::Http { message, .. } => message.clone(),
-                        other => other.to_string(),
-                    });
+                    // a not-yet-synced label) — show its clean message inline,
+                    // and the web's fallback sentence for everything else.
+                    this.create_error =
+                        Some(super::form_error(err, "Failed to create label."));
                 } else {
                     this.creating = false;
                     this.reset_form();

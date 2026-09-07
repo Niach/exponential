@@ -63,6 +63,18 @@ impl WidgetPane {
         }
     }
 
+    /// Server read (`widgets.list` is tRPC — `widget_configs` never syncs), so
+    /// the first visit's snapshot would otherwise stand forever: a widget
+    /// created on the web through "Manage on the web" stayed invisible until a
+    /// team switch. Every entry into the section drops the cache; the next
+    /// render refetches.
+    pub fn mark_stale(&mut self, cx: &mut gpui::Context<Self>) {
+        if matches!(self.load, Load::Ready(_)) {
+            self.load = Load::Idle;
+        }
+        cx.notify();
+    }
+
     fn ensure_loaded(&mut self, team_id: &str, cx: &mut gpui::Context<Self>) {
         if self.team_id.as_deref() != Some(team_id) {
             self.team_id = Some(team_id.to_string());
@@ -72,6 +84,11 @@ impl WidgetPane {
             return;
         }
         let Some(trpc) = queries::trpc_client(cx) else {
+            // Nothing to fetch and nothing to wait for — Idle renders the
+            // loading line, so leaving it here would spin forever.
+            self.load = Load::Ready(Err(
+                "Sign in to load this team's widgets.".to_string()
+            ));
             return;
         };
         let team = team_id.to_string();
