@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest"
 import {
   DETAIL_STICKY_BAND_CLASS,
+  DOCK_BAND_CLASS,
+  MAIN_COLUMN_CLASS,
   MAIN_OUTLET_CLASS,
   MAIN_PANEL_CLASS,
+  mainPanelClass,
 } from "@/components/team/app-shell"
 
 const TOKENS = MAIN_PANEL_CLASS.split(/\s+/).filter((token) => token.length > 0)
@@ -69,9 +72,107 @@ describe(`MAIN_PANEL_CLASS`, () => {
   // spacing steps would not line up with the 10px inset the panel is designed
   // around (styles.css L7-15).
   it(`sizes the card in px, not rem steps`, () => {
-    expect(MAIN_PANEL_CLASS).toContain(`md:m-[10px]`)
-    expect(MAIN_PANEL_CLASS).toContain(`md:h-[calc(100dvh-20px)]`)
+    expect(MAIN_PANEL_CLASS).toContain(`md:mx-[10px]`)
+    expect(MAIN_PANEL_CLASS).toContain(`md:mt-[10px]`)
     expect(MAIN_PANEL_CLASS).toContain(`md:min-h-0`)
+  })
+
+  // EXP-771: the column owns the viewport height now, so the card is a
+  // `flex-1` child of it. A fixed height here would ignore the dock band and
+  // push it off the bottom edge.
+  it(`leaves the height to the column`, () => {
+    expect(MAIN_PANEL_CLASS).not.toContain(`h-[calc(`)
+    expect(MAIN_PANEL_CLASS).not.toContain(`h-dvh`)
+    expect(TOKENS).toContain(`flex-1`)
+  })
+})
+
+describe(`mainPanelClass`, () => {
+  // 6px with the band, 10px without — the band is the card's own chrome, so
+  // it rides closer than the window inset; with no band the card is inset
+  // symmetrically on all four sides again.
+  it(`tightens the bottom margin only when the dock is up`, () => {
+    expect(mainPanelClass(true)).toContain(`md:mb-[6px]`)
+    expect(mainPanelClass(true)).not.toContain(`md:mb-[10px]`)
+    expect(mainPanelClass(false)).toContain(`md:mb-[10px]`)
+    expect(mainPanelClass(false)).not.toContain(`md:mb-[6px]`)
+  })
+
+  // One `mb-` utility per variant, never an `m-[10px]` shorthand a longhand
+  // has to beat: Tailwind's shorthand/longhand emit order is not a contract.
+  it(`never leans on shorthand-over-longhand ordering`, () => {
+    for (const docked of [true, false]) {
+      expect(mainPanelClass(docked)).not.toContain(`md:m-[`)
+    }
+  })
+
+  // Everything the card invariants above pin has to hold for BOTH variants —
+  // they are the same card.
+  it(`keeps the card contract in both states`, () => {
+    for (const docked of [true, false]) {
+      const tokens = mainPanelClass(docked).split(/\s+/)
+      expect(tokens).toContain(`min-w-0`)
+      expect(tokens).toContain(`md:rounded-xl`)
+      expect(mainPanelClass(docked)).not.toContain(`backdrop-`)
+    }
+  })
+})
+
+describe(`MAIN_COLUMN_CLASS`, () => {
+  const COLUMN_TOKENS = MAIN_COLUMN_CLASS.split(/\s+/).filter(
+    (token) => token.length > 0
+  )
+
+  // The column takes the card's old slot in the SidebarProvider ROW, so
+  // `flex-1`/`min-w-0` are about width; `flex-col` is what stacks the card
+  // over the dock band.
+  it(`is the row's min-sized column`, () => {
+    expect(COLUMN_TOKENS).toContain(`flex-1`)
+    expect(COLUMN_TOKENS).toContain(`flex-col`)
+    expect(COLUMN_TOKENS).toContain(`min-w-0`)
+  })
+
+  // The height moved HERE from the card: the column is the viewport, the card
+  // takes what the band leaves. On phones there is no band and no card, so
+  // the window keeps scrolling — hence the `md:`.
+  it(`owns the viewport height from md up`, () => {
+    expect(COLUMN_TOKENS).toContain(`md:h-dvh`)
+    expect(COLUMN_TOKENS).not.toContain(`h-dvh`)
+  })
+})
+
+describe(`DOCK_BAND_CLASS`, () => {
+  const BAND_TOKENS = DOCK_BAND_CLASS.split(/\s+/).filter(
+    (token) => token.length > 0
+  )
+
+  // EXP-771: the band is OUTSIDE the card, on the bare page ground. A fill or
+  // a border would make it read as a second card stacked under the first.
+  it(`paints nothing of its own`, () => {
+    for (const token of BAND_TOKENS) {
+      const name = base(token)
+      for (const banned of [`bg-`, `border`, `rounded`, `shadow`, `glass-`]) {
+        expect(name.startsWith(banned) ? `${token} paints the band` : token).toBe(
+          token
+        )
+      }
+    }
+  })
+
+  // 36px band, chips 8px inside the card's left edge (the card's own 10px
+  // side margin plus the band's 8px padding). Px literals for the same reason
+  // the card uses them: `h-9` is 41.6px at the md+ root font, `px-2` 9.25px.
+  it(`sizes the band in px and shares the card's side margins`, () => {
+    expect(BAND_TOKENS).toContain(`h-[36px]`)
+    expect(BAND_TOKENS).toContain(`mx-[10px]`)
+    expect(BAND_TOKENS).toContain(`px-[8px]`)
+  })
+
+  // A grown band would eat into the card instead of the card shrinking, and
+  // a wrapping row of tabs would push the layout around.
+  it(`never grows or shrinks the column`, () => {
+    expect(BAND_TOKENS).toContain(`shrink-0`)
+    expect(BAND_TOKENS).toContain(`overflow-x-auto`)
   })
 })
 

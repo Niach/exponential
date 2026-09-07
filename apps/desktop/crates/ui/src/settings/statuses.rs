@@ -1,4 +1,4 @@
-//! Settings → Issue statuses (EXP-314).
+//! Settings → Statuses (EXP-314; EXP-771 took the web's shorter name).
 //!
 //! Web parity: `components/team/statuses-section.tsx` — one section per
 //! `IssueStatusCategory::DISPLAY_ORDER` entry, rows carrying the tinted
@@ -251,9 +251,37 @@ impl StatusesPane {
         self.row_error = None;
         let team_id = row.team_id.clone();
         let status_id = status_id.to_string();
-        super::spawn_trpc(cx, "statuses.update(name)", move |trpc| {
-            api::statuses::statuses_update(trpc, &team_id, &status_id, Some(&typed), None)
-        });
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            return;
+        };
+        // Web `RenameRow`: a rejected rename says so under the row instead of
+        // vanishing into the log.
+        cx.spawn(async move |this, cx| {
+            let call_id = status_id.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    api::statuses::statuses_update(
+                        &trpc,
+                        &team_id,
+                        &call_id,
+                        Some(&typed),
+                        None,
+                    )
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if let Err(err) = &result {
+                    log::warn!("[ui] statuses.update(name) failed: {err}");
+                    this.row_error = Some((
+                        status_id.clone(),
+                        super::form_error(err, "Failed to rename status."),
+                    ));
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     fn create(&mut self, cx: &mut gpui::Context<Self>) {
@@ -292,8 +320,10 @@ impl StatusesPane {
                 if let Err(err) = &result {
                     log::warn!("[ui] statuses.create failed: {err}");
                     // The started cap and the duplicate-name CONFLICT both
-                    // arrive here — show their clean message inline.
-                    this.create_error = Some(err.user_message());
+                    // arrive here — show their clean message inline, and the
+                    // web's fallback sentence for everything else.
+                    this.create_error =
+                        Some(super::form_error(err, "Failed to create status."));
                 } else {
                     this.creating = None;
                     this.reset_form();
@@ -342,12 +372,83 @@ impl StatusesPane {
             let _ = this.update(cx, |this, cx| {
                 if let Err(err) = &result {
                     log::warn!("[ui] statuses.delete failed: {err}");
-                    this.row_error = Some((status_id.clone(), err.user_message()));
+                    this.row_error = Some((
+                        status_id.clone(),
+                        super::form_error(err, "Failed to delete status."),
+                    ));
                     cx.notify();
                 }
             });
         })
         .detach();
+    }
+
+    /// Web `prPinNotice`: EXP-319's pins live on the synced teams row and their
+    /// FK is ON DELETE SET NULL, so deleting a pinned status silently reverts
+    /// that automation to the builtin default. Correct, but invisible — say it
+    /// out loud in the delete dialog. An automation switched off ("do nothing")
+    /// is unaffected, so it stays quiet.
+    fn pr_pin_notice(&self, status_id: &str, cx: &App) -> Option<SharedString> {
+        let team = super::active_team(cx, &self.nav)?;
+        let rows = self.scoped_statuses(cx);
+        let events: [(&str, Option<&str>, Option<bool>, &str); 2] = [
+            (
+                "opens",
+                team.pr_opened_status_id.as_deref(),
+                team.pr_opened_automation,
+                "in_review",
+            ),
+            (
+                "merges",
+                team.pr_merged_status_id.as_deref(),
+                team.pr_merged_automation,
+                "done",
+            ),
+        ];
+        let hits: Vec<(&str, &str)> = events
+            .iter()
+            .filter(|(_, pinned, automation, _)| {
+                *automation != Some(false) && *pinned == Some(status_id)
+            })
+            .map(|(verb, _, _, default_key)| (*verb, *default_key))
+            .collect();
+        if hits.is_empty() {
+            return None;
+        }
+        let fallbacks: Vec<Option<String>> = hits
+            .iter()
+            .map(|(_, default_key)| {
+                rows.iter()
+                    .find(|(row, _)| row.builtin_key.as_deref() == Some(*default_key))
+                    .map(|(row, _)| row.name.clone())
+            })
+            .collect();
+        let targets = if fallbacks.iter().all(Option::is_some) {
+            fallbacks
+                .iter()
+                .flatten()
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(" and ")
+        } else if hits.len() > 1 {
+            "the default statuses".to_string()
+        } else {
+            "the default status".to_string()
+        };
+        Some(if hits.len() > 1 {
+            format!(
+                "This status is where issues move when a pull request opens \
+                 or merges. Those automations will fall back to {targets}."
+            )
+            .into()
+        } else {
+            format!(
+                "This status is where issues move when a pull request {}. \
+                 That automation will fall back to {targets}.",
+                hits[0].0
+            )
+            .into()
+        })
     }
 
     /// The ONE delete flow (EXP-320): a native confirm dialog that also picks
@@ -372,11 +473,13 @@ impl StatusesPane {
         self.row_error = None;
         cx.notify();
 
+        let pr_pin_notice = self.pr_pin_notice(&status_id, cx);
         let content = cx.new(|_| DeleteStatusContent {
             candidates,
             selected_id: preselected,
             server_count: None,
             synced_count,
+            pr_pin_notice,
         });
 
         // The server count (trashed-board issues included) lands async and
@@ -416,12 +519,12 @@ impl StatusesPane {
         let dialog_content = content.clone();
         let spec = AlertSpec::new(
             format!("Delete {status_name}?"),
-            "Issues using this status, including any on trashed boards, \
-             will move to the status you pick.",
+            "Issues using this status (including any on trashed boards) will \
+             move to the status you pick.",
             "Delete status",
         )
         .ok_variant(ButtonVariant::Danger)
-        .height(gpui::px(300.))
+        .height(gpui::px(320.))
         .content(move |_, _| dialog_content.clone().into_any_element())
         .on_ok(move |_, cx| {
             let reassign_to = content.read(cx).selected_id.clone();
@@ -958,7 +1061,9 @@ impl Render for StatusesPane {
         let statuses = self.scoped_statuses(cx);
         let counts = self.issue_counts(cx);
 
-        let mut body = section(cx).child(card_title("Issue statuses"));
+        // EXP-771: the web's title, which is just "Statuses" — the pane and
+        // the nav row it hangs off must read the same.
+        let mut body = section(cx).child(card_title("Statuses"));
 
         if statuses.is_empty() {
             return v_flex().child(body.child(
@@ -1040,7 +1145,14 @@ impl Render for StatusesPane {
                                         this.creating = Some(category);
                                         this.create_error = None;
                                         this.new_name.update(cx, |state, cx| {
-                                            state.set_value("", window, cx)
+                                            state.set_value("", window, cx);
+                                            // Web: the placeholder names the
+                                            // category being added to.
+                                            state.set_placeholder(
+                                                create_placeholder(category),
+                                                window,
+                                                cx,
+                                            );
                                         });
                                         cx.notify();
                                     })),
@@ -1051,7 +1163,8 @@ impl Render for StatusesPane {
                                         .text_xs()
                                         .text_color(cx.theme().muted_foreground)
                                         .child(SharedString::from(format!(
-                                            "At most {ISSUE_STATUS_STARTED_MAX} started statuses"
+                                            "A team can have at most \
+                                             {ISSUE_STATUS_STARTED_MAX} started statuses."
                                         ))),
                                 )
                             }),
@@ -1083,24 +1196,35 @@ struct DeleteStatusContent {
     /// The client-visible count — flags when part of the total is on
     /// trashed boards the client can't see.
     synced_count: usize,
+    /// Web `prPinNotice` — set only when a live PR automation points here.
+    pr_pin_notice: Option<SharedString>,
 }
 
 impl Render for DeleteStatusContent {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let count_line: SharedString = match self.server_count {
-            None => "Counting issues that use this status…".into(),
-            Some(0) => "No issues use this status right now.".into(),
+        // Web copy: the alert's own description carries the hedged sentence
+        // while the server count is in flight, so this line only speaks once
+        // the real number lands.
+        let count_line: Option<SharedString> = match self.server_count {
+            None => None,
+            Some(0) => Some(
+                "No issues use this status right now. Anything referencing it \
+                 when you confirm will move to the status you pick."
+                    .into(),
+            ),
             Some(n) => {
                 let trashed = if n as usize > self.synced_count {
                     " (some on trashed boards)"
                 } else {
                     ""
                 };
-                format!(
-                    "{n} issue{}{trashed} will move.",
-                    if n == 1 { "" } else { "s" }
+                Some(
+                    format!(
+                        "{n} issue{}{trashed} will move to the status you pick.",
+                        if n == 1 { "" } else { "s" }
+                    )
+                    .into(),
                 )
-                .into()
             }
         };
         let selected_name: SharedString = self
@@ -1114,12 +1238,27 @@ impl Render for DeleteStatusContent {
 
         v_flex()
             .gap_2()
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(count_line),
-            )
+            .when_some(self.pr_pin_notice.clone(), |col, notice| {
+                col.child(
+                    div()
+                        .px_2p5()
+                        .py_2()
+                        .rounded(cx.theme().radius)
+                        .border_1()
+                        .border_color(super::row_stroke(cx))
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(notice),
+                )
+            })
+            .when_some(count_line, |col, line| {
+                col.child(
+                    div()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(line),
+                )
+            })
             .child(
                 h_flex()
                     .gap_2()
@@ -1156,6 +1295,12 @@ impl Render for DeleteStatusContent {
 }
 
 use gpui::prelude::FluentBuilder as _;
+
+/// Web `CreateStatusForm`'s placeholder: "New {category} status", the category
+/// LOWERCASED (`statuses-section.tsx`).
+fn create_placeholder(category: IssueStatusCategory) -> String {
+    format!("New {} status", category.label().to_lowercase())
+}
 
 fn row_id(kind: &str, id: &str) -> ElementId {
     ElementId::Name(SharedString::from(format!("{kind}-{id}")))

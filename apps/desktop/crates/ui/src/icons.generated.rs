@@ -416,6 +416,8 @@ pub const NAV_NOTIFICATIONS: ExpIcon = ExpIcon::Bell;
 pub const NAV_RAIL_COLLAPSE: ExpIcon = ExpIcon::PanelLeftClose;
 /// Registry concept `nav-rail-expand` -> Lucide `panel-left-open`.
 pub const NAV_RAIL_EXPAND: ExpIcon = ExpIcon::PanelLeftOpen;
+/// Registry concept `nav-report-bug` -> Lucide `bug`.
+pub const NAV_REPORT_BUG: ExpIcon = ExpIcon::Bug;
 /// Registry concept `nav-reviews` -> Lucide `git-pull-request`.
 pub const NAV_REVIEWS: ExpIcon = ExpIcon::GitPullRequest;
 /// Registry concept `nav-search` -> Lucide `search`.
@@ -504,6 +506,8 @@ pub const SETTINGS_BILLING: ExpIcon = ExpIcon::CreditCard;
 pub const SETTINGS_BOARDS: ExpIcon = ExpIcon::SquareKanban;
 /// Registry concept `settings-general` -> Lucide `building-2`.
 pub const SETTINGS_GENERAL: ExpIcon = ExpIcon::Building2;
+/// Registry concept `settings-helpdesk` -> Lucide `life-buoy`.
+pub const SETTINGS_HELPDESK: ExpIcon = ExpIcon::LifeBuoy;
 /// Registry concept `settings-labels` -> Lucide `tag`.
 pub const SETTINGS_LABELS: ExpIcon = ExpIcon::Tag;
 /// Registry concept `settings-licenses` -> Lucide `scale`.

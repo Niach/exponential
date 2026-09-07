@@ -414,6 +414,8 @@ public enum AppIcons {
     public static let navRailCollapse: String = "panel-left-close"
     /// Concept `nav-rail-expand`.
     public static let navRailExpand: String = "panel-left-open"
+    /// Concept `nav-report-bug`.
+    public static let navReportBug: String = "bug"
     /// Concept `nav-reviews`.
     public static let navReviews: String = "git-pull-request"
     /// Concept `nav-search`.
@@ -502,6 +504,8 @@ public enum AppIcons {
     public static let settingsBoards: String = "square-kanban"
     /// Concept `settings-general`.
     public static let settingsGeneral: String = "building-2"
+    /// Concept `settings-helpdesk`.
+    public static let settingsHelpdesk: String = "life-buoy"
     /// Concept `settings-labels`.
     public static let settingsLabels: String = "tag"
     /// Concept `settings-licenses`.

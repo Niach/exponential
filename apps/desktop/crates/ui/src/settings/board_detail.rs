@@ -267,9 +267,9 @@ impl BoardDetailPane {
         let spec = AlertSpec::new(
             "Move board to trash",
             format!(
-                "Move {board_name} to the trash? It's kept for 48 hours (it can be \
-                 restored from the team settings on the web), then permanently deleted \
-                 with all its issues."
+                "Move {board_name} to the trash? It is kept for 48 hours \
+                 (owners can restore it from the Boards settings on the web), \
+                 then permanently deleted with all its issues."
             ),
             "Move to trash",
         )
@@ -300,8 +300,8 @@ impl BoardDetailPane {
             format!(
                 "Archive {board_name}? It disappears for the whole team \u{2014} from the \
                  sidebar, search, pickers and every issue list \u{2014} along with all of \
-                 its issues. Nothing is deleted, and it can be brought back from \
-                 Archived boards at any time."
+                 its issues. Nothing is deleted, and owners can bring it back \
+                 from Archived boards at any time."
             ),
             "Archive board",
         )

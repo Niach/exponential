@@ -43,6 +43,15 @@ use crate::shell::Shell;
 
 /// Cascade offset so stacked undocks don't open exactly on top of each other.
 const CASCADE_STEP: f32 = 24.;
+
+/// EXP-771 — the undocked window's cutout-panel inset, byte-identical to
+/// `shell.rs`'s (private) `PANEL_MARGIN` / `PANEL_MARGIN_TOP`: 10px on the
+/// sides and the bottom, 6px under the decoration band (the band already
+/// supplies breathing room; the full margin there reads as a hole). A window
+/// with no client chrome (the Linux server-decoration fallback) has no band
+/// and takes the full margin on all four sides. Change one, change both.
+const PANEL_MARGIN: f32 = 10.;
+const PANEL_MARGIN_TOP: f32 = 6.;
 static UNDOCK_ORDINAL: AtomicUsize = AtomicUsize::new(0);
 
 /// One undocked terminal-tab window: the handle plus the shell window
@@ -86,6 +95,22 @@ pub(crate) fn is_terminal_tab_undocked(id: TabId, cx: &App) -> bool {
 
 fn screen_window(screen: &Screen, cx: &App) -> Option<AnyWindowHandle> {
     state(cx).and_then(|state| state.read(cx).screens.get(screen).copied())
+}
+
+/// EXP-771: bring the window that ALREADY shows `screen` forward, if there is
+/// one. `true` = the screen is undocked and was revealed, so the caller must
+/// not open a second copy of it in its own tab strip (an undocked issue used
+/// to reopen as a docked tab on the next click from the list, search or an
+/// issue ref, leaving the same issue in two windows).
+///
+/// Only [`Screen::undockable`] screens can ever answer `true` — nothing else
+/// reaches the registry — so callers may check it unconditionally.
+pub(crate) fn reveal_screen(screen: &Screen, cx: &mut App) -> bool {
+    let Some(handle) = screen_window(screen, cx) else {
+        return false;
+    };
+    activate_window(handle, cx);
+    true
 }
 
 fn terminal_tab_window(id: TabId, cx: &App) -> Option<AnyWindowHandle> {
@@ -293,8 +318,9 @@ pub(crate) fn open_undocked_screen(screen: Screen, origin: AnyWindowHandle, cx: 
     .detach();
 }
 
-/// A slim native window hosting one content screen: header (title +
-/// Reattach) over a fresh screen view, with the Root overlay layers so
+/// A slim native window hosting one content screen: the decoration band
+/// (title + Reattach) on the window ground over a fresh screen view in the
+/// shell's cutout panel (EXP-771), with the Root overlay layers so
 /// dialogs/notifications opened from the content still paint.
 pub(crate) struct UndockedScreenWindow {
     screen: Screen,
@@ -367,6 +393,14 @@ impl UndockedScreenWindow {
         let origin = self.origin;
         let this_window = window.window_handle();
         cx.defer(move |cx| {
+            // Drop the registry entry FIRST. This window is still open here
+            // (it closes at the bottom of this closure), so a `navigate` that
+            // still saw the screen registered would take the EXP-771 reveal
+            // path — raise this window, open no tab — and the screen would
+            // then vanish with the window. Unregistering is idempotent, so
+            // `on_release`'s own unregister stays balanced (the rule is
+            // pinned by `unregistering_a_screen_stops_it_revealing`).
+            unregister_screen(&screen, cx);
             if let Some(target) = find_team_window(Some(origin), cx) {
                 let _ = target.update(cx, |_, window, cx| {
                     navigation::navigate(window, cx, screen.clone());
@@ -420,7 +454,8 @@ impl Render for UndockedScreenWindow {
                 .text_sm()
                 .child(title)
         };
-        let header: AnyElement = if crate::app_title_bar::client_chrome(window) {
+        let client_chrome = crate::app_title_bar::client_chrome(window);
+        let header: AnyElement = if client_chrome {
             TitleBar::new()
                 .child(
                     h_flex()
@@ -461,6 +496,14 @@ impl Render for UndockedScreenWindow {
             // so it must carry the frame's radii — gpui's content mask is
             // rectangular and would leave opaque square corners under the
             // rounded frame (`window_frame::frame_radii`).
+            //
+            // EXP-771: still NO border on this root. Under Linux CSD
+            // `window_frame` already paints the 1px `window_border`, and a
+            // second stroke inside it doubles the line and shifts the inner
+            // arc off the radius the `TitleBar` rounds to (the EXP-269
+            // square-corner class of bug) — the rule `Shell` and
+            // `native_dialog::DialogShell` follow too. The card EDGE lives on
+            // the cutout panel below instead.
             crate::window_frame::round_to_frame(div(), window)
                 .size_full()
                 .bg(theme::background_gradient())
@@ -469,8 +512,40 @@ impl Render for UndockedScreenWindow {
                 .child(
                     gpui_component::v_flex()
                         .size_full()
+                        // The decoration band stays on bare GROUND — that is
+                        // what makes the panel under it read as a cutout.
                         .child(header)
-                        .child(div().flex_1().min_h_0().child(self.content.clone())),
+                        .child(
+                            // EXP-771: the SAME cutout panel as the main
+                            // window (`shell::render`) — an undocked issue is
+                            // the same page, so it must not read as a
+                            // near-black slab beside the shell.
+                            gpui_component::v_flex()
+                                .flex_1()
+                                .min_h_0()
+                                .min_w_0()
+                                .mt(px(if client_chrome {
+                                    PANEL_MARGIN_TOP
+                                } else {
+                                    PANEL_MARGIN
+                                }))
+                                .mx(px(PANEL_MARGIN))
+                                .mb(px(PANEL_MARGIN))
+                                .overflow_hidden()
+                                .relative()
+                                // The card FACE is a backdrop child (EXP-760)
+                                // — FIRST, so it paints behind the content.
+                                .child(
+                                    div()
+                                        .absolute()
+                                        .inset_0()
+                                        .rounded(px(theme::tokens::radius::LG))
+                                        .border_1()
+                                        .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+                                        .bg(theme::tokens::glass::FILL_PANEL.to_hsla()),
+                                )
+                                .child(div().flex_1().min_h_0().child(self.content.clone())),
+                        ),
                 )
                 .children(sheet_layer)
                 .children(dialog_layer)
@@ -584,4 +659,60 @@ pub(crate) fn restore_tab_in_owner(
             }
         });
     });
+}
+
+/// EXP-771 — the registry rule reattach depends on.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Stub;
+
+    impl Render for Stub {
+        fn render(
+            &mut self,
+            _window: &mut Window,
+            _cx: &mut gpui::Context<Self>,
+        ) -> impl IntoElement {
+            div()
+        }
+    }
+
+    /// `UndockedScreenWindow::reattach` navigates in the SHELL window while
+    /// its own window is still open, and `navigation::navigate` asks
+    /// [`reveal_screen`] before it opens a tab. So the reattach has to
+    /// unregister first: while the entry is there the navigation is a reveal
+    /// of the very window that is about to close (no tab anywhere), and only
+    /// once it is gone does the navigation open the tab. Unregistering twice
+    /// is a no-op, so the window's `on_release` hook stays balanced.
+    #[gpui::test]
+    fn unregistering_a_screen_stops_it_revealing(cx: &mut gpui::TestAppContext) {
+        let window = cx.add_window(|_, _| Stub);
+        cx.update(|cx| {
+            init(cx);
+            let screen = Screen::IssueDetail {
+                issue_id: "i1".into(),
+            };
+            let state = state(cx).expect("init installed the registry");
+            state.update(cx, |state, cx| {
+                state.screens.insert(screen.clone(), window.into());
+                cx.notify();
+            });
+
+            assert!(
+                reveal_screen(&screen, cx),
+                "a registered screen reveals its window — this is what would \
+                 swallow the reattach navigation"
+            );
+            unregister_screen(&screen, cx);
+            assert!(
+                !reveal_screen(&screen, cx),
+                "after the reattach unregisters, the navigation must fall \
+                 through to opening a tab"
+            );
+            // The window's `on_release` unregisters again.
+            unregister_screen(&screen, cx);
+            assert!(!reveal_screen(&screen, cx));
+        });
+    }
 }

@@ -6500,6 +6500,8 @@ public object ExpIcons {
     public val navRailCollapse: ImageVector get() = `panel-left-close`
     /** Concept `nav-rail-expand`. */
     public val navRailExpand: ImageVector get() = `panel-left-open`
+    /** Concept `nav-report-bug`. */
+    public val navReportBug: ImageVector get() = `bug`
     /** Concept `nav-reviews`. */
     public val navReviews: ImageVector get() = `git-pull-request`
     /** Concept `nav-search`. */
@@ -6588,6 +6590,8 @@ public object ExpIcons {
     public val settingsBoards: ImageVector get() = `square-kanban`
     /** Concept `settings-general`. */
     public val settingsGeneral: ImageVector get() = `building-2`
+    /** Concept `settings-helpdesk`. */
+    public val settingsHelpdesk: ImageVector get() = `life-buoy`
     /** Concept `settings-labels`. */
     public val settingsLabels: ImageVector get() = `tag`
     /** Concept `settings-licenses`. */

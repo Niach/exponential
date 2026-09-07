@@ -273,7 +273,7 @@ export function GettingStartedCards({
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" asChild>
           <Link
-            to="/t/$teamSlug/settings/widget"
+            to="/t/$teamSlug/settings/helpdesk"
             params={{ teamSlug }}
           >
             <HelpdeskIcon className="mr-1.5 size-4" />

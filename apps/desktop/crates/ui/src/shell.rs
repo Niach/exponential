@@ -6,11 +6,13 @@
 //! the 44px **icon rail** left of the dock area, and the dock area filling
 //! the rest — all over the page gradient. The dock area's **center** is
 //! [`CenterPanel`] — a resizable split of the tool window column (sidebar)
-//! and the screens panel; under the dock area sits the **session bar**
-//! (`crate::session_bar`, EXP-769 — session + terminal tabs, Chat, `+`).
-//! Because the sidebar lives inside the center (not a left dock), the bar
-//! spans the full width right of the rail, running beneath the sidebar. (The
-//! old EXP-253 top bar is gone — boards live in the rail.)
+//! and the screens panel; UNDER the cutout panel, on the bare ground, sits
+//! the **session bar** (`crate::session_bar`, EXP-769 — session + terminal
+//! tabs, Chat, `+`). EXP-771 moved it OUT of the card: it is the content
+//! column's last child now, the bottom twin of the decoration band the
+//! titlebar rides. Because the sidebar lives inside the center (not a left
+//! dock), the bar spans the full width right of the rail, running beneath
+//! the sidebar. (The old EXP-253 top bar is gone — boards live in the rail.)
 //!
 //! Every window gets its own `Root → Shell → DockArea`, but they all read
 //! the same global `Store` (§3.6 multi-window) — the sidebar's window counter
@@ -93,6 +95,18 @@ const PANEL_MARGIN: f32 = 10.;
 /// (the Linux server-decoration fallback) have no band and take
 /// [`PANEL_MARGIN`] on all four sides.
 const PANEL_MARGIN_TOP: f32 = 6.;
+
+/// EXP-771: the panel's BOTTOM gap once the session bar renders under it.
+/// The bar left the card (it used to be the panel's last child, on a
+/// hairline) and is a bare band on the ground now, exactly like the
+/// decoration band above — so the gap between card and band is the same
+/// tighter [`PANEL_MARGIN_TOP`] value, and the band itself ends flush at the
+/// window bottom. The bar ALWAYS renders under the panel here (Chat and `+`
+/// stay one click away even with no session, `SessionBar::render`), so the
+/// shell applies this unconditionally — the bar-less 10px case belongs to the
+/// web twin, which toggles the two margins (`app-shell.ts`
+/// `mainPanelClass(docked)`).
+const PANEL_MARGIN_BOTTOM_BAR: f32 = 6.;
 
 /// EXP-456: whether this window is in the tab-less Settings mode — the left
 /// column shows the settings nav instead of the rail.
@@ -227,9 +241,11 @@ const SAVE_DEBOUNCE: Duration = Duration::from_secs(2);
 pub struct Shell {
     dock_area: Entity<DockArea>,
     /// EXP-769: the bottom session bar — the strip of session/terminal tabs
-    /// with the Chat and `+` buttons, the cutout panel's LAST child under the
-    /// dock area. It owns this window's `TerminalManager`; a terminal's
-    /// content renders in the center as `Screen::Terminal`.
+    /// with the Chat and `+` buttons. EXP-771: the CONTENT COLUMN's last
+    /// child, under the cutout panel on the bare ground (no fill, no
+    /// hairline), sharing the panel's horizontal margins. It owns this
+    /// window's `TerminalManager`; a terminal's content renders in the
+    /// center as `Screen::Terminal`.
     session_bar: Entity<crate::session_bar::SessionBar>,
     /// The in-app titlebar (EXP-269) — the first row of the DOCK shell;
     /// hidden under the Linux server-decoration fallback (`client_chrome`).
@@ -913,15 +929,17 @@ impl Render for Shell {
                                     PANEL_MARGIN
                                 }))
                                 .mx(px(PANEL_MARGIN))
-                                .mb(px(PANEL_MARGIN))
+                                // EXP-771: the session bar band below takes
+                                // the rest of the margin (see
+                                // `PANEL_MARGIN_BOTTOM_BAR`).
+                                .mb(px(PANEL_MARGIN_BOTTOM_BAR))
                                 .overflow_hidden()
                                 .relative()
                                 // The card FACE is a backdrop child (EXP-760)
-                                // — FIRST, so it paints behind the banners,
-                                // the dock area and the session bar. EXP-769
-                                // runs it the full height again: the session
-                                // bar sits INSIDE the card on a hairline, the
-                                // web strip's shape.
+                                // — FIRST, so it paints behind the banners
+                                // and the dock area. EXP-771: the session bar
+                                // is NOT one of them anymore — it renders
+                                // under the card, on the ground.
                                 .child(
                                     div()
                                         .absolute()
@@ -935,10 +953,22 @@ impl Render for Shell {
                                 )
                                 .children(self.render_update_banner(cx))
                                 .children(self.render_offline_banner(cx))
-                                .child(div().flex_1().min_h_0().child(self.dock_area.clone()))
-                                // EXP-769: the session bar is the panel's LAST
-                                // child — under the dock area, above the
-                                // card's bottom edge.
+                                .child(div().flex_1().min_h_0().child(self.dock_area.clone())),
+                        )
+                        .child(
+                            // EXP-771: the session bar band — the content
+                            // column's last child, OUTSIDE the card, the head
+                            // toolbar's twin at the bottom. Bare ground: no
+                            // fill and no hairline of its own, the panel's
+                            // 10px horizontal margins (the bar's own `px_2`
+                            // then insets the chips 8px from the card's left
+                            // edge), and flush with the window bottom. Unlike
+                            // the decoration band it is NOT a window-drag
+                            // area — every pixel here is a control.
+                            div()
+                                .flex_shrink_0()
+                                .h(px(crate::session_bar::SESSION_BAR_H))
+                                .mx(px(PANEL_MARGIN))
                                 .child(self.session_bar.clone()),
                         )
                 })
@@ -1667,6 +1697,20 @@ mod tests {
         assert!(!board_empty_full_center(false, true, true, false, true));
         // The board HAS issues (a filter hiding them all is not our business).
         assert!(!board_empty_full_center(false, true, true, true, false));
+    }
+
+    /// EXP-771: the session bar band's geometry, the same numbers the web
+    /// shell uses. The band is the panel's twin at the bottom — the panel's
+    /// 10px side margins, a 6px gap between card and band (the decoration
+    /// band's gap above), 36px tall and flush with the window bottom, so the
+    /// chips end up 8px inside the card's left edge once the bar's own `px_2`
+    /// is added.
+    #[test]
+    fn session_bar_band_sits_outside_the_panel() {
+        assert_eq!(PANEL_MARGIN, 10.);
+        assert_eq!(PANEL_MARGIN_BOTTOM_BAR, PANEL_MARGIN_TOP);
+        assert_eq!(PANEL_MARGIN_BOTTOM_BAR, 6.);
+        assert_eq!(crate::session_bar::SESSION_BAR_H, 36.);
     }
 
     #[test]

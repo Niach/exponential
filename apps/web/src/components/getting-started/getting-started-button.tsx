@@ -1,10 +1,14 @@
-import { Sparkles } from "lucide-react"
 import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
+import { conceptIcon } from "@/lib/icons.generated"
 import { useGettingStartedSheet } from "@/components/getting-started/getting-started-sheet"
 import { useGettingStartedProgressContext } from "@/hooks/use-getting-started-progress"
+
+// EXP-317: a cross-client CONCEPT, not a raw lucide import — the natives'
+// Getting started entry uses the same glyph.
+const GettingStartedIcon = conceptIcon(`nav-getting-started`)
 
 // Sidebar-footer re-entry point for the "Getting started" cards (EXP-88):
 // the inline block on the empty board disappears once issues exist, so this
@@ -25,7 +29,7 @@ export function GettingStartedButton() {
         aria-label="Getting started"
         className="text-muted-foreground"
       >
-        <Sparkles className="size-4" />
+        <GettingStartedIcon className="size-4" />
         <span>Getting started</span>
       </SidebarMenuButton>
     </SidebarMenuItem>

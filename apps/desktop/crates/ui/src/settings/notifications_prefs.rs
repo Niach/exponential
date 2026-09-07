@@ -323,9 +323,12 @@ impl Render for NotificationsPrefsPane {
                         .min_w_0()
                         .text_sm()
                         .text_color(cx.theme().muted_foreground)
+                        // EXP-771: the web's wording — it names the two env
+                        // vars that turn mail on, so the notice is actionable
+                        // instead of just saying no mail goes out.
                         .child(
-                            "Email sending is not configured on this server. No \
-                             digest emails go out.",
+                            "Email sending is not configured on this server. Set \
+                             AWS_SES_REGION or SMTP_HOST to enable it.",
                         ),
                 ),
             );

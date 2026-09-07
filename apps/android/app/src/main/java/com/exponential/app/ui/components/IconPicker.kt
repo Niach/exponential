@@ -25,14 +25,20 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
 /**
  * EXP-575: THE icon picker — one slim 36dp swatch showing the current pick
  * that opens the curated grid ([IconSwatchGrid]) in a [GlassSheet], so the
  * 60-glyph grid never sits inline in a form. Every surface that picks an icon
- * (create-board form, Start-coding `icon` inputs) renders this; web, desktop
- * and iOS ship the same shape.
+ * (create-board form, Start-coding `icon` inputs) renders this.
+ *
+ * EXP-771, the shape rule: a circle is an ACTION and a rounded square is a
+ * PICKER, so this trigger and the grid's cells are rounded squares at the
+ * radius ladder's MD step ([GlassTokens.RowRadius], 10dp) while every icon-only
+ * action button stays a circle. Web (`rounded-md`), desktop (the theme radius)
+ * and iOS (`GlassTokens.rowRadius`) draw the same corner.
  *
  * [selected] is a registry NAME; anything [pickableIconName] rejects reads as
  * "no icon" and draws a dashed placeholder. [allowsNone] hosts (optional action
@@ -51,7 +57,7 @@ fun IconPicker(
     val picked = pickableIconName(selected)
     val glyph = picked?.let { ExpIcons.byName(it) }
     val borderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary)
-    val shape = RoundedCornerShape(10.dp)
+    val shape = RoundedCornerShape(GlassTokens.RowRadius)
     Box(
         modifier = modifier
             .size(36.dp)
@@ -60,7 +66,7 @@ fun IconPicker(
                 else Modifier.drawBehind {
                     drawRoundRect(
                         color = borderColor,
-                        cornerRadius = CornerRadius(10.dp.toPx()),
+                        cornerRadius = CornerRadius(GlassTokens.RowRadius.toPx()),
                         style = Stroke(
                             width = 1.dp.toPx(),
                             pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)),

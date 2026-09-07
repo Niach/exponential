@@ -13,6 +13,11 @@
 //! content: it renders FULLSCREEN in the center as [`Screen::Terminal`],
 //! exactly like a session renders as `Screen::Session`.
 //!
+//! EXP-771: the strip sits OUTSIDE the cutout panel — a bare band on the
+//! window ground between the card's bottom edge and the window bottom, the
+//! mirror of the decoration band the titlebar rides. It is not a window-drag
+//! region.
+//!
 //! Who owns what:
 //! - [`SessionBar`] (one per shell window, registered by window like
 //!   `screens::ScreensPanel`) owns the window's [`TerminalManager`] — the
@@ -1178,8 +1183,12 @@ fn hint(glyph: crate::icons::ExpIcon, copy: &'static str, cx: &App) -> AnyElemen
 
 impl Render for SessionBar {
     /// The bar: the screens panel's session/terminal tabs with the Chat and
-    /// `+` buttons riding right after the last one, on a `border_t` hairline
-    /// inside the cutout panel — the web strip's `h-9 border-t px-2 gap-1`.
+    /// `+` buttons riding right after the last one — the web strip's `h-9
+    /// px-2 gap-1`. EXP-771: it renders OUTSIDE the cutout panel, on the
+    /// window's bare ground under the card (`shell::Shell::render` owns the
+    /// band's 10px horizontal margins), so it carries no fill and no
+    /// hairline of its own — the head toolbar's twin at the bottom, chips
+    /// inset 8px from the card's left edge by the `px_2` below.
     /// Always rendered, even with nothing open: Chat and `+` stay one click
     /// away.
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
@@ -1233,8 +1242,6 @@ impl Render for SessionBar {
             .px_2()
             .gap_1()
             .items_center()
-            .border_t_1()
-            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
             .child(
                 // Chips never scroll — non-fitting tabs fold into the "+N"
                 // dropdown; `overflow_x_hidden` covers the one unmeasured

@@ -373,7 +373,7 @@ function InviteControls({ teamId }: { teamId: string }) {
     <>
       <div className="space-y-4">
         <div>
-          <div className="text-sm font-medium">Invite Members</div>
+          <div className="text-sm font-medium">Invite members</div>
           <div className="text-xs text-muted-foreground">
             Send an invite by email, or generate a link to share yourself
           </div>

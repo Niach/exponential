@@ -1635,9 +1635,30 @@
       },
       "webMobile": "inherit",
       "notes": {
-        "desktop": "No desktop section: widget configuration is web-only (SettingsSection has no Widget variant).",
+        "desktop": "The IDE pane (SettingsSection::Widget, EXP-771) is a read-only list plus a Manage on the web button; configuration stays web-only, so the web shot is the reference.",
         "ios": "No native section: widget configuration is web-only.",
         "android": "No native section: widget configuration is web-only."
+      }
+    },
+    {
+      "id": "settings-helpdesk",
+      "group": "settings",
+      "title": "Settings · Helpdesk",
+      "blurb": "The team-level helpdesk switch and the way into the shared Support inbox. Owner-only.",
+      "order": 9,
+      "web": {
+        "route": "/t/$teamSlug/settings/helpdesk",
+        "anchor": {
+          "text": "Enable the helpdesk",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "webMobile": "inherit",
+      "notes": {
+        "desktop": "No desktop capture: the IDE pane (SettingsSection::Helpdesk) is the same single toggle; the web shot is the reference.",
+        "ios": "No native section: helpdesk configuration is web-only.",
+        "android": "No native section: helpdesk configuration is web-only."
       }
     },
     {
@@ -1645,7 +1666,7 @@
       "group": "settings",
       "title": "Settings · Account",
       "blurb": "Personal identity and timezone. Never gated.",
-      "order": 9,
+      "order": 10,
       "web": {
         "route": "/t/$teamSlug/settings/account",
         "anchor": {
@@ -1675,7 +1696,7 @@
       "group": "settings",
       "title": "Settings · Notifications",
       "blurb": "Email and push preferences, including the digest hour. Never gated.",
-      "order": 10,
+      "order": 11,
       "web": {
         "route": "/t/$teamSlug/settings/notifications",
         "anchor": {
@@ -1701,7 +1722,7 @@
       "group": "settings",
       "title": "Settings · API keys",
       "blurb": "Personal expu_ keys: list, mint, revoke. The credential the MCP wiring rides on.",
-      "order": 11,
+      "order": 12,
       "web": {
         "route": "/t/$teamSlug/settings/api-keys",
         "anchor": {
@@ -1727,7 +1748,7 @@
       "group": "settings",
       "title": "Settings · Team (mobile)",
       "blurb": "The condensed native team settings screen: one list covering general, members, labels, statuses, boards and repositories.",
-      "order": 12,
+      "order": 13,
       "ios": {
         "shot": "sg_settings-team",
         "lane": "styleguide"
@@ -1747,7 +1768,7 @@
       "group": "settings",
       "title": "Settings · Root (mobile)",
       "blurb": "The native settings root: the signed-in servers, the teams under them, and the way into everything else.",
-      "order": 13,
+      "order": 14,
       "ios": {
         "shot": "sg_settings-root",
         "lane": "styleguide"
@@ -1767,7 +1788,7 @@
       "group": "settings",
       "title": "Settings · Widget editor",
       "blurb": "One widget’s configuration over three tabs, ending on the Appearance tab where the whole embeddable panel previews live.",
-      "order": 14,
+      "order": 15,
       "web": {
         "route": "/t/$teamSlug/settings/widget",
         "anchor": {
@@ -1781,7 +1802,7 @@
         "web-mobile": "Widget configuration is web-only, and the editor is a wide three-column dialog.",
         "ios": "Widget configuration is web-only.",
         "android": "Widget configuration is web-only.",
-        "desktop": "Widget configuration is web-only (SettingsSection has no Widget variant)."
+        "desktop": "Widget configuration is web-only; the IDE's Feedback widget pane only lists widgets."
       }
     },
     {
@@ -1789,7 +1810,7 @@
       "group": "settings",
       "title": "Settings · Agents",
       "blurb": "Per-agent CLI path, model and effort, over the doctor’s live probe of git and the three agents.",
-      "order": 15,
+      "order": 16,
       "desktop": {
         "drive": {
           "kind": "settings",
@@ -1811,7 +1832,7 @@
       "group": "settings",
       "title": "Settings · Tools",
       "blurb": "Where the IDE keeps its clones: repos root, branch prefix and the shell it launches terminals with.",
-      "order": 16,
+      "order": 17,
       "desktop": {
         "drive": {
           "kind": "settings",
@@ -1830,7 +1851,7 @@
       "group": "settings",
       "title": "Settings · Worktrees",
       "blurb": "Every worktree the machine is holding, with the prune that reclaims the finished ones.",
-      "order": 17,
+      "order": 18,
       "desktop": {
         "drive": {
           "kind": "settings",
@@ -1849,7 +1870,7 @@
       "group": "settings",
       "title": "Settings · Archived boards",
       "blurb": "Boards put away rather than deleted, and the way back.",
-      "order": 18,
+      "order": 19,
       "desktop": {
         "drive": {
           "kind": "settings",

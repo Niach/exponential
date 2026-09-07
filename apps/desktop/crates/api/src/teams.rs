@@ -68,7 +68,9 @@ pub fn teams_create(
     trpc.mutation("teams.create", &Input { name, icon_url })
 }
 
-/// `teams.update` input (Settings → General; owner-only).
+/// `teams.update` input (Settings → General and, since EXP-771, → Helpdesk;
+/// owner-only). Every field past `team_id` is a PATCH — an omitted one is not
+/// sent and the server leaves that column alone.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TeamsUpdateInput {
@@ -78,6 +80,13 @@ pub struct TeamsUpdateInput {
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Patch::is_omit")]
     pub icon_url: Patch<String>,
+    /// EXP-771: the team's shared support inbox. Turning it ON is gated
+    /// server-side twice — a plan limit (PRECONDITION_FAILED with the "Your
+    /// plan allows" prefix) and REV2-10(c)'s mail-transport check (a plain
+    /// PRECONDITION_FAILED naming `AWS_SES_REGION`/`SMTP_HOST`) — so the
+    /// caller must tell the two apart, not swallow both.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub helpdesk_enabled: Option<bool>,
 }
 
 impl TeamsUpdateInput {
@@ -86,6 +95,7 @@ impl TeamsUpdateInput {
             team_id: id.into(),
             name: None,
             icon_url: Patch::Omit,
+            helpdesk_enabled: None,
         }
     }
 }

@@ -4,24 +4,33 @@
 //! Web parity targets: the `routes/t/$teamSlug/settings/` pages and
 //! their `components/team/*-section.tsx` + `components/account/*` cards. The
 //! screen mirrors the web's grouped master-detail layout (EXP-146): a fixed
-//! left nav with the groups — **Team** (General, Members, Labels, Storage —
-//! the EXP-297 owner-only attachment manager), **Boards**
+//! left nav with the groups — **Team** (General, Members, Labels, Statuses,
+//! Storage — the EXP-297 owner-only attachment manager), **Boards**
 //! (one entry PER board + New board + Repositories — EXP-288 flattened the
-//! old flat Boards list into per-board detail pages), the desktop-only
+//! old flat Boards list into per-board detail pages), **Features**
+//! (Feedback widget, Helpdesk — EXP-771), the desktop-only
 //! **This device** group (Tools, Agents, Worktrees), and
 //! **Personal** (Account, Notifications, API keys, About — EXP-238); the
 //! detail column shows ONE selected pane with the web's `isOwner &&` gating;
-//! each pane mirrors its web card field-for-field.
+//! each pane mirrors its web card field-for-field — and since EXP-771 sits
+//! under the web route's OWN header ("Settings" + "Manage … and your
+//! account") in a centered `max-w-4xl` column.
 //!
 //! Navigation INTO these screens: the rail's gear dispatches `OpenSettings`
 //! (see `sidebar.rs` + `navigation::init`); this module only provides the
 //! screens.
 //!
 //! Billing (EXP-288): General carries a READ-ONLY plan/usage summary with a
-//! "Manage on the web" hand-off — still no in-app purchase/pricing UI, no
-//! widget-config pane, no admin surface. Plan-cap failures (HTTP 412 from
-//! `lib/billing.ts`) render as a neutral "Upgrade on the web" notice. The
-//! GitHub App *install* is a browser hand-off (§7.9).
+//! "Manage on the web" hand-off — still no in-app purchase/pricing UI and no
+//! admin surface. Plan-cap failures (HTTP 412 from `lib/billing.ts`) render
+//! as a neutral "Upgrade on the web" notice. The GitHub App *install* is a
+//! browser hand-off (§7.9).
+//!
+//! EXP-771: the widget and helpdesk settings are NO LONGER web-only. The
+//! Features group carries a READ-ONLY widget list with a "Manage on the web"
+//! hand-off (authoring a config stays a browser flow — it needs the embed
+//! snippet, the domain allowlist and the theme editor) plus the team's
+//! helpdesk switch, which is a plain `teams.update` this app owns outright.
 
 mod about;
 mod account;
@@ -29,6 +38,7 @@ mod add_repository_dialog;
 mod agents;
 mod api_keys;
 pub(crate) mod doctor_section;
+mod helpdesk;
 mod labels;
 mod statuses;
 mod local_repos;
@@ -40,6 +50,7 @@ mod repositories;
 mod storage;
 mod team_general;
 mod tools;
+mod widget;
 
 /// EXP-282/EXP-456: width of the settings nav column — it REPLACES the RAIL
 /// (the window's leftmost column, rendered by the `Shell`) while a settings
@@ -68,7 +79,9 @@ use crate::sidebar::{rail_shared_for_window, select_settings_section, RailShared
 use about::AboutPane;
 use account::AccountPane;
 use api_keys::ApiKeysPane;
+use helpdesk::HelpdeskPane;
 use labels::LabelsPane;
+use widget::WidgetPane;
 use statuses::StatusesPane;
 use local_repos::LocalReposPane;
 use members::MembersPane;
@@ -107,6 +120,15 @@ pub(crate) enum SettingsSection {
     /// settings page, which desktop flattened into per-board panes (EXP-288).
     ArchivedBoards,
     Repositories,
+    /// EXP-771: the team's feedback widgets — a READ-ONLY list (name,
+    /// submission count, disabled state) plus the "Manage on the web"
+    /// hand-off. Owner-only, like the web's `canManageWidgets` gate and the
+    /// `widgets.list` router behind it.
+    Widget,
+    /// EXP-771: the team's helpdesk switch — the web widget page's second
+    /// card, split out into its own pane because the desktop nav is one
+    /// section per page. Owner-only.
+    Helpdesk,
     /// This-device tools (EXP-288: renamed from "Coding" — repos root,
     /// branch prefix, terminal shell).
     Tools,
@@ -141,7 +163,7 @@ struct NavGroup {
 }
 
 /// The STATIC nav skeleton — the web's `SETTINGS_NAV` groups minus the
-/// web-only Billing/Widget items, plus the desktop-only "This device" group.
+/// web-only Billing item, plus the desktop-only "This device" group.
 /// EXP-238 appended the Personal group (Account, Notifications, API keys,
 /// About) as ordinary items — web parity again, and last so the fallback
 /// scan below never lands on a personal pane. The Boards group's per-board
@@ -164,9 +186,10 @@ const NAV_GROUPS: &[NavGroup] = &[
                 section: SettingsSection::Labels,
             },
             // EXP-314: right after Labels — the two team vocabularies sit
-            // together, and both are member-editable.
+            // together, and both are member-editable. EXP-771: the label is
+            // the web's ("Statuses"), not the longer desktop-only one.
             NavItem {
-                label: "Issue statuses",
+                label: "Statuses",
                 section: SettingsSection::Statuses,
             },
             // EXP-297: after Labels — the web nav's Team group order minus
@@ -187,6 +210,22 @@ const NAV_GROUPS: &[NavGroup] = &[
             NavItem {
                 label: "Repositories",
                 section: SettingsSection::Repositories,
+            },
+        ],
+    },
+    // EXP-771: the web's Features group, verbatim — plus Helpdesk, which the
+    // web keeps as the widget page's second card and the desktop nav (one
+    // section per page) gives its own row.
+    NavGroup {
+        label: "Features",
+        items: &[
+            NavItem {
+                label: "Feedback widget",
+                section: SettingsSection::Widget,
+            },
+            NavItem {
+                label: "Helpdesk",
+                section: SettingsSection::Helpdesk,
             },
         ],
     },
@@ -251,6 +290,8 @@ fn section_icon(section: &SettingsSection) -> Icon {
         SettingsSection::ArchivedBoards => Icon::from(registry::UI_ARCHIVE),
         SettingsSection::Board(_) => Icon::from(registry::SETTINGS_BOARDS),
         SettingsSection::Repositories => Icon::from(registry::SETTINGS_REPOSITORIES),
+        SettingsSection::Widget => Icon::from(registry::SETTINGS_WIDGET),
+        SettingsSection::Helpdesk => Icon::from(registry::SETTINGS_HELPDESK),
         SettingsSection::Tools => Icon::from(registry::SETTINGS_TOOLS),
         SettingsSection::Agents => Icon::from(registry::SETTINGS_AGENTS),
         SettingsSection::LocalRepos => Icon::from(registry::SETTINGS_LOCAL_REPOS),
@@ -264,12 +305,16 @@ fn section_icon(section: &SettingsSection) -> Icon {
 /// Web nav `visible` gating: General/board pages are owner-only.
 /// Repositories is member-visible since EXP-557 (per-user repo sharing:
 /// every member connects their own GitHub and shares repos there).
+/// EXP-771: the Features group is owner-only — the web's `canManageWidgets`
+/// is `isOwner`, and `widgets.list`/`teams.update` are owner-gated servers.
 fn section_visible(section: &SettingsSection, owner: bool) -> bool {
     match section {
         SettingsSection::General
         | SettingsSection::Storage
         | SettingsSection::Board(_)
-        | SettingsSection::ArchivedBoards => owner,
+        | SettingsSection::ArchivedBoards
+        | SettingsSection::Widget
+        | SettingsSection::Helpdesk => owner,
         _ => true,
     }
 }
@@ -347,6 +392,11 @@ pub struct SettingsView {
     /// from the shared selection itself and re-points at board switches.
     board_detail: Entity<BoardDetailPane>,
     repositories: Entity<RepositoriesPane>,
+    /// EXP-771 owner-only widget list (fetch-on-open server read —
+    /// `widget_configs` is never synced).
+    widget: Entity<WidgetPane>,
+    /// EXP-771 owner-only helpdesk switch (the team row's synced flag).
+    helpdesk: Entity<HelpdeskPane>,
     /// This-device tools (EXP-288: repos root, branch prefix, terminal
     /// shell) — local per-install state, so NOT owner-gated.
     tools: Entity<ToolsPane>,
@@ -363,6 +413,10 @@ pub struct SettingsView {
     api_keys: Entity<ApiKeysPane>,
     /// EXP-262: version + third-party licence notices (stateless, un-gated).
     about: Entity<AboutPane>,
+    /// EXP-771: the ONE scroll offset of the detail column — the header +
+    /// pane share a scroll region now, so the handle lives here and resets to
+    /// the top on every section switch (the web's route change does the same).
+    scroll: gpui::ScrollHandle,
     /// The section shown at the previous render — a transition INTO one of
     /// the Personal server-read panes drops its cache so it refetches
     /// (EXP-369 semantics, re-homed from the old Account screen).
@@ -389,6 +443,8 @@ impl SettingsView {
         let board_detail =
             cx.new(|cx| BoardDetailPane::new(nav.clone(), shared.clone(), window, cx));
         let repositories = cx.new(|cx| RepositoriesPane::new(nav.clone(), window, cx));
+        let widget = cx.new(|cx| WidgetPane::new(nav.clone(), cx));
+        let helpdesk = cx.new(|cx| HelpdeskPane::new(nav.clone(), cx));
         let tools = cx.new(|cx| ToolsPane::new(window, cx));
         let agents = cx.new(|cx| AgentsPane::new(window, cx));
         let local_repos = cx.new(LocalReposPane::new);
@@ -420,6 +476,8 @@ impl SettingsView {
             archived_boards,
             board_detail,
             repositories,
+            widget,
+            helpdesk,
             tools,
             agents,
             local_repos,
@@ -427,6 +485,7 @@ impl SettingsView {
             notifications,
             api_keys,
             about,
+            scroll: gpui::ScrollHandle::new(),
             last_section: None,
             shared,
             _subscriptions: subscriptions,
@@ -460,9 +519,9 @@ impl Render for SettingsView {
             |id| board_ids.as_ref().is_none_or(|ids| ids.contains(id)),
         );
 
-        // A switch INTO a Personal server-read pane refetches it (the
-        // screen-level staleness only fires on Settings entry, not on
-        // section clicks within it).
+        // A switch INTO a server-read pane refetches it (the screen-level
+        // staleness only fires on Settings entry, not on section clicks
+        // within it).
         if self.last_section.as_ref() != Some(&effective) {
             match &effective {
                 SettingsSection::Account => {
@@ -474,8 +533,18 @@ impl Render for SettingsView {
                 SettingsSection::ApiKeys => {
                     self.api_keys.update(cx, |pane, cx| pane.mark_stale(cx))
                 }
+                // The widget list is tRPC too, and its one affordance sends
+                // the user to the web to change it — so coming back must see
+                // the change.
+                SettingsSection::Widget => {
+                    self.widget.update(cx, |pane, cx| pane.mark_stale(cx))
+                }
                 _ => {}
             }
+            // EXP-771: one scroll region for header + pane, so a section
+            // switch has to rewind it — the web's route change lands at the
+            // top of the page, never mid-list.
+            self.scroll.set_offset(gpui::point(px(0.), px(0.)));
             self.last_section = Some(effective.clone());
         }
 
@@ -492,6 +561,8 @@ impl Render for SettingsView {
             // itself (it needs to flush a pending rename on board switches).
             SettingsSection::Board(_) => self.board_detail.clone().into_any_element(),
             SettingsSection::Repositories => self.repositories.clone().into_any_element(),
+            SettingsSection::Widget => self.widget.clone().into_any_element(),
+            SettingsSection::Helpdesk => self.helpdesk.clone().into_any_element(),
             SettingsSection::Tools => self.tools.clone().into_any_element(),
             SettingsSection::Agents => self.agents.clone().into_any_element(),
             SettingsSection::LocalRepos => self.local_repos.clone().into_any_element(),
@@ -501,28 +572,80 @@ impl Render for SettingsView {
             SettingsSection::About => self.about.clone().into_any_element(),
         };
 
-        // EXP-277: no screen header (the center tab already carries the
-        // title). EXP-282: no nav column and no centering wrapper either —
-        // the content column hugs the left edge under a 672px cap, so every
-        // pane's headings line up with the nav column beside it.
+        // EXP-771: the web settings route's own chrome, on EVERY pane —
+        // "Settings" over "Manage {team} and your account", a hairline, then
+        // the pane, all in one centered `max-w-4xl` column.
         //
-        // Scroll id keyed by section so each section keeps an independent
-        // scroll offset.
-        div()
-            .id(SharedString::from(format!("settings-detail-{effective:?}")))
-            .size_full()
+        // This replaces the EXP-277 "no screen header" rule (the center tab
+        // carried the title — but Settings is a TAB-LESS full-page screen, so
+        // nothing named the page) and the EXP-282 "hug the left edge under a
+        // 672px cap" one (the nav is the window's left column now; a column
+        // pinned to its right edge left the rest of a wide window empty).
+        //
+        // The SCROLL REGION stays full width with the scrollbar at the
+        // viewport edge — only the content column is capped and centered, the
+        // page-scaffold recipe every other full-page screen uses
+        // (`actions_view::page_scaffold_with`).
+        let team_name = active_team(cx, &self.nav)
+            .map(|team| team.name)
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or_else(|| "your team".to_string());
+        let header = v_flex()
+            .w_full()
             .min_w_0()
-            .overflow_y_scroll()
-            .child(detail_column().child(pane))
+            .child(
+                div()
+                    .text_2xl()
+                    .font_weight(FontWeight::BOLD)
+                    .child("Settings"),
+            )
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(SharedString::from(format!(
+                        "Manage {team_name} and your account"
+                    ))),
+            );
+        // `flex_shrink_0`: a 1px child in a flex column is the first thing
+        // the layout eats.
+        let separator = div()
+            .w_full()
+            .h(px(1.))
+            .flex_shrink_0()
+            .bg(row_stroke(cx));
+
+        v_flex()
+            .size_full()
+            .min_h_0()
+            .min_w_0()
+            .child(crate::scroll_pane::v_scroll_pane(
+                SharedString::from(format!("settings-detail-{effective:?}")),
+                &self.scroll,
+                div().w_full().min_w_0().child(
+                    detail_column()
+                        .child(header)
+                        .child(separator)
+                        .child(pane),
+                ),
+            ))
     }
 }
 
-/// EXP-282: the shared settings detail column — left-aligned, capped, with
-/// generous section spacing (the panes are flat sections now, so whitespace
-/// is the only separator left). Also used by the Account screen so both
-/// settings surfaces sit on the same grid.
+/// EXP-771: the shared settings detail column — the web route's
+/// `mx-auto w-full max-w-4xl space-y-6 p-6` grid. It used to be a
+/// left-aligned 672px column (EXP-282); the nav lives in the window's left
+/// column since EXP-456, so hugging its edge just left the rest of a wide
+/// window blank. The `space-y-6` is the gap between the header, its hairline
+/// and the pane — every pane spaces its OWN sections.
 pub(crate) fn detail_column() -> gpui::Div {
-    v_flex().w_full().max_w(px(672.)).p_5().gap_6()
+    v_flex()
+        .w_full()
+        .min_w_0()
+        .max_w(px(896.))
+        .mx_auto()
+        .p(px(24.))
+        .gap(px(24.))
 }
 
 // ---------------------------------------------------------------------------
@@ -954,6 +1077,24 @@ pub(crate) fn card_title(title: impl Into<SharedString>) -> impl IntoElement {
         .child(title.into())
 }
 
+/// EXP-771: the web sections' `<p className="px-1 pb-2 text-xs
+/// text-foreground/50">` — the explanatory line UNDER a
+/// [`crate::surface::glass_section_header`], where the web puts it, instead of
+/// a `CardDescription` fused into the heading. Its own `pb_2` is the gap to
+/// the list below (same rule as the header's — never wrap it in a gapped
+/// column, EXP-697).
+pub(crate) fn section_description(
+    description: impl Into<SharedString>,
+    cx: &App,
+) -> impl IntoElement {
+    div()
+        .px_1()
+        .pb_2()
+        .text_xs()
+        .text_color(cx.theme().foreground.opacity(0.5))
+        .child(description.into())
+}
+
 /// Web `CardTitle` + `CardDescription`.
 pub(crate) fn card_header(
     title: impl Into<SharedString>,
@@ -1102,6 +1243,17 @@ pub(crate) fn open_url(cx: &mut App, url: String) {
         .detach();
 }
 
+/// The inline error a settings form shows (EXP-771, web parity): the SERVER's
+/// own message when the rejection carried one (the web's
+/// `err instanceof Error ? err.message : …`), otherwise the form's own fallback
+/// sentence — a transport or decode fault never reaches the user as a dump.
+pub(crate) fn form_error(err: &api::ApiError, fallback: &str) -> String {
+    match err {
+        api::ApiError::Http { message, .. } if !message.trim().is_empty() => message.clone(),
+        _ => fallback.to_string(),
+    }
+}
+
 /// A plan-cap rejection (`planLimitError` → PRECONDITION_FAILED / HTTP 412
 /// with the "Your plan allows" prefix). Drives the §4.9 "Upgrade on the web"
 /// notice. Delegates to the ONE prefix-checking classifier — a bare-412 match
@@ -1166,6 +1318,10 @@ mod tests {
             SettingsSection::Storage,
             SettingsSection::Board("b-1".to_string()),
             SettingsSection::ArchivedBoards,
+            // EXP-771: the Features group mirrors the web's
+            // `canManageWidgets` gate, which IS `isOwner`.
+            SettingsSection::Widget,
+            SettingsSection::Helpdesk,
         ] {
             assert_eq!(
                 effective_selection(gated, false, any_board),
@@ -1263,6 +1419,33 @@ mod tests {
         );
     }
 
+    /// EXP-771: the settings forms show the SERVER's sentence when there is
+    /// one and the web's own fallback otherwise — never a transport dump.
+    #[test]
+    fn form_errors_prefer_the_server_message_then_the_web_fallback() {
+        let err = api::ApiError::Http {
+            status: 409,
+            message: "A status with this name already exists.".to_string(),
+        };
+        assert_eq!(
+            form_error(&err, "Failed to create status."),
+            "A status with this name already exists."
+        );
+        let blank = api::ApiError::Http {
+            status: 500,
+            message: "   ".to_string(),
+        };
+        assert_eq!(
+            form_error(&blank, "Failed to create status."),
+            "Failed to create status."
+        );
+        let offline = api::ApiError::transport("connection reset".to_string());
+        assert_eq!(
+            form_error(&offline, "Failed to rename label."),
+            "Failed to rename label."
+        );
+    }
+
     #[test]
     fn transport_failures_get_a_generic_prefix() {
         let err = api::ApiError::transport("connection reset".to_string());
@@ -1283,6 +1466,41 @@ mod tests {
             effective_selection(selected, true, |_| false),
             SettingsSection::General
         );
+    }
+
+    /// EXP-771: the Features group sits between Boards and This device, it
+    /// carries exactly the two owner-only panes, and every nav label is the
+    /// web's (the nav order also feeds the fallback scan, which must keep
+    /// landing on a Team section).
+    #[test]
+    fn features_group_sits_between_boards_and_this_device() {
+        let groups: Vec<&str> = NAV_GROUPS.iter().map(|group| group.label).collect();
+        assert_eq!(
+            groups,
+            vec!["Team", "Boards", "Features", "This device", "Personal"]
+        );
+        let features = NAV_GROUPS
+            .iter()
+            .find(|group| group.label == "Features")
+            .expect("Features group");
+        let labels: Vec<&str> = features.items.iter().map(|item| item.label).collect();
+        assert_eq!(labels, vec!["Feedback widget", "Helpdesk"]);
+        for item in features.items {
+            assert!(section_visible(&item.section, true));
+            assert!(!section_visible(&item.section, false));
+        }
+    }
+
+    /// EXP-771: web copy wins — the nav says "Statuses", not the longer
+    /// desktop-only "Issue statuses".
+    #[test]
+    fn statuses_nav_label_matches_the_web() {
+        let label = NAV_GROUPS
+            .iter()
+            .flat_map(|group| group.items)
+            .find(|item| item.section == SettingsSection::Statuses)
+            .map(|item| item.label);
+        assert_eq!(label, Some("Statuses"));
     }
 
     /// EXP-500: archiving the board whose settings pane is open drops it out

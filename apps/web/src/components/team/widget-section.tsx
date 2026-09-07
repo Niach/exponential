@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useState } from "react"
 import { Link } from "@tanstack/react-router"
-import { TRPCClientError } from "@trpc/client"
 import {
   Check,
   CodeXml,
   Copy,
-  LifeBuoy,
   LoaderCircle,
   MessageSquarePlus,
   Pencil,
@@ -14,7 +12,6 @@ import {
 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { buildWidgetSnippet } from "@/lib/widget-snippet"
-import { isPlanLimitError } from "@/lib/plan-limit-error"
 import { useBillingPlan } from "@/hooks/use-billing"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { UsageBar } from "@/components/team/billing-section"
@@ -25,10 +22,8 @@ import {
 import { Pill } from "@/components/ui/pill"
 import { Button } from "@/components/ui/button"
 import {
-  GlassGroup,
   GlassRow,
   GlassSectionHeader,
-  GlassToggleRow,
 } from "@/components/ui/glass-rows"
 import {
   Dialog,
@@ -65,10 +60,6 @@ export function TeamWidgetSection({ team }: { team: Team }) {
   // itself lives in widget-config-dialog.tsx (EXP-435).
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<WidgetListItem | null>(null)
-
-  // Team-level helpdesk switch (EXP-180 — replaced the per-board flag).
-  const [helpdeskBusy, setHelpdeskBusy] = useState(false)
-  const [helpdeskError, setHelpdeskError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     try {
@@ -130,35 +121,6 @@ export function TeamWidgetSection({ team }: { team: Team }) {
     await navigator.clipboard.writeText(buildSnippet(widget.publicKey))
     setCopiedId(widget.id)
     window.setTimeout(() => setCopiedId(null), 1_500)
-  }
-
-  const toggleHelpdesk = async (enabled: boolean) => {
-    setHelpdeskBusy(true)
-    setHelpdeskError(null)
-    try {
-      await trpc.teams.update.mutate({
-        teamId,
-        helpdeskEnabled: enabled,
-      })
-    } catch (err) {
-      if (isPlanLimitError(err)) {
-        setHelpdeskError(`The helpdesk is available on the Team plan.`)
-      } else if (
-        err instanceof TRPCClientError &&
-        err.data?.code === `PRECONDITION_FAILED`
-      ) {
-        // A non-plan-limit precondition failure is an actionable SETUP error —
-        // REV2-10(c)'s transport gate refuses `helpdeskEnabled: true` with a
-        // message naming AWS_SES_REGION / SMTP_HOST. This toggle is the only
-        // place that gate is ever hit, so the server's own wording must reach
-        // the owner instead of the generic fallback.
-        setHelpdeskError(err.message)
-      } else {
-        setHelpdeskError(`Could not update the helpdesk setting.`)
-      }
-    } finally {
-      setHelpdeskBusy(false)
-    }
   }
 
   return (
@@ -352,42 +314,6 @@ export function TeamWidgetSection({ team }: { team: Team }) {
             )}
           </DialogContent>
         </Dialog>
-      </div>
-
-      {/* Team-level helpdesk switch (owner-only page). Lives with the
-          widget settings because support tickets arrive through the widget. */}
-      <div>
-        <GlassSectionHeader
-          leading={<LifeBuoy className="size-3.5 text-foreground/50" />}
-          label="Helpdesk"
-        />
-        <GlassGroup>
-          <GlassToggleRow
-            id="team-helpdesk-enabled"
-            label="Enable the helpdesk"
-            description="Give this team a shared support inbox. Support tickets from the widget land there."
-            checked={team.helpdeskEnabled}
-            disabled={helpdeskBusy}
-            onCheckedChange={(next) => void toggleHelpdesk(next)}
-          />
-        </GlassGroup>
-        {(helpdeskError || team.helpdeskEnabled) && (
-          <div className="space-y-2 pt-2">
-            {helpdeskError && (
-              <p className="text-xs text-destructive">{helpdeskError}</p>
-            )}
-            {team.helpdeskEnabled && (
-              <Pill mode="action" asChild className="w-fit">
-                <Link
-                  to="/t/$teamSlug/support"
-                  params={{ teamSlug: team.slug }}
-                >
-                  Open Support inbox
-                </Link>
-              </Pill>
-            )}
-          </div>
-        )}
       </div>
     </div>
   )

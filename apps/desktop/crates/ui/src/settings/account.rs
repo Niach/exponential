@@ -128,13 +128,16 @@ impl AccountPane {
     fn render_timezone(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let value: SharedString = match &self.timezone {
             Timezone::Ready(Some(timezone)) => timezone.clone().into(),
-            Timezone::Ready(None) => "Not set".into(),
+            // EXP-771: no stored zone IS UTC — the digest hour is read in it,
+            // and the web's picker shows exactly that (`initialTimezone ??
+            // "UTC"`), never a "not set" placeholder.
+            Timezone::Ready(None) => "UTC".into(),
             Timezone::Error => "Unavailable".into(),
             Timezone::Idle | Timezone::Loading => "Loading…".into(),
         };
-        // Anything but a stored zone is a placeholder, not a value.
+        // Anything but a resolved zone is a placeholder, not a value.
         let value_color = match &self.timezone {
-            Timezone::Ready(Some(_)) => cx.theme().foreground,
+            Timezone::Ready(_) => cx.theme().foreground,
             _ => cx.theme().muted_foreground,
         };
         let foreground = cx.theme().foreground;

@@ -338,12 +338,14 @@ describe(`icon call sites`, () => {
     // Every icon on both screens comes from the registry — no stragglers.
     expect(web).not.toMatch(/icon: [A-Z]\w+,/)
     // EXP-238: + the Personal group (Account, Notifications, API keys).
-    expect(webNav.size).toBe(12)
+    // EXP-771: + Helpdesk as its own Features entry beside Feedback widget.
+    expect(webNav.size).toBe(13)
     // EXP-262: + About (desktop-only in the settings nav, like Tools/Agents).
     // EXP-500: + Archived boards, also desktop-only in the NAV — web keeps the
     // same list as a card on its single Boards settings page, which desktop
     // flattened into per-board panes (EXP-288), so it needs its own entry.
-    expect(desktopNav.size).toBe(15)
+    // EXP-771: + Feedback widget and Helpdesk, now on both clients.
+    expect(desktopNav.size).toBe(17)
 
     // The sections both clients render, web label → desktop variant.
     const shared: [string, string][] = [
@@ -354,6 +356,8 @@ describe(`icon call sites`, () => {
       [`Storage`, `Storage`],
       [`Boards`, `Board`],
       [`Repositories`, `Repositories`],
+      [`Feedback widget`, `Widget`],
+      [`Helpdesk`, `Helpdesk`],
       [`Account`, `Account`],
       [`Notifications`, `Notifications`],
       [`API keys`, `ApiKeys`],

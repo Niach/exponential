@@ -154,6 +154,32 @@ pub trait DescriptionEditor {
     }
 }
 
+/// EXP-771 — does a remote row echo have to stay OUT of a local field?
+///
+/// The floating-window bug this exists for: an issue open in an undocked
+/// window (`undock::UndockedScreenWindow`) never picked up edits made to the
+/// same issue in the main window. The subscription is NOT the problem —
+/// `cx.observe_in(&collections.issues, …)` fires in every window that holds
+/// one (`an_issue_echo_reseeds_every_window` proves it) — the FOCUS GUARD is:
+/// gpui focus is per-window state (`Window::focus`) and `on_active_status_change`
+/// does NOT clear it, so `FocusHandle::is_focused(window)` keeps reporting
+/// `true` in a window the user walked away from. One click into the floating
+/// window's title or description therefore silenced every later echo there,
+/// permanently — `last_saved_description` deliberately stays stale on a skip,
+/// so nothing ever retried.
+///
+/// The rule: a field only outranks the server while the user could plausibly
+/// be typing in it — focused in the ACTIVE window, or focused with an
+/// uncommitted local edit (a draft in a backgrounded window must not be
+/// clobbered). A focused-but-idle field in a background window takes the echo.
+pub(crate) fn remote_echo_blocked(
+    focused: bool,
+    window_active: bool,
+    unsaved_local_edit: bool,
+) -> bool {
+    focused && (window_active || unsaved_local_edit)
+}
+
 /// Save hook of one description editor (markdown source at save time).
 pub type OnSaveDescription = Rc<dyn Fn(String, &mut Window, &mut App)>;
 
@@ -247,14 +273,12 @@ pub struct IssueDetailView {
     /// failed (non-member), or not a widget/agent issue — the card renders
     /// nothing in every one of those states, exactly like web.
     widget_submission: Option<api::widgets::WidgetSubmission>,
-    /// EXP-760: the open inline sub-issue composer and its event
-    /// subscription. `None` = the closed "Add sub-issues" affordance. Cleared
-    /// on every issue switch — a half-typed child belongs to the issue it was
-    /// opened under.
-    sub_issue_composer: Option<(
-        Entity<crate::sub_issue_composer::SubIssueComposer>,
-        Subscription,
-    )>,
+    /// EXP-760: the open inline sub-issue composer
+    /// ([`crate::issue_composer::IssueComposer`] in its `Inline`
+    /// presentation) and its event subscription. `None` = the closed "Add
+    /// sub-issues" affordance. Cleared on every issue switch — a half-typed
+    /// child belongs to the issue it was opened under.
+    sub_issue_composer: Option<(Entity<crate::issue_composer::IssueComposer>, Subscription)>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -490,22 +514,27 @@ impl IssueDetailView {
 
     // -- sync: collection → local edit state -----------------------------------
 
+    // (the shared guard lives at module scope — `remote_echo_blocked`)
+
     /// Mirror remote changes into the title input and the description editor
-    /// (web's two sync effects). Skips the title while the user is typing in
-    /// it (focused), exactly like the web guard.
+    /// (web's two sync effects). Skips a field the user is actually typing in
+    /// ([`remote_echo_blocked`]), exactly like the web guard.
     fn sync_from_issue(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let Some(issue) = self.issue(cx) else {
             return;
         };
+        // EXP-771: the window this view lives in, not "the app is frontmost"
+        // — every open window evaluates this against its OWN focus.
+        let window_active = window.is_window_active();
 
         // Title.
         if issue.title != self.synced_title {
-            let focused = self
-                .title_input
-                .read(cx)
-                .focus_handle(cx)
-                .is_focused(window);
-            if !focused {
+            let input = self.title_input.read(cx);
+            let focused = input.focus_handle(cx).is_focused(window);
+            // The input still holds something the user typed and no blur has
+            // committed it yet — the local draft outranks the echo.
+            let unsaved = input.value().trim() != self.synced_title.trim();
+            if !remote_echo_blocked(focused, window_active, unsaved) {
                 self.synced_title = issue.title.clone();
                 let title = issue.title.clone();
                 self.title_input
@@ -514,18 +543,21 @@ impl IssueDetailView {
         }
 
         // Description: build the editor when the seam is filled, then forward
-        // echoes. Skipped while the editor owns focus (same rule as the
+        // echoes. Skipped while the user is mid-edit in it (same rule as the
         // title) — `last_saved_description` stays stale on purpose so the
-        // next non-focused sync still applies the remote text.
+        // next accepted sync still applies the remote text.
         self.ensure_editor(&issue, window, cx);
         let incoming = issue.description.clone().unwrap_or_default();
         let normalized = incoming.trim().to_string();
         if normalized != *self.last_saved_description.borrow() {
-            let focused = self
-                .editor
-                .as_ref()
-                .is_some_and(|editor| editor.is_focused(window, cx));
-            if !focused {
+            let (focused, dirty) = match self.editor.as_ref() {
+                // `is_dirty` defaults to `true` for a seam editor without
+                // edit tracking (the classic block-editor revert path), which
+                // keeps exactly the pre-EXP-771 guard for it.
+                Some(editor) => (editor.is_focused(window, cx), editor.is_dirty(cx)),
+                None => (false, false),
+            };
+            if !remote_echo_blocked(focused, window_active, dirty) {
                 *self.last_saved_description.borrow_mut() = normalized;
                 if let Some(editor) = self.editor.clone() {
                     editor.set_markdown(&incoming, window, cx);
@@ -1654,11 +1686,11 @@ impl IssueDetailView {
 
     /// EXP-760: the inline sub-issue affordance under the relations block —
     /// a ghost "Add sub-issues" button that swaps for the composer card
-    /// ([`crate::sub_issue_composer`]). `None` only when the issue's team has
-    /// not synced (the composer needs it for the property pickers).
+    /// ([`crate::issue_composer`]). `None` only when the issue's team has not
+    /// synced (the composer needs it for the property pickers).
     ///
     /// The composer stays open across creates (filing children comes in
-    /// runs); Cancel and every issue switch drop it.
+    /// runs); its ✕ / Escape and every issue switch drop it.
     fn render_sub_issue_affordance(
         &mut self,
         issue: &Issue,
@@ -1692,12 +1724,12 @@ impl IssueDetailView {
                 .px(px(DETAIL_GUTTER))
                 .pb_2()
                 .child(
-                    crate::sub_issue_composer::add_sub_issues_button(cx).on_click(cx.listener(
+                    crate::issue_composer::add_sub_issues_button(cx).on_click(cx.listener(
                         move |this, _, window, cx| {
                             let issue = issue.clone();
                             let team_id = team_id.clone();
                             let composer = cx.new(|cx| {
-                                crate::sub_issue_composer::SubIssueComposer::new(
+                                crate::issue_composer::IssueComposer::inline(
                                     &issue, team_id, window, cx,
                                 )
                             });
@@ -1705,9 +1737,9 @@ impl IssueDetailView {
                                 &composer,
                                 |this,
                                  _,
-                                 event: &crate::sub_issue_composer::SubIssueComposerEvent,
+                                 event: &crate::issue_composer::IssueComposerEvent,
                                  cx| {
-                                    use crate::sub_issue_composer::SubIssueComposerEvent as Event;
+                                    use crate::issue_composer::IssueComposerEvent as Event;
                                     match event {
                                         Event::Cancelled => {
                                             this.sub_issue_composer = None;
@@ -2363,5 +2395,250 @@ mod tests {
             let clean = StubEditor("| a | b |\n| --- | --- |\n| 1 | 2 |");
             assert_eq!(clean.markdown_for_save(cx), clean.markdown(cx));
         });
+    }
+}
+
+/// EXP-771 — the multi-window sync contract (see [`remote_echo_blocked`]).
+#[cfg(test)]
+mod multi_window_tests {
+    use super::*;
+    use sync::ShapeRow as _;
+
+    fn seed_issue(cx: &mut App, id: &str, title: &str, description: &str) {
+        let issue: Issue = serde_json::from_value(serde_json::json!({
+            "id": id,
+            "board_id": "board-1",
+            "number": 1,
+            "identifier": "EXP-1",
+            "title": title,
+            "description": description,
+            "status": "backlog",
+        }))
+        .unwrap();
+        let collections = Store::global(cx).collections().clone();
+        collections.issues.update(cx, |collection, cx| {
+            collection.seed(issue.key(), issue);
+            cx.notify();
+        });
+    }
+
+    /// The reported bug's DATA half: an issue open in a floating window has
+    /// to re-seed from a row change made anywhere else. `observe_in` is not
+    /// window-private — it resolves the observer's own window and fires
+    /// there — so BOTH detail views must land on the new title.
+    #[gpui::test]
+    async fn an_issue_echo_reseeds_every_window(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+            seed_issue(cx, "i1", "first", "body one");
+        });
+
+        // Two windows over the SAME issue — the shell tab and the undocked
+        // window (`undock::open_undocked_screen` builds a fresh view too).
+        //
+        // The first goes through `add_window_view`, whose LEAKED
+        // `VisualTestContext` keeps the app alive past gpui's exit-time leak
+        // check: `Store::open`'s manager holds its collection handles for the
+        // process's life and would otherwise trip it (same escape hatch as
+        // the timeline suite).
+        let (docked, cx) = cx.add_window_view(|window, cx| IssueDetailView::new(window, cx));
+        let floating = cx.add_window(|window, cx| IssueDetailView::new(window, cx));
+        cx.update(|window, app| {
+            docked.update(app, |view, cx| view.set_issue("i1".into(), window, cx));
+        });
+        floating
+            .update(&mut cx.cx, |view, window, cx| {
+                view.set_issue("i1".into(), window, cx)
+            })
+            .unwrap();
+        cx.run_until_parked();
+
+        cx.cx.update(|cx| seed_issue(cx, "i1", "second", "body two"));
+        cx.run_until_parked();
+
+        let docked_title = cx.update(|_window, app| {
+            let view = docked.read(app);
+            (
+                view.synced_title.clone(),
+                view.title_input.read(app).value().to_string(),
+            )
+        });
+        let floating_title = floating
+            .update(&mut cx.cx, |view, _window, cx| {
+                (
+                    view.synced_title.clone(),
+                    view.title_input.read(cx).value().to_string(),
+                )
+            })
+            .unwrap();
+
+        for (label, (synced, shown)) in [("docked", docked_title), ("floating", floating_title)] {
+            assert_eq!(synced, "second", "{label} view missed the echo");
+            assert_eq!(
+                shown, "second",
+                "{label} input buffer must re-seed, not just the mirror"
+            );
+        }
+    }
+
+    /// A window ROOT that owns an [`IssueDetailView`] without ever rendering
+    /// it. The view still lives in this window — `observe_in` resolves the
+    /// observer's own window, so the echo path runs here exactly as it does
+    /// in a real one — but nothing lays out the title `Textarea`, and that is
+    /// what makes a FOCUSED field testable: `gpui_component`'s Input syncs
+    /// the macOS content type for the focused input while rendering
+    /// (`sync_native_content_type`), which asks the platform window for an
+    /// `NSView` and a test window answers `unimplemented!("Test Windows are
+    /// not backed by a real platform window")`. Focus itself needs no frame —
+    /// `FocusHandle::is_focused` only compares ids against `Window::focus`.
+    struct HeadlessDetailWindow {
+        detail: Entity<IssueDetailView>,
+    }
+
+    impl Render for HeadlessDetailWindow {
+        fn render(
+            &mut self,
+            _window: &mut Window,
+            _cx: &mut gpui::Context<Self>,
+        ) -> impl IntoElement {
+            gpui::div()
+        }
+    }
+
+    /// The FIX half, through the REAL path: `sync_from_issue` in a second
+    /// window whose title input is focused.
+    ///
+    /// A gpui test window starts INACTIVE (`TestWindow::activate` is what
+    /// flips the flag `is_window_active` reads), which is exactly the state
+    /// the bug lived in: focus left behind in a window the user walked away
+    /// from. Phase 1 is the regression — a focused-but-idle field there used
+    /// to swallow every later echo, forever. Phase 2 is the inverse: with an
+    /// uncommitted local edit in the same field, the echo must NOT clobber
+    /// it.
+    ///
+    /// The third case — focused in the ACTIVE window — is NOT reachable
+    /// headlessly and stays covered by the pure
+    /// [`a_focused_field_only_outranks_the_server_while_it_is_live`]:
+    /// activating a test window runs gpui's activation observer, which ends
+    /// in `window.refresh()`, and the draw that follows hits the same native
+    /// input path [`HeadlessDetailWindow`] exists to avoid.
+    #[gpui::test]
+    async fn a_background_focused_title_takes_the_echo_unless_it_holds_a_draft(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+            seed_issue(cx, "i1", "first", "body one");
+        });
+
+        // The shell tab (rendered, nothing focused — the leak-check escape
+        // hatch of `an_issue_echo_reseeds_every_window` applies here too) and
+        // the floating window whose field the user last clicked into.
+        let (docked, cx) = cx.add_window_view(|window, cx| IssueDetailView::new(window, cx));
+        let floating = cx.add_window(|window, cx| HeadlessDetailWindow {
+            detail: cx.new(|cx| IssueDetailView::new(window, cx)),
+        });
+        cx.update(|window, app| {
+            docked.update(app, |view, cx| view.set_issue("i1".into(), window, cx));
+        });
+        floating
+            .update(&mut cx.cx, |root, window, cx| {
+                root.detail
+                    .update(cx, |view, cx| view.set_issue("i1".into(), window, cx));
+            })
+            .unwrap();
+        cx.run_until_parked();
+
+        // The click into the floating window's title field.
+        floating
+            .update(&mut cx.cx, |root, window, cx| {
+                let handle = root.detail.read(cx).title_input.read(cx).focus_handle(cx);
+                window.focus(&handle, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+
+        let read_floating = |cx: &mut gpui::VisualTestContext| {
+            floating
+                .update(&mut cx.cx, |root, window, cx| {
+                    let view = root.detail.read(cx);
+                    let input = view.title_input.read(cx);
+                    (
+                        input.focus_handle(cx).is_focused(window),
+                        window.is_window_active(),
+                        view.synced_title.clone(),
+                        input.value().to_string(),
+                    )
+                })
+                .unwrap()
+        };
+
+        let (focused, active, _, _) = read_floating(cx);
+        assert!(
+            focused,
+            "the title field must be focused or this tests nothing"
+        );
+        assert!(!active, "and its window must be the backgrounded one");
+
+        // Phase 1: focused but idle in a background window — the echo lands.
+        cx.cx.update(|cx| seed_issue(cx, "i1", "second", "body two"));
+        cx.run_until_parked();
+        let (_, _, synced, shown) = read_floating(cx);
+        assert_eq!(
+            synced, "second",
+            "a focused-but-idle background field must not block the echo"
+        );
+        assert_eq!(
+            shown, "second",
+            "the input buffer re-seeds too, not just the mirror"
+        );
+
+        // Phase 2: the same field now holds something typed and uncommitted.
+        floating
+            .update(&mut cx.cx, |root, window, cx| {
+                let input = root.detail.read(cx).title_input.clone();
+                input.update(cx, |input, cx| input.set_value("my draft", window, cx));
+            })
+            .unwrap();
+        cx.cx.update(|cx| seed_issue(cx, "i1", "third", "body three"));
+        cx.run_until_parked();
+        let (_, _, synced, shown) = read_floating(cx);
+        assert_eq!(shown, "my draft", "an uncommitted draft outranks the echo");
+        assert_eq!(
+            synced, "second",
+            "and the mirror stays stale, so the next accepted sync still applies"
+        );
+        // The window holding no draft keeps tracking the row.
+        let docked_title = cx.update(|_window, app| docked.read(app).synced_title.clone());
+        assert_eq!(docked_title, "third");
+
+        // The skip is not a one-shot: a second echo must not sneak past it.
+        cx.cx.update(|cx| seed_issue(cx, "i1", "fourth", "body four"));
+        cx.run_until_parked();
+        let (_, _, synced, shown) = read_floating(cx);
+        assert_eq!(shown, "my draft");
+        assert_eq!(synced, "second");
+    }
+
+    /// The FIX half. gpui never clears a window's focus when the window is
+    /// deactivated, so "focused" alone is not "the user is typing here".
+    #[test]
+    fn a_focused_field_only_outranks_the_server_while_it_is_live() {
+        // The bug: focused in a BACKGROUND window with nothing typed —
+        // every echo used to be dropped here, forever.
+        assert!(!remote_echo_blocked(true, false, false));
+        // Focused in the active window: the user is typing, keep the draft.
+        assert!(remote_echo_blocked(true, true, false));
+        // Backgrounded but holding an uncommitted edit: still the user's.
+        assert!(remote_echo_blocked(true, false, true));
+        // Not focused at all: always take the echo.
+        assert!(!remote_echo_blocked(false, true, true));
+        assert!(!remote_echo_blocked(false, false, false));
     }
 }

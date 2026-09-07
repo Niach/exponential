@@ -30,6 +30,7 @@ import {
   svgBell,
   svgCheck,
   svgChevronRight,
+  svgCircleDashed,
   svgCircleHelp,
   svgCircleUser,
   svgEllipsis,
@@ -193,6 +194,30 @@ function relationRow(label: string, id: string, title: string): string {
 
 function iconButton(glyph: string): string {
   return `<button class="cmp-icon-button" type="button">${glyph}</button>`
+}
+
+/**
+ * The picker's ROUNDED SQUARE (EXP-771). `empty` is the nothing-picked arm: a
+ * dashed hairline under the placeholder glyph, which is the only state the
+ * `allowsNone` hosts can reach.
+ */
+function iconPickerTrigger(glyph: string, empty = false): string {
+  return [
+    `<button class="cmp-icon-picker-trigger"${empty ? ` data-empty` : ``} type="button">`,
+    glyph,
+    `</button>`,
+  ].join(``)
+}
+
+/** A few cells of the 60-glyph grid the trigger opens — same corner, one pick. */
+function iconSwatchGrid(): string {
+  const cells = [svgHash, svgTag, svgFlag, svgInbox, svgTerminal, svgImage, svgBell, svgSmile]
+    .map(
+      (glyph, at) =>
+        `<button class="item${at === 2 ? ` selected` : ``}" type="button">${glyph}</button>`
+    )
+    .join(``)
+  return `<div class="cmp-icon-grid">${cells}</div>`
 }
 
 /**
@@ -544,7 +569,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `session-bar`,
     title: `Session bar`,
     kind: `Controls`,
-    blurb: `The bottom strip of coding tabs (EXP-769): 36 tall on a row hairline inside the content card, padding 0/8, gap 4. It holds the rich tabs of the user's running sessions and, on the desktop, the open terminals — a session tab leads with its 6px liveness dot and carries the issue's mono identifier, the title and a muted " · machine" caption; a terminal tab leads with the terminal glyph and wears its exit code as a badge. Right after the last tab sit two ghost 24px glyph buttons: Chat (a promptless chat run on the default agent) and add (a plain terminal, desktop only). Nothing else: no header, no collapse, no label when empty — the strip is always there so Chat is always one click away. Selecting a tab opens that session or terminal FULLSCREEN in the content area; the web navigates to the session route, the desktop shows the screen. The × on a live session kills it (confirmed), on an ended one closes the transcript tab, on a terminal closes the terminal.`,
+    blurb: `The bottom strip of coding tabs (EXP-769). It sits OUTSIDE the content card, on the bare page ground below it, the mirror of the desktop's head toolbar above (EXP-771): the card stops 6px short and the band takes the last 36 down to the window bottom, with no fill and no border of its own and its chips inset 8. Give it a fill and the ground reads as a second card. It holds the rich tabs of the user's running sessions and, on the desktop, the open terminals — a session tab leads with its 6px liveness dot and carries the issue's mono identifier, the title and a muted " · machine" caption; a terminal tab leads with the terminal glyph and wears its exit code as a badge. Right after the last tab sit two ghost 24px glyph buttons: Chat (a promptless chat run on the default agent) and add (a plain terminal, desktop only). Nothing else: no header, no collapse, no label when empty — the strip is always there so Chat is always one click away. Selecting a tab opens that session or terminal FULLSCREEN in the content area; the web navigates to the session route, the desktop shows the screen. The × on a live session kills it (confirmed), on an ended one closes the transcript tab, on a terminal closes the terminal.`,
     status: {
       web: ok(
         `AgentDock`,
@@ -561,6 +586,10 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     },
     render: () =>
       [
+        // The ground is part of the specimen: the point of the band is what it
+        // sits ON, so the demo draws the card it hangs below.
+        `<div class="cmp-session-ground">`,
+        `<div class="card"><span class="line"></span><span class="line"></span></div>`,
         `<div class="cmp-session-bar">`,
         richTab({ dot: true, title: `Fix the merge queue`, id: `APP-14`, active: true }),
         richTab({ glyph: svgTerminal, title: `zsh`, id: `1` }),
@@ -568,13 +597,14 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `<button class="tool" type="button">${svgMessageCircle}</button>`,
         `<button class="tool" type="button">${svgPlus}</button>`,
         `</div>`,
+        `</div>`,
       ].join(``),
   },
   {
     id: `icon-button`,
     title: `Glass icon button`,
     kind: `Controls`,
-    blurb: `A 32px circle of card fill under a card stroke, glyph 16px at 70% foreground; hover fills to active and the glyph goes full strength.`,
+    blurb: `A 32px circle of card fill under a card stroke, glyph 16px at 70% foreground; hover fills to active and the glyph goes full strength. The SHAPE is the meaning (EXP-771): a circle is an ACTION, so every icon-only action wears one — these glass buttons, the rail's New issue and Search, the session bar's tools, a mobile FAB. The one exception is a picker TRIGGER, which is a rounded square: see icon picker.`,
     status: {
       web: ok(`buttonVariants variant="glass" size="icon-sm"`, `apps/web/src/components/ui/button.tsx`),
       desktop: ok(`controls::glass_icon_button`, DESKTOP_CONTROLS),
@@ -583,6 +613,45 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     },
     render: () =>
       row(`Nightly changelog`, `${iconButton(svgPlay)}${iconButton(svgEllipsis)}`),
+  },
+  {
+    id: `icon-picker`,
+    title: `Icon picker`,
+    kind: `Controls`,
+    blurb: `The one surface that picks a glyph, and the one exception to the circle (EXP-771): circle is an action, ROUNDED SQUARE is a picker. The trigger is a 36px square at the radius ladder's MD step over card fill — a card hairline once something is picked, a DASHED one under the placeholder glyph while it is empty — and the cells of the 60-glyph grid it opens wear that same corner, the picked one taking the active fill under the active stroke. Colour swatches are the counter-example: a colour has no shape to read, so those stay circles.`,
+    status: {
+      web: ok(
+        `IconPicker`,
+        `apps/web/src/components/ui/icon-picker.tsx`,
+        `the grid is ui/icon-swatch-grid.tsx, rendered inside the trigger's popover`
+      ),
+      desktop: ok(
+        `board_form::icon_picker`,
+        `apps/desktop/crates/ui/src/board_form.rs`,
+        `icon_swatch_grid is the grid in the same file`
+      ),
+      ios: ok(
+        `IconPicker`,
+        `apps/ios/ExpUI/Sources/IconPicker.swift`,
+        `the grid is ExpUI/Sources/IconSwatchGrid.swift`
+      ),
+      android: ok(
+        `IconPicker`,
+        `${ANDROID_COMPONENTS}/IconPicker.kt`,
+        `the grid is ui/components/IconSwatchGrid.kt`
+      ),
+    },
+    render: () =>
+      [
+        `<div class="cmp-stack">`,
+        `<div class="cmp-inline">`,
+        iconPickerTrigger(svgCircleDashed, true),
+        iconPickerTrigger(svgFlag),
+        iconButton(svgPlus),
+        `</div>`,
+        iconSwatchGrid(),
+        `</div>`,
+      ].join(``),
   },
   {
     id: `button-primary`,
@@ -714,9 +783,9 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `app-shell`,
     title: `App shell`,
     kind: `Surfaces`,
-    blurb: `The CUTOUT (EXP-723). The window is the page gradient; the navigation column sits directly on it with no fill of its own; the content is a card inset 10 on every side — radius 12, a card hairline, the panel wash, overflow hidden so the dock strip takes the bottom corners. The wash is translucent on purpose: the ground darkens down the page and a solid fill would drift away from it. Phones drop the card entirely and run full-bleed under the tab bar.`,
+    blurb: `The CUTOUT (EXP-723). The window is the page gradient; the navigation column sits directly on it with no fill of its own; the content is a card inset 10 on the sides and top, and 6 at the bottom while a session band renders (10 otherwise) — radius 12, a card hairline, the panel wash, overflow hidden. Chrome that is not content sits on the bare ground AROUND the card, symmetrically (EXP-771): the desktop's title strip above it and the session band below on both clients, each 36 tall with no fill and no border, their chips inset 8, and the band running to the window bottom. The wash is translucent on purpose: the ground darkens down the page and a solid fill would drift away from it. Phones drop the card entirely and run full-bleed under the tab bar.`,
     status: {
-      web: ok(`MAIN_PANEL_CLASS`, `apps/web/src/routes/t/$teamSlug/route.tsx`),
+      web: ok(`mainPanelClass`, `apps/web/src/components/team/app-shell.ts`),
       desktop: ok(
         `Shell::render`,
         `apps/desktop/crates/ui/src/shell.rs`,
@@ -728,19 +797,48 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     render: () =>
       [
         `<div class="cmp-app-shell">`,
+        // Both bands are children of the SHELL, never of the panel: that is the
+        // whole claim the demo is making.
+        `<div class="header"><span class="title">Mobile app</span></div>`,
+        `<div class="content">`,
         `<div class="nav">`,
         `<span class="item"><span class="label">Inbox</span></span>`,
         `<span class="item active"><span class="label">Mobile app</span></span>`,
         `<span class="item"><span class="label">Reviews</span></span>`,
         `</div>`,
-        `<div class="panel">`,
-        `<div class="header"><span class="title">Mobile app</span></div>`,
-        `<div class="content"><span class="line"></span><span class="line"></span><span class="line"></span></div>`,
+        `<div class="panel"><span class="line"></span><span class="line"></span><span class="line"></span></div>`,
+        `</div>`,
         `<div class="dock">`,
         richTab({ glyph: svgTerminal, title: `zsh`, id: `1`, active: true }),
         richTab({ dot: true, title: `Fix the merge queue`, id: `APP-14` }),
         `<button class="add" type="button">${svgPlus}</button>`,
         `</div>`,
+        `</div>`,
+      ].join(``),
+  },
+  {
+    id: `page-header`,
+    title: `Settings page header`,
+    kind: `Surfaces`,
+    blurb: `Every settings page on web and desktop opens identically (EXP-771): the title Settings at 2xl bold, the subtitle "Manage {team name} and your account" at sm muted, then a hairline divider. All three ride a centred column capped at 56rem (896px at a 16px root; the desktop pins 896 outright) with 1.5rem padding, while the SCROLL region is the full width of the pane, so the scrollbar rides the viewport edge instead of the text column. The nav beside it lists every page: web gains Helpdesk as its own entry next to Feedback widget, and the desktop carries both under a Features group.`,
+    status: {
+      web: ok(`SettingsLayout`, `apps/web/src/routes/t/$teamSlug/settings/route.tsx`),
+      desktop: ok(
+        `settings::detail_column`,
+        `apps/desktop/crates/ui/src/settings/mod.rs`,
+        `the column and the header the SettingsView panes render into`
+      ),
+      ios: na(`the native settings root is a grouped list, no page title band`),
+      android: na(`the native settings root is a grouped list, no page title band`),
+    },
+    render: () =>
+      [
+        `<div class="cmp-page-header">`,
+        `<div class="content">`,
+        `<div class="title">Settings</div>`,
+        `<div class="desc">Manage Mobile Ltd and your account</div>`,
+        `<div class="cmp-divider"></div>`,
+        group(pickerRow(`Team name`, `Mobile Ltd`), toggleRow(`Helpdesk`, undefined, true)),
         `</div>`,
         `</div>`,
       ].join(``),
@@ -1023,7 +1121,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `tokens-radius`,
     title: `Radius ladder`,
     kind: `Tokens`,
-    blurb: `Six steps. Row 10, group and field 12, card 16, sheet 24 — anything else is a mistake, and capsules use 9999 rather than a step.`,
+    blurb: `Six steps. Row 10, group and field 12, card 16, sheet 24 — anything else is a mistake, and capsules use 9999 rather than a step. MD does double duty as the PICKER corner (EXP-771): an icon picker trigger and every cell of its swatch grid take it, which is what keeps a picker from reading as a circular action button.`,
     status: {
       web: ok(`--radius`, `apps/web/src/styles.css`),
       desktop: ok(`theme::radius::*`, `apps/desktop/crates/theme/src/tokens.generated.rs`),

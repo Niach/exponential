@@ -44,6 +44,24 @@ replies, with an opaque variant for mobile bottom bars) and **markdown blocks**
 (the chat-sized narration / bubble / plan / question / tool / fold set the steer
 feed is built from).
 
+Two rules the entries carry rather than restate, both from EXP-771:
+
+- **Shape says what a control does.** A circle is an ACTION, so every icon-only
+  action wears one: the glass icon buttons, the rail's New issue and Search, the
+  session bar's tools, a mobile FAB. A rounded square at the radius ladder's MD
+  step is a PICKER, which is the **icon picker** trigger and every cell of its
+  swatch grid. Colour swatches stay circles, because a colour has no shape to
+  read, and text capsules stay at 9999.
+- **Chrome sits on the ground, not in the card.** The title strip above the
+  content card and the **session bar** below it are 36px bands on the bare page
+  gradient with no fill and no border, their chips inset 8; the card stops 6px
+  short of the bottom band, and the band runs to the window bottom. See **app
+  shell**, which draws both symmetrically.
+
+**Settings page header** is the third entry of that kind: the one header every
+settings page opens with on web and desktop, on a centred 56rem column (896 at a 16px root) inside a
+full-width scroll region.
+
 Under each control is a per-platform table naming the ONE symbol and file that
 is supposed to match it on Web / Desktop / iOS / Android, marked `ok`,
 `leftover` (it exists but still disagrees; the note says how) or `n/a` (that

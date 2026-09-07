@@ -487,30 +487,35 @@ function ReviewDetailPage() {
       {/* EXP-698: the clearance is MEASURED (`--reviewbar-h`), not guessed —
           a merge failure grows the bar by a whole error line, which a fixed
           `pb-24` no longer cleared. */}
-      <div className="mx-auto w-full max-w-5xl flex-1 overflow-x-auto overflow-y-auto pb-[calc(var(--reviewbar-h,0px)+1rem)] md:pb-4">
-        {filesState.kind === `loading` ? (
-          <div className="flex items-center gap-2 px-4 py-3 text-xs text-muted-foreground">
-            <LoaderCircle className="size-3.5 animate-spin" /> Loading changes…
-          </div>
-        ) : filesState.kind === `error` ? (
-          <div className="flex flex-wrap items-center gap-2 px-4 py-3 text-xs text-rose-300">
-            {`Couldn’t load changes: ${filesState.message}`}
-            <Pill mode="action" onClick={() => reloadReview()}>
-              <RotateCw className="size-3" />
-              Retry
-            </Pill>
-          </div>
-        ) : filesState.kind === `files` && filesState.files.length > 0 ? (
-          <FileDiffList
-            files={filesState.files}
-            showFileNav={false}
-            defaultCollapsed
-          />
-        ) : (
-          <div className="px-4 py-6 text-xs text-muted-foreground">
-            No changes yet. A pushed branch or pull request will appear here.
-          </div>
-        )}
+      {/* EXP-771: the scroller is the FULL-width flex child; the max-w column
+          is its child. The scrollbar then rides the panel's right edge
+          instead of appearing mid-page beside the centred diff. */}
+      <div className="flex-1 overflow-x-auto overflow-y-auto">
+        <div className="mx-auto w-full max-w-5xl pb-[calc(var(--reviewbar-h,0px)+1rem)] md:pb-4">
+          {filesState.kind === `loading` ? (
+            <div className="flex items-center gap-2 px-4 py-3 text-xs text-muted-foreground">
+              <LoaderCircle className="size-3.5 animate-spin" /> Loading changes…
+            </div>
+          ) : filesState.kind === `error` ? (
+            <div className="flex flex-wrap items-center gap-2 px-4 py-3 text-xs text-rose-300">
+              {`Couldn’t load changes: ${filesState.message}`}
+              <Pill mode="action" onClick={() => reloadReview()}>
+                <RotateCw className="size-3" />
+                Retry
+              </Pill>
+            </div>
+          ) : filesState.kind === `files` && filesState.files.length > 0 ? (
+            <FileDiffList
+              files={filesState.files}
+              showFileNav={false}
+              defaultCollapsed
+            />
+          ) : (
+            <div className="px-4 py-6 text-xs text-muted-foreground">
+              No changes yet. A pushed branch or pull request will appear here.
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Mobile action bar (EXP-248) — dismiss · Merge · GitHub, matching the

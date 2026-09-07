@@ -55,6 +55,7 @@ use sync::Store;
 use crate::actions::{CreateTeam, JoinTeam, OpenAbout, OpenWhatsNew, SignOut, SwitchTeam};
 use crate::board::BoardView;
 use crate::coding_flow;
+use crate::controls::WebControl as _;
 use crate::trunk_sync::TrunkSync;
 use crate::icons::{self, registry, ExpIcon};
 use crate::issue_list::IssueQuery;
@@ -1119,9 +1120,13 @@ impl RailView {
             .items_center()
             .child(div().flex_1().min_w_0().child(switcher))
             .child(
+                // EXP-771: an icon-only ACTION button is a CIRCLE on every
+                // client (an icon PICKER trigger or a swatch cell stays a
+                // rounded square at the theme radius — `board_form`) — the
+                // shared `web_icon_sm` 32px capsule, not a hand-sized box.
                 Button::new("rail-search")
-                    .ghost().cursor_pointer()
-                    .size(px(crate::controls::CTL_MD_H))
+                    .ghost()
+                    .web_icon_sm()
                     .flex_shrink_0()
                     .icon(registry::NAV_SEARCH)
                     .tooltip("Search")
@@ -1131,9 +1136,10 @@ impl RailView {
             )
             .when_some(board_id, |row, board_id| {
                 row.child(
+                    // EXP-771: the primary twin of the Search circle above.
                     Button::new("rail-new-issue")
-                        .primary().cursor_pointer()
-                        .size(px(crate::controls::CTL_MD_H))
+                        .primary()
+                        .web_icon_sm()
                         .flex_shrink_0()
                         .icon(registry::NAV_CREATE_ISSUE)
                         .tooltip("New issue")
