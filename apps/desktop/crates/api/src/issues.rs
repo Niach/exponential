@@ -103,6 +103,10 @@ pub struct IssuesCreateInput {
     pub due_date: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub label_ids: Option<Vec<String>>,
+    /// EXP-760: file the issue as a sub-issue of this parent in the same
+    /// server transaction (the inline sub-issue composer).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<String>,
 }
 
 impl IssuesCreateInput {
@@ -117,6 +121,7 @@ impl IssuesCreateInput {
             description: None,
             due_date: None,
             label_ids: None,
+            parent_id: None,
         }
     }
 }
@@ -768,6 +773,23 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/issues.create HTTP/1.1"));
         assert!(request.ends_with(r#"{"boardId":"p-1","title":"New","priority":"high"}"#));
+    }
+
+    #[test]
+    fn create_files_a_sub_issue_with_parent_id() {
+        // EXP-760: the inline sub-issue composer files the child in ONE
+        // server transaction — `parentId` rides the create, and stays off the
+        // wire for every ordinary create.
+        let mut input = IssuesCreateInput::new("p-1", "Child");
+        assert_eq!(
+            serde_json::to_string(&input).unwrap(),
+            r#"{"boardId":"p-1","title":"Child"}"#
+        );
+        input.parent_id = Some("i-parent".to_string());
+        assert_eq!(
+            serde_json::to_string(&input).unwrap(),
+            r#"{"boardId":"p-1","title":"Child","parentId":"i-parent"}"#
+        );
     }
 
     #[test]

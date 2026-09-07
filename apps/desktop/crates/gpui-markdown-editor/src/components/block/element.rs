@@ -730,6 +730,54 @@ pub(crate) fn reference_at_position(
     None
 }
 
+/// EXP-760: [`reference_at_position`] plus the chip's ANCHOR rectangle — the
+/// union of every wrapped segment of the hit chip, in window coordinates, so
+/// the host can hang an issue preview under the whole pill rather than under
+/// the pointer.
+pub(crate) fn reference_bounds_at_position(
+    input: &Block,
+    lines: &[WrappedLine],
+    bounds: Bounds<Pixels>,
+    line_height: Pixels,
+    position: Point<Pixels>,
+) -> Option<(crate::host::ReferenceKind, String, Bounds<Pixels>)> {
+    if input.is_source_raw_mode()
+        || input.display_text().is_empty()
+        || lines.is_empty()
+        || position.y < bounds.top()
+        || position.y >= bounds.bottom()
+    {
+        return None;
+    }
+
+    input.environment.reference_decorator.as_ref()?;
+    let shaped = input.shaped_for_layout();
+    let document = input.display_text();
+    let text = shaped.text().as_ref();
+    let align = input.text_align();
+
+    for (index, span) in shaped.spans().iter().enumerate() {
+        let Some(chip) = shaped.chip_range(index) else {
+            continue;
+        };
+        let segments = range_segment_bounds(lines, bounds, line_height, text, chip.clone(), align);
+        if !segments
+            .iter()
+            .any(|segment| point_inside_bounds(*segment, position))
+        {
+            continue;
+        }
+        let mut anchor = segments[0];
+        for segment in &segments[1..] {
+            anchor = anchor.union(segment);
+        }
+        let token = document.get(span.range.clone()).unwrap_or_default();
+        return Some((span.kind, token.to_string(), anchor));
+    }
+
+    None
+}
+
 pub(crate) fn footnote_at_position<'a>(
     input: &'a Block,
     lines: &[WrappedLine],

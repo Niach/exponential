@@ -1362,6 +1362,27 @@ describe(`exponential_issues_create statusId passthrough (EXP-684)`, () => {
       description: undefined,
     })
   })
+
+  // EXP-760: filing a sub-issue is ONE call — the tool forwards `parentId` and
+  // the router writes the `parent` relation in the create transaction, so an
+  // agent never has to follow up with issue_relations_add.
+  it(`forwards parentId so an issue can be filed as a sub-issue`, async () => {
+    caller.issues.create.mockResolvedValue({
+      issue: { id: UUID, identifier: `EXP-2` },
+    })
+    const result = await tool(`exponential_issues_create`)({
+      boardId: PROJ,
+      title: `Child`,
+      parentId: WS,
+    })
+    expect(parseOk(result)).toEqual({ id: UUID, identifier: `EXP-2` })
+    expect(caller.issues.create).toHaveBeenCalledWith({
+      boardId: PROJ,
+      title: `Child`,
+      parentId: WS,
+      description: undefined,
+    })
+  })
 })
 
 // ── EXP-496: exponential_report_bug ──────────────────────────────────────────

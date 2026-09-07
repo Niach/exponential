@@ -1505,6 +1505,13 @@ impl Editor {
                     value: value.clone(),
                 });
             }
+            // EXP-760: the hover transition, forwarded verbatim — the host
+            // owns the preview's delays and anchoring.
+            BlockEvent::ReferenceHoverChanged { hover } => {
+                cx.emit(MarkdownEditorEvent::ReferenceHover {
+                    hover: hover.clone(),
+                });
+            }
             // EXP-261 vendoring: the image's own `…` button — same host menu
             // the right-click path opens.
             BlockEvent::ImageMenuRequested { src, position } => {

@@ -4,6 +4,7 @@ import { conceptIcon } from "@/lib/icons.generated"
 import { relationEventParts } from "@/lib/issue-relations"
 import { priorityLabel, statusLabel } from "@/lib/issue-event-labels"
 import { useIssueRefs } from "@/components/issue-ref-provider"
+import { IssueRefPill } from "@/components/issue-ref-pill"
 import { StatusIcon } from "@/components/issue-properties/status-dropdown"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import { TimelineRow } from "@/components/comment-rows/timeline-row"
@@ -226,13 +227,9 @@ export function EventRow({
           {prefix}{` `}
           {identifier ? (
             resolved ? (
-              <button
-                type="button"
-                className="font-mono font-medium text-foreground hover:underline"
-                onClick={() => issueRefs?.open(identifier)}
-              >
-                {`#${identifier}`}
-              </button>
+              // EXP-760: the same chip the steering feed draws — status glyph,
+              // identifier, clamped title — with the hover preview riding it.
+              <IssueRefPill issue={resolved} />
             ) : (
               <span className="font-mono font-medium text-foreground">
                 {`#${identifier}`}

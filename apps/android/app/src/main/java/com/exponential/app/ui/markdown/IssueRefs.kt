@@ -85,22 +85,65 @@ class IssueRefHandler(
  */
 val LocalIssueRefs = compositionLocalOf<IssueRefHandler?> { null }
 
+/**
+ * EXP-760 — the steering feed also chips identifiers written WITHOUT a `#`
+ * (agents narrate `EXP-758`). Provided as `true` by the session screen ONLY:
+ * it is display-only, so descriptions, comments and every stored-text path
+ * keep the `#IDENTIFIER` contract. Read where a composable can, then handed to
+ * [annotateLine] as a parameter (it is not a composable itself).
+ */
+val LocalIssueRefBare = compositionLocalOf { false }
+
 object IssueRefs {
 
-    /** A token occurrence in [findAll]'s input; `[start, end)` spans `#` + identifier. */
-    data class Match(val start: Int, val end: Int, val identifier: String)
+    /**
+     * A token occurrence in [findAll]'s input; `[start, end)` spans the token
+     * as written. [bare] marks the `#`-less form, whose first character is a
+     * letter — nothing may paint a status glyph over it or hide it.
+     */
+    data class Match(
+        val start: Int,
+        val end: Int,
+        val identifier: String,
+        val bare: Boolean = false,
+    )
 
     // Mirrors ISSUE_REF_SOURCE in apps/web/src/lib/issue-refs.ts: `#` must not
     // be glued to a word or another `#` (so `foo#MET-1` / `##MET-1` don't
     // match), the identifier is `{PREFIX}-{number}`, and the match must end at
     // a token boundary (so `#MET-115-2` / `#MET-115abc` don't half-match).
-    private val REGEX = Regex("(?<![\\w#])#([A-Za-z][A-Za-z0-9]*-\\d+)(?![\\w-])")
+    private const val HASH = "(?<![\\w#])#([A-Za-z][A-Za-z0-9]*-\\d+)"
+    private const val TAIL = "(?![\\w-])"
 
-    /** All `#IDENTIFIER` tokens in [text], identifiers as written (not normalized). */
-    fun findAll(text: String): List<Match> {
-        if (!text.contains('#')) return emptyList()
-        return REGEX.findAll(text)
-            .map { m -> Match(m.range.first, m.range.last + 1, m.groupValues[1]) }
+    // Mirrors ISSUE_REF_BARE_SOURCE (EXP-760): an UPPERCASE prefix only, so
+    // `utf-8` / `x86-64` / `exp-758` never chip, and not glued to a word, a
+    // `#` or a `-` — `foo-EXP-1` stays text while `exp/EXP-758` chips.
+    private const val BARE = "(?<![\\w#-])([A-Z][A-Z0-9]*-\\d+)"
+
+    private val REGEX = Regex("$HASH$TAIL")
+    private val REGEX_BARE = Regex("(?:$HASH|$BARE)$TAIL")
+
+    /**
+     * All `#IDENTIFIER` tokens in [text], identifiers as written (not
+     * normalized). [bare] additionally matches bare `EXP-758` tokens — the
+     * steering feeds' display-only mode, never a stored-text path.
+     */
+    fun findAll(text: String, bare: Boolean = false): List<Match> {
+        if (!bare && !text.contains('#')) return emptyList()
+        val regex = if (bare) REGEX_BARE else REGEX
+        return regex.findAll(text)
+            .map { m ->
+                // Group 1 is the `#` form, group 2 the bare one; exactly one
+                // participates (the bare regex has both, the other only one).
+                val hashed = m.groupValues[1]
+                val identifier = if (hashed.isNotEmpty()) hashed else m.groupValues[2]
+                Match(
+                    m.range.first,
+                    m.range.last + 1,
+                    identifier,
+                    bare = hashed.isEmpty(),
+                )
+            }
             .toList()
     }
 }

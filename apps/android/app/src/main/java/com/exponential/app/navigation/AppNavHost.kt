@@ -620,6 +620,7 @@ private fun AuthenticatedNav(
             AgentSessionScreen(
                 onBack = { navController.popBackStack() },
                 onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
+                onOpenIssue = { id -> navController.navigate("issue/$id") },
             )
         }
         composable("invite/{token}") { entry ->

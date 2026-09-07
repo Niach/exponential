@@ -11,6 +11,7 @@ import {
 } from "react"
 import { toast } from "sonner"
 import { linkSegments } from "@/lib/linkify"
+import { splitIssueRefs } from "@/lib/issue-refs"
 import { ArrowDown, Check, ChevronDown, ChevronRight, X } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
 import type { CodingSession, User } from "@/db/schema"
@@ -85,6 +86,8 @@ import {
   type ViewerPhase,
 } from "@/lib/steer-session-store"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
+import { useIssueRefs } from "@/components/issue-ref-provider"
+import { IssueRefPill } from "@/components/issue-ref-pill"
 import { acceptedImageContentTypes } from "@/lib/storage/issue-attachments"
 import { uploadSessionImageFile } from "@/lib/storage/issue-image-upload"
 import {
@@ -1115,6 +1118,10 @@ function FeedMarkdown({
       linkify
       hardBreaks={hardBreaks}
       ariaLabel={ariaLabel}
+      // EXP-760: agents narrate BARE identifiers ("landed EXP-758"), so the
+      // steering feed — and only it — chips those too. Descriptions and
+      // comments keep the `#IDENT` contract.
+      bareIssueRefs
     />
   )
 }
@@ -1138,23 +1145,43 @@ function FeedText({
   }
   return (
     <div className="whitespace-pre-wrap break-words">
-      {linkSegments(text).map((segment, i) =>
-        segment.href ? (
-          // break-all: the EXP-430 sign-in URL has no break points.
-          <a
-            key={i}
-            href={segment.href}
-            target="_blank"
-            rel="noreferrer"
-            className="break-all text-primary underline underline-offset-2 hover:opacity-80"
-          >
-            {segment.text}
-          </a>
-        ) : (
-          <Fragment key={i}>{segment.text}</Fragment>
-        ),
-      )}
+      <IssueRefText text={text} />
     </div>
+  )
+}
+
+/** Linkified prose whose issue identifiers — `#EXP-758` AND the bare
+ *  `EXP-758` agents actually write — render as chips (EXP-760). Only a
+ *  RESOLVED, same-team issue chips; everything else stays prose and goes
+ *  through the URL linkifier, exactly as `MarkerText` splits around its image
+ *  markers. */
+function IssueRefText({ text }: { text: string }) {
+  const issueRefs = useIssueRefs()
+  return (
+    <>
+      {splitIssueRefs(text, { bare: true }).map((segment, i) => {
+        const resolved = segment.identifier
+          ? (issueRefs?.resolve(segment.identifier) ?? null)
+          : null
+        if (resolved) return <IssueRefPill key={i} issue={resolved} />
+        return linkSegments(segment.text).map((part, j) =>
+          part.href ? (
+            // break-all: the EXP-430 sign-in URL has no break points.
+            <a
+              key={`${i}-${j}`}
+              href={part.href}
+              target="_blank"
+              rel="noreferrer"
+              className="break-all text-primary underline underline-offset-2 hover:opacity-80"
+            >
+              {part.text}
+            </a>
+          ) : (
+            <Fragment key={`${i}-${j}`}>{part.text}</Fragment>
+          ),
+        )
+      })}
+    </>
   )
 }
 

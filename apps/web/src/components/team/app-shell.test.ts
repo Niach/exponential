@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  DETAIL_STICKY_BAND_CLASS,
   MAIN_OUTLET_CLASS,
   MAIN_PANEL_CLASS,
 } from "@/components/team/app-shell"
@@ -100,5 +101,36 @@ describe(`MAIN_OUTLET_CLASS`, () => {
     expect(OUTLET_TOKENS).toContain(`flex-1`)
     expect(OUTLET_TOKENS).toContain(`min-h-0`)
     expect(OUTLET_TOKENS).toContain(`min-w-0`)
+  })
+})
+
+describe(`DETAIL_STICKY_BAND_CLASS`, () => {
+  const BAND_TOKENS = DETAIL_STICKY_BAND_CLASS.split(/\s+/).filter(
+    (token) => token.length > 0
+  )
+
+  // The band is what keeps the title AND the properties on screen while a long
+  // description scrolls (EXP-760, IDE parity) — without `sticky top-0` it is
+  // just a header again.
+  it(`pins to the top of the detail scroller`, () => {
+    expect(BAND_TOKENS).toContain(`sticky`)
+    expect(BAND_TOKENS).toContain(`top-0`)
+    expect(BAND_TOKENS).toContain(`z-10`)
+  })
+
+  // `glass-chrome-top` is the WINDOW-edge scrim; inside the cutout panel it
+  // composites a visibly darker rectangle over the card (the black-bar bug),
+  // because the panel's own `--glass-fill-panel` layer is missing from it.
+  it(`uses the panel-aware scrim, not the window-edge one`, () => {
+    expect(BAND_TOKENS).toContain(`glass-chrome-card`)
+    expect(BAND_TOKENS).not.toContain(`glass-chrome-top`)
+  })
+
+  // The band blurs, so it becomes a containing block for `position: fixed`
+  // descendants — which is precisely why the PANEL must not (see above). The
+  // pairing is the invariant worth pinning: the blur lives here, never there.
+  it(`keeps the blur off the panel`, () => {
+    expect(MAIN_PANEL_CLASS).not.toContain(`backdrop-`)
+    expect(MAIN_PANEL_CLASS).not.toContain(`glass-chrome`)
   })
 })

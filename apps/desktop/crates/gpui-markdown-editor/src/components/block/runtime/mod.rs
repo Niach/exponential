@@ -181,6 +181,10 @@ pub struct Block {
     pub(crate) parent_is_list_item: bool,
     pub list_ordinal: Option<usize>,
     pub is_selecting: bool,
+    /// EXP-760: the reference chip the pointer is currently inside — the
+    /// token, so `BlockEvent::ReferenceHoverChanged` fires on TRANSITIONS
+    /// only and a pointer resting on one pill stays silent.
+    pub(crate) hovered_reference: Option<String>,
     /// EXP-282 vendoring: the word/line range pinned by a double/triple click.
     /// [`Block::select_to`] refuses to shrink inside it, so the drag that
     /// follows such a click grows outward from the WHOLE word/line instead of
@@ -320,6 +324,7 @@ impl Block {
             parent_is_list_item: false,
             list_ordinal: None,
             is_selecting: false,
+            hovered_reference: None,
             pointer_selection_extent: None,
             cursor_blink_epoch: Instant::now(),
             cursor_blink_visible: true,

@@ -1393,6 +1393,9 @@ impl Block {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // EXP-760: a press dismisses any issue hover preview — the pointer is
+        // acting on the document now, not reading about a chip.
+        self.set_hovered_reference(None, cx);
         if self.showing_rendered_image() {
             self.is_selecting = false;
             if self.environment.enable_image_source_editing {
@@ -1478,6 +1481,43 @@ impl Block {
                     position,
                 )
             })
+    }
+
+    /// EXP-760: [`Self::pointer_reference_hit`] plus the chip's anchor
+    /// rectangle (the hover preview hangs off the pill, not the pointer).
+    pub(crate) fn pointer_reference_hit_bounds(
+        &self,
+        position: Point<Pixels>,
+    ) -> Option<(crate::host::ReferenceKind, String, Bounds<Pixels>)> {
+        self.last_layout
+            .as_ref()
+            .zip(self.last_bounds)
+            .and_then(|(lines, bounds)| {
+                super::element::reference_bounds_at_position(
+                    self,
+                    lines,
+                    bounds,
+                    self.last_line_height,
+                    position,
+                )
+            })
+    }
+
+    /// EXP-760: emit `ReferenceHoverChanged` when the chip under the pointer
+    /// CHANGES. `None` clears it (pointer off any chip, mouse-down, block
+    /// unhovered); re-reporting the same token is a no-op, so a resting
+    /// pointer never re-triggers the host's open delay.
+    pub(crate) fn set_hovered_reference(
+        &mut self,
+        hover: Option<(crate::host::ReferenceKind, String, Bounds<Pixels>)>,
+        cx: &mut Context<Self>,
+    ) {
+        let token = hover.as_ref().map(|(_, token, _)| token.clone());
+        if self.hovered_reference == token {
+            return;
+        }
+        self.hovered_reference = token;
+        cx.emit(BlockEvent::ReferenceHoverChanged { hover });
     }
 
     /// Resolve the inline link under a pointer position against the most recent
@@ -1640,6 +1680,23 @@ impl Block {
                 return;
             }
             self.select_to(self.index_for_mouse_position(event.position), cx);
+            // EXP-760: a drag is a text selection, never a hover.
+            self.set_hovered_reference(None, cx);
+            return;
+        }
+        self.set_hovered_reference(self.pointer_reference_hit_bounds(event.position), cx);
+    }
+
+    /// EXP-760: the pointer left (or re-entered) the block — leaving it fires
+    /// no further move events, so the chip hover has to be cleared here.
+    pub(crate) fn on_block_hover(
+        &mut self,
+        hovered: &bool,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !*hovered {
+            self.set_hovered_reference(None, cx);
         }
     }
 

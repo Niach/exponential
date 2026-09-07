@@ -401,6 +401,28 @@ html {
   backdrop-filter: blur(24px);
 }
 
+/* EXP-760: the same top-edge scrim, but for chrome pinned inside the CUTOUT
+   PANEL rather than to the window — the issue detail's sticky title+props
+   band. The panel is not the page: its own `--glass-fill-panel` layer sits
+   between the gradient and the band, so painting only the 60% background
+   scrim (glass-chrome-top) composites a visibly DARKER rectangle over the
+   card — the black-bar bug EXP-442 fixed at the window edge, reappearing one
+   surface in. Re-adding the panel fill on top restores the exact stack the
+   card paints, so the band blends into it and only the blur gives it away. */
+@utility glass-chrome-card {
+  background-color: color-mix(
+    in oklab,
+    var(--glass-background-top) 60%,
+    transparent
+  );
+  background-image: linear-gradient(
+    var(--glass-fill-panel),
+    var(--glass-fill-panel)
+  );
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+}
+
 @utility glass-chrome-bottom {
   background-color: color-mix(
     in oklab,

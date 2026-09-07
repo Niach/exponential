@@ -139,6 +139,12 @@ public final class IssueEditorModel {
     /// Never set it on a model whose markdown gets saved.
     public var isDisplayOnly = false
 
+    /// EXP-760 — also chip BARE `EXP-758` identifiers (no `#`), which is how
+    /// agents narrate them. Display-only and steering-feed-only: it needs
+    /// `isDisplayOnly`, and no editable model may set it (the stored-text
+    /// contract stays the `#` form).
+    public var bareIssueRefs = false
+
     /// Issue search backing the #-autocomplete (set by the host; team-
     /// scoped, matching identifier + title substrings — empty query = most
     /// recent). nil disables the #-autocomplete.
@@ -419,7 +425,8 @@ public final class IssueEditorModel {
                 content,
                 resolver: issueRefResolver,
                 titleResolver: issueRefTitleResolver,
-                statusResolver: issueRefStatusResolver)
+                statusResolver: issueRefStatusResolver,
+                bare: bareIssueRefs)
             // Read-only cards show `@<name>` over the stored `@email` (EXP-713,
             // web/Android parity); editable models below keep the address.
             let mentioned = mentionMembers.isEmpty

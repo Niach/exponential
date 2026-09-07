@@ -4,7 +4,11 @@ import {
   pickLabel,
   rowLabel,
 } from "@/components/issue-relations-card"
-import { relationLabel } from "@/lib/issue-relations"
+import {
+  groupRelationRows,
+  relationGroupTitle,
+  relationLabel,
+} from "@/lib/issue-relations"
 
 // EXP-736 — relation wording is a CROSS-CLIENT contract with two halves, and
 // the web is the client that once conflated them:
@@ -74,5 +78,42 @@ describe(`a relation row's caption`, () => {
         relationLabel(entry.type, entry.direction)
       )
     }
+  })
+})
+
+// EXP-760 — the card is gone: rows render under the shared heading groups
+// (lib/issue-relations.ts, mirrored by desktop `group_title`). The table this
+// file owns is the one that feeds them, so the pairing is pinned here: every
+// side the picker offers must have a heading to land under, or a relation the
+// user just created would render into nothing.
+describe(`every relation side reaches a heading group`, () => {
+  it(`titles all eight sides`, () => {
+    for (const entry of RELATION_SIDES) {
+      const title = relationGroupTitle(entry.type, entry.direction)
+      expect(title.length).toBeGreaterThan(0)
+    }
+  })
+
+  it(`groups a row from each side, in the heading order`, () => {
+    const rows = RELATION_SIDES.map((entry, index) => ({
+      id: index,
+      type: entry.type,
+      direction: entry.direction,
+    }))
+    const groups = groupRelationRows(rows)
+    // Both `related` sides merge into one heading, so eight sides make seven
+    // groups — and no row is ever dropped.
+    expect(groups.map((group) => group.title)).toEqual([
+      `Sub-issues`,
+      `Parent`,
+      `Blocked by`,
+      `Blocks`,
+      `Duplicate of`,
+      `Duplicated by`,
+      `Related`,
+    ])
+    expect(groups.flatMap((group) => group.rows)).toHaveLength(
+      RELATION_SIDES.length
+    )
   })
 })

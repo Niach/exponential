@@ -635,6 +635,13 @@ pub(crate) struct RichTab {
     pub(crate) caption: Option<SharedString>,
     /// A tinted exit-code badge.
     pub(crate) badge: Option<(SharedString, Hsla)>,
+    /// EXP-760: the chip sits on the WINDOW GROUND rather than inside a card
+    /// — the terminal dock's strip, now that the panel's card closes ABOVE
+    /// it. The default transparent rest state reads as nothing out there, so
+    /// a ground chip carries the card fill inside a card hairline at rest and
+    /// the active fill when selected. The window's screen tabs and the
+    /// bubble's chips are inside a surface and keep the default.
+    pub(crate) ground: bool,
 }
 
 impl RichTab {
@@ -648,7 +655,14 @@ impl RichTab {
             title: None,
             caption: None,
             badge: None,
+            ground: false,
         }
+    }
+
+    /// See [`Self::ground`].
+    pub(crate) fn ground(mut self, ground: bool) -> Self {
+        self.ground = ground;
+        self
     }
 }
 
@@ -680,9 +694,23 @@ pub(crate) fn rich_tab(tab: RichTab, cx: &App) -> Stateful<Div> {
         .cursor_pointer()
         .text_sm()
         .when(tab.paused, |chip| chip.opacity(0.6));
+    // EXP-760: on the ground the chip has to BE a surface (fill + hairline);
+    // inside a card it stays the transparent-at-rest tab it always was.
+    let chip = chip.when(tab.ground, |chip| {
+        chip.border_1()
+            .border_color(t::glass::STROKE_CARD.to_hsla())
+    });
     let chip = if tab.selected {
-        chip.bg(theme.tab_active)
-            .text_color(theme.tab_active_foreground)
+        chip.bg(if tab.ground {
+            t::glass::FILL_ACTIVE.to_hsla()
+        } else {
+            theme.tab_active
+        })
+        .text_color(theme.tab_active_foreground)
+    } else if tab.ground {
+        chip.bg(t::glass::FILL_CARD.to_hsla())
+            .text_color(theme.tab_foreground)
+            .hover(|style| style.bg(t::glass::FILL_ACTIVE.to_hsla()))
     } else {
         chip.text_color(theme.tab_foreground)
             .hover(|style| style.bg(theme.list_hover))
@@ -779,6 +807,9 @@ mod tests {
         assert!(tab.title.is_none());
         assert!(tab.caption.is_none());
         assert!(tab.badge.is_none());
+        // EXP-760: a chip is INSIDE a card unless the strip says otherwise.
+        assert!(!tab.ground);
+        assert!(RichTab::new("t", false).ground(true).ground);
     }
 
     /// EXP-698: a Button pill and a `Div` pill must paint the SAME surface.

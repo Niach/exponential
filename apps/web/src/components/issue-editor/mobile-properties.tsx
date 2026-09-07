@@ -19,7 +19,7 @@ import { BoardGlyph } from "@/components/board-glyph"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
 import {
   IssueRelationsAdd,
-  IssueRelationsList,
+  IssueRelationGroups,
   useIssueRelations,
 } from "@/components/issue-relations-card"
 import {
@@ -389,7 +389,7 @@ function MobileRelationsSection({
     <div className="flex flex-col gap-2">
       <GlassSectionHeader label="Relations" className="px-4 pb-0" />
       <div className="flex flex-col gap-1.5 px-4">
-        <IssueRelationsList rows={rows} readOnly={readOnly} />
+        <IssueRelationGroups rows={rows} readOnly={readOnly} />
         {!readOnly && (
           <IssueRelationsAdd
             issueId={issueId}

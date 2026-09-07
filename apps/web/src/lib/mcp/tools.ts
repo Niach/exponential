@@ -1121,10 +1121,11 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_create`,
     {
-      description: `Create a new issue in a board the MCP user has access to. Description must be plain text (no embedded images on creation). For a custom status pass statusId (not status); see exponential_statuses_list.`,
+      description: `Create a new issue in a board the MCP user has access to. Description must be plain text (no embedded images on creation). For a custom status pass statusId (not status); see exponential_statuses_list. parentId files it as a sub-issue of that issue.`,
       inputSchema: strictInput({
         boardId: uuidString,
         title: z.string().min(1).max(500),
+        parentId: uuidString.optional(),
         status: issueStatusEnumSchema.optional(),
         statusId: uuidString.optional(),
         priority: issuePriorityEnumSchema.optional(),
@@ -1144,6 +1145,10 @@ export function registerExponentialTools(
         if (!access.full) {
           const board = await getBoardTeamId(rest.boardId)
           assertBoardGranted(access, board.id, board.teamId)
+          if (rest.parentId) {
+            const parent = await getIssueTeamContext(rest.parentId)
+            assertBoardGranted(access, parent.boardId, parent.teamId)
+          }
         }
         const result = await caller(user, request).issues.create({
           ...rest,

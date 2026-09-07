@@ -10,6 +10,20 @@ struct AgentMarkdownContext {
     let baseURL: URL?
     let accountId: String
     let httpClient: HTTPClient?
+    /// EXP-760: set by the steering screens so resolved issue identifiers chip.
+    var issueRefs: AgentIssueRefContext?
+}
+
+/// EXP-760 — what the steering feed needs to chip issue identifiers: the run's
+/// TEAM (a batch / action / chat run has no issue and no board, so the team is
+/// the only scope there is), the store to resolve against, and where a tap
+/// goes. Provided only by the session screens: this is the ONE surface that
+/// also chips BARE `EXP-758` tokens, because agents narrate them without a
+/// `#`. Descriptions and comments keep the `#IDENTIFIER` contract.
+struct AgentIssueRefContext {
+    let teamId: String
+    let db: DatabaseManager
+    let onOpen: (String) -> Void
 }
 
 /// Read-only GFM render of agent-authored prose (plan bodies, question
@@ -84,9 +98,12 @@ struct AgentMarkdownText: View {
         text: String,
         baseURL: URL?,
         options: MarkdownParseOptions,
-        overrides: MarkdownStyle.Overrides
+        overrides: MarkdownStyle.Overrides,
+        // The chip pass bakes resolved ids/titles into the model, so two
+        // accounts or two teams must never share one (EXP-760).
+        refsKey: String
     ) -> NSString {
-        "\(options.rawValue)|\(overrides.cacheKey)|\(baseURL?.absoluteString ?? "")|\(text)"
+        "\(options.rawValue)|\(overrides.cacheKey)|\(baseURL?.absoluteString ?? "")|\(refsKey)|\(text)"
             as NSString
     }
 
@@ -97,11 +114,36 @@ struct AgentMarkdownText: View {
         options: MarkdownParseOptions,
         overrides: MarkdownStyle.Overrides
     ) -> IssueEditorModel {
+        let refs = context?.issueRefs
+        let accountId = context?.accountId ?? ""
         let key = cacheKey(
-            text: text, baseURL: context?.baseURL, options: options, overrides: overrides
+            text: text, baseURL: context?.baseURL, options: options, overrides: overrides,
+            refsKey: refs.map { "\(accountId)/\($0.teamId)" } ?? ""
         )
         if let cached = cache.object(forKey: key) { return cached }
         let model = IssueEditorModel()
+        if let refs {
+            // Read-only chips, resolved against the run's team through the
+            // same memo the issue editors use. `bareIssueRefs` is what makes a
+            // narrated `EXP-758` chip alongside `#EXP-758` (EXP-760); the raw
+            // text is untouched, nothing here ever serializes.
+            let scope = IssueRefLookup.Scope.team(id: refs.teamId)
+            let db = refs.db
+            model.isDisplayOnly = true
+            model.bareIssueRefs = true
+            model.issueRefResolver = { identifier in
+                IssueRefChipCache.chip(identifier, scope: scope, db: db, accountId: accountId)?
+                    .issueId
+            }
+            model.issueRefTitleResolver = { identifier in
+                IssueRefChipCache.chip(identifier, scope: scope, db: db, accountId: accountId)?
+                    .title
+            }
+            model.issueRefStatusResolver = { identifier in
+                IssueRefChipCache.statusInfo(
+                    identifier, scope: scope, db: db, accountId: accountId)
+            }
+        }
         model.load(
             markdown: text, baseURL: context?.baseURL, options: options, overrides: overrides
         )
@@ -116,6 +158,7 @@ struct AgentMarkdownText: View {
             baseURL: context?.baseURL,
             accountId: context?.accountId ?? "",
             httpClient: context?.httpClient,
+            onIssueRefTap: context?.issueRefs?.onOpen,
             isReadOnly: true,
             imageMaxHeight: imageMaxHeight,
             hugsContentWidth: hugsWidth

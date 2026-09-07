@@ -1,10 +1,14 @@
-//! EXP-736 — the issue-detail RELATIONS card (web parity target:
+//! EXP-736 — the issue-detail RELATIONS block (web parity target:
 //! `apps/web/src/components/issue-relations-card.tsx`).
 //!
-//! It sits directly under the header's chip tray, above the description: a
-//! glass card with the "Relations" heading, an "Add relation" chip and the
-//! related issues grouped by their per-side label ("Parent of", "Blocked
-//! by", …).
+//! EXP-760 made it Linear-shaped: no card, no "Relations" title and no "Add
+//! relation" chip of its own (that pick moved into the header's `…` menu and
+//! the list row's context menu), and it sits BELOW the description instead of
+//! above it. What is left is the group headings themselves — "Sub-issues",
+//! "Blocked by", … from [`domain::relations::group_title`], the web
+//! `RELATION_GROUP_TITLES` mirror — with the related issues under each, and a
+//! `done/total` counter on Sub-issues. Nothing at all renders when the issue
+//! has no relations.
 //!
 //! Reads are pure derivations over the synced `issue_relations` +`issues`
 //! collections (§4.1) — [`sync::Collections::relations_for_issue`] returns
@@ -20,15 +24,15 @@
 //! ([`crate::issue_detail::open_duplicate_picker`]) and the mirror row
 //! follows.
 
-use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, AnyElement, App, ElementId, FontWeight, InteractiveElement as _, IntoElement,
+    div, px, AnyElement, App, ElementId, InteractiveElement as _, IntoElement,
     ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
 use gpui_component::{
     button::ButtonVariants as _,
+    ElementExt as _,
     h_flex,
-    menu::{DropdownMenu as _, PopupMenuItem},
+    menu::PopupMenuItem,
     v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use sync::Store;
@@ -51,97 +55,70 @@ const ROW_GROUP: &str = "relation-row";
 struct RelationEntry {
     id: String,
     other: Issue,
+    /// EXP-760: the other issue's status resolves to the `completed`
+    /// category — what the Sub-issues counter counts.
+    completed: bool,
 }
 
-/// One label group of the card ("Blocked by", "Sub-issue of", …).
+/// One heading group of the block ("Sub-issues", "Blocked by", …).
 struct RelationGroup {
     /// Sort key: the forward pick's menu position, inverse side second.
     order: usize,
-    label: String,
+    /// Contract `issue_relation_type` + which side this group reads from —
+    /// what [`domain::relations::group_title`] and the Sub-issues counter key
+    /// on.
+    kind: String,
+    inverse: bool,
     icon: ExpIcon,
     entries: Vec<RelationEntry>,
 }
 
-/// The card, or `None` when there is nothing to show: no rows AND no
-/// signed-in account to add one with (a read-only viewer gets no empty
-/// affordance, web parity).
-pub(crate) fn render_relations_card(issue: &Issue, cx: &App) -> Option<AnyElement> {
+/// The relations block, or `None` when the issue has none.
+///
+/// EXP-760: no card, no heading and no "Add relation" affordance — an issue
+/// without relations renders NOTHING here (the add pick lives in the header's
+/// `…` menu, so an empty read-only affordance would only be noise). The
+/// caller places it under the description.
+pub(crate) fn render_relations_section(issue: &Issue, cx: &App) -> Option<AnyElement> {
     let groups = relation_groups(issue, cx);
-    let can_write = queries::active_account(cx).is_some();
-    if groups.is_empty() && !can_write {
+    if groups.is_empty() {
         return None;
     }
-
-    let mut card = crate::surface::glass_card()
+    let mut column = v_flex()
         .w_full()
-        .gap_1p5()
-        .px_3()
-        .py_2p5()
-        .child(header_row(issue, can_write, cx));
+        .gap_2()
+        .px(px(DETAIL_GUTTER))
+        .pb_2();
     for group in groups {
-        card = card.child(render_group(group, cx));
+        column = column.child(render_group(group, cx));
     }
-    Some(
-        div()
-            .w_full()
-            .px(px(DETAIL_GUTTER))
-            .pb_2()
-            .child(card)
-            .into_any_element(),
-    )
+    Some(column.into_any_element())
 }
 
-/// Heading + the "Add relation" chip (the chip is the only write affordance;
-/// removes ride the rows' hover buttons).
-fn header_row(issue: &Issue, can_write: bool, cx: &App) -> impl IntoElement {
-    let issue_id = issue.id.clone();
-    h_flex()
-        .w_full()
-        .items_center()
-        .gap_1p5()
-        .child(
-            Icon::new(registry::RELATION_SECTION)
-                .xsmall()
-                .text_color(cx.theme().muted_foreground),
-        )
-        .child(
-            div()
-                .text_sm()
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(cx.theme().foreground.opacity(0.7))
-                .child("Relations"),
-        )
-        .child(div().flex_1().min_w_0())
-        .when(can_write, move |row| {
-            row.child(add_relation_chip(issue_id, cx))
-        })
-}
-
-/// The "Add relation" chip: a popup menu of the six picks, each opening the
-/// shared issue picker for its `(type, inverse)` pair.
-fn add_relation_chip(issue_id: String, cx: &App) -> impl IntoElement {
-    crate::pickers::chip_button("relations-add", cx)
-        .icon(Icon::new(registry::UI_ADD).xsmall())
-        .child(crate::pickers::chip_label("Add relation", false, cx))
-        .dropdown_menu(move |mut menu, _window, _cx| {
-            for pick in RELATION_PICKS {
-                let issue_id = issue_id.clone();
-                menu = menu.item(
-                    PopupMenuItem::new(pick.label)
-                        .icon(Icon::new(pick_icon(&pick)))
-                        .on_click(move |_, window, cx| {
-                            open_relation_target_picker(issue_id.clone(), pick, window, cx);
-                        }),
-                );
-            }
-            menu
-        })
+/// EXP-760: the six picks as MENU ITEMS, for whichever menu hosts them — the
+/// issue header's `…` and the list row's context menu both open the same
+/// second-stage picker.
+pub(crate) fn add_relation_submenu(
+    mut menu: gpui_component::menu::PopupMenu,
+    issue_id: &str,
+) -> gpui_component::menu::PopupMenu {
+    for pick in RELATION_PICKS {
+        let issue_id = issue_id.to_string();
+        menu = menu.item(
+            PopupMenuItem::new(pick.label)
+                .icon(Icon::new(pick_icon(&pick)))
+                .on_click(move |_, window, cx| {
+                    open_relation_target_picker(issue_id.clone(), pick, window, cx);
+                }),
+        );
+    }
+    menu
 }
 
 /// Stage two of a pick: choose the issue on the other side. "Duplicate of"
 /// takes the duplicate picker instead — the duplicate relation is the mirror
 /// of `issues.duplicate_of_id` and only `issues.update` writes both halves.
-fn open_relation_target_picker(
+pub(crate) fn open_relation_target_picker(
     issue_id: String,
     pick: RelationPick,
     window: &mut Window,
@@ -204,21 +181,32 @@ fn spawn_relation_delete(cx: &mut App, relation_id: String) {
 }
 
 fn render_group(group: RelationGroup, cx: &App) -> impl IntoElement {
+    let muted = cx.theme().muted_foreground;
+    let completed: Vec<bool> = group.entries.iter().map(|entry| entry.completed).collect();
+    let progress = sub_issue_progress(&group.kind, group.inverse, &completed);
     let mut column = v_flex().w_full().gap_0p5().child(
         h_flex()
             .items_center()
             .gap_1p5()
-            .child(
-                Icon::new(group.icon)
-                    .xsmall()
-                    .text_color(cx.theme().muted_foreground),
-            )
+            .child(Icon::new(group.icon).xsmall().text_color(muted))
             .child(
                 div()
                     .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(SharedString::from(group.label)),
-            ),
+                    .text_color(muted)
+                    .child(SharedString::from(domain::relations::group_title(
+                        &group.kind,
+                        group.inverse,
+                    ))),
+            )
+            // EXP-760: Sub-issues carry their own progress (web parity) —
+            // the one group where the rows are work this issue owns.
+            .children(progress.map(|(done, total)| {
+                div()
+                    .text_xs()
+                    .text_color(muted.opacity(0.8))
+                    .font_family(theme::terminal::FONT_FAMILY)
+                    .child(SharedString::from(format!("{done}/{total}")))
+            })),
     );
     for entry in group.entries {
         column = column.child(render_row(entry, cx));
@@ -226,15 +214,47 @@ fn render_group(group: RelationGroup, cx: &App) -> impl IntoElement {
     column
 }
 
+/// EXP-760: the `done/total` counter, for the SUB-ISSUES group only. Every
+/// other heading counts nothing — "2/5 Blocked by" would read as progress on
+/// work this issue does not own.
+fn sub_issue_progress(kind: &str, inverse: bool, completed: &[bool]) -> Option<(usize, usize)> {
+    if kind != domain::contract::ISSUE_RELATION_TYPE_PARENT || inverse {
+        return None;
+    }
+    Some((completed.iter().filter(|done| **done).count(), completed.len()))
+}
+
 fn render_row(entry: RelationEntry, cx: &App) -> impl IntoElement {
     let status = queries::resolve_issue_status(cx, &entry.other);
     let issue_id = entry.other.id.clone();
     let relation_id = entry.id.clone();
+    // EXP-760: the row opens the shared issue hover preview — the same card
+    // the `#IDENT` pills in prose show. The row's painted rectangle is the
+    // anchor, captured at prepaint (the `Popup` recipe) because a hover
+    // listener is handed the pointer, not the element.
+    let preview_key = format!("relation-row-{}", entry.id);
+    let preview_issue = entry.other.id.clone();
+    let anchor: std::rc::Rc<std::cell::Cell<gpui::Bounds<gpui::Pixels>>> =
+        std::rc::Rc::new(std::cell::Cell::new(gpui::Bounds::default()));
+    let anchor_write = anchor.clone();
     h_flex()
         .id(ElementId::from(SharedString::from(format!(
             "relation-row-{}",
             entry.id
         ))))
+        .on_prepaint(move |bounds, _window, _cx| anchor_write.set(bounds))
+        .on_hover(move |hovered, window, cx| {
+            let host = crate::issue_preview::host_for_window(window, cx);
+            if *hovered {
+                let issue_id = preview_issue.clone();
+                let bounds = anchor.get();
+                host.update(cx, |host, cx| {
+                    host.request(preview_key.clone(), issue_id, bounds, cx)
+                });
+            } else {
+                host.update(cx, |host, cx| host.release(preview_key.clone(), cx));
+            }
+        })
         .group(ROW_GROUP)
         .w_full()
         .items_center()
@@ -325,15 +345,19 @@ fn relation_groups(issue: &Issue, cx: &App) -> Vec<RelationGroup> {
             continue;
         };
         let order = group_order(&kind, inverse);
+        let completed = queries::resolve_issue_status(cx, &other).category
+            == domain::statuses::IssueStatusCategory::Completed;
         let entry = RelationEntry {
             id: row.id.clone(),
             other,
+            completed,
         };
         match groups.iter_mut().find(|group| group.order == order) {
             Some(group) => group.entries.push(entry),
             None => groups.push(RelationGroup {
                 order,
-                label: capitalize(domain::relations::label(&kind, inverse)),
+                kind: kind.clone(),
+                inverse,
                 icon: relation_icon(&kind, inverse),
                 entries: vec![entry],
             }),
@@ -349,25 +373,18 @@ fn relation_groups(issue: &Issue, cx: &App) -> Vec<RelationGroup> {
     groups
 }
 
-/// Group order: the FORWARD pick's menu position, the inverse side right
-/// after it — so the card reads Parent of · Sub-issue of · Blocking · Blocked
-/// by · Duplicate of · Duplicated by · Related to, matching the add menu even
-/// for the sides that have no pick of their own (`duplicated by`).
+/// Group order, mirrored from the web `RELATION_GROUP_ORDER` (EXP-760):
+/// Sub-issues · Parent · Blocked by · Blocks · Duplicate of · Duplicated by ·
+/// Related. What blocks THIS issue reads before what it blocks.
 fn group_order(kind: &str, inverse: bool) -> usize {
-    let forward = RELATION_PICKS
-        .iter()
-        .position(|pick| pick.kind == kind && !pick.inverse)
-        .unwrap_or(RELATION_PICKS.len());
-    forward * 2 + usize::from(inverse)
-}
-
-/// Sentence-case a per-side label for a group heading ("blocked by" →
-/// "Blocked by").
-fn capitalize(label: &str) -> String {
-    let mut chars = label.chars();
-    match chars.next() {
-        Some(first) => format!("{}{}", first.to_uppercase(), chars.as_str()),
-        None => String::new(),
+    match (kind, inverse) {
+        ("parent", false) => 0,
+        ("parent", true) => 1,
+        ("blocks", true) => 2,
+        ("blocks", false) => 3,
+        ("duplicate", false) => 4,
+        ("duplicate", true) => 5,
+        _ => 6,
     }
 }
 
@@ -401,7 +418,7 @@ mod tests {
     use gpui_component::IconNamed as _;
 
     #[test]
-    fn groups_follow_the_add_menu_order() {
+    fn groups_follow_the_web_group_order() {
         let order = |kind: &str, inverse: bool| group_order(kind, inverse);
         let mut keys = vec![
             ("related", false),
@@ -418,8 +435,8 @@ mod tests {
             vec![
                 ("parent", false),
                 ("parent", true),
-                ("blocks", false),
                 ("blocks", true),
+                ("blocks", false),
                 ("duplicate", false),
                 ("duplicate", true),
                 ("related", false),
@@ -451,11 +468,57 @@ mod tests {
         );
     }
 
+    /// EXP-760: the block's headings come from the SHARED table
+    /// (`domain::relations::group_title`, the web `RELATION_GROUP_TITLES`
+    /// mirror) — never from the per-side row labels, which read as sentences
+    /// ("sub-issue of") rather than section names.
     #[test]
-    fn group_headings_are_sentence_case() {
-        assert_eq!(capitalize(domain::relations::label("blocks", true)), "Blocked by");
-        assert_eq!(capitalize(domain::relations::label("parent", true)), "Sub-issue of");
-        assert_eq!(capitalize(domain::relations::label("related", false)), "Related to");
-        assert_eq!(capitalize(""), "");
+    fn group_titles_reach_the_section() {
+        // Every group the block can build resolves a heading, in the order
+        // `group_order` lays them out.
+        let mut keys: Vec<(&str, bool)> = vec![
+            ("parent", false),
+            ("parent", true),
+            ("blocks", false),
+            ("blocks", true),
+            ("duplicate", false),
+            ("duplicate", true),
+            ("related", false),
+        ];
+        keys.sort_by_key(|(kind, inverse)| group_order(kind, *inverse));
+        let titles: Vec<&str> = keys
+            .iter()
+            .map(|(kind, inverse)| domain::relations::group_title(kind, *inverse))
+            .collect();
+        assert_eq!(
+            titles,
+            vec![
+                "Sub-issues",
+                "Parent",
+                "Blocked by",
+                "Blocks",
+                "Duplicate of",
+                "Duplicated by",
+                "Related",
+            ]
+        );
+    }
+
+    /// EXP-760: only Sub-issues counts, and it counts COMPLETED rows.
+    #[test]
+    fn sub_issue_progress_counts_completed_only() {
+        assert_eq!(
+            sub_issue_progress("parent", false, &[true, false, true]),
+            Some((2, 3))
+        );
+        // An empty Sub-issues group cannot exist (the block hides empty
+        // groups), but the counter must not divide by anything.
+        assert_eq!(sub_issue_progress("parent", false, &[]), Some((0, 0)));
+        // "Parent" is the OTHER side — the parent is not this issue's work.
+        assert_eq!(sub_issue_progress("parent", true, &[true]), None);
+        assert_eq!(sub_issue_progress("blocks", false, &[true]), None);
+        assert_eq!(sub_issue_progress("blocks", true, &[true]), None);
+        assert_eq!(sub_issue_progress("duplicate", false, &[true]), None);
+        assert_eq!(sub_issue_progress("related", false, &[true]), None);
     }
 }

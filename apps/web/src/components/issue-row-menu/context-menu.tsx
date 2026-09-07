@@ -26,6 +26,11 @@ import {
 } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
 import { MoveBoardConfirmDialog } from "@/components/issue-properties/move-board-confirm"
+import {
+  RELATION_SIDES,
+  pickLabel,
+  useAddRelation,
+} from "@/components/issue-relations-card"
 import { DueDateSubmenu } from "./due-date-presets"
 import {
   AssigneeSubmenu,
@@ -36,6 +41,7 @@ import {
 } from "./submenus"
 
 const UiDeleteIcon = conceptIcon(`ui-delete`)
+const RelationSectionIcon = conceptIcon(`relation-section`)
 
 interface IssueRowContextMenuProps {
   children: ReactNode
@@ -109,6 +115,10 @@ export function IssueRowContextMenu({
     issueId: issue.id,
     onStatusChange: (next) => updateIssue(statusUpdatePayload(next)),
   })
+
+  // EXP-760: the same six sides the issue header's `…` offers, from the one
+  // hook that owns the picker and the duplicate dual-write.
+  const addRelation = useAddRelation(issue.id)
 
   const applyDueDate = (date: Date | null | undefined) => {
     void updateIssue({
@@ -284,6 +294,27 @@ export function IssueRowContextMenu({
             />
           )}
 
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>
+              <RelationSectionIcon className="size-4" />
+              Add relation
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent className="w-[12rem]">
+              {RELATION_SIDES.filter((entry) => entry.pickable).map((entry) => {
+                const Icon = entry.icon
+                return (
+                  <ContextMenuItem
+                    key={entry.side}
+                    onSelect={() => addRelation.pick(entry)}
+                  >
+                    <Icon className="size-4" />
+                    {pickLabel(entry.type, entry.direction)}
+                  </ContextMenuItem>
+                )
+              })}
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+
           {/* No separator above a destructive item (EXP-687): the red is the
               divider, on every client. */}
           <ContextMenuSub>
@@ -307,6 +338,7 @@ export function IssueRowContextMenu({
       </ContextMenu>
 
       {duplicatePicker}
+      {addRelation.dialog}
 
       <MoveBoardConfirmDialog
         board={pendingBoard}

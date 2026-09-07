@@ -365,7 +365,18 @@ struct AgentSessionView: View {
         AgentMarkdownContext(
             baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
             accountId: accountId,
-            httpClient: deps.httpClient
+            httpClient: deps.httpClient,
+            // EXP-760: narration, steered messages, plans and question prompts
+            // chip issue identifiers the agent names — `#EXP-1` AND the bare
+            // `EXP-1` agents actually write — scoped to this run's team, since
+            // a batch / action / chat run has no issue to derive one from.
+            issueRefs: AgentIssueRefContext(
+                teamId: session.teamId,
+                db: deps.db,
+                onOpen: { issueId in
+                    deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
+                }
+            )
         )
     }
 

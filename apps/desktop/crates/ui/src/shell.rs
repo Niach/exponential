@@ -94,6 +94,23 @@ const PANEL_MARGIN: f32 = 10.;
 /// [`PANEL_MARGIN`] on all four sides.
 const PANEL_MARGIN_TOP: f32 = 6.;
 
+/// EXP-760: how far above the cutout panel's bottom edge its CARD FACE stops.
+///
+/// The terminal dock's bottom strip is a fixed 29px band pinned there. When
+/// it paints its chips (every collapsed/open form but the floating bubble)
+/// the card ends above them, so the tab chips read as sitting on the
+/// window's gradient — JetBrains' tool-window tabs — with the dock body
+/// closing the card off from inside (`terminal_dock::pin_content`). In the
+/// bubble form nothing is painted in that band, so the card runs the full
+/// height and the panel looks exactly as it did before.
+fn panel_backdrop_inset(strip_on_ground: bool) -> f32 {
+    if strip_on_ground {
+        crate::terminal_dock::DOCK_STRIP_H
+    } else {
+        0.
+    }
+}
+
 /// EXP-456: whether this window is in the tab-less Settings mode — the left
 /// column shows the settings nav instead of the rail.
 pub(crate) fn window_in_settings(window: &Window, cx: &mut App) -> bool {
@@ -974,15 +991,34 @@ impl Render for Shell {
                                 }))
                                 .mx(px(PANEL_MARGIN))
                                 .mb(px(PANEL_MARGIN))
-                                .rounded(px(theme::tokens::radius::LG))
-                                .border_1()
-                                .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-                                .bg(theme::tokens::glass::FILL_PANEL.to_hsla())
                                 .overflow_hidden()
                                 // EXP-742: the bubble below positions
                                 // against the panel, and the panel's own
                                 // clip + radii keep it inside the card.
                                 .relative()
+                                // EXP-760: the card FACE is a backdrop child,
+                                // not the panel's own fill, so it can stop
+                                // short of the terminal dock's 29px strip:
+                                // the card closes above the tab chips and
+                                // they read as sitting on the window's
+                                // ground (JetBrains). Nothing moves — the
+                                // panel keeps its box, so no LAYOUT_VERSION
+                                // bump. FIRST child, so it paints behind the
+                                // banners, the dock area and the bubble.
+                                .child(
+                                    div()
+                                        .absolute()
+                                        .inset_0()
+                                        .bottom(px(panel_backdrop_inset(
+                                            self.terminal_strip_on_ground(cx),
+                                        )))
+                                        .rounded(px(theme::tokens::radius::LG))
+                                        .border_1()
+                                        .border_color(
+                                            theme::tokens::glass::STROKE_CARD.to_hsla(),
+                                        )
+                                        .bg(theme::tokens::glass::FILL_PANEL.to_hsla()),
+                                )
                                 .children(self.render_update_banner(cx))
                                 .children(self.render_offline_banner(cx))
                                 .child(div().flex_1().min_h_0().child(self.dock_area.clone()))
@@ -1012,6 +1048,13 @@ impl Render for Shell {
         // sheet/dialog/notification layers or `window.open_dialog` /
         // `push_notification` silently never paint (§3.3 "Root MUST be the
         // first view" is necessary but not sufficient).
+        // EXP-760: the issue-chip hover PREVIEW's overlay — one host per
+        // window, mounted here so every surface that reports a pill hover
+        // (read-only prose, the WYSIWYG description, relation rows) shares
+        // one card. Rendered BEFORE the modal layers: a dialog must cover a
+        // preview, never the other way round. The element itself is empty —
+        // the card is `deferred(anchored(..))`.
+        let preview_host = crate::issue_preview::host_for_window(window, cx);
         let sheet_layer = Root::render_sheet_layer(window, cx);
         let dialog_layer = Root::render_dialog_layer(window, cx);
         let notification_layer = Root::render_notification_layer(window, cx);
@@ -1048,6 +1091,7 @@ impl Render for Shell {
                     // second ramp.
                     .text_color(cx.theme().foreground)
                     .child(body)
+                    .child(preview_host)
                     .children(sheet_layer)
                     .children(dialog_layer)
                     .children(notification_layer),
@@ -1068,6 +1112,19 @@ impl Shell {
     /// Reading the pick through `CodingHub::global` (not the read-only peek)
     /// is deliberate: it WARMS the hub on the shell's first frame, before
     /// the panel renders, so a launch lands straight on the persisted form.
+    /// EXP-760: is the terminal dock's bottom strip painted on the window
+    /// ground? Resolved through the same bottom-dock lookup
+    /// [`Self::render_dock_bubble`] uses. No panel (a signed-out window, a
+    /// frame before the dock area warms) means no strip, so the card face
+    /// runs the full height.
+    fn terminal_strip_on_ground(&self, cx: &App) -> bool {
+        let Some(dock) = self.dock_area.read(cx).bottom_dock().cloned() else {
+            return false;
+        };
+        crate::coding_flow::find_terminal_dock(dock.read(cx).panel())
+            .is_some_and(|panel| panel.read(cx).strip_on_ground(cx))
+    }
+
     fn render_dock_bubble(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         if !crate::coding_flow::CodingHub::global(cx)
             .read(cx)
@@ -1729,6 +1786,18 @@ mod tests {
     use super::*;
     use crate::settings::SETTINGS_NAV_WIDTH;
     use crate::sidebar::RAIL_W;
+
+    /// EXP-760: the panel's card face stops exactly one terminal strip short
+    /// of its bottom edge while that strip is painting, and nowhere else.
+    #[test]
+    fn panel_card_closes_above_the_terminal_strip() {
+        assert_eq!(
+            panel_backdrop_inset(true),
+            crate::terminal_dock::DOCK_STRIP_H
+        );
+        // Bubble form (or no dock panel at all): unchanged full-height card.
+        assert_eq!(panel_backdrop_inset(false), 0.);
+    }
 
     /// EXP-698 round 7: only a Board Issues tool, on a real board, whose
     /// SYNCED issue set is empty, takes the whole center. Every other fact

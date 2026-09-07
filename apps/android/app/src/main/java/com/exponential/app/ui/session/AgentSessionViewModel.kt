@@ -20,6 +20,7 @@ import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.data.db.IssueStatusEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.electric.SyncStats
@@ -30,6 +31,7 @@ import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.domain.DeviceFreshness
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.MergeTarget
 import com.exponential.app.domain.PendingAttachment
@@ -42,6 +44,7 @@ import com.exponential.app.domain.resolveMergeTarget
 import com.exponential.app.domain.resolveSessionDevice
 import com.exponential.app.ui.issue.StartIssueOption
 import com.exponential.app.ui.markdown.AttachmentDims
+import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.steer.ActionRunState
 import com.exponential.app.ui.steer.SteerLaunchDelegate
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -206,6 +209,52 @@ class AgentSessionViewModel @Inject constructor(
             ?: return@combine null
         AgentUsagePresentation.parseAccounts(device.agentAccounts)?.get(agent)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * EXP-760 — the run's team issues, newest-first: what resolves the
+     * identifiers the agent names in the feed into tappable chips. Scoped to
+     * the SESSION's team (a batch / action / chat run has no issue and no
+     * board to derive one from), and shaped exactly like
+     * IssueDetailViewModel.issueRefCandidates so the chip's status glyph is
+     * precomputed here too (EXP-423).
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val issueRefCandidates: StateFlow<List<IssueRefTarget>> = session
+        .map { it?.teamId }
+        .distinctUntilChanged()
+        .flatMapLatest { teamId ->
+            if (teamId == null) {
+                flowOf(emptyList())
+            } else {
+                combine(
+                    dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() },
+                    dbFlow.scopedQuery(emptyList<BoardEntity>()) { it.boardDao().observeAll() },
+                    dbFlow.scopedQuery(emptyList<IssueStatusEntity>()) {
+                        it.issueStatusDao().observeByTeam(teamId)
+                    },
+                ) { issues, boards, statusRows ->
+                    val statuses =
+                        if (statusRows.isEmpty()) IssueStatusResolver.builtinDefaults
+                        else IssueStatusResolver.teamStatuses(statusRows)
+                    val teamBoardIds = boards
+                        .filter { it.teamId == teamId }
+                        .map { it.id }
+                        .toSet()
+                    issues
+                        .filter { it.boardId in teamBoardIds }
+                        .sortedByDescending { it.createdAt }
+                        .map {
+                            IssueRefTarget(
+                                it.id,
+                                it.identifier,
+                                it.title,
+                                IssueStatusResolver.resolve(it, statuses),
+                            )
+                        }
+                }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * Probed sizes of the linked issue's attachments (REV2-79) — the feed

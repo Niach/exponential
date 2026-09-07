@@ -2065,6 +2065,16 @@ fn build_row_context_menu(
         });
     }
 
+    // EXP-760: "Add relation" — the same six picks the issue header's `…`
+    // menu offers, so a relation can be filed without opening the issue.
+    {
+        let issue_id = issue.id.clone();
+        let icon = Icon::new(registry::RELATION_SECTION);
+        menu = menu.submenu_with_icon(Some(icon), "Add relation", window, cx, move |menu, _, _| {
+            crate::issue_relations::add_relation_submenu(menu.check_side(Side::Right), &issue_id)
+        });
+    }
+
     // Delete issue (EXP-697): ONE red item, not a nested confirm submenu —
     // a submenu label cannot be colored, and every other client confirms a
     // destructive action through a dialog instead.
@@ -2078,7 +2088,7 @@ fn build_row_context_menu(
                 cx,
             )
             .on_click(move |_, window, cx| {
-                prompt_issue_delete(issue_id.clone(), identifier.clone(), window, cx);
+                prompt_issue_delete(issue_id.clone(), identifier.clone(), None, window, cx);
             }),
         );
     }
@@ -2088,9 +2098,14 @@ fn build_row_context_menu(
 
 /// The destructive confirm behind every "Delete issue" affordance (EXP-697) —
 /// the shared alert window the machines/actions removes already use.
+/// `on_deleted` runs once the delete is CONFIRMED (not once it lands — the
+/// row leaves through the Electric echo). EXP-760: the issue-detail header
+/// passes `go_back`, since the surface the delete was fired from is about to
+/// stop existing; a list row passes nothing.
 pub(crate) fn prompt_issue_delete(
     issue_id: String,
     identifier: String,
+    on_deleted: Option<Box<dyn Fn(&mut Window, &mut App)>>,
     window: &mut Window,
     cx: &mut App,
 ) {
@@ -2100,8 +2115,11 @@ pub(crate) fn prompt_issue_delete(
         "Delete",
     )
     .ok_variant(gpui_component::button::ButtonVariant::Danger)
-    .on_ok(move |_, cx| {
+    .on_ok(move |window, cx| {
         spawn_issue_delete(cx, issue_id.clone());
+        if let Some(on_deleted) = &on_deleted {
+            on_deleted(window, cx);
+        }
         true
     });
     crate::native_dialog::open_alert(window, cx, spec);

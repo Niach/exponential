@@ -70,6 +70,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -163,6 +164,7 @@ import com.exponential.app.ui.issue.splitUnifiedDiff
 import com.exponential.app.ui.issue.unifiedDiffStats
 import com.exponential.app.ui.markdown.IssueRefHandler
 import com.exponential.app.ui.markdown.LocalAttachmentDims
+import com.exponential.app.ui.markdown.LocalIssueRefBare
 import com.exponential.app.ui.markdown.LocalIssueRefs
 import com.exponential.app.ui.markdown.LocalMentions
 import com.exponential.app.ui.markdown.MentionResolver
@@ -220,6 +222,8 @@ fun AgentSessionScreen(
     // EXP-706: the "Fix conflicts" run this screen can start lands in a NEW
     // session, which the caller navigates to (Reviews / Changes pattern).
     onOpenSteer: (String) -> Unit,
+    // EXP-760: a chipped identifier in the feed opens that issue.
+    onOpenIssue: (String) -> Unit = {},
     viewModel: AgentSessionViewModel = hiltViewModel(),
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
@@ -263,6 +267,13 @@ fun AgentSessionScreen(
         }
     }
     val attachmentDims by viewModel.attachmentDims.collectAsStateWithLifecycle()
+    // EXP-760: the run's team issues, newest-first — resolves the identifiers
+    // the agent names in the feed (IssueDetailScreen's handler, same shape).
+    val issueRefCandidates by viewModel.issueRefCandidates.collectAsStateWithLifecycle()
+    val currentOnOpenIssue by rememberUpdatedState(onOpenIssue)
+    val issueRefHandler = remember(issueRefCandidates) {
+        IssueRefHandler(issueRefCandidates) { target -> currentOnOpenIssue(target.issueId) }
+    }
     val answerStates = activity.answerLocks
     // EXP-588: per locked card, what this client picked — joined for display.
     val answerLabels = remember(activity.answerLocks, activity.answerLabels) {
@@ -574,6 +585,16 @@ fun AgentSessionScreen(
                     else -> CompositionLocalProvider(
                         LocalMarkdownAutolink provides true,
                         LocalAttachmentDims provides attachmentDims,
+                        // EXP-760: an identifier the agent names is a chip that
+                        // opens the issue. Resolution is scoped to the RUN's
+                        // team (a batch / action / chat run has no issue), and
+                        // BARE `EXP-758` chips here too — this is the one
+                        // surface agents write, and they omit the `#`.
+                        // Display-only: the composer below is outside this
+                        // provider, so what the user types stays the stored
+                        // `#IDENTIFIER` contract.
+                        LocalIssueRefs provides issueRefHandler,
+                        LocalIssueRefBare provides true,
                         // EXP-698: inline `code` is TINTED in a chat feed —
                         // narration, the user's own bubbles, plan and ask
                         // cards, everything under this provider. Issue
@@ -1851,9 +1872,13 @@ private fun FlowRowScope.ProseText(
     inlineCode: MdStyle.InlineCodeStyle,
 ) {
     if (text.isEmpty()) return
+    val bare = LocalIssueRefBare.current
     Text(
-        remember(text, issueRefs, mentions, inlineCode) {
-            annotate(text, emptyList(), issueRefs, mentions, autolink = true, inlineCode = inlineCode)
+        remember(text, issueRefs, mentions, inlineCode, bare) {
+            annotate(
+                text, emptyList(), issueRefs, mentions,
+                autolink = true, inlineCode = inlineCode, bare = bare,
+            )
         },
         style = MdStyle.body,
         modifier = Modifier.align(Alignment.CenterVertically),

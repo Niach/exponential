@@ -88,6 +88,8 @@ import { resolveMentions } from "@/lib/integrations/mentions"
 import { ensureSubscribed } from "@/lib/integrations/subscriptions"
 import { recordIssueEvent } from "@/lib/integrations/activity"
 import {
+  canonicalizeRelation,
+  insertRelationInTx,
   loadIssueRelations,
   syncDuplicateMirror,
   syncReferenceRelations,
@@ -314,6 +316,9 @@ export const issuesRouter = router({
           description: issueDescriptionSchema.optional(),
           dueDate: dateOnlySchema.nullable().optional(),
           labelIds: z.array(z.string().uuid()).optional(),
+          // EXP-760: file the issue as a sub-issue of `parentId` in the same
+          // transaction (the inline sub-issue composer, MCP issues_create).
+          parentId: z.string().uuid().optional(),
         })
         // A brand-new issue has nothing to dedupe, and create has no canonical
         // issue to pair with — status='duplicate' + duplicateOfId=null breaks
@@ -349,6 +354,23 @@ export const issuesRouter = router({
           code: `BAD_REQUEST`,
           message: `Images can only be added after the issue is created`,
         })
+      }
+
+      // The parent must be a visible issue of the SAME team — the gate
+      // relations.create applies, checked before the transaction opens.
+      if (input.parentId) {
+        const [parent] = await ctx.db
+          .select({ teamId: boards.teamId })
+          .from(issues)
+          .innerJoin(boards, eq(boards.id, issues.boardId))
+          .where(and(eq(issues.id, input.parentId), boardVisible()))
+          .limit(1)
+        if (!parent || parent.teamId !== board.teamId) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `The parent issue must be in the same team`,
+          })
+        }
       }
 
       const statusWrite = await resolveStatusWrite(ctx.db, board.teamId, input)
@@ -471,6 +493,17 @@ export const issuesRouter = router({
             ? getIssueDescriptionText(issue.description)
             : ``,
         })
+
+        // EXP-760: the sub-issue link rides the create transaction, so the
+        // relation row lands under the same txId the client awaits.
+        if (input.parentId) {
+          await insertRelationInTx(tx, {
+            ...canonicalizeRelation(input.parentId, issue.id, `parent`),
+            source: `user`,
+            teamId: board.teamId,
+            actorUserId: ctx.session.user.id,
+          })
+        }
 
         return { issue, txId, mentionedUserIds }
       })

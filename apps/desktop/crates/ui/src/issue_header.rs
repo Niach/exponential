@@ -84,8 +84,6 @@ pub struct IssueHeader {
     /// Copy-link feedback: the toolbar button shows a check for ~1.5s after a
     /// copy (web `linkCopied`). The seq guards the disarm timer against a
     /// re-click racing an older timer (the merge-confirm pattern).
-    link_copied: bool,
-    link_copied_seq: u64,
     /// The detail view's Start-coding control, rendered here as the "Agent"
     /// group (EXP-256, web parity — the entity stays owned by the detail
     /// view, which also reads its `resolved_repo` for the actions menu).
@@ -179,8 +177,6 @@ impl IssueHeader {
             label_query,
             board_query,
             rail_shared,
-            link_copied: false,
-            link_copied_seq: 0,
             start_coding,
             window_id: window.window_handle().window_id(),
             _subscriptions: subscriptions,
@@ -198,8 +194,6 @@ impl IssueHeader {
             return;
         }
         self.issue_id = issue_id;
-        // Toolbar state belongs to the PREVIOUS issue (EXP-277).
-        self.link_copied = false;
         self.sync_calendars(window, cx);
         cx.notify();
     }
@@ -578,19 +572,18 @@ impl IssueHeader {
             return None;
         }
         let mut column = v_flex().w_full().gap_2().px(px(DETAIL_GUTTER)).pb_2();
-        let mut merge = pr_open.then(|| self.merge_button(issue, cx));
+        let has_card = card.is_some();
         if let Some(card) = card {
-            column = column.child(card.children(merge.take()));
+            column = column.child(card);
         }
 
         let mut controls = h_flex().w_full().flex_wrap().gap_2().items_center();
-        // The row below the card exists only for what the card can't hold: the
-        // merge control when there IS no card, plus the merge error and its
-        // fix-conflicts offer. Empty, it would render as bare padding.
-        let mut has_controls = merge.is_some();
+        // EXP-760: Merge moved UP into the property tray beside Start coding
+        // (`chip_row`) — one place for the two actions, where the eye already
+        // is. What is left here is the merge ERROR and its fix-conflicts
+        // offer; empty, the row would render as bare padding.
+        let mut has_controls = false;
         if pr_open {
-            // Only when the card didn't already take it.
-            controls = controls.children(merge);
             let (error, failed_op, is_conflict) = {
                 let state = crate::pr_merge::MergeState::global(cx);
                 let state = state.read(cx);
@@ -629,6 +622,11 @@ impl IssueHeader {
         }
         if has_controls {
             column = column.child(controls);
+        }
+        // EXP-760: an open PR alone no longer earns this row — its Merge pill
+        // is in the tray above. Nothing to show means nothing rendered.
+        if !has_card && !has_controls {
+            return None;
         }
         Some(column.into_any_element())
     }
@@ -697,14 +695,17 @@ impl IssueHeader {
         // EXP-698: the ONE capsule at the `Sm` rung — it rides inside the
         // coding-now tray beside the state badge, so it wears the tray's own
         // chip scale rather than the 32px control box it had as a lone row.
-        let mut button = glass_pill_button("header-merge-pr", PillSize::Sm, cx)
+        // EXP-760: the PRIMARY (white) pill of the header. With a PR open,
+        // merging is what the reader came to do — Start coding stands down to
+        // the glass paint beside it (`header_action_styles`).
+        let mut button = crate::surface::glass_pill_button_primary("header-merge-pr", PillSize::Sm)
             .icon(
                 Icon::from(ExpIcon::GitMerge)
                     .with_size(px(PillSize::Sm.glyph()))
                     .text_color(if armed {
                         cx.theme().danger
                     } else {
-                        cx.theme().muted_foreground
+                        cx.theme().primary_foreground
                     }),
             )
             .label(if merging {
@@ -863,112 +864,89 @@ impl IssueHeader {
         )
     }
 
-    /// Web `Copy link to issue`: a Link icon that copies the full web URL and
-    /// flips to a check for ~1.5s.
-    fn render_copy_link(&mut self, issue: &Issue, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let url = issue_web_url(issue, cx);
-        let icon = if self.link_copied {
-            Icon::from(ExpIcon::Check).text_color(cx.theme().primary)
-        } else {
-            Icon::from(ExpIcon::Link)
-        };
-        crate::controls::glass_icon_button("copy-issue-link", icon, cx)
-            .disabled(url.is_none())
-            .tooltip(if self.link_copied {
-                "Link copied"
-            } else {
-                "Copy link to issue"
-            })
-            .on_click(cx.listener(move |this, _, _window, cx| {
-                let Some(url) = url.clone() else { return };
-                cx.write_to_clipboard(ClipboardItem::new_string(url));
-                this.link_copied = true;
-                this.link_copied_seq += 1;
-                let seq = this.link_copied_seq;
-                cx.spawn(async move |this, cx| {
-                    cx.background_executor()
-                        .timer(std::time::Duration::from_millis(1500))
-                        .await;
-                    let _ = this.update(cx, |this, cx| {
-                        if this.link_copied_seq == seq && this.link_copied {
-                            this.link_copied = false;
-                            cx.notify();
-                        }
-                    });
-                })
-                .detach();
-                cx.notify();
-            }))
-    }
-
-    /// The `…` actions menu, now duplicate-only (EXP-426): Move-to-board
-    /// lives on the header's Board chip and Delete became the visible trash
-    /// button, so the menu renders only when it still has content — the
-    /// Unmark-duplicate entry.
+    /// EXP-760: the ONE `…` menu on the issue header (web parity). The
+    /// copy-link and delete icon buttons that used to sit beside it are gone
+    /// — three round buttons for three rarely-used actions crowded the row —
+    /// so the menu is always rendered, not just for a duplicate.
+    ///
+    /// Items, in web order and with NO dividers (EXP-697): Copy link · Add
+    /// relation ▸ · Unmark duplicate (only when it IS one) · Delete issue.
     fn render_actions_menu(
         &mut self,
         issue: &Issue,
         cx: &mut gpui::Context<Self>,
-    ) -> Option<impl IntoElement> {
-        if issue.duplicate_of_id.is_none() {
-            return None;
-        }
+    ) -> impl IntoElement {
+        let url = issue_web_url(issue, cx);
         let issue_id = issue.id.clone();
-        Some(
-            crate::controls::glass_icon_button(
-                "issue-actions",
-                Icon::new(registry::UI_MORE),
-                cx,
-            )
-                .dropdown_menu(move |menu, _window, _cx| {
+        let identifier = issue.identifier.clone();
+        let is_duplicate = issue.duplicate_of_id.is_some();
+        crate::controls::glass_icon_button("issue-actions", Icon::new(registry::UI_MORE), cx)
+            .tooltip("Issue actions")
+            .dropdown_menu(move |mut menu, window, cx| {
+                {
+                    let url = url.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new("Copy link")
+                            .icon(Icon::from(ExpIcon::Link))
+                            .disabled(url.is_none())
+                            .on_click(move |_, _, cx| {
+                                if let Some(url) = url.clone() {
+                                    cx.write_to_clipboard(ClipboardItem::new_string(url));
+                                }
+                            }),
+                    );
+                }
+                {
                     let issue_id = issue_id.clone();
-                    menu.item(
+                    menu = menu.submenu_with_icon(
+                        Some(Icon::new(registry::RELATION_SECTION)),
+                        "Add relation",
+                        window,
+                        cx,
+                        move |menu, _, _| {
+                            crate::issue_relations::add_relation_submenu(menu, &issue_id)
+                        },
+                    );
+                }
+                if is_duplicate {
+                    let issue_id = issue_id.clone();
+                    menu = menu.item(
                         PopupMenuItem::new("Unmark duplicate")
                             .icon(Icon::new(registry::UI_UNDO))
                             .on_click(move |_, _, cx| {
                                 set_duplicate_of(issue_id.clone(), None, cx);
                             }),
-                    )
-                }),
-        )
-    }
-
-    /// The visible delete trigger (EXP-426): the trash icon opens the same
-    /// two-step "Confirm delete" popup the row context menu uses — no modal.
-    /// After the delete fires, the tabbed analog of the web's back-navigation
-    /// is popping the back stack.
-    fn render_delete_button(
-        &mut self,
-        issue: &Issue,
-        cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
-        let issue_id = issue.id.clone();
-        crate::controls::glass_icon_button(
-            "issue-delete",
-            Icon::new(registry::UI_DELETE),
-            cx,
-        )
-            .tooltip("Delete issue")
-            .dropdown_menu(move |menu, _window, cx| {
+                    );
+                }
                 let issue_id = issue_id.clone();
+                let identifier = identifier.clone();
                 menu.item(
                     crate::controls::danger_menu_item(
-                        "Confirm delete",
+                        "Delete issue",
                         Icon::new(registry::UI_DELETE),
                         cx,
                     )
-                        .on_click(move |_, window, cx| {
-                            crate::issue_list::spawn_issue_delete(cx, issue_id.clone());
-                            go_back(window, cx);
-                        }),
+                    .on_click(move |_, window, cx| {
+                        // The same alert the list row's Delete opens
+                        // (EXP-697) — plus the tabbed analog of the web's
+                        // back-navigation, since this view is about to point
+                        // at a row that no longer exists.
+                        crate::issue_list::prompt_issue_delete(
+                            issue_id.clone(),
+                            identifier.clone(),
+                            Some(Box::new(|window, cx| go_back(window, cx))),
+                            window,
+                            cx,
+                        );
+                    }),
                 )
             })
     }
 
-    /// EXP-277/EXP-417: the header's top row — switcher left, copy-link ·
-    /// unmark-duplicate (when applicable) · delete right. (EXP-723 retired
-    /// the Subscribe toggle on every client; auto-subscription and the
-    /// `issue_subscribers` shape stay.)
+    /// EXP-277/EXP-417: the header's top row — switcher left, the `…` actions
+    /// menu right. (EXP-723 retired the Subscribe toggle on every client;
+    /// auto-subscription and the `issue_subscribers` shape stay. EXP-760
+    /// folded copy-link and delete into the menu.)
     pub(crate) fn top_row(
         &mut self,
         issue: &Issue,
@@ -983,9 +961,7 @@ impl IssueHeader {
             .pt_2()
             .children(self.render_switcher(issue, cx))
             .child(div().flex_1().min_w_0())
-            .child(self.render_copy_link(issue, cx))
-            .children(self.render_actions_menu(issue, cx))
-            .child(self.render_delete_button(issue, cx))
+            .child(self.render_actions_menu(issue, cx))
             .into_any_element()
     }
 
@@ -1019,6 +995,14 @@ impl IssueHeader {
             .unwrap_or(false);
         let start_coding = self.start_coding.read(cx).is_visible(cx)
             && (local_running || !crate::issue_detail::has_live_coding_session(&issue.id, cx));
+        // EXP-760: which of the two trailing actions show, and which one is
+        // the emphasised (white) one.
+        let styles = header_action_styles(
+            start_coding,
+            issue.pr_state.as_deref() == Some("open"),
+        );
+        self.start_coding
+            .update(cx, |control, cx| control.set_demoted(styles.demote_start, cx));
 
         // EXP-568/EXP-601: everything lives in ONE glass tray — the property
         // chips grow from the left, Start coding floats on the right edge of
@@ -1034,12 +1018,20 @@ impl IssueHeader {
             .child(self.due_control(issue, cx))
             .children(self.board_chip(issue, cx))
             .children(self.origin_chip(issue, cx))
-            .when(start_coding, |tray| {
+            // EXP-760: BOTH header actions live at the tray's right edge now
+            // — Start coding and, while the PR is open, Merge. The stale
+            // merge card below the tray is gone.
+            .when(styles.any(), |tray| {
                 tray.child(
-                    div()
+                    h_flex()
                         .ml_auto()
                         .flex_shrink_0()
-                        .child(self.start_coding.clone()),
+                        .items_center()
+                        .gap_1()
+                        .when(styles.start_coding, |row| {
+                            row.child(self.start_coding.clone())
+                        })
+                        .when(styles.merge, |row| row.child(self.merge_button(issue, cx))),
                 )
             });
 
@@ -1206,9 +1198,61 @@ pub(crate) fn parse_hex_color(hex: &str) -> Option<gpui::Hsla> {
     )
 }
 
+/// EXP-760: which trailing actions the header's property tray shows, and
+/// which of them wears the emphasised (white) paint.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct HeaderActionStyles {
+    pub(crate) start_coding: bool,
+    pub(crate) merge: bool,
+    /// Start coding drops to the glass pill — an open PR means Merge is the
+    /// action, and two white pills side by side name neither.
+    pub(crate) demote_start: bool,
+}
+
+impl HeaderActionStyles {
+    /// Nothing to trail: the tray keeps its chips and no action cluster.
+    pub(crate) fn any(&self) -> bool {
+        self.start_coding || self.merge
+    }
+}
+
+/// The pure rule behind [`IssueHeader::chip_row`]'s trailing cluster.
+pub(crate) fn header_action_styles(start_visible: bool, pr_open: bool) -> HeaderActionStyles {
+    HeaderActionStyles {
+        start_coding: start_visible,
+        merge: pr_open,
+        demote_start: start_visible && pr_open,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-760: exactly ONE emphasised pill in the tray. An open PR makes it
+    /// Merge and demotes Start coding; without one, Start coding keeps it.
+    #[test]
+    fn only_one_header_action_is_emphasised() {
+        // The ordinary issue: Start coding, white, no Merge.
+        let plain = header_action_styles(true, false);
+        assert!(plain.start_coding && !plain.merge && !plain.demote_start);
+        assert!(plain.any());
+
+        // PR open with a startable issue: both show, Merge takes the white.
+        let both = header_action_styles(true, true);
+        assert!(both.start_coding && both.merge && both.demote_start);
+
+        // PR open on a repo-less/live-session issue: Merge alone, and there
+        // is nothing to demote.
+        let merge_only = header_action_styles(false, true);
+        assert!(!merge_only.start_coding && merge_only.merge && !merge_only.demote_start);
+        assert!(merge_only.any());
+
+        // Neither: the tray trails nothing at all.
+        let neither = header_action_styles(false, false);
+        assert!(!neither.any());
+        assert!(!neither.demote_start);
+    }
 
     #[test]
     fn mutation_date_is_iso_ymd() {

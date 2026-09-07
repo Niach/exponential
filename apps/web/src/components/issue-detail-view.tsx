@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import {
-  Check,
   ChevronDown,
   ChevronRight,
   ChevronUp,
   Files,
   Link2,
 } from "lucide-react"
+import { toast } from "sonner"
 import { conceptIcon } from "@/lib/icons.generated"
 import { Link, useNavigate } from "@tanstack/react-router"
 import { eq, useLiveQuery } from "@tanstack/react-db"
@@ -34,6 +34,9 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Textarea } from "@/components/ui/textarea"
@@ -53,11 +56,24 @@ import { IssueCodingControl, IssuePrRow } from "@/components/issue-coding-rows"
 import { IssueDetailMobileBar } from "@/components/issue-detail-mobile-bar"
 import { IssueEditorMobileProperties } from "@/components/issue-editor/mobile-properties"
 import { IssueFilesSection } from "@/components/issue-files-section"
-import { IssueRelationsCard } from "@/components/issue-relations-card"
+import {
+  IssueRelationsSection,
+  RELATION_SIDES,
+  pickLabel,
+  useAddRelation,
+} from "@/components/issue-relations-card"
+import { IssuePreviewHoverCard } from "@/components/issue-preview-card"
+import { SubIssueComposer } from "@/components/sub-issue-composer"
+import { SessionMergeButton } from "@/components/session-merge-button"
+import { mergeTargetProps } from "@/hooks/use-agents-data"
+import { useIsTeamMember } from "@/components/issue-coding-rows"
+import { useSteerConfig } from "@/components/agent-session"
+import { DETAIL_STICKY_BAND_CLASS } from "@/components/team/app-shell"
 import { IssueDetailMobileMenu } from "@/components/issue-detail-mobile-menu"
 import { WidgetSubmissionCard } from "@/components/widget-submission-card"
 
 const UiMoreIcon = conceptIcon(`ui-more`)
+const RelationSectionIcon = conceptIcon(`relation-section`)
 const UiDeleteIcon = conceptIcon(`ui-delete`)
 const UiUndoIcon = conceptIcon(`ui-undo`)
 
@@ -112,13 +128,15 @@ function DuplicateOfBanner({
     <div className="flex items-center gap-2 border-b border-border bg-accent/30 px-4 py-2 text-sm min-w-0">
       <Files className="size-4 shrink-0 text-muted-foreground" />
       <span className="shrink-0 text-muted-foreground">Duplicate of</span>
-      <Pill
-        mode="action"
-        className="font-mono"
-        onClick={() => issueRefs?.open(canonical.identifier)}
-      >
-        #{canonical.identifier}
-      </Pill>
+      <IssuePreviewHoverCard issueId={canonical.id}>
+        <Pill
+          mode="action"
+          className="font-mono"
+          onClick={() => issueRefs?.open(canonical.identifier)}
+        >
+          #{canonical.identifier}
+        </Pill>
+      </IssuePreviewHoverCard>
       <span className="truncate text-muted-foreground">{canonical.title}</span>
       {!readOnly && (
         <Pill mode="action" className="ml-auto" onClick={onUnmark}>
@@ -243,7 +261,6 @@ export function IssueDetailView({
   )
   const [attachmentStatus, setAttachmentStatus] = useState<string | null>(null)
   const [activeUploadCount, setActiveUploadCount] = useState(0)
-  const [linkCopied, setLinkCopied] = useState(false)
   // EXP-568: the floating phone bar steps aside while the description is being
   // written — the keyboard formatting rail owns the bottom edge then.
   const [descriptionFocused, setDescriptionFocused] = useState(false)
@@ -270,6 +287,18 @@ export function IssueDetailView({
 
   const { resolve: resolveStatus } = useTeamStatusesContext()
   const statusOption = resolveStatus(issue)
+
+  // EXP-760: Merge moved into the properties card, so this view owns the two
+  // signals SessionMergeButton needs — membership (the recovery run's launcher)
+  // and whether the relay is configured at all. The button self-hides unless
+  // the linked PR is open.
+  const isMember = useIsTeamMember(teamId, currentUserId ?? ``)
+  const steerConfig = useSteerConfig()
+  const prOpen = issue.prState === `open`
+
+  // The "Add relation" flow behind the header `…` menu and the list row's
+  // context menu — one hook, one picker (issue-relations-card.tsx).
+  const addRelation = useAddRelation(issue.id)
 
   const { handleStatusChange, duplicatePicker } = useDuplicateInterception({
     issueId: issue.id,
@@ -600,6 +629,9 @@ export function IssueDetailView({
         currentUserId={currentUserId}
         users={users}
         variant="start"
+        // Two accent pills in one slot say nothing about which one to press:
+        // Start coding steps down to glass while Merge is white (EXP-760).
+        tone={prOpen ? `glass` : `primary`}
       />
     ) : null
 
@@ -661,14 +693,33 @@ export function IssueDetailView({
   // EXP-568: properties live at the TOP of the reading column on every
   // viewport, inside their own glass card — no sidebar, no border-to-border
   // band welded to the header.
+  // EXP-760: Merge sits INSIDE the properties card, right of Start coding —
+  // the IDE's `chip_row` arrangement. It replaces the stale main-column merge
+  // card the coding rows used to draw, and unlike Start coding it renders on
+  // EVERY viewport: a phone would otherwise have no way to merge at all.
+  const mergeButton =
+    currentUserId && isMember && prOpen ? (
+      <SessionMergeButton
+        {...mergeTargetProps({ kind: `issue`, issue })}
+        variant="default"
+        size="sm"
+        label="Merge PR"
+        currentUserId={currentUserId}
+        steerEnabled={steerConfig?.enabled === true}
+      />
+    ) : null
+
   const propsBand = (
     <div className="mx-auto w-full max-w-3xl px-4 pt-3">
       <div className="flex items-center gap-1.5 rounded-xl border border-glass-stroke-card bg-popover/40">
         <div className="min-w-0 flex-1">{propsPanel}</div>
         {/* min-w-0, not shrink-0: the "waiting for the desktop" caption beside
             the capsule truncates rather than squeezing the property pills. */}
-        {codingStartButton && (
-          <div className="min-w-0 pr-3">{codingStartButton}</div>
+        {(codingStartButton || mergeButton) && (
+          <div className="flex min-w-0 items-center gap-1.5 pr-3">
+            {codingStartButton}
+            {mergeButton}
+          </div>
         )}
       </div>
     </div>
@@ -708,56 +759,63 @@ export function IssueDetailView({
     </>
   ) : null
 
-  // The label follows the icon into its copied state, so the tooltip confirms
-  // the copy rather than repeating the invitation to click.
-  const copyLinkButton = (
-    <IconTooltip label={linkCopied ? `Link copied` : `Copy link to issue`}>
-      <Button
-        variant="glass"
-        size="icon-sm"
-        aria-label="Copy link to issue"
-        onClick={() => {
-          if (typeof navigator === `undefined` || !navigator.clipboard) {
-            return
-          }
-          const url = `${window.location.origin}/t/${teamSlug}/boards/${board.slug}/issues/${issue.identifier}`
-          navigator.clipboard.writeText(url).then(
-            () => {
-              setLinkCopied(true)
-              setTimeout(() => setLinkCopied(false), 1500)
-            },
-            () => {
-              // Clipboard denied (permissions/insecure context) — no success state.
-            }
-          )
-        }}
-      >
-        {linkCopied ? (
-          <Check className="size-4 text-primary" />
-        ) : (
-          <Link2 className="size-4" />
-        )}
-      </Button>
-    </IconTooltip>
-  )
+  const issueUrl = `${typeof window === `undefined` ? `` : window.location.origin}/t/${teamSlug}/boards/${board.slug}/issues/${issue.identifier}`
 
-  // EXP-426: the only remaining "…" item is the conditional duplicate unmark
-  // — delete moved out to its own always-visible icon.
-  const unmarkDuplicateMenu =
-    !readOnly && issue.duplicateOfId ? (
-      <DropdownMenu>
-        <IconTooltip label="More actions">
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="glass"
-              size="icon-sm"
-              aria-label="Issue actions"
-            >
-              <UiMoreIcon />
-            </Button>
-          </DropdownMenuTrigger>
-        </IconTooltip>
-        <DropdownMenuContent align="end" className="w-[13rem]">
+  // EXP-760: ONE round `…` on the breadcrumb — Copy link · Add relation ▸ ·
+  // Unmark duplicate (conditional) · Delete issue ▸ Confirm delete. It
+  // replaces the copy-link / unmark / trash trio: three permanent circles for
+  // actions taken once a week, where the IDE (`issue_header.rs`) and both
+  // natives already collapse everything but the switcher into one menu.
+  const actionsMenu = (
+    <DropdownMenu>
+      <IconTooltip label="More actions">
+        <DropdownMenuTrigger asChild>
+          <Button variant="glass" size="icon-sm" aria-label="Issue actions">
+            <UiMoreIcon />
+          </Button>
+        </DropdownMenuTrigger>
+      </IconTooltip>
+      <DropdownMenuContent align="end" className="w-[14rem]">
+        <DropdownMenuItem
+          onSelect={() => {
+            if (typeof navigator === `undefined` || !navigator.clipboard) return
+            navigator.clipboard.writeText(issueUrl).then(
+              () => toast.success(`Link copied`),
+              () => {
+                // Clipboard denied (permissions/insecure context) — the toast
+                // would be a lie, so say nothing.
+              }
+            )
+          }}
+        >
+          <Link2 className="size-4" />
+          Copy link
+        </DropdownMenuItem>
+
+        {!readOnly && (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <RelationSectionIcon className="size-4" />
+              Add relation
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-[12rem]">
+              {RELATION_SIDES.filter((entry) => entry.pickable).map((entry) => {
+                const Icon = entry.icon
+                return (
+                  <DropdownMenuItem
+                    key={entry.side}
+                    onSelect={() => addRelation.pick(entry)}
+                  >
+                    <Icon className="size-4" />
+                    {pickLabel(entry.type, entry.direction)}
+                  </DropdownMenuItem>
+                )
+              })}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        )}
+
+        {!readOnly && issue.duplicateOfId && (
           <DropdownMenuItem
             onSelect={() => {
               void trpc.issues.update.mutate({
@@ -769,40 +827,34 @@ export function IssueDetailView({
             <UiUndoIcon className="size-4" />
             Unmark duplicate
           </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    ) : null
+        )}
 
-  // Destructive → confirm on a second click, matching the issue-row context
-  // menu's delete pattern (EXP-59).
-  const deleteMenu = !readOnly ? (
-    <DropdownMenu>
-      <IconTooltip label="Delete issue">
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="glass"
-            size="icon-sm"
-            aria-label="Delete issue"
-          >
-            <UiDeleteIcon />
-          </Button>
-        </DropdownMenuTrigger>
-      </IconTooltip>
-      <DropdownMenuContent align="end" className="w-[14rem]">
-        <DropdownMenuItem
-          variant="destructive"
-          onSelect={() => {
-            void handleDeleteIssue()
-          }}
-        >
-          <UiDeleteIcon className="size-4" />
-          Confirm delete
-        </DropdownMenuItem>
+        {/* No separator above a destructive item (EXP-687): the red is the
+            divider, on every client. Confirm on a second step, matching the
+            list row's context menu. */}
+        {!readOnly && (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger variant="destructive">
+              <UiDeleteIcon className="size-4" />
+              Delete issue
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-[14rem]">
+              <DropdownMenuItem
+                variant="destructive"
+                onSelect={() => {
+                  void handleDeleteIssue()
+                }}
+              >
+                <UiDeleteIcon className="size-4" />
+                Confirm delete
+              </DropdownMenuItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
-  ) : null
+  )
 
-  const issueUrl = `${typeof window === `undefined` ? `` : window.location.origin}/t/${teamSlug}/boards/${board.slug}/issues/${issue.identifier}`
 
   // The phone header collapses copy-link / unmark / delete into ONE `…`
   // (EXP-687), the way the iOS and Android toolbars already do.
@@ -854,9 +906,7 @@ export function IssueDetailView({
             <Separator orientation="vertical" className="mx-1 !h-3.5" />
           </>
         )}
-        {copyLinkButton}
-        {unmarkDuplicateMenu}
-        {deleteMenu}
+        {actionsMenu}
       </div>
     </div>
   )
@@ -1004,6 +1054,22 @@ export function IssueDetailView({
     })
   }
 
+  // EXP-760: the inline "Add sub-issues" composer. Desktop + members only —
+  // a phone has no room for a second editor under the description, and a
+  // read-only viewer has nothing to file. Keyed on the issue so prev/next
+  // navigation never carries a half-typed child over (REV-47's rule).
+  const subIssueComposer =
+    !readOnly && !isMobile ? (
+      <SubIssueComposer
+        // Namespaced: the editor sibling is keyed on the bare issue id, and
+        // React duplicates children that share a key.
+        key={`sub-issues:${issue.id}`}
+        parent={issue}
+        teamId={teamId}
+        users={users}
+      />
+    ) : null
+
   // EXP-42b: reporter/page/env metadata of widget-filed issues, members-only
   // (the server gates it; anonymous viewers never even fetch).
   const widgetCard = currentUserId ? (
@@ -1041,6 +1107,9 @@ export function IssueDetailView({
             hidden={descriptionFocused}
           />
         )}
+        {/* No `addRelation.dialog` here: the phone reaches relations through
+            the properties sheet's own "Add relation" chip, which carries its
+            own picker (issue-editor/mobile-properties.tsx). */}
         {duplicatePicker}
       </div>
     )
@@ -1053,26 +1122,34 @@ export function IssueDetailView({
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <div className="flex flex-1 min-w-0 flex-col overflow-hidden">
           <div className="flex-1 min-h-0 overflow-y-auto">
+            {/* EXP-760: the band pins the TITLE AND the properties (IDE
+                parity) — scrolling a long description used to leave the status
+                and assignee behind, which is exactly when they are needed. The
+                measured node is unchanged, so `topScrollInset` still keeps the
+                caret clear of it. */}
             <div
               ref={setStickyBand}
-              className="sticky top-0 z-10 glass-chrome-top"
+              className={`${DETAIL_STICKY_BAND_CLASS} pb-3`}
             >
               <div className="mx-auto max-w-3xl">{titleField}</div>
+              {propsBand}
             </div>
             <div className="mx-auto max-w-3xl">
-              {propsBand}
               {/* EXP-698 r4: the "coding now" card sits directly under the
                   properties band — same gutter, same glass chrome — instead of
-                  below the description. */}
+                  below the description. It stays OUT of the sticky band: a
+                  live run's card would eat a third of the scrollport. */}
               {codingControl}
-              {/* EXP-736: relations follow the coding strip, in the same
-                  gutter and glass card chrome, matching the desktop order
-                  (chip tray, agent row, relations). The phone carries them
-                  inside the properties sheet instead. */}
-              <IssueRelationsCard issueId={issue.id} readOnly={readOnly} />
               {editor}
               {attachmentError}
               {filesSection}
+              {/* EXP-760: relations moved BELOW the description (Linear's
+                  order) and lost their card + "Relations" title — the group
+                  headings are the labels, and the whole block is absent when
+                  the issue has no relations. The phone carries them inside the
+                  properties sheet instead. */}
+              <IssueRelationsSection issueId={issue.id} readOnly={readOnly} />
+              {subIssueComposer}
               {prRow}
               {widgetCard}
               {timeline}
@@ -1081,6 +1158,7 @@ export function IssueDetailView({
         </div>
       </div>
       {duplicatePicker}
+      {addRelation.dialog}
     </div>
   )
 }

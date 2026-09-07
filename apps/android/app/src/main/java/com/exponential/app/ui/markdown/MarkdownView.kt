@@ -173,6 +173,7 @@ private fun QuoteBlockView(
     val mentions = LocalMentions.current
     val autolink = LocalMarkdownAutolink.current
     val inlineCode = LocalInlineCodeStyle.current
+    val bare = LocalIssueRefBare.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -190,7 +191,7 @@ private fun QuoteBlockView(
             texts.forEachIndexed { index, text ->
                 key(index) {
                     ChipText(
-                        line = annotateLine(text, marks[index], issueRefs, mentions, autolink, inlineCode),
+                        line = annotateLine(text, marks[index], issueRefs, mentions, autolink, inlineCode, bare),
                         style = MdStyle.body.copy(color = MdStyle.Blockquote),
                         modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
                     )
@@ -224,9 +225,10 @@ private fun LineView(
     val mentions = LocalMentions.current
     val autolink = LocalMarkdownAutolink.current
     val inlineCode = LocalInlineCodeStyle.current
+    val bare = LocalIssueRefBare.current
     when (a.kind) {
         BlockKind.Heading -> ChipText(
-            line = annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode),
+            line = annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare),
             style = MdStyle.heading(a.headingLevel),
             modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
         )
@@ -248,7 +250,7 @@ private fun LineView(
                 Spacer(Modifier.padding(vertical = 2.dp))
             } else {
                 ChipText(
-                    line = annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode),
+                    line = annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare),
                     style = MdStyle.body,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                 )
@@ -267,6 +269,7 @@ private fun ListItemView(
     val mentions = LocalMentions.current
     val autolink = LocalMarkdownAutolink.current
     val inlineCode = LocalInlineCodeStyle.current
+    val bare = LocalIssueRefBare.current
     val indent = MdStyle.listIndentBase + MdStyle.listIndentPerDepth * a.listDepth
     Row(
         modifier = Modifier
@@ -292,7 +295,7 @@ private fun ListItemView(
             )
         }
         ChipText(
-            line = annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode),
+            line = annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare),
             style = MdStyle.body,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -353,7 +356,9 @@ internal fun annotate(
     mentions: MentionResolver? = null,
     autolink: Boolean = false,
     inlineCode: MdStyle.InlineCodeStyle = MdStyle.Default,
-): AnnotatedString = annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode).text
+    bare: Boolean = false,
+): AnnotatedString =
+    annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare).text
 
 internal fun annotateLine(
     text: String,
@@ -363,9 +368,12 @@ internal fun annotateLine(
     autolink: Boolean = false,
     /** EXP-698: chat feeds tint inline `code`; documents keep the flat wash. */
     inlineCode: MdStyle.InlineCodeStyle = MdStyle.Default,
+    /** EXP-760: also chip BARE `EXP-758` tokens — steering feeds only. */
+    bare: Boolean = false,
 ): AnnotatedLine {
     if (text.isEmpty()) return AnnotatedLine(AnnotatedString(""))
-    val refPills = if (issueRefs != null) resolvedRefPills(text, marks, issueRefs) else emptyList()
+    val refPills =
+        if (issueRefs != null) resolvedRefPills(text, marks, issueRefs, bare) else emptyList()
     val mentionPills =
         if (mentions != null) resolvedMentionPills(text, marks, mentions) else emptyList()
     val bareUrls = if (autolink) bareUrlLinks(text, marks) else emptyList()
@@ -461,7 +469,9 @@ internal fun annotateLine(
                 chipStart,
                 tokenEnd,
             )
-            val status = target.resolvedStatus
+            // A bare token (EXP-760) has no `#` cell: the glyph would paint
+            // over the prefix's first LETTER, and hiding it would delete it.
+            val status = if (match.bare) null else target.resolvedStatus
             if (status != null && chipStart < chipEnd) {
                 // The status glyph is painted over the `#`; hiding it costs one
                 // transparent character span and zero offset-map changes. The
@@ -532,8 +542,10 @@ internal fun resolvedRefPills(
     text: String,
     marks: List<InlineMark>,
     issueRefs: IssueRefHandler,
+    /** EXP-760: bare `EXP-758` tokens chip too (steering feeds only). */
+    bare: Boolean = false,
 ): List<Pair<IssueRefs.Match, IssueRefTarget>> =
-    IssueRefs.findAll(text).mapNotNull { match ->
+    IssueRefs.findAll(text, bare).mapNotNull { match ->
         val covered = marks.any { m ->
             (m.kind == InlineKind.InlineCode || m.kind == InlineKind.Link) &&
                 m.start < match.end && match.start < m.end

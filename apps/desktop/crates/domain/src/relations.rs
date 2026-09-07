@@ -104,6 +104,22 @@ pub fn icon_name(kind: &str, inverse: bool) -> &'static str {
         .unwrap_or("relation-section")
 }
 
+/// EXP-760: the Linear-style section heading one relation side renders under.
+/// Mirrors the web `RELATION_GROUP_TITLES` (`lib/issue-relations.ts`) — both
+/// `related` sides share one heading, and an unknown type degrades to it too,
+/// so a newer server's rows still land in a named group instead of vanishing.
+pub fn group_title(kind: &str, inverse: bool) -> &'static str {
+    match (kind, inverse) {
+        (contract::ISSUE_RELATION_TYPE_PARENT, false) => "Sub-issues",
+        (contract::ISSUE_RELATION_TYPE_PARENT, true) => "Parent",
+        (contract::ISSUE_RELATION_TYPE_BLOCKS, false) => "Blocks",
+        (contract::ISSUE_RELATION_TYPE_BLOCKS, true) => "Blocked by",
+        (contract::ISSUE_RELATION_TYPE_DUPLICATE, false) => "Duplicate of",
+        (contract::ISSUE_RELATION_TYPE_DUPLICATE, true) => "Duplicated by",
+        _ => "Related",
+    }
+}
+
 /// The timeline phrase of a `relation_added`/`relation_removed` event, byte-
 /// identical to the web `relationEventPhrase`. Payload:
 /// `{type, relatedIssueId, relatedIdentifier, direction: forward|inverse,
@@ -207,6 +223,29 @@ mod tests {
         assert_eq!(icon_name("related", true), "relation-related");
         assert_eq!(icon_name("duplicate", true), "relation-duplicate");
         assert_eq!(icon_name("something_new", false), "relation-section");
+    }
+
+    #[test]
+    fn group_titles_mirror_the_web_table() {
+        assert_eq!(group_title("parent", false), "Sub-issues");
+        assert_eq!(group_title("parent", true), "Parent");
+        assert_eq!(group_title("blocks", false), "Blocks");
+        assert_eq!(group_title("blocks", true), "Blocked by");
+        assert_eq!(group_title("duplicate", false), "Duplicate of");
+        assert_eq!(group_title("duplicate", true), "Duplicated by");
+        // `related` is symmetric: one heading for both sides...
+        assert_eq!(group_title("related", false), "Related");
+        assert_eq!(group_title("related", true), "Related");
+        // ...and an unknown type (a newer server) joins it rather than
+        // rendering headingless.
+        assert_eq!(group_title("something_new", false), "Related");
+        assert_eq!(group_title("something_new", true), "Related");
+        // Every contract type names a non-empty heading.
+        for value in contract::ISSUE_RELATION_TYPE_VALUES {
+            for inverse in [false, true] {
+                assert!(!group_title(value, inverse).is_empty());
+            }
+        }
     }
 
     #[test]

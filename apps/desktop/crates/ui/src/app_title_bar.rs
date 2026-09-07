@@ -40,12 +40,12 @@ pub(crate) fn client_chrome(window: &Window) -> bool {
 /// titlebar strip? That is the ONE case where the strip has no room of its
 /// own — windowed macOS under client chrome.
 ///
-/// Currently unreferenced: EXP-723 emptied the rail's 34px strip (the brand
-/// and the expand toggle are gone, and with them the traffic-light tongue),
-/// so nothing has to lay out AROUND the cluster any more. Kept because it is
-/// the single written-down statement of where the lights land, which the next
-/// occupant of that strip will need.
-#[allow(dead_code)]
+/// EXP-760: this is also the ONE condition the strip is rendered AT ALL. Since
+/// EXP-723 emptied it (the brand and the expand toggle are gone), its only
+/// remaining job is holding room for the traffic lights, so anywhere they do
+/// not land — Windows, Linux, macOS fullscreen — those 34px are a dead gap at
+/// the top of the rail. Drag and zoom survive on the right-hand
+/// [`AppTitleBar`] band, which spans the rest of the decoration row.
 pub(crate) fn macos_lights_in_strip(window: &Window) -> bool {
     cfg!(target_os = "macos") && client_chrome(window) && !window.is_fullscreen()
 }

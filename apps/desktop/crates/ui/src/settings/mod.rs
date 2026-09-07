@@ -722,8 +722,11 @@ impl Render for SettingsNavPanel {
         // in the window-decoration band as a drag/zoom region — the rail's
         // own strip recipe. EXP-723: pure drag space, like the rail's, since
         // the app brand went with the logo.
+        // EXP-760: rendered ONLY where the macOS traffic lights float over
+        // it — everywhere else those 34px are an empty gap above the back
+        // row, and drag/zoom live on the `AppTitleBar` band to the right.
         let client_chrome = crate::app_title_bar::client_chrome(window);
-        let top_strip = h_flex()
+        let top_strip = crate::app_title_bar::macos_lights_in_strip(window).then(|| h_flex()
             .id("settings-nav-titlebar-strip")
             .w_full()
             .h(gpui_component::TITLE_BAR_HEIGHT)
@@ -760,7 +763,7 @@ impl Render for SettingsNavPanel {
                             window.start_window_move();
                         }
                     }))
-            });
+            }));
 
         // EXP-456: the back affordance — web parity with the settings
         // sidebar's header row. Direct calls, not action dispatch (EXP-17).
@@ -801,7 +804,10 @@ impl Render for SettingsNavPanel {
             .rounded_tl(crate::window_frame::frame_radii(window).top_left)
             .rounded_bl(crate::window_frame::frame_radii(window).bottom_left)
             .text_color(cx.theme().sidebar_foreground)
-            .child(top_strip)
+            // EXP-760: no strip means no 34px reserve — the back row takes
+            // the same 8px top inset the rail's first row does.
+            .when(top_strip.is_none(), |nav| nav.pt_2())
+            .children(top_strip)
             .child(back_row)
             .child(
                 div()

@@ -74,6 +74,8 @@ pub type IssueChipResolver = Rc<dyn Fn(&str, &App) -> Option<IssueChipData>>;
 /// tint), mirroring the wysiwyg `IssueChipSnapshot`.
 #[derive(Clone, Debug)]
 pub struct IssueChipData {
+    /// EXP-760: the row id the hover preview loads (`issue_preview::card`).
+    pub issue_id: String,
     pub title: String,
     pub icon_path: SharedString,
     pub icon_color: gpui::Hsla,
@@ -88,6 +90,13 @@ pub struct RefResolver {
     /// text) — EXP-307: the pill shows `#IDENT Title`, not just the short
     /// code; EXP-423: plus the status icon in the leading gutter.
     pub issue_chip: IssueChipResolver,
+    /// EXP-760: also chip BARE `EXP-758` tokens (no `#`). Display-only and
+    /// opt-in — the STEERING views set it because agents narrate identifiers
+    /// that way; descriptions and comments keep the `#IDENT` contract, which
+    /// is what auto-relations and the stored text are matched against. The
+    /// pattern is the web `BARE_REF_SOURCE` (`lib/issue-refs.ts`), mirrored
+    /// byte for byte here and on both natives.
+    pub bare: bool,
 }
 
 impl RefResolver {
@@ -125,13 +134,21 @@ impl RefResolver {
                         // exactly like the wysiwyg snapshot (refs.rs).
                         let status = crate::queries::resolve_issue_status(cx, issue);
                         IssueChipData {
+                            issue_id: issue.id.clone(),
                             title: issue.title.clone(),
                             icon_path: crate::icons::glyph_svg_path(status.glyph),
                             icon_color: crate::icons::status_tint_color(&status.tint, cx),
                         }
                     })
             }),
+            bare: false,
         }
+    }
+
+    /// See [`Self::bare`]. Steering views only.
+    pub fn bare(mut self, bare: bool) -> Self {
+        self.bare = bare;
+        self
     }
 
     /// Never resolves anything (tokens stay literal text).
@@ -139,6 +156,7 @@ impl RefResolver {
         Self {
             member_name: Rc::new(|_, _| None),
             issue_chip: Rc::new(|_, _| None),
+            bare: false,
         }
     }
 }
@@ -2464,7 +2482,7 @@ fn render_inline_text(
 ) -> gpui::AnyElement {
     let theme = cx.theme();
     let text_id = ElementId::from(SharedString::from(format!("{}-line-{key}", view.id)));
-    let display = build_display_line(line, &marks, view.resolver.as_ref(), view.chat, cx);
+    let mut display = build_display_line(line, &marks, view.resolver.as_ref(), view.chat, cx);
     let mono = theme.mono_font_family.clone();
 
     // Inline code AND `#IDENT` chip tokens render monospace (web parity: the
@@ -2487,13 +2505,60 @@ fn render_inline_text(
     let text_layout = styled.layout().clone();
     let text_layout_for_selection = text_layout.clone();
 
+    // EXP-760: the pills a hover preview may open, paired with the row each
+    // loads. Taken before `display.targets` is consumed below.
+    let preview_pills: Rc<Vec<(Range<usize>, String)>> =
+        Rc::new(std::mem::take(&mut display.issue_preview_pills));
+    let preview_key = SharedString::from(format!("{}-line-{key}", view.id));
     let text_element: gpui::AnyElement = if display.targets.is_empty() {
         styled.into_any_element()
     } else {
         let ranges: Vec<Range<usize>> = display.targets.iter().map(|(r, _)| r.clone()).collect();
         let targets: Rc<Vec<(Range<usize>, ClickTarget)>> = Rc::new(display.targets);
         let on_open_issue = view.on_open_issue.clone();
+        let hover_layout = text_layout.clone();
         InteractiveText::new(text_id, styled)
+            // EXP-760: the hover PREVIEW. `on_hover` reports a character
+            // index, so the pill is found by containment and its anchor
+            // rectangle comes from the same layout the pill quads are painted
+            // from. gpui's own `.tooltip` cannot do this: it anchors at the
+            // pointer and stays put while the pointer crosses to the next
+            // pill on the line.
+            .on_hover(move |index, _event, window, cx| {
+                let host = crate::issue_preview::host_for_window(window, cx);
+                match crate::issue_preview::pill_at_index(&preview_pills, index) {
+                    Some((range, issue_id)) => {
+                        let mut segments = pill_segment_bounds(&hover_layout, range.clone());
+                        let Some(mut anchor) = segments.pop() else {
+                            return;
+                        };
+                        // A WRAPPED pill paints one quad per line: anchor on
+                        // the union so the card hangs under the whole chip
+                        // and the host's pointer backstop covers both rows.
+                        for segment in segments {
+                            anchor = anchor.union(&segment);
+                        }
+                        // Keyed per PILL, not per line — two chips in one
+                        // paragraph must swap the card, not share it.
+                        let key = format!("{preview_key}-{}", range.start);
+                        host.update(cx, |host, cx| host.request(key, issue_id, anchor, cx));
+                    }
+                    None => {
+                        // The pointer left the text: whichever pill of THIS
+                        // line was showing releases (a stale key is ignored,
+                        // so this cannot close another line's card).
+                        let keys: Vec<String> = preview_pills
+                            .iter()
+                            .map(|(range, _)| format!("{preview_key}-{}", range.start))
+                            .collect();
+                        host.update(cx, |host, cx| {
+                            for key in keys {
+                                host.release(key, cx);
+                            }
+                        });
+                    }
+                }
+            })
             .on_click(ranges, move |index, window, cx| {
                 let Some((_, target)) = targets.get(index) else {
                     return;
@@ -3015,6 +3080,10 @@ struct DisplayLine {
     /// EXP-423: `(gutter display range, svg asset path, tint)` of each chip's
     /// status icon.
     icon_ranges: Vec<(Range<usize>, SharedString, gpui::Hsla)>,
+    /// EXP-760: `(pill display range, issue id)` per resolved `#IDENT` chip —
+    /// what the hover preview anchors to. Same ranges as
+    /// [`Self::issue_pill_ranges`], carrying the id the card loads.
+    issue_preview_pills: Vec<(Range<usize>, String)>,
 }
 
 /// A decoration token found in the source line.
@@ -3028,6 +3097,8 @@ enum DecorationStyle {
     MentionPill,
     IssuePill {
         identifier: String,
+        /// EXP-760: the row id the hover preview loads.
+        issue_id: String,
         /// EXP-423: `(svg asset path, tint)` of the status icon painted into
         /// the chip's leading gutter.
         icon: (SharedString, gpui::Hsla),
@@ -3081,11 +3152,13 @@ fn build_display_line(
                 });
             }
         }
-        for token in scan_issue_refs(line) {
+        for token in scan_issue_refs_with(line, resolver.bare) {
             if in_code(token.start) {
                 continue;
             }
-            let identifier = line[token.start + 1..token.end].to_uppercase();
+            // EXP-760: a bare token has no `#` to skip.
+            let written = &line[token.clone()];
+            let identifier = written.strip_prefix('#').unwrap_or(written).to_uppercase();
             if let Some(chip) = (resolver.issue_chip)(&identifier, cx) {
                 // EXP-307: the chip shows the whole title next to the short
                 // code (web parity — the web pill renders the same suffix
@@ -3101,6 +3174,7 @@ fn build_display_line(
                     ),
                     style: DecorationStyle::IssuePill {
                         identifier,
+                        issue_id: chip.issue_id,
                         icon: (chip.icon_path, chip.icon_color),
                     },
                 });
@@ -3200,6 +3274,7 @@ fn build_display_line(
     let mut issue_pill_ranges: Vec<Range<usize>> = Vec::new();
     let mut issue_token_ranges: Vec<Range<usize>> = Vec::new();
     let mut icon_ranges: Vec<(Range<usize>, SharedString, gpui::Hsla)> = Vec::new();
+    let mut issue_preview_pills: Vec<(Range<usize>, String)> = Vec::new();
     for replacement in &replacements {
         let decoration = &decorations[replacement.decoration_index];
         let mut bits = Bits::default();
@@ -3208,7 +3283,11 @@ fn build_display_line(
                 bits.mention = true;
                 mention_pill_ranges.push(replacement.display.clone());
             }
-            DecorationStyle::IssuePill { identifier, icon } => {
+            DecorationStyle::IssuePill {
+                identifier,
+                issue_id,
+                icon,
+            } => {
                 bits.issue = true;
                 // EXP-469: the display text is
                 // `<margin><gutter><token> <title><margin>` — the pill quad
@@ -3229,6 +3308,10 @@ fn build_display_line(
                 ));
                 icon_ranges.push((chip_start..token_start, icon.0.clone(), icon.1));
                 issue_pill_ranges.push(chip_start..chip_end);
+                // EXP-760: the SAME range, paired with the row the preview
+                // loads — `on_hover` reports a character index, so the pill
+                // is found by containment (`issue_preview::pill_at_index`).
+                issue_preview_pills.push((chip_start..chip_end, issue_id.clone()));
             }
         }
         if bits != Bits::default() {
@@ -3334,6 +3417,7 @@ fn build_display_line(
         issue_pill_ranges,
         issue_token_ranges,
         icon_ranges,
+        issue_preview_pills,
     }
 }
 
@@ -3416,53 +3500,91 @@ pub(crate) fn scan_mentions(line: &str) -> Vec<Range<usize>> {
 /// `#IDENTIFIER` occurrences (byte ranges incl. the `#`) — the web
 /// `ISSUE_REF_SOURCE` contract: `(?<![\w#])#([A-Za-z][A-Za-z0-9]*-\d+)(?![\w-])`.
 pub(crate) fn scan_issue_refs(line: &str) -> Vec<Range<usize>> {
+    scan_issue_refs_with(line, false)
+}
+
+/// EXP-760: the same scan, optionally ALSO matching the BARE form agents
+/// narrate (`EXP-758`, no `#`) — the web `ISSUE_REF_BARE_SOURCE` alternation
+/// (`lib/issue-refs.ts`), left to right, first alternative wins:
+///
+/// - hash: `(?<![\w#])#([A-Za-z][A-Za-z0-9]*-\d+)(?![\w-])`
+/// - bare: `(?<![\w#-])([A-Z][A-Z0-9]*-\d+)(?![\w-])`
+///
+/// The bare prefix must be UPPERCASE (`utf-8` is not a reference) and may
+/// follow `/` (so `exp/EXP-758` chips) but never a word char, `#` or `-` (so
+/// `foo-EXP-1` and the tail of `#EXP-115-2` stay text). Returned ranges cover
+/// the token AS WRITTEN — the `#` included when it is there — so a caller
+/// strips a leading `#` to get the identifier.
+///
+/// Only the caller's resolver decides what actually chips: an unresolved
+/// token stays plain text either way.
+pub(crate) fn scan_issue_refs_with(line: &str, bare: bool) -> Vec<Range<usize>> {
     let bytes = line.as_bytes();
-    let mut out = Vec::new();
-    let mut i = 0usize;
-    while i < bytes.len() {
-        if bytes[i] != b'#' {
-            i += 1;
-            continue;
+    let word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    // `{PREFIX}-{number}` starting at `start`; `upper` demands an uppercase
+    // prefix (the bare arm). Returns the end offset, tail check included.
+    let identifier_end = |start: usize, upper: bool| -> Option<usize> {
+        let first = *bytes.get(start)?;
+        if upper {
+            if !first.is_ascii_uppercase() {
+                return None;
+            }
+        } else if !first.is_ascii_alphabetic() {
+            return None;
         }
-        // Lookbehind: not a word char or '#'.
-        if i > 0
-            && (bytes[i - 1].is_ascii_alphanumeric()
-                || bytes[i - 1] == b'_'
-                || bytes[i - 1] == b'#')
+        let mut j = start + 1;
+        while j < bytes.len()
+            && (if upper {
+                bytes[j].is_ascii_uppercase() || bytes[j].is_ascii_digit()
+            } else {
+                bytes[j].is_ascii_alphanumeric()
+            })
         {
-            i += 1;
-            continue;
-        }
-        let mut j = i + 1;
-        if j >= bytes.len() || !bytes[j].is_ascii_alphabetic() {
-            i += 1;
-            continue;
-        }
-        while j < bytes.len() && bytes[j].is_ascii_alphanumeric() {
             j += 1;
         }
-        if j >= bytes.len() || bytes[j] != b'-' {
-            i += 1;
-            continue;
+        if bytes.get(j) != Some(&b'-') {
+            return None;
         }
-        let digit_start = j + 1;
-        let mut k = digit_start;
+        let digits = j + 1;
+        let mut k = digits;
         while k < bytes.len() && bytes[k].is_ascii_digit() {
             k += 1;
         }
-        if k == digit_start {
-            i += 1;
-            continue;
+        if k == digits {
+            return None;
         }
-        // Lookahead: not a word char or '-'.
-        if k < bytes.len()
-            && (bytes[k].is_ascii_alphanumeric() || bytes[k] == b'_' || bytes[k] == b'-')
-        {
-            i = k;
-            continue;
+        // Tail: `(?![\w-])`.
+        match bytes.get(k) {
+            Some(b) if word(*b) || *b == b'-' => None,
+            _ => Some(k),
         }
-        out.push(i..k);
-        i = k;
+    };
+    let mut out = Vec::new();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let prev = i.checked_sub(1).map(|p| bytes[p]);
+        if bytes[i] == b'#' {
+            // Lookbehind `(?<![\w#])`.
+            let glued = prev.is_some_and(|b| word(b) || b == b'#');
+            if !glued {
+                if let Some(end) = identifier_end(i + 1, false) {
+                    out.push(i..end);
+                    i = end;
+                    continue;
+                }
+            }
+        } else if bare {
+            // Lookbehind `(?<![\w#-])`.
+            let glued = prev.is_some_and(|b| word(b) || b == b'#' || b == b'-');
+            if !glued {
+                if let Some(end) = identifier_end(i, true) {
+                    out.push(i..end);
+                    i = end;
+                    continue;
+                }
+            }
+        }
+        i += 1;
     }
     out
 }
@@ -3479,6 +3601,42 @@ mod tests {
         assert_eq!(scan_issue_refs("#EXP-1-2"), Vec::<Range<usize>>::new());
         assert_eq!(scan_issue_refs("#EXP-115abc"), Vec::<Range<usize>>::new());
         assert_eq!(scan_issue_refs("(#a1-2)"), vec![1..6]);
+        // Bare tokens are NOT references without the opt-in.
+        assert_eq!(scan_issue_refs("see EXP-12 now"), Vec::<Range<usize>>::new());
+    }
+
+    /// EXP-760: the steering feeds' BARE mode — the web
+    /// `ISSUE_REF_BARE_SOURCE` alternation, mirrored byte for byte.
+    #[test]
+    fn bare_mode_scans_hash_and_bare_tokens() {
+        let bare = |line: &str| scan_issue_refs_with(line, true);
+        // Both forms, in one line, left to right.
+        assert_eq!(bare("see EXP-12 and #EXP-13"), vec![4..10, 15..22]);
+        // A branch name chips its identifier (the `/` is not a word char).
+        assert_eq!(bare("exp/EXP-758"), vec![4..11]);
+        // Lowercase prefixes are not identifiers — this is the rule that
+        // keeps ordinary prose out.
+        assert_eq!(bare("utf-8 and x86-64"), Vec::<Range<usize>>::new());
+        // Glued to a word, a `#` or a `-`: still text.
+        assert_eq!(bare("foo-EXP-1"), Vec::<Range<usize>>::new());
+        assert_eq!(bare("fooEXP-1"), Vec::<Range<usize>>::new());
+        assert_eq!(bare("##EXP-1"), Vec::<Range<usize>>::new());
+        // Tail boundary, both alternatives.
+        assert_eq!(bare("EXP-115abc"), Vec::<Range<usize>>::new());
+        assert_eq!(bare("EXP-1-2"), Vec::<Range<usize>>::new());
+        // Punctuation around it is fine.
+        assert_eq!(bare("(EXP-9)."), vec![1..6]);
+        // The hash alternative keeps its own, looser prefix rule.
+        assert_eq!(bare("#exp-12"), vec![0..7]);
+        assert_eq!(bare("exp-12"), Vec::<Range<usize>>::new());
+    }
+
+    /// EXP-760: only the STEERING resolver chips bare tokens; prose keeps the
+    /// `#IDENT` contract (auto-relations are matched against that form).
+    #[test]
+    fn bare_chips_are_opt_in_per_resolver() {
+        assert!(!test_resolver().bare);
+        assert!(bare_resolver().bare);
     }
 
     #[test]
@@ -3515,6 +3673,7 @@ mod tests {
             }),
             issue_chip: Rc::new(|identifier, _| {
                 (identifier == "EXP-42").then(|| IssueChipData {
+                    issue_id: "i-42".to_string(),
                     title: "Fix login flow".to_string(),
                     // A real bundled asset, so the real-window paint test
                     // drives the paint_svg path (the asset may still be
@@ -3523,7 +3682,13 @@ mod tests {
                     icon_color: gpui::Hsla::default(),
                 })
             }),
+            bare: false,
         }
+    }
+
+    /// EXP-760: the same resolver in BARE mode — the steering feeds' opt-in.
+    fn bare_resolver() -> RefResolver {
+        test_resolver().bare(true)
     }
 
     /// EXP-381: resolved chips carry a pill range (the rounded, bordered quad

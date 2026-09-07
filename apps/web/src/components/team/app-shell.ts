@@ -48,3 +48,22 @@ export const MAIN_OUTLET_CLASS = [
   `flex-1 min-h-0 min-w-0 overflow-x-clip`,
   `md:overflow-y-auto`,
 ].join(` `)
+
+/**
+ * EXP-760: the issue detail's sticky band — title + properties — pinned to the
+ * top of the view's own scroller, IDE parity (`issue_header.rs`).
+ *
+ * `glass-chrome-card`, not `glass-chrome-top`: the band sits INSIDE the cutout
+ * panel, whose `--glass-fill-panel` layer the window-edge scrim does not
+ * account for (see styles.css) — the panel's own ground has to be repainted
+ * under the scrim or the band reads as a black bar over the card.
+ *
+ * The blur is safe HERE and not on `MAIN_PANEL_CLASS`: this node hosts no
+ * `position: fixed` overlay of its own (the property pickers portal to
+ * `document.body`, outside it), while the panel is the ancestor of every
+ * dialog and sheet the app opens.
+ */
+export const DETAIL_STICKY_BAND_CLASS = [
+  `sticky top-0 z-10`,
+  `glass-chrome-card border-b border-glass-stroke`,
+].join(` `)
