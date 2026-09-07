@@ -418,7 +418,7 @@ async function openLaunchTab(page: Page, name: string, settled: Locator): Promis
 
 /** The launcher's Actions tab: the saved-action picker and its typed inputs. */
 async function recipeOpenStartCodingActions(page: Page): Promise<void> {
-  await openLaunchTab(page, `Actions`, page.getByPlaceholder(`Search actions…`))
+  await openLaunchTab(page, `Actions`, page.getByPlaceholder(`Search actions`))
 }
 
 /** The launcher's Chat tab: a free prompt on a repository's default branch. */

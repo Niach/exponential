@@ -2,6 +2,8 @@ import * as React from "react"
 import { Check, ChevronRight } from "lucide-react"
 import { Slot } from "radix-ui"
 
+import { conceptIcon } from "@/lib/icons.generated"
+
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -206,6 +208,45 @@ function GlassInputRow({
   )
 }
 
+// EXP-768 — the SEARCH row that heads a picker group on every client (the
+// Android `GlassTextField(bordered = false)` first row of the start-coding
+// sheet, iOS `GlassSheetSearchField(bordered: false)`): the search glyph
+// leading, a chrome-less field filling the row, and the group's hairline
+// underneath. The list it filters follows as the group's next child.
+const SearchGlyph = conceptIcon(`nav-search`)
+
+function GlassSearchRow({
+  value,
+  onChange,
+  placeholder,
+  className,
+  ...inputProps
+}: Omit<
+  React.ComponentProps<typeof Input>,
+  `value` | `onChange` | `className` | `placeholder`
+> & {
+  value: string
+  onChange: (value: string) => void
+  placeholder: string
+  className?: string
+}) {
+  return (
+    <div
+      data-slot="glass-search-row"
+      className={cn(`flex shrink-0 items-center gap-3 px-4`, className)}
+    >
+      <SearchGlyph className="size-4 shrink-0 text-muted-foreground" />
+      <Input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent px-0 py-3 text-sm shadow-none focus-visible:border-0 focus-visible:ring-0 md:text-sm"
+        {...inputProps}
+      />
+    </div>
+  )
+}
+
 type GlassPickerOption = {
   value: string
   label: React.ReactNode
@@ -384,6 +425,7 @@ export {
   GlassGroup,
   GlassTabsRow,
   GlassInputRow,
+  GlassSearchRow,
   GlassPickerRow,
   GlassToggleRow,
 }

@@ -1,12 +1,9 @@
-import { Search } from "lucide-react"
 import type {
   ActionRepoOption,
   TeamAction,
 } from "@/components/action-editor-dialog"
 import { ActionInputFields } from "@/components/launch-dialog/action-input-fields"
-import { GlassGroup } from "@/components/ui/glass-rows"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import { GlassGroup, GlassSearchRow } from "@/components/ui/glass-rows"
 import { conceptIcon } from "@/lib/icons.generated"
 import { getActionIcon } from "@/lib/board-icons"
 import { cn } from "@/lib/utils"
@@ -23,6 +20,9 @@ const UnselectedIcon = conceptIcon(`ui-unselected`)
 // `builtin` flag; "Create action" moved to its own dedicated dialog in
 // EXP-431), followed by the selected action's typed input fields. Selection
 // state and the fetched lists live in the shell.
+//
+// EXP-768: ONE glass group like the Issues tab — the search row heads the
+// group, the hairline-divided action rows follow, no caption above the card.
 
 export function ActionsPane({
   actions,
@@ -65,66 +65,62 @@ export function ActionsPane({
     // section (EXP-313); mobile lays out at natural height and the shell
     // scrolls.
     <div className="flex shrink-0 flex-col gap-2 sm:min-h-0 sm:shrink">
-      <Label>Actions</Label>
-      <div className="relative">
-        <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
+      <GlassGroup className="sm:min-h-0 sm:flex-1">
+        <GlassSearchRow
           value={search}
-          onChange={(e) => onSearchChange(e.target.value)}
-          placeholder="Search actions…"
-          // The glass dress is the stock Input's own (EXP-616); only the
-          // leading room for the search glyph is local.
-          className="h-9 rounded-md pl-8"
+          onChange={onSearchChange}
+          placeholder="Search actions"
         />
-      </div>
-      <GlassGroup className="max-h-44 overflow-y-auto sm:max-h-none sm:min-h-32 sm:flex-1">
-        {actions === null ? (
-          <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-            Loading…
-          </div>
-        ) : rows.length === 0 ? (
-          <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-            {query ? `No actions match "${search}"` : `No actions yet.`}
-          </div>
-        ) : (
-          rows.map((action) => {
-            const selected = action.id === selectedActionId
-            const RowIcon = getActionIcon(action)
-            return (
-              <div
-                key={action.id}
-                role="button"
-                tabIndex={0}
-                onClick={() => onSelect(action.id)}
-                onKeyDown={(e) => {
-                  if (e.key === `Enter` || e.key === ` `) {
-                    e.preventDefault()
-                    onSelect(action.id)
-                  }
-                }}
-                className={cn(
-                  `flex cursor-pointer items-center gap-2 px-3 py-2`,
-                  selected ? `bg-glass-active` : `hover:bg-glass-active/50`
-                )}
-              >
-                {selected ? (
-                  <SelectedIcon className="size-4 shrink-0 text-foreground" />
-                ) : (
-                  <UnselectedIcon className="size-4 shrink-0 text-muted-foreground" />
-                )}
-                <RowIcon className="size-4 shrink-0 text-muted-foreground" />
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="truncate text-sm">{action.name}</span>
-                  {action.description && (
-                    <span className="truncate text-xs text-muted-foreground">
-                      {action.description}
-                    </span>
+        {/* Only the rows scroll — the search row stays put; the list draws
+            its own hairlines (the group's `divide-y` stops at its children). */}
+        <div className="max-h-44 divide-y divide-glass-stroke overflow-y-auto sm:max-h-none sm:min-h-32 sm:flex-1">
+          {actions === null ? (
+            <div className="px-4 py-3 text-sm text-foreground/70">Loading…</div>
+          ) : rows.length === 0 ? (
+            <div className="px-4 py-3 text-sm text-foreground/70">
+              {query ? `No actions match "${search}"` : `No actions yet.`}
+            </div>
+          ) : (
+            rows.map((action) => {
+              const selected = action.id === selectedActionId
+              const RowIcon = getActionIcon(action)
+              return (
+                <div
+                  key={action.id}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={selected}
+                  onClick={() => onSelect(action.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === `Enter` || e.key === ` `) {
+                      e.preventDefault()
+                      onSelect(action.id)
+                    }
+                  }}
+                  className={cn(
+                    `flex cursor-pointer items-center gap-2.5 px-4 py-2`,
+                    selected ? `bg-glass-active` : `hover:bg-glass-active/50`
                   )}
-                </span>
-              </div>
-            )
-          })
-        )}
+                >
+                  {selected ? (
+                    <SelectedIcon className="size-5 shrink-0 text-foreground" />
+                  ) : (
+                    <UnselectedIcon className="size-5 shrink-0 text-muted-foreground" />
+                  )}
+                  <RowIcon className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-sm">{action.name}</span>
+                    {action.description && (
+                      <span className="truncate text-xs text-muted-foreground">
+                        {action.description}
+                      </span>
+                    )}
+                  </span>
+                </div>
+              )
+            })
+          )}
+        </div>
       </GlassGroup>
       {selectedAction && selectedAction.inputs.length > 0 && (
         <ActionInputFields

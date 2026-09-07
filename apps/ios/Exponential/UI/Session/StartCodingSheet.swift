@@ -414,16 +414,20 @@ struct StartCodingSheet: View {
                 // Many candidates: scroll them inside a bounded box (one
                 // section row) so the Model / Effort / toggle sections
                 // stay near the top instead of being pushed off-screen.
+                // EXP-768: hairlines between the rows, like the Form's own
+                // separators on the short path and the Android sheet.
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(pinnedRows) { issueRow($0) }
-                        ForEach(otherRows) { issueRow($0) }
+                        ForEach(Array((pinnedRows + otherRows).enumerated()), id: \.element.id) { index, option in
+                            if index > 0 { GlassDivider() }
+                            issueRow(option)
+                        }
                     }
                 }
                 .frame(maxHeight: 280)
             }
-        } header: {
-            GlassSectionHeader("Issues")
+        // EXP-768: no "Issues" header over the card — the segmented control
+        // already names the subject (every client).
         } footer: {
             // Only attach a footer when there's a message — an empty
             // footer view still reserves space, inflating the gap to
@@ -621,14 +625,16 @@ struct StartCodingSheet: View {
                 // Model / Effort sections reachable.
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(actionRows) { actionRow($0) }
+                        ForEach(Array(actionRows.enumerated()), id: \.element.id) { index, action in
+                            if index > 0 { GlassDivider() }
+                            actionRow(action)
+                        }
                     }
                 }
                 .frame(maxHeight: 280)
             }
-        } header: {
-            GlassSectionHeader("Actions")
         }
+        // EXP-768: no "Actions" header over the card (see the issue picker).
         .listRowBackground(glassFormRowFill)
     }
 

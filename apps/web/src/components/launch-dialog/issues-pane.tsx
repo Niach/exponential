@@ -1,15 +1,19 @@
-import { Search } from "lucide-react"
 import type { Issue } from "@/db/schema"
-import { GlassGroup } from "@/components/ui/glass-rows"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import { GlassGroup, GlassSearchRow } from "@/components/ui/glass-rows"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
+import { PriorityIcon } from "@/components/issue-properties/priority-dropdown"
+import { conceptIcon } from "@/lib/icons.generated"
+import { cn } from "@/lib/utils"
 
 // The Issues tab of the unified launch dialog (EXP-257) — a presentational
 // extraction of the Start-coding dialog's issue picker column. All state
 // (search, selection, the derived row list and its guards) stays in the
 // dialog shell; this only renders it.
+//
+// EXP-768: ONE glass group on every client — the search field is the group's
+// first row and the hairline-divided issue rows follow, no caption above the
+// card. The row anatomy is the mobile one: selection glyph, priority,
+// identifier, status, title.
 
 // Hard cap per run — parity with the server zod cap (issueIds max 30) and the
 // desktop launcher's MAX_ISSUES_PER_RUN. Beyond it the server would reject with
@@ -18,6 +22,10 @@ import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 export const MAX_ISSUES_PER_RUN = 30
 // Above this, batches get a soft token-cost note (matches the native sheets).
 export const BATCH_COST_HINT_THRESHOLD = 6
+
+// The natives' circle / circle-check selection glyph (EXP-721 row idiom).
+const SelectedIcon = conceptIcon(`ui-selected`)
+const UnselectedIcon = conceptIcon(`ui-unselected`)
 
 export function IssuesPane({
   search,
@@ -44,56 +52,62 @@ export function IssuesPane({
   return (
     // Shrink only under `sm:` — see the actions pane's note (EXP-313).
     <div className="flex shrink-0 flex-col gap-2 sm:min-h-0 sm:shrink">
-      <Label>Issues</Label>
-      <div className="relative">
-        <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
+      <GlassGroup className="sm:min-h-0 sm:flex-1">
+        <GlassSearchRow
           value={search}
-          onChange={(e) => onSearchChange(e.target.value)}
-          placeholder="Search issues…"
-          // The glass dress is the stock Input's own (EXP-616); only the
-          // leading room for the search glyph is local.
-          className="h-9 rounded-md pl-8"
+          onChange={onSearchChange}
+          placeholder="Search issues"
         />
-      </div>
-      <GlassGroup className="max-h-44 overflow-y-auto sm:max-h-none sm:min-h-32 sm:flex-1">
-        {rows.length === 0 ? (
-          <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-            {search.trim()
-              ? `No issues match "${search}"`
-              : `No codeable issues in repo-backed boards.`}
-          </div>
-        ) : (
-          rows.map((issue) => {
-            const checked = selected.has(issue.id)
-            return (
-              <div
-                key={issue.id}
-                role="button"
-                tabIndex={0}
-                onClick={() => onToggle(issue.id)}
-                onKeyDown={(e) => {
-                  if (e.key === `Enter` || e.key === ` `) {
-                    e.preventDefault()
-                    onToggle(issue.id)
-                  }
-                }}
-                className="flex cursor-pointer items-center gap-2 px-3 py-2 hover:bg-glass-active/50"
-              >
-                <Checkbox
-                  checked={checked}
-                  tabIndex={-1}
-                  className="pointer-events-none"
-                />
-                <IssueStatusIcon issue={issue} className="size-4 shrink-0" />
-                <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                  {issue.identifier}
-                </span>
-                <span className="flex-1 truncate text-sm">{issue.title}</span>
-              </div>
-            )
-          })
-        )}
+        {/* Only the rows scroll — the search row stays put (the mobile
+            sheets' bounded list). The list carries its own hairlines since
+            the group's `divide-y` only reaches its direct children. */}
+        <div className="max-h-44 divide-y divide-glass-stroke overflow-y-auto sm:max-h-none sm:min-h-32 sm:flex-1">
+          {rows.length === 0 ? (
+            <div className="px-4 py-3 text-sm text-foreground/70">
+              {search.trim()
+                ? `No issues match "${search}"`
+                : `No codeable issues in repo-backed boards.`}
+            </div>
+          ) : (
+            rows.map((issue) => {
+              const checked = selected.has(issue.id)
+              return (
+                <div
+                  key={issue.id}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={checked}
+                  onClick={() => onToggle(issue.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === `Enter` || e.key === ` `) {
+                      e.preventDefault()
+                      onToggle(issue.id)
+                    }
+                  }}
+                  className={cn(
+                    `flex cursor-pointer items-center gap-2.5 px-4 py-2`,
+                    checked ? `bg-glass-active` : `hover:bg-glass-active/50`
+                  )}
+                >
+                  {checked ? (
+                    <SelectedIcon className="size-5 shrink-0 text-foreground" />
+                  ) : (
+                    <UnselectedIcon className="size-5 shrink-0 text-muted-foreground" />
+                  )}
+                  <PriorityIcon
+                    priority={issue.priority}
+                    className="size-4 shrink-0"
+                  />
+                  <span className="min-w-[3.75rem] shrink-0 font-mono text-xs text-muted-foreground">
+                    {issue.identifier}
+                  </span>
+                  <IssueStatusIcon issue={issue} className="size-4 shrink-0" />
+                  <span className="flex-1 truncate text-sm">{issue.title}</span>
+                </div>
+              )
+            })
+          )}
+        </div>
       </GlassGroup>
       {count > 0 && (
         <p className="text-xs text-muted-foreground">
