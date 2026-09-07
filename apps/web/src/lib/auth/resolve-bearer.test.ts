@@ -41,6 +41,17 @@ vi.mock(`@/lib/auth`, () => ({
   },
 }))
 
+// EXP-759: resolveSession touches the client-platform ledger. The db handle
+// is a stand-in (the touch is mocked) — DATABASE_URL is not set under vitest.
+vi.mock(`@/db/connection`, () => ({ db: {} }))
+const { touchUserClientPlatform } = vi.hoisted(() => ({
+  touchUserClientPlatform: vi.fn(() => true),
+}))
+vi.mock(`@/lib/client-platforms`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/client-platforms")>()),
+  touchUserClientPlatform,
+}))
+
 import { noteAuthDbFailure } from "@/lib/auth/db-failure-signal"
 import {
   invalidateSessionCache,
@@ -58,6 +69,7 @@ beforeEach(() => {
   // The REV2-7 session cache is a module singleton — clear it so each
   // test starts cold (several tests reuse the same bearer literal).
   invalidateSessionCache()
+  touchUserClientPlatform.mockClear()
 })
 
 describe(`resolveSession bearer/cookie isolation`, () => {
@@ -250,5 +262,50 @@ describe(`resolveSession token-session cache (REV2-7)`, () => {
     invalidateSessionCache()
     await resolveSession(request())
     expect(h.state.calls).toBe(2)
+  })
+})
+
+describe(`client-platform touch (EXP-759)`, () => {
+  it(`records a cookie-only request as web`, async () => {
+    await resolveSession(
+      new Request(`https://app.example/api/trpc/x`, {
+        headers: { cookie: `better-auth.session_token=abc` },
+      })
+    )
+    expect(touchUserClientPlatform).toHaveBeenCalledWith(expect.anything(), {
+      userId: `user-token`,
+      platform: `web`,
+      version: null,
+    })
+  })
+
+  it(`records the native header's platform and version, also on cache hits`, async () => {
+    const make = () =>
+      new Request(`https://app.example/api/shapes/issues`, {
+        headers: {
+          authorization: `Bearer session-xyz`,
+          "x-client-version": `ios/0.14.24`,
+        },
+      })
+    await resolveSession(make())
+    await resolveSession(make())
+    expect(h.state.calls).toBe(1)
+    expect(touchUserClientPlatform).toHaveBeenCalledTimes(2)
+    expect(touchUserClientPlatform).toHaveBeenLastCalledWith(
+      expect.anything(),
+      { userId: `user-token`, platform: `ios`, version: `0.14.24` }
+    )
+  })
+
+  it(`skips token credentials without the header and anonymous requests`, async () => {
+    await resolveSession(
+      new Request(`https://app.example/api/trpc/x`, {
+        headers: { authorization: `Bearer expu_key` },
+      })
+    )
+    expect(touchUserClientPlatform).not.toHaveBeenCalled()
+    h.state.user = null
+    await resolveSession(new Request(`https://app.example/api/trpc/x`))
+    expect(touchUserClientPlatform).not.toHaveBeenCalled()
   })
 })

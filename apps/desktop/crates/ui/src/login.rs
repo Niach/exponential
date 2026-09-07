@@ -362,13 +362,18 @@ impl LoginView {
 
     /// Web footer "Register" link — the desktop opens the instance's
     /// `/auth/register` in the system browser (registration is a web flow).
+    /// EXP-759: `ref=desktop-app` rides along so the web signup records this
+    /// app as the signup source (`users.signup_ref`).
     fn open_register(&mut self, cx: &mut gpui::Context<Self>) {
         let Some(instance) = self.effective_instance(cx) else {
             self.error = Some("Enter your server URL first.".into());
             cx.notify();
             return;
         };
-        let url = format!("{}/auth/register", instance.trim_end_matches('/'));
+        let url = format!(
+            "{}/auth/register?ref=desktop-app",
+            instance.trim_end_matches('/')
+        );
         cx.background_executor()
             .spawn(async move {
                 if let Err(err) = api::opener::open_in_browser(&url) {

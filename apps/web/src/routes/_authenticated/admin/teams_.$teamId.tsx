@@ -30,6 +30,10 @@ import {
 } from "@/components/ui/select"
 import { getInitials } from "@/lib/utils"
 import {
+  issueEventActorFallback,
+  issueEventPhrase,
+} from "@/lib/issue-event-labels"
+import {
   EmailDeliveriesTable,
   PlanBadge,
   formatDate,
@@ -52,28 +56,6 @@ export const Route = createFileRoute(
 })
 
 type CompChoice = `none` | `team` | `unlimited`
-
-function eventText(
-  type: string,
-  payload: Record<string, unknown> | null
-): string {
-  switch (type) {
-    case `status_changed`:
-      return `changed status to ${String(payload?.to ?? `?`).replace(/_/g, ` `)}`
-    case `assignee_changed`:
-      return payload?.to ? `changed the assignee` : `removed the assignee`
-    case `label_added`:
-      return `added a label`
-    case `label_removed`:
-      return `removed a label`
-    case `pr_opened`:
-      return `opened a pull request`
-    case `pr_merged`:
-      return `merged the pull request`
-    default:
-      return type.replace(/_/g, ` `)
-  }
-}
 
 function AdminTeamDetail() {
   const router = useRouter()
@@ -412,10 +394,14 @@ function AdminTeamDetail() {
                   </span>
                   <span className="truncate">
                     <span className="font-medium text-foreground">
-                      {e.actorName || e.actorEmail || `Someone`}
+                      {e.actorName ||
+                        e.actorEmail ||
+                        issueEventActorFallback(
+                          (e.payload ?? null) as Record<string, unknown> | null
+                        )}
                     </span>
                     {` `}
-                    {eventText(
+                    {issueEventPhrase(
                       e.type,
                       (e.payload ?? null) as Record<string, unknown> | null
                     )}

@@ -332,10 +332,14 @@ public final class AuthApi: Sendable {
     // (desktop `open_register` parity) — the app hands off to the browser
     // instead of reimplementing sign-up/reset. Static so a login screen can
     // build them from the instance URL alone; nil for a blank instance URL.
+    // EXP-759: `ref=ios-app` rides the register URL so the web signup claims
+    // it as the signup source (users.signup_ref) — the only way to know a
+    // signup STARTED in this app, since the account itself is created in the
+    // browser. Android and desktop send their own tokens.
 
     public static func registerUrl(instanceUrl: String?) -> URL? {
         guard let base = WebLinks.normalizedBase(instanceUrl) else { return nil }
-        return URL(string: "\(base)/auth/register")
+        return URL(string: "\(base)/auth/register?ref=ios-app")
     }
 
     public static func forgotPasswordUrl(instanceUrl: String?) -> URL? {

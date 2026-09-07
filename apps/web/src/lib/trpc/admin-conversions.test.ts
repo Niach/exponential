@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/node-postgres"
 import { Pool } from "pg"
-import { buildSignupSourcesQuery } from "./admin-conversions"
+import {
+  buildSignupCohortQuery,
+  buildSignupJourneyQuery,
+  buildSignupSourcesQuery,
+} from "./admin-conversions"
 import type { Context } from "@/lib/trpc"
 
 // EXP-373: /admin/conversions blackscreened because the signup-sources query
@@ -43,5 +47,73 @@ describe(`buildSignupSourcesQuery`, () => {
     expect(text).toContain(`"paid_users"`)
     expect(text).toMatch(/group by "conversion_events"\."user_id"/)
     expect(text).not.toContain(`exists`)
+  })
+})
+
+// EXP-759: the signup cohort follows the same grouped-join rule. Every stage
+// is a 1:0..1 subquery LEFT JOINed on a fully qualified users.id — never a
+// correlated subquery in the select list. Drizzle emits a subquery's aliased
+// columns UNQUALIFIED in select-list sql`` templates ("last_board_at", not
+// "b"."last_board_at"), so every alias must be unique across the whole join
+// (users has no column by those names) — pinned here too.
+const STAGE_JOINS = [
+  `"m"."user_id" = "users"."id"`,
+  `"b"."user_id" = "users"."id"`,
+  `"i"."creator_id" = "users"."id"`,
+  `"inv"."invited_by_id" = "users"."id"`,
+  `"d"."user_id" = "users"."id"`,
+  `"rv"."user_id" = "users"."id"`,
+  `"ucp"."user_id" = "users"."id"`,
+  `"paid"."user_id" = "users"."id"`,
+]
+
+describe(`buildSignupCohortQuery`, () => {
+  const { sql: text } = buildSignupCohortQuery(
+    db,
+    sql`now() - make_interval(days => 30)`
+  ).toSQL()
+
+  it(`joins every stage on qualified user ids and uses no exists`, () => {
+    for (const join of STAGE_JOINS) expect(text).toContain(join)
+    expect(text).not.toContain(`exists`)
+  })
+
+  it(`groups each stage subquery so the outer count stays exact`, () => {
+    expect(text).toMatch(/group by "team_members"\."user_id"/)
+    expect(text).toMatch(/group by "issues"\."creator_id"/)
+    expect(text).toMatch(/group by "team_invites"\."invited_by_id"/)
+    expect(text).toMatch(/group by "devices"\."user_id"/)
+    expect(text).toMatch(/group by "conversion_events"\."user_id"/)
+    expect(text).not.toMatch(/group by "users"/)
+  })
+
+  it(`keeps the users side of every select-list comparison qualified`, () => {
+    expect(text).toContain(`to_char("users"."created_at"`)
+    expect(text).toContain(`"last_board_at" > "users"."created_at"::timestamptz`)
+    expect(text).toContain(`"platform_last_seen_at"::date > "users"."created_at"::date`)
+    expect(text).toContain(`= 'return_visit'`)
+  })
+
+  it(`uses subquery aliases that cannot collide with a users column`, () => {
+    // Unqualified in the select list — a users column of the same name would
+    // make Postgres refuse the query as ambiguous.
+    for (const alias of [`last_board_at`, `last_day`, `platform_last_seen_at`]) {
+      expect(text).toContain(`as "${alias}"`)
+    }
+  })
+})
+
+describe(`buildSignupJourneyQuery`, () => {
+  const { sql: text } = buildSignupJourneyQuery(
+    db,
+    sql`now() - make_interval(days => 30)`
+  ).toSQL()
+
+  it(`is the newest-first per-user view of the same joins`, () => {
+    for (const join of [...STAGE_JOINS, `"s"."user_id" = "users"."id"`]) {
+      expect(text).toContain(join)
+    }
+    expect(text).not.toContain(`exists`)
+    expect(text).toMatch(/order by "users"\."created_at" desc limit/)
   })
 })

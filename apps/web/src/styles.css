@@ -1195,3 +1195,17 @@ html {
   background: oklch(1 0 0 / 24%);
   background-clip: content-box;
 }
+
+/* Hide a scrollbar entirely (EXP-759). UNLAYERED on purpose: the slim-scrollbar
+   rules above are unlayered, and unlayered declarations beat everything in
+   Tailwind's @layer utilities regardless of specificity — which is why the
+   `[scrollbar-width:none]` / `[&::-webkit-scrollbar]:hidden` utilities never
+   worked and the admin tab capsule grew an 8px bar (Chrome honours
+   scrollbar-width, Safari the webkit rule). */
+.scrollbar-none {
+  scrollbar-width: none;
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}

@@ -3,46 +3,38 @@
 // meter and formatters. Deliberately no chart library (same stance as
 // DayBars).
 
-/** CSS bar strip over the trailing `minutes` minutes. Rows are keyed by the
- * registry's UTC minute key (`YYYY-MM-DDTHH:MM`); missing minutes render as
- * the faint baseline. `unit` labels the tooltip. */
+import { BarStrip, type StripBar } from "./-shared"
+
+/** Bar strip over the trailing `minutes` minutes (BarStrip from -shared,
+ * EXP-759). Rows are keyed by the registry's UTC minute key
+ * (`YYYY-MM-DDTHH:MM`); missing minutes render as the faint stub. `format`
+ * renders the value ("312 requests", "45 ms"); `detail` adds a breakdown
+ * line to the readout for that minute. */
 export function MinuteBars({
   rows,
   minutes = 60,
-  unit = ``,
+  format,
+  detail,
 }: {
-  rows: { minute: string; count: number }[]
+  rows: { minute: string; value: number }[]
   minutes?: number
-  unit?: string
+  format: (value: number) => string
+  detail?: (minute: string) => string | undefined
 }) {
-  const byMinute = new Map(rows.map((r) => [r.minute, r.count]))
+  const byMinute = new Map(rows.map((r) => [r.minute, r.value]))
   const nowMinute = Math.floor(Date.now() / 60_000)
-  const filled: { minute: string; count: number }[] = []
+  const bars: StripBar[] = []
   for (let i = minutes - 1; i >= 0; i--) {
     const key = new Date((nowMinute - i) * 60_000).toISOString().slice(0, 16)
-    filled.push({ minute: key, count: byMinute.get(key) ?? 0 })
+    bars.push({
+      key,
+      label: `${key.slice(11)} UTC${i === 0 ? ` (now)` : ``}`,
+      value: byMinute.get(key) ?? 0,
+      detail: detail?.(key),
+    })
   }
-  const max = Math.max(1, ...filled.map((d) => d.count))
   return (
-    <div className="flex h-12 items-end gap-px">
-      {filled.map((d) => (
-        <div
-          key={d.minute}
-          className="flex h-full flex-1 flex-col justify-end"
-          title={`${d.minute.slice(11)} UTC: ${d.count}${unit ? ` ${unit}` : ``}`}
-        >
-          <div
-            className={
-              d.count > 0 ? `rounded-[1px] bg-primary` : `rounded-[1px] bg-muted`
-            }
-            style={{
-              height:
-                d.count > 0 ? `${Math.max(10, (d.count / max) * 100)}%` : `2px`,
-            }}
-          />
-        </div>
-      ))}
-    </div>
+    <BarStrip bars={bars} heightClass="h-14" gapClass="gap-px" format={format} />
   )
 }
 

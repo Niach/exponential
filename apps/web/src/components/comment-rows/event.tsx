@@ -2,6 +2,7 @@ import type { IssueEvent, Label, Board, User } from "@/db/schema"
 import { displayUserName } from "@/lib/user-display"
 import { conceptIcon } from "@/lib/icons.generated"
 import { relationEventParts } from "@/lib/issue-relations"
+import { priorityLabel, statusLabel } from "@/lib/issue-event-labels"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { StatusIcon } from "@/components/issue-properties/status-dropdown"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
@@ -20,27 +21,8 @@ const PriorityChangedIcon = conceptIcon(`event-priority-changed`)
 const RelationAddedIcon = conceptIcon(`event-relation-added`)
 const RelationRemovedIcon = conceptIcon(`event-relation-removed`)
 
-// Priority wire values render capitalized ("urgent" → "Urgent"); anything
-// unexpected falls back to the raw string.
-function priorityLabel(value: unknown): string {
-  const raw = String(value ?? ``)
-  return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : `None`
-}
-
-// EXP-314: `status_changed` payloads now carry the human status NAMES
-// (`fromName`/`toName`) alongside the legacy enum anchors, so a custom status
-// reads as itself. Rows written before EXP-314 have no names — fall back to
-// the enum munge. Retired enum tokens keep their historic label (EXP-685:
-// `todo` is gone from the vocabulary, but old events still name it); iOS
-// EventPhrases, Android labelFor and desktop timeline.rs mirror this map.
-const RETIRED_STATUS_LABELS: Record<string, string> = { todo: `Todo` }
-
-function statusLabel(payload: Record<string, unknown>, side: `to` | `from`): string {
-  const name = payload[side === `to` ? `toName` : `fromName`]
-  if (typeof name === `string` && name.length > 0) return name
-  const token = String(payload[side] ?? ``)
-  return RETIRED_STATUS_LABELS[token] ?? token.replace(/_/g, ` `)
-}
+// Status/priority phrase helpers live in lib/issue-event-labels.ts (EXP-759)
+// so the admin team activity log reads the same names as this timeline.
 
 function optionalString(value: unknown): string | null {
   return typeof value === `string` && value.length > 0 ? value : null

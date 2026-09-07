@@ -318,7 +318,7 @@ final class WireDecodingTests: XCTestCase {
     func testAuthWebHandoffUrlsTrimTrailingSlash() {
         XCTAssertEqual(
             AuthApi.registerUrl(instanceUrl: "https://app.exponential.at/")?.absoluteString,
-            "https://app.exponential.at/auth/register"
+            "https://app.exponential.at/auth/register?ref=ios-app"
         )
         XCTAssertEqual(
             AuthApi.forgotPasswordUrl(instanceUrl: "https://app.exponential.at")?.absoluteString,

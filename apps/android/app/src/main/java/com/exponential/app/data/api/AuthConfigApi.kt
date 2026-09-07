@@ -32,11 +32,14 @@ data class AuthConfig(
  * Browser hand-off targets for the two password flows the app deliberately
  * does not host natively (desktop `open_register` parity): registration and
  * password reset are web flows. The instance URL's trailing slash is trimmed
- * so the joined path never doubles up.
+ * so the joined path never doubles up. EXP-759: `ref=android-app` rides the
+ * register URL so the web signup claims it as the signup source
+ * (users.signup_ref) — the account is created in the browser, so this is the
+ * only trace that the signup STARTED here.
  */
 object AuthWebUrls {
     fun register(instanceUrl: String): String =
-        "${instanceUrl.trimEnd('/')}/auth/register"
+        "${instanceUrl.trimEnd('/')}/auth/register?ref=android-app"
 
     fun forgotPassword(instanceUrl: String): String =
         "${instanceUrl.trimEnd('/')}/auth/forgot-password"

@@ -1,3 +1,4 @@
+import { useState } from "react"
 import {
   createFileRoute,
   Link,
@@ -16,7 +17,15 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { DayBars, formatDateTime, StatCard } from "./-shared"
+import { cn } from "@/lib/utils"
+import {
+  DayBars,
+  formatDate,
+  formatDateTime,
+  formatRelative,
+  PlatformPills,
+  StatCard,
+} from "./-shared"
 
 type WindowDays = 7 | 30 | 90
 
@@ -117,9 +126,11 @@ function AdminConversions() {
         <div>
           <h1 className="text-2xl font-bold">Conversions</h1>
           <p className="text-sm text-muted-foreground">
-            First-party funnel: period counts over the selected window, not
-            cohorts. Visitors are unique visitor-days (cookieless daily ids, bot
-            filtering is best-effort).
+            Two lenses. The cards and charts count EVENTS in the window (period
+            counts, not cohorts; visitors are unique visitor-days from
+            cookieless daily ids, bot filtering is best-effort). The signup
+            cohort below follows the USERS who signed up in the window through
+            onboarding by what they actually did.
           </p>
         </div>
         <div className="flex items-center gap-1">
@@ -139,24 +150,35 @@ function AdminConversions() {
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-        <StatCard label="Visitors" value={String(funnel.visitors)} />
+        <StatCard
+          label="Visitors"
+          value={String(funnel.visitors)}
+          hint="landing on / or /auth/*"
+        />
         <StatCard
           label="Signups"
           value={String(funnel.signups)}
-          hint={pct(funnel.signups, funnel.visitors)}
+          hint={`accounts created${pct(funnel.signups, funnel.visitors) ? ` · ${pct(funnel.signups, funnel.visitors)} of visitors` : ``}`}
         />
         <StatCard
           label="Activated"
           value={String(funnel.activated)}
-          hint={pct(funnel.activated, funnel.signups)}
+          hint={`created an issue or sent an invite${pct(funnel.activated, funnel.signups) ? ` · ${pct(funnel.activated, funnel.signups)} of signups` : ``}`}
         />
         <StatCard
           label="Paid"
           value={String(funnel.paid)}
-          hint={pct(funnel.paid, funnel.activated)}
+          hint={`first subscription activations${pct(funnel.paid, funnel.activated) ? ` · ${pct(funnel.paid, funnel.activated)} of activated` : ``}`}
         />
-        <StatCard label="Canceled" value={String(funnel.canceled)} />
+        <StatCard
+          label="Canceled"
+          value={String(funnel.canceled)}
+          hint="subscriptions ended"
+        />
       </div>
+
+      <SignupCohortCard cohort={overview.cohort} days={days} />
+      <RecentSignupsCard rows={overview.recentSignups} days={days} />
 
       <div className="grid gap-3 md:grid-cols-2">
         <ChartCard
@@ -172,10 +194,11 @@ function AdminConversions() {
           unit="signup"
         />
         <ChartCard
-          title={`Activations (last ${days} days)`}
+          title={`Activation events (last ${days} days)`}
           rows={activationRows}
           days={days}
           unit="activation event"
+          description="first_issue_created + invite_sent rows per day; the Activated card above counts distinct users, so the two need not agree."
         />
         <ChartCard
           title={`Paid conversions (last ${days} days)`}
@@ -330,11 +353,13 @@ function ChartCard({
   rows,
   days,
   unit,
+  description,
 }: {
   title: string
   rows: { day: string; count: number }[]
   days: number
   unit: string
+  description?: string
 }) {
   const total = rows.reduce((sum, row) => sum + row.count, 0)
   return (
@@ -344,10 +369,247 @@ function ChartCard({
         <CardDescription className="text-xs">
           {total} {unit}
           {total === 1 ? `` : `s`}
+          {description ? ` — ${description}` : ``}
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <DayBars rows={rows} days={days} />
+        <DayBars rows={rows} days={days} unit={unit} />
+      </CardContent>
+    </Card>
+  )
+}
+
+// ── Signup cohort (EXP-759) ───────────────────────────────────────────────────
+
+type Overview = Awaited<ReturnType<typeof trpc.adminConversions.overview.query>>
+type Cohort = Overview[`cohort`]
+
+interface Stage {
+  key: keyof Cohort
+  label: string
+  detail: string
+}
+
+// The onboarding chain (EXP-725: team → board → invite → devices) plus the
+// two outcomes that matter: coming back and paying. Each stage is computed
+// from state tables, so it does not depend on which steps emit events.
+const STAGES: Stage[] = [
+  { key: `signups`, label: `Signed up`, detail: `accounts created in the window` },
+  { key: `withTeam`, label: `Has a team`, detail: `created one or accepted an invite` },
+  { key: `onboarded`, label: `Finished onboarding`, detail: `created a board in the wizard, or joined via invite` },
+  { key: `boardAfterSignup`, label: `Created a board`, detail: `a board in their team newer than the signup` },
+  { key: `withIssue`, label: `Created an issue`, detail: `at least one issue with them as creator` },
+  { key: `withInvite`, label: `Invited someone`, detail: `minted at least one team invite` },
+  { key: `withDevice`, label: `Linked a device`, detail: `registered a desktop or CLI daemon` },
+  { key: `returnedAnyClient`, label: `Came back`, detail: `any client seen on a later day than the signup` },
+  { key: `paid`, label: `Paid`, detail: `member of a team with a live subscription` },
+]
+
+function SignupCohortCard({ cohort, days }: { cohort: Cohort; days: number }) {
+  const [hover, setHover] = useState<number | null>(null)
+  const total = cohort.signups
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm">
+          Signup cohort (signed up in the last {days} days)
+        </CardTitle>
+        <CardDescription className="text-xs">
+          {total} {total === 1 ? `user` : `users`} followed through onboarding by
+          what they did, not by which events fired. Hover a stage for the drop
+          from the previous one. “Came back” via web page loads only:{` `}
+          {cohort.returned}.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {total === 0 ? (
+          <p className="text-sm text-muted-foreground">No signups in this window.</p>
+        ) : (
+          <div className="space-y-1.5" onPointerLeave={() => setHover(null)}>
+            {STAGES.map((stage, i) => {
+              const value = cohort[stage.key]
+              const prev = i === 0 ? total : cohort[STAGES[i - 1].key]
+              const share = total > 0 ? value / total : 0
+              const isHover = hover === i
+              return (
+                <div
+                  key={stage.key}
+                  className="grid grid-cols-[150px_1fr_110px] items-center gap-3 text-xs"
+                  onPointerEnter={() => setHover(i)}
+                  title={`${stage.label}: ${value} of ${total} (${pct(value, total) ?? `0%`})`}
+                >
+                  <div className={cn(`truncate`, isHover && `text-foreground`)}>
+                    {stage.label}
+                  </div>
+                  <div className="relative h-4 overflow-hidden rounded-[3px] bg-muted">
+                    <div
+                      className={cn(
+                        `h-full rounded-[3px] bg-primary transition-opacity`,
+                        hover !== null && !isHover && `opacity-50`
+                      )}
+                      style={{ width: `${Math.max(share * 100, value > 0 ? 1 : 0)}%` }}
+                    />
+                  </div>
+                  <div className="text-right tabular-nums">
+                    <span className="font-semibold text-foreground">{value}</span>
+                    <span className="text-muted-foreground">
+                      {` `}
+                      {pct(value, total) ?? `0%`}
+                    </span>
+                  </div>
+                  {isHover && (
+                    <div className="col-span-3 -mt-0.5 text-muted-foreground">
+                      {stage.detail}
+                      {i > 0 && prev > 0
+                        ? ` · ${prev - value} of ${prev} dropped after “${STAGES[i - 1].label}” (${pct(value, prev)} kept)`
+                        : ``}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function Check({ on, label }: { on: boolean; label?: string }) {
+  return (
+    <span
+      className={cn(`tabular-nums`, on ? `text-foreground` : `text-muted-foreground/60`)}
+      aria-label={on ? `yes` : `no`}
+    >
+      {label ?? (on ? `✓` : `–`)}
+    </span>
+  )
+}
+
+const JOURNEY_GRID = `md:grid-cols-[minmax(160px,1.4fr)_90px_minmax(90px,1fr)_110px_48px_56px_56px_56px_56px_56px_90px]`
+
+function RecentSignupsCard({
+  rows,
+  days,
+}: {
+  rows: Overview[`recentSignups`]
+  days: number
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm">Recent signups</CardTitle>
+        <CardDescription className="text-xs">
+          Newest {rows.length} of the last {days} days, one row per account: how
+          far each one got. Counts, not booleans, where it helps (issues,
+          invites, devices).
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No signups yet.</p>
+        ) : (
+          <div className="rounded-md border overflow-x-auto">
+            <div className="min-w-[980px]">
+              <div
+                className={`grid ${JOURNEY_GRID} items-center gap-2 border-b px-3 py-2 text-xs font-medium text-muted-foreground`}
+              >
+                <div>User</div>
+                <div>Signed up</div>
+                <div>Source</div>
+                <div>Platforms</div>
+                <div className="text-center">Team</div>
+                <div className="text-center">Board</div>
+                <div className="text-right">Issues</div>
+                <div className="text-right">Invites</div>
+                <div className="text-right">Devices</div>
+                <div className="text-center">Back</div>
+                <div>Last active</div>
+              </div>
+              {rows.map((row) => (
+                <div
+                  key={row.id}
+                  className={`grid ${JOURNEY_GRID} items-center gap-2 border-b px-3 py-2 text-xs last:border-b-0`}
+                >
+                  <div className="min-w-0">
+                    <Link
+                      to="/admin/users/$userId"
+                      params={{ userId: row.id }}
+                      className="block truncate hover:underline"
+                      title={row.email}
+                    >
+                      {row.name || row.email}
+                    </Link>
+                    {row.name && (
+                      <div className="truncate text-muted-foreground">{row.email}</div>
+                    )}
+                  </div>
+                  <div
+                    className="text-muted-foreground"
+                    title={formatDateTime(row.createdAt)}
+                  >
+                    {formatDate(row.createdAt)}
+                  </div>
+                  <div
+                    className="truncate text-muted-foreground"
+                    title={row.signupReferrer ?? undefined}
+                  >
+                    {row.signupRef ?? row.signupUtmSource ?? `(direct)`}
+                  </div>
+                  <div>
+                    <PlatformPills platforms={row.platforms} />
+                  </div>
+                  <div className="text-center">
+                    <Check on={row.teams > 0} label={row.teams > 1 ? String(row.teams) : undefined} />
+                  </div>
+                  <div
+                    className="text-center"
+                    title={
+                      row.boards > 0 && !row.boardAfterSignup
+                        ? `joined a team that already had boards`
+                        : undefined
+                    }
+                  >
+                    <Check
+                      on={row.boards > 0}
+                      label={row.boards > 0 && !row.boardAfterSignup ? `joined` : undefined}
+                    />
+                  </div>
+                  <div className="text-right">
+                    <Check on={row.issues > 0} label={row.issues > 0 ? String(row.issues) : undefined} />
+                  </div>
+                  <div className="text-right">
+                    <Check on={row.invites > 0} label={row.invites > 0 ? String(row.invites) : undefined} />
+                  </div>
+                  <div className="text-right">
+                    <Check on={row.devices > 0} label={row.devices > 0 ? String(row.devices) : undefined} />
+                  </div>
+                  <div
+                    className="text-center"
+                    title={`${row.returnDays} web return-visit day${row.returnDays === 1 ? `` : `s`}`}
+                  >
+                    <Check
+                      on={
+                        row.returnDays > 0 ||
+                        (row.lastActiveAt !== null &&
+                          new Date(row.lastActiveAt).getTime() -
+                            new Date(row.createdAt).getTime() >
+                            86_400_000)
+                      }
+                    />
+                  </div>
+                  <div
+                    className="text-muted-foreground"
+                    title={row.lastActiveAt ? formatDateTime(row.lastActiveAt) : undefined}
+                  >
+                    {formatRelative(row.lastActiveAt)}
+                    {row.paidTeams > 0 ? ` · paid` : ``}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   )
