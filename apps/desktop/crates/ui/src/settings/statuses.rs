@@ -1,4 +1,4 @@
-//! Settings → Issue statuses (EXP-314).
+//! Settings → Statuses (EXP-314; EXP-771 took the web's shorter name).
 //!
 //! Web parity: `components/team/statuses-section.tsx` — one section per
 //! `IssueStatusCategory::DISPLAY_ORDER` entry, rows carrying the tinted
@@ -958,7 +958,9 @@ impl Render for StatusesPane {
         let statuses = self.scoped_statuses(cx);
         let counts = self.issue_counts(cx);
 
-        let mut body = section(cx).child(card_title("Issue statuses"));
+        // EXP-771: the web's title, which is just "Statuses" — the pane and
+        // the nav row it hangs off must read the same.
+        let mut body = section(cx).child(card_title("Statuses"));
 
         if statuses.is_empty() {
             return v_flex().child(body.child(

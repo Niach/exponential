@@ -250,10 +250,13 @@ impl GeneralPane {
         if plan.plan == "unlimited" {
             return None; // self-hosted: no billing surface at all (web parity)
         }
+        // Web `PLAN_LABELS` (billing-section.tsx). EXP-771: this still named
+        // the retired `pro`/`business` tiers, so the ONE paid tier fell to the
+        // fallback arm and the chip read a raw lowercase "team".
         let plan_label: SharedString = match plan.plan.as_str() {
             "free" => "Free".into(),
-            "pro" => "Pro".into(),
-            "business" => "Business".into(),
+            "team" => "Team".into(),
+            "unlimited" => "Unlimited".into(),
             other => other.to_string().into(),
         };
         let plan_chip = div()

@@ -483,7 +483,27 @@ impl Render for StoragePane {
         };
         self.ensure_loaded(&team_id, cx);
 
-        let mut body = section(cx).child(card_title("Storage"));
+        // EXP-771: the web's description under the title — the pane's rows
+        // never said what a deletion costs, and it is permanent.
+        // EXP-771: the web's description under the title — the rows never
+        // said what a deletion costs, and it is permanent. Written out here
+        // rather than through `section_description`: that recipe carries the
+        // `px_1` of a `glass_section_header`, and this pane's heading is a
+        // flush `card_title`.
+        let mut body = section(cx).child(
+            v_flex()
+                .gap_0p5()
+                .child(card_title("Storage"))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().foreground.opacity(0.5))
+                        .child(
+                            "Files and images attached to this team's issues. Deleting \
+                             an attachment is permanent.",
+                        ),
+                ),
+        );
 
         // Refresh lives at the TOP of the pane (EXP-316) — inside the
         // summary/sweep header row once the list is up, on its own row while
