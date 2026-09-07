@@ -101,10 +101,11 @@ const PANEL_MARGIN_TOP: f32 = 6.;
 /// hairline) and is a bare band on the ground now, exactly like the
 /// decoration band above — so the gap between card and band is the same
 /// tighter [`PANEL_MARGIN_TOP`] value, and the band itself ends flush at the
-/// window bottom. A window that renders NO bar keeps the full
-/// [`PANEL_MARGIN`] there; on the desktop the bar always renders (Chat and
-/// `+` stay one click away, `SessionBar::render`), so this is the value the
-/// signed-in shell always takes.
+/// window bottom. The bar ALWAYS renders under the panel here (Chat and `+`
+/// stay one click away even with no session, `SessionBar::render`), so the
+/// shell applies this unconditionally — the bar-less 10px case belongs to the
+/// web twin, which toggles the two margins (`app-shell.ts`
+/// `mainPanelClass(docked)`).
 const PANEL_MARGIN_BOTTOM_BAR: f32 = 6.;
 
 /// EXP-456: whether this window is in the tab-less Settings mode — the left

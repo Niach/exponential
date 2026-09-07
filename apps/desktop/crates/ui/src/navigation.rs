@@ -592,8 +592,16 @@ fn navigate_inner(window: &Window, cx: &mut App, screen: Screen, origin: Pending
 /// Swap the current screen IN PLACE (EXP-48 prev/next issue switcher): no
 /// back-stack push, and the screens panel replaces the active tab's identity
 /// instead of opening a new tab (via the consumed [`take_replaced_screen`]
-/// marker). No-op when already on `screen`.
+/// marker). No-op when already on `screen`, and a REVEAL (EXP-771) when
+/// `screen` already has its own undocked window.
 pub fn replace_screen(window: &Window, cx: &mut App, screen: Screen) {
+    // EXP-771: the same reveal rule as `navigate_inner` — stepping onto an
+    // issue that already has its own undocked window raises THAT window and
+    // leaves this tab on the screen it was showing; swapping its identity
+    // here would re-create the undocked issue as a docked tab beside it.
+    if reveals_undocked_window(&screen) && crate::undock::reveal_screen(&screen, cx) {
+        return;
+    }
     let Some(nav) = nav_for_window_readonly(window, cx) else {
         return;
     };

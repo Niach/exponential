@@ -2484,6 +2484,148 @@ mod multi_window_tests {
         }
     }
 
+    /// A window ROOT that owns an [`IssueDetailView`] without ever rendering
+    /// it. The view still lives in this window — `observe_in` resolves the
+    /// observer's own window, so the echo path runs here exactly as it does
+    /// in a real one — but nothing lays out the title `Textarea`, and that is
+    /// what makes a FOCUSED field testable: `gpui_component`'s Input syncs
+    /// the macOS content type for the focused input while rendering
+    /// (`sync_native_content_type`), which asks the platform window for an
+    /// `NSView` and a test window answers `unimplemented!("Test Windows are
+    /// not backed by a real platform window")`. Focus itself needs no frame —
+    /// `FocusHandle::is_focused` only compares ids against `Window::focus`.
+    struct HeadlessDetailWindow {
+        detail: Entity<IssueDetailView>,
+    }
+
+    impl Render for HeadlessDetailWindow {
+        fn render(
+            &mut self,
+            _window: &mut Window,
+            _cx: &mut gpui::Context<Self>,
+        ) -> impl IntoElement {
+            gpui::div()
+        }
+    }
+
+    /// The FIX half, through the REAL path: `sync_from_issue` in a second
+    /// window whose title input is focused.
+    ///
+    /// A gpui test window starts INACTIVE (`TestWindow::activate` is what
+    /// flips the flag `is_window_active` reads), which is exactly the state
+    /// the bug lived in: focus left behind in a window the user walked away
+    /// from. Phase 1 is the regression — a focused-but-idle field there used
+    /// to swallow every later echo, forever. Phase 2 is the inverse: with an
+    /// uncommitted local edit in the same field, the echo must NOT clobber
+    /// it.
+    ///
+    /// The third case — focused in the ACTIVE window — is NOT reachable
+    /// headlessly and stays covered by the pure
+    /// [`a_focused_field_only_outranks_the_server_while_it_is_live`]:
+    /// activating a test window runs gpui's activation observer, which ends
+    /// in `window.refresh()`, and the draw that follows hits the same native
+    /// input path [`HeadlessDetailWindow`] exists to avoid.
+    #[gpui::test]
+    async fn a_background_focused_title_takes_the_echo_unless_it_holds_a_draft(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+            seed_issue(cx, "i1", "first", "body one");
+        });
+
+        // The shell tab (rendered, nothing focused — the leak-check escape
+        // hatch of `an_issue_echo_reseeds_every_window` applies here too) and
+        // the floating window whose field the user last clicked into.
+        let (docked, cx) = cx.add_window_view(|window, cx| IssueDetailView::new(window, cx));
+        let floating = cx.add_window(|window, cx| HeadlessDetailWindow {
+            detail: cx.new(|cx| IssueDetailView::new(window, cx)),
+        });
+        cx.update(|window, app| {
+            docked.update(app, |view, cx| view.set_issue("i1".into(), window, cx));
+        });
+        floating
+            .update(&mut cx.cx, |root, window, cx| {
+                root.detail
+                    .update(cx, |view, cx| view.set_issue("i1".into(), window, cx));
+            })
+            .unwrap();
+        cx.run_until_parked();
+
+        // The click into the floating window's title field.
+        floating
+            .update(&mut cx.cx, |root, window, cx| {
+                let handle = root.detail.read(cx).title_input.read(cx).focus_handle(cx);
+                window.focus(&handle, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+
+        let read_floating = |cx: &mut gpui::VisualTestContext| {
+            floating
+                .update(&mut cx.cx, |root, window, cx| {
+                    let view = root.detail.read(cx);
+                    let input = view.title_input.read(cx);
+                    (
+                        input.focus_handle(cx).is_focused(window),
+                        window.is_window_active(),
+                        view.synced_title.clone(),
+                        input.value().to_string(),
+                    )
+                })
+                .unwrap()
+        };
+
+        let (focused, active, _, _) = read_floating(cx);
+        assert!(
+            focused,
+            "the title field must be focused or this tests nothing"
+        );
+        assert!(!active, "and its window must be the backgrounded one");
+
+        // Phase 1: focused but idle in a background window — the echo lands.
+        cx.cx.update(|cx| seed_issue(cx, "i1", "second", "body two"));
+        cx.run_until_parked();
+        let (_, _, synced, shown) = read_floating(cx);
+        assert_eq!(
+            synced, "second",
+            "a focused-but-idle background field must not block the echo"
+        );
+        assert_eq!(
+            shown, "second",
+            "the input buffer re-seeds too, not just the mirror"
+        );
+
+        // Phase 2: the same field now holds something typed and uncommitted.
+        floating
+            .update(&mut cx.cx, |root, window, cx| {
+                let input = root.detail.read(cx).title_input.clone();
+                input.update(cx, |input, cx| input.set_value("my draft", window, cx));
+            })
+            .unwrap();
+        cx.cx.update(|cx| seed_issue(cx, "i1", "third", "body three"));
+        cx.run_until_parked();
+        let (_, _, synced, shown) = read_floating(cx);
+        assert_eq!(shown, "my draft", "an uncommitted draft outranks the echo");
+        assert_eq!(
+            synced, "second",
+            "and the mirror stays stale, so the next accepted sync still applies"
+        );
+        // The window holding no draft keeps tracking the row.
+        let docked_title = cx.update(|_window, app| docked.read(app).synced_title.clone());
+        assert_eq!(docked_title, "third");
+
+        // The skip is not a one-shot: a second echo must not sneak past it.
+        cx.cx.update(|cx| seed_issue(cx, "i1", "fourth", "body four"));
+        cx.run_until_parked();
+        let (_, _, synced, shown) = read_floating(cx);
+        assert_eq!(shown, "my draft");
+        assert_eq!(synced, "second");
+    }
+
     /// The FIX half. gpui never clears a window's focus when the window is
     /// deactivated, so "focused" alone is not "the user is typing here".
     #[test]

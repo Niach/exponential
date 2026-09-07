@@ -393,6 +393,14 @@ impl UndockedScreenWindow {
         let origin = self.origin;
         let this_window = window.window_handle();
         cx.defer(move |cx| {
+            // Drop the registry entry FIRST. This window is still open here
+            // (it closes at the bottom of this closure), so a `navigate` that
+            // still saw the screen registered would take the EXP-771 reveal
+            // path — raise this window, open no tab — and the screen would
+            // then vanish with the window. Unregistering is idempotent, so
+            // `on_release`'s own unregister stays balanced (the rule is
+            // pinned by `unregistering_a_screen_stops_it_revealing`).
+            unregister_screen(&screen, cx);
             if let Some(target) = find_team_window(Some(origin), cx) {
                 let _ = target.update(cx, |_, window, cx| {
                     navigation::navigate(window, cx, screen.clone());
@@ -651,4 +659,60 @@ pub(crate) fn restore_tab_in_owner(
             }
         });
     });
+}
+
+/// EXP-771 — the registry rule reattach depends on.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Stub;
+
+    impl Render for Stub {
+        fn render(
+            &mut self,
+            _window: &mut Window,
+            _cx: &mut gpui::Context<Self>,
+        ) -> impl IntoElement {
+            div()
+        }
+    }
+
+    /// `UndockedScreenWindow::reattach` navigates in the SHELL window while
+    /// its own window is still open, and `navigation::navigate` asks
+    /// [`reveal_screen`] before it opens a tab. So the reattach has to
+    /// unregister first: while the entry is there the navigation is a reveal
+    /// of the very window that is about to close (no tab anywhere), and only
+    /// once it is gone does the navigation open the tab. Unregistering twice
+    /// is a no-op, so the window's `on_release` hook stays balanced.
+    #[gpui::test]
+    fn unregistering_a_screen_stops_it_revealing(cx: &mut gpui::TestAppContext) {
+        let window = cx.add_window(|_, _| Stub);
+        cx.update(|cx| {
+            init(cx);
+            let screen = Screen::IssueDetail {
+                issue_id: "i1".into(),
+            };
+            let state = state(cx).expect("init installed the registry");
+            state.update(cx, |state, cx| {
+                state.screens.insert(screen.clone(), window.into());
+                cx.notify();
+            });
+
+            assert!(
+                reveal_screen(&screen, cx),
+                "a registered screen reveals its window — this is what would \
+                 swallow the reattach navigation"
+            );
+            unregister_screen(&screen, cx);
+            assert!(
+                !reveal_screen(&screen, cx),
+                "after the reattach unregisters, the navigation must fall \
+                 through to opening a tab"
+            );
+            // The window's `on_release` unregisters again.
+            unregister_screen(&screen, cx);
+            assert!(!reveal_screen(&screen, cx));
+        });
+    }
 }

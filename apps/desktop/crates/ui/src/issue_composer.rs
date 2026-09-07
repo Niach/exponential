@@ -689,11 +689,23 @@ impl IssueComposer {
             .gap_2()
             .px_3()
             .py_2p5()
-            // Escape closes without filing anything. A raw key handler rather
-            // than an action: the composer is inline chrome with no key
-            // context of its own, and an app-wide `escape` binding would
-            // fight every editor on the page. (The dialog presentation has no
-            // handler here — its window answers `CancelNativeDialog`.)
+            // Escape closes without filing anything, from the card itself,
+            // the title input and the chips — every focus target inside here
+            // that does not BIND escape. It deliberately does not reach in
+            // from the description editor: `gpui-markdown-editor` binds
+            // escape to `DismissTransientUi` in its own key context, gpui
+            // dispatches a matched binding BEFORE any key-down listener and a
+            // bubble-phase action handler stops propagation by default, so
+            // the keystroke is consumed there — which is the behaviour we
+            // want (escape first walks the editor's popups and format rail
+            // back). The ✕ beside the title is the dismissal that works from
+            // anywhere, including mid-paragraph.
+            //
+            // A raw key handler rather than an action: the composer is inline
+            // chrome with no key context of its own, and an app-wide `escape`
+            // binding would fight every editor on the page. (The dialog
+            // presentation has no handler here — its window answers
+            // `CancelNativeDialog`.)
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _window, cx| {
                 if event.keystroke.key == "escape" {
                     cx.stop_propagation();

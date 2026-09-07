@@ -3,11 +3,11 @@
 //! pipeline every composer runs.
 //!
 //! Two surfaces use it: the full-window [`crate::create_issue_dialog`] and
-//! the inline sub-issue composer ([`crate::sub_issue_composer`]). Everything
-//! that is genuinely shared lives here — the chips, the wire input the picks
-//! build, and the create → image-resolution → file-upload → row-visible
-//! sequence — so the composer is a form and a submit button rather than a
-//! second copy of the dialog.
+//! the inline sub-issue composer, both presentations of the one
+//! [`crate::issue_composer`]. Everything that is genuinely shared lives here
+//! — the chips, the wire input the picks build, and the create →
+//! image-resolution → file-upload → row-visible sequence — so the composer is
+//! a form and a submit button rather than a second copy of the dialog.
 //!
 //! What deliberately stays with each surface: layout, the title input, the
 //! description editor and what happens AFTER the row exists (the dialog
