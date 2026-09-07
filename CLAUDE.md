@@ -13,13 +13,13 @@ apps/
 ├── web/        # TanStack Start app (the issue tracker)
 ├── push-relay/ # Push notification relay (Hono/Bun)
 ├── steer-relay/# Remote-start + live-steer WS hub (Bun; in-memory presence/rooms)
-├── marketing/  # Vite + React; owns the Remotion ClosedLoop hero movie (src/movie/)
+├── marketing/  # Vite + React; owns the Remotion ClosedLoop hero (src/movie/)
 ├── ios/        # SwiftUI (Tuist + GRDB; ExpCore/ExpUI)
 ├── android/    # Kotlin / Jetpack Compose
 ├── styleguide/ # Shot gallery (shots/ + @exp/view-catalog) + code-rendered Components group
 └── desktop/    # Rust IDE (gpui + gpui-component + rio-vt; embedded coding sessions)
-                # + crates/cli: the headless `exponential` CLI/daemon (EXP-403), gpui-free via the
-                # default-on `gpui` cargo feature on terminal/coding; own cli-v* release train
+                # + crates/cli: headless `exponential` CLI/daemon (EXP-403; gpui-free via the
+                # default-on `gpui` feature on terminal/coding); own cli-v* release train
 packages/
 ├── db-schema/         # Drizzle schema + shared zod/domain types
 ├── design-tokens/     # OKLCH→sRGB + motion tokens → Compose/SwiftUI/Rust
@@ -39,7 +39,7 @@ selfhost/              # Pull-an-image compose; INSTALL.md = agent-followable ru
 Dockerfile{,.push-relay,.steer-relay}   # build context = repo root
 ```
 
-Workspace names: `@exp/<dir>`; `apps/desktop` is a Cargo workspace, not a bun workspace. The only movie is the ClosedLoop hero in `apps/marketing/src/movie/`, embedded via `@remotion/player` in the lazy `LoopMoviePlayer` chunk; `LoopMovie.tsx` stays remotion-free (`scripts/prerender.tsx` renders under Bun).
+Workspace names: `@exp/<dir>`; `apps/desktop` is a Cargo workspace, not a bun workspace. The only movie is the ClosedLoop hero in `apps/marketing/src/movie/` (`@remotion/player` in the lazy `LoopMoviePlayer` chunk; `LoopMovie.tsx` stays remotion-free, `scripts/prerender.tsx` renders under Bun).
 
 **Dead, never reintroduce:** releases + footage/fixtures (EXP-106), an `@exp/video` workspace, workspace/project vocabulary + `/w/`/`/projects/` URLs (EXP-180, no redirects), board types, `agent_runs` + agent-core + the companion daemon + the synthetic `isAgent` identity, the `assigned-issues` shape, `run_configs`, the one-shot `claude_task` primitive (EXP-259), `isProtected` boards + dogfood cases (EXP-364), due-date time-of-day (REV2-49), `SELF_HOSTED` (now `CLOUD_INSTANCE`), env vars `GOOGLE_CALENDAR_ENABLED`/`DOGFOOD_REPO`, the builtin `todo` status (EXP-685), the skip-permissions setting (EXP-690).
 
@@ -96,7 +96,7 @@ bun run shots                                  # all-platform view captures → 
 bun run screenshots:store                      # ASO slide compositor → store upload dirs
 ```
 
-Workspace scripts: `bun --filter @exp/web <script>`; plain `cargo` from `apps/desktop/`. Generated `*.generated.rs` files are committed. Do NOT run `bun run lint` (its --fix corrupts `typeof import()` sites, EXP-13).
+Workspace scripts: `bun --filter @exp/web <script>`; plain `cargo` from `apps/desktop/` (`*.generated.rs` committed). Never `bun run lint` (its --fix corrupts `typeof import()` sites, EXP-13).
 
 ## Deploys
 
@@ -104,13 +104,13 @@ Everything runs on Coolify (`coolify.home.straehhuber.com`, Hetzner). **Coolify 
 
 **The operations runbook lives OUTSIDE the repo** (infra uuids/domains stay out of git): buckets, staging, relay `TRUST_PROXY=true`, per-platform release/signing steps, the release checklist. Consult it before anything deploy-shaped; never re-inline it.
 
-Every user-facing release PREPENDS a `ChangelogEntry` to `lib/changelog.ts` (gated by `changelog.test.ts`; the head id drives "What's new" on web AND the desktop mirror `crates/ui/src/changelog.rs`).
+Every user-facing release PREPENDS a `ChangelogEntry` to `lib/changelog.ts` (gated by `changelog.test.ts`; head id drives "What's new" on web AND the desktop mirror `crates/ui/src/changelog.rs`).
 
 After schema changes, always: `bun run migrate:generate && bun run migrate`. Custom SQL triggers (`db/out/custom/0001_triggers.sql`) auto-apply at every app boot (`bootstrap-cloud.ts` `applyCustomSql`, idempotent, self-hosted too); only never-booting contexts need manual psql (CI's schema job).
 
 ## Web App Structure (`apps/web/src/`)
 
-Trust the filesystem; this records only what `ls` can't tell you. Shadcn lives in `components/ui/`, feature components flat in `components/` (`agent-session.tsx` is the steer/activity view, no xterm). `lib/trpc/` is one file per router and `routes/api/trpc/$.ts` is the authoritative router list. In `lib/auth/`, `membership.ts` holds data lookups and `access.ts` authorization (`resolveTeamAccess`) — nothing else decides "can user X do Y". `lib/notification-email-policy.ts`/`-digest.ts`: push fires on create, email is a DIGEST of still-unread (DAILY at a user-chosen local hour, hourly legacy opt-in, atomic `emailed_at` claim, scheduled by `server-bun.ts`). Team routes under `t/$teamSlug/`: index, inbox (`?tab=my-issues` is a TAB, not a route), devices, actions, automations, reviews + `reviews/$issueIdentifier` (cross-board open-PR queue, confirmed one-click squash merge), support, sessions/$sessionId (fullscreen steering, EXP-740), chat (EXP-739), settings/*, boards/$boardSlug + issues/$issueIdentifier. Also `auth/consent.tsx` (MCP OAuth scope picker) and `invite/$token`. Entry: `router.tsx`, `start.tsx` (`defaultSsr: false`), `server{,-bun}.ts`. The md+ shell is a 10px-inset rounded card (`components/team/app-shell.ts`, EXP-723).
+Trust the filesystem; this records only what `ls` can't tell you. Shadcn lives in `components/ui/`, feature components flat in `components/` (`agent-session.tsx` = the steer/activity view, no xterm). `lib/trpc/` is one file per router; `routes/api/trpc/$.ts` is the authoritative router list. In `lib/auth/`, `membership.ts` holds data lookups, `access.ts` authorization (`resolveTeamAccess`) — nothing else decides "can user X do Y". `lib/notification-email-policy.ts`/`-digest.ts`: push fires on create, email is a DIGEST of still-unread (DAILY at a user-chosen local hour, hourly legacy opt-in, atomic `emailed_at` claim, scheduled by `server-bun.ts`). Team routes under `t/$teamSlug/`: index, inbox (`?tab=my-issues` is a TAB, not a route), devices, actions, automations, reviews + `reviews/$issueIdentifier` (cross-board open-PR queue, confirmed squash merge), support, sessions/$sessionId (fullscreen steering, EXP-740), chat (EXP-739), settings/*, boards/$boardSlug + issues/$issueIdentifier. Also `auth/consent.tsx` (MCP OAuth scope picker), `invite/$token`. Entry: `router.tsx`, `start.tsx` (`defaultSsr: false`), `server{,-bun}.ts`. The md+ shell is a 10px-inset rounded card (`components/team/app-shell.ts`, EXP-723); the agent dock sits BELOW it on the ground like the IDE session bar (EXP-771).
 
 ## Database
 
@@ -196,13 +196,13 @@ The desktop IDE is master-only + autopull: no branch switch; changes land via PR
 
 Subscriptions bind to a TEAM (`creem_subscriptions.team_id` + `seats`; checkout `billing.createSeatCheckout` with Creem `units` = the authoritative seat count) and belong to the TEAM, not the purchaser (REV2-55, `lib/billing/billing-handover.ts`): `reference_id` nullable/set-null — account deletion is NEVER blocked by billing (store policy) and only cancels a SOLO team's subscription it destroys; team deletes REFUSE a live subscription (`PRECONDITION_FAILED`, cancel in settings → Billing first; a period-end cancellation passes), natives point at web. ONE subscription per team: `createSeatCheckout` refuses duplicates; `billing.updateSeats`/`changePlan` mutate the EXISTING subscription with `update_behavior: proration-charge-immediately`. Free = 3 seats, 250MB storage, 1 widget; **Team** = the ONE paid tier, €15/seat/mo or €12 yearly — 10GB, unlimited widgets, helpdesk (`PlanTier = free|team|unlimited`; comp tiers `team|unlimited`). Unlimited boards/repos/coding sessions on every tier; push + steer never plan-gated; over-seat teams only block new invites.
 
-**Billing and every limit exist only when `CLOUD_INSTANCE=true`** — self-hosted (the default) unlocks every FEATURE limit, a product switch, not a licence: Apache-2.0 (EXP-352), no licence gate in code. Enterprise Support has NO published pricing (EXP-218) — marketing routes to `/contact/`; never reintroduce price points. Self-host's one limitation: no MOBILE push (store apps compile against first-party Firebase).
+**Billing and every limit exist only when `CLOUD_INSTANCE=true`** — self-hosted (the default) unlocks every FEATURE limit, a product switch, not a licence: Apache-2.0 (EXP-352), no licence gate in code. Enterprise Support has NO published pricing (EXP-218) — marketing routes to `/contact/`; never reintroduce price points. Self-host's one limitation: no MOBILE push (store apps embed first-party Firebase).
 
 ## Feedback widget & helpdesk
 
 marker.io-style widget via an async `<script>` snippet. Source `packages/widget` (Preact shadow root + `@zumer/snapdom`); the build emits an IIFE loader + a lazy panel chunk into `apps/web/public/widget/v1/`. API `window.ExponentialWidget`: `init({key})`, `identify`, `setCustomData`, `open`, `close`, `submit`. Screenshots never block submission.
 
-Server: server-only `widget_configs` (public `expw_` key + domain allowlist) + `widget_submissions`; public CORS routes `/api/widget/config` + `/submit` (origin/rate-limit/honeypot in `lib/widget/`). **Modes** `feedback`/`support`/both (`form_config.modes`; absent = feedback-only). EXP-435: `form_config` also carries `labelIds` (≤10, served as `form.labels`; picks land in `issue_labels`) and `theme` dark/light/auto + `backgroundColor`/`textColor` (`setTheme()`, palettes in `src/theme.ts`); ONE capture button (EXP-488, engine by capability: getDisplayMedia on desktop, snapDOM on mobile or a dismissed picker) + an Off/3s/5s hold segment (FEED-18, runs post-picker via `beforeFrame`); settings preview the panel from the real `widget.css`. Feedback files an ordinary issue onto `widget_configs.board_id` (NULLABLE, required iff feedback mode; set-null so trashing the board degrades feedback, not the config); the submission creates issue + screenshot attachment (null `uploader_id`) + submission row in ONE transaction, `creator_id NULL` + `source='widget'`. Support files a STANDALONE ticket (`support_threads` + opening `support_messages` row, NO issue) gated on `teams.helpdesk_enabled` + paid plan (`assertCanUseHelpdesk`), re-checked per submit; reporter credential = emailed magic link (`lib/helpdesk/token.ts`); members use the `helpdesk` router (close/reopen, `escalate` → linked issue); notify via issue-less `support_reply` fan-out. Rate limiting = in-process token buckets (§Environment Variables); the ONLY cloud upsell is the free-tier usage bar in widget settings. Managed in team settings → "Feedback widget" (owner-only, Helpdesk toggle too). The in-app widget key is HARDCODED in `lib/runtime-config.ts` (cloud-only; `FEEDBACK_WIDGET_KEY` overrides); self-hosted renders no sidebar FeedbackButton.
+Server: server-only `widget_configs` (public `expw_` key + domain allowlist) + `widget_submissions`; public CORS routes `/api/widget/config` + `/submit` (origin/rate-limit/honeypot in `lib/widget/`). **Modes** `feedback`/`support`/both (`form_config.modes`; absent = feedback-only). EXP-435: `form_config` also carries `labelIds` (≤10, served as `form.labels`; picks land in `issue_labels`) and `theme` dark/light/auto + `backgroundColor`/`textColor` (`setTheme()`, palettes in `src/theme.ts`); ONE capture button (EXP-488, engine by capability: getDisplayMedia on desktop, snapDOM on mobile or a dismissed picker) + an Off/3s/5s hold segment (FEED-18, runs post-picker via `beforeFrame`); settings preview the panel from the real `widget.css`. Feedback files an ordinary issue onto `widget_configs.board_id` (NULLABLE, required iff feedback mode; set-null so trashing the board degrades feedback, not the config); the submission creates issue + screenshot attachment (null `uploader_id`) + submission row in ONE transaction, `creator_id NULL` + `source='widget'`. Support files a STANDALONE ticket (`support_threads` + opening `support_messages` row, NO issue) gated on `teams.helpdesk_enabled` + paid plan (`assertCanUseHelpdesk`), re-checked per submit; reporter credential = emailed magic link (`lib/helpdesk/token.ts`); members use the `helpdesk` router (close/reopen, `escalate` → linked issue); notify via issue-less `support_reply` fan-out. Rate limiting = in-process token buckets (§Environment Variables); the ONLY cloud upsell is the free-tier usage bar in widget settings. Settings entries "Feedback widget" + "Helpdesk" (owner-only) on web AND the IDE (its widget pane is read-only + Manage on the web). The in-app widget is HEADLESS (`showButton:false`) behind the sidebar "Report bug" button; key HARDCODED in `lib/runtime-config.ts` (cloud-only; `FEEDBACK_WIDGET_KEY` overrides); self-hosted shows no button.
 
 ## Conversion tracking (EXP-362, cloud only)
 
