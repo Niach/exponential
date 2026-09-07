@@ -37,7 +37,7 @@ use crate::queries;
 use crate::session::AuthContext;
 
 use super::storage::format_created_date;
-use super::{card_header, error_notice, section};
+use super::{error_notice, section, section_description};
 
 /// The `Device: ` name prefix `api::users::device_key_name` mints with —
 /// rows carrying it belong to a signed-in desktop/CLI, not a script.
@@ -150,7 +150,7 @@ impl ApiKeysPane {
         cx.notify();
     }
 
-    /// The "New key" confirm: a name input rides the alert as extra content;
+    /// The "Create key" confirm: a name input rides the alert as extra content;
     /// OK mints and surfaces the raw key in the pane's one-time reveal.
     fn open_mint_dialog(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         self.name_input.update(cx, |state, cx| {
@@ -481,22 +481,14 @@ impl Render for ApiKeysPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         self.ensure_loaded(cx);
 
-        let mut body = section(cx).child(card_header(
-            "API keys",
-            "Personal keys authenticate MCP clients, scripts and CLI logins \
-             as you. Keys named \"Device: …\" were minted automatically for a \
-             signed-in device.",
-            cx,
-        ));
-
-        if let Some(minted) = self.minted.clone() {
-            body = body.child(self.render_minted(&minted, cx));
-        }
-
         // EXP-720: the header pair are Sm pills like every other pane's
         // header action (worktrees' Refresh, the machines band's Add device).
+        // EXP-771: they ride the header's TRAILING slot (web
+        // `GlassSectionHeader` + `Pill mode="action"`) instead of a row of
+        // their own under it, and the "N keys" line above the list is gone —
+        // no header counts anywhere since EXP-698.
         let new_key = glass_pill_button("api-key-new", PillSize::Sm, cx)
-            .label("New key")
+            .label("Create key")
             .disabled(self.busy || !matches!(self.load, Load::Ready(_)))
             .on_click(cx.listener(|this, _, window, cx| {
                 this.open_mint_dialog(window, cx);
@@ -505,17 +497,37 @@ impl Render for ApiKeysPane {
             .label("Refresh")
             .loading(matches!(self.load, Load::Loading))
             .on_click(cx.listener(|this, _, _, cx| this.refetch(cx)));
+        let header_actions = h_flex()
+            .items_center()
+            .gap_2()
+            .child(refresh)
+            .child(new_key)
+            .into_any_element();
+
+        let mut body = section(cx).child(
+            v_flex()
+                .child(crate::surface::glass_section_header(
+                    "API keys",
+                    Some(header_actions),
+                    cx,
+                ))
+                // Web copy verbatim. The web sets `Authorization: Bearer
+                // expu_…`, `exponential login` and `EXP_TOKEN` in `<code>`;
+                // one gpui div is one text style, so they read plain here.
+                .child(section_description(
+                    "Personal keys authenticate MCP clients, scripts, and the CLI as \
+                     you. Send one as Authorization: Bearer expu_… or pass it to \
+                     exponential login via EXP_TOKEN.",
+                    cx,
+                )),
+        );
+
+        if let Some(minted) = self.minted.clone() {
+            body = body.child(self.render_minted(&minted, cx));
+        }
 
         match &self.load {
             Load::Idle | Load::Loading => {
-                body = body.child(
-                    h_flex()
-                        .w_full()
-                        .justify_end()
-                        .gap_2()
-                        .child(refresh)
-                        .child(new_key),
-                );
                 body = body.child(
                     v_flex()
                         .gap_2()
@@ -527,52 +539,21 @@ impl Render for ApiKeysPane {
             Load::Ready(Loaded {
                 list: Err(message), ..
             }) => {
-                body = body.child(
-                    h_flex()
-                        .w_full()
-                        .justify_end()
-                        .gap_2()
-                        .child(refresh)
-                        .child(new_key),
-                );
                 body = body.child(error_notice(SharedString::from(message.clone()), cx));
             }
             Load::Ready(Loaded {
                 list: Ok(rows),
                 device_key_id,
             }) => {
-                let plural = if rows.len() == 1 { "" } else { "s" };
-                body = body.child(
-                    h_flex()
-                        .w_full()
-                        .items_center()
-                        .gap_2()
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .text_sm()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(SharedString::from(format!(
-                                    "{} key{plural}",
-                                    rows.len()
-                                ))),
-                        )
-                        .child(refresh)
-                        .child(new_key),
-                );
-
                 if rows.is_empty() {
                     body = body.child(
                         div()
-                            .px_3()
-                            .py_2()
-                            .rounded(cx.theme().radius)
-                            .border_1()
-                            .border_color(super::row_stroke(cx))
                             .text_sm()
                             .text_color(cx.theme().muted_foreground)
-                            .child("No API keys yet."),
+                            .child(
+                                "No API keys yet. Keys minted by the desktop app or CLI \
+                                 show up here too.",
+                            ),
                     );
                 } else {
                     let list: Vec<gpui::Div> = rows

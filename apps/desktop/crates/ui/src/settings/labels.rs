@@ -32,7 +32,7 @@ use domain::rows::Label;
 use crate::controls::{glass_input, WebControl as _};
 use crate::navigation::{active_team_id, Navigation};
 
-use super::{section, card_header, parse_hex_color, spawn_trpc};
+use super::{section, section_description, parse_hex_color, spawn_trpc};
 use crate::icons::registry;
 
 /// Web `LABEL_COLORS` (lib/label-colors.ts) — verbatim.
@@ -471,15 +471,30 @@ impl Render for LabelsPane {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let labels = self.scoped_labels(cx);
 
-        let mut body = section(cx).child(card_header(
-            "Labels",
-            format!(
-                "{} label{} in this team. Deleting a label removes it from all issues.",
-                labels.len(),
-                if labels.len() == 1 { "" } else { "s" }
-            ),
-            cx,
-        ));
+        // EXP-771 (web `labels-section.tsx`): "New label" is the HEADER's
+        // trailing action, not a button under the list, and the description
+        // is the web's ONE line — the desktop-only count went with EXP-698's
+        // rule that no header counts rows.
+        let new_label = (!self.creating).then(|| {
+            crate::surface::glass_pill_button("label-new", crate::surface::PillSize::Sm, cx)
+                .icon(registry::UI_ADD)
+                .label("New label")
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.creating = true;
+                    this.new_name
+                        .update(cx, |state, cx| state.set_value("", window, cx));
+                    cx.notify();
+                }))
+                .into_any_element()
+        });
+        let mut body = section(cx).child(
+            v_flex()
+                .child(crate::surface::glass_section_header("Labels", new_label, cx))
+                .child(section_description(
+                    "Deleting a label removes it from all issues.",
+                    cx,
+                )),
+        );
 
         let mut list = v_flex().gap_2();
         for label in &labels {
@@ -554,8 +569,10 @@ impl Render for LabelsPane {
                                 Button::new("label-create")
                                     .primary().cursor_pointer()
                                     .web_xs()
+                                    // Web copy, ellipsis and all: `Creating...`
+                                    // is three dots there, not `…`.
                                     .label(if self.submitting {
-                                        "Creating…"
+                                        "Creating..."
                                     } else {
                                         "Create label"
                                     })
@@ -577,22 +594,6 @@ impl Render for LabelsPane {
                                     })),
                             ),
                     ),
-            );
-        } else {
-            body = body.child(
-                h_flex().child(
-                    Button::new("label-new")
-                        .outline().cursor_pointer()
-                        .web_sm()
-                        .icon(registry::UI_ADD)
-                        .label("New label")
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.creating = true;
-                            this.new_name
-                                .update(cx, |state, cx| state.set_value("", window, cx));
-                            cx.notify();
-                        })),
-                ),
             );
         }
 

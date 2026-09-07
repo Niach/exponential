@@ -918,24 +918,42 @@ fn entry_cta(
                 window.push_notification(Notification::success("Copied install command"), cx);
             })
             .into_any_element(),
-        EntryKey::Widget => {
-            let url = team_settings_url(&team, "widget", cx)?;
-            Button::new(("gs-cta-widget", index))
-                .primary().web_sm()
-                .icon(Icon::new(registry::UI_EXTERNAL_LINK))
-                .label(copy::WIDGET_ACTION)
-                .on_click(move |_, _, cx| crate::settings::open_url(cx, url.clone()))
-                .into_any_element()
-        }
-        EntryKey::Helpdesk => {
-            let url = team_settings_url(&team, "widget", cx)?;
-            Button::new(("gs-cta-helpdesk", index))
-                .primary().web_sm()
-                .icon(Icon::new(registry::UI_EXTERNAL_LINK))
-                .label(copy::HELPDESK_ACTION)
-                .on_click(move |_, _, cx| crate::settings::open_url(cx, url.clone()))
-                .into_any_element()
-        }
+        // EXP-771: both settings live IN the app now (Settings → Features),
+        // so these stopped being browser hand-offs — the same in-app jump the
+        // GitHub and Invite CTAs above make, and the shared "… in team
+        // settings" labels finally mean THIS app's team settings.
+        EntryKey::Widget => Button::new(("gs-cta-widget", index))
+            .primary().web_sm()
+            .label(copy::WIDGET_ACTION)
+            .on_click(|_, window, cx| {
+                crate::navigation::navigate(
+                    window,
+                    cx,
+                    crate::navigation::Screen::Settings,
+                );
+                crate::sidebar::select_settings_section(
+                    window,
+                    cx,
+                    crate::settings::SettingsSection::Widget,
+                );
+            })
+            .into_any_element(),
+        EntryKey::Helpdesk => Button::new(("gs-cta-helpdesk", index))
+            .primary().web_sm()
+            .label(copy::HELPDESK_ACTION)
+            .on_click(|_, window, cx| {
+                crate::navigation::navigate(
+                    window,
+                    cx,
+                    crate::navigation::Screen::Settings,
+                );
+                crate::sidebar::select_settings_section(
+                    window,
+                    cx,
+                    crate::settings::SettingsSection::Helpdesk,
+                );
+            })
+            .into_any_element(),
         // The web renders per-client setup tabs; the desktop hands out
         // the endpoint and the docs walkthrough.
         EntryKey::Mcp => {
@@ -1094,23 +1112,6 @@ pub(crate) fn inline_cards(team_id: &str, cx: &mut App) -> Option<gpui::AnyEleme
             )
             .into_any_element(),
     )
-}
-
-/// `{instance}/t/{slug}/settings/{section}` for the active account — the
-/// billing-settings handoff recipe (`team_general.rs`). `None` until the team
-/// row's slug has synced.
-fn team_settings_url(team_id: &str, section: &str, cx: &App) -> Option<String> {
-    let slug = Store::global(cx)
-        .collections()
-        .teams
-        .read(cx)
-        .get(team_id)
-        .and_then(|team| team.slug.clone())?;
-    let account = queries::active_account(cx)?;
-    Some(format!(
-        "{}/t/{slug}/settings/{section}",
-        account.instance_url.trim_end_matches('/')
-    ))
 }
 
 impl Render for GettingStartedView {

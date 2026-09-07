@@ -3,8 +3,14 @@
 //! Web parity: `components/team/members-section.tsx` — the member list
 //! (avatar + name + role badge + per-row actions `DropdownMenu`: Make owner /
 //! Make member / Remove member / Leave team) and the owner-only
-//! `InviteControls` (optional invitee email → server mails the link,
-//! Generate invite link → copy-to-clipboard, pending invites with revoke).
+//! `InviteControls`.
+//!
+//! EXP-771 took the web's invite UX verbatim: an email field beside a PRIMARY
+//! "Send invite", then the generated link (read-only + copy) whenever there is
+//! one, then an OUTLINE "Generate invite link" for the share-it-yourself path,
+//! then the pending invites with revoke. It used to be ONE button whose label
+//! flipped with the field's emptiness — two intents on one control, and the
+//! link path was unreachable while an address was typed.
 //!
 //! Reads are live: members/users/invites come from the synced collections
 //! (the web reads the same shapes); role/remove/revoke are §4.1 un-gated
@@ -35,9 +41,15 @@ use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 
 use super::{
-    section, card_header, error_notice, is_owner, is_plan_limit, spawn_trpc, upgrade_notice,
+    section, error_notice, is_owner, is_plan_limit, spawn_trpc, upgrade_notice,
 };
 use crate::icons::registry;
+
+/// EXP-771 (web copy wins): the server accepted the invite but could not mail
+/// it — the generated link renders right under this, so the wording points at
+/// it. Kept byte-identical to `members-section.tsx`'s toast.
+const EMAIL_FALLBACK_MESSAGE: &str =
+    "Couldn't email the invite. Copy the link below and share it instead.";
 
 /// One joined member row (web `members` + `userMap`).
 struct MemberRow {
@@ -50,7 +62,10 @@ pub struct MembersPane {
     /// Optional invitee email (EXP-188 invite-by-email) — empty = link-only.
     email_input: Entity<InputState>,
     invite_url: Option<SharedString>,
+    /// Web `generating` — the OUTLINE "Generate invite link" is in flight.
     generating: bool,
+    /// Web `sending` — the PRIMARY "Send invite" is in flight.
+    sending: bool,
     error: Option<SharedString>,
     limit_notice: Option<SharedString>,
     /// "Invite sent to X" after a delivered email invite.
@@ -66,7 +81,7 @@ impl MembersPane {
     ) -> Self {
         let collections = Store::global(cx).collections().clone();
         let email_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Email (optional)"));
+            cx.new(|cx| InputState::new(window, cx).placeholder("teammate@example.com"));
         let subscriptions = vec![
             cx.observe(&nav, |this, _, cx| {
                 // Team switch: the generated URL belongs to the old one.
@@ -92,6 +107,7 @@ impl MembersPane {
             email_input,
             invite_url: None,
             generating: false,
+            sending: false,
             error: None,
             limit_notice: None,
             sent_notice: None,
@@ -136,13 +152,18 @@ impl MembersPane {
         invites
     }
 
+    /// `teamInvites.create`. `with_email` picks the web's two intents apart:
+    /// `true` is "Send invite" (the server mails the link and reports
+    /// `emailDelivered`), `false` is "Generate invite link" (link only, even
+    /// when an address happens to be typed).
     fn generate_invite(
         &mut self,
         team_id: String,
+        with_email: bool,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        if self.generating {
+        if self.generating || self.sending {
             return;
         }
         let Some(trpc) = queries::trpc_client(cx) else {
@@ -152,12 +173,18 @@ impl MembersPane {
             return;
         };
         let base = account.instance_url;
-        let email = {
-            let value = self.email_input.read(cx).value().trim().to_string();
-            (!value.is_empty()).then_some(value)
-        };
+        let email = with_email
+            .then(|| self.email_input.read(cx).value().trim().to_string())
+            .filter(|value| !value.is_empty());
+        if with_email && email.is_none() {
+            return;
+        }
 
-        self.generating = true;
+        if with_email {
+            self.sending = true;
+        } else {
+            self.generating = true;
+        }
         self.error = None;
         self.limit_notice = None;
         self.sent_notice = None;
@@ -178,6 +205,7 @@ impl MembersPane {
                 .await;
             let _ = this.update_in(window, |this, window, cx| {
                 this.generating = false;
+                this.sending = false;
                 match result {
                     Ok(out) => {
                         let url: SharedString =
@@ -195,10 +223,7 @@ impl MembersPane {
                             (Some(_), _) => {
                                 // Requested but not delivered (transport down
                                 // or unconfigured) — fall back to the link.
-                                this.error = Some(
-                                    "Couldn't email the invite. Copy the link and share it instead."
-                                        .into(),
-                                );
+                                this.error = Some(EMAIL_FALLBACK_MESSAGE.into());
                             }
                             (None, _) => {}
                         }
@@ -408,13 +433,12 @@ impl Render for MembersPane {
             .filter(|row| row.member.role.as_deref() == Some(TEAM_ROLE_OWNER))
             .count();
 
-        let mut body = section(cx).child(card_header(
+        // EXP-771: the web header — a bare "Members" label, no count subline
+        // (EXP-698 retired header counts on every client, and the desktop's
+        // "N members in this team" was the last one left in the panes).
+        let mut body = section(cx).child(crate::surface::glass_section_header(
             "Members",
-            format!(
-                "{} member{} in this team",
-                rows.len(),
-                if rows.len() == 1 { "" } else { "s" }
-            ),
+            None,
             cx,
         ));
 
@@ -428,6 +452,17 @@ impl Render for MembersPane {
 
         // InviteControls (web: owner-only `showInvite`).
         if i_am_owner {
+            let busy = self.generating || self.sending;
+            let email_empty = self
+                .email_input
+                .read(cx)
+                .value()
+                .trim()
+                .is_empty();
+            // Web order, top to bottom: the heading pair, the email row, the
+            // generated link, the "Generate invite link" button, the pending
+            // list. The heading is SENTENCE case here — the web's "Invite
+            // Members" is the last title-cased heading in the settings pages.
             let mut invite_section = v_flex()
                 .gap_3()
                 .pt_3()
@@ -440,17 +475,60 @@ impl Render for MembersPane {
                             div()
                                 .text_sm()
                                 .font_weight(FontWeight::MEDIUM)
-                                .child("Invite Members"),
+                                .child("Invite members"),
                         )
                         .child(
                             div()
                                 .text_xs()
                                 .text_color(cx.theme().muted_foreground)
                                 .child(
-                                    "Enter an email to send the invite directly, or generate a link to share",
+                                    "Send an invite by email, or generate a link to share yourself",
                                 ),
                         ),
                 );
+
+            invite_section = invite_section.child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(glass_input(&self.email_input, window, cx).web_input_sm()),
+                    )
+                    .child(
+                        // No `ui-mail` concept in the shared registry — send
+                        // (paper plane) is the closest, and it is what the
+                        // button DOES.
+                        Button::new("invite-send")
+                            .primary()
+                            .web_sm()
+                            .label("Send invite")
+                            .icon(registry::UI_SEND)
+                            .loading(self.sending)
+                            .disabled(busy || email_empty)
+                            .on_click(cx.listener({
+                                let team_id = team_id.clone();
+                                move |this, _, window, cx| {
+                                    this.generate_invite(team_id.clone(), true, window, cx);
+                                }
+                            })),
+                    ),
+            );
+
+            // The notices sit BETWEEN the email row and the link: the email
+            // fallback's copy says "copy the link below", so the link has to
+            // be below it.
+            if let Some(notice) = &self.sent_notice {
+                invite_section = invite_section.child(sent_notice(notice.clone(), cx));
+            }
+            if let Some(notice) = &self.limit_notice {
+                invite_section = invite_section.child(upgrade_notice(notice.clone(), cx));
+            }
+            if let Some(error) = &self.error {
+                invite_section = invite_section.child(error_notice(error.clone(), cx));
+            }
 
             if let Some(url) = &self.invite_url {
                 invite_section = invite_section.child(
@@ -481,62 +559,30 @@ impl Render for MembersPane {
                 );
             }
 
-            let email_empty = self
-                .email_input
-                .read(cx)
-                .value()
-                .trim()
-                .is_empty();
             invite_section = invite_section.child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .child(glass_input(&self.email_input, window, cx).web_input_sm()),
-                    )
-                    .child(
-                        Button::new("invite-generate")
-                            .primary()
-                            .web_sm()
-                            .label(if email_empty {
-                                "Generate invite link"
-                            } else {
-                                "Send invite"
-                            })
-                            .icon(registry::UI_ADD)
-                            .loading(self.generating)
-                            .disabled(self.generating)
-                            .on_click(cx.listener({
-                                let team_id = team_id.clone();
-                                move |this, _, window, cx| {
-                                    this.generate_invite(team_id.clone(), window, cx);
-                                }
-                            })),
-                    ),
+                h_flex().child(
+                    // Web `LinkIcon`; the registry has no plain link concept
+                    // outside the editor's, so share-2 carries "a link you
+                    // hand out yourself".
+                    Button::new("invite-generate")
+                        .outline()
+                        .web_sm()
+                        .label("Generate invite link")
+                        .icon(registry::UI_SHARE)
+                        .loading(self.generating)
+                        .disabled(busy)
+                        .on_click(cx.listener({
+                            let team_id = team_id.clone();
+                            move |this, _, window, cx| {
+                                this.generate_invite(team_id.clone(), false, window, cx);
+                            }
+                        })),
+                ),
             );
-
-            if let Some(notice) = &self.sent_notice {
-                invite_section = invite_section.child(sent_notice(notice.clone(), cx));
-            }
-            if let Some(notice) = &self.limit_notice {
-                invite_section = invite_section.child(upgrade_notice(notice.clone(), cx));
-            }
-            if let Some(error) = &self.error {
-                invite_section = invite_section.child(error_notice(error.clone(), cx));
-            }
 
             let invites = self.pending_invites(&team_id, cx);
             if !invites.is_empty() {
-                let mut pending = v_flex().gap_2().child(
-                    div()
-                        .text_sm()
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(cx.theme().muted_foreground)
-                        .child("Pending invites"),
-                );
+                let mut pending_rows = v_flex().gap_2();
                 for invite in invites {
                     let invite_id = invite.id.clone();
                     let role: SharedString = invite
@@ -591,7 +637,7 @@ impl Render for MembersPane {
                     // EXP-721: a pending invite is an entity too — the same
                     // gapped row card the member rows above it wear, instead
                     // of the hand-rolled bordered box.
-                    pending = pending.child(
+                    pending_rows = pending_rows.child(
                         crate::surface::glass_row_card()
                             .flex()
                             .w_full()
@@ -617,7 +663,18 @@ impl Render for MembersPane {
                             ),
                     );
                 }
-                invite_section = invite_section.child(pending);
+                // EXP-771: the web's `GlassSectionHeader` — the same heading
+                // the Members list above wears. NO gap on the wrapper: the
+                // header's own `pb_2` IS the 8px to the rows (EXP-697).
+                invite_section = invite_section.child(
+                    v_flex()
+                        .child(crate::surface::glass_section_header(
+                            "Pending invites",
+                            None,
+                            cx,
+                        ))
+                        .child(pending_rows),
+                );
             }
 
             body = body.child(invite_section);
