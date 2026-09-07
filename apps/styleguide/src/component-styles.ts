@@ -217,6 +217,49 @@ export const componentStyles = `
 }
 .cmp-button-primary.disabled { background: var(--card); border-color: var(--stroke); color: var(--fg-50); }
 
+/* ----------------------------------------------------------- icon picker */
+/* EXP-771, the shape rule: a circle is an ACTION and a rounded square is a
+   PICKER. The trigger and the swatch cells take the MD step, so a picker can
+   never be read as one of the circular icon buttons above; only COLOUR
+   swatches stay circles, because a colour has no shape to read. */
+.cmp-icon-picker-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--ctl-lg);
+  height: var(--ctl-lg);
+  padding: 0;
+  border-radius: var(--r-md);
+  background: var(--card);
+  border: 1px solid var(--stroke);
+  color: var(--fg);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+.cmp-icon-picker-trigger:hover { background: var(--active); }
+/* Nothing picked: the hairline goes dashed under a muted placeholder glyph. */
+.cmp-icon-picker-trigger[data-empty] { border-style: dashed; color: var(--fg-50); }
+.cmp-icon-picker-trigger .glyph { width: 16px; height: 16px; }
+.cmp-icon-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+.cmp-icon-grid .item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ctl-md);
+  height: var(--ctl-md);
+  padding: 0;
+  border-radius: var(--r-md);
+  background: var(--section);
+  border: 1px solid var(--stroke-section);
+  color: var(--fg-70);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.cmp-icon-grid .item:hover { background: var(--active); color: var(--fg); }
+.cmp-icon-grid .item.selected { background: var(--active); border-color: var(--stroke-active); color: var(--fg); }
+.cmp-icon-grid .glyph { width: 16px; height: 16px; }
+
 /* ------------------------------------------------------------------ pill */
 /* ONE capsule for every label-sized thing (EXP-698). What used to be a chip is
    readonly, what used to be a "header button" is sm + action: the same
@@ -335,24 +378,32 @@ export const componentStyles = `
 .cmp-row-shell .cmp-textarea { flex: 1; min-width: 0; }
 
 /* ------------------------------------------------------------- app shell */
-/* EXP-723, the CUTOUT. Three parts: the ground (the page gradient), a nav
-   column sitting straight on it with no fill of its own, and the content as a
-   card inset 10 on every side. The wash is translucent so the card keeps the
-   same contrast wherever the gradient has got to; overflow hidden is what lets
-   the dock strip take the two bottom corners. */
+/* EXP-723, the CUTOUT, as amended by EXP-771. Four parts: the ground (the page
+   gradient), a nav column sitting straight on it with no fill of its own, the
+   content as a card inset 10 on the sides and 6 at the bottom, and the two
+   36px CHROME bands — the title strip above the card and the session band
+   below — which sit on the bare ground too, symmetrically. The wash is
+   translucent so the card keeps the same contrast wherever the gradient has
+   got to. */
 .cmp-app-shell {
-  display: flex;
+  display: grid;
+  grid-template-rows: 36px 1fr 36px;
   height: 300px;
   border-radius: var(--r-lg);
   background: linear-gradient(180deg, var(--bg-top), var(--bg-bottom));
+  overflow: hidden;
 }
+/* Each row clips: a grid row sizes to its widest child, and one tab too many
+   would otherwise push the card's right inset off. */
+.cmp-app-shell > * { min-width: 0; overflow: hidden; }
+.cmp-app-shell > .content { display: flex; min-height: 0; padding: 0 10px 6px 0; }
 .cmp-app-shell .nav {
   flex: none;
   width: 132px;
   display: grid;
   align-content: start;
   gap: 2px;
-  padding: 12px 8px;
+  padding: 0 8px;
 }
 .cmp-app-shell .nav .item {
   display: flex;
@@ -367,56 +418,60 @@ export const componentStyles = `
 .cmp-app-shell .panel {
   flex: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  margin: 10px;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 14px 12px;
   border: 1px solid var(--stroke);
   border-radius: var(--r-lg);
   background: var(--panel);
   overflow: hidden;
 }
-.cmp-app-shell .panel .header {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--stroke-soft);
-}
-.cmp-app-shell .panel .header .title { font-size: 13px; font-weight: 500; }
-.cmp-app-shell .panel .content {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  align-content: start;
-  gap: 10px;
-  padding: 14px 12px;
-}
-.cmp-app-shell .panel .content .line { height: 8px; border-radius: 9999px; background: var(--row); }
-.cmp-app-shell .panel .content .line:nth-child(2) { width: 72%; }
-.cmp-app-shell .panel .content .line:nth-child(3) { width: 46%; }
-/* The dock is the panel's LAST child, not an overlay — which is the whole
-   reason the content column never needs a bottom inset. */
-.cmp-app-shell .panel .dock {
-  flex: none;
+.cmp-app-shell .panel .line { height: 8px; border-radius: 9999px; background: var(--row); }
+.cmp-app-shell .panel .line:nth-child(2) { width: 72%; }
+.cmp-app-shell .panel .line:nth-child(3) { width: 46%; }
+/* The two bands are the SHELL's children, not the panel's: they draw no fill
+   and no border, so the ground shows straight through them, and only their
+   chips are inset 8. A fill here turns the ground into a second card. */
+.cmp-app-shell > .header, .cmp-app-shell > .dock {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px;
-  border-top: 1px solid var(--stroke);
-  background: var(--popover);
+  padding: 0 8px;
 }
+.cmp-app-shell > .header .title { font-size: 13px; font-weight: 500; }
 
 /* ------------------------------------------------------------ session bar */
-/* The bottom strip of coding tabs (EXP-769): rich tabs, then the Chat and
-   add tools right after the last one, on a row hairline inside the card. */
+/* The bottom strip of coding tabs (EXP-769): rich tabs, then the Chat and add
+   tools right after the last one. Since EXP-771 it hangs BELOW the card on the
+   bare ground — no fill, no border, no hairline — so the demo has to draw the
+   card it hangs under, 6px above it. */
+.cmp-session-ground {
+  padding: 10px 10px 0;
+  border-radius: var(--r-lg);
+  background: linear-gradient(180deg, var(--bg-top), var(--bg-bottom));
+  overflow: hidden;
+}
+.cmp-session-ground .card {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  height: 84px;
+  margin-bottom: 6px;
+  padding: 14px 12px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+  overflow: hidden;
+}
+.cmp-session-ground .card .line { height: 8px; border-radius: 9999px; background: var(--row); }
+.cmp-session-ground .card .line:nth-child(2) { width: 62%; }
 .cmp-session-bar {
   display: flex;
   align-items: center;
   gap: 4px;
   height: 36px;
   padding: 0 8px;
-  border-top: 1px solid var(--stroke-soft);
 }
 .cmp-session-bar .tool {
   display: inline-flex;
@@ -450,6 +505,16 @@ export const componentStyles = `
 }
 .cmp-app-shell .add:hover { background: var(--active); color: var(--fg); }
 .cmp-app-shell .add .glyph { width: 14px; height: 14px; }
+
+/* ------------------------------------------------------------ page header */
+/* EXP-771: one header for every settings page. The SCROLL region is the full
+   pane, so the scrollbar rides the viewport edge; the text rides a centred
+   896 column inside it, which is why the two are separate elements. */
+.cmp-page-header { width: 100%; max-height: 320px; overflow-y: auto; }
+.cmp-page-header .content { max-width: 896px; margin: 0 auto; padding: 24px; }
+.cmp-page-header .title { font-size: 24px; line-height: 32px; font-weight: 700; }
+.cmp-page-header .desc { margin-top: 4px; font-size: 14px; color: var(--muted-fg); }
+.cmp-page-header .cmp-divider { margin: 16px 0; }
 
 /* ---------------------------------------------------------- comment card */
 /* The avatar rides the timeline gutter; the card holds everything else. The

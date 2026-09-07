@@ -66,6 +66,20 @@ function stripComments(css: string): string {
   return css.replace(/\/\*[\s\S]*?\*\//g, ``)
 }
 
+/** The declarations of ONE rule, so a sibling rule's fill can't answer for it. */
+function ruleBody(selector: string): string {
+  const css = stripComments(componentStyles)
+  const at = css.indexOf(`${selector} {`)
+  return at < 0 ? `` : css.slice(at, css.indexOf(`}`, at))
+}
+
+/** The spec with that id — the demos are asserted through their markup. */
+function spec(id: string): { blurb: string; markup: string } {
+  const found = COMPONENTS.find((entry) => entry.id === id)
+  expect(found === undefined ? `${id} is missing` : id).toBe(id)
+  return { blurb: found?.blurb ?? ``, markup: found === undefined ? `` : found.render() }
+}
+
 describe(`ids`, () => {
   test(`unique, kebab-case, and free of catalog collisions`, () => {
     const ids = COMPONENTS.map((spec) => spec.id)
@@ -215,6 +229,72 @@ describe(`the pill absorbed the chip and the header button`, () => {
         )
       }
     }
+  })
+})
+
+describe(`circle is an action, a rounded square is a picker (EXP-771)`, () => {
+  test(`the icon button stays a circle, the picker takes the MD step`, () => {
+    expect(ruleBody(`.cmp-icon-button`)).toContain(`border-radius: 50%`)
+    expect(ruleBody(`.cmp-icon-picker-trigger`)).toContain(`border-radius: var(--r-md)`)
+    expect(ruleBody(`.cmp-icon-grid .item`)).toContain(`border-radius: var(--r-md)`)
+  })
+
+  test(`the demo shows both trigger states, the grid and a circle beside them`, () => {
+    const { markup } = spec(`icon-picker`)
+    expect(occurrences(markup, `class="cmp-icon-picker-trigger"`)).toBe(2)
+    expect(occurrences(markup, `class="cmp-icon-picker-trigger" data-empty`)).toBe(1)
+    expect(occurrences(markup, `class="item selected"`)).toBe(1)
+    expect(markup).toContain(`class="cmp-icon-grid"`)
+    expect(markup).toContain(`class="cmp-icon-button"`)
+  })
+
+  test(`the icon button and the radius ladder both name the exception`, () => {
+    expect(spec(`icon-button`).blurb).toContain(`icon picker`)
+    expect(spec(`tokens-radius`).blurb).toContain(`PICKER corner`)
+  })
+})
+
+describe(`the bottom band sits on the ground, not in the card (EXP-771)`, () => {
+  test(`the band draws no fill and no border`, () => {
+    const band = ruleBody(`.cmp-session-bar`)
+    expect(band).toContain(`height: 36px`)
+    expect(band).toContain(`padding: 0 8px`)
+    expect(band).not.toContain(`background`)
+    expect(band).not.toContain(`border`)
+  })
+
+  test(`the demo hangs it under a card that stops 6px short`, () => {
+    const { markup } = spec(`session-bar`)
+    expect(markup).toContain(`class="cmp-session-ground"`)
+    expect(markup.indexOf(`class="card"`)).toBeLessThan(markup.indexOf(`class="cmp-session-bar"`))
+    expect(ruleBody(`.cmp-session-ground .card`)).toContain(`margin-bottom: 6px`)
+  })
+
+  test(`the shell owns both bands and the panel owns neither`, () => {
+    const css = stripComments(componentStyles)
+    expect(css).toContain(`.cmp-app-shell > .header`)
+    expect(css).toContain(`.cmp-app-shell > .dock`)
+    expect(css).not.toContain(`.cmp-app-shell .panel .dock`)
+    expect(css).not.toContain(`.cmp-app-shell .panel .header`)
+    const { markup } = spec(`app-shell`)
+    expect(markup.indexOf(`class="header"`)).toBeLessThan(markup.indexOf(`class="panel"`))
+    expect(markup.indexOf(`class="panel"`)).toBeLessThan(markup.indexOf(`class="dock"`))
+  })
+})
+
+describe(`the settings page header`, () => {
+  test(`title, subtitle and divider ride a centred 896 column`, () => {
+    const { markup, blurb } = spec(`page-header`)
+    expect(markup).toContain(`<div class="title">Settings</div>`)
+    expect(markup).toMatch(/<div class="desc">Manage .+ and your account<\/div>/)
+    expect(markup).toContain(`class="cmp-divider"`)
+    expect(blurb).toContain(`Helpdesk`)
+    const column = ruleBody(`.cmp-page-header .content`)
+    expect(column).toContain(`max-width: 896px`)
+    expect(column).toContain(`margin: 0 auto`)
+    expect(column).toContain(`padding: 24px`)
+    // The scroll region is the PANE, so the scrollbar rides the viewport edge.
+    expect(ruleBody(`.cmp-page-header`)).toContain(`overflow-y: auto`)
   })
 })
 
