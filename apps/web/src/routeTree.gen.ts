@@ -91,6 +91,7 @@ import { Route as TTeamSlugSettingsRepositoriesRouteImport } from './routes/t/$t
 import { Route as TTeamSlugSettingsNotificationsRouteImport } from './routes/t/$teamSlug/settings/notifications'
 import { Route as TTeamSlugSettingsMembersRouteImport } from './routes/t/$teamSlug/settings/members'
 import { Route as TTeamSlugSettingsLabelsRouteImport } from './routes/t/$teamSlug/settings/labels'
+import { Route as TTeamSlugSettingsHelpdeskRouteImport } from './routes/t/$teamSlug/settings/helpdesk'
 import { Route as TTeamSlugSettingsGeneralRouteImport } from './routes/t/$teamSlug/settings/general'
 import { Route as TTeamSlugSettingsBoardsRouteImport } from './routes/t/$teamSlug/settings/boards'
 import { Route as TTeamSlugSettingsBillingRouteImport } from './routes/t/$teamSlug/settings/billing'
@@ -533,6 +534,12 @@ const TTeamSlugSettingsLabelsRoute = TTeamSlugSettingsLabelsRouteImport.update({
   path: '/labels',
   getParentRoute: () => TTeamSlugSettingsRouteRoute,
 } as any)
+const TTeamSlugSettingsHelpdeskRoute =
+  TTeamSlugSettingsHelpdeskRouteImport.update({
+    id: '/helpdesk',
+    path: '/helpdesk',
+    getParentRoute: () => TTeamSlugSettingsRouteRoute,
+  } as any)
 const TTeamSlugSettingsGeneralRoute =
   TTeamSlugSettingsGeneralRouteImport.update({
     id: '/general',
@@ -720,6 +727,7 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/settings/billing': typeof TTeamSlugSettingsBillingRoute
   '/t/$teamSlug/settings/boards': typeof TTeamSlugSettingsBoardsRoute
   '/t/$teamSlug/settings/general': typeof TTeamSlugSettingsGeneralRoute
+  '/t/$teamSlug/settings/helpdesk': typeof TTeamSlugSettingsHelpdeskRoute
   '/t/$teamSlug/settings/labels': typeof TTeamSlugSettingsLabelsRoute
   '/t/$teamSlug/settings/members': typeof TTeamSlugSettingsMembersRoute
   '/t/$teamSlug/settings/notifications': typeof TTeamSlugSettingsNotificationsRoute
@@ -817,6 +825,7 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/settings/billing': typeof TTeamSlugSettingsBillingRoute
   '/t/$teamSlug/settings/boards': typeof TTeamSlugSettingsBoardsRoute
   '/t/$teamSlug/settings/general': typeof TTeamSlugSettingsGeneralRoute
+  '/t/$teamSlug/settings/helpdesk': typeof TTeamSlugSettingsHelpdeskRoute
   '/t/$teamSlug/settings/labels': typeof TTeamSlugSettingsLabelsRoute
   '/t/$teamSlug/settings/members': typeof TTeamSlugSettingsMembersRoute
   '/t/$teamSlug/settings/notifications': typeof TTeamSlugSettingsNotificationsRoute
@@ -919,6 +928,7 @@ export interface FileRoutesById {
   '/t/$teamSlug/settings/billing': typeof TTeamSlugSettingsBillingRoute
   '/t/$teamSlug/settings/boards': typeof TTeamSlugSettingsBoardsRoute
   '/t/$teamSlug/settings/general': typeof TTeamSlugSettingsGeneralRoute
+  '/t/$teamSlug/settings/helpdesk': typeof TTeamSlugSettingsHelpdeskRoute
   '/t/$teamSlug/settings/labels': typeof TTeamSlugSettingsLabelsRoute
   '/t/$teamSlug/settings/members': typeof TTeamSlugSettingsMembersRoute
   '/t/$teamSlug/settings/notifications': typeof TTeamSlugSettingsNotificationsRoute
@@ -1021,6 +1031,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/billing'
     | '/t/$teamSlug/settings/boards'
     | '/t/$teamSlug/settings/general'
+    | '/t/$teamSlug/settings/helpdesk'
     | '/t/$teamSlug/settings/labels'
     | '/t/$teamSlug/settings/members'
     | '/t/$teamSlug/settings/notifications'
@@ -1118,6 +1129,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/billing'
     | '/t/$teamSlug/settings/boards'
     | '/t/$teamSlug/settings/general'
+    | '/t/$teamSlug/settings/helpdesk'
     | '/t/$teamSlug/settings/labels'
     | '/t/$teamSlug/settings/members'
     | '/t/$teamSlug/settings/notifications'
@@ -1219,6 +1231,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/billing'
     | '/t/$teamSlug/settings/boards'
     | '/t/$teamSlug/settings/general'
+    | '/t/$teamSlug/settings/helpdesk'
     | '/t/$teamSlug/settings/labels'
     | '/t/$teamSlug/settings/members'
     | '/t/$teamSlug/settings/notifications'
@@ -1873,6 +1886,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugSettingsLabelsRouteImport
       parentRoute: typeof TTeamSlugSettingsRouteRoute
     }
+    '/t/$teamSlug/settings/helpdesk': {
+      id: '/t/$teamSlug/settings/helpdesk'
+      path: '/helpdesk'
+      fullPath: '/t/$teamSlug/settings/helpdesk'
+      preLoaderRoute: typeof TTeamSlugSettingsHelpdeskRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
     '/t/$teamSlug/settings/general': {
       id: '/t/$teamSlug/settings/general'
       path: '/general'
@@ -2052,6 +2072,7 @@ interface TTeamSlugSettingsRouteRouteChildren {
   TTeamSlugSettingsBillingRoute: typeof TTeamSlugSettingsBillingRoute
   TTeamSlugSettingsBoardsRoute: typeof TTeamSlugSettingsBoardsRoute
   TTeamSlugSettingsGeneralRoute: typeof TTeamSlugSettingsGeneralRoute
+  TTeamSlugSettingsHelpdeskRoute: typeof TTeamSlugSettingsHelpdeskRoute
   TTeamSlugSettingsLabelsRoute: typeof TTeamSlugSettingsLabelsRoute
   TTeamSlugSettingsMembersRoute: typeof TTeamSlugSettingsMembersRoute
   TTeamSlugSettingsNotificationsRoute: typeof TTeamSlugSettingsNotificationsRoute
@@ -2069,6 +2090,7 @@ const TTeamSlugSettingsRouteRouteChildren: TTeamSlugSettingsRouteRouteChildren =
     TTeamSlugSettingsBillingRoute: TTeamSlugSettingsBillingRoute,
     TTeamSlugSettingsBoardsRoute: TTeamSlugSettingsBoardsRoute,
     TTeamSlugSettingsGeneralRoute: TTeamSlugSettingsGeneralRoute,
+    TTeamSlugSettingsHelpdeskRoute: TTeamSlugSettingsHelpdeskRoute,
     TTeamSlugSettingsLabelsRoute: TTeamSlugSettingsLabelsRoute,
     TTeamSlugSettingsMembersRoute: TTeamSlugSettingsMembersRoute,
     TTeamSlugSettingsNotificationsRoute: TTeamSlugSettingsNotificationsRoute,
