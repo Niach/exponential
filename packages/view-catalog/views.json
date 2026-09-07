@@ -1635,7 +1635,7 @@
       },
       "webMobile": "inherit",
       "notes": {
-        "desktop": "No desktop section: widget configuration is web-only (SettingsSection has no Widget variant).",
+        "desktop": "The IDE pane (SettingsSection::Widget, EXP-771) is a read-only list plus a Manage on the web button; configuration stays web-only, so the web shot is the reference.",
         "ios": "No native section: widget configuration is web-only.",
         "android": "No native section: widget configuration is web-only."
       }
@@ -1802,7 +1802,7 @@
         "web-mobile": "Widget configuration is web-only, and the editor is a wide three-column dialog.",
         "ios": "Widget configuration is web-only.",
         "android": "Widget configuration is web-only.",
-        "desktop": "Widget configuration is web-only (SettingsSection has no Widget variant)."
+        "desktop": "Widget configuration is web-only; the IDE's Feedback widget pane only lists widgets."
       }
     },
     {
