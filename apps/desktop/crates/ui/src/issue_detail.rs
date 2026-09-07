@@ -273,14 +273,12 @@ pub struct IssueDetailView {
     /// failed (non-member), or not a widget/agent issue — the card renders
     /// nothing in every one of those states, exactly like web.
     widget_submission: Option<api::widgets::WidgetSubmission>,
-    /// EXP-760: the open inline sub-issue composer and its event
-    /// subscription. `None` = the closed "Add sub-issues" affordance. Cleared
-    /// on every issue switch — a half-typed child belongs to the issue it was
-    /// opened under.
-    sub_issue_composer: Option<(
-        Entity<crate::sub_issue_composer::SubIssueComposer>,
-        Subscription,
-    )>,
+    /// EXP-760: the open inline sub-issue composer
+    /// ([`crate::issue_composer::IssueComposer`] in its `Inline`
+    /// presentation) and its event subscription. `None` = the closed "Add
+    /// sub-issues" affordance. Cleared on every issue switch — a half-typed
+    /// child belongs to the issue it was opened under.
+    sub_issue_composer: Option<(Entity<crate::issue_composer::IssueComposer>, Subscription)>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -1688,11 +1686,11 @@ impl IssueDetailView {
 
     /// EXP-760: the inline sub-issue affordance under the relations block —
     /// a ghost "Add sub-issues" button that swaps for the composer card
-    /// ([`crate::sub_issue_composer`]). `None` only when the issue's team has
-    /// not synced (the composer needs it for the property pickers).
+    /// ([`crate::issue_composer`]). `None` only when the issue's team has not
+    /// synced (the composer needs it for the property pickers).
     ///
     /// The composer stays open across creates (filing children comes in
-    /// runs); Cancel and every issue switch drop it.
+    /// runs); its ✕ / Escape and every issue switch drop it.
     fn render_sub_issue_affordance(
         &mut self,
         issue: &Issue,
@@ -1726,12 +1724,12 @@ impl IssueDetailView {
                 .px(px(DETAIL_GUTTER))
                 .pb_2()
                 .child(
-                    crate::sub_issue_composer::add_sub_issues_button(cx).on_click(cx.listener(
+                    crate::issue_composer::add_sub_issues_button(cx).on_click(cx.listener(
                         move |this, _, window, cx| {
                             let issue = issue.clone();
                             let team_id = team_id.clone();
                             let composer = cx.new(|cx| {
-                                crate::sub_issue_composer::SubIssueComposer::new(
+                                crate::issue_composer::IssueComposer::inline(
                                     &issue, team_id, window, cx,
                                 )
                             });
@@ -1739,9 +1737,9 @@ impl IssueDetailView {
                                 &composer,
                                 |this,
                                  _,
-                                 event: &crate::sub_issue_composer::SubIssueComposerEvent,
+                                 event: &crate::issue_composer::IssueComposerEvent,
                                  cx| {
-                                    use crate::sub_issue_composer::SubIssueComposerEvent as Event;
+                                    use crate::issue_composer::IssueComposerEvent as Event;
                                     match event {
                                         Event::Cancelled => {
                                             this.sub_issue_composer = None;
