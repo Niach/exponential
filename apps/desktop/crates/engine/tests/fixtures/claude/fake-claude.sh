@@ -19,6 +19,14 @@
 #   EXP_FAKE_CLAUDE_STDIN  file to append every stdin line to (optional)
 #   EXP_FAKE_CLAUDE_EXIT   exit with this code once the turn has replayed —
 #                          the crashed / OOM-killed / `kill -9`ed CLI
+#   EXP_FAKE_CLAUDE_DIE_ON close stdout WITHOUT answering a control request of
+#                          this subtype, then linger: the CLI whose stream
+#                          ended with a control request still in flight
+#                          (EXP-758). It lingers so the adapter's own answer
+#                          has somewhere to land: a process that also exits
+#                          closes the whole connection within microseconds and
+#                          the client would see the transport go, not the
+#                          reason.
 set -u
 
 dir="${EXP_FAKE_CLAUDE_DIR:?EXP_FAKE_CLAUDE_DIR is required}"
@@ -69,6 +77,13 @@ while IFS= read -r line; do
             replay "$dir/after-interrupt.jsonl"
             ;;
         *'"type":"control_request"'*)
+            case "$line" in
+            *"\"subtype\":\"${EXP_FAKE_CLAUDE_DIE_ON:-@@none@@}\""*)
+                exec 1>&-
+                sleep 30
+                exit 9
+                ;;
+            esac
             success "$(request_id "$line")"
             ;;
         *'"type":"control_response"'*)

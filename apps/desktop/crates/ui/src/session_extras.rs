@@ -161,7 +161,11 @@ impl LocalExtras {
             // terminal behind it at all, and a child that ignored the kill
             // signal never reports one. Either would keep drawing "Running"
             // over a finished transcript.
-            engine::LocalFeedEvent::Phase(engine::EnginePhase::Ended) => self.end_live(),
+            // EXP-758: `Failed` is the same edge for a card. The run died on
+            // its handshake or transport, so nothing will ever close one.
+            engine::LocalFeedEvent::Phase(
+                engine::EnginePhase::Ended | engine::EnginePhase::Failed(_),
+            ) => self.end_live(),
             // A tool card's header is already the feed's `tool` row — the
             // status/locations it carries add nothing the row does not show,
             // and a second header per call would double every line.

@@ -230,6 +230,154 @@ pub fn reap(data_dir: &Path) -> usize {
     targets.len()
 }
 
+/// EXP-758: the pure half of [`reap_recorded`] — which recorded ACP children
+/// are orphans this host may signal. `(session id, child pid)` pairs, in
+/// record order.
+///
+/// Three guards, each a reason NOT to kill:
+///
+/// - **A live host.** `host_pid` present in the snapshot and not our own
+///   means a sibling desktop/daemon on the shared data dir (REV-20) is still
+///   driving that run. Our own pid is fair game: this runs at START, so a
+///   record naming it belongs to the dead process that had it before us.
+/// - **A dead child.** Nothing in the table under `acp_child_pid` — already
+///   gone; the record is still cleaned up, which is why the caller re-records
+///   every candidate rather than only the killed ones.
+/// - **A recycled pid.** The command line must still look like the recorded
+///   agent ([`looks_like_agent`]). A false negative here only leaves an
+///   escapee alive one more time; a false positive kills a stranger.
+pub fn select_recorded(
+    records: &[crate::run_registry::RunRecord],
+    procs: &[Proc],
+    self_pid: i32,
+) -> Vec<(String, i32)> {
+    records
+        .iter()
+        .filter_map(|record| {
+            let child = record.acp_child_pid? as i32;
+            let host = record.host_pid? as i32;
+            if child == self_pid || child <= 1 {
+                return None;
+            }
+            let host_alive = host != self_pid && procs.iter().any(|proc| proc.pid == host);
+            if host_alive {
+                return None;
+            }
+            let proc = procs.iter().find(|proc| proc.pid == child)?;
+            looks_like_agent(&proc.command, record)
+                .then(|| (record.session_id.clone(), child))
+        })
+        .collect()
+}
+
+/// Does `command` still belong to the agent this run recorded? The pid may
+/// have been recycled since the host died, so the answer has to come off the
+/// command line, not the number.
+fn looks_like_agent(command: &str, record: &crate::run_registry::RunRecord) -> bool {
+    let expected = match &record.external_agent {
+        Some(spec) => basename(&spec.command),
+        None => record.agent.default_binary(),
+    }
+    .to_ascii_lowercase();
+    if expected.is_empty() {
+        return false;
+    }
+    let program = basename(command.split_whitespace().next().unwrap_or(""))
+        .to_ascii_lowercase();
+    // Windows spells the same binary `codex.exe` / `codex.cmd`.
+    let stem = program
+        .strip_suffix(".exe")
+        .or_else(|| program.strip_suffix(".cmd"))
+        .or_else(|| program.strip_suffix(".bat"))
+        .unwrap_or(&program);
+    if stem == expected {
+        return true;
+    }
+    // codex's ACP child is `codex app-server --listen stdio://` however the
+    // binary is spelled (a wrapper script, an npm shim), so the subcommand is
+    // a second, equally exclusive marker. Deliberately not generalized: a
+    // bare-substring rule on the binary name would match `python3
+    // pipeline.py` for pi.
+    record.agent == crate::agent::CodingAgent::Codex
+        && record.external_agent.is_none()
+        && command.contains("app-server")
+}
+
+/// The last path segment of `path` (both separators — a Windows command line
+/// rides through the same code).
+fn basename(path: &str) -> &str {
+    path.rsplit(['/', '\\']).next().unwrap_or(path)
+}
+
+/// EXP-758: kill the ACP children a DEAD host left behind. Every ACP run
+/// records its child's pid (`RunRecord::acp_child_pid`) and the host pid that
+/// owns it; a record whose host is gone while the child still runs is an
+/// orphan (Cmd-Q with a live codex run, a crashed daemon). Runs on every
+/// desktop/daemon start, next to [`reap`]. Never signals a pid whose host is
+/// still alive (the sibling process on a shared data dir, REV-20) or whose
+/// command no longer looks like the recorded agent (a recycled pid).
+///
+/// [`reap`] cannot see these: it anchors on the `claude-hooks/<pid>/` segment
+/// in the command line, and only claude ever carries one — codex, pi and
+/// every external binary are invisible to it.
+#[cfg(unix)]
+pub fn reap_recorded(data_dir: &Path) -> usize {
+    let records = crate::run_registry::all(data_dir);
+    if records.is_empty() {
+        return 0;
+    }
+    let Some(procs) = process_table() else {
+        return 0;
+    };
+    let self_pid = std::process::id() as i32;
+    let targets = select_recorded(&records, &procs, self_pid);
+    let mut killed = 0;
+    for (session_id, pid) in &targets {
+        log::info!("reaping the orphaned ACP child of session {session_id} (pid {pid})");
+        // SAFETY: `kill`/`killpg` on a pid we selected out of the live
+        // process table; an invalid pid is an errno, not UB.
+        //
+        // The GROUP too, like the engine's own child guard (`cmd
+        // .process_group(0)` in `engine::transport`, portable-pty's `setsid`)
+        // — the agent's helpers sit in it and would otherwise outlive their
+        // leader. But ONLY when the child actually leads one: `killpg` takes a
+        // group id, so on a non-leader's pid it would name a stranger's group.
+        unsafe {
+            if libc::getpgid(*pid) == *pid {
+                libc::killpg(*pid, libc::SIGKILL);
+            }
+            libc::kill(*pid, libc::SIGKILL);
+        }
+        killed += 1;
+    }
+    // Clear the pids on every candidate, killed or already dead: they name a
+    // host that is gone, so leaving them would re-run this decision (against
+    // an ever more recycled pid) on every future start.
+    for mut record in records
+        .into_iter()
+        .filter(|record| record.acp_child_pid.is_some() || record.host_pid.is_some())
+    {
+        // The same liveness guard [`select_recorded`] applies: a sibling's
+        // live run keeps its pids.
+        let host_alive = record.host_pid.is_some_and(|host| {
+            host as i32 != self_pid && procs.iter().any(|proc| proc.pid == host as i32)
+        });
+        if host_alive {
+            continue;
+        }
+        record.acp_child_pid = None;
+        record.host_pid = None;
+        crate::run_registry::record(data_dir, record);
+    }
+    killed
+}
+
+/// Non-unix: there is no process table to read and no signal to send.
+#[cfg(not(unix))]
+pub fn reap_recorded(_data_dir: &Path) -> usize {
+    0
+}
+
 #[cfg(not(unix))]
 pub fn reap(_data_dir: &Path) -> usize {
     // The coalition/ASN mechanic is macOS-only, and Windows has no equivalent
@@ -394,6 +542,121 @@ mod tests {
             command: format!("exp-desktop --settings {MARKER}/x.settings.json"),
         }];
         assert!(select(&procs, MARKER, 42).is_empty());
+    }
+
+    // ---- EXP-758: the recorded-pid reaper ----
+
+    use crate::agent::CodingAgent;
+    use crate::run_registry::{sample_record, RunRecord};
+
+    /// One ACP run: agent, child pid, host pid.
+    fn acp_record(session_id: &str, agent: CodingAgent, child: u32, host: u32) -> RunRecord {
+        let mut record = sample_record(session_id);
+        record.agent = agent;
+        record.transport = Some("acp".to_string());
+        record.acp_child_pid = Some(child);
+        record.host_pid = Some(host);
+        record
+    }
+
+    fn codex_procs() -> Vec<Proc> {
+        vec![
+            Proc { pid: 1, ppid: 0, command: "/sbin/launchd".into() },
+            Proc {
+                pid: 4001,
+                ppid: 1,
+                command: "/opt/homebrew/bin/codex app-server --listen stdio://".into(),
+            },
+            Proc { pid: 4002, ppid: 1, command: "/usr/local/bin/pi --mode rpc".into() },
+        ]
+    }
+
+    /// The case the whole thing exists for: a host that died with a live
+    /// codex app-server under it (Cmd-Q, a crash). No `claude-hooks` anchor
+    /// is involved, so [`select`] cannot see it at all.
+    #[test]
+    fn selects_the_child_of_a_dead_host() {
+        let records = vec![acp_record("sess-1", CodingAgent::Codex, 4001, 3000)];
+        assert_eq!(
+            select_recorded(&records, &codex_procs(), 9999),
+            vec![("sess-1".to_string(), 4001)]
+        );
+        // The marker sweep is blind to it.
+        assert!(select(&codex_procs(), MARKER, 9999).is_empty());
+    }
+
+    /// REV-20: the desktop and the CLI daemon share one data dir. A record
+    /// whose host is STILL RUNNING belongs to the sibling, and its healthy
+    /// live session must survive our start.
+    #[test]
+    fn skips_a_child_whose_host_is_still_alive() {
+        let mut procs = codex_procs();
+        procs.push(Proc { pid: 3000, ppid: 1, command: "/Applications/Exponential".into() });
+        let records = vec![acp_record("sess-1", CodingAgent::Codex, 4001, 3000)];
+        assert!(select_recorded(&records, &procs, 9999).is_empty());
+        // ...but a record naming OUR OWN pid is the dead process that held it
+        // before us: this runs at start, so we are never that host.
+        let ours = vec![acp_record("sess-1", CodingAgent::Codex, 4001, 9999)];
+        assert_eq!(
+            select_recorded(&ours, &procs, 9999),
+            vec![("sess-1".to_string(), 4001)]
+        );
+    }
+
+    /// A recycled pid: the number is live, the command is a stranger's.
+    #[test]
+    fn skips_a_recycled_pid_and_a_dead_child() {
+        let strangers = vec![
+            Proc { pid: 4001, ppid: 1, command: "/usr/bin/python3 pipeline.py".into() },
+            Proc { pid: 4002, ppid: 1, command: "/usr/bin/python3 pipeline.py".into() },
+        ];
+        let records = vec![
+            acp_record("sess-codex", CodingAgent::Codex, 4001, 3000),
+            // pi vs `pipeline.py`: the guard matches the PROGRAM, never a
+            // bare substring of the command line.
+            acp_record("sess-pi", CodingAgent::Pi, 4002, 3000),
+            // Nothing in the table under this pid at all.
+            acp_record("sess-gone", CodingAgent::Claude, 4777, 3000),
+        ];
+        assert!(select_recorded(&records, &strangers, 9999).is_empty());
+    }
+
+    /// pi and an external agent are named by their own program; a record
+    /// without both pids (a PTY run, or one the engine's end sequence already
+    /// cleared) is never a candidate.
+    #[test]
+    fn matches_pi_and_external_programs_and_ignores_half_records() {
+        let external_spec = crate::settings::ExternalAgentSpec {
+            id: "acme".to_string(),
+            command: "/opt/acme/bin/acme-acp".to_string(),
+            ..Default::default()
+        };
+        let mut external = acp_record("sess-ext", CodingAgent::Claude, 4003, 3000);
+        external.external_agent = Some(external_spec);
+        let mut half = acp_record("sess-half", CodingAgent::Codex, 4001, 3000);
+        half.host_pid = None;
+        let mut pty = sample_record("sess-pty");
+        pty.agent = CodingAgent::Pi;
+
+        let mut procs = codex_procs();
+        procs.push(Proc {
+            pid: 4003,
+            ppid: 1,
+            command: "acme-acp --stdio".into(),
+        });
+        let records = vec![
+            acp_record("sess-pi", CodingAgent::Pi, 4002, 3000),
+            external,
+            half,
+            pty,
+        ];
+        assert_eq!(
+            select_recorded(&records, &procs, 9999),
+            vec![
+                ("sess-pi".to_string(), 4002),
+                ("sess-ext".to_string(), 4003)
+            ]
+        );
     }
 
     #[test]

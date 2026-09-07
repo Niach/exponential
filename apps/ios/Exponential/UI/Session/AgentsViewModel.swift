@@ -69,11 +69,16 @@ final class AgentsViewModel {
     var automations: [AutomationDto] = []
 
     /// The team the surrounding view currently shows — kept current by
-    /// `AgentsView` (the sessions observation is account-wide, the list is
-    /// team-scoped). nil until the team state resolves: no rows.
+    /// `AgentsView` (the LIVE sessions observation is account-wide and the
+    /// list filters it; the ended-runs one is team-scoped in SQL, EXP-758).
+    /// nil until the team state resolves: no rows.
     var activeTeamId: String? {
         didSet {
             guard oldValue != activeTeamId else { return }
+            // EXP-758: the "Past" query is USER- and TEAM-scoped in SQL, so a
+            // team switch has to RE-ARM that observation — re-filtering what
+            // the previous one emitted would show the old team's rows.
+            startEndedObservation()
             rebuild()
             rebuildDevices()
         }
@@ -105,6 +110,9 @@ final class AgentsViewModel {
     /// that cursor, so a machine's badge must repaint the moment it advances
     /// (and not before: an unrefreshed cursor renders presence as unknown).
     private var freshnessTask: Task<Void, Never>?
+    /// EXP-758: are the observations armed? The ended-runs one re-arms on a
+    /// team switch, which must be a no-op while the view is off screen.
+    private var observing = false
 
     private var sessions: [CodingSessionEntity] = []
     private var endedSessions: [CodingSessionEntity] = []
@@ -127,6 +135,7 @@ final class AgentsViewModel {
     func startObserving() {
         stopObserving() // restartable: the view re-arms on every appear
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
+        observing = true
 
         let sessionObservation = ValueObservation.tracking { db in
             try CodingSessionEntity
@@ -147,24 +156,7 @@ final class AgentsViewModel {
             } catch {}
         }
 
-        // EXP-746: the finished runs behind "Past". PERSON-started only —
-        // `started_reason IS NULL` rides in the QUERY (Android/web parity) so
-        // a burst of automation runs can never crowd the cap; the pure
-        // `PastRuns.select` applies the same rule again on the way out.
-        let endedObservation = ValueObservation.tracking { db in
-            try CodingSessionEntity
-                .filter(Column("status") == DomainContract.codingSessionStatusEnded)
-                .filter(Column("started_reason") == nil)
-                .fetchAll(db)
-        }
-        endedTask = Task { [weak self] in
-            do {
-                for try await sessions in endedObservation.values(in: pool) {
-                    self?.endedSessions = sessions
-                    self?.rebuildPast()
-                }
-            } catch {}
-        }
+        startEndedObservation()
 
         let issueObservation = ValueObservation.tracking { db in
             try IssueEntity.fetchAll(db)
@@ -282,7 +274,53 @@ final class AgentsViewModel {
         }
     }
 
+    /// EXP-746/758: the finished runs behind "Past" — the caller's OWN rows in
+    /// the ACTIVE team, PERSON-started (`started_reason IS NULL`), newest end
+    /// first and hard-capped, all of it in the QUERY. Android's
+    /// `CodingSessionDao.observePastByTeamAndUser` is the reference predicate:
+    /// an unscoped, unbounded fetch is every ended run of every team on the
+    /// device, rebuilt on every `coding_sessions` write. Queried WIDER than
+    /// `PastRuns.cap` so a row the pure filter drops can't pull a real one off
+    /// the end, and the pure `PastRuns.select` applies the same rules again on
+    /// the way out.
+    private func startEndedObservation() {
+        endedTask?.cancel()
+        endedTask = nil
+        guard observing else { return }
+        // No resolved account or team owns nothing (`CodingSessionOwnership`):
+        // the section is empty rather than everyone's history.
+        guard let userId, !userId.isEmpty,
+              let teamId = activeTeamId, !teamId.isEmpty,
+              let pool = try? db.pool(forAccountId: accountId)
+        else {
+            endedSessions = []
+            rebuildPast()
+            return
+        }
+        let endedObservation = ValueObservation.tracking { db in
+            try CodingSessionEntity
+                .filter(Column("user_id") == userId)
+                .filter(Column("team_id") == teamId)
+                .filter(Column("status") == DomainContract.codingSessionStatusEnded)
+                .filter(Column("started_reason") == nil)
+                // The ×4 ordering key (`PastRuns.endedAt`): a row swept before
+                // it ever stamped `ended_at` still orders off its heartbeat.
+                .order(sql: "COALESCE(ended_at, updated_at) DESC")
+                .limit(PastRuns.queryLimit)
+                .fetchAll(db)
+        }
+        endedTask = Task { [weak self] in
+            do {
+                for try await sessions in endedObservation.values(in: pool) {
+                    self?.endedSessions = sessions
+                    self?.rebuildPast()
+                }
+            } catch {}
+        }
+    }
+
     func stopObserving() {
+        observing = false
         sessionTask?.cancel()
         sessionTask = nil
         endedTask?.cancel()

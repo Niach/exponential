@@ -71,10 +71,15 @@ pub enum LocalFeedEvent {
 
 /// Where the session is in its life. `Connecting` covers spawn + handshake +
 /// `session/new`; `Ended` is emitted exactly once, after the end sequence.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// EXP-758: `Failed` precedes `Ended` when the run died of a handshake or
+/// transport error (`EngineExit::error`) — the message a host renders in the
+/// tab banner / prints on the CLI, instead of an empty transcript that just
+/// says ended.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EnginePhase {
     Connecting,
     Live,
+    Failed(String),
     Ended,
 }
 

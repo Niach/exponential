@@ -294,12 +294,81 @@ struct PastRow {
     resumable: bool,
 }
 
+/// EXP-758: the run registry's file, as a cache key. Both halves, because a
+/// same-second rewrite can leave the mtime untouched (HFS+/APFS resolution and
+/// the `rename` in `run_registry::save` both hide it) while the length moves.
+type RegistryStamp = (std::time::SystemTime, u64);
+
+/// EXP-758: which of this list's runs can be resumed, cached on the registry
+/// file's stamp.
+///
+/// [`crate::coding_flow::run_is_resumable_ref`] re-reads and re-PARSES
+/// `runs.json` once per row, and `rows()` runs from `render`, so a Past list
+/// of 30 runs parsed the file 30 times on every repaint (scroll, hover, an
+/// unrelated Electric edge). The file only changes when a run is recorded or
+/// pruned, so the answers stand until its stamp moves.
+///
+/// Memoized PER SESSION rather than as one set, because the row list moves
+/// without the file: a run whose row flips to `ended` was recorded at LAUNCH,
+/// so it joins Past on an unchanged registry and still has to be answered.
+///
+/// Pure (the resolver is injected by `rows()`), so the invalidation matrix is
+/// unit-tested without a data dir.
+#[derive(Default)]
+pub(crate) struct ResumableCache {
+    /// `None` = nothing cached yet. A registry file that cannot be stamped
+    /// (missing, or a `stat` that failed) never caches: [`Self::revalidate`]
+    /// empties it on every pass, which is exactly the old behaviour.
+    stamp: Option<RegistryStamp>,
+    known: std::collections::HashMap<String, bool>,
+}
+
+impl ResumableCache {
+    /// Point the cache at the registry file stamped `stamp`, forgetting
+    /// everything it answered for a different one. `true` when the memo
+    /// survived.
+    pub(crate) fn revalidate(&mut self, stamp: Option<RegistryStamp>) -> bool {
+        let kept = stamp.is_some() && self.stamp == stamp;
+        if !kept {
+            self.known.clear();
+        }
+        self.stamp = stamp;
+        kept
+    }
+
+    /// The remembered answer for `session_id`, if this stamp has one.
+    pub(crate) fn get(&self, session_id: &str) -> Option<bool> {
+        self.known.get(session_id).copied()
+    }
+
+    /// Remember a freshly resolved answer. A no-op when the file could not be
+    /// stamped: an answer with no key to invalidate it would go stale.
+    pub(crate) fn remember(&mut self, session_id: String, resumable: bool) {
+        if self.stamp.is_some() {
+            self.known.insert(session_id, resumable);
+        }
+    }
+}
+
+/// EXP-758: the registry file's stamp, or `None` when it cannot be read.
+///
+/// The path is `run_registry`'s own (`<data_dir>/runs.json`); the crate keeps
+/// it private and exposes no stamp accessor, so this mirrors it. A rename
+/// there degrades this to "never fresh", i.e. back to a per-row resolve, never
+/// to a stale answer.
+fn registry_stamp(data_dir: &std::path::Path) -> Option<RegistryStamp> {
+    let meta = std::fs::metadata(data_dir.join("runs.json")).ok()?;
+    Some((meta.modified().ok()?, meta.len()))
+}
+
 pub(crate) struct PastSessionsSection {
     nav: Entity<Navigation>,
     /// EXP-637: rows whose summary is open (collapsed by default). Per-view
     /// and unpersisted; keyed by session row id — the Automations run log's
     /// rule, so the two lists behave the same.
     expanded: HashSet<String>,
+    /// EXP-758: the per-repaint registry re-parse, removed.
+    resumable: ResumableCache,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -311,11 +380,12 @@ impl PastSessionsSection {
         Self {
             nav,
             expanded: HashSet::new(),
+            resumable: ResumableCache::default(),
             _subscriptions: subscriptions,
         }
     }
 
-    fn rows(&self, cx: &mut App) -> Vec<PastRow> {
+    fn rows(&mut self, cx: &mut App) -> Vec<PastRow> {
         let Some(me) = queries::active_account(cx).map(|account| account.user_id) else {
             return Vec::new();
         };
@@ -365,9 +435,22 @@ impl PastSessionsSection {
         // are done — EXP-637: only a run THIS machine recorded can be resumed
         // here (the workspace is local); one from another device shows its
         // summary and nothing else.
+        //
+        // EXP-758: resolved once per row per registry STAMP, not once per row
+        // per repaint.
+        self.resumable
+            .revalidate(registry_stamp(&crate::coding_flow::coding_data_dir(cx)));
         rows.into_iter()
             .map(|mut row| {
-                row.resumable = crate::coding_flow::run_is_resumable_ref(&row.session_id, cx);
+                row.resumable = match self.resumable.get(&row.session_id) {
+                    Some(known) => known,
+                    None => {
+                        let resolved =
+                            crate::coding_flow::run_is_resumable_ref(&row.session_id, cx);
+                        self.resumable.remember(row.session_id.clone(), resolved);
+                        resolved
+                    }
+                };
                 row
             })
             .collect()
@@ -534,6 +617,46 @@ fn running_caption(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn stamp(secs: u64, len: u64) -> RegistryStamp {
+        (
+            std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs),
+            len,
+        )
+    }
+
+    /// EXP-758: Past resolved resumability by re-parsing `runs.json` once per
+    /// row per repaint. The memo survives repaints, dies with the file's
+    /// stamp, and answers a row that joined the list on an unchanged file.
+    #[test]
+    fn the_resumable_memo_lives_and_dies_with_the_registry_stamp() {
+        let mut cache = ResumableCache::default();
+        // First pass: nothing is known yet.
+        assert!(!cache.revalidate(Some(stamp(10, 400))));
+        assert_eq!(cache.get("run-a"), None);
+        cache.remember("run-a".to_string(), true);
+        // A repaint over the same file answers from the memo.
+        assert!(cache.revalidate(Some(stamp(10, 400))));
+        assert_eq!(cache.get("run-a"), Some(true));
+        // A row that appeared without the file moving is still resolved (a
+        // run is recorded at LAUNCH, so its Past row arrives later).
+        assert_eq!(cache.get("run-b"), None);
+        cache.remember("run-b".to_string(), false);
+        assert_eq!(cache.get("run-b"), Some(false));
+        // A rewrite that kept the mtime but changed the length invalidates…
+        assert!(!cache.revalidate(Some(stamp(10, 512))));
+        assert_eq!(cache.get("run-a"), None);
+        // …as does a new mtime.
+        cache.remember("run-a".to_string(), true);
+        assert!(!cache.revalidate(Some(stamp(11, 512))));
+        assert_eq!(cache.get("run-a"), None);
+        // An unstampable file (no registry yet) never caches at all: every
+        // pass resolves, exactly as before the memo existed.
+        assert!(!cache.revalidate(None));
+        cache.remember("run-a".to_string(), true);
+        assert_eq!(cache.get("run-a"), None);
+        assert!(!cache.revalidate(None));
+    }
 
     /// A live row says where it runs, what it is doing and since when — and
     /// says nothing it cannot prove (an unknown machine drops the name, a row

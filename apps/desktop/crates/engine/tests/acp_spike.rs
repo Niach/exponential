@@ -145,7 +145,7 @@ fn codex_app_server_thread_start_and_turn() {
     }
     let cwd = scratch("codex");
     let spec = SpawnSpec::new("codex").args(["app-server", "--listen", "stdio://"]).cwd(cwd.clone());
-    let (server, notifications, _requests, _exit) = AppServer::spawn(&spec).expect("codex spawns");
+    let (server, notifications, _requests, _exit, _pid) = AppServer::spawn(&spec).expect("codex spawns");
     server
         .request_blocking(
             "initialize",

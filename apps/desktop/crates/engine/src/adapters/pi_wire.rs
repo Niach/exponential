@@ -317,11 +317,30 @@ pub fn parse_state(data: &Value) -> PiState {
     }
 }
 
+/// The `source` pi reports for an EXTENSION-registered command. The other
+/// two (`prompt`, `skill`) are ordinary message text and have no constant
+/// because nothing branches on them.
+pub const COMMAND_SOURCE_EXTENSION: &str = "extension";
+
 /// One `RpcSlashCommand`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PiSlashCommand {
     pub name: String,
     pub description: String,
+    /// EXP-758: pi's own `source` (`prompt` | `skill` | `extension`), kept
+    /// because it decides whether the command STARTS A TURN. An extension
+    /// command is dispatched inside pi and settles nothing, so a caller that
+    /// sent it as an ordinary prompt would park on a turn that never comes.
+    /// Empty when pi did not say (an older build): treated as a real turn,
+    /// which is the behaviour that predates this field.
+    pub source: String,
+}
+
+impl PiSlashCommand {
+    /// Whether pi runs this command itself instead of prompting the model.
+    pub fn is_extension(&self) -> bool {
+        self.source == COMMAND_SOURCE_EXTENSION
+    }
 }
 
 /// `get_commands` → `{commands: RpcSlashCommand[]}`.
@@ -337,6 +356,11 @@ pub fn parse_commands(data: &Value) -> Vec<PiSlashCommand> {
                         name: name.to_string(),
                         description: command
                             .get("description")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                        source: command
+                            .get("source")
                             .and_then(Value::as_str)
                             .unwrap_or_default()
                             .to_string(),
@@ -942,12 +966,28 @@ mod tests {
         assert_eq!(
             parse_commands(&json!({ "commands": [
                 { "name": "review", "description": "Review the diff", "source": "prompt" },
+                { "name": "status", "description": "Show status", "source": "extension" },
                 { "description": "no name at all" }
             ] })),
-            vec![PiSlashCommand {
-                name: "review".to_string(),
-                description: "Review the diff".to_string(),
-            }]
+            vec![
+                PiSlashCommand {
+                    name: "review".to_string(),
+                    description: "Review the diff".to_string(),
+                    source: "prompt".to_string(),
+                },
+                PiSlashCommand {
+                    name: "status".to_string(),
+                    description: "Show status".to_string(),
+                    source: "extension".to_string(),
+                },
+            ]
         );
+        // EXP-758: the `source` is what tells a turn-starting command from
+        // one pi dispatches itself. A build that omits it reads as a turn.
+        assert!(!parse_commands(&json!({ "commands": [{ "name": "review", "source": "prompt" }] }))[0]
+            .is_extension());
+        assert!(parse_commands(&json!({ "commands": [{ "name": "status", "source": "extension" }] }))[0]
+            .is_extension());
+        assert!(!parse_commands(&json!({ "commands": [{ "name": "old" }] }))[0].is_extension());
     }
 }

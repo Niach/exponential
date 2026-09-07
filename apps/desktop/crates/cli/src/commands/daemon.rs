@@ -333,8 +333,24 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // nothing runs any more; a live sibling's (the desktop app on this
     // machine) are the keep set. Nothing is live in THIS process yet.
     sweep_scratch_dirs(&ctx);
+    // EXP-758: an ACP child outlives a host that died without its quit sweep
+    // (a crash, SIGKILL, a hard reboot of the service), and nothing else ever
+    // kills it, since the PTY reaper's `claude-hooks` anchor only finds
+    // claude. The recorded pids are the anchor here, and a pid whose host is
+    // still alive (the desktop app sharing this data dir, REV-20) is skipped.
+    let orphans = coding::reaper::reap_recorded(&ctx.data_dir);
+    if orphans > 0 {
+        log::info!("reaped {orphans} orphaned agent process(es) from an earlier run");
+    }
 
-    let sidecars = Arc::new(Sidecars::start());
+    let sidecars = Arc::new(Sidecars::new());
+    // EXP-758: the sidecars bind lazily, per agent, on the launch path. A
+    // device that starts every run in a terminal
+    // (`Settings::start_in_terminal`) needs them for every launch it will
+    // ever do, so it binds them here instead of paying for it on the first.
+    sidecars.ensure_started_if(
+        coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir)).start_in_terminal,
+    );
     let runtime = match steer::SteerRuntime::new() {
         Ok(runtime) => Some(runtime),
         Err(err) => {
@@ -479,7 +495,21 @@ fn run_daemon(args: &[String]) -> CommandResult {
             // first is still preparing (see [`StartReservations`]).
             Ok(start) => match reservations.claim(reservation_keys(&start.subject)) {
                 Err(clash) => {
-                    log::info!("remote start ignored — a start holding {clash} is already in flight");
+                    // EXP-758: the sender hears NOTHING about this. A start
+                    // frame has no reply on the control socket (there is no
+                    // ack/refusal variant in `steer::frames::ClientFrame`, by
+                    // design: "the remote client observes success purely via
+                    // the synced `coding_sessions` row appearing"), and the
+                    // daemon has no device-notice channel either: the
+                    // heartbeat carries no message field and
+                    // `devices.completeCommand` only answers PULLED commands,
+                    // which starts are not. So a double-click on Start looks
+                    // like a start that vanished. Logged at WARN until the
+                    // relay grows a refusal frame; the drop is deliberate
+                    // (REV-9's dedup), it is only the silence that is not.
+                    log::warn!(
+                        "remote start dropped: a start holding {clash} is already in flight on this device; the sender was not told"
+                    );
                 }
                 Ok(reservation) => {
                     let ctx = Arc::clone(&ctx);
@@ -856,6 +886,14 @@ fn run_daemon(args: &[String]) -> CommandResult {
     if reaped > 0 {
         log::info!("reaped {reaped} escaped agent processes");
     }
+    // EXP-758: the 5s grace above is a bound, not a guarantee, and an engine
+    // that did not finish its end sequence in time still owns a live ACP
+    // child, and this process is about to stop being its parent. Same rule
+    // as the startup pass: only pids this host recorded, never a sibling's.
+    let orphans = coding::reaper::reap_recorded(&ctx.data_dir);
+    if orphans > 0 {
+        log::info!("reaped {orphans} agent process(es) that outlived their session");
+    }
     let _ = std::fs::remove_file(pidfile(&ctx.data_dir));
     Ok(ExitCode::SUCCESS)
 }
@@ -1196,11 +1234,14 @@ fn remote_issue_start(
             start_resume,
         )),
     };
+    // EXP-758: binds only the sidecar this launch's agent can use (none
+    // for codex, none for an external ACP agent).
+    let wired = sidecars.for_launch(launch::request_agent(&request));
     let prepared = coding::prepare_with_hooks(
         &request,
         &deps,
-        sidecars.hook_setup().as_ref(),
-        sidecars.observer_setup().as_ref(),
+        wired.hooks.as_ref(),
+        wired.observer.as_ref(),
     )
     .map_err(|err| anyhow::anyhow!("{err}"))?;
     spawn_prepared(
@@ -1289,11 +1330,15 @@ fn remote_batch_start(
         options,
     };
     let deps = launch::coding_deps(ctx, seeds, launch::LaunchHost::Daemon, runtime);
+    let request = PrepareRequest::Batch(request);
+    // EXP-758: binds only the sidecar this launch's agent can use (none
+    // for codex, none for an external ACP agent).
+    let wired = sidecars.for_launch(launch::request_agent(&request));
     let prepared = coding::prepare_with_hooks(
-        &PrepareRequest::Batch(request),
+        &request,
         &deps,
-        sidecars.hook_setup().as_ref(),
-        sidecars.observer_setup().as_ref(),
+        wired.hooks.as_ref(),
+        wired.observer.as_ref(),
     )
     .map_err(|err| anyhow::anyhow!("{err}"))?;
     spawn_prepared(ctx, sidecars, runtime, sessions, personal_key, prepared, None, false)
@@ -1370,11 +1415,15 @@ fn remote_action_start(
     }
 
     let deps = launch::coding_deps(ctx, HashMap::new(), launch::LaunchHost::Daemon, runtime);
+    let request = PrepareRequest::Action(request);
+    // EXP-758: binds only the sidecar this launch's agent can use (none
+    // for codex, none for an external ACP agent).
+    let wired = sidecars.for_launch(launch::request_agent(&request));
     let prepared = coding::prepare_with_hooks(
-        &PrepareRequest::Action(request),
+        &request,
         &deps,
-        sidecars.hook_setup().as_ref(),
-        sidecars.observer_setup().as_ref(),
+        wired.hooks.as_ref(),
+        wired.observer.as_ref(),
     )
     .map_err(|err| anyhow::anyhow!("{err}"))?;
     spawn_prepared(ctx, sidecars, runtime, sessions, personal_key, prepared, None, is_fix_run)
@@ -1437,11 +1486,15 @@ fn remote_resume_start(
         effort: None,
     };
     let deps = launch::coding_deps(ctx, seeds, launch::LaunchHost::Daemon, runtime);
+    let request = PrepareRequest::ResumeRun(request);
+    // EXP-758: binds only the sidecar this launch's agent can use (none
+    // for codex, none for an external ACP agent).
+    let wired = sidecars.for_launch(launch::request_agent(&request));
     let prepared = coding::prepare_with_hooks(
-        &PrepareRequest::ResumeRun(request),
+        &request,
         &deps,
-        sidecars.hook_setup().as_ref(),
-        sidecars.observer_setup().as_ref(),
+        wired.hooks.as_ref(),
+        wired.observer.as_ref(),
     )
     .map_err(|err| anyhow::anyhow!("{err}"))?;
     spawn_prepared(ctx, sidecars, runtime, sessions, personal_key, prepared, issue_id, false)
@@ -1479,22 +1532,45 @@ fn spawn_prepared(
     };
     // EXP-637: snapshotted before the launch consumes the prepared value.
     let cleanup = prepared.run_cleanup.clone();
-    let session = session_host::launch(&env, prepared, false, issue_id.clone())?;
+    // EXP-758: why this run is not on the transport the settings asked for
+    // (today: an agent whose ACP check failed fell back to the terminal).
+    // The daemon has no user-visible notice channel of its own (a remote
+    // start is never acked, see `handle_remote_start`), so the log is it.
+    if let Some(notice) = &prepared.transport_notice {
+        log::info!("session {}: {notice}", prepared.session_id);
+    }
+    let session = Arc::new(session_host::launch(&env, prepared, false, issue_id.clone())?);
     log::info!(
         "session {} started ({}, branch {})",
         session.session_id,
         session.issue_identifier,
         session.branch
     );
-    lock_sessions(sessions).push(LiveSession {
-        issue_id,
-        action_id,
-        branch: session.branch.clone(),
-        is_fix_run,
-        cleanup,
-        session: Arc::new(session),
-    });
+    register_session(
+        sessions,
+        LiveSession {
+            issue_id,
+            action_id,
+            branch: session.branch.clone(),
+            is_fix_run,
+            cleanup,
+            session,
+        },
+    );
     Ok(())
+}
+
+/// EXP-758 (EXP-478): register a launched run, THEN release its launch gate.
+/// The ORDER is the point. `run_device_command` builds the prune's `held` set
+/// from the live-session list, so a `worktree_prune` arriving between the
+/// launch and this push sees a branch with no unique commits and no live
+/// session and removes the worktree under a run that just started. The gate
+/// covers exactly that window, and this is where it ends (desktop parity:
+/// `ui/src/coding_flow.rs` inserts into `LocalSessions`, then drops).
+fn register_session(sessions: &Sessions, live: LiveSession) {
+    let session = Arc::clone(&live.session);
+    lock_sessions(sessions).push(live);
+    session.release_launch_hold();
 }
 
 // ---------------------------------------------------------------------------
@@ -2283,11 +2359,14 @@ impl AutomationHost {
             launch::LaunchHost::Daemon,
             self.runtime.as_ref(),
         );
+        let request = PrepareRequest::Action(request);
+        // EXP-758: binds only the sidecar this launch's agent can use.
+        let wired = self.sidecars.for_launch(launch::request_agent(&request));
         let prepared = coding::prepare_with_hooks(
-            &PrepareRequest::Action(request),
+            &request,
             &deps,
-            self.sidecars.hook_setup().as_ref(),
-            self.sidecars.observer_setup().as_ref(),
+            wired.hooks.as_ref(),
+            wired.observer.as_ref(),
         )
         .map_err(|err| anyhow::anyhow!("{err}"))?;
         if let Prepared::Disabled(reason) = &prepared {
@@ -2857,6 +2936,47 @@ mod tests {
         }
     }
 
+    /// EXP-758 (EXP-478): the run is in the live list, the prune's `held`
+    /// set, BEFORE its launch gate is released. Released earlier (which is
+    /// what `session_host::launch` used to do) a `worktree_prune` landing in
+    /// the gap removes the worktree of a run that just started.
+    #[test]
+    fn registering_a_session_releases_the_launch_gate_only_after_the_push() {
+        let clone = std::env::temp_dir().join(format!(
+            "exp-cli-register-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&clone).expect("temp clone");
+        let sessions: Sessions = Arc::new(Mutex::new(Vec::new()));
+        let session = Arc::new(crate::session_host::test_session(
+            "sess-1",
+            Some(coding::launch_gate::hold(&clone)),
+        ));
+        // Pre-registration: the prune on that clone cannot run at all.
+        assert!(coding::launch_gate::try_exclusive(&clone, || ()).is_none());
+
+        register_session(
+            &sessions,
+            LiveSession {
+                issue_id: Some("issue-1".to_string()),
+                action_id: None,
+                branch: session.branch.clone(),
+                is_fix_run: false,
+                cleanup: None,
+                session: Arc::clone(&session),
+            },
+        );
+
+        let guard = lock_sessions(&sessions);
+        assert_eq!(guard.len(), 1, "the run is registered");
+        assert_eq!(guard[0].branch, "exp/EXP-1");
+        drop(guard);
+        assert!(!session.holds_launch_gate(), "and only then is the gate free");
+        assert!(coding::launch_gate::try_exclusive(&clone, || ()).is_some());
+        let _ = std::fs::remove_dir_all(&clone);
+    }
+
     #[test]
     fn gated_update_is_immediate_then_paced() {
         let now = Instant::now();
@@ -3014,6 +3134,8 @@ mod tests {
             transport: None,
             acp_session_id: None,
             agent_native_session_id: None,
+            acp_child_pid: None,
+            host_pid: None,
             external_agent: None,
             recorded_at: coding::run_registry::now_secs(),
             extra: std::collections::BTreeMap::new(),

@@ -140,6 +140,9 @@ pub struct CodexConnection {
     pub notifications: flume::Receiver<(String, Value)>,
     pub requests: flume::Receiver<ServerRequest>,
     pub exit: Option<flume::Receiver<terminal::pty::ChildExit>>,
+    /// EXP-758: the app-server child's pid (`None` on the in-process test
+    /// fake) — recorded into the run record for the orphan reaper.
+    pub pid: Option<u32>,
 }
 
 impl CodexConnection {
@@ -153,12 +156,13 @@ impl CodexConnection {
             "--listen".to_string(),
             "stdio://".to_string(),
         ];
-        let (server, notifications, requests, exit) = AppServer::spawn(&spec)?;
+        let (server, notifications, requests, exit, pid) = AppServer::spawn(&spec)?;
         Ok(CodexConnection {
             server,
             notifications,
             requests,
             exit: Some(exit),
+            pid: Some(pid),
         })
     }
 }
@@ -172,6 +176,9 @@ pub struct CodexAgent {
 impl CodexAgent {
     pub fn new(spec: AdapterSpec) -> Result<CodexAgent, EngineError> {
         let connection = CodexConnection::spawn(&spec.spawn).map_err(EngineError::Spawn)?;
+        if let Some(pid) = connection.pid {
+            spec.exit.record_pid(pid);
+        }
         if let Some(exit) = &connection.exit {
             crate::transport::forward_exit(exit.clone(), spec.exit.clone());
         }
@@ -216,9 +223,16 @@ impl TurnOutcome {
         match self {
             TurnOutcome::Completed => StopReason::EndTurn,
             TurnOutcome::Interrupted => StopReason::Cancelled,
-            // codex reports the reason as an `error` notification, which the
-            // feed already carries; the stop reason only has to be terminal.
-            TurnOutcome::Failed => StopReason::Refusal,
+            // EXP-758: `EndTurn`, not `Refusal`. ACP gives a turn five
+            // terminal reasons and none of them means "it broke": `Refusal`
+            // is the MODEL declining, and the schema attaches a behaviour to
+            // it (the prompt and everything after it drops out of the next
+            // one), which is a lie about a `turn/failed` or a dead
+            // app-server, and codex keeps that history. `Cancelled` is reserved
+            // for `session/cancel` by the spec. `EndTurn` is the honest
+            // remainder: the turn is over, and the reason already reached the
+            // feed as an `error` notification.
+            TurnOutcome::Failed => StopReason::EndTurn,
         }
     }
 }
@@ -453,18 +467,32 @@ impl ConnectTo<Client> for CodexAgent {
                     agent_client_protocol::on_receive_request!(),
                 )
                 .on_receive_request(
-                    async move |request: NewSessionRequest, responder, cx| {
+                    async move |request: NewSessionRequest, responder, cx: ConnectionTo<Client>| {
+                        // EXP-758: SPAWNED, like the prompt handler. This is
+                        // `thread/start` plus up to eight `model/list` pages,
+                        // each with the 120 s `CALL_TIMEOUT` behind it, and
+                        // inline every one of those seconds is a second in
+                        // which `session/cancel` cannot be dispatched.
                         let shared = new_session.clone();
-                        match open_thread(&shared, &cx, request, notifications.clone(), requests.clone())
-                            .await
-                        {
-                            Ok(response) => {
-                                let sent = responder.respond(response);
-                                publish_commands(&shared, &cx);
-                                sent
-                            }
-                            Err(error) => responder.respond_with_error(error),
-                        }
+                        let notifications = notifications.clone();
+                        let requests = requests.clone();
+                        let spawned = cx.clone();
+                        cx.spawn(async move {
+                            let opened =
+                                open_thread(&shared, &spawned, request, notifications, requests)
+                                    .await;
+                            let _ = match opened {
+                                Ok(response) => {
+                                    let sent = responder.respond(response);
+                                    publish_commands(&shared, &spawned);
+                                    sent
+                                }
+                                Err(error) => responder.respond_with_error(error),
+                            };
+                            // NEVER `Err`: a spawned task that fails takes the
+                            // whole connection down with it.
+                            Ok(())
+                        })
                     },
                     agent_client_protocol::on_receive_request!(),
                 )
@@ -533,12 +561,20 @@ impl ConnectTo<Client> for CodexAgent {
                     agent_client_protocol::on_receive_request!(),
                 )
                 .on_receive_request(
-                    async move |request: SetSessionConfigOptionRequest, responder, _cx| {
+                    async move |request: SetSessionConfigOptionRequest,
+                                responder,
+                                cx: ConnectionTo<Client>| {
+                        // EXP-758: SPAWNED. `thread/settings/update` is an
+                        // app-server round trip, and a slow one held every
+                        // later message, `session/cancel` included.
                         let shared = set_config.clone();
-                        apply_config_option(&shared, &request).await;
-                        responder.respond(SetSessionConfigOptionResponse::new(config_options(
-                            &shared,
-                        )))
+                        cx.spawn(async move {
+                            apply_config_option(&shared, &request).await;
+                            let _ = responder.respond(SetSessionConfigOptionResponse::new(
+                                config_options(&shared),
+                            ));
+                            Ok(())
+                        })
                     },
                     agent_client_protocol::on_receive_request!(),
                 )
@@ -2153,9 +2189,7 @@ async fn on_server_request(shared: &Arc<Shared>, cx: &ConnectionTo<Client>, requ
             codex_wire::cancel_result(&request.method)
         }
     };
-    if let Ok(mut in_flight) = shared.in_flight.lock() {
-        in_flight.remove(&key);
-    }
+    forget(shared, &key);
     answer(shared, &key, &request, result);
 }
 
@@ -2267,6 +2301,13 @@ async fn question(
         schema = schema.property(id, property, true);
     }
 
+    // EXP-758: INSIDE the cancel fence, exactly like an approval. A question
+    // left out of `in_flight` survived `session/cancel` on codex's side: the
+    // fence answered every approval and left this request open, so the
+    // app-server sat waiting for an answer to a turn that was already gone.
+    if let Ok(mut in_flight) = shared.in_flight.lock() {
+        in_flight.insert(key.to_string(), request.clone());
+    }
     let ask = cx.send_request(CreateElicitationRequest::new(
         ElicitationFormMode::new(
             ElicitationSessionScope::new(session_id).tool_call_id(
@@ -2291,11 +2332,15 @@ async fn question(
                 Ok(response) => response,
                 // codex has resolved it itself by now; answering would be
                 // answering a request that no longer exists.
-                Err(_) => return,
+                Err(_) => {
+                    forget(shared, key);
+                    return;
+                }
             }
         }
         None => ask.block_task().await,
     };
+    forget(shared, key);
     let Ok(response) = response else {
         answer(shared, key, request, codex_wire::cancel_result(&request.method));
         return;
@@ -2318,6 +2363,16 @@ async fn question(
         answers.insert(id, json!({ "answers": [value] }));
     }
     answer(shared, key, request, json!({ "answers": answers }));
+}
+
+/// EXP-758: take a server request back off the cancel fence's books. Called
+/// the moment its own answer is decided, so the fence never re-answers a
+/// request that is already spoken for (`answer` would drop it, but a request
+/// codex resolved ITSELF is not on the `answered` books at all).
+fn forget(shared: &Arc<Shared>, key: &str) {
+    if let Ok(mut in_flight) = shared.in_flight.lock() {
+        in_flight.remove(key);
+    }
 }
 
 /// Answer a server request exactly once. Two paths race for it — the person's

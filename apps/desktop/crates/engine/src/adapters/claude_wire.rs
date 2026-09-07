@@ -494,6 +494,19 @@ impl ControlResp {
     pub fn is_success(&self) -> bool {
         self.subtype == "success"
     }
+
+    /// EXP-758: a response the ADAPTER synthesizes for a request the CLI will
+    /// never answer (its stdout ended with the request still in flight).
+    /// Shaped like the real error frame so the one caller path applies.
+    pub fn failed(request_id: &str, reason: &str) -> ControlResp {
+        ControlResp {
+            subtype: "error".to_string(),
+            request_id: request_id.to_string(),
+            response: Value::Null,
+            error: Some(reason.to_string()),
+            extra: Map::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]

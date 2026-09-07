@@ -25,8 +25,9 @@ use agent_client_protocol::schema::v1::{
     CreateElicitationResponse, ElicitationAcceptAction, ElicitationContentValue,
     ElicitationMode, InitializeRequest, NewSessionRequest,
     PermissionOptionId, PromptRequest, RequestPermissionOutcome, RequestPermissionRequest,
-    RequestPermissionResponse, SelectedPermissionOutcome, SessionNotification, SessionUpdate,
-    StopReason, TextContent, ToolCallContent, ToolKind,
+    RequestPermissionResponse, SelectedPermissionOutcome, SessionConfigOptionValue, SessionId,
+    SessionModeId, SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
+    SetSessionModeRequest, StopReason, TextContent, ToolCallContent, ToolKind,
 };
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{Client, ConnectionTo};
@@ -53,6 +54,11 @@ struct FakeState {
     /// Every result the adapter sent back for a server request.
     answers: Vec<Value>,
     turn: u32,
+    /// EXP-758: a method the fake answers only when the test says so, i.e. the
+    /// slow app-server call a handler must not sit on the dispatch loop for.
+    hold: Option<String>,
+    /// The answers (and their replay frames) [`FakeServer::release`] owes.
+    held: Vec<(Value, Value, Vec<Value>)>,
 }
 
 struct FakeServer {
@@ -75,6 +81,8 @@ impl FakeServer {
                 seen: Vec::new(),
                 answers: Vec::new(),
                 turn: 0,
+                hold: None,
+                held: Vec::new(),
             }),
         });
         let sink: Arc<dyn LineSink> = fake.clone();
@@ -87,8 +95,36 @@ impl FakeServer {
                 notifications,
                 requests,
                 exit: None,
+                pid: None,
             },
         )
+    }
+
+    /// EXP-758: hold every answer to `method` until [`FakeServer::release`].
+    /// Nothing SLEEPS: a blocking fake would stall the single-threaded test
+    /// runtime whichever side of the fix the handler is on, and prove
+    /// nothing.
+    fn hold(&self, method: &str) {
+        if let Ok(mut state) = self.state.lock() {
+            state.hold = Some(method.to_string());
+        }
+    }
+
+    /// Answer everything [`FakeServer::hold`] held back.
+    fn release(&self) {
+        let held = match self.state.lock() {
+            Ok(mut state) => {
+                state.hold = None;
+                std::mem::take(&mut state.held)
+            }
+            Err(_) => Vec::new(),
+        };
+        for (id, result, replay) in held {
+            self.reply(&id, result);
+            for frame in &replay {
+                self.push(frame);
+            }
+        }
     }
 
     fn saw(&self, method: &str) -> bool {
@@ -189,6 +225,17 @@ impl LineSink for FakeServer {
                     "turn/steer" => json!({ "turnId": format!("turn_{turn}b") }),
                     _ => json!({}),
                 };
+                let held = self
+                    .state
+                    .lock()
+                    .map(|state| state.hold.as_deref() == Some(method.as_str()))
+                    .unwrap_or(false);
+                if held {
+                    if let Ok(mut state) = self.state.lock() {
+                        state.held.push((id, result, replay));
+                    }
+                    return Ok(());
+                }
                 self.reply(&id, result);
                 for frame in &replay {
                     self.push(frame);
@@ -812,4 +859,262 @@ async fn a_codex_session_publishes_live_usage_and_detaches_on_end() {
     // numbers stay (the collector ages them out by their own stamp).
     settle(|| live_usage().sessions == 0).await;
     assert_eq!(live_usage().windows, usage.windows());
+}
+
+// ---------------------------------------------------------------------------
+// EXP-758: handlers off the dispatch loop, the elicitation fence, and what a
+// failed turn stops with
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_slow_thread_start_does_not_block_the_dispatch_loop() {
+    let _session = one_session_at_a_time();
+    // EXP-758: `session/new` is `thread/start` plus up to eight `model/list`
+    // pages, each with a 120 s deadline. Run inline it holds the dispatch
+    // loop, and a handler on the dispatch loop is a `session/cancel` that
+    // cannot be delivered, which is the crate's one hard rule.
+    let (fake, connection) = FakeServer::new(vec![frames("turn.jsonl")], Vec::new(), Vec::new());
+    fake.hold("thread/start");
+    let agent = CodexAgent::with_connection(spec(), connection);
+    let watcher = fake.clone();
+
+    Client
+        .builder()
+        .on_receive_notification(
+            async move |_notification: SessionNotification, _cx| Ok(()),
+            agent_client_protocol::on_receive_notification!(),
+        )
+        .connect_with(agent, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(ClientCapabilities::new()),
+            )
+            .block_task()
+            .await?;
+            let opening = tokio::spawn({
+                let cx = cx.clone();
+                async move {
+                    cx.send_request(NewSessionRequest::new(PathBuf::from("/work/tree")))
+                        .block_task()
+                        .await
+                }
+            });
+            settle(|| watcher.saw("thread/start")).await;
+
+            // The app-server has not answered and will not until we say so.
+            // Another request has to be dispatched anyway.
+            let answered = tokio::time::timeout(
+                SETTLE,
+                cx.send_request(SetSessionModeRequest::new(
+                    SessionId::new("thread_1"),
+                    SessionModeId::new("agent"),
+                ))
+                .block_task(),
+            )
+            .await;
+            assert!(
+                answered.is_ok(),
+                "a request behind a pending thread/start was never dispatched"
+            );
+            answered.expect("dispatched").expect("session/set_mode answers");
+
+            watcher.release();
+            opening.await.expect("the open task runs").expect("the session opens");
+            Ok(())
+        })
+        .await
+        .expect("the session runs");
+}
+
+#[tokio::test]
+async fn a_cancel_resolves_an_open_question_the_way_it_resolves_an_approval() {
+    let _session = one_session_at_a_time();
+    // EXP-758: a `requestUserInput` was raised OUTSIDE the cancel fence, so it
+    // never entered `in_flight`, so `session/cancel` answered every approval
+    // and left this one open, with the app-server waiting on a turn that was
+    // already gone.
+    let (fake, connection) =
+        FakeServer::new(vec![frames("question.jsonl")], Vec::new(), Vec::new());
+    let agent = CodexAgent::with_connection(spec(), connection);
+    // A person who never answers: the responder is parked, exactly like an
+    // unanswered card on screen.
+    let parked: Arc<Mutex<Vec<CreateElicitationRequest>>> = Arc::new(Mutex::new(Vec::new()));
+    let seen = parked.clone();
+    let watcher = fake.clone();
+
+    let stop = Client
+        .builder()
+        .on_receive_notification(
+            async move |_notification: SessionNotification, _cx| Ok(()),
+            agent_client_protocol::on_receive_notification!(),
+        )
+        .on_receive_request(
+            async move |request: CreateElicitationRequest, responder, _cx| {
+                if let Ok(mut seen) = seen.lock() {
+                    seen.push(request);
+                }
+                // Never answered, and never dropped: the fence has to be what
+                // resolves this.
+                std::mem::forget(responder);
+                Ok(())
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .connect_with(agent, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(ClientCapabilities::new()),
+            )
+            .block_task()
+            .await?;
+            let session = cx
+                .send_request(NewSessionRequest::new(PathBuf::from("/work/tree")))
+                .block_task()
+                .await?;
+            let prompting = tokio::spawn({
+                let cx = cx.clone();
+                let session_id = session.session_id.clone();
+                async move {
+                    cx.send_request(PromptRequest::new(session_id, vec![text("reformat the file")]))
+                        .block_task()
+                        .await
+                }
+            });
+            settle(|| parked.lock().map(|parked| !parked.is_empty()).unwrap_or(false)).await;
+            cx.send_notification(CancelNotification::new(session.session_id.clone()))?;
+            // The fence answers the question codex is still waiting on.
+            settle(|| !watcher.answers().is_empty()).await;
+            let stop = prompting.await.expect("the prompt task runs")?.stop_reason;
+            Ok(stop)
+        })
+        .await
+        .expect("the session runs");
+
+    assert_eq!(stop, StopReason::Cancelled);
+    // codex's own "no answers" shape, the same one an approval's cancel uses.
+    assert_eq!(fake.answers(), vec![json!({ "answers": {} })]);
+}
+
+#[tokio::test]
+async fn a_failed_turn_stops_terminally_without_claiming_a_refusal() {
+    let _session = one_session_at_a_time();
+    // EXP-758: `turn/failed` is not the model DECLINING. ACP attaches a
+    // behaviour to `Refusal` (the prompt and everything after it leaves the
+    // next context) that is simply untrue of a provider error, and codex
+    // keeps that history. The error itself already rode the feed.
+    let (_fake, connection) =
+        FakeServer::new(vec![frames("turn-failed.jsonl")], Vec::new(), Vec::new());
+    let agent = CodexAgent::with_connection(spec(), connection);
+    let recorded = Recorded::default();
+    let sink = recorded.clone();
+
+    let stop = Client
+        .builder()
+        .on_receive_notification(
+            async move |notification: SessionNotification, _cx| {
+                sink.push(notification.update);
+                Ok(())
+            },
+            agent_client_protocol::on_receive_notification!(),
+        )
+        .connect_with(agent, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(ClientCapabilities::new()),
+            )
+            .block_task()
+            .await?;
+            let session = cx
+                .send_request(NewSessionRequest::new(PathBuf::from("/work/tree")))
+                .block_task()
+                .await?;
+            let response = cx
+                .send_request(PromptRequest::new(
+                    session.session_id.clone(),
+                    vec![text("run the tests")],
+                ))
+                .block_task()
+                .await?;
+            Ok(response.stop_reason)
+        })
+        .await
+        .expect("the session runs");
+
+    assert_eq!(stop, StopReason::EndTurn);
+    assert_ne!(stop, StopReason::Refusal);
+    // And the reason is in the feed, which is where it belongs.
+    assert!(
+        recorded
+            .texts()
+            .iter()
+            .any(|text| text.contains("the model provider returned 500")),
+        "{:?}",
+        recorded.texts()
+    );
+}
+
+#[tokio::test]
+async fn a_slow_config_update_does_not_block_the_dispatch_loop() {
+    let _session = one_session_at_a_time();
+    // EXP-758: the other handler that ran an app-server call inline.
+    // `collaboration_mode` is a `thread/settings/update` round trip, and the
+    // rule is the same one the prompt handler already follows.
+    let (fake, connection) = FakeServer::new(vec![frames("turn.jsonl")], Vec::new(), Vec::new());
+    let agent = CodexAgent::with_connection(spec(), connection);
+    let watcher = fake.clone();
+
+    Client
+        .builder()
+        .on_receive_notification(
+            async move |_notification: SessionNotification, _cx| Ok(()),
+            agent_client_protocol::on_receive_notification!(),
+        )
+        .connect_with(agent, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(ClientCapabilities::new()),
+            )
+            .block_task()
+            .await?;
+            let session = cx
+                .send_request(NewSessionRequest::new(PathBuf::from("/work/tree")))
+                .block_task()
+                .await?;
+            watcher.hold("thread/settings/update");
+            let updating = tokio::spawn({
+                let cx = cx.clone();
+                let session_id = session.session_id.clone();
+                async move {
+                    cx.send_request(SetSessionConfigOptionRequest::new(
+                        session_id,
+                        "collaboration_mode",
+                        SessionConfigOptionValue::value_id("plan"),
+                    ))
+                    .block_task()
+                    .await
+                }
+            });
+            settle(|| watcher.saw("thread/settings/update")).await;
+
+            let answered = tokio::time::timeout(
+                SETTLE,
+                cx.send_request(SetSessionModeRequest::new(
+                    session.session_id.clone(),
+                    SessionModeId::new("agent"),
+                ))
+                .block_task(),
+            )
+            .await;
+            assert!(
+                answered.is_ok(),
+                "a request behind a pending thread/settings/update was never dispatched"
+            );
+            answered.expect("dispatched").expect("session/set_mode answers");
+
+            watcher.release();
+            updating.await.expect("the update task runs").expect("the option is set");
+            Ok(())
+        })
+        .await
+        .expect("the session runs");
 }

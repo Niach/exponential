@@ -34,10 +34,11 @@
 //!   spawned with its `Responder` moved in, then swallows its own errors —
 //!   a spawned task that returns `Err` tears the whole connection down.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{
     AgentCapabilities, AgentResponse, AvailableCommand, AvailableCommandInput, ClientNotification,
@@ -95,6 +96,14 @@ const CONFIG_AUTO_COMPACTION: &str = "auto_compaction";
 const MODE_PLAN: &str = "plan";
 const MODE_DEFAULT: &str = "default";
 
+/// EXP-758: how long one rpc command may go unanswered before its caller
+/// gives up. pi has no timeout of its own, so without this a wedged (or
+/// silently dropped) command parks its handler task forever and the config
+/// setter, the compaction or the `session/new` handshake that issued it never
+/// answers. Sized like the neighbours: claude's `CONTROL_TIMEOUT` is 90 s,
+/// codex's `CALL_TIMEOUT` 120 s, and pi's slowest command is `compact`.
+const RPC_TIMEOUT: Duration = Duration::from_secs(120);
+
 /// A tool's streamed output is a LOCAL card, but it still crosses a channel
 /// and lands in a `Vec` — cap it so a runaway `bash` cannot grow the session
 /// without bound. (The renderer caps again at 200 lines.)
@@ -103,10 +112,21 @@ const OUTPUT_CHUNK_MAX: usize = 64 * 1024;
 pub struct PiAgent {
     spec: AdapterSpec,
     child: ChildLines,
+    rpc_timeout: Duration,
 }
 
 impl PiAgent {
     pub fn new(spec: AdapterSpec) -> Result<PiAgent, EngineError> {
+        PiAgent::with_rpc_timeout(spec, RPC_TIMEOUT)
+    }
+
+    /// [`PiAgent::new`] with an explicit rpc deadline. Only the adapter tests
+    /// pass anything but [`RPC_TIMEOUT`]: a suite cannot wait two minutes to
+    /// prove a command that is never answered gives up.
+    pub fn with_rpc_timeout(
+        spec: AdapterSpec,
+        rpc_timeout: Duration,
+    ) -> Result<PiAgent, EngineError> {
         let mut spawn = spec.spawn.clone();
         // The Acp arm hands us an EMPTY argv on purpose (D2): the rpc argv
         // has nothing in common with the TUI one.
@@ -118,7 +138,7 @@ impl PiAgent {
             child.pid,
             spec.session_id
         );
-        Ok(PiAgent { spec, child })
+        Ok(PiAgent { spec, child, rpc_timeout })
     }
 }
 
@@ -176,7 +196,7 @@ impl ConnectTo<Client> for PiAgent {
     ) -> impl std::future::Future<Output = Result<(), agent_client_protocol::Error>> + Send {
         async move {
             let exit = self.spec.exit.clone();
-            let session = Arc::new(PiSession::new(&self.spec, self.child));
+            let session = Arc::new(PiSession::new(&self.spec, self.child, self.rpc_timeout));
             let handler_session = Arc::clone(&session);
             let notification_session = Arc::clone(&session);
             Agent
@@ -208,10 +228,15 @@ impl ConnectTo<Client> for PiAgent {
 
 /// One pending prompt turn. pi settles a turn ONCE (`agent_settled`) however
 /// many messages were steered into it, so every waiter resolves together.
+///
+/// EXP-758: each waiter carries an id, because a steer whose rpc FAILS has to
+/// withdraw its own waiter and leave the turn (and every other waiter on it)
+/// exactly as it was: pi is still running the first message.
 #[derive(Default)]
 struct Turn {
     active: bool,
-    waiters: Vec<tokio::sync::oneshot::Sender<StopReason>>,
+    next_waiter: u64,
+    waiters: Vec<(u64, tokio::sync::oneshot::Sender<StopReason>)>,
 }
 
 /// What we remembered when a tool call started.
@@ -247,6 +272,19 @@ struct PiSession {
     tools: Mutex<HashMap<String, ToolEntry>>,
     compactions: AtomicU64,
     open_compaction: Mutex<Option<String>>,
+    /// EXP-758: the advertised commands pi runs ITSELF (`source` =
+    /// `extension`). They start no turn, so `session/prompt` answers them off
+    /// the rpc response instead of waiting for an `agent_settled` that never
+    /// comes. Filled by [`publish_commands`], on `session/new` and
+    /// `session/load` alike.
+    extension_commands: Mutex<HashSet<String>>,
+    /// EXP-758: what this session has spent, in USD. pi reports cost PER
+    /// TURN, but ACP's `UsageUpdate.cost` is "cost information for a session"
+    /// and every client renders it as one running total, so the adapter adds
+    /// the turns up instead of reporting the last one.
+    cost_usd: Mutex<f64>,
+    /// How long one rpc command may go unanswered ([`RPC_TIMEOUT`]).
+    rpc_timeout: Duration,
 }
 
 /// One `{"type":"response"}` line, matched to the command that asked.
@@ -275,7 +313,7 @@ fn guard<T>(lock: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl PiSession {
-    fn new(spec: &AdapterSpec, child: ChildLines) -> PiSession {
+    fn new(spec: &AdapterSpec, child: ChildLines, rpc_timeout: Duration) -> PiSession {
         PiSession {
             child,
             cwd: spec.cwd.clone(),
@@ -289,6 +327,9 @@ impl PiSession {
             tools: Mutex::new(HashMap::new()),
             compactions: AtomicU64::new(0),
             open_compaction: Mutex::new(None),
+            extension_commands: Mutex::new(HashSet::new()),
+            cost_usd: Mutex::new(0.0),
+            rpc_timeout,
         }
     }
 
@@ -306,9 +347,19 @@ impl PiSession {
             guard(&self.pending).remove(&id);
             return Err(Error::internal_error().data(json!(format!("pi stdin: {err}"))));
         }
-        match receiver.await {
-            Ok(reply) => reply.ok(),
-            Err(_) => Err(Error::internal_error().data(json!("pi stopped before answering"))),
+        // EXP-758: pi answers or it does not, and an unanswered command used
+        // to park its handler task for the life of the run. Drop the pending
+        // entry on the way out so a very late answer resolves nothing.
+        match tokio::time::timeout(self.rpc_timeout, receiver).await {
+            Ok(Ok(reply)) => reply.ok(),
+            Ok(Err(_)) => Err(Error::internal_error().data(json!("pi stopped before answering"))),
+            Err(_) => {
+                guard(&self.pending).remove(&id);
+                Err(Error::internal_error().data(json!(format!(
+                    "pi did not answer {command} within {}s",
+                    self.rpc_timeout.as_secs()
+                ))))
+            }
         }
     }
 
@@ -392,21 +443,34 @@ impl PiSession {
 
     /// Register a waiter for the running turn and say whether this message
     /// STARTS the turn (`prompt`) or joins it (`steer`).
-    fn enter_turn(&self, sender: tokio::sync::oneshot::Sender<StopReason>) -> bool {
+    fn enter_turn(&self, sender: tokio::sync::oneshot::Sender<StopReason>) -> (bool, u64) {
         let mut turn = guard(&self.turn);
         let starting = !turn.active;
         turn.active = true;
-        turn.waiters.push(sender);
-        starting
+        turn.next_waiter += 1;
+        let waiter_id = turn.next_waiter;
+        turn.waiters.push((waiter_id, sender));
+        (starting, waiter_id)
+    }
+
+    /// EXP-758: withdraw ONE waiter without touching the turn. The steer that
+    /// failed to reach pi is over; the message pi is still working on is not.
+    fn leave_turn(&self, waiter_id: u64) {
+        guard(&self.turn).waiters.retain(|(id, _)| *id != waiter_id);
     }
 
     /// Settle the turn and answer every prompt request waiting on it.
     fn settle(&self, stop: StopReason) {
         let mut turn = guard(&self.turn);
         turn.active = false;
-        for waiter in turn.waiters.drain(..) {
+        for (_, waiter) in turn.waiters.drain(..) {
             let _ = waiter.send(stop);
         }
+    }
+
+    /// EXP-758: is `name` one of the commands pi dispatches itself?
+    fn is_extension_command(&self, name: &str) -> bool {
+        guard(&self.extension_commands).contains(name)
     }
 
     /// The child's stdout ended: nothing will ever answer again.
@@ -1023,9 +1087,22 @@ async fn prompt(
             result?;
             return Ok(PromptResponse::new(StopReason::EndTurn));
         }
+        // EXP-758: `/exp-plan` is not the only command pi runs itself. EVERY
+        // advertised `source: extension` command is dispatched inside pi with
+        // NO turn behind it, so the same route applies: send the rpc `prompt`,
+        // answer off its response, and never `enter_turn`: a turn entered
+        // here would stay active forever and turn every later message into a
+        // `steer` aimed at nothing. Prompt- and skill-sourced commands ARE
+        // message text and fall through to the real turn below.
+        if session.is_extension_command(name) {
+            session
+                .request("prompt", json!({ "message": text.trim() }))
+                .await?;
+            return Ok(PromptResponse::new(StopReason::EndTurn));
+        }
     }
     let (sender, receiver) = tokio::sync::oneshot::channel();
-    let starting = session.enter_turn(sender);
+    let (starting, waiter_id) = session.enter_turn(sender);
     let mut params = json!({ "message": text });
     if !images.is_empty() {
         params["images"] = Value::Array(images);
@@ -1035,7 +1112,16 @@ async fn prompt(
     // one turn.
     let verb = if starting { "prompt" } else { "steer" };
     if let Err(error) = session.request(verb, params).await {
-        session.settle(StopReason::Cancelled);
+        // EXP-758: only the message that OPENED the turn may settle it. A
+        // steer that never reached pi leaves the running turn (and the
+        // request that started it) alone: cancelling here answered the first
+        // prompt with `Cancelled` while pi was still working, and flipped
+        // `turn.active` off under it.
+        if starting {
+            session.settle(StopReason::Cancelled);
+        } else {
+            session.leave_turn(waiter_id);
+        }
         return Err(error);
     }
     Ok(PromptResponse::new(
@@ -1169,8 +1255,10 @@ async fn set_config_option(
     ))
 }
 
-/// Run one of pi's verb-only commands. `None` = not ours, send it as text
-/// (pi's own extension/prompt/skill commands ARE message text).
+/// Run one of pi's verb-only commands ([`SYNTHESIZED_COMMANDS`]). `None` =
+/// not one of ours. EXP-758: what the caller does then depends on pi's own
+/// `source`. An `extension` command is dispatched by pi and starts no turn,
+/// while a `prompt` or `skill` command IS message text and starts a real one.
 async fn run_command(
     session: &Arc<PiSession>,
     cx: &ConnectionTo<Client>,
@@ -1248,6 +1336,15 @@ async fn publish_commands(session: &Arc<PiSession>, cx: &ConnectionTo<Client>) {
                 ))
             }
         })
+        .collect();
+    // EXP-758: remember which of them pi runs ITSELF, before the dedup drops
+    // any of the names. A `prompt` carrying one of these gets no turn back.
+    // A name that also names a verb-only command keeps the verb (the dedup
+    // below), and `run_command` is consulted first, so the two never collide.
+    *guard(&session.extension_commands) = advertised
+        .iter()
+        .filter(|command| command.is_extension())
+        .map(|command| command.name.clone())
         .collect();
     for command in advertised {
         if commands.iter().any(|known| known.name == command.name) {
@@ -1459,19 +1556,31 @@ fn text_chunk(message_id: Option<String>, text: String) -> ContentChunk {
 /// `used`/`size` for one turn's usage. `size` is the model's context window;
 /// with no model in hand there is no denominator and no update (a `usage`
 /// event with a zero size clears the bar on every client).
+///
+/// EXP-758: the COST is cumulative. pi reports what the turn that just ended
+/// cost, but ACP documents `UsageUpdate.cost` as the cost of the SESSION and
+/// every client renders exactly one figure, so the running total is added up
+/// here: a per-turn number there reads as a session that got cheaper.
 fn usage_update(session: &PiSession, usage: &PiUsage) -> Option<UsageUpdate> {
     let size = guard(&session.state)
         .model
         .as_ref()
         .map(|model| model.context_window)
         .unwrap_or_default();
+    // The total is banked even when there is no denominator to report it
+    // with, so the next turn that HAS a model reports the whole session.
+    let total = usage.cost_usd.map(|cost| {
+        let mut total = guard(&session.cost_usd);
+        *total += cost;
+        *total
+    });
     if size == 0 {
         return None;
     }
     let update = UsageUpdate::new(usage.total_tokens, size);
-    Some(match usage.cost_usd {
+    Some(match total {
         // pi is the ONE agent that reports money.
-        Some(cost) => update.cost(Cost::new(cost, "USD")),
+        Some(total) => update.cost(Cost::new(total, "USD")),
         None => update,
     })
 }

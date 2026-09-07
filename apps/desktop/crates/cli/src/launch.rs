@@ -120,6 +120,26 @@ pub fn coding_deps(
     }
 }
 
+/// EXP-758: which agent a prepare request will actually launch, i.e. what the
+/// sidecar host binds for (`Sidecars::for_launch`: hooks are claude's, the
+/// observer is pi's). `None` = no sidecar can apply: an EXTERNAL agent has no
+/// CLI of ours at all and always resolves to the ACP transport
+/// (`LaunchOptions::external`). A resume answers from the RECORD, never from
+/// the request's options: a resumed run keeps its recorded agent by
+/// contract, so reading the options would bind the wrong server.
+pub fn request_agent(request: &coding::PrepareRequest) -> Option<coding::CodingAgent> {
+    let options = match request {
+        coding::PrepareRequest::Issue(req) => &req.options,
+        coding::PrepareRequest::Batch(req) => &req.options,
+        coding::PrepareRequest::Action(req) => &req.options,
+        coding::PrepareRequest::ResumeRun(req) => return Some(req.record.agent),
+    };
+    match options.external {
+        Some(_) => None,
+        None => Some(options.agent),
+    }
+}
+
 pub fn issue_seed(issue: &FetchedIssue) -> IssueSeed {
     IssueSeed {
         title: issue.title.clone(),
@@ -439,6 +459,63 @@ mod tests {
             settings: coding::Settings::default(),
         };
         (TempDir(dir), ctx)
+    }
+
+    /// EXP-758: the sidecar host binds per agent, so the agent a request
+    /// will LAUNCH has to be read off the request itself, and a resume
+    /// answers from its record (it keeps the recorded agent by contract),
+    /// never from the options the frame carried.
+    #[test]
+    fn a_request_names_the_agent_its_launch_will_use() {
+        let mut options = LaunchOptions {
+            agent: coding::CodingAgent::Codex,
+            model: String::new(),
+            effort: String::new(),
+            ultracode: false,
+            plan_mode: false,
+            external: None,
+        };
+        let issue_request = |options: LaunchOptions| {
+            coding::PrepareRequest::Issue(LaunchRequest {
+                issue_id: "issue-1".to_string(),
+                board_id: None,
+                issue_identifier: "EXP-1".to_string(),
+                issue_status: IssueStatus::Backlog,
+                device_label: "dev".to_string(),
+                origin: LaunchOrigin::Local,
+                options,
+                resume_prompt: false,
+            })
+        };
+        assert_eq!(
+            request_agent(&issue_request(options.clone())),
+            Some(coding::CodingAgent::Codex)
+        );
+
+        // An external ACP agent has no CLI of ours: no sidecar can apply.
+        options.external = Some(coding::settings::ExternalAgentSpec::default());
+        assert_eq!(request_agent(&issue_request(options)), None);
+
+        // A resume reads the RECORD, whatever the frame asked for.
+        let record: coding::run_registry::RunRecord = serde_json::from_value(serde_json::json!({
+            "sessionId": "sess-1",
+            "accountId": "acc-1",
+            "agent": "pi",
+            "kind": "issue",
+            "cwd": "/tmp/exp-test",
+            "recordedAt": 0,
+        }))
+        .expect("record fixture decodes");
+        assert_eq!(
+            request_agent(&coding::PrepareRequest::ResumeRun(coding::ResumeRunRequest {
+                record,
+                device_label: "dev".to_string(),
+                origin: LaunchOrigin::Local,
+                model: None,
+                effort: None,
+            })),
+            Some(coding::CodingAgent::Pi)
+        );
     }
 
     /// EXP-550: only the daemon heartbeats the `devices` row, so only a

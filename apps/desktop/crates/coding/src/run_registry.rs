@@ -198,6 +198,15 @@ pub struct RunRecord {
     /// pins above stay the PTY-side truth; this is the ACP-side one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_native_session_id: Option<String>,
+    /// EXP-758: the ACP child's pid and the pid of the host process that
+    /// spawned it, written by the engine at spawn and CLEARED by its end
+    /// sequence. A record still carrying both while its host is dead names
+    /// an orphan (Cmd-Q with a live codex run) for
+    /// [`crate::reaper::reap_recorded`] on the next start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acp_child_pid: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_pid: Option<u32>,
     /// EXP-746 (D13): the external ACP agent this run used, when it was not
     /// one of the three builtins. `agent` above then carries the settings
     /// default and means nothing — an older host reading this record still
@@ -453,6 +462,15 @@ pub fn record(data_dir: &Path, record: RunRecord) {
     save(data_dir, &registry);
 }
 
+/// EXP-758: every record this build can read, oldest first. The orphan reaper
+/// ([`crate::reaper::reap_recorded`]) is the caller — it has to look at ALL of
+/// them, not one by one, and unknown entries are none of its business (a
+/// newer build's record names pids only that build knows how to judge).
+pub fn all(data_dir: &Path) -> Vec<RunRecord> {
+    let _guard = locked();
+    load(data_dir)
+}
+
 pub fn get(data_dir: &Path, session_id: &str) -> Option<RunRecord> {
     let _guard = locked();
     load(data_dir)
@@ -581,6 +599,8 @@ pub(crate) fn sample_record(session_id: &str) -> RunRecord {
             transport: None,
             acp_session_id: None,
             agent_native_session_id: None,
+            acp_child_pid: None,
+            host_pid: None,
             external_agent: None,
     }
 }

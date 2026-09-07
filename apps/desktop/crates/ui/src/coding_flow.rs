@@ -47,7 +47,8 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+    h_flex, notification::Notification, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+    WindowExt as _,
 };
 use gpui_component::dock::DockItem;
 use sync::Store;
@@ -965,6 +966,29 @@ fn drain_pending_ends(deadline: std::time::Instant) {
 /// ⌘Q; the server staleness sweep remains the backstop).
 const QUIT_END_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// EXP-758: the floor under one engine's share of the quit budget. Mirrors
+/// the CLI daemon's shutdown sweep (`daemon.rs`): even a budget that is
+/// already spent still gives each ACP child the moment it needs to die, or
+/// ⌘Q leaves `codex app-server` and its tool subprocesses behind exactly as
+/// it did before the wait existed.
+const QUIT_ENGINE_MIN_WAIT: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// EXP-758: how long the quit hook waits for ONE engine, given the shared
+/// `deadline` and the clock reading `now`. Pure so the budget arithmetic is
+/// testable without a window or a live engine.
+///
+/// The deadline is shared across engines rather than divided by their count:
+/// the kills went out together, so the waits overlap in wall-clock terms and
+/// the first engine to die hands the rest of the budget to the next one.
+fn quit_engine_wait(
+    deadline: std::time::Instant,
+    now: std::time::Instant,
+) -> std::time::Duration {
+    deadline
+        .saturating_duration_since(now)
+        .max(QUIT_ENGINE_MIN_WAIT)
+}
+
 /// EXP-105: end every coding_sessions row THIS process launched when the app
 /// quits (⌘Q, last-window close on non-macOS). The per-session exit hook and
 /// watchers die with their entities during teardown — the claude child gets
@@ -989,9 +1013,10 @@ pub fn install_quit_hook(cx: &mut App) {
         let engines: Vec<engine::EngineSession> = LocalSessions::global_ref(cx)
             .map(|sessions| sessions.read(cx).acp_hosts())
             .unwrap_or_default();
-        for session in engines {
+        for session in &engines {
             session.kill("ended");
         }
+        let deadline = std::time::Instant::now() + QUIT_END_TIMEOUT;
         let session_ids: Vec<String> = LocalSessions::global_ref(cx)
             .map(|sessions| sessions.read(cx).session_ids())
             .unwrap_or_default();
@@ -1003,7 +1028,20 @@ pub fn install_quit_hook(cx: &mut App) {
                 spawn_tracked_end(Arc::clone(&trpc), session_id);
             }
         }
-        drain_pending_ends(std::time::Instant::now() + QUIT_END_TIMEOUT);
+        // EXP-758: a `kill` is only a message to the engine loop. The ACP
+        // child dies in the engine thread's `ChildGuard` drop, which our exit
+        // never waited for, so ⌘Q with a live codex run orphaned `codex
+        // app-server` and every tool subprocess under it (only claude carries
+        // the `claude-hooks` reaper anchor). Wait each engine out on the SAME
+        // deadline the row ends drain against; the network calls above are
+        // already running on their own threads, so the two waits overlap.
+        for session in &engines {
+            let wait = quit_engine_wait(deadline, std::time::Instant::now());
+            if session.wait_timeout(wait).is_none() {
+                log::warn!("[ui] quit: an acp engine did not exit within {wait:?}");
+            }
+        }
+        drain_pending_ends(deadline);
         // EXP-300: kill agent processes that escaped their PTY. `claude`
         // spawns a daemon that `setsid`s away, so killing the PTY child does
         // not reach it; it survives our exit, stays in our macOS COALITION,
@@ -1017,6 +1055,14 @@ pub fn install_quit_hook(cx: &mut App) {
             .map(|auth| auth.data_dir.clone())
             .unwrap_or_else(api::default_data_dir);
         coding::reaper::reap(&data_dir);
+        // EXP-758: …and the ACP children the waits above could not collect
+        // (a wedged agent that outlived its budget). `reap` only selects on
+        // the claude hook marker, so a codex/pi/external child is invisible
+        // to it; `reap_recorded` works off the run registry's recorded pids.
+        let reaped = coding::reaper::reap_recorded(&data_dir);
+        if reaped > 0 {
+            log::info!("[ui] quit: reaped {reaped} orphaned acp child process(es)");
+        }
         async {}
     })
     .detach();
@@ -1482,6 +1528,26 @@ pub fn spawn_into_window(
     }
 }
 
+/// The longest a transport notice may run in a toast: one line, no wrap.
+const TRANSPORT_NOTICE_MAX: usize = 160;
+
+/// EXP-758: the one-line form of `PreparedLaunch::transport_notice` (the
+/// launcher's "Started in a terminal because codex's ACP check failed"), or
+/// `None` when there is nothing to say. Pure so the shaping is testable
+/// without a window: a silent fallback to the PTY is exactly the surprise
+/// this notice exists to remove, so it must never be swallowed by a blank or
+/// a multi-line string.
+fn transport_notice_line(notice: &str) -> Option<SharedString> {
+    let flattened = notice.split_whitespace().collect::<Vec<_>>().join(" ");
+    if flattened.is_empty() {
+        return None;
+    }
+    Some(SharedString::from(steer::truncate(
+        &flattened,
+        TRANSPORT_NOTICE_MAX,
+    )))
+}
+
 /// Spawn the prepared agent tab into THIS window's dock, register the local
 /// session (play→stop), and hook the exit edge to clear it again. Shared by
 /// the single-issue and batch paths — only the [`SessionSubject`] differs. A
@@ -1538,6 +1604,12 @@ fn spawn_pty_into_window(
     let agent = prepared.agent;
     // EXP-688: the dock's Latest-changes bar polls the branch diff here.
     let base_ref = prepared.base_ref.clone();
+    // EXP-758: why this run is on a PTY at all, when the launcher fell back
+    // to the terminal transport rather than choosing it.
+    let transport_notice = prepared
+        .transport_notice
+        .as_deref()
+        .and_then(transport_notice_line);
 
     let sessions = LocalSessions::global(cx);
     let notify_sessions = sessions.downgrade();
@@ -1610,6 +1682,13 @@ fn spawn_pty_into_window(
             // `held_branches`; the gate covered the gap since before the
             // worktree existed. Failure arms release via RAII instead.
             drop(launch_hold);
+            // EXP-758: a run that SILENTLY landed on the terminal transport
+            // (the ACP probe failed, say) reads as the app ignoring the
+            // user's settings. Say it once, where the run just opened.
+            if let Some(notice) = transport_notice {
+                log::info!("[ui] transport notice: {notice}");
+                window.push_notification(Notification::info(notice), cx);
+            }
             Ok(())
         }
         Ok(LaunchOutcome::Disabled { reason }) => Err(reason.message()),
@@ -1716,7 +1795,9 @@ fn spawn_acp_into_window(
                     LocalSessions::remove(&sessions, &subject, cx);
                 }
                 // The tab STAYS: an ended run is a read-only transcript.
-                crate::session_screen::mark_ended(&session_id, cx);
+                // EXP-758: with the failure carried in, so a run that died on
+                // its handshake is not an empty tab that only says "ended".
+                crate::session_screen::mark_ended(&session_id, exit.error.clone(), cx);
             });
         })
         .detach();
@@ -2222,6 +2303,64 @@ mod tests {
             BranchTakeover::Close(handles) => handles,
             BranchTakeover::Refuse => panic!("expected a takeover, got a refusal"),
         }
+    }
+
+    /// EXP-758: ⌘Q waits for the ACP engines it just killed, on ONE shared
+    /// budget, and never skips a wait outright, or the codex children the
+    /// wait exists for are orphaned exactly as before.
+    #[test]
+    fn each_engine_waits_on_the_shared_quit_deadline() {
+        let now = std::time::Instant::now();
+        let deadline = now + QUIT_END_TIMEOUT;
+        // The first engine gets the whole budget.
+        assert_eq!(quit_engine_wait(deadline, now), QUIT_END_TIMEOUT);
+        // A later one gets what is left of it, not a fresh copy.
+        let spent = now + std::time::Duration::from_millis(1_500);
+        assert_eq!(
+            quit_engine_wait(deadline, spent),
+            std::time::Duration::from_millis(500)
+        );
+        // An exhausted budget still leaves the floor.
+        assert_eq!(
+            quit_engine_wait(deadline, deadline),
+            QUIT_ENGINE_MIN_WAIT
+        );
+        assert_eq!(
+            quit_engine_wait(deadline, deadline + std::time::Duration::from_secs(10)),
+            QUIT_ENGINE_MIN_WAIT
+        );
+        // …and a remainder under the floor is raised to it.
+        let nearly_spent = deadline - std::time::Duration::from_millis(5);
+        assert_eq!(
+            quit_engine_wait(deadline, nearly_spent),
+            QUIT_ENGINE_MIN_WAIT
+        );
+    }
+
+    /// EXP-758: the launcher's transport fallback is a one-line toast on the
+    /// tab it opened, never a silent downgrade.
+    #[test]
+    fn a_transport_notice_shows_as_one_capped_line() {
+        assert_eq!(
+            transport_notice_line("Started in a terminal because codex's ACP check failed")
+                .as_deref(),
+            Some("Started in a terminal because codex's ACP check failed")
+        );
+        // Wrapped/indented text collapses to one line.
+        assert_eq!(
+            transport_notice_line("Started in a terminal\n  because the ACP check failed")
+                .as_deref(),
+            Some("Started in a terminal because the ACP check failed")
+        );
+        // Nothing to say stays quiet.
+        assert_eq!(transport_notice_line(""), None);
+        assert_eq!(transport_notice_line("  \n\t "), None);
+        // A long one is capped.
+        let long = "n ".repeat(TRANSPORT_NOTICE_MAX);
+        assert_eq!(
+            transport_notice_line(&long).map(|line| line.len()),
+            Some(TRANSPORT_NOTICE_MAX)
+        );
     }
 
     /// EXP-746: the prepared transport decides the host, and nothing else

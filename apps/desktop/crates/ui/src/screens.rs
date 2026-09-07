@@ -920,7 +920,9 @@ impl ScreensPanel {
         };
         for session_id in ended {
             if let Some(view) = self.sessions.get(&session_id) {
-                view.update(cx, |view, cx| view.mark_ended(cx));
+                // The synced row carries no failure reason (EXP-758): the
+                // engine's own exit is what has one.
+                view.update(cx, |view, cx| view.mark_ended(None, cx));
             }
         }
         for (old_id, new_id) in swaps {

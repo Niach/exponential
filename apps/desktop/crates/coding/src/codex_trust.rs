@@ -127,6 +127,126 @@ fn ensure_trusted_in_config(config: &Path, paths: &[PathBuf]) -> Result<usize, S
     Ok(missing.len())
 }
 
+/// EXP-758: drop the `[projects."<path>"]` tables [`ensure_trusted`] appended
+/// for `paths` (the raw and canonical spellings both, like the claude side).
+///
+/// [`crate::scratch::reclaim`] removes a repo-less run's directory and its
+/// claude trust entries; without this the codex config kept growing a dead
+/// `[projects]` block per reclaimed action dir. Best-effort and never
+/// load-bearing: failures are logged, the config is left as it was, and codex
+/// simply shows its trust screen again if a live path was ever dropped.
+pub fn forget(paths: &[PathBuf]) {
+    // Same reason as [`ensure_trusted`]: unit tests exercise the `_in_config`
+    // core against temp files and must never touch the developer's config.
+    #[cfg(test)]
+    {
+        let _ = paths;
+    }
+    #[cfg(not(test))]
+    forget_live(paths);
+}
+
+#[cfg_attr(test, allow(dead_code))]
+fn forget_live(paths: &[PathBuf]) {
+    let Some(home) = codex_home() else {
+        return;
+    };
+    match forget_in_config(&home.join("config.toml"), paths) {
+        Ok(0) => {}
+        Ok(dropped) => log::info!(
+            "codex trust: dropped {dropped} project entr{}",
+            if dropped == 1 { "y" } else { "ies" }
+        ),
+        Err(err) => log::warn!("codex trust: {err}"),
+    }
+}
+
+/// The testable core of [`forget`]: remove each named project's TABLE BLOCK
+/// textually, returning how many were present.
+///
+/// Textual, not a TOML round-trip, for the same reason [`ensure_trusted`]
+/// appends text: `config.toml` is the USER's codex config, and re-serializing
+/// it would rewrite their comments, ordering and formatting to satisfy a
+/// removal we own two lines of. A block runs from its `[projects."<path>"]`
+/// header to the next table header (or EOF); the result must still parse, or
+/// nothing is written.
+fn forget_in_config(config: &Path, paths: &[PathBuf]) -> Result<usize, String> {
+    let existing = match std::fs::read_to_string(config) {
+        Ok(existing) => existing,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(err) => return Err(format!("read {}: {err}", config.display())),
+    };
+    if existing.trim().is_empty() {
+        return Ok(0);
+    }
+    let wanted: Vec<String> = paths
+        .iter()
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect();
+    let mut dropped: Vec<String> = Vec::new();
+    let mut kept = String::with_capacity(existing.len());
+    // `true` while the lines belong to a block being dropped — everything up
+    // to the next table header.
+    let mut dropping = false;
+    // `split_inclusive` keeps each line's own terminator, so a CRLF config
+    // (Windows) survives this untouched — it is the user's file, not ours.
+    for line in existing.split_inclusive('\n') {
+        match table_header_key(line) {
+            Some(header) => {
+                dropping = header
+                    .as_deref()
+                    .is_some_and(|key| wanted.iter().any(|path| path == key));
+                if dropping {
+                    if let Some(key) = header {
+                        dropped.push(key);
+                    }
+                    continue;
+                }
+            }
+            None if dropping => continue,
+            None => {}
+        }
+        kept.push_str(line);
+    }
+    if dropped.is_empty() {
+        return Ok(0);
+    }
+    // Never leave behind something codex's own parser would reject.
+    toml::from_str::<toml::Value>(&kept)
+        .map_err(|err| format!("config would not parse after the removal: {err}"))?;
+    let temp = config.with_extension("toml.exp-tmp");
+    crate::atomic_config::replace_preserving_mode(config, &temp, &kept)?;
+    dropped.sort();
+    dropped.dedup();
+    Ok(dropped.len())
+}
+
+/// A table header line, decoded by TOML itself so every quoting style
+/// (`[projects."/a/b"]`, `[projects.'/a/b']`) resolves to the same key:
+///
+/// - `None` — not a table header at all (a value line, a comment, blank).
+/// - `Some(None)` — a header that is not one project's (`[projects]`,
+///   `[model_providers.x]`); it still ENDS a block being dropped.
+/// - `Some(Some(key))` — `[projects.<key>]`, with `key` the decoded path.
+fn table_header_key(line: &str) -> Option<Option<String>> {
+    let trimmed = line.trim();
+    if !trimmed.starts_with('[') || !trimmed.ends_with(']') {
+        return None;
+    }
+    // An array-of-tables header is still a header, just never a project's.
+    if trimmed.starts_with("[[") {
+        return Some(None);
+    }
+    let Ok(parsed) = toml::from_str::<toml::Value>(&format!("{trimmed}\n")) else {
+        return Some(None);
+    };
+    let key = parsed
+        .get("projects")
+        .and_then(toml::Value::as_table)
+        .and_then(|table| table.keys().next().cloned());
+    Some(key)
+}
+
 /// A TOML basic-string key segment for an absolute path (escapes `\` and
 /// `"` — Windows paths ride as `"C:\\Users\\…"`).
 fn toml_key(path: &str) -> String {
@@ -240,6 +360,62 @@ mod tests {
         std::fs::write(&config, "not [ valid toml").unwrap();
         assert!(ensure_trusted_in_config(&config, &[PathBuf::from("/repo")]).is_err());
         assert_eq!(std::fs::read_to_string(&config).unwrap(), "not [ valid toml");
+        let _ = std::fs::remove_dir_all(config.parent().unwrap());
+    }
+
+    /// EXP-758: the reclaim side. The named block goes, everything around it
+    /// survives BYTE for byte (it is the user's own config), and the raw +
+    /// canonical pair is one call.
+    #[test]
+    fn forget_drops_only_the_named_block() {
+        let config = temp_config("forget");
+        std::fs::create_dir_all(config.parent().unwrap()).unwrap();
+        std::fs::write(
+            &config,
+            "# my codex config\nmodel = \"gpt-5.6-terra\"\n\n\
+[projects.\"/keep/repo\"]\ntrust_level = \"trusted\"\n\n\
+[projects.\"/data/actions/builtin_chat\"]\ntrust_level = \"trusted\"\n\n\
+[projects.\"/private/data/actions/builtin_chat\"]\ntrust_level = \"trusted\"\n\n\
+[mcp_servers.other]\nurl = \"http://x\"\n",
+        )
+        .unwrap();
+        let dropped = forget_in_config(
+            &config,
+            &[
+                PathBuf::from("/data/actions/builtin_chat"),
+                PathBuf::from("/private/data/actions/builtin_chat"),
+            ],
+        )
+        .unwrap();
+        assert_eq!(dropped, 2);
+        let updated = std::fs::read_to_string(&config).unwrap();
+        assert_eq!(trusted_paths(&config), vec!["/keep/repo".to_string()]);
+        assert!(updated.starts_with("# my codex config\nmodel = \"gpt-5.6-terra\"\n"));
+        assert!(updated.contains("[mcp_servers.other]\nurl = \"http://x\"\n"));
+        assert!(!updated.contains("builtin_chat"));
+        // Idempotent: nothing left to drop, nothing rewritten.
+        let before = updated;
+        assert_eq!(
+            forget_in_config(&config, &[PathBuf::from("/data/actions/builtin_chat")]),
+            Ok(0)
+        );
+        assert_eq!(std::fs::read_to_string(&config).unwrap(), before);
+        let _ = std::fs::remove_dir_all(config.parent().unwrap());
+    }
+
+    /// A missing config is nothing to forget, and a config whose only
+    /// `projects` entry belongs to somebody else is left alone.
+    #[test]
+    fn forget_is_a_no_op_without_a_matching_entry() {
+        let missing = temp_config("forget-missing");
+        assert_eq!(forget_in_config(&missing, &[PathBuf::from("/x")]), Ok(0));
+
+        let config = temp_config("forget-other");
+        std::fs::create_dir_all(config.parent().unwrap()).unwrap();
+        let existing = "[projects.\"/other/repo\"]\ntrust_level = \"trusted\"\n";
+        std::fs::write(&config, existing).unwrap();
+        assert_eq!(forget_in_config(&config, &[PathBuf::from("/x")]), Ok(0));
+        assert_eq!(std::fs::read_to_string(&config).unwrap(), existing);
         let _ = std::fs::remove_dir_all(config.parent().unwrap());
     }
 

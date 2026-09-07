@@ -174,6 +174,20 @@ fn on_end_outcome(
 /// registry in step with the ends the coding crate and its host issue. Call
 /// once at bootstrap, before any session can be launched.
 pub fn install_end_observer(data_dir: PathBuf) {
+    // EXP-758: the boot half of the quit-time sweep. A host that died without
+    // running its quit hook (a crash, a SIGKILL, a power cut) leaves its ACP
+    // children running: they are OUR children, not a PTY's, so nothing
+    // SIGHUPs them. This is the first thing at boot that knows the data dir,
+    // so the recorded-orphan reap rides here. On a background thread: the
+    // sweep walks the process table and SIGTERMs before it SIGKILLs, and the
+    // foreground is putting up a window.
+    let sweep = data_dir.clone();
+    std::thread::spawn(move || {
+        let reaped = coding::reaper::reap_recorded(&sweep);
+        if reaped > 0 {
+            log::info!("[session-registry] reaped {reaped} orphaned agent process(es) at startup");
+        }
+    });
     coding::set_session_end_observer(Arc::new(move |session_id, result| {
         on_end_outcome(&data_dir, session_id, result);
     }));

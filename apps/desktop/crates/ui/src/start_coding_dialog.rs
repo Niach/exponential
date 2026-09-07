@@ -2031,8 +2031,9 @@ impl StartCodingDialogView {
         self.error = None;
         cx.notify();
 
-        let hooks = crate::steer_wiring::hook_setup(cx);
-        let observer = crate::steer_wiring::observer_setup(cx);
+        // EXP-758: the PTY sidecars come up here, and only when this launch
+        // resolves to the terminal transport.
+        let (hooks, observer) = crate::steer_wiring::pty_sidecars(&request, cx);
         let opener = self.opener;
         cx.spawn_in(window, async move |this, window| {
             let prepared = window

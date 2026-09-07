@@ -33,7 +33,7 @@ impl ExternalAgent {
                 "this launch names a builtin agent, not an external one",
             ));
         };
-        let agent = external_adapter(external, &spec.cwd)?;
+        let agent = external_adapter(external, &spec.cwd, &spec.spawn.env)?;
         Ok(ExternalAgent {
             label: spec.agent.label().to_string(),
             agent,
@@ -75,9 +75,16 @@ impl ConnectTo<Client> for ExternalAgent {
 /// as `PWD` so a wrapper script (`sh -c`, a venv launcher) that never sees
 /// the ACP handshake can still find the tree, and a spec may override
 /// anything it likes through its own `env`.
+///
+/// `launch_env`: the launcher's own entries off `PreparedLaunch::spawn.env`
+/// (EXP-758: the external MCP posture rides there as `EXP_MCP_URL` /
+/// `EXP_MCP_TOKEN` / `EXP_MCP_SESSION_ID`, nothing is written into the
+/// worktree for an agent whose config format we do not know). They sit
+/// between PATH/PWD and the spec's env, so a declared env still wins.
 pub fn external_adapter(
     spec: &coding::ExternalAgentSpec,
     cwd: &Path,
+    launch_env: &[(String, String)],
 ) -> Result<AcpAgent, EngineError> {
     let path_env = terminal::pty::login_path();
     let Some(program) = resolve_on_path(&spec.command, &path_env) else {
@@ -86,12 +93,13 @@ pub fn external_adapter(
             format!("{} is not on PATH", spec.command),
         )));
     };
-    // PATH first, then PWD, then the spec's own entries: a declared env is
-    // the user's escape hatch and must win over both.
+    // PATH first, then PWD, then the launcher's entries, then the spec's
+    // own: a declared env is the user's escape hatch and must win over all.
     let config = AcpAgentConfig::new(program)
         .args(spec.args.clone())
         .env("PATH", path_env)
         .env("PWD", cwd.to_string_lossy().into_owned())
+        .envs(launch_env.iter().cloned())
         .envs(spec.env.clone());
     Ok(AcpAgent::new(config))
 }
@@ -163,7 +171,12 @@ mod tests {
 
         // The real builder runs against login_path(), so drive it with the
         // absolute path the resolver would have produced.
-        let agent = external_adapter(&spec(&program.display().to_string()), &cwd)
+        let launch_env = vec![
+            ("EXP_MCP_URL".to_string(), "http://127.0.0.1/api/mcp".to_string()),
+            // The spec's own entry must win over the launcher's.
+            ("ACME_TOKEN".to_string(), "from-launcher".to_string()),
+        ];
+        let agent = external_adapter(&spec(&program.display().to_string()), &cwd, &launch_env)
             .expect("an absolute command needs no PATH lookup");
         let config = agent.config();
         assert_eq!(config.command(), program.as_path());
@@ -171,6 +184,11 @@ mod tests {
         assert_eq!(
             config.environment().get("ACME_TOKEN").map(String::as_str),
             Some("t")
+        );
+        // EXP-758: the launcher's MCP wiring reaches the child.
+        assert_eq!(
+            config.environment().get("EXP_MCP_URL").map(String::as_str),
+            Some("http://127.0.0.1/api/mcp")
         );
         // The worktree is never silently dropped: `session/new { cwd }` names
         // it and PWD carries it to wrapper scripts.
@@ -191,7 +209,7 @@ mod tests {
         );
         // An explicit path that does not exist fails the same way — never a
         // spawn attempt that dies later with a worse message.
-        let error = external_adapter(&spec("/no/such/agent"), Path::new("/tmp"))
+        let error = external_adapter(&spec("/no/such/agent"), Path::new("/tmp"), &[])
             .expect_err("a missing binary is a start-time error");
         assert!(
             matches!(&error, EngineError::Spawn(err) if err.kind() == std::io::ErrorKind::NotFound),

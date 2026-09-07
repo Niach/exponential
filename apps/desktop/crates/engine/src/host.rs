@@ -241,6 +241,12 @@ pub(crate) fn text_blocks(text: &str) -> Vec<ContentBlock> {
 #[derive(Clone)]
 pub struct ChildExitLink {
     slot: Arc<Mutex<Option<terminal::pty::ChildExit>>>,
+    /// EXP-758: the child's pid, recorded at spawn. The lifecycle writes it
+    /// onto the run record so a host that died without its end sequence
+    /// (Cmd-Q, a crash) leaves a pid the next start can reap
+    /// (`coding::reaper::reap_recorded`) — codex/pi/external children carry
+    /// no `claude-hooks` anchor, so this is the only handle on them.
+    pid: Arc<Mutex<Option<u32>>>,
     /// Held until the exit is recorded; dropping it is the signal
     /// [`ChildExitLink::reaped`] waits on. A flume receiver whose senders are
     /// all gone resolves immediately and KEEPS resolving, so the edge is
@@ -268,6 +274,7 @@ impl ChildExitLink {
         let (gate, signal) = flume::bounded(0);
         ChildExitLink {
             slot: Arc::new(Mutex::new(None)),
+            pid: Arc::new(Mutex::new(None)),
             gate: Arc::new(Mutex::new(Some(gate))),
             signal,
         }
@@ -283,6 +290,18 @@ impl ChildExitLink {
         if let Ok(mut gate) = self.gate.lock() {
             gate.take();
         }
+    }
+
+    /// Adapter side: the child was spawned as `pid`.
+    pub fn record_pid(&self, pid: u32) {
+        if let Ok(mut slot) = self.pid.lock() {
+            *slot = Some(pid);
+        }
+    }
+
+    /// The spawned child's pid, once an adapter recorded it.
+    pub fn pid(&self) -> Option<u32> {
+        self.pid.lock().ok().and_then(|slot| *slot)
     }
 
     /// Engine side: what the child exited with, if it did.
@@ -398,6 +417,12 @@ struct FeedState {
     /// `LATEST_WINS_KINDS` (D4: `config_state`, `usage`, `diff`), which are
     /// slots in `SteerFeed` too and never feed rows.
     phase: Option<EnginePhase>,
+    /// EXP-758: the [`EnginePhase::Failed`] edge, kept even after `Ended`
+    /// overwrote the phase slot a millisecond later. Without it the ONE line
+    /// that says why a run died would be invisible to every view that
+    /// attached after the end sequence, which is every view of a run that
+    /// failed in its handshake.
+    failure: Option<EnginePhase>,
     config_state: Option<LocalFeedEvent>,
     usage: Option<LocalFeedEvent>,
     diff: Option<LocalFeedEvent>,
@@ -459,7 +484,10 @@ impl LocalFeed {
         }
         let mut state = self.lock();
         if let LocalFeedEvent::Phase(phase) = &event {
-            state.phase = Some(*phase);
+            if matches!(phase, EnginePhase::Failed(_)) {
+                state.failure = Some(phase.clone());
+            }
+            state.phase = Some(phase.clone());
         } else if let Some(slot) = state.slot(&event) {
             *slot = Some(event.clone());
         } else if !state.coalesce(&event) {
@@ -496,7 +524,17 @@ impl LocalFeed {
         {
             let _ = tx.send(event.clone());
         }
-        if let Some(phase) = state.phase {
+        // EXP-758: the failure first, then the phase, in the same order the
+        // end sequence emitted them in, so a late view reads the error and
+        // then the end instead of an ended run with no explanation.
+        if let Some(failure) = state
+            .failure
+            .clone()
+            .filter(|failure| Some(failure) != state.phase.as_ref())
+        {
+            let _ = tx.send(LocalFeedEvent::Phase(failure));
+        }
+        if let Some(phase) = state.phase.clone() {
             let _ = tx.send(LocalFeedEvent::Phase(phase));
         }
         state.subscribers.push(tx);
@@ -506,7 +544,7 @@ impl LocalFeed {
     /// Where the run is right now, for a host that wants the answer before the
     /// replay reaches it.
     pub(crate) fn phase(&self) -> Option<EnginePhase> {
-        self.lock().phase
+        self.lock().phase.clone()
     }
 }
 
@@ -1176,6 +1214,13 @@ fn handle_command(
         }
         EngineCommand::Shutdown { outcome } => {
             ctx.set_outcome(outcome);
+            // EXP-758: ask before the transport insists. The connection is
+            // about to go away and the child's stdin with it (`ChildGuard`
+            // closes it, then SIGTERMs), so this is the agent's chance to
+            // abandon a live turn on its own terms; an idle session ignores
+            // it. Not routed through the mapper: a shutdown is not a user's
+            // cancel and needs no card of its own.
+            let _ = cx.send_notification(CancelNotification::new(session_id.clone()));
             return false;
         }
     }
@@ -1469,7 +1514,7 @@ mod tests {
         events
             .iter()
             .filter_map(|event| match event {
-                LocalFeedEvent::Phase(phase) => Some(*phase),
+                LocalFeedEvent::Phase(phase) => Some(phase.clone()),
                 _ => None,
             })
             .collect()
@@ -1672,6 +1717,28 @@ mod tests {
             phases(&drain(&feed.subscribe())),
             vec![EnginePhase::Ended]
         );
+    }
+
+    /// EXP-758: `Ended` follows `Failed` by a millisecond, so the failure has
+    /// to survive the latest-wins phase slot: otherwise `EngineExit::error`
+    /// reaches nobody and a run that never got past its handshake renders as
+    /// an empty transcript that says "ended".
+    #[test]
+    fn a_failed_run_replays_its_reason_before_the_end() {
+        let feed = LocalFeed::default();
+        feed.emit(None, LocalFeedEvent::Phase(EnginePhase::Connecting));
+        let failure = EnginePhase::Failed("the agent binary is gone".to_string());
+        feed.emit(None, LocalFeedEvent::Phase(failure.clone()));
+        // While it is the latest phase, it IS the phase a late host reads.
+        assert_eq!(feed.phase(), Some(failure.clone()));
+        feed.emit(None, LocalFeedEvent::Phase(EnginePhase::Ended));
+
+        assert_eq!(
+            phases(&drain(&feed.subscribe())),
+            vec![failure, EnginePhase::Ended]
+        );
+        // The terminal phase is still what a "is this run over" check reads.
+        assert_eq!(feed.phase(), Some(EnginePhase::Ended));
     }
 
     #[test]
