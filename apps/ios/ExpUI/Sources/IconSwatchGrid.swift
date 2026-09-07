@@ -6,6 +6,11 @@ import SwiftUI
 /// Deliberately unfiltered: 60 glyphs scan faster than they search (EXP-390
 /// dropped the query field on every platform).
 ///
+/// A cell is a rounded square at the radius ladder's MD step
+/// (`GlassTokens.rowRadius`), the same corner the `IconPicker` trigger wears:
+/// a circle is an action, a rounded square is a picker (EXP-771). Only COLOUR
+/// swatches stay circles.
+///
 /// The selection is a plain registry NAME. `""` means nothing picked, which only
 /// the `allowsNone` hosts can produce — the board form always carries a glyph,
 /// while an optional `icon` action input starts and can return to none
@@ -57,9 +62,9 @@ public struct IconSwatchGrid: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 32)
                 .background(selected ? GlassTokens.fillActive : GlassTokens.fillSection)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .clipShape(RoundedRectangle(cornerRadius: GlassTokens.rowRadius))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: GlassTokens.rowRadius)
                         .stroke(
                             // The selected ring is deliberately brighter than
                             // any glass rung — a picker needs one unmistakable
