@@ -108,6 +108,31 @@ describe(`SETTINGS_NAV General visibility`, () => {
   })
 })
 
+// EXP-771: the helpdesk toggle got its own page next to Feedback widget, so
+// the Features group carries both and both stay owner-only.
+describe(`SETTINGS_NAV Helpdesk entry (EXP-771)`, () => {
+  const team: SettingsNavContext = { isCloud: false }
+  const features = SETTINGS_NAV.find((group) => group.group === `Features`)!
+
+  it(`follows Feedback widget in the Features group`, () => {
+    expect(features.items.map((item) => item.label)).toEqual([
+      `Feedback widget`,
+      `Helpdesk`,
+    ])
+    expect(features.items.map((item) => item.to)).toEqual([
+      `/t/$teamSlug/settings/widget`,
+      `/t/$teamSlug/settings/helpdesk`,
+    ])
+  })
+
+  it(`is owner-only, like Feedback widget`, () => {
+    for (const item of features.items) {
+      expect(item.visible(permissionsFor(`owner`), team)).toBe(true)
+      expect(item.visible(permissionsFor(`member`), team)).toBe(false)
+    }
+  })
+})
+
 // EXP-557 per-user sharing: every member manages their own GitHub connection
 // in the Repositories section, so it is member-visible like Members/Labels.
 describe(`SETTINGS_NAV Repositories visibility (EXP-557)`, () => {

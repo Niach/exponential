@@ -29,6 +29,7 @@ export type SettingsSectionPath =
   | `/t/$teamSlug/settings/boards`
   | `/t/$teamSlug/settings/repositories`
   | `/t/$teamSlug/settings/widget`
+  | `/t/$teamSlug/settings/helpdesk`
   | `/t/$teamSlug/settings/account`
   | `/t/$teamSlug/settings/notifications`
   | `/t/$teamSlug/settings/api-keys`
@@ -123,6 +124,14 @@ export const SETTINGS_NAV: { group: string; items: SettingsNavItem[] }[] = [
         label: `Feedback widget`,
         to: `/t/$teamSlug/settings/widget`,
         icon: conceptIcon(`settings-widget`),
+        visible: (permissions) => permissions.canManageWidgets,
+      },
+      // EXP-771: the helpdesk toggle used to ride along on the widget page.
+      // Own page, same owner gate, and the desktop IDE mirrors both panes.
+      {
+        label: `Helpdesk`,
+        to: `/t/$teamSlug/settings/helpdesk`,
+        icon: conceptIcon(`settings-helpdesk`),
         visible: (permissions) => permissions.canManageWidgets,
       },
     ],
