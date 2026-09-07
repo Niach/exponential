@@ -547,7 +547,27 @@ pub(crate) fn open_issue_scoped(
     );
 }
 
+/// EXP-771: whether a navigation to `screen` must first look for an existing
+/// UNDOCKED window (`undock::reveal_screen`) instead of opening a tab. Exactly
+/// the [`Screen::undockable`] screens — no other kind can be living in one, so
+/// asking the registry about them would always miss.
+///
+/// Split out as a pure predicate so the rule is testable without a window;
+/// the reveal itself needs the app's window registry.
+pub(crate) fn reveals_undocked_window(screen: &Screen) -> bool {
+    screen.undockable()
+}
+
 fn navigate_inner(window: &Window, cx: &mut App, screen: Screen, origin: PendingOrigin) {
+    // EXP-771: the screen may already have its own window (EXP-65 undock) —
+    // then this is a REVEAL, not a navigation: bring that window forward and
+    // leave this window's tab strip alone. Every tab-opening entry funnels
+    // through here (issue list, search sheet, inbox, issue refs, deep links,
+    // `screens::open_screen`), so the dedupe lives here rather than at each
+    // call site.
+    if reveals_undocked_window(&screen) && crate::undock::reveal_screen(&screen, cx) {
+        return;
+    }
     let Some(nav) = nav_for_window_readonly(window, cx) else {
         return;
     };
@@ -1125,6 +1145,29 @@ mod tests {
         assert!(session.is_detail());
         assert!(!session.undockable());
         assert!(!session.is_rail_full_page());
+    }
+
+    /// EXP-771: which screens a navigation checks the undock registry for.
+    /// Exactly the undockable ones: a tab-less rail page, a session and a
+    /// terminal can never be in an undocked SCREEN window (a terminal has its
+    /// own path), so they must not pay a registry lookup — and must never be
+    /// swallowed by one either.
+    #[test]
+    fn only_undockable_screens_reveal_an_undocked_window() {
+        assert!(reveals_undocked_window(&Screen::IssueDetail {
+            issue_id: "i1".into()
+        }));
+        assert!(reveals_undocked_window(&Screen::PrDiff {
+            issue_id: "i1".into()
+        }));
+        assert!(!reveals_undocked_window(&Screen::Session {
+            session_id: "s1".into()
+        }));
+        assert!(!reveals_undocked_window(&Screen::SupportThread {
+            thread_id: "t1".into()
+        }));
+        assert!(!reveals_undocked_window(&Screen::Reviews));
+        assert!(!reveals_undocked_window(&Screen::Settings));
     }
 
     /// The rail entries and the tab-less page headers read these titles —

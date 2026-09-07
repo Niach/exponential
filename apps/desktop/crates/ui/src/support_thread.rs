@@ -20,15 +20,14 @@ use std::time::Duration;
 
 use gpui::{
     div, prelude::FluentBuilder as _, px, relative, App, AppContext as _, ClickEvent, Entity,
-    FontWeight, InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
-    StatefulInteractiveElement as _, Styled, Subscription, Window,
+    FontWeight, InteractiveElement as _, IntoElement, ParentElement, Render, ScrollHandle,
+    SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{InputEvent, Textarea, TextareaState},
     menu::{DropdownMenu as _, PopupMenuItem},
-    scroll::ScrollableElement as _,
     skeleton::Skeleton,
     v_flex, ActiveTheme as _, Disableable as _, Icon,
 };
@@ -109,6 +108,9 @@ pub struct SupportThreadView {
     escalating: bool,
     /// The escalate dropdown's picked board (id, name) — cleared on success.
     escalate_board: Option<(String, String)>,
+    /// EXP-771: the conversation's scroll position — owned here so it
+    /// survives re-renders (the poll re-renders every few seconds).
+    scroll: ScrollHandle,
     /// Last mutation failure — a caption under the header, cleared on the
     /// next attempt.
     error: Option<String>,
@@ -156,6 +158,7 @@ impl SupportThreadView {
             acting: false,
             escalating: false,
             escalate_board: None,
+            scroll: ScrollHandle::new(),
             error: None,
             _subscriptions: subscriptions,
         }
@@ -963,13 +966,19 @@ impl Render for SupportThreadView {
             )
             .into_any_element()
         } else {
-            div()
-                .id("support-thread-scroll")
-                .flex_1()
-                .min_h_0()
-                .overflow_y_scrollbar()
-                .child(v_flex().p_4().gap_3().children(bubbles))
-                .into_any_element()
+            // EXP-771: the sanctioned pane, not `overflow_y_scrollbar` — that
+            // wrapper copies only the SIZE refinement onto its outer div and
+            // defaults it to `size_full`, so the `flex_1`/`min_h_0` this
+            // column needs were dropped and the messages block claimed the
+            // whole height (see `scroll_pane`). The bar rides the
+            // conversation column's right edge; the details rail beside it is
+            // the web three-pane's own column and keeps its own scrolling.
+            crate::scroll_pane::v_scroll_pane(
+                "support-thread-scroll",
+                &self.scroll,
+                v_flex().w_full().min_w_0().p_4().gap_3().children(bubbles),
+            )
+            .into_any_element()
         };
 
         // ---- composer -------------------------------------------------------
