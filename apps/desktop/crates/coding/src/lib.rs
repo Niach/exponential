@@ -81,7 +81,8 @@ pub mod worktree_agents;
 pub use agent::{AgentKind, CodingAgent};
 pub use argv::{
     permission_args, session_args, AgentMcp, LaunchOptions, SessionTail, HOOK_CONFIG_ENV,
-    HOOK_PORT_ENV, MCP_TOKEN_ENV, MCP_URL_ENV, OBSERVER_TOKEN_ENV, OBSERVER_URL_ENV,
+    HOOK_PORT_ENV, MCP_SESSION_ID_ENV, MCP_TOKEN_ENV, MCP_URL_ENV, OBSERVER_TOKEN_ENV,
+    OBSERVER_URL_ENV,
 };
 pub use batch_launcher::{
     action_run_branch, action_slug, batch_branch_name, chat_run_branch, new_batch_id, new_run_id,
@@ -96,9 +97,10 @@ pub use batch_prompt::{render_batch_prompt, BatchPromptArgs};
 pub use clone_manager::{AutoSyncOutcome, CloneEvent};
 pub use codex_sessions::default_codex_sessions_root;
 pub use doctor::{
-    device_caps, parse_claude_version, run_doctor, run_doctor_deep, AgentAdvertisement,
-    AgentLaunchDefaults, ClaudeAuthStatus, DoctorDepth, DoctorReport, Tool, ToolCheck, ACTION_CAPS,
-    DEVICE_CAPS, MIN_CLAUDE_ACP_VERSION, MIN_CLAUDE_VERSION,
+    device_caps, parse_claude_version, parse_codex_version, run_doctor, run_doctor_deep,
+    AgentAdvertisement, AgentLaunchDefaults, ClaudeAuthStatus, DoctorDepth, DoctorReport, Tool,
+    ToolCheck, ACTION_CAPS, DEVICE_CAPS, MIN_CLAUDE_ACP_VERSION, MIN_CLAUDE_VERSION,
+    MIN_CODEX_ACP_VERSION,
 };
 pub use agent_accounts::{now_iso, AgentAccount, AgentAccounts};
 pub use agent_login::{login_plan, LoginPhase, LoginPlan, LoginProgress};
@@ -124,11 +126,13 @@ pub use launcher::SESSION_HEARTBEAT_INTERVAL;
 pub use launcher::{
     claude_projects_root, claude_transcript_exists, default_device_label, end_session,
     end_session_best_effort, prepare, prepare_agent_shell,
-    prepare_with_hooks, resolve_transport, AcpLaunch, ActionLaunchRequest, ActionRunKind,
+    prepare_with_hooks, resolve_transport, resolve_transport_with_reason, transport_notice,
+    AcpLaunch, ActionLaunchRequest, ActionRunKind,
     AgentShellLaunch, AgentShellRequest, CodingDeps, CodingError, DisabledReason,
     GitWorktrees, HookSetup, IssueSeed, IssueSeedFn, LaunchOrigin, LaunchOutcome, LaunchRequest,
     LaunchTransport, ObserverSetup, ResumeRunRequest, ResumeSeed, SessionEndObserver,
-    Prepared, PreparedAgentShell, PrepareRequest, PreparedLaunch, WorktreeProvider,
+    Prepared, PreparedAgentShell, PrepareRequest, PreparedLaunch, TransportChoice,
+    TransportFallback, WorktreeProvider,
 };
 pub use run_cleanup::{remove_if_clean, CleanupOutcome, RunCleanup};
 pub use mcp_json::{
@@ -155,4 +159,6 @@ pub use settings::{ExternalAgentSpec, Settings};
 pub use token_refresh::{
     next_refresh_delay, refresh_clone_token, REFRESH_LEAD, TOKEN_REFRESH_RETRY,
 };
-pub use worktree_agents::{record_worktree_agent, worktree_agents, AGENTS_FILE};
+pub use worktree_agents::{
+    record_worktree_agent, record_worktree_agent_id, worktree_agents, AGENTS_FILE,
+};

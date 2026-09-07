@@ -77,7 +77,7 @@ fn is_plain_segment(name: Option<&std::ffi::OsStr>) -> bool {
     name.is_some_and(|name| !name.is_empty() && name != "." && name != "..")
 }
 
-/// Reclaim ONE ended run's scratch dir and its claude trust entries. Returns
+/// Reclaim ONE ended run's scratch dir and its agent trust entries. Returns
 /// whether the directory was removed (`false` when it was already gone, or
 /// when `cwd` is not a scratch dir at all — logged, never fatal). The run
 /// record is deliberately left alone: it is what keeps the run resumable.
@@ -86,9 +86,14 @@ pub fn reclaim(data_dir: &Path, cwd: &Path) -> bool {
         log::warn!("scratch reclaim: {} is not a scratch dir; kept", cwd.display());
         return false;
     }
-    // The trust keys, raw AND canonical, resolved BEFORE the dir goes —
-    // canonicalize needs the path to exist.
+    // The trust keys, raw AND canonical, resolved BEFORE the dirs go —
+    // canonicalize needs the path to exist. EXP-758: claude keys trust by the
+    // spawn cwd (the RUN dir), codex by the stable per-action root one level
+    // up (`launcher::prepare_action`), so the two configs take different keys
+    // and the codex block only goes when its dir does.
     let trust_keys = trust_keys_for(cwd);
+    let action_dir = cwd.parent().map(Path::to_path_buf);
+    let codex_trust_keys = action_dir.as_deref().map(trust_keys_for).unwrap_or_default();
     let removed = match std::fs::remove_dir_all(cwd) {
         Ok(()) => true,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => false,
@@ -97,9 +102,12 @@ pub fn reclaim(data_dir: &Path, cwd: &Path) -> bool {
             false
         }
     };
-    if let Some(action_dir) = cwd.parent() {
-        // Empty action dirs go too; a non-empty one (a sibling run) stays.
-        let _ = std::fs::remove_dir(action_dir);
+    if let Some(action_dir) = &action_dir {
+        // Empty action dirs go too; a non-empty one (a sibling run) stays —
+        // and so does its codex trust entry, which that run still needs.
+        if std::fs::remove_dir(action_dir).is_ok() {
+            crate::codex_trust::forget(&codex_trust_keys);
+        }
     }
     crate::claude_trust::forget(&trust_keys);
     removed

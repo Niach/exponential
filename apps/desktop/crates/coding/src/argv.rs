@@ -166,6 +166,17 @@ pub enum AgentMcp {
         session_id: Option<String>,
     },
     PiExtension,
+    /// EXP-758: a user-declared EXTERNAL ACP agent. There is no config format
+    /// of ours to write for a binary we did not ship, so the whole wiring is
+    /// the spawn env ([`MCP_URL_ENV`] / [`MCP_TOKEN_ENV`] /
+    /// [`MCP_SESSION_ID_ENV`], the shape pi's bridge already reads) and the
+    /// agent connects to `/api/mcp` itself if it speaks MCP at all. Nothing
+    /// of ours lands in the worktree.
+    ExternalEnv {
+        url: String,
+        /// The `X-Exp-Session-Id` header value (EXP-637).
+        session_id: Option<String>,
+    },
 }
 
 /// The Start-coding dialog's choices — ONE shape for both run modes (a

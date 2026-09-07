@@ -503,15 +503,47 @@ impl LaunchTransport {
     }
 }
 
+/// EXP-758: why a launch that asked for the ACP engine did not get it. The
+/// reason [`resolve_transport_with_reason`] hands back so the three prepare
+/// paths can put a NOTICE on the run instead of silently opening a terminal
+/// tab the user never chose ("started in a terminal because …").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransportFallback {
+    /// A fresh launch of a builtin whose ACP readiness is not `Some(true)` —
+    /// a too-old CLI, a failed pi probe, or a host with no engine at all
+    /// ([`CodingDeps::acp_available`]).
+    NotAcpReady,
+    /// A run RECORDED on the ACP engine whose agent no longer passes that
+    /// check (the CLI was downgraded, the pi probe now fails, this host has
+    /// no steer runtime). Before EXP-758 the recorded transport won outright
+    /// and the resume built an ACP launch with an EMPTY argv — nothing could
+    /// spawn it.
+    RecordedAcpNotReady,
+}
+
+/// [`resolve_transport`]'s answer WITH its reason.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TransportChoice {
+    pub transport: LaunchTransport,
+    /// `Some` only for an ACP→Terminal FALLBACK — never for a Terminal the
+    /// caller asked for (a login flow, the `start_in_terminal` escape hatch,
+    /// a PTY-recorded resume), which needs no explaining.
+    pub fallback: Option<TransportFallback>,
+}
+
 /// EXP-746: the ONE transport decision, in precedence order:
 ///
 /// 1. **A login flow is always Terminal** — signing in is each CLI's own
 ///    interactive flow, grid-scraped by `steer::agent_login_driver`.
-/// 2. **A recorded transport wins** (D8): a resume re-enters the engine that
+/// 2. **An EXTERNAL agent is ACP-only.** It has no TUI argv at all, so
+///    neither the escape hatch nor a recorded transport can put it on the PTY
+///    (EXP-758: the setting used to win, and the Terminal arm then spawned
+///    the BUILTIN CLI's program — a launch of an agent nobody picked).
+/// 3. **A recorded transport wins** (D8): a resume re-enters the engine that
 ///    holds the conversation — an ACP run has no TUI resume handle, and a PTY
-///    run has no ACP session id.
-/// 3. `Settings::start_in_terminal` — the device-global escape hatch.
-/// 4. An EXTERNAL agent is ACP-only (it has no TUI argv at all).
+///    run has no ACP session id. EXP-758: unless its agent is no longer
+///    ACP-ready, which the ACP argv cannot survive.
+/// 4. `Settings::start_in_terminal` — the device-global escape hatch.
 /// 5. A builtin agent without ACP readiness (`ToolCheck::acp`, and the host's
 ///    [`CodingDeps::acp_available`]) falls back to Terminal.
 pub fn resolve_transport(
@@ -521,20 +553,77 @@ pub fn resolve_transport(
     acp_ready: bool,
     recorded: Option<LaunchTransport>,
 ) -> LaunchTransport {
+    resolve_transport_with_reason(settings, agent, login_flow, acp_ready, recorded).transport
+}
+
+/// EXP-758: [`resolve_transport`] with the fallback reason attached. The
+/// prepare paths call THIS one; the reason becomes
+/// [`PreparedLaunch::transport_notice`].
+pub fn resolve_transport_with_reason(
+    settings: &Settings,
+    agent: &AgentKind,
+    login_flow: bool,
+    acp_ready: bool,
+    recorded: Option<LaunchTransport>,
+) -> TransportChoice {
+    let asked = |transport| TransportChoice { transport, fallback: None };
     if login_flow {
-        return LaunchTransport::Terminal;
+        return asked(LaunchTransport::Terminal);
+    }
+    // An external agent has no TUI argv, so there is no terminal launch to
+    // fall back TO: the Terminal arm composes `resolved_path_for(agent)`,
+    // which is a builtin CLI this launch never named.
+    if matches!(agent, AgentKind::External(_)) {
+        return asked(LaunchTransport::Acp);
     }
     if let Some(recorded) = recorded {
-        return recorded;
+        if recorded == LaunchTransport::Acp && !acp_ready {
+            return TransportChoice {
+                transport: LaunchTransport::Terminal,
+                fallback: Some(TransportFallback::RecordedAcpNotReady),
+            };
+        }
+        return asked(recorded);
     }
     if settings.start_in_terminal {
-        return LaunchTransport::Terminal;
+        return asked(LaunchTransport::Terminal);
     }
-    match agent {
-        AgentKind::External(_) => LaunchTransport::Acp,
-        AgentKind::Builtin(_) if !acp_ready => LaunchTransport::Terminal,
-        AgentKind::Builtin(_) => LaunchTransport::Acp,
+    if !acp_ready {
+        return TransportChoice {
+            transport: LaunchTransport::Terminal,
+            fallback: Some(TransportFallback::NotAcpReady),
+        };
     }
+    asked(LaunchTransport::Acp)
+}
+
+/// EXP-758: the one-line notice a fallback launch carries
+/// ([`PreparedLaunch::transport_notice`]). `acp_note` is the doctor's own
+/// explanation for the agent ([`crate::doctor::ToolCheck::acp_note`]) when it
+/// has one — "Claude Code 2.1.240 has no ACP control protocol…", the pi
+/// no-rpc-mode copy, the codex version floor.
+pub fn transport_notice(
+    agent: &AgentKind,
+    fallback: TransportFallback,
+    acp_note: Option<&str>,
+) -> String {
+    let label = agent.label();
+    let mut notice = match fallback {
+        TransportFallback::NotAcpReady => {
+            format!("Started in a terminal because {label}'s ACP check failed")
+        }
+        TransportFallback::RecordedAcpNotReady => format!(
+            "This run was recorded on the session screen, but started in a \
+terminal because {label}'s ACP check failed"
+        ),
+    };
+    if let Some(note) = acp_note.map(str::trim).filter(|note| !note.is_empty()) {
+        notice.push_str(": ");
+        notice.push_str(note);
+    } else {
+        notice.push('.');
+    }
+    notice
 }
 
 /// EXP-746: how an ACP run reopens the conversation it continues.
@@ -958,6 +1047,44 @@ fn acp_ready(
     }
 }
 
+/// EXP-758: the doctor's own explanation for [`acp_ready`] answering `false`,
+/// when it has one — the claude version-floor copy, pi's no-rpc-mode note,
+/// codex's version floor. `None` for an external agent (never gated by a
+/// builtin's check) and for a host with no engine, where the reason is this
+/// BUILD rather than anything the CLI could tell the user.
+fn acp_note<'a>(report: &'a crate::doctor::DoctorReport, agent: &AgentKind) -> Option<&'a str> {
+    report
+        .check_for(agent.builtin()?)
+        .acp_note
+        .as_deref()
+        .filter(|note| !note.trim().is_empty())
+}
+
+/// EXP-758: the step-0 doctor gate for `agent`, builtin or external.
+///
+/// An EXTERNAL agent is gated by its own command resolving at spawn time
+/// (`engine::adapters::external::resolve_on_path`), never by a builtin CLI
+/// the run never touches — but git still has to be there when the launch
+/// clones (`needs_git`). This is the rule [`prepare_resume_run`] already
+/// applied; the fresh launch paths keyed on the settings-default BUILTIN,
+/// which refused an external launch on a machine with no claude and passed
+/// one on a machine whose claude happened to be fine.
+fn doctor_gate<'a>(
+    report: &'a crate::doctor::DoctorReport,
+    agent: &AgentKind,
+    needs_git: bool,
+) -> Option<&'a ToolCheck> {
+    match (agent.builtin(), needs_git) {
+        (Some(agent), true) => report.first_failure_for(agent),
+        (Some(agent), false) => {
+            let check = report.check_for(agent);
+            (!check.ok).then_some(check)
+        }
+        (None, true) => (!report.git.ok).then_some(&report.git),
+        (None, false) => None,
+    }
+}
+
 /// Drop settings files past the TTL wherever they sit in the tree — per-pid
 /// dirs and pre-REV-20 flat files alike — and clear pid dirs that end up
 /// empty (`remove_dir` refuses non-empty ones, so a live dir is never lost).
@@ -1031,12 +1158,14 @@ fn apply_hook_env(
 /// gets `AgentMcp::ClaudeInline` — nothing is written to the cwd and the key
 /// rides the child env — so refusing a repo that re-includes
 /// `.exp-mcp.json` there would block a launch that cannot leak anything.
+/// EXP-758: on [`AgentKind`] — an external agent writes no key file, so
+/// there is nothing to guard.
 fn guard_agent_mcp(
-    agent: CodingAgent,
+    agent: &AgentKind,
     cwd: &Path,
     transport: LaunchTransport,
 ) -> Result<(), CodingError> {
-    if agent == CodingAgent::Claude && transport == LaunchTransport::Terminal {
+    if agent.builtin() == Some(CodingAgent::Claude) && transport == LaunchTransport::Terminal {
         // EXP-474: the key never lands in a repo we cannot prove ignores it.
         crate::git_worktree::ensure_ignored(cwd, &[crate::mcp_json::MCP_JSON_FILE])?;
     }
@@ -1053,14 +1182,26 @@ fn guard_agent_mcp(
 /// over its rpc mode, where the observer and plan-mode extensions have no
 /// job (their PTY-era events are what `session/update` replaces). The MCP
 /// BRIDGE is written on both paths: it is how pi reaches `/api/mcp` at all.
+///
+/// EXP-758: on [`AgentKind`]. An EXTERNAL agent gets the env-only posture
+/// ([`AgentMcp::ExternalEnv`]) — it has no builtin config format to write, so
+/// stamping the settings-default builtin's sidecars into its worktree left it
+/// with no MCP wiring at all (and, for a claude default, a `.exp-mcp.json`
+/// nothing would read).
 fn wire_agent_mcp(
-    agent: CodingAgent,
+    agent: &AgentKind,
     cwd: &Path,
     base_url: &str,
     personal_key: &str,
     session_id: Option<&str>,
     transport: LaunchTransport,
 ) -> Result<AgentMcp, CodingError> {
+    let Some(agent) = agent.builtin() else {
+        return Ok(AgentMcp::ExternalEnv {
+            url: mcp_url(base_url),
+            session_id: session_id.map(str::to_string),
+        });
+    };
     match agent {
         CodingAgent::Claude if transport == LaunchTransport::Acp => {
             // EXP-746: no key file on the ACP arm — the engine passes inline
@@ -1111,8 +1252,10 @@ fn wire_agent_mcp(
 /// with plan mode on sets [`crate::argv::PI_PLAN_MODE_ENV`]; without it the
 /// always-written `.exp-pi-plan.ts` returns immediately. EXP-752: applied on
 /// BOTH transports — the rpc adapter runs the same extension.
-fn apply_pi_plan_env(spawn: SpawnSpec, agent: CodingAgent, plan_mode: bool) -> SpawnSpec {
-    if agent == CodingAgent::Pi && plan_mode {
+/// EXP-758: `agent` is the builtin, or `None` for an external agent — which
+/// loads none of our extensions and must not be told to enter pi's plan mode.
+fn apply_pi_plan_env(spawn: SpawnSpec, agent: Option<CodingAgent>, plan_mode: bool) -> SpawnSpec {
+    if agent == Some(CodingAgent::Pi) && plan_mode {
         spawn.env(crate::argv::PI_PLAN_MODE_ENV, "1")
     } else {
         spawn
@@ -1124,11 +1267,11 @@ fn apply_pi_plan_env(spawn: SpawnSpec, agent: CodingAgent, plan_mode: bool) -> S
 /// gets them — without the env the extension returns immediately.
 fn apply_observer_env(
     spawn: SpawnSpec,
-    agent: CodingAgent,
+    agent: Option<CodingAgent>,
     observer: Option<&ObserverSetup>,
 ) -> SpawnSpec {
     match (agent, observer) {
-        (CodingAgent::Pi, Some(observer)) => spawn
+        (Some(CodingAgent::Pi), Some(observer)) => spawn
             .env(
                 OBSERVER_URL_ENV,
                 format!("http://127.0.0.1:{}", observer.port),
@@ -1141,14 +1284,28 @@ fn apply_observer_env(
 /// The spawn-env half of [`wire_agent_mcp`]: the MCP credential for codex/pi
 /// rides the ENV (claude's rides `.exp-mcp.json`) — codex reads it through
 /// `bearer_token_env_var`, the pi bridge reads url + token directly.
+///
+/// EXP-758: an EXTERNAL agent takes the same env-only shape as pi's bridge
+/// (url + key + the session header) — [`AgentMcp::ExternalEnv`] is the posture
+/// it was wired with, and the env is the only channel a binary we did not
+/// write can be handed a credential through.
 fn apply_mcp_env(
     spawn: SpawnSpec,
-    agent: CodingAgent,
+    agent: &AgentKind,
     base_url: &str,
     personal_key: &str,
     session_id: Option<&str>,
     transport: LaunchTransport,
 ) -> SpawnSpec {
+    let Some(agent) = agent.builtin() else {
+        let spawn = spawn
+            .env(MCP_URL_ENV, mcp_url(base_url))
+            .env(MCP_TOKEN_ENV, personal_key);
+        return match session_id {
+            Some(id) => spawn.env(MCP_SESSION_ID_ENV, id),
+            None => spawn,
+        };
+    };
     let spawn = match agent {
         // EXP-746: the ACP arm's inline `--mcp-config` reads the key from the
         // env (`${EXP_MCP_TOKEN}`); the PTY arm keeps it in `.exp-mcp.json`.
@@ -1285,22 +1442,30 @@ pub fn prepare_with_hooks(
     // agent must resolve — a missing pi never blocks a claude launch).
     // Cheap relative to clone/mint and structural: the relay origin has no
     // button whose disabled state could have gated this.
+    //
+    // EXP-758: on [`AgentKind`], not on the settings-default builtin — an
+    // issue/batch launch always clones, so an external agent is gated on git
+    // alone (`doctor_gate`).
     let report = run_doctor(&deps.settings);
-    if let Some(failed) = report.first_failure_for(agent) {
+    if let Some(failed) = doctor_gate(&report, &agent_kind, true) {
         return Ok(Prepared::Disabled(DisabledReason::DoctorFailed(
             failed.clone(),
         )));
     }
     // EXP-746: which engine runs this launch, decided HERE — the two
     // transports compose different argv, so it can never be deferred to the
-    // spawn.
-    let transport = resolve_transport(
+    // spawn. EXP-758: an ACP→Terminal fallback carries its reason to the run.
+    let choice = resolve_transport_with_reason(
         &deps.settings,
         &agent_kind,
         false,
         acp_ready(&report, &agent_kind, deps),
         None,
     );
+    let transport = choice.transport;
+    let launch_notice = choice.fallback.map(|fallback| {
+        transport_notice(&agent_kind, fallback, acp_note(&report, &agent_kind))
+    });
 
     // Step 1 — resolve the repository (the coding-first gate).
     let (repository_id, full_name) = match req {
@@ -1392,7 +1557,7 @@ pub fn prepare_with_hooks(
     let personal_key = key_handle
         .join()
         .map_err(|_| CodingError::Io("personal-key thread panicked".to_string()))??;
-    guard_agent_mcp(agent, &worktree, transport)?;
+    guard_agent_mcp(&agent_kind, &worktree, transport)?;
 
     // Step 5 — the seed prompt (both shapes: direct argv delivery when
     // small, PROMPT.md + seed line otherwise). EXP-662: this path ALWAYS
@@ -1500,7 +1665,7 @@ pub fn prepare_with_hooks(
         &deps.trpc,
         &session.id,
         wire_agent_mcp(
-            agent,
+            &agent_kind,
             &worktree,
             deps.trpc.base_url(),
             &personal_key,
@@ -1552,7 +1717,7 @@ pub fn prepare_with_hooks(
     // nothing) — a later resume reads it to decide whether the agent's
     // native reopen can work here at all. Best-effort: a failed write only
     // costs a future resume offer.
-    let _ = crate::worktree_agents::record_worktree_agent(&worktree, agent);
+    let _ = crate::worktree_agents::record_worktree_agent_id(&worktree, agent_kind.id());
 
     // Step 7's spawn spec — argv from [`crate::argv`]: explicit `--model`,
     // the native permission posture, and the prompt positional-last (bytes
@@ -1588,12 +1753,15 @@ pub fn prepare_with_hooks(
     // started session would otherwise park forever on the TUI's
     // directory-trust screen (codex resolves a linked worktree's trust
     // subject to the main clone, so the clone is the entry that matters).
-    if agent == CodingAgent::Codex {
+    // EXP-758: on the BUILTIN — an external agent has neither config, and
+    // seeding the settings-default builtin's trust for a run it never spawns
+    // is a write into the user's config on behalf of nobody.
+    if agent_kind.builtin() == Some(CodingAgent::Codex) {
         crate::codex_trust::ensure_trusted(&clone);
     }
     // EXP-414: same pre-accept for claude, keyed by the spawn CWD — claude's
     // trust dialog is per-directory and every session gets a fresh worktree.
-    if agent == CodingAgent::Claude {
+    if agent_kind.builtin() == Some(CodingAgent::Claude) {
         // EXP-690: always seed `bypassPermissionsModeAccepted` — every run
         // bypasses, and even a plan-mode run is one Shift+Tab from it.
         crate::claude_trust::ensure_onboarded(&worktree, true);
@@ -1623,12 +1791,17 @@ pub fn prepare_with_hooks(
     // `--session-id` (which doubles as the ACP session id the engine
     // upserts), so a pin minted here would name no transcript at all — and
     // would still outrank the real id in the replay's fallback chain.
+    //
+    // EXP-758: keyed on the BUILTIN, like `prepare_resume_run` already is —
+    // the three pins are the three CLIs' own handles and mean nothing for an
+    // external agent (whose `agent` field carries the settings default).
+    let builtin = agent_kind.builtin();
     let claude_session_id = (transport == LaunchTransport::Terminal
-        && agent == CodingAgent::Claude)
+        && builtin == Some(CodingAgent::Claude))
         .then(|| uuid::Uuid::new_v4().to_string());
-    let codex_originator = (agent == CodingAgent::Codex)
+    let codex_originator = (builtin == Some(CodingAgent::Codex))
         .then(|| crate::argv::codex_session_originator(&session.id));
-    let pi_session = (agent == CodingAgent::Pi)
+    let pi_session = (builtin == Some(CodingAgent::Pi))
         .then(|| pi_session_file(&deps.data_dir, &session.id))
         .flatten();
 
@@ -1749,7 +1922,7 @@ pub fn prepare_with_hooks(
     // The MCP credential env half of the wiring ([`apply_mcp_env`]).
     spawn = apply_mcp_env(
         spawn,
-        agent,
+        &agent_kind,
         deps.trpc.base_url(),
         &personal_key,
         Some(&session.id),
@@ -1761,9 +1934,9 @@ pub fn prepare_with_hooks(
     // plan-mode gate, which is pi's plan mode on BOTH transports.
     if transport == LaunchTransport::Terminal {
         spawn = apply_hook_env(spawn, hooks, hook_settings.as_ref());
-        spawn = apply_observer_env(spawn, agent, observer);
+        spawn = apply_observer_env(spawn, agent_kind.builtin(), observer);
     }
-    spawn = apply_pi_plan_env(spawn, agent, options.plan_mode);
+    spawn = apply_pi_plan_env(spawn, agent_kind.builtin(), options.plan_mode);
     if let Some(originator) = &codex_originator {
         spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
     }
@@ -1851,7 +2024,10 @@ pub fn prepare_with_hooks(
         // `prepare_resume_run`'s.
         codex_resume_id: None,
         launch_hold: Some(launch_hold),
-        transport_notice: None,
+        // EXP-758: `Some` only when the ACP engine was asked for and refused
+        // (`resolve_transport_with_reason`) — the host shows it on the run so
+        // a terminal tab nobody chose is never a silent surprise.
+        transport_notice: launch_notice,
     }))
 }
 
@@ -1948,30 +2124,28 @@ fn prepare_action(
     };
 
     // Step 0 — doctor: the selected agent always; git only when a clone is
-    // involved.
+    // involved. EXP-758: on [`AgentKind`] (`doctor_gate`), so an EXTERNAL
+    // agent is gated by git alone when the run clones and by nothing at all
+    // when it does not — never by a builtin CLI it never spawns.
+    let agent_kind = agent_kind(&options);
     let report = run_doctor(&deps.settings);
-    let agent_check = report.check_for(agent);
-    if !agent_check.ok {
+    if let Some(failed) = doctor_gate(&report, &agent_kind, repo.is_some()) {
         return Ok(Prepared::Disabled(DisabledReason::DoctorFailed(
-            agent_check.clone(),
+            failed.clone(),
         )));
     }
-    if repo.is_some() {
-        if let Some(failed) = report.first_failure_for(agent) {
-            return Ok(Prepared::Disabled(DisabledReason::DoctorFailed(
-                failed.clone(),
-            )));
-        }
-    }
     // EXP-746: an action run picks its engine exactly like a session run.
-    let agent_kind = agent_kind(&options);
-    let transport = resolve_transport(
+    let choice = resolve_transport_with_reason(
         &deps.settings,
         &agent_kind,
         false,
         acp_ready(&report, &agent_kind, deps),
         None,
     );
+    let transport = choice.transport;
+    let launch_notice = choice.fallback.map(|fallback| {
+        transport_notice(&agent_kind, fallback, acp_note(&report, &agent_kind))
+    });
 
     // §7.2 — the personal key (the MCP credential), raced like a session's.
     let key_handle = {
@@ -2157,7 +2331,7 @@ fn prepare_action(
     let personal_key = key_handle
         .join()
         .map_err(|_| CodingError::Io("personal-key thread panicked".to_string()))??;
-    guard_agent_mcp(agent, &cwd, transport)?;
+    guard_agent_mcp(&agent_kind, &cwd, transport)?;
 
     // Step 3 — the prompt (size-gated like a session's; the PROMPT.md
     // exclude write no-ops without a `.git`). The builtins render their
@@ -2294,7 +2468,7 @@ fn prepare_action(
         &deps.trpc,
         &session.id,
         wire_agent_mcp(
-            agent,
+            &agent_kind,
             &cwd,
             deps.trpc.base_url(),
             &personal_key,
@@ -2306,14 +2480,16 @@ fn prepare_action(
     // EXP-210: stamp THIS agent into the run worktree's recorded-agent
     // marker, exactly like the issue path — a later resume reads it to
     // decide whether a native `--resume`/`--continue` can work here.
-    let _ = crate::worktree_agents::record_worktree_agent(&cwd, agent);
+    let _ = crate::worktree_agents::record_worktree_agent_id(&cwd, agent_kind.id());
 
     // Step 5 — the spawn spec: the selected agent, session argv. EXP-389:
     // pre-trust the run's directory first (the trunk clone for repo-backed
     // runs — a linked worktree resolves to it — or the scratch dir's PARENT,
     // which is stable per action across runs) so codex never parks on its
     // directory-trust screen.
-    if agent == CodingAgent::Codex {
+    // EXP-758: on the BUILTIN, like every other per-CLI step here.
+    let builtin = agent_kind.builtin();
+    if builtin == Some(CodingAgent::Codex) {
         let trust_root = trunk_clone
             .as_deref()
             .or_else(|| cwd.parent())
@@ -2321,7 +2497,7 @@ fn prepare_action(
         crate::codex_trust::ensure_trusted(trust_root);
     }
     // EXP-414: claude keys trust by the spawn cwd itself (worktree/scratch).
-    if agent == CodingAgent::Claude {
+    if builtin == Some(CodingAgent::Claude) {
         crate::claude_trust::ensure_onboarded(&cwd, true);
     }
     // EXP-746: PTY-only sidecar files; the ACP arm keeps only the reaper's
@@ -2344,11 +2520,11 @@ fn prepare_action(
     // and EXP-746: PTY-only, like the session path above (the ACP adapter
     // mints claude's `--session-id` itself).
     let claude_session_id = (transport == LaunchTransport::Terminal
-        && agent == CodingAgent::Claude)
+        && builtin == Some(CodingAgent::Claude))
         .then(|| uuid::Uuid::new_v4().to_string());
-    let codex_originator = (agent == CodingAgent::Codex)
+    let codex_originator = (builtin == Some(CodingAgent::Codex))
         .then(|| crate::argv::codex_session_originator(&session.id));
-    let pi_session = (agent == CodingAgent::Pi)
+    let pi_session = (builtin == Some(CodingAgent::Pi))
         .then(|| pi_session_file(&deps.data_dir, &session.id))
         .flatten();
     let args = match transport {
@@ -2383,7 +2559,7 @@ fn prepare_action(
         .cwd(&cwd);
     spawn = apply_mcp_env(
         spawn,
-        agent,
+        &agent_kind,
         deps.trpc.base_url(),
         &personal_key,
         Some(&session.id),
@@ -2393,9 +2569,9 @@ fn prepare_action(
     // plan-mode gate rides both transports.
     if transport == LaunchTransport::Terminal {
         spawn = apply_hook_env(spawn, hooks, hook_settings.as_ref());
-        spawn = apply_observer_env(spawn, agent, observer);
+        spawn = apply_observer_env(spawn, agent_kind.builtin(), observer);
     }
-    spawn = apply_pi_plan_env(spawn, agent, options.plan_mode);
+    spawn = apply_pi_plan_env(spawn, agent_kind.builtin(), options.plan_mode);
     if let Some(originator) = &codex_originator {
         spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
     }
@@ -2561,7 +2737,8 @@ fn prepare_action(
         codex_originator,
         codex_resume_id: None,
         launch_hold,
-        transport_notice: None,
+        // EXP-758: see `prepare_with_hooks` — a fallback explains itself.
+        transport_notice: launch_notice,
     }))
 }
 
@@ -2666,17 +2843,10 @@ fn prepare_resume_run(
     // its own command resolving at spawn time
     // (`engine::adapters::external::resolve_on_path`), never by a builtin
     // CLI the recorded run never touched.
+    // EXP-758: the rule this path already had, now shared with the two fresh
+    // launch paths ([`doctor_gate`]).
     let report = run_doctor(&deps.settings);
-    let failure = match builtin {
-        Some(agent) if record.clone.is_some() => report.first_failure_for(agent),
-        Some(agent) => {
-            let check = report.check_for(agent);
-            (!check.ok).then_some(check)
-        }
-        None if record.clone.is_some() => (!report.git.ok).then_some(&report.git),
-        None => None,
-    };
-    if let Some(failed) = failure {
+    if let Some(failed) = doctor_gate(&report, &agent_kind, record.clone.is_some()) {
         return Ok(Prepared::Disabled(DisabledReason::DoctorFailed(
             failed.clone(),
         )));
@@ -2685,13 +2855,23 @@ fn prepare_resume_run(
     // no TUI resume handle and a PTY run has no ACP session id, so the
     // record beats the setting. A pre-746 record (no `transport`) resumes
     // into the terminal, which is where it ran.
-    let transport = resolve_transport(
+    //
+    // EXP-758: unless the agent is no longer ACP-READY (a downgraded CLI, a
+    // pi probe that now fails, a host with no engine). The recorded
+    // transport used to win outright and the launch came out with an EMPTY
+    // argv — nothing could spawn it. The fallback re-enters the conversation
+    // through the agent's OWN handle instead (see `acp_native` below).
+    let choice = resolve_transport_with_reason(
         &deps.settings,
         &agent_kind,
         false,
         acp_ready(&report, &agent_kind, deps),
         Some(record.transport()),
     );
+    let transport = choice.transport;
+    let launch_notice = choice.fallback.map(|fallback| {
+        transport_notice(&agent_kind, fallback, acp_note(&report, &agent_kind))
+    });
 
     // Step 1 — the workspace. EXP-757: a repo-less run's scratch dir is
     // disposable (reclaimed when the run ended, `crate::scratch`), so it is
@@ -2770,31 +2950,57 @@ fn prepare_resume_run(
     // session seeded with the resume prompt.
     let marker_allows_resume = crate::worktree_agents::worktree_agents(&cwd)
         .is_none_or(|recorded| recorded.contains(&agent));
-    let claude_resume_id = record
-        .claude_session_id
-        .clone()
-        .filter(|_| marker_allows_resume && builtin == Some(CodingAgent::Claude))
-        .filter(|id| claude_transcript_exists(deps, &cwd, id));
+    // EXP-758: an ACP run that FELL BACK to the terminal (its agent's ACP
+    // check no longer passes) still has a conversation to reopen — the engine
+    // wrote the agent's own handle onto the record as
+    // `agent_native_session_id` (claude's session uuid, codex's thread id,
+    // pi's session file). That is exactly the PTY seed the three fields below
+    // hold for a run recorded on the terminal, so it feeds the same slots;
+    // each is already gated on the agent it belongs to.
+    let acp_native = (record.transport() == LaunchTransport::Acp
+        && transport == LaunchTransport::Terminal)
+        .then(|| record.agent_native_session_id.clone())
+        .flatten();
+    // Each agent's handles are tried in order (the PTY-recorded pin first,
+    // the ACP-recorded native id second) and the FIRST one that still names a
+    // live conversation wins — a stale pin must not mask a good fallback.
+    let claude_resume_id = (marker_allows_resume && builtin == Some(CodingAgent::Claude))
+        .then(|| {
+            record
+                .claude_session_id
+                .clone()
+                .into_iter()
+                .chain(acp_native.clone())
+                .find(|id| claude_transcript_exists(deps, &cwd, id))
+        })
+        .flatten();
     let codex_resume_id = (marker_allows_resume && builtin == Some(CodingAgent::Codex))
         .then(|| {
-            deps.codex_sessions_root
-                .clone()
-                .or_else(crate::codex_sessions::default_codex_sessions_root)
-                .and_then(|root| {
-                    crate::codex_sessions::find_codex_session_id(
-                        &root,
-                        &cwd,
-                        record.codex_originator.as_deref(),
-                    )
-                })
+            acp_native.clone().or_else(|| {
+                deps.codex_sessions_root
+                    .clone()
+                    .or_else(crate::codex_sessions::default_codex_sessions_root)
+                    .and_then(|root| {
+                        crate::codex_sessions::find_codex_session_id(
+                            &root,
+                            &cwd,
+                            record.codex_originator.as_deref(),
+                        )
+                    })
+            })
         })
         .flatten();
     // pi resumes by FILE: the recorded transcript path, when it still exists.
-    let pi_resume_file = record
-        .pi_session_file
-        .clone()
-        .filter(|_| marker_allows_resume && builtin == Some(CodingAgent::Pi))
-        .filter(|path| path.is_file());
+    let pi_resume_file = (marker_allows_resume && builtin == Some(CodingAgent::Pi))
+        .then(|| {
+            record
+                .pi_session_file
+                .clone()
+                .into_iter()
+                .chain(acp_native.as_deref().map(PathBuf::from))
+                .find(|path| path.is_file())
+        })
+        .flatten();
     // EXP-746 (D8): an ACP run's surviving conversation is its recorded ACP
     // session id — `session/load` replays the WHOLE thread, so it is as
     // native a resume as the three handles above. Counting it here is what
@@ -2852,7 +3058,7 @@ fn prepare_resume_run(
     let personal_key = key_handle
         .join()
         .map_err(|_| CodingError::Io("personal-key thread panicked".to_string()))??;
-    guard_agent_mcp(agent, &cwd, transport)?;
+    guard_agent_mcp(&agent_kind, &cwd, transport)?;
 
     // Step 5 — a NEW session row in the recorded SUBJECT's shape, pointing
     // back at the run it continues.
@@ -2904,7 +3110,7 @@ fn prepare_resume_run(
         &deps.trpc,
         &session.id,
         wire_agent_mcp(
-            agent,
+            &agent_kind,
             &cwd,
             deps.trpc.base_url(),
             &personal_key,
@@ -2912,7 +3118,7 @@ fn prepare_resume_run(
             transport,
         ),
     )?;
-    let _ = crate::worktree_agents::record_worktree_agent(&cwd, agent);
+    let _ = crate::worktree_agents::record_worktree_agent_id(&cwd, agent_kind.id());
 
     // Step 6 — the spawn spec, mirroring the fresh action path.
     if builtin == Some(CodingAgent::Codex) {
@@ -3003,7 +3209,7 @@ fn prepare_resume_run(
         .cwd(&cwd);
     spawn = apply_mcp_env(
         spawn,
-        agent,
+        &agent_kind,
         deps.trpc.base_url(),
         &personal_key,
         Some(&session.id),
@@ -3012,7 +3218,7 @@ fn prepare_resume_run(
     // EXP-746: PTY-era sidecar env only.
     if transport == LaunchTransport::Terminal {
         spawn = apply_hook_env(spawn, hooks, hook_settings.as_ref());
-        spawn = apply_observer_env(spawn, agent, observer);
+        spawn = apply_observer_env(spawn, agent_kind.builtin(), observer);
     }
     if let Some(originator) = &codex_originator {
         spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
@@ -3162,7 +3368,10 @@ fn prepare_resume_run(
         codex_originator,
         codex_resume_id,
         launch_hold,
-        transport_notice: None,
+        // EXP-758: `Some` when a run RECORDED on the session screen had to
+        // resume in a terminal tab — the one case where the tab the user gets
+        // is not the one the run had.
+        transport_notice: launch_notice,
     }))
 }
 
@@ -3280,7 +3489,8 @@ pub fn prepare_agent_shell(
         .join()
         .map_err(|_| CodingError::Io("personal-key thread panicked".to_string()))??;
     let agent_mcp = wire_agent_mcp(
-        agent,
+        // An agent shell is a picked BUILTIN by construction (EXP-325).
+        &AgentKind::Builtin(agent),
         &cwd,
         deps.trpc.base_url(),
         &personal_key,
@@ -3314,7 +3524,14 @@ pub fn prepare_agent_shell(
         .args(args)
         .cwd(&cwd);
     // Agent shells are always interactive TUIs (never the ACP transport).
-    spawn = apply_mcp_env(spawn, agent, deps.trpc.base_url(), &personal_key, None, LaunchTransport::Terminal);
+    spawn = apply_mcp_env(
+        spawn,
+        &AgentKind::Builtin(agent),
+        deps.trpc.base_url(),
+        &personal_key,
+        None,
+        LaunchTransport::Terminal,
+    );
     if agent == CodingAgent::Codex {
         // EXP-443: shells share the trunk cwd with action runs — a distinct
         // originator keeps their rollouts out of every session's strict pass.
@@ -3623,9 +3840,10 @@ mod tests {
         }
     }
 
-    /// The whole precedence order in one place: a login flow and a recorded
-    /// transport beat the setting, the setting beats readiness, an external
-    /// agent is ACP-only, and a builtin without readiness falls back.
+    /// The whole precedence order in one place: a login flow beats
+    /// everything, an EXTERNAL agent is ACP-only whatever the setting says
+    /// (EXP-758), a recorded transport beats the setting, the setting beats
+    /// readiness, and a builtin without readiness falls back.
     #[test]
     fn resolve_transport_matrix() {
         let engine = Settings::default();
@@ -3644,7 +3862,31 @@ mod tests {
             LaunchTransport::Terminal
         );
 
-        // 2. A recorded transport wins over the setting, both ways (D8).
+        // 2. EXP-758: an external agent has NO TUI argv, so it is ACP even
+        // with the escape hatch on and even against a PTY-recorded run. The
+        // Terminal arm would spawn `resolved_path_for(agent)` — the settings
+        // BUILTIN, an agent this launch never named.
+        assert_eq!(
+            resolve_transport(&terminal, &external, false, true, None),
+            LaunchTransport::Acp
+        );
+        assert_eq!(
+            resolve_transport(&terminal, &external, false, false, None),
+            LaunchTransport::Acp
+        );
+        assert_eq!(
+            resolve_transport(
+                &terminal,
+                &external,
+                false,
+                true,
+                Some(LaunchTransport::Terminal)
+            ),
+            LaunchTransport::Acp
+        );
+
+        // 3. A recorded transport wins over the setting, both ways (D8) —
+        // while its agent is still ACP-ready.
         assert_eq!(
             resolve_transport(&terminal, &claude, false, true, Some(LaunchTransport::Acp)),
             LaunchTransport::Acp
@@ -3660,28 +3902,19 @@ mod tests {
             LaunchTransport::Terminal
         );
 
-        // 3. The device-global escape hatch.
+        // 4. The device-global escape hatch.
         assert_eq!(
             resolve_transport(&terminal, &claude, false, true, None),
             LaunchTransport::Terminal
         );
-        assert_eq!(
-            resolve_transport(&terminal, &external, false, true, None),
-            LaunchTransport::Terminal
-        );
 
-        // 4/5. Readiness decides for a builtin; an external agent has no TUI
-        // path at all, so it is ACP whenever the host can run one.
+        // 5. Readiness decides for a builtin.
         assert_eq!(
             resolve_transport(&engine, &claude, false, false, None),
             LaunchTransport::Terminal
         );
         assert_eq!(
             resolve_transport(&engine, &claude, false, true, None),
-            LaunchTransport::Acp
-        );
-        assert_eq!(
-            resolve_transport(&engine, &external, false, false, None),
             LaunchTransport::Acp
         );
 
@@ -3692,6 +3925,85 @@ mod tests {
             Some(LaunchTransport::Terminal)
         );
         assert_eq!(LaunchTransport::parse("quantum"), None);
+    }
+
+    /// EXP-758: every ACP→Terminal fallback is VISIBLE. A recorded ACP run
+    /// whose agent is no longer ready falls back (instead of building an ACP
+    /// launch with an empty argv) and says why; a ready one does neither.
+    #[test]
+    fn a_fallback_reports_why_and_a_ready_launch_says_nothing() {
+        let engine = Settings::default();
+        let mut terminal = Settings::default();
+        terminal.start_in_terminal = true;
+        let claude = AgentKind::Builtin(CodingAgent::Claude);
+        let external = AgentKind::External(external_spec());
+
+        // A recorded ACP run + an agent that lost its readiness.
+        let stale = resolve_transport_with_reason(
+            &engine,
+            &claude,
+            false,
+            false,
+            Some(LaunchTransport::Acp),
+        );
+        assert_eq!(stale.transport, LaunchTransport::Terminal);
+        assert_eq!(
+            stale.fallback,
+            Some(TransportFallback::RecordedAcpNotReady)
+        );
+
+        // Ready: the recorded engine is re-entered, with nothing to explain.
+        let ready = resolve_transport_with_reason(
+            &engine,
+            &claude,
+            false,
+            true,
+            Some(LaunchTransport::Acp),
+        );
+        assert_eq!(ready.transport, LaunchTransport::Acp);
+        assert_eq!(ready.fallback, None);
+
+        // A fresh launch of an unready builtin.
+        let fresh = resolve_transport_with_reason(&engine, &claude, false, false, None);
+        assert_eq!(fresh.transport, LaunchTransport::Terminal);
+        assert_eq!(fresh.fallback, Some(TransportFallback::NotAcpReady));
+
+        // A terminal the caller ASKED for explains nothing — the escape
+        // hatch, a login flow and a PTY-recorded resume are all deliberate.
+        for choice in [
+            resolve_transport_with_reason(&terminal, &claude, false, true, None),
+            resolve_transport_with_reason(&engine, &claude, true, false, None),
+            resolve_transport_with_reason(
+                &engine,
+                &claude,
+                false,
+                false,
+                Some(LaunchTransport::Terminal),
+            ),
+        ] {
+            assert_eq!(choice.transport, LaunchTransport::Terminal);
+            assert_eq!(choice.fallback, None, "{choice:?}");
+        }
+        // An external agent never falls back at all.
+        assert_eq!(
+            resolve_transport_with_reason(&terminal, &external, false, false, None).fallback,
+            None
+        );
+
+        // The copy: the doctor's own note rides along when it has one.
+        let notice = transport_notice(
+            &claude,
+            TransportFallback::NotAcpReady,
+            Some("Claude Code 2.1.240 has no ACP control protocol."),
+        );
+        assert_eq!(
+            notice,
+            "Started in a terminal because Claude Code's ACP check failed: \
+Claude Code 2.1.240 has no ACP control protocol."
+        );
+        let bare = transport_notice(&claude, TransportFallback::RecordedAcpNotReady, None);
+        assert!(bare.starts_with("This run was recorded on the session screen"), "{bare}");
+        assert!(bare.ends_with('.'), "{bare}");
     }
 
     /// EXP-752: pi's plan mode is the injected `.exp-pi-plan.ts` extension
@@ -3885,10 +4197,10 @@ mod tests {
         git(&["commit", "--quiet", "-m", "reinclude"]);
 
         // The guard itself: unguardable repo, both transports.
-        guard_agent_mcp(CodingAgent::Claude, &worktree, LaunchTransport::Acp)
+        guard_agent_mcp(&AgentKind::Builtin(CodingAgent::Claude), &worktree, LaunchTransport::Acp)
             .expect("the ACP arm has no file to guard");
         let direct =
-            guard_agent_mcp(CodingAgent::Claude, &worktree, LaunchTransport::Terminal).unwrap_err();
+            guard_agent_mcp(&AgentKind::Builtin(CodingAgent::Claude), &worktree, LaunchTransport::Terminal).unwrap_err();
         assert!(matches!(direct, CodingError::Git(_)), "wrong error: {direct:?}");
 
         // And through `prepare`, which is where the transport is resolved:
@@ -3938,6 +4250,7 @@ mod tests {
 
     /// EXP-746 (D8): a run recorded on the ACP path resumes into the ACP
     /// engine, seeded with the recorded `session/load` handle.
+    #[cfg(unix)]
     #[test]
     fn an_acp_resume_prepares_with_the_recorded_acp_session_id() {
         let dir = temp_dir("resume-acp");
@@ -3946,7 +4259,10 @@ mod tests {
             worktree: dir.0.join("unused"),
             seen: Default::default(),
         });
-        let deps = make_deps(&base, &dir.0, worktrees);
+        let mut deps = make_deps(&base, &dir.0, worktrees);
+        // EXP-758: the recorded transport is re-entered only while the agent
+        // still passes its ACP check, so this resume needs a ready claude.
+        deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
         let mut record = resume_record(&dir.0, "sess-old");
         record.transport = Some("acp".to_string());
         record.acp_session_id = Some("acp-42".to_string());
@@ -3978,6 +4294,7 @@ mod tests {
     /// EXP-746 (D8): an ACP record whose engine died BEFORE `session/new`
     /// answered has no conversation to re-enter — that resume still gets the
     /// seed prompt, on a fresh session.
+    #[cfg(unix)]
     #[test]
     fn an_acp_resume_without_a_session_id_still_seeds_the_prompt() {
         let dir = temp_dir("resume-acp-fresh");
@@ -3986,7 +4303,8 @@ mod tests {
             worktree: dir.0.join("unused"),
             seen: Default::default(),
         });
-        let deps = make_deps(&base, &dir.0, worktrees);
+        let mut deps = make_deps(&base, &dir.0, worktrees);
+        deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
         let mut record = resume_record(&dir.0, "sess-old");
         record.transport = Some("acp".to_string());
         record.acp_session_id = None;
@@ -4066,6 +4384,160 @@ mod tests {
         );
     }
 
+    /// EXP-758 (#11): a run RECORDED on the ACP engine whose agent lost its
+    /// readiness (a downgraded CLI, a failed pi probe, a host with no engine)
+    /// resumes into the TERMINAL — with the agent's own handle as the seed
+    /// and a notice saying why. Before this it built an ACP launch with an
+    /// EMPTY argv that nothing could spawn.
+    #[test]
+    fn a_recorded_acp_run_falls_back_to_the_terminal_with_a_notice() {
+        let dir = temp_dir("resume-acp-not-ready");
+        let base = canned_server(vec![(200, START_ACTION_OK.to_string())]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let mut deps = make_deps(&base, &dir.0, worktrees);
+        // `make_deps` resolves claude to `git`, whose version line never
+        // parses — so the doctor leaves `acp` unknown and the check fails.
+        let mut record = resume_record(&dir.0, "sess-old");
+        record.transport = Some("acp".to_string());
+        record.acp_session_id = Some("acp-42".to_string());
+        // No PTY pin (the ACP path mints none) — the ENGINE's record of
+        // claude's own session uuid is the whole seed.
+        record.claude_session_id = None;
+        record.agent_native_session_id = Some("claude-native-7".to_string());
+        let projects = dir.0.join("claude-projects");
+        let project_dir = projects.join(munge_claude_project_dir(&record.cwd));
+        fs::create_dir_all(&project_dir).unwrap();
+        fs::write(project_dir.join("claude-native-7.jsonl"), "{}\n").unwrap();
+        deps.claude_projects_root = Some(projects);
+
+        let prepared =
+            match prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps).unwrap() {
+                Prepared::Ready(prepared) => prepared,
+                other => panic!("expected Ready, got {other:?}"),
+            };
+        assert_eq!(prepared.transport, LaunchTransport::Terminal);
+        assert!(prepared.acp.is_none());
+        // A real TUI argv, resuming the conversation the ACP run held.
+        let args = &prepared.spawn.args;
+        let at = args.iter().position(|a| a == "--resume").expect("--resume");
+        assert_eq!(args[at + 1], "claude-native-7");
+        assert!(!args.iter().any(|a| a == "--session-id"), "{args:?}");
+        // And it is never silent about it.
+        let notice = prepared.transport_notice.as_deref().expect("a notice");
+        assert!(notice.contains("terminal"), "{notice}");
+        assert!(notice.contains("Claude Code"), "{notice}");
+        // The re-record says which engine actually ran.
+        let fresh = crate::run_registry::get(&dir.0, "sess-a").expect("record");
+        assert_eq!(fresh.transport(), LaunchTransport::Terminal);
+    }
+
+    /// EXP-758 (#11): the ready case carries no notice at all — the tab the
+    /// user gets is the one the run had.
+    #[cfg(unix)]
+    #[test]
+    fn a_ready_acp_resume_carries_no_notice() {
+        let dir = temp_dir("resume-acp-ready-notice");
+        let base = canned_server(vec![(200, START_ACTION_OK.to_string())]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let mut deps = make_deps(&base, &dir.0, worktrees);
+        deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
+        let mut record = resume_record(&dir.0, "sess-old");
+        record.transport = Some("acp".to_string());
+        record.acp_session_id = Some("acp-42".to_string());
+
+        let prepared =
+            match prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps).unwrap() {
+                Prepared::Ready(prepared) => prepared,
+                other => panic!("expected Ready, got {other:?}"),
+            };
+        assert_eq!(prepared.transport, LaunchTransport::Acp);
+        assert_eq!(prepared.transport_notice, None);
+    }
+
+    /// EXP-758 (#2 + #12): an EXTERNAL agent launch with the "Start in
+    /// terminal" escape hatch ON. It must still be an ACP launch (the
+    /// Terminal arm would have spawned the settings BUILTIN's binary), it is
+    /// gated on git alone rather than on a claude that is not installed, its
+    /// MCP posture is the env-only external one (no `.exp-mcp.json`, no pi
+    /// bridge), and the worktree marker records ITS id so no builtin is ever
+    /// offered a resume here.
+    #[test]
+    fn an_external_agent_launch_ignores_the_terminal_hatch_and_wires_its_own_mcp() {
+        let dir = temp_dir("external-launch");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let base = canned_server(vec![
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (200, START_OK.to_string()),
+        ]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: worktree.clone(),
+            seen: Default::default(),
+        });
+        let mut deps = make_deps(&base, &dir.0, worktrees);
+        deps.settings.start_in_terminal = true;
+        // Not installed: an external run never touches it.
+        deps.settings.claude_path = dir.0.join("no-such-claude").to_string_lossy().into_owned();
+        let spec = external_spec();
+        deps.settings.external_agents = vec![spec.clone()];
+        let mut req = request("EXP-42");
+        req.options.external = Some(spec.clone());
+        req.options.plan_mode = false;
+
+        let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        // #2: the hatch cannot put an argv-less agent on the PTY.
+        assert_eq!(prepared.transport, LaunchTransport::Acp);
+        assert!(prepared.spawn.args.is_empty(), "{:?}", prepared.spawn.args);
+        assert_eq!(prepared.transport_notice, None);
+        // #12: the external MCP posture, and nothing of a builtin's.
+        let acp = prepared.acp.as_ref().expect("the ACP half");
+        match &acp.mcp {
+            AgentMcp::ExternalEnv { url, session_id } => {
+                assert_eq!(url, &mcp_url(&base));
+                assert_eq!(session_id.as_deref(), Some("sess-1"));
+            }
+            other => panic!("expected the external MCP posture, got {other:?}"),
+        }
+        assert!(!worktree.join(crate::mcp_json::MCP_JSON_FILE).exists());
+        assert!(!worktree.join(crate::pi_bridge::PI_BRIDGE_FILE).exists());
+        assert_eq!(acp.reaper_settings_path, None, "the anchor is claude's");
+        assert_eq!(prepared.claude_session_id, None);
+        assert_eq!(prepared.codex_originator, None);
+        // The credential reaches a binary we did not write the only way it
+        // can: the spawn env.
+        let env = |key: &str| {
+            prepared
+                .spawn
+                .env
+                .iter()
+                .find(|(name, _)| name == key)
+                .map(|(_, value)| value.as_str())
+        };
+        assert_eq!(env(MCP_TOKEN_ENV), Some("expu_seeded"));
+        assert_eq!(env(MCP_URL_ENV), Some(mcp_url(&base).as_str()));
+        assert_eq!(env(MCP_SESSION_ID_ENV), Some("sess-1"));
+        // #12: the marker names the EXTERNAL agent, so no builtin reads back
+        // out of it and none is offered "Resume previous session" here.
+        assert_eq!(
+            fs::read_to_string(worktree.join(crate::worktree_agents::AGENTS_FILE)).unwrap(),
+            "acme\n"
+        );
+        assert_eq!(
+            crate::worktree_agents::worktree_agents(&worktree),
+            Some(Vec::new())
+        );
+    }
+
     /// EXP-746 (D8): every pre-746 record (no `transport`) resumes into the
     /// terminal — where it ran, and the only engine holding a handle on it.
     #[test]
@@ -4117,7 +4589,7 @@ mod tests {
         git(&["add", "."]);
         git(&["commit", "--quiet", "-m", "reinclude"]);
 
-        let err = wire_agent_mcp(CodingAgent::Claude, &repo, "http://localhost:1", "expu_x", None, LaunchTransport::Terminal)
+        let err = wire_agent_mcp(&AgentKind::Builtin(CodingAgent::Claude), &repo, "http://localhost:1", "expu_x", None, LaunchTransport::Terminal)
             .unwrap_err();
         assert!(matches!(err, CodingError::Git(_)), "wrong error: {err:?}");
         assert!(!repo.join(crate::mcp_json::MCP_JSON_FILE).exists(), "key landed on disk");
@@ -4131,7 +4603,7 @@ mod tests {
         let cwd = dir.0.join("wt");
         fs::create_dir_all(&cwd).unwrap();
         let mcp = wire_agent_mcp(
-            CodingAgent::Claude,
+            &AgentKind::Builtin(CodingAgent::Claude),
             &cwd,
             "http://localhost:1/",
             "expu_x",
@@ -4150,9 +4622,9 @@ mod tests {
     #[test]
     fn apply_mcp_env_gives_claude_the_token_only_on_the_acp_arm() {
         let base = SpawnSpec::new("claude");
-        let pty = apply_mcp_env(base.clone(), CodingAgent::Claude, "http://x/", "expu_k", Some("s"), LaunchTransport::Terminal);
+        let pty = apply_mcp_env(base.clone(), &AgentKind::Builtin(CodingAgent::Claude), "http://x/", "expu_k", Some("s"), LaunchTransport::Terminal);
         assert!(!pty.env.iter().any(|(k, _)| k == MCP_TOKEN_ENV), "the PTY arm keeps the key in the file");
-        let acp = apply_mcp_env(base, CodingAgent::Claude, "http://x/", "expu_k", Some("s"), LaunchTransport::Acp);
+        let acp = apply_mcp_env(base, &AgentKind::Builtin(CodingAgent::Claude), "http://x/", "expu_k", Some("s"), LaunchTransport::Acp);
         assert!(acp.env.iter().any(|(k, v)| k == MCP_TOKEN_ENV && v == "expu_k"));
         assert!(acp.env.iter().any(|(k, v)| k == MCP_URL_ENV && v == "http://x/api/mcp"));
         assert!(acp.env.iter().any(|(k, v)| k == MCP_SESSION_ID_ENV && v == "s"));
@@ -4164,7 +4636,7 @@ mod tests {
     #[test]
     fn wire_agent_mcp_writes_the_key_file_in_a_repo_less_scratch_dir() {
         let dir = temp_dir("mcp-scratch");
-        let wired = wire_agent_mcp(CodingAgent::Claude, &dir.0, "http://localhost:1", "expu_x", None, LaunchTransport::Terminal)
+        let wired = wire_agent_mcp(&AgentKind::Builtin(CodingAgent::Claude), &dir.0, "http://localhost:1", "expu_x", None, LaunchTransport::Terminal)
             .unwrap();
         assert_eq!(wired, AgentMcp::ClaudeFile);
         assert!(dir.0.join(crate::mcp_json::MCP_JSON_FILE).exists());

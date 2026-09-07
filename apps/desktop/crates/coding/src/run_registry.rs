@@ -462,6 +462,15 @@ pub fn record(data_dir: &Path, record: RunRecord) {
     save(data_dir, &registry);
 }
 
+/// EXP-758: every record this build can read, oldest first. The orphan reaper
+/// ([`crate::reaper::reap_recorded`]) is the caller — it has to look at ALL of
+/// them, not one by one, and unknown entries are none of its business (a
+/// newer build's record names pids only that build knows how to judge).
+pub fn all(data_dir: &Path) -> Vec<RunRecord> {
+    let _guard = locked();
+    load(data_dir)
+}
+
 pub fn get(data_dir: &Path, session_id: &str) -> Option<RunRecord> {
     let _guard = locked();
     load(data_dir)
