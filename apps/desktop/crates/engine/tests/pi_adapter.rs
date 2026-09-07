@@ -89,7 +89,17 @@ fn scratch(name: &str) -> PathBuf {
     dir
 }
 
-fn adapter(cwd: &Path, plan_mode: bool, env: &[(&str, String)]) -> PiAgent {
+/// The rpc deadline every test but the timeout one runs on: long enough that
+/// a healthy fake never hits it, short enough that a wedged one does not hold
+/// the suite for two minutes.
+const TEST_RPC_TIMEOUT: Duration = Duration::from_secs(20);
+
+fn adapter(
+    cwd: &Path,
+    plan_mode: bool,
+    env: &[(&str, String)],
+    rpc_timeout: Duration,
+) -> PiAgent {
     let fixtures = fixtures();
     let mut spawn = SpawnSpec::new(fixtures.join("fake-pi.sh").display().to_string())
         .cwd(cwd)
@@ -105,20 +115,23 @@ fn adapter(cwd: &Path, plan_mode: bool, env: &[(&str, String)]) -> PiAgent {
     options.agent = coding::CodingAgent::Pi;
     // The settings default plan mode ON, so every test says which it wants.
     options.plan_mode = plan_mode;
-    PiAgent::new(AdapterSpec {
-        kind: AdapterKind::Pi,
-        agent: coding::AgentKind::Builtin(coding::CodingAgent::Pi),
-        spawn,
-        options,
-        mcp: coding::AgentMcp::PiExtension,
-        cwd: cwd.to_path_buf(),
-        session_id: "sess-1".to_string(),
-        prompt: None,
-        resume: None,
-        personal_key: None,
-        reaper_settings_path: None,
-        exit: engine::ChildExitLink::new(),
-    })
+    PiAgent::with_rpc_timeout(
+        AdapterSpec {
+            kind: AdapterKind::Pi,
+            agent: coding::AgentKind::Builtin(coding::CodingAgent::Pi),
+            spawn,
+            options,
+            mcp: coding::AgentMcp::PiExtension,
+            cwd: cwd.to_path_buf(),
+            session_id: "sess-1".to_string(),
+            prompt: None,
+            resume: None,
+            personal_key: None,
+            reaper_settings_path: None,
+            exit: engine::ChildExitLink::new(),
+        },
+        rpc_timeout,
+    )
     .expect("the fake pi spawns")
 }
 
@@ -143,7 +156,22 @@ fn drive_with<T, F>(
 where
     F: AsyncFnOnce(ConnectionTo<Agent>) -> Result<T, Error>,
 {
-    let agent = adapter(cwd, plan_mode, env);
+    drive_timed(cwd, recorder, plan_mode, env, TEST_RPC_TIMEOUT, main)
+}
+
+/// [`drive_with`] over an explicit rpc deadline (EXP-758).
+fn drive_timed<T, F>(
+    cwd: &Path,
+    recorder: Arc<Recorder>,
+    plan_mode: bool,
+    env: &[(&str, String)],
+    rpc_timeout: Duration,
+    main: F,
+) -> T
+where
+    F: AsyncFnOnce(ConnectionTo<Agent>) -> Result<T, Error>,
+{
+    let agent = adapter(cwd, plan_mode, env, rpc_timeout);
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
@@ -394,7 +422,8 @@ fn a_pi_turn_maps_onto_acp_updates_and_answers_a_confirm() {
     assert_eq!(
         names,
         vec![
-            "compact", "new", "model", "thinking", "name", "fork", "clone", "export", "review"
+            "compact", "new", "model", "thinking", "name", "fork", "clone", "export", "review",
+            "exp-status"
         ]
     );
 
@@ -899,4 +928,316 @@ fn refusal<T: std::fmt::Debug>(what: &str, result: Result<T, Error>) -> Error {
         Ok(response) => panic!("{what} was accepted mid-turn: {response:?}"),
         Err(error) => error,
     }
+}
+
+// ---------------------------------------------------------------------------
+// EXP-758: extension commands, the rpc deadline, and the session cost total
+// ---------------------------------------------------------------------------
+
+#[test]
+fn an_advertised_extension_command_ends_without_a_turn_and_leaves_none_behind() {
+    let cwd = scratch("extension-command");
+    let log = cwd.join("stdin.jsonl");
+    let recorder = Arc::new(Recorder::default());
+    // EXP-758: `get_commands` reports a `source` per command, and pi runs an
+    // `extension` one ITSELF: no turn, no `agent_settled`. Typed as a prompt
+    // it used to park the request forever and leave `turn.active` set, so
+    // every later message went out as a `steer` into a turn that never was.
+    let (first, second) = drive_with(
+        &cwd,
+        Arc::clone(&recorder),
+        false,
+        &[
+            ("EXP_FAKE_PI_STDIN_LOG", log.display().to_string()),
+            ("EXP_FAKE_PI_NO_TURN", "exp-status".to_string()),
+        ],
+        {
+            let cwd = cwd.clone();
+            async move |cx: ConnectionTo<Agent>| {
+                cx.send_request(
+                    InitializeRequest::new(ProtocolVersion::V1)
+                        .client_capabilities(engine::client_capabilities()),
+                )
+                .block_task()
+                .await?;
+                let session = cx
+                    .send_request(NewSessionRequest::new(cwd.clone()))
+                    .block_task()
+                    .await?;
+                let first = cx
+                    .send_request(PromptRequest::new(
+                        session.session_id.clone(),
+                        vec![ContentBlock::from("/exp-status")],
+                    ))
+                    .block_task()
+                    .await?;
+                // ... and the session is IDLE afterwards, so an ordinary
+                // message opens a fresh turn.
+                let second = cx
+                    .send_request(PromptRequest::new(
+                        session.session_id.clone(),
+                        vec![ContentBlock::from("edit the notes")],
+                    ))
+                    .block_task()
+                    .await?;
+                Ok((first.stop_reason, second.stop_reason))
+            }
+        },
+    );
+
+    assert_eq!(first, StopReason::EndTurn);
+    assert_eq!(second, StopReason::EndTurn);
+    let written = std::fs::read_to_string(&log).expect("the fake logged its stdin");
+    assert!(
+        written.contains(r#""type":"prompt","message":"/exp-status""#),
+        "the extension command rides a prompt: {written}"
+    );
+    assert!(
+        written.contains(r#""type":"prompt","message":"edit the notes""#),
+        "the next message opens a FRESH turn: {written}"
+    );
+    assert!(
+        !written.contains(r#""type":"steer""#),
+        "nothing was steered into a turn that never started: {written}"
+    );
+    let _ = std::fs::remove_dir_all(&cwd);
+}
+
+#[test]
+fn a_prompt_sourced_command_is_still_an_ordinary_turn() {
+    let cwd = scratch("prompt-command");
+    let log = cwd.join("stdin.jsonl");
+    // `review` is `source: prompt` in the fixture: pi expands it into a real
+    // turn, so it must NOT take the extension route.
+    let stop = drive_with(
+        &cwd,
+        Arc::new(Recorder::default()),
+        false,
+        &[("EXP_FAKE_PI_STDIN_LOG", log.display().to_string())],
+        {
+            let cwd = cwd.clone();
+            async move |cx: ConnectionTo<Agent>| {
+                cx.send_request(
+                    InitializeRequest::new(ProtocolVersion::V1)
+                        .client_capabilities(engine::client_capabilities()),
+                )
+                .block_task()
+                .await?;
+                let session = cx
+                    .send_request(NewSessionRequest::new(cwd.clone()))
+                    .block_task()
+                    .await?;
+                let response = cx
+                    .send_request(PromptRequest::new(
+                        session.session_id.clone(),
+                        vec![ContentBlock::from("/review")],
+                    ))
+                    .block_task()
+                    .await?;
+                Ok(response.stop_reason)
+            }
+        },
+    );
+
+    // It settled on the fake's `agent_settled`, which only a real turn emits.
+    assert_eq!(stop, StopReason::EndTurn);
+    let written = std::fs::read_to_string(&log).expect("the fake logged its stdin");
+    assert!(
+        written.contains(r#""type":"prompt","message":"/review""#),
+        "a prompt-sourced command is message text: {written}"
+    );
+    let _ = std::fs::remove_dir_all(&cwd);
+}
+
+#[test]
+fn an_unanswered_rpc_command_gives_up_on_its_own_deadline() {
+    let cwd = scratch("rpc-timeout");
+    // EXP-758: pi has no timeout of its own. A command it never answers used
+    // to park its handler task for the life of the run.
+    let error = drive_timed(
+        &cwd,
+        Arc::new(Recorder::default()),
+        false,
+        &[("EXP_FAKE_PI_SILENT", "compact".to_string())],
+        Duration::from_millis(400),
+        {
+            let cwd = cwd.clone();
+            async move |cx: ConnectionTo<Agent>| {
+                cx.send_request(
+                    InitializeRequest::new(ProtocolVersion::V1)
+                        .client_capabilities(engine::client_capabilities()),
+                )
+                .block_task()
+                .await?;
+                let session = cx
+                    .send_request(NewSessionRequest::new(cwd.clone()))
+                    .block_task()
+                    .await?;
+                let result = cx
+                    .send_request(PromptRequest::new(
+                        session.session_id.clone(),
+                        vec![ContentBlock::from("/compact")],
+                    ))
+                    .block_task()
+                    .await;
+                Ok(refusal("a silenced /compact", result))
+            }
+        },
+    );
+
+    let data = error.data.clone().unwrap_or_default().to_string();
+    assert!(
+        data.contains("did not answer compact"),
+        "the deadline says which command wedged: {error:?}"
+    );
+    let _ = std::fs::remove_dir_all(&cwd);
+}
+
+#[test]
+fn a_failed_steer_leaves_the_running_turn_alone() {
+    let cwd = scratch("failed-steer");
+    let log = cwd.join("stdin.jsonl");
+    let recorder = Arc::new(Recorder::default());
+    // EXP-758: a steer that pi REJECTS used to settle the whole turn
+    // `Cancelled`, answering the first prompt while pi was still working on
+    // it, and flipping `turn.active` off underneath it.
+    drive_with(
+        &cwd,
+        Arc::clone(&recorder),
+        false,
+        &[
+            ("EXP_FAKE_PI_HANG", "1".to_string()),
+            ("EXP_FAKE_PI_FAIL", "steer".to_string()),
+            ("EXP_FAKE_PI_STDIN_LOG", log.display().to_string()),
+        ],
+        {
+            let cwd = cwd.clone();
+            let recorder = Arc::clone(&recorder);
+            async move |cx: ConnectionTo<Agent>| {
+                cx.send_request(
+                    InitializeRequest::new(ProtocolVersion::V1)
+                        .client_capabilities(engine::client_capabilities()),
+                )
+                .block_task()
+                .await?;
+                let session = cx
+                    .send_request(NewSessionRequest::new(cwd.clone()))
+                    .block_task()
+                    .await?;
+                let session_id = session.session_id.clone();
+                let prompting = tokio::spawn({
+                    let cx = cx.clone();
+                    let session_id = session_id.clone();
+                    async move {
+                        cx.send_request(PromptRequest::new(
+                            session_id,
+                            vec![ContentBlock::from("keep going")],
+                        ))
+                        .block_task()
+                        .await
+                    }
+                });
+                // The turn is live once its first chunk lands.
+                let deadline = std::time::Instant::now() + Duration::from_secs(10);
+                while !recorder
+                    .updates()
+                    .iter()
+                    .any(|update| matches!(update, SessionUpdate::AgentMessageChunk(_)))
+                {
+                    if std::time::Instant::now() > deadline {
+                        return Err(Error::internal_error().data(json!("the fake never streamed")));
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+
+                let rejected = cx
+                    .send_request(PromptRequest::new(
+                        session_id.clone(),
+                        vec![ContentBlock::from("also this")],
+                    ))
+                    .block_task()
+                    .await;
+                refusal("a rejected steer", rejected);
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                assert!(
+                    !prompting.is_finished(),
+                    "the rejected steer settled the turn pi is still running"
+                );
+
+                // And the turn is still THE turn: the next message is another
+                // steer, not a prompt opening a second one.
+                let again = cx
+                    .send_request(PromptRequest::new(
+                        session_id,
+                        vec![ContentBlock::from("and this")],
+                    ))
+                    .block_task()
+                    .await;
+                refusal("a second rejected steer", again);
+                prompting.abort();
+                Ok(())
+            }
+        },
+    );
+
+    let written = std::fs::read_to_string(&log).expect("the fake logged its stdin");
+    let steers = written.matches(r#""type":"steer""#).count();
+    assert_eq!(steers, 2, "both messages joined the running turn: {written}");
+    assert_eq!(
+        written.matches(r#""type":"prompt""#).count(),
+        1,
+        "only the first message opened a turn: {written}"
+    );
+    let _ = std::fs::remove_dir_all(&cwd);
+}
+
+#[test]
+fn per_turn_costs_add_up_into_one_session_total() {
+    let cwd = scratch("cost-total");
+    let recorder = Arc::new(Recorder::default());
+    // EXP-758: pi reports what a TURN cost; ACP's `UsageUpdate.cost` is the
+    // SESSION's, and every client renders exactly one figure.
+    drive_with(
+        &cwd,
+        Arc::clone(&recorder),
+        false,
+        &[("EXP_FAKE_PI_TURNS", "1".to_string())],
+        {
+            let cwd = cwd.clone();
+            async move |cx: ConnectionTo<Agent>| {
+                cx.send_request(
+                    InitializeRequest::new(ProtocolVersion::V1)
+                        .client_capabilities(engine::client_capabilities()),
+                )
+                .block_task()
+                .await?;
+                let session = cx
+                    .send_request(NewSessionRequest::new(cwd.clone()))
+                    .block_task()
+                    .await?;
+                for message in ["first", "second"] {
+                    cx.send_request(PromptRequest::new(
+                        session.session_id.clone(),
+                        vec![ContentBlock::from(message)],
+                    ))
+                    .block_task()
+                    .await?;
+                }
+                Ok(())
+            }
+        },
+    );
+
+    let costs: Vec<f64> = recorder
+        .updates()
+        .iter()
+        .filter_map(|update| match update {
+            SessionUpdate::UsageUpdate(usage) => usage.cost.as_ref().map(|cost| cost.amount),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(costs.len(), 2, "{costs:?}");
+    assert!((costs[0] - 0.030).abs() < 1e-9, "{costs:?}");
+    assert!((costs[1] - 0.036).abs() < 1e-9, "{costs:?}");
+    let _ = std::fs::remove_dir_all(&cwd);
 }

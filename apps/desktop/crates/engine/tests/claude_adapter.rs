@@ -1232,3 +1232,182 @@ async fn a_deferred_turn_publishes_the_completed_edge_before_it_settles() {
         run.updates_at_settle
     );
 }
+
+// ---------------------------------------------------------------------------
+// EXP-758: the CLI dying under a control request, the `/usage` resume, and a
+// cancel with no turn behind it
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_control_request_in_flight_fails_when_the_cli_dies() {
+    // EXP-758: the pump settled every TURN when stdout closed but nothing was
+    // ever going to answer the control requests either, so a `set_mode` in
+    // flight sat out the whole 90 s `CONTROL_TIMEOUT` first. The fake closes
+    // its stdout and lingers, which is the shape that keeps the connection
+    // open long enough (`CHILD_EXIT_GRACE`) for the adapter's own answer to
+    // be the one the client sees.
+    let work = workdir("control-drain");
+    let mut adapter_spec = spec("basic", &work.0, false);
+    adapter_spec.spawn =
+        adapter_spec.spawn.clone().env("EXP_FAKE_CLAUDE_DIE_ON", "set_permission_mode");
+    let adapter = ClaudeAgent::new(adapter_spec).expect("the adapter builds");
+
+    let driven = Client
+        .builder()
+        .name("exp746-test-client")
+        .on_receive_notification(
+            async move |_notification: SessionNotification, _cx| Ok(()),
+            on_receive_notification!(),
+        )
+        .connect_with(adapter, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(engine::client_capabilities()),
+            )
+            .block_task()
+            .await?;
+            let session = cx
+                .send_request(NewSessionRequest::new(std::env::temp_dir()))
+                .block_task()
+                .await?;
+            // The fake exits without answering this one.
+            let result = cx
+                .send_request(SetSessionModeRequest::new(
+                    session.session_id.clone(),
+                    SessionModeId::new("plan"),
+                ))
+                .block_task()
+                .await;
+            Ok::<_, Error>(result.err())
+        });
+
+    // Well inside `CONTROL_TIMEOUT`.
+    let error = tokio::time::timeout(Duration::from_secs(20), driven)
+        .await
+        .expect("the dead child fails the control request instead of waiting it out")
+        .expect("the connection runs cleanly");
+    let error = error.expect("a control request nobody can answer is an error");
+    assert!(
+        error.data.clone().unwrap_or_default().to_string().contains("claude exited"),
+        "the drain answers the control request itself, rather than leaving the \
+         client to watch the transport go: {error:?}"
+    );
+}
+
+#[tokio::test]
+async fn usage_after_a_replay_resumes_the_same_conversation() {
+    // EXP-758: `/usage` spawns the CLI lazily like any first prompt, and it
+    // used to spawn it with a FRESH `--session-id`. The next real prompt then
+    // ran in an empty conversation, silently forked off the replayed one.
+    let work = workdir("usage-resume");
+    record_transcript(&work.0, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeef", &work.0);
+
+    let adapter = ClaudeAgent::new(spec("basic", &work.0, false)).expect("the adapter builds");
+    let listed = work.0.clone();
+    Client
+        .builder()
+        .name("exp746-test-client")
+        .on_receive_notification(
+            async move |_notification: SessionNotification, _cx| Ok(()),
+            on_receive_notification!(),
+        )
+        .connect_with(adapter, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(engine::client_capabilities()),
+            )
+            .block_task()
+            .await?;
+            let sessions = cx
+                .send_request(ListSessionsRequest::new().cwd(listed.clone()))
+                .block_task()
+                .await?;
+            let loaded = sessions.sessions[0].session_id.clone();
+            cx.send_request(LoadSessionRequest::new(loaded.clone(), listed))
+                .block_task()
+                .await?;
+            // No child yet: `/usage` is the thing that spawns one.
+            cx.send_request(PromptRequest::new(
+                loaded,
+                vec![ContentBlock::Text(TextContent::new("/usage"))],
+            ))
+            .block_task()
+            .await?;
+            Ok::<_, Error>(())
+        })
+        .await
+        .expect("the connection runs cleanly");
+
+    let argv: Vec<String> = std::fs::read_to_string(work.0.join("argv.txt"))
+        .expect("the CLI was spawned")
+        .lines()
+        .map(str::to_string)
+        .collect();
+    // The handle is the one the PROMPT path computes (the adapter's own ACP
+    // session id); what matters is that `/usage` no longer pins a fresh one.
+    assert!(
+        argv.iter().any(|arg| arg.starts_with("--resume=")),
+        "`/usage` resumes rather than starting a second conversation: {argv:?}"
+    );
+    assert!(
+        !argv.iter().any(|arg| arg.starts_with("--session-id")),
+        "claude refuses --session-id together with --resume: {argv:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_cancel_with_no_turn_behind_it_never_interrupts_the_next_one() {
+    // EXP-758: a cancel that finds no child is REMEMBERED so the turn it
+    // raced can still be stopped. This is the other half of that rule: a
+    // cancel with nothing behind it is consumed and dropped, never replayed
+    // at whatever turn happens to come next.
+    let work = workdir("stale-cancel");
+    let session_id = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeef0";
+    record_transcript(&work.0, session_id, &work.0);
+
+    let adapter = ClaudeAgent::new(spec("basic", &work.0, false)).expect("the adapter builds");
+    let listed = work.0.clone();
+    let stop_reason = Client
+        .builder()
+        .name("exp746-test-client")
+        .on_receive_notification(
+            async move |_notification: SessionNotification, _cx| Ok(()),
+            on_receive_notification!(),
+        )
+        .connect_with(adapter, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(engine::client_capabilities()),
+            )
+            .block_task()
+            .await?;
+            let sessions = cx
+                .send_request(ListSessionsRequest::new().cwd(listed.clone()))
+                .block_task()
+                .await?;
+            let loaded = sessions.sessions[0].session_id.clone();
+            cx.send_request(LoadSessionRequest::new(loaded.clone(), listed))
+                .block_task()
+                .await?;
+            // Nothing is running and there is no child: this one has nowhere
+            // to go.
+            cx.send_notification(CancelNotification::new(loaded.clone()))?;
+            let response = cx
+                .send_request(PromptRequest::new(
+                    loaded,
+                    vec![ContentBlock::Text(TextContent::new("Reply with the single word ok."))],
+                ))
+                .block_task()
+                .await?;
+            Ok::<_, Error>(response.stop_reason)
+        })
+        .await
+        .expect("the connection runs cleanly");
+
+    assert_eq!(stop_reason, StopReason::EndTurn);
+    let stdin = std::fs::read_to_string(work.0.join("stdin.jsonl")).unwrap_or_default();
+    assert!(
+        !stdin.contains(r#""subtype":"interrupt""#),
+        "the stale cancel was not replayed at the next turn: {stdin}"
+    );
+}
