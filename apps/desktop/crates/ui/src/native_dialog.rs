@@ -957,6 +957,10 @@ impl Render for DialogShell {
         let sheet_layer = Root::render_sheet_layer(window, cx);
         let dialog_layer = Root::render_dialog_layer(window, cx);
         let notification_layer = Root::render_notification_layer(window, cx);
+        // EXP-771: the body fill paints to the bottom window edge, so it has
+        // to carry the frame's bottom radii itself — same rule (and same
+        // reason) as `round_to_frame` on the gradient root below.
+        let frame_radii = crate::window_frame::frame_radii(window);
 
         crate::window_frame::window_frame().child(
             // EXP-269 corners: see `window_frame::frame_radii` — an
@@ -998,7 +1002,25 @@ impl Render for DialogShell {
                     v_flex()
                         .size_full()
                         .children(chrome)
-                        .child(div().flex_1().min_h_0().child(body)),
+                        // EXP-771: the dialog BODY reads like the shell's
+                        // cutout panel (`shell::render`: `glass::FILL_PANEL`
+                        // inside `glass::STROKE_CARD`) instead of bare window
+                        // ground — a create-issue dialog used to be the only
+                        // near-black surface in the app. The gradient root
+                        // stays the ground the titlebar band sits on and the
+                        // card EDGE is the root's own border: a second stroke
+                        // here would double the line exactly like the Linux
+                        // CSD case documented above, so this layer is fill
+                        // only.
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_h_0()
+                                .bg(t::glass::FILL_PANEL.to_hsla())
+                                .rounded_bl(frame_radii.bottom_left)
+                                .rounded_br(frame_radii.bottom_right)
+                                .child(body),
+                        ),
                 )
                 .children(sheet_layer)
                 .children(dialog_layer)
