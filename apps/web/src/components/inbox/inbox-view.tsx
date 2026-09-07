@@ -217,9 +217,14 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
   }
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-3xl flex-col px-4 py-4">
+    // EXP-771: the SCROLLER is full width, the reading column lives inside it
+    // — so the scrollbar rides the panel's right edge instead of appearing
+    // mid-page beside a centred list (the actions.tsx pattern). The Inbox /
+    // My Issues segmented control is a shrink-0 sibling ABOVE this view (the
+    // route owns it), so it stays put while this list scrolls.
+    <div className="h-full overflow-y-auto">
       <div
-        className={`flex flex-1 flex-col gap-2 overflow-y-auto ${TAB_BAR_CLEARANCE}`}
+        className={`mx-auto flex w-full max-w-3xl flex-col gap-2 px-4 py-4 ${TAB_BAR_CLEARANCE}`}
       >
         {groups.length === 0 ? (
           <EmptyState
