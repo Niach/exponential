@@ -1887,12 +1887,32 @@ mod tests {
             true,
             Some(LaunchTransport::Terminal)
         ));
-        assert!(!launch_needs_pty_sidecars(
+        // A recorded ACP run whose agent is no longer ACP-ready (a CLI
+        // downgrade, a failed probe) falls back to the terminal (EXP-758
+        // #11) and needs the sidecars; one that is still ready does not,
+        // whatever the hatch says.
+        assert!(launch_needs_pty_sidecars(
             &terminal,
             &claude,
             false,
             Some(LaunchTransport::Acp)
         ));
+        assert!(!launch_needs_pty_sidecars(
+            &terminal,
+            &claude,
+            true,
+            Some(LaunchTransport::Acp)
+        ));
+        // An external agent has no TUI argv: ACP regardless of the hatch or
+        // readiness (EXP-758 #2), so never a sidecar.
+        let external = AgentKind::External(coding::ExternalAgentSpec {
+            id: "acme".to_string(),
+            label: "Acme".to_string(),
+            command: "acme-acp".to_string(),
+            args: Vec::new(),
+            env: Default::default(),
+        });
+        assert!(!launch_needs_pty_sidecars(&terminal, &external, false, None));
     }
 
     fn subscriber(
