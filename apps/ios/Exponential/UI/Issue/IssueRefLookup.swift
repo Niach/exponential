@@ -15,11 +15,16 @@ enum IssueRefLookup {
     enum Scope {
         case issue(id: String)
         case board(id: String)
+        /// EXP-760 — the steering feed resolves against the SESSION's team
+        /// directly: a run may be issue-less (batch, action, chat), so there
+        /// is no issue or board to derive the team from.
+        case team(id: String)
 
         var cacheKey: String {
             switch self {
             case .issue(let id): return "i:\(id)"
             case .board(let id): return "b:\(id)"
+            case .team(let id): return "t:\(id)"
             }
         }
     }
@@ -215,6 +220,8 @@ enum IssueRefLookup {
                 sql: "SELECT team_id FROM boards WHERE id = ?",
                 arguments: [id]
             )
+        case .team(let id):
+            return id
         }
     }
 }

@@ -81,8 +81,32 @@ public enum IssueRefs {
     /// `#`, identifier = `{PREFIX}-{number}`, ending at a token boundary.
     public static let pattern = "(?<![\\w#])#([A-Za-z][A-Za-z0-9]*-\\d+)(?![\\w-])"
 
+    /// EXP-760 — mirrors the web `ISSUE_REF_BARE_SOURCE`: the STEERING feeds
+    /// also chip identifiers written WITHOUT the `#` (agents narrate
+    /// `EXP-758`). Display-only and opt-in: the bare alternative needs an
+    /// UPPERCASE prefix (`utf-8` / `x86-64` / `exp-758` never match) and must
+    /// not be glued to a word, a `#` or a `-` (`foo-EXP-1` stays text, while
+    /// `exp/EXP-758` chips). Group 1 is the `#` form, group 2 the bare one.
+    /// Never used for stored text: extraction and auto-relations keep `#`.
+    public static let barePattern =
+        "(?:(?<![\\w#])#([A-Za-z][A-Za-z0-9]*-\\d+)|(?<![\\w#-])([A-Z][A-Z0-9]*-\\d+))(?![\\w-])"
+
     // NSRegularExpression is Sendable + documented thread-safe for matching.
     private static let regex = try! NSRegularExpression(pattern: pattern)
+    private static let bareRegex = try! NSRegularExpression(pattern: barePattern)
+
+    private static func matcher(bare: Bool) -> NSRegularExpression {
+        bare ? bareRegex : regex
+    }
+
+    /// The identifier group that actually fired: `#`-form first, bare second.
+    /// The non-bare regex has a single group, hence the arity guard.
+    private static func identifierRange(_ match: NSTextCheckingResult) -> NSRange {
+        let hashed = match.range(at: 1)
+        if hashed.location != NSNotFound { return hashed }
+        guard match.numberOfRanges > 2 else { return hashed }
+        return match.range(at: 2)
+    }
 
     public struct Match: Sendable {
         /// Full token range (includes the leading `#`) in NSString UTF-16 units.
@@ -93,13 +117,22 @@ public enum IssueRefs {
         /// from the masked string (which the range was produced on) so callers
         /// never re-substring a different string with this range.
         public let token: String
+        /// True when the token was written WITHOUT a `#` (bare mode only).
+        /// Callers that paint over the `#` cell must skip these — there is no
+        /// `#` to hide, only the prefix's first letter.
+        public let isBare: Bool
     }
 
     /// All `#IDENTIFIER` tokens in `text`, skipping fenced code blocks and
     /// inline code spans (mirrors how the web only decorates non-code text).
-    public static func matches(in text: String) -> [Match] {
+    /// `bare: true` additionally matches bare `EXP-758` tokens (EXP-760,
+    /// steering feeds only — see `barePattern`).
+    public static func matches(in text: String, bare: Bool = false) -> [Match] {
         let ns = text as NSString
-        guard ns.length > 0, ns.range(of: "#").location != NSNotFound else { return [] }
+        guard ns.length > 0 else { return [] }
+        // Cheap bail-out for the `#`-only contract; bare tokens carry no
+        // sentinel character, so the scan always runs in bare mode.
+        if !bare, ns.range(of: "#").location == NSNotFound { return [] }
         let masked = expMaskCodeRegions(text)
         let maskedNS = masked as NSString
         // Fail-safe width guard: masking is UTF-16-width preserving, so the
@@ -108,17 +141,23 @@ public enum IssueRefs {
         // original text would raise an uncatchable NSRangeException. Rather than
         // risk it, decorate nothing — refs render as plain text, never a crash.
         guard maskedNS.length == ns.length else { return [] }
-        return regex.matches(in: masked, range: NSRange(location: 0, length: maskedNS.length)).map {
-            // Substring on the SAME NSString the range came from. Matched
-            // characters are never masked (masked chars are spaces, which can't
-            // be part of a #ID-n match), so the masked token equals the original
-            // token, case intact.
-            Match(
-                range: $0.range,
-                identifier: maskedNS.substring(with: $0.range(at: 1)).uppercased(),
-                token: maskedNS.substring(with: $0.range)
-            )
-        }
+        return matcher(bare: bare)
+            .matches(in: masked, range: NSRange(location: 0, length: maskedNS.length))
+            .compactMap {
+                let idRange = identifierRange($0)
+                guard idRange.location != NSNotFound else { return nil }
+                // Substring on the SAME NSString the range came from. Matched
+                // characters are never masked (masked chars are spaces, which
+                // can't be part of a #ID-n match), so the masked token equals
+                // the original token, case intact.
+                let token = maskedNS.substring(with: $0.range)
+                return Match(
+                    range: $0.range,
+                    identifier: maskedNS.substring(with: idRange).uppercased(),
+                    token: token,
+                    isBare: !token.hasPrefix("#")
+                )
+            }
     }
 
     /// Decorate resolved `#IDENTIFIER` tokens in an already-rendered attributed
@@ -199,15 +238,20 @@ public enum IssueRefs {
     /// CHANGES the character content, so it must never run on an editable
     /// model whose markdown gets serialized — edit paths reseed from the raw
     /// stored markdown and use `decorate` instead.
+    ///
+    /// `bare: true` (EXP-760) also chips bare `EXP-758` tokens — the steering
+    /// feed's display models only, never an editable one.
     public static func decorateForDisplay(
         _ attributed: NSAttributedString,
         resolver: (String) -> String?,
         titleResolver: (String) -> String?,
-        statusResolver: ((String) -> IssueRefStatusInfo?)? = nil
+        statusResolver: ((String) -> IssueRefStatusInfo?)? = nil,
+        bare: Bool = false
     ) -> NSAttributedString {
         guard attributed.length > 0 else { return attributed }
         let ns = attributed.string as NSString
-        let found = regex.matches(in: attributed.string, range: NSRange(location: 0, length: ns.length))
+        let found = matcher(bare: bare)
+            .matches(in: attributed.string, range: NSRange(location: 0, length: ns.length))
         guard !found.isEmpty else { return attributed }
 
         var mutable: NSMutableAttributedString?
@@ -236,9 +280,14 @@ public enum IssueRefs {
             // characters, so unlike `decorate` it is only idempotent with this
             // guard (EXP-322).
             if attrs[.markdownIssueRef] != nil { continue }
-            let identifier = ns.substring(with: match.range(at: 1)).uppercased()
+            let idRange = identifierRange(match)
+            guard idRange.location != NSNotFound else { continue }
+            let identifier = ns.substring(with: idRange).uppercased()
             guard let issueId = resolver(identifier) else { continue }
             let token = ns.substring(with: match.range)
+            // A bare token (EXP-760) has no `#` cell to paint a glyph over —
+            // hiding its first character would eat the prefix's first letter.
+            let hasHash = token.hasPrefix("#")
             let title = titleResolver(identifier).map(chipTitle) ?? ""
             let display = title.isEmpty ? token : "\(token) \(title)"
             var chipAttrs = attrs
@@ -246,7 +295,7 @@ public enum IssueRefs {
                 chipAttrs[key] = value
             }
             chipAttrs[.markdownIssueRef] = issueId
-            let status = statusResolver?(identifier)
+            let status = hasHash ? statusResolver?(identifier) : nil
             if let status { chipAttrs[.markdownIssueRefStatus] = status }
             // Linear look (EXP-423): muted token, foreground title — the same
             // split web/Android/desktop ship. Mentions keep `linkColor`.
@@ -289,12 +338,14 @@ public enum IssueRefs {
     /// comment `Markdown` view): wraps resolved tokens as
     /// `[#ID](<scheme>://<issueId>)` links, skipping code. NEVER persisted —
     /// edit paths always reseed from the raw stored markdown.
+    /// `bare: true` (EXP-760) also links bare `EXP-758` tokens.
     public static func linkifyForDisplay(
         _ markdown: String,
         scheme: String = "exp-issue",
-        resolver: (String) -> String?
+        resolver: (String) -> String?,
+        bare: Bool = false
     ) -> String {
-        let found = matches(in: markdown)
+        let found = matches(in: markdown, bare: bare)
         guard !found.isEmpty else { return markdown }
         var result = markdown
         // Single coordinate space: replace back-to-front so earlier ranges stay

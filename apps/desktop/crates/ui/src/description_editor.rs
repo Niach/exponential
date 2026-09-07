@@ -189,15 +189,25 @@ pub(crate) fn open_issue_by_identifier(
     window: &mut Window,
     cx: &mut App,
 ) {
-    let target = Store::global(cx)
+    if let Some(issue_id) = issue_id_by_identifier(team_id, identifier, cx) {
+        navigate(window, cx, Screen::IssueDetail { issue_id });
+    }
+}
+
+/// EXP-760: the lookup half of [`open_issue_by_identifier`] — the row id a
+/// `#IDENT` token names inside `team_id`, or `None` when nothing with that
+/// identifier has synced. The hover preview needs the id without navigating.
+pub(crate) fn issue_id_by_identifier(
+    team_id: &str,
+    identifier: &str,
+    cx: &App,
+) -> Option<String> {
+    Store::global(cx)
         .collections()
         .issues_in_team(team_id, cx)
         .into_iter()
         .find(|issue| issue.identifier.eq_ignore_ascii_case(identifier))
-        .map(|issue| issue.id);
-    if let Some(issue_id) = target {
-        navigate(window, cx, Screen::IssueDetail { issue_id });
-    }
+        .map(|issue| issue.id)
 }
 
 /// The CLASSIC block-editor adapter: owns the editor entity + a markdown

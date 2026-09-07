@@ -163,3 +163,110 @@ final class MarkdownConversionListPrefixTests: XCTestCase {
         XCTAssertEqual(roundTrip("- [x] 👨‍👩‍👧‍👦 done"), "- [x] 👨‍👩‍👧‍👦 done")
     }
 }
+
+// EXP-760 — the steering feeds also chip identifiers written WITHOUT a `#`,
+// because that is how agents narrate them. Display-only and opt-in: these lock
+// the bare contract byte-for-byte against the web source of truth
+// (`apps/web/src/lib/issue-refs.ts`, `bare identifiers` describe block) and
+// against Android's `IssueRefsTest`.
+final class IssueRefsBareModeTests: XCTestCase {
+    private let resolver: (String) -> String? = { id in
+        ["EXP-1": "id-1", "EXP-758": "id-758", "APP-33": "id-33", "MET-2": "id-2"][id]
+    }
+
+    private func identifiers(_ text: String, bare: Bool) -> [String] {
+        IssueRefs.matches(in: text, bare: bare).map(\.identifier)
+    }
+
+    func testBareIdentifierMatchesOnlyInBareMode() {
+        XCTAssertEqual(identifiers("Filed EXP-758 for the follow-up", bare: true), ["EXP-758"])
+        XCTAssertEqual(identifiers("Filed EXP-758 for the follow-up", bare: false), [])
+    }
+
+    func testHashFormStaysOneMatchInBareMode() {
+        let found = IssueRefs.matches(in: "see #EXP-1 now", bare: true)
+        XCTAssertEqual(found.count, 1)
+        XCTAssertEqual(found.first?.token, "#EXP-1")
+        XCTAssertEqual(found.first?.identifier, "EXP-1")
+        XCTAssertEqual(found.first?.isBare, false)
+    }
+
+    func testLowercaseAndGluedBareTokensAreIgnored() {
+        XCTAssertEqual(identifiers("utf-8 and x86-64 and exp-758", bare: true), [])
+        XCTAssertEqual(identifiers("foo-EXP-1 fooEXP-1 #EXP-1abc", bare: true), [])
+    }
+
+    func testBranchMentionChips() {
+        let found = IssueRefs.matches(in: "pushed exp/EXP-758", bare: true)
+        XCTAssertEqual(found.map(\.identifier), ["EXP-758"])
+        XCTAssertEqual(found.first?.isBare, true)
+    }
+
+    func testMixedTextMatchesEveryForm() {
+        XCTAssertEqual(
+            identifiers("EXP-1, then #MET-2 (utf-8) exp/APP-33.", bare: true),
+            ["EXP-1", "MET-2", "APP-33"]
+        )
+    }
+
+    func testBareTokensInsideCodeStayPlain() {
+        XCTAssertEqual(identifiers("run `EXP-1` but EXP-758 links", bare: true), ["EXP-758"])
+    }
+
+    func testLinkifyOnlyTouchesBareTokensInBareMode() {
+        let text = "pushed exp/EXP-758 for #EXP-1"
+        XCTAssertEqual(
+            IssueRefs.linkifyForDisplay(text, resolver: resolver, bare: true),
+            "pushed exp/[EXP-758](exp-issue://id-758) for [#EXP-1](exp-issue://id-1)"
+        )
+        XCTAssertEqual(
+            IssueRefs.linkifyForDisplay(text, resolver: resolver),
+            "pushed exp/EXP-758 for [#EXP-1](exp-issue://id-1)"
+        )
+    }
+
+    func testUnresolvedBareTokenStaysPlainText() {
+        XCTAssertEqual(
+            IssueRefs.linkifyForDisplay("see EXP-999 later", resolver: resolver, bare: true),
+            "see EXP-999 later"
+        )
+    }
+
+    // A bare chip has no `#` cell, so the decoration must not clear the first
+    // character's color (that would eat the prefix's first letter) and must not
+    // hand the layout manager a status glyph to paint over it.
+    func testBareChipKeepsItsFirstCharacterVisible() {
+        let out = IssueRefs.decorateForDisplay(
+            NSAttributedString(string: "filed EXP-1 today"),
+            resolver: resolver,
+            titleResolver: { _ in "Fix login flow" },
+            statusResolver: { _ in IssueRefStatusInfo(iconName: "status-backlog", color: .red) },
+            bare: true
+        )
+        XCTAssertEqual(out.string, "filed EXP-1 Fix login flow today")
+        let start = (out.string as NSString).range(of: "EXP-1").location
+        XCTAssertEqual(out.attribute(.markdownIssueRef, at: start, effectiveRange: nil) as? String, "id-1")
+        XCTAssertNil(out.attribute(.markdownIssueRefStatus, at: start, effectiveRange: nil))
+        XCTAssertNotEqual(
+            out.attribute(.foregroundColor, at: start, effectiveRange: nil) as? PlatformColor,
+            PlatformColor.clear
+        )
+    }
+
+    // The `#` form keeps its glyph + hidden hash in bare mode (EXP-423).
+    func testHashChipKeepsItsStatusGlyphInBareMode() {
+        let out = IssueRefs.decorateForDisplay(
+            NSAttributedString(string: "filed #EXP-1 today"),
+            resolver: resolver,
+            titleResolver: { _ in "Fix login flow" },
+            statusResolver: { _ in IssueRefStatusInfo(iconName: "status-backlog", color: .red) },
+            bare: true
+        )
+        let start = (out.string as NSString).range(of: "#EXP-1").location
+        XCTAssertNotNil(out.attribute(.markdownIssueRefStatus, at: start, effectiveRange: nil))
+        XCTAssertEqual(
+            out.attribute(.foregroundColor, at: start, effectiveRange: nil) as? PlatformColor,
+            PlatformColor.clear
+        )
+    }
+}

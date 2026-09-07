@@ -753,6 +753,14 @@ pub enum BlockEvent {
     /// [`crate::MarkdownEditorEvent::SelectionChanged`]. Emitted from render
     /// behind a diff guard, so a steady state is silent.
     SelectionUiChanged,
+    /// EXP-760: the decorated reference pill under the pointer CHANGED —
+    /// `Some((kind, token, chip bounds))` on entering one, `None` on leaving
+    /// (including a mouse-down and the pointer leaving the block). Emitted on
+    /// TRANSITIONS only, so a pointer resting on one chip is silent; the host
+    /// turns it into an issue hover preview.
+    ReferenceHoverChanged {
+        hover: Option<(crate::host::ReferenceKind, String, gpui::Bounds<gpui::Pixels>)>,
+    },
     /// EXP-261 vendoring: Cmd/Ctrl+click on a decorated reference pill.
     RequestOpenReference {
         kind: crate::host::ReferenceKind,

@@ -32,7 +32,6 @@ use gpui::{
     Subscription, Window,
 };
 use gpui_component::{
-    calendar::{CalendarEvent, CalendarState, Date},
     h_flex,
     input::{InputEvent, InputState},
     menu::DropdownMenu as _,
@@ -40,19 +39,15 @@ use gpui_component::{
 };
 use sync::Store;
 
-use domain::rows::{Label, User};
-use domain::{IssuePriority, IssueStatus};
 
 use crate::actions::NewIssue;
 use crate::attachments_row;
-use crate::icons::{option_icon, registry, ExpIcon};
+use crate::icons::registry;
 use crate::markdown::image_paste::strip_draft_images;
-use crate::markdown::{self};
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::pickers::chip_button;
 use crate::wysiwyg::WysiwygDescription;
 use crate::navigation::{active_board_id, nav_for_window};
-use crate::queries;
 use crate::controls::glass_input;
 
 /// Register the App-global [`NewIssue`] handler (call once from `ui::init`).
@@ -248,27 +243,14 @@ struct StagedDraftFile {
 
 pub struct CreateIssueDialogView {
     board_id: String,
-    team_id: String,
 
     title: Entity<InputState>,
     /// The §4.5 block editor in create-dialog (staging) mode: pasted images
     /// stay `draft://` blocks until submit resolves them.
     description: Entity<WysiwygDescription>,
-    /// EXP-314: the picked status as a wire-ready pick (a synced row id, or
-    /// the enum anchor of a constructed `builtin:<key>` fallback).
-    status: crate::pickers::StatusPick,
-    priority: IssuePriority,
-    /// EXP-50: `Some(member)` when the team has exactly one human
-    /// member at dialog open — the assignee chip hides and `assignee_id`
-    /// defaults (and resets) to that member so the created issue is
-    /// optimistically correct.
-    solo_member_id: Option<String>,
-    assignee_id: Option<String>,
-    selected_label_ids: Vec<String>,
-    /// EXP-288: the shared label picker's search input (host-owned).
-    label_query: Entity<InputState>,
-    due_date: Option<chrono::NaiveDate>,
-    due_calendar: Entity<CalendarState>,
+    /// EXP-760: the status/priority/assignee/labels/due state and its chip
+    /// row, shared with the inline sub-issue composer.
+    draft: Entity<crate::issue_draft::IssueDraft>,
     /// EXP-335: non-image files queued for the post-create upload.
     staged_files: Vec<StagedDraftFile>,
     next_staged_file_key: u64,
@@ -331,10 +313,11 @@ impl CreateIssueDialogView {
         description.update(cx, |description, cx| {
             description.set_scroll_handle(desc_scroll.clone(), cx);
         });
-        let due_calendar = cx.new(|cx| CalendarState::new(window, cx));
-        let label_query = cx.new(|cx| InputState::new(window, cx).placeholder("Filter labels…"));
+        let draft = cx.new(|cx| crate::issue_draft::IssueDraft::new(team_id.clone(), window, cx));
 
         let mut subscriptions = Vec::new();
+        // The chips live on the draft entity — repaint when a pick lands.
+        subscriptions.push(cx.observe(&draft, |_, _, cx| cx.notify()));
         // Enter in the (single-line) title submits, like the web form.
         subscriptions.push(cx.subscribe_in(
             &title,
@@ -351,56 +334,15 @@ impl CreateIssueDialogView {
                 cx.notify();
             }
         }));
-        // Due-date picks mirror into our state (web `onDueDateSelect`).
-        subscriptions.push(cx.subscribe(
-            &due_calendar,
-            |this, _, event: &CalendarEvent, cx| {
-                let CalendarEvent::Selected(Date::Single(date)) = event else {
-                    return;
-                };
-                this.due_date = *date;
-                cx.notify();
-            },
-        ));
         // Re-render on every editor change so the submit gating and the
         // grow-with-content sensor track the live description.
         subscriptions.push(cx.observe(&description, |_, _, cx| cx.notify()));
 
-        // EXP-50: exactly one human member ⇒ no assignment choice — hide the
-        // chip and pre-assign them (0 members = membership not synced yet,
-        // keep the picker).
-        let members = queries::team_users(cx, &team_id);
-        let solo_member_id = match members.as_slice() {
-            [only] => Some(only.id.clone()),
-            _ => None,
-        };
-
-        // EXP-314: the default is the team's BACKLOG BUILTIN row (web parity:
-        // new issues start in backlog). Before the statuses shape syncs this
-        // is the constructed `builtin:backlog` fallback, which writes the enum
-        // anchor instead of a `statusId`.
-        let default_status = crate::pickers::StatusPick::from_resolved(
-            &queries::team_status_options(cx, &team_id)
-                .into_iter()
-                .find(|status| status.builtin_key.as_deref() == Some("backlog"))
-                .unwrap_or_else(|| {
-                    domain::statuses::constructed_default(IssueStatus::Backlog)
-                }),
-        );
-
         Self {
             board_id,
-            team_id,
             title,
             description,
-            status: default_status,
-            priority: IssuePriority::None,
-            assignee_id: solo_member_id.clone(),
-            solo_member_id,
-            selected_label_ids: Vec::new(),
-            label_query,
-            due_date: None,
-            due_calendar,
+            draft,
             staged_files: Vec::new(),
             next_staged_file_key: 0,
             submitting: false,
@@ -492,32 +434,25 @@ impl CreateIssueDialogView {
         if title.is_empty() || self.submitting {
             return;
         }
-        let Some(trpc) = queries::trpc_client(cx) else {
-            self.error = Some("Not signed in.".into());
-            cx.notify();
-            return;
-        };
 
         self.error = None;
         self.submitting = true;
         cx.notify();
 
         // Build the exact web mutation input (`create-issue-dialog.tsx`
-        // handleSubmit).
+        // handleSubmit). Web submit flow: create with the staged `draft://`
+        // images STRIPPED, upload them post-create, then update the
+        // description with the canonical attachment URLs — all of which is
+        // `issue_draft::spawn_create` now, shared with the inline sub-issue
+        // composer.
         let mut input = api::issues::IssuesCreateInput::new(self.board_id.clone(), title);
-        self.status.apply_to_create(&mut input);
-        input.priority = Some(self.priority);
-        input.assignee_id = self.assignee_id.clone();
-        // Web submit flow (create-issue-dialog.tsx): create with the staged
-        // `draft://` images STRIPPED, upload them post-create, then update
-        // the description with the canonical attachment URLs.
+        self.draft.read(cx).apply_to_create(&mut input);
         let markdown = self.description.read(cx).markdown(cx);
-        let staged = self.description.read(cx).staged_images(cx);
+        let staged_images = self.description.read(cx).staged_images(cx);
         let stripped_description = strip_draft_images(&markdown);
         if !stripped_description.is_empty() {
             input.description = Some(stripped_description.clone());
         }
-        let transport = queries::attachment_transport(cx);
         // EXP-335: queued non-image draft files ride the same post-create
         // window (cheap Arc clones — the bytes are shared, not copied).
         let staged_files: Vec<(String, String, std::sync::Arc<Vec<u8>>)> = self
@@ -531,121 +466,24 @@ impl CreateIssueDialogView {
                 )
             })
             .collect();
-        let transport_files = transport.clone();
-        // `TrpcClient` is not `Clone` — a second one for the post-create
-        // description update (cheap: an `Agent` + two `Arc`s, §5.7).
-        let trpc_update = queries::trpc_client(cx);
-        input.due_date = self.due_date.map(|date| date.format("%Y-%m-%d").to_string());
-        if !self.selected_label_ids.is_empty() {
-            input.label_ids = Some(self.selected_label_ids.clone());
-        }
 
-        cx.spawn_in(window, async move |this, window| {
-            let result = window
-                .background_executor()
-                .spawn(async move { api::issues::issues_create(&trpc, &input) })
-                .await;
-
-            match result {
-                Ok(output) => {
-                    let issue_id = output.issue.id.clone();
-
-                    // Post-create image resolution (web parity: per-image
-                    // failures are tolerated — failed drafts drop out of the
-                    // final description).
-                    if let (false, Some(transport), Some(trpc_update)) =
-                        (staged.is_empty(), transport, trpc_update)
-                    {
-                        let upload_issue = issue_id.clone();
-                        let full_markdown = markdown.clone();
-                        let stripped = stripped_description.clone();
-                        let final_description = window
-                            .background_executor()
-                            .spawn(async move {
-                                let mut resolved = std::collections::HashMap::new();
-                                for image in &staged {
-                                    match transport.upload(
-                                        &upload_issue,
-                                        &image.filename,
-                                        &image.content_type,
-                                        &image.bytes,
-                                    ) {
-                                        Ok(uploaded) => {
-                                            resolved.insert(
-                                                image.draft_url.clone(),
-                                                uploaded.url,
-                                            );
-                                        }
-                                        Err(err) => {
-                                            log::warn!(
-                                                "[ui] create-dialog image upload failed: {err}"
-                                            );
-                                        }
-                                    }
-                                }
-                                // Rewrite the uploads in, drop the failures.
-                                let rewritten = markdown::image_paste::rewrite_image_urls(
-                                    &full_markdown,
-                                    &resolved,
-                                );
-                                let final_description = strip_draft_images(&rewritten);
-                                if final_description == stripped {
-                                    return None; // nothing survived — no update
-                                }
-                                let mut update = api::issues::IssuesUpdateInput::new(
-                                    upload_issue.clone(),
-                                );
-                                update.description = if final_description.is_empty() {
-                                    api::Patch::Null
-                                } else {
-                                    api::Patch::Set(final_description.clone())
-                                };
-                                if let Err(err) =
-                                    api::issues::issues_update(&trpc_update, &update)
-                                {
-                                    log::warn!(
-                                        "[ui] create-dialog description update failed: {err}"
-                                    );
-                                }
-                                Some(final_description)
-                            })
-                            .await;
-                        let _ = final_description; // board renders off the echo
-                    }
-                    // EXP-335: upload the queued non-image files (web
-                    // draftFiles parity — per-file failures are logged and
-                    // tolerated, they never block the created issue).
-                    if let (false, Some(transport)) =
-                        (staged_files.is_empty(), transport_files)
-                    {
-                        let upload_issue = issue_id.clone();
-                        window
-                            .background_executor()
-                            .spawn(async move {
-                                for (filename, content_type, bytes) in &staged_files {
-                                    if let Err(err) = transport.upload(
-                                        &upload_issue,
-                                        filename,
-                                        content_type,
-                                        bytes,
-                                    ) {
-                                        log::warn!(
-                                            "[ui] create-dialog file upload failed: {err}"
-                                        );
-                                    }
-                                }
-                            })
-                            .await;
-                    }
-                    // Gated path (§4.1): close + navigate only once the row
-                    // is visible in the synced collection.
-                    let issues = window
-                        .update(|_, cx| Store::global(cx).collections().issues.clone())
-                        .ok();
-                    if let Some(issues) = issues {
-                        queries::await_row_visible(&issues, &issue_id, window).await;
-                    }
-                    let _ = this.update_in(window, |this, window, cx| {
+        let view = cx.entity().downgrade();
+        crate::issue_draft::spawn_create(
+            crate::issue_draft::CreateJob {
+                input,
+                markdown,
+                stripped_description,
+                staged_images,
+                staged_files,
+            },
+            window,
+            cx,
+            move |result, window, cx| {
+                let Some(view) = view.upgrade() else {
+                    return;
+                };
+                match result {
+                    Ok(issue_id) => view.update(cx, |this, cx| {
                         // EXP-288/EXP-510: the rail may point anywhere while
                         // the dialog is up — land fully scoped on the ISSUE's
                         // board (rail tool + active board + tab origin).
@@ -653,200 +491,15 @@ impl CreateIssueDialogView {
                         native_dialog::close_then(window, cx, move |window, cx| {
                             crate::navigation::open_issue_scoped(window, cx, issue_id, board_id);
                         });
-                    });
-                }
-                Err(err) => {
-                    let _ = this.update_in(window, |this, _, cx| {
-                        this.error = Some(err.user_message().into());
+                    }),
+                    Err(message) => view.update(cx, |this, cx| {
+                        this.error = Some(message);
                         this.submitting = false;
                         cx.notify();
-                    });
+                    }),
                 }
-            }
-        })
-        .detach();
-    }
-
-    // -- chips (web `issue-editor/chips.tsx`) --------------------------------
-
-    fn status_chip(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        // EXP-314: the chip renders the picked TEAM status; the menu lists the
-        // team's own vocabulary (constructed defaults before the shape syncs).
-        let statuses = crate::queries::team_status_options(cx, &self.team_id);
-        let current = self.status.clone();
-        let resolved = statuses
-            .iter()
-            .find(|status| {
-                status.row_id.is_some() && status.row_id == current.status_id
-                    || (current.status_id.is_none() && status.anchor() == current.anchor)
-            })
-            .cloned()
-            .unwrap_or_else(|| domain::statuses::constructed_default(current.anchor));
-        let current_key = resolved.group_key.clone();
-        let view = cx.entity().clone();
-        chip_button("create-status-chip", cx)
-            .icon(crate::icons::resolved_status_icon(&resolved, cx))
-            .child(crate::pickers::chip_label(resolved.name.clone(), false, cx))
-            .dropdown_menu(move |menu, _window, cx| {
-                let view = view.clone();
-                let statuses = crate::queries::team_status_options(cx, &view.read(cx).team_id);
-                crate::pickers::status_menu(
-                    menu,
-                    &statuses,
-                    &current_key,
-                    // A brand-new issue can't be a duplicate of anything yet —
-                    // no duplicate row here (web `creatableStatusOptions`).
-                    crate::pickers::StatusMenuScope::Assignable,
-                    Rc::new(move |pick, _window, cx| {
-                        view.update(cx, |this, cx| {
-                            this.status = pick;
-                            cx.notify();
-                        });
-                    }),
-                    cx,
-                )
-            })
-    }
-
-    fn priority_chip(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let config = domain::options::get_issue_priority_config(self.priority);
-        let current = self.priority;
-        let view = cx.entity().clone();
-        chip_button("create-priority-chip", cx)
-            .icon(option_icon(config, cx))
-            .child(crate::pickers::chip_label(config.label, false, cx))
-            .dropdown_menu(move |menu, _window, cx| {
-                let view = view.clone();
-                crate::pickers::priority_menu(
-                    menu,
-                    current,
-                    Rc::new(move |value, _window, cx| {
-                        view.update(cx, |this, cx| {
-                            this.priority = value;
-                            cx.notify();
-                        });
-                    }),
-                    cx,
-                )
-            })
-    }
-
-    /// Web `AssigneePicker`: "Assignee" or the selected member's name;
-    /// options = team members + Unassign.
-    fn assignee_chip(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let users = queries::team_users(cx, &self.team_id);
-        let selected = self
-            .assignee_id
-            .as_deref()
-            .and_then(|id| users.iter().find(|user| user.id == id));
-        let label: SharedString = selected
-            .map(|user| SharedString::from(display_name(user)))
-            .unwrap_or_else(|| "Assignee".into());
-        let current = self.assignee_id.clone();
-        let view = cx.entity().clone();
-
-        chip_button("create-assignee-chip", cx)
-            .icon(
-                Icon::new(registry::UI_ASSIGNEE)
-                    .xsmall()
-                    .text_color(cx.theme().muted_foreground),
-            )
-            .child(crate::pickers::chip_label(label, selected.is_none(), cx))
-            .dropdown_menu(move |menu, _window, _cx| {
-                let view = view.clone();
-                crate::pickers::assignee_menu(
-                    menu,
-                    &users,
-                    current.as_deref(),
-                    Rc::new(move |picked, _window, cx| {
-                        view.update(cx, |this, cx| {
-                            this.assignee_id = picked;
-                            cx.notify();
-                        });
-                    }),
-                )
-            })
-    }
-
-    /// Web `LabelPicker` trigger: "Label" or the joined selected names.
-    /// EXP-288: the shared SEARCHABLE multi-toggle popover (the properties
-    /// panel recipe) — toggles no longer close/reopen the picker per pick.
-    fn labels_chip(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let labels = queries::team_labels(cx, &self.team_id);
-        let selected: Vec<&Label> = labels
-            .iter()
-            .filter(|label| self.selected_label_ids.contains(&label.id))
-            .collect();
-        let unset = selected.is_empty();
-        let label: SharedString = if unset {
-            "Label".into()
-        } else {
-            selected
-                .iter()
-                .map(|label| label.name.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
-                .into()
-        };
-        let view = cx.entity().clone();
-
-        let trigger = chip_button("create-labels-chip", cx)
-            .icon(
-                Icon::from(ExpIcon::Tag)
-                    .xsmall()
-                    .text_color(cx.theme().muted_foreground),
-            )
-            .child(crate::pickers::chip_label(label, unset, cx));
-        crate::pickers::label_picker_popover(
-            "create-labels-popover",
-            trigger,
-            crate::pickers::LabelPickerParams {
-                labels,
-                selected_ids: self.selected_label_ids.clone(),
-                query: self.label_query.clone(),
-                on_toggle: Rc::new(move |label_id, was_selected, _window, cx| {
-                    let label_id = label_id.to_string();
-                    view.update(cx, |this, cx| {
-                        if was_selected {
-                            this.selected_label_ids.retain(|existing| existing != &label_id);
-                        } else {
-                            this.selected_label_ids.push(label_id);
-                        }
-                        cx.notify();
-                    });
-                }),
-                width: Some(px(crate::pickers::PICKER_SEARCH_WIDTH)),
             },
-        )
-    }
-
-    /// Web due chip: `CalendarDays` + "Jul 3" or "Due date"; the popover hosts
-    /// the calendar (date only — REV2-49 deleted the time-of-day fields, §4.2).
-    fn due_chip(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let label: SharedString = match self.due_date {
-            Some(date) => {
-                domain::board::format_short_date(&date.format("%Y-%m-%d").to_string()).into()
-            }
-            None => "Due date".into(),
-        };
-
-        crate::pickers::due_date_popover(
-            "create-due-popover",
-            chip_button("create-due-chip", cx)
-                .icon(
-                    Icon::from(ExpIcon::CalendarDays)
-                        .xsmall()
-                        .text_color(cx.theme().muted_foreground),
-                )
-                .child(crate::pickers::chip_label(
-                    label,
-                    self.due_date.is_none(),
-                    cx,
-                )),
-            self.due_calendar.clone(),
-            Some(px(280.)),
-            None,
-        )
+        );
     }
 
     // -- footer ----------------------------------------------------------------
@@ -950,6 +603,11 @@ impl Render for CreateIssueDialogView {
 
         // Chip row (web px-4 py-2 border-t): status · priority · assignee ·
         // labels · due.
+        // EXP-760: the picks and their chips are the shared `IssueDraft`
+        // now — this row is only the dialog's placement of them.
+        let draft_chips = self
+            .draft
+            .update(cx, |draft, cx| draft.chips("create", cx));
         let chips = h_flex()
             .px_4()
             .py_2()
@@ -958,15 +616,7 @@ impl Render for CreateIssueDialogView {
             .flex_wrap()
             .border_t_1()
             .border_color(cx.theme().border)
-            .child(self.status_chip(cx))
-            .child(self.priority_chip(cx))
-            // EXP-50: single-member teams have no assignment choice —
-            // the chip hides and the solo member is pre-assigned.
-            .when(self.solo_member_id.is_none(), |this| {
-                this.child(self.assignee_chip(cx))
-            })
-            .child(self.labels_chip(cx))
-            .child(self.due_chip(cx))
+            .children(draft_chips)
             // EXP-586: submit rides the chip row, right-aligned.
             .child(
                 div()
@@ -1117,17 +767,6 @@ pub(crate) fn parse_hex_color(hex: &str) -> Option<gpui::Hsla> {
 /// A user's display name (name, else email, else the `Member <LAST4>` fallback
 /// — web shows `user.name`; a row with neither field is a co-member whose PII
 /// didn't sync).
-fn display_name(user: &User) -> String {
-    // Filter blanks before each fallback: a name-less Apple-ID user has
-    // `name = ""` (Better Auth stores empty, not null), which must fall through
-    // to the email rather than render as an empty label (EXP-228).
-    user.name
-        .clone()
-        .filter(|name| !name.is_empty())
-        .or_else(|| user.email.clone().filter(|email| !email.is_empty()))
-        .unwrap_or_else(|| domain::member_fallback_label(&user.id))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

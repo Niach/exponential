@@ -247,6 +247,14 @@ pub struct IssueDetailView {
     /// failed (non-member), or not a widget/agent issue — the card renders
     /// nothing in every one of those states, exactly like web.
     widget_submission: Option<api::widgets::WidgetSubmission>,
+    /// EXP-760: the open inline sub-issue composer and its event
+    /// subscription. `None` = the closed "Add sub-issues" affordance. Cleared
+    /// on every issue switch — a half-typed child belongs to the issue it was
+    /// opened under.
+    sub_issue_composer: Option<(
+        Entity<crate::sub_issue_composer::SubIssueComposer>,
+        Subscription,
+    )>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -326,6 +334,7 @@ impl IssueDetailView {
             next_pending_file_key: 1,
             busy_files: HashSet::new(),
             widget_submission: None,
+            sub_issue_composer: None,
             _subscriptions: subscriptions,
         }
     }
@@ -374,6 +383,9 @@ impl IssueDetailView {
         self.editor = None;
         self.editor_issue = None;
         self.synced_title = String::new();
+        // EXP-760: the composer files onto the OUTGOING issue — it must not
+        // survive the swap.
+        self.sub_issue_composer = None;
         // The files rail's transient state belongs to the OUTGOING issue —
         // a pending upload row or a busy marker must never leak onto the
         // incoming one (the in-flight requests themselves keep running and
@@ -1640,6 +1652,84 @@ impl IssueDetailView {
             )
     }
 
+    /// EXP-760: the inline sub-issue affordance under the relations block —
+    /// a ghost "Add sub-issues" button that swaps for the composer card
+    /// ([`crate::sub_issue_composer`]). `None` only when the issue's team has
+    /// not synced (the composer needs it for the property pickers).
+    ///
+    /// The composer stays open across creates (filing children comes in
+    /// runs); Cancel and every issue switch drop it.
+    fn render_sub_issue_affordance(
+        &mut self,
+        issue: &Issue,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        let team_id = Store::global(cx)
+            .collections()
+            .boards
+            .read(cx)
+            .get(&issue.board_id)
+            .map(|board| board.team_id.clone())?;
+
+        if let Some((composer, _)) = &self.sub_issue_composer {
+            return Some(
+                div()
+                    .w_full()
+                    .px(px(DETAIL_GUTTER))
+                    .pb_2()
+                    .child(composer.clone())
+                    .into_any_element(),
+            );
+        }
+
+        let issue = issue.clone();
+        // A row, not a block: a block child stretches the ghost button to the
+        // full column width and its label ends up centred under the groups.
+        Some(
+            h_flex()
+                .w_full()
+                .justify_start()
+                .px(px(DETAIL_GUTTER))
+                .pb_2()
+                .child(
+                    crate::sub_issue_composer::add_sub_issues_button(cx).on_click(cx.listener(
+                        move |this, _, window, cx| {
+                            let issue = issue.clone();
+                            let team_id = team_id.clone();
+                            let composer = cx.new(|cx| {
+                                crate::sub_issue_composer::SubIssueComposer::new(
+                                    &issue, team_id, window, cx,
+                                )
+                            });
+                            let subscription = cx.subscribe(
+                                &composer,
+                                |this,
+                                 _,
+                                 event: &crate::sub_issue_composer::SubIssueComposerEvent,
+                                 cx| {
+                                    use crate::sub_issue_composer::SubIssueComposerEvent as Event;
+                                    match event {
+                                        Event::Cancelled => {
+                                            this.sub_issue_composer = None;
+                                            cx.notify();
+                                        }
+                                        // The child is already synced (the
+                                        // create gate waits for the row), so
+                                        // the relations block above picks it
+                                        // up on this very repaint.
+                                        Event::Created => cx.notify(),
+                                    }
+                                },
+                            );
+                            this.sub_issue_composer = Some((composer, subscription));
+                            cx.notify();
+                        },
+                    )),
+                )
+                .into_any_element(),
+        )
+    }
+
     /// The SCROLLING body (EXP-417): description + files rail + timeline.
     fn render_body(
         &mut self,
@@ -1651,11 +1741,14 @@ impl IssueDetailView {
             // EXP-426: breathing room under the header's border — the
             // embedded editor deliberately carries no insets of its own.
             .pt_2()
-            // EXP-736: the relations card is the FIRST thing under the fixed
-            // chip tray — web mounts it the same way, directly beneath the
-            // properties band and above the description.
-            .children(crate::issue_relations::render_relations_card(issue, cx))
             .child(self.render_description(issue, window, cx))
+            // EXP-760: relations moved BELOW the description (Linear/web
+            // parity) — the description is what the reader came for, and the
+            // card that used to hold these groups pushed it under the fold.
+            // The sub-issue composer follows them, so "Add sub-issues" sits
+            // directly under the "Sub-issues" group it files into.
+            .children(crate::issue_relations::render_relations_section(issue, cx))
+            .children(self.render_sub_issue_affordance(issue, cx))
             // EXP-297: the files rail sits under the description and above
             // the timeline — inline images stay in the description itself.
             .child(self.render_files_section(issue, cx))

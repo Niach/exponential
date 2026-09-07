@@ -127,4 +127,53 @@ class IssueRefsTest {
     fun searchWithNoMatchIsEmpty() {
         assertEquals(emptyList<IssueRefTarget>(), searchHandler.search("zzz"))
     }
+
+    // --- Bare identifiers, EXP-760 (steering feeds only, display-only) ---
+    // Mirrors the `bare identifiers` block of apps/web/src/lib/issue-refs.test.ts
+    // and iOS `IssueRefsBareModeTests`.
+
+    private fun bareIds(text: String): List<String> =
+        IssueRefs.findAll(text, bare = true).map { it.identifier }
+
+    @Test
+    fun bareIdentifierMatchesOnlyInBareMode() {
+        assertEquals(listOf("EXP-758"), bareIds("Filed EXP-758 for the follow-up"))
+        assertEquals(emptyList<String>(), ids("Filed EXP-758 for the follow-up"))
+    }
+
+    @Test
+    fun hashFormStaysOneMatchInBareMode() {
+        val match = IssueRefs.findAll("see #EXP-1 now", bare = true).single()
+        assertEquals("EXP-1", match.identifier)
+        assertEquals("#EXP-1", "see #EXP-1 now".substring(match.start, match.end))
+        assertEquals(false, match.bare)
+    }
+
+    @Test
+    fun ignoresLowercaseAndGluedBareTokens() {
+        assertEquals(emptyList<String>(), bareIds("utf-8 and x86-64 and exp-758"))
+        assertEquals(emptyList<String>(), bareIds("foo-EXP-1 fooEXP-1 #EXP-1abc"))
+    }
+
+    @Test
+    fun chipsABranchMentionLikeExpSlashIdentifier() {
+        val match = IssueRefs.findAll("pushed exp/EXP-758", bare = true).single()
+        assertEquals("EXP-758", match.identifier)
+        assertEquals(true, match.bare)
+        assertEquals("EXP-758", "pushed exp/EXP-758".substring(match.start, match.end))
+    }
+
+    @Test
+    fun bareModeMatchesEveryFormInOrder() {
+        assertEquals(
+            listOf("EXP-1", "MET-2", "APP-33"),
+            bareIds("EXP-1, then #MET-2 (utf-8) exp/APP-33."),
+        )
+    }
+
+    @Test
+    fun bareModeStillRejectsTokensContinuingPastTheNumber() {
+        assertEquals(emptyList<String>(), bareIds("EXP-115abc"))
+        assertEquals(emptyList<String>(), bareIds("EXP-115-2"))
+    }
 }

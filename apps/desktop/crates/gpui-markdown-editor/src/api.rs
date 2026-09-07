@@ -144,6 +144,13 @@ pub enum MarkdownEditorEvent {
         kind: crate::host::ReferenceKind,
         value: String,
     },
+    /// EXP-760: the decorated pill under the pointer CHANGED —
+    /// `Some((kind, token, chip bounds in window coordinates))` on entering
+    /// one, `None` on leaving it. Emitted on transitions only; the host turns
+    /// an issue ref into a hover preview and ignores mentions.
+    ReferenceHover {
+        hover: Option<(crate::host::ReferenceKind, String, gpui::Bounds<gpui::Pixels>)>,
+    },
     /// EXP-421: external files dropped onto the editor at the resolved root
     /// insertion index. The HOST owns the file-type policy (inline images →
     /// [`crate::MarkdownEditor::insert_image_paths_at`], everything else →

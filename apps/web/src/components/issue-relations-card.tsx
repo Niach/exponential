@@ -5,14 +5,17 @@ import { issueRelationCollection } from "@/lib/collections"
 import { conceptIcon } from "@/lib/icons.generated"
 import { trpc } from "@/lib/trpc-client"
 import {
+  groupRelationRows,
   relationLabel,
   type RelationDirection,
 } from "@/lib/issue-relations"
+import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import {
   useIssueRefs,
   type ResolvedIssueRef,
 } from "@/components/issue-ref-provider"
 import { IssuePickerDialog } from "@/components/issue-picker-dialog"
+import { IssuePreviewHoverCard } from "@/components/issue-preview-card"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 import { Button } from "@/components/ui/button"
 import {
@@ -21,8 +24,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { GlassSectionHeader } from "@/components/ui/glass-rows"
-import { Pill } from "@/components/ui/pill"
 
 // EXP-736 — the issue's relation graph, both sides in one card. Rows come off
 // the `issue_relations` shape (never a fetch): the shape is scoped by the row's
@@ -35,14 +36,12 @@ import { Pill } from "@/components/ui/pill"
 // is the exception: it is the dual-write of issues.duplicate_of_id, so it goes
 // through issues.update and comes back as a mirrored row.
 
-const RelationSectionIcon = conceptIcon(`relation-section`)
 const RelationParentIcon = conceptIcon(`relation-parent`)
 const RelationSubIssueIcon = conceptIcon(`relation-sub-issue`)
 const RelationBlocksIcon = conceptIcon(`relation-blocks`)
 const RelationBlockedByIcon = conceptIcon(`relation-blocked-by`)
 const RelationDuplicateIcon = conceptIcon(`relation-duplicate`)
 const RelationRelatedIcon = conceptIcon(`relation-related`)
-const UiAddIcon = conceptIcon(`ui-add`)
 const UiCloseIcon = conceptIcon(`ui-close`)
 
 type RelationSide = `${IssueRelationType}:${RelationDirection}`
@@ -220,12 +219,22 @@ export function useIssueRelations(issueId: string): IssueRelationRow[] {
   }, [rows, issueId, resolveById])
 }
 
+
 function removeRelation(row: IssueRelationRow) {
   void trpc.relations.delete.mutate({ id: row.id })
 }
 
-/** The bare row list — the card below and the phone properties sheet share it. */
-export function IssueRelationsList({
+/**
+ * EXP-760: the rows, folded into the Linear-style heading groups the shared
+ * table defines (lib/issue-relations.ts — desktop `group_title` mirrors it).
+ * There is no card and no "Relations" title above them: the group heading IS
+ * the label, so a row no longer needs its own trailing caption either.
+ *
+ * "Sub-issues" additionally carries a `done/total` counter, keyed on the
+ * team's own status CATEGORY (a custom completed status counts), which is why
+ * the counter lives here rather than in the pure grouping helper.
+ */
+export function IssueRelationGroups({
   rows,
   readOnly = false,
 }: {
@@ -233,47 +242,100 @@ export function IssueRelationsList({
   readOnly?: boolean
 }) {
   const issueRefs = useIssueRefs()
-  if (rows.length === 0) return null
+  const { resolve: resolveStatus } = useTeamStatusesContext()
+  const groups = groupRelationRows(rows)
+  if (groups.length === 0) return null
 
   return (
-    <div className="flex flex-col">
-      {rows.map((row) => {
-        const entry = SIDE_BY_KEY.get(`${row.type}:${row.direction}`)
-        const Icon = entry?.icon ?? RelationRelatedIcon
+    <div className="flex flex-col gap-3">
+      {groups.map((group) => {
+        const done =
+          group.key === `parent:forward`
+            ? group.rows.filter(
+                (row) => resolveStatus(row.other).category === `completed`
+              ).length
+            : null
+
         return (
-          <div
-            key={row.id}
-            className="group flex min-w-0 items-center gap-2 py-1"
-          >
-            <Icon className="size-3.5 shrink-0 text-muted-foreground" />
-            <button
-              type="button"
-              onClick={() => issueRefs?.open(row.other.identifier)}
-              className="shrink-0 font-mono text-xs text-muted-foreground hover:text-foreground"
-            >
-              {`#${row.other.identifier}`}
-            </button>
-            <IssueStatusIcon issue={row.other} className="size-3.5 shrink-0" />
-            <span className="min-w-0 flex-1 truncate text-sm">
-              {row.other.title}
-            </span>
-            <span className="shrink-0 text-xs text-muted-foreground">
-              {rowLabel(row.type, row.direction)}
-            </span>
-            {!readOnly && (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label={`Remove relation to ${row.other.identifier}`}
-                className="shrink-0 text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
-                onClick={() => removeRelation(row)}
-              >
-                <UiCloseIcon className="size-3.5" />
-              </Button>
-            )}
+          <div key={group.key} className="flex min-w-0 flex-col">
+            <div className="flex items-center gap-1.5 pb-0.5 text-xs font-medium text-muted-foreground">
+              <span>{group.title}</span>
+              {done !== null && (
+                <span className="font-mono tabular-nums text-muted-foreground/70">
+                  {`${done}/${group.rows.length}`}
+                </span>
+              )}
+            </div>
+            {group.rows.map((row) => {
+              const entry = SIDE_BY_KEY.get(`${row.type}:${row.direction}`)
+              const Icon = entry?.icon ?? RelationRelatedIcon
+              return (
+                <div
+                  key={row.id}
+                  className="group flex min-w-0 items-center gap-2 py-1"
+                >
+                  <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+                  {/* The hover preview wraps the identifier + title cluster;
+                      the remove button stays OUTSIDE the trigger so pointing
+                      at it never opens a card over the thing being clicked. */}
+                  <IssuePreviewHoverCard issueId={row.other.id}>
+                    <button
+                      type="button"
+                      onClick={() => issueRefs?.open(row.other.identifier)}
+                      className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                    >
+                      <span className="shrink-0 font-mono text-xs text-muted-foreground group-hover:text-foreground">
+                        {`#${row.other.identifier}`}
+                      </span>
+                      <IssueStatusIcon
+                        issue={row.other}
+                        className="size-3.5 shrink-0"
+                      />
+                      <span className="min-w-0 flex-1 truncate text-sm">
+                        {row.other.title}
+                      </span>
+                    </button>
+                  </IssuePreviewHoverCard>
+                  {!readOnly && (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Remove relation to ${row.other.identifier}`}
+                      className="shrink-0 text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+                      onClick={() => removeRelation(row)}
+                    >
+                      <UiCloseIcon className="size-3.5" />
+                    </Button>
+                  )}
+                </div>
+              )
+            })}
           </div>
         )
       })}
+    </div>
+  )
+}
+
+/**
+ * The issue detail's relations block: the grouped rows in the reading column's
+ * gutter, and NOTHING at all when the issue has no relations (EXP-760 — the
+ * "Add relation" affordance moved into the header's `…` menu, so an empty
+ * block has no reason to exist).
+ */
+export function IssueRelationsSection({
+  issueId,
+  readOnly = false,
+}: {
+  issueId: string
+  readOnly?: boolean
+}) {
+  const rows = useIssueRelations(issueId)
+  if (rows.length === 0) return null
+
+  return (
+    <div className="mx-auto w-full max-w-3xl px-4 pt-3">
+      <IssueRelationGroups rows={rows} readOnly={readOnly} />
     </div>
   )
 }
@@ -284,17 +346,17 @@ interface PendingPick {
 }
 
 /**
- * The "Add relation" control: a menu of the six offered sides, then the shared
- * issue picker. Rendered by both the desktop card and the phone sheet, so the
- * two can never offer different picks.
+ * The "Add relation" flow WITHOUT its trigger: `pick(side)` opens the shared
+ * issue picker for one side, `dialog` is the picker element the caller renders
+ * beside its other portals.
+ *
+ * Split out of the old menu+picker component (EXP-760) because the trigger is
+ * now a MENU ITEM in three different menus — the issue header's `…`, the list
+ * row's context menu, and the phone properties sheet's own chip — while the
+ * picking rules (the deferral past the menu close, the duplicate dual-write)
+ * must stay in exactly one place.
  */
-export function IssueRelationsAdd({
-  issueId,
-  trigger,
-}: {
-  issueId: string
-  trigger: React.ReactNode
-}) {
+export function useAddRelation(issueId: string) {
   const [pending, setPending] = useState<PendingPick | null>(null)
 
   const handlePick = (issue: ResolvedIssueRef) => {
@@ -319,6 +381,48 @@ export function IssueRelationsAdd({
     })
   }
 
+  const pick = (side: { type: IssueRelationType; direction: RelationDirection }) => {
+    // Defer past the menu close + focus restore so the picker's focus trap
+    // doesn't fight Radix.
+    setTimeout(
+      () => setPending({ type: side.type, direction: side.direction }),
+      0
+    )
+  }
+
+  const dialog = (
+    <IssuePickerDialog
+      open={pending !== null}
+      onOpenChange={(open) => {
+        if (!open) setPending(null)
+      }}
+      onPick={handlePick}
+      excludeIssueIds={[issueId]}
+      title={
+        pending
+          ? `${pickLabel(pending.type, pending.direction)}…`
+          : `Select issue`
+      }
+      placeholder="Search issues…"
+    />
+  )
+
+  return { pick, dialog }
+}
+
+/**
+ * The dropdown form of the same flow — still used by the PHONE properties
+ * sheet, which has no `…` menu of its own to hang the six sides off.
+ */
+export function IssueRelationsAdd({
+  issueId,
+  trigger,
+}: {
+  issueId: string
+  trigger: React.ReactNode
+}) {
+  const { pick, dialog } = useAddRelation(issueId)
+
   return (
     <>
       <DropdownMenu>
@@ -329,18 +433,7 @@ export function IssueRelationsAdd({
             return (
               <DropdownMenuItem
                 key={entry.side}
-                onSelect={() => {
-                  // Defer past the menu close + focus restore so the picker's
-                  // focus trap doesn't fight Radix.
-                  setTimeout(
-                    () =>
-                      setPending({
-                        type: entry.type,
-                        direction: entry.direction,
-                      }),
-                    0
-                  )
-                }}
+                onSelect={() => pick(entry)}
               >
                 <Icon />
                 {pickLabel(entry.type, entry.direction)}
@@ -349,65 +442,7 @@ export function IssueRelationsAdd({
           })}
         </DropdownMenuContent>
       </DropdownMenu>
-
-      <IssuePickerDialog
-        open={pending !== null}
-        onOpenChange={(open) => {
-          if (!open) setPending(null)
-        }}
-        onPick={handlePick}
-        excludeIssueIds={[issueId]}
-        title={
-          pending
-            ? `${pickLabel(pending.type, pending.direction)}…`
-            : `Select issue`
-        }
-        placeholder="Search issues…"
-      />
+      {dialog}
     </>
-  )
-}
-
-/**
- * The desktop/tablet card, mounted directly beneath the properties band on the
- * issue detail page. Hidden entirely when there is nothing to show and nothing
- * to add; otherwise the header and "Add relation" stand alone above an empty
- * list, which is what makes the affordance discoverable.
- */
-export function IssueRelationsCard({
-  issueId,
-  readOnly = false,
-}: {
-  issueId: string
-  readOnly?: boolean
-}) {
-  const rows = useIssueRelations(issueId)
-  if (readOnly && rows.length === 0) return null
-
-  return (
-    <div className="mx-auto w-full max-w-3xl px-4 pt-3">
-      <div className="rounded-xl border border-glass-stroke-card bg-popover/40 px-3 py-2">
-        <GlassSectionHeader
-          label="Relations"
-          leading={
-            <RelationSectionIcon className="size-3.5 text-muted-foreground" />
-          }
-          className="pt-0 pb-1"
-          trailing={
-            readOnly ? undefined : (
-              <IssueRelationsAdd
-                issueId={issueId}
-                trigger={
-                  <Pill size="sm" mode="action" leading={<UiAddIcon />}>
-                    Add relation
-                  </Pill>
-                }
-              />
-            )
-          }
-        />
-        <IssueRelationsList rows={rows} readOnly={readOnly} />
-      </div>
-    </div>
   )
 }

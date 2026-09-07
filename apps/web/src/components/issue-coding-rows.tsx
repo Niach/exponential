@@ -10,7 +10,6 @@ import { Link } from "@tanstack/react-router"
 import {
   ChevronRight,
   GitBranch,
-  GitMerge,
   GitPullRequest,
   LoaderCircle,
   MonitorUp,
@@ -29,16 +28,6 @@ import { trpc } from "@/lib/trpc-client"
 import { displayUserName } from "@/lib/user-display"
 import { cn } from "@/lib/utils"
 import { Pill } from "@/components/ui/pill"
-import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogCancel,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { GlassRow } from "@/components/ui/glass-rows"
 import { useSteerConfig } from "@/components/agent-session"
 import { useOpenSession } from "@/hooks/use-open-session"
@@ -209,81 +198,20 @@ export function SessionStatusBadge({
   )
 }
 
-/** `row` = the main-column glass rows (running session / merge / "no desktop
- * online"), `fab` = the phone bar's circle, `start` = the bare "Start coding"
- * capsule the issue detail's properties card hosts (EXP-616, desktop parity
- * with the IDE — it renders NOTHING in the states the `row` variant covers, so
- * the two mounts never draw the same affordance twice). */
+/** `row` = the main-column "coding now" card and NOTHING else (EXP-760: Merge
+ * moved into the properties card beside Start coding, and the "no desktop
+ * online" hint became the `start` variant's own caption — so an idle issue
+ * draws no main-column card at all), `fab` = the phone bar's circle, `start` =
+ * the "Start coding" capsule the issue detail's properties card hosts
+ * (EXP-616, desktop parity with the IDE). The two mounts never draw the same
+ * affordance twice. */
 export type CodingControlVariant = `row` | `fab` | `start`
 
-// Sidebar merge affordance (EXP-268): full-width Merge button + confirm
-// dialog for an issue whose linked PR is open. Mirrors the reviews pages'
-// semantics — `issues.mergePr`, spinner held until the Electric echo flips
-// `prState` away from `open`. Merge always closes the live coding sessions
-// (EXP-498).
-function IssueMergeButton({ issue }: { issue: Issue }) {
-  const [confirmOpen, setConfirmOpen] = useState(false)
-  const [merging, setMerging] = useState(false)
-
-  // The live issue prop flips via Electric once the merge lands — release the
-  // held spinner (and any stale confirm) then.
-  useEffect(() => {
-    if (issue.prState !== `open`) {
-      setMerging(false)
-      setConfirmOpen(false)
-    }
-  }, [issue.prState])
-
-  const merge = async () => {
-    setMerging(true)
-    try {
-      // Failures surface via the global mutation-error toast.
-      await trpc.issues.mergePr.mutate({ issueId: issue.id })
-      setConfirmOpen(false) // keep `merging` until the echo flips prState
-    } catch {
-      setMerging(false)
-    }
-  }
-
-  return (
-    <>
-      <Pill
-        size="sm"
-        mode="action"
-        onClick={() => setConfirmOpen(true)}
-        disabled={merging}
-      >
-        {merging ? <LoaderCircle className="animate-spin" /> : <GitMerge />}
-        {merging ? `Merging…` : `Merge PR`}
-      </Pill>
-      <Dialog
-        open={confirmOpen}
-        onOpenChange={(next) => {
-          if (!merging) setConfirmOpen(next)
-        }}
-      >
-        <DialogContent mobile="alert" className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Merge pull request?</DialogTitle>
-            <DialogDescription>
-              {`Merge PR #${issue.prNumber ?? ``} into the default branch? Every issue linked to it completes, and any live coding session for it closes.`}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogCancel
-              onClick={() => setConfirmOpen(false)}
-              disabled={merging}
-            />
-            <Button onClick={merge} disabled={merging}>
-              {merging ? <LoaderCircle className="animate-spin" /> : <GitMerge />}
-              Merge
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
-  )
-}
+/** EXP-760: how loud the `start` capsule is. Start coding is the one call to
+ * action on an idle issue (`primary`), but it steps down to the glass form the
+ * moment an open PR puts a white **Merge** button beside it — two accent pills
+ * in one slot say nothing about which one to press. */
+export type CodingStartTone = `primary` | `glass`
 
 // Membership gate shared by both exported pieces and the bulk bar's
 // "Start coding" button (the server enforces it regardless; this only decides
@@ -309,6 +237,7 @@ export function IssueCodingControl({
   currentUserId,
   users,
   variant,
+  tone = `primary`,
 }: {
   issue: Issue
   board: Board
@@ -316,6 +245,7 @@ export function IssueCodingControl({
   currentUserId: string
   users: User[]
   variant: CodingControlVariant
+  tone?: CodingStartTone
 }) {
   const config = useSteerConfig()
   const isMember = useIsTeamMember(teamId, currentUserId)
@@ -330,6 +260,7 @@ export function IssueCodingControl({
       isMember={isMember}
       steerEnabled={config?.enabled ?? null}
       variant={variant}
+      tone={tone}
     />
   )
 }
@@ -371,6 +302,7 @@ function AgentRow({
   isMember,
   steerEnabled,
   variant,
+  tone,
 }: {
   issue: Issue
   board: Board
@@ -381,6 +313,7 @@ function AgentRow({
   /** null while steer.config is still loading. */
   steerEnabled: boolean | null
   variant: CodingControlVariant
+  tone: CodingStartTone
 }) {
   const openSession = useOpenSession()
 
@@ -515,10 +448,6 @@ function AgentRow({
                 Live steering is unavailable on this instance.
               </span>
             ) : null}
-            {/* EXP-568: the sidebar is gone, so its Merge button lives here. */}
-            {isMember && issue.prState === `open` && (
-              <IssueMergeButton issue={issue} />
-            )}
           </div>
         </div>
       </CodingRowStack>
@@ -531,19 +460,9 @@ function AgentRow({
   // mounts ONLY here, so a non-member / steer-off / repo-less /
   // already-running issue view never wires it up.
   if (!isMember || !steerEnabled || !board.repositoryId) {
-    // An open PR still deserves its Merge button (EXP-268) even when remote
-    // start can't render (steer off / repo-less board) — a main-column row,
-    // never the properties card's capsule.
-    if (variant === `start`) return null
-    if (isMember && variant === `row` && issue.prState === `open`) {
-      return (
-        <CodingRowStack>
-          <GlassRow className="gap-2">
-            <IssueMergeButton issue={issue} />
-          </GlassRow>
-        </CodingRowStack>
-      )
-    }
+    // Nothing left to draw: the open PR's Merge button lives in the properties
+    // card now (EXP-760, `issue-detail-view.tsx`), where it renders whether or
+    // not remote start is available on this instance.
     return null
   }
   return (
@@ -552,6 +471,7 @@ function AgentRow({
       teamId={teamId}
       currentUserId={currentUserId}
       variant={variant}
+      tone={tone}
     />
   )
 }
@@ -563,11 +483,13 @@ function RemoteStartRow({
   teamId,
   currentUserId,
   variant,
+  tone,
 }: {
   issue: Issue
   teamId: string
   currentUserId: string
   variant: CodingControlVariant
+  tone: CodingStartTone
 }) {
   const remote = useRemoteStart({ currentUserId, teamId })
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -576,18 +498,16 @@ function RemoteStartRow({
   if (remote.devices === null) return null
   if (remote.devices.length === 0) {
     // Nothing to start on: the phone bar simply drops the circle rather than
-    // spending one of its three slots on an explanation, and the properties
-    // card drops its capsule — the row below carries the explanation.
-    if (variant === `fab` || variant === `start`) return null
+    // spending one of its three slots on an explanation. EXP-760: the
+    // explanation is the START slot's own caption now — it used to be a
+    // main-column row, which put an empty grey card under every issue of a
+    // team whose desktops happen to be closed.
+    if (variant !== `start`) return null
     return (
-      <CodingRowStack>
-        <GlassRow className="flex-wrap gap-2 text-xs text-muted-foreground">
-          <UiDeviceOfflineIcon className="size-3.5 shrink-0" />
-          No desktop online. Open the Exponential desktop app to run this issue
-          there.
-          {issue.prState === `open` && <IssueMergeButton issue={issue} />}
-        </GlassRow>
-      </CodingRowStack>
+      <span className="flex min-w-0 items-center gap-1.5 truncate text-xs text-muted-foreground">
+        <UiDeviceOfflineIcon className="size-3.5 shrink-0" />
+        <span className="truncate">No desktop online</span>
+      </span>
     )
   }
 
@@ -649,7 +569,7 @@ function RemoteStartRow({
         )}
         <Pill
           mode="action"
-          primary
+          primary={tone === `primary`}
           onClick={() => setDialogOpen(true)}
           disabled={busy}
         >
@@ -661,16 +581,9 @@ function RemoteStartRow({
     )
   }
 
-  // The main column keeps only what the capsule can't carry: an open PR's
-  // Merge button (EXP-268). With nothing to show it draws no empty card.
-  if (issue.prState !== `open`) return null
-  return (
-    <CodingRowStack>
-      <GlassRow className="flex-wrap gap-2">
-        <IssueMergeButton issue={issue} />
-      </GlassRow>
-    </CodingRowStack>
-  )
+  // `row` on an idle issue draws nothing at all: the capsule above carries
+  // the start, and Merge sits beside it in the properties card (EXP-760).
+  return null
 }
 
 // ── PR / pushed-branch row ────────────────────────────────────────────────────

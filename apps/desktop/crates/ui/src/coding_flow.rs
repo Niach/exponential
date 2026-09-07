@@ -1904,6 +1904,10 @@ pub struct StartCodingControl {
     issue_id: Option<String>,
     probe: RepoProbe,
     probe_generation: u64,
+    /// EXP-760: stand down from the PRIMARY paint to the glass pill. Set by
+    /// the issue header while a PR is open, where Merge is the action the
+    /// user came for and two white pills side by side would name neither.
+    demoted: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -1925,7 +1929,17 @@ impl StartCodingControl {
             issue_id: None,
             probe: RepoProbe::Idle,
             probe_generation: 0,
+            demoted: false,
             _subscriptions: subscriptions,
+        }
+    }
+
+    /// See [`Self::demoted`]. Repaints only on a real change — this is
+    /// called from the header's render.
+    pub fn set_demoted(&mut self, demoted: bool, cx: &mut gpui::Context<Self>) {
+        if self.demoted != demoted {
+            self.demoted = demoted;
+            cx.notify();
         }
     }
 
@@ -2223,22 +2237,29 @@ impl Render for StartCodingControl {
         // EXP-698: it sits INSIDE the property tray now, so it wears the ONE
         // capsule at the tray's own `Sm` rung (24px, same as the chips beside
         // it) in the primary paint — the single emphasised pill of the header.
+        // EXP-760: demoted (a PR is open) it wears the plain glass pill
+        // instead — Merge takes the white one.
         let disabled = self.disabled_reason(cx);
         let mut row = h_flex().gap_1().items_center();
-        let button = crate::surface::glass_pill_button_primary(
-            "start-coding",
-            crate::surface::PillSize::Sm,
-        )
+        let glyph_color = if disabled.is_some() || self.demoted {
+            cx.theme().muted_foreground
+        } else {
+            cx.theme().primary_foreground
+        };
+        let button = if self.demoted {
+            crate::surface::glass_pill_button("start-coding", crate::surface::PillSize::Sm, cx)
+        } else {
+            crate::surface::glass_pill_button_primary(
+                "start-coding",
+                crate::surface::PillSize::Sm,
+            )
+        }
         // The solid variant carries the emphasis now — a green glyph on
         // the primary fill only muddies it.
         .icon(
             Icon::new(registry::ACTION_RUN)
                 .with_size(px(crate::surface::PillSize::Sm.glyph()))
-                .text_color(if disabled.is_some() {
-                    cx.theme().muted_foreground
-                } else {
-                    cx.theme().primary_foreground
-                }),
+                .text_color(glyph_color),
         )
         .label("Start coding");
         match disabled {

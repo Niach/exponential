@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { extractIssueRefs } from "@/lib/issue-refs"
+import { extractIssueRefs, splitIssueRefs } from "@/lib/issue-refs"
 
 describe(`extractIssueRefs`, () => {
   it(`extracts a single reference`, () => {
@@ -50,6 +50,49 @@ describe(`extractIssueRefs`, () => {
       `MET-3`,
       `MET-4`,
       `MET-5`,
+    ])
+  })
+})
+
+describe(`bare identifiers (EXP-760, steering feeds only)`, () => {
+  const bareRefs = (text: string) =>
+    splitIssueRefs(text, { bare: true })
+      .filter((segment) => segment.identifier)
+      .map((segment) => segment.identifier)
+
+  it(`matches an uppercase bare identifier only in bare mode`, () => {
+    expect(bareRefs(`Filed EXP-758 for the follow-up`)).toEqual([`EXP-758`])
+    expect(extractIssueRefs(`Filed EXP-758 for the follow-up`)).toEqual([])
+    expect(
+      splitIssueRefs(`Filed EXP-758 for the follow-up`).filter((s) => s.identifier)
+    ).toEqual([])
+  })
+
+  it(`keeps the # form as ONE segment in bare mode`, () => {
+    expect(splitIssueRefs(`see #EXP-1 now`, { bare: true })).toEqual([
+      { text: `see ` },
+      { text: `#EXP-1`, identifier: `EXP-1` },
+      { text: ` now` },
+    ])
+  })
+
+  it(`ignores lowercase and glued bare tokens`, () => {
+    expect(bareRefs(`utf-8 and x86-64 and exp-758`)).toEqual([])
+    expect(bareRefs(`foo-EXP-1 fooEXP-1 #EXP-1abc`)).toEqual([])
+  })
+
+  it(`chips a branch mention like exp/EXP-758`, () => {
+    expect(bareRefs(`pushed exp/EXP-758`)).toEqual([`EXP-758`])
+  })
+
+  it(`round-trips: segments concatenate back to the input`, () => {
+    const text = `EXP-1, then #MET-2 (utf-8) exp/APP-33.`
+    const segments = splitIssueRefs(text, { bare: true })
+    expect(segments.map((s) => s.text).join(``)).toBe(text)
+    expect(segments.filter((s) => s.identifier).map((s) => s.identifier)).toEqual([
+      `EXP-1`,
+      `MET-2`,
+      `APP-33`,
     ])
   })
 })

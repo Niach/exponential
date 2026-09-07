@@ -1984,6 +1984,9 @@ impl Block {
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
+            // EXP-760: leaving the block fires no further move events, so the
+            // chip hover is cleared here (the issue preview's release edge).
+            .on_hover(cx.listener(Self::on_block_hover))
             .w_full()
             .min_w(px(0.0))
             .flex_shrink_0()

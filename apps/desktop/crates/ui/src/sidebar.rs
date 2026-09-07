@@ -1398,8 +1398,15 @@ impl Render for RailView {
         // the expand toggle went with the collapse, so nothing is left to
         // render here but the drag/zoom wiring and the 34px the macOS lights
         // float over.
+        //
+        // EXP-760: and since it is EMPTY, it only earns its 34px where the
+        // macOS traffic lights actually float over it. On Windows, on Linux
+        // and in macOS fullscreen the lights are elsewhere (or gone), so the
+        // strip was a bare gap above the rail's first row — it is not
+        // rendered there at all; drag/zoom keep living on the `AppTitleBar`
+        // band to the right.
         let client_chrome = crate::app_title_bar::client_chrome(window);
-        let top_strip = h_flex()
+        let top_strip = crate::app_title_bar::macos_lights_in_strip(window).then(|| h_flex()
             .id("rail-titlebar-strip")
             .w_full()
             .h(gpui_component::TITLE_BAR_HEIGHT)
@@ -1432,7 +1439,7 @@ impl Render for RailView {
                             window.start_window_move();
                         }
                     }))
-            });
+            }));
 
         // Settings gear — the SINGLE settings entry point (EXP-282 dropped
         // the duplicate account-menu item). Navigates directly for the same
@@ -1458,7 +1465,10 @@ impl Render for RailView {
             .flex_shrink_0()
             .h_full()
             // EXP-285: top padding comes from the 34px titlebar strip — the
-            // rail spans the full window height, flush at y=0.
+            // rail spans the full window height, flush at y=0. EXP-760: where
+            // that strip is not rendered (no traffic lights to hold room for)
+            // the first row takes the same 8px inset as the bottom instead.
+            .when(top_strip.is_none(), |rail| rail.pt_2())
             .pb_2()
             .px_2()
             .gap_1()
@@ -1471,7 +1481,7 @@ impl Render for RailView {
             // undo the cutout. The rail paints NOTHING — the Shell's left
             // column owns both the ramp and the window's left frame corners.
             .text_color(cx.theme().sidebar_foreground)
-            .child(top_strip)
+            .children(top_strip)
             .child(self.render_header(cx))
             .child(self.divider(cx))
             // Middle zone — scrollable so many boards never push the pinned

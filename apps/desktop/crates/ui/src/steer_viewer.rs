@@ -511,6 +511,60 @@ impl SteerSessionView {
         self.row.as_ref()
     }
 
+    /// EXP-760: the team whose issues this feed's `#IDENT` / bare `EXP-1`
+    /// tokens resolve against — the session row's board's team (the
+    /// `IssueHeader::team_id_of` recipe). `None` for a board-less run (an
+    /// action or a repo-less chat), where nothing chips.
+    fn ref_team_id(&self, cx: &App) -> Option<String> {
+        let row = self.row.as_ref()?;
+        // The row carries the team denormalized (batch and action rows have
+        // no issue at all); an old row without it falls back to its issue's
+        // board — the `IssueHeader::team_id_of` recipe.
+        if let Some(team_id) = row.team_id.clone().filter(|id| !id.is_empty()) {
+            return Some(team_id);
+        }
+        let collections = sync::Store::global(cx).collections();
+        let issue_id = row.issue_id.clone()?;
+        let board_id = collections.issues.read(cx).get(&issue_id)?.board_id.clone();
+        collections
+            .boards
+            .read(cx)
+            .get(&board_id)
+            .map(|board| board.team_id.clone())
+    }
+
+    /// EXP-760: the feed's chip resolver — BARE mode, because agents narrate
+    /// identifiers without a `#` (`EXP-758`, `exp/EXP-758`). Display-only:
+    /// nothing here is stored, so the `#IDENT` interchange contract and the
+    /// auto-relations it drives are untouched. `None` (board-less run, team
+    /// not synced) leaves every token as plain text.
+    fn ref_resolver(&self, cx: &App) -> Option<crate::markdown::RefResolver> {
+        self.ref_team_id(cx)
+            .map(|team_id| crate::markdown::RefResolver::from_store(team_id).bare(true))
+    }
+
+    /// EXP-760: hang the feed's bare-mode chip resolver (and the in-app
+    /// open) on one prose view. A run with no resolvable team leaves the view
+    /// exactly as it was — every token stays plain text.
+    fn with_issue_chips(
+        &self,
+        view: crate::markdown::MarkdownView,
+        cx: &App,
+    ) -> crate::markdown::MarkdownView {
+        let Some(resolver) = self.ref_resolver(cx) else {
+            return view;
+        };
+        let Some(team_id) = self.ref_team_id(cx) else {
+            return view;
+        };
+        view.resolver(resolver)
+            .on_open_issue(move |identifier, window, cx| {
+                crate::description_editor::open_issue_by_identifier(
+                    &team_id, identifier, window, cx,
+                );
+            })
+    }
+
     /// Whether the run is over — a merged/ended session offers no Merge
     /// (web/iOS `canMerge` gate their pill on the same liveness).
     pub(crate) fn session_over(&self) -> bool {
@@ -1979,14 +2033,17 @@ impl SteerSessionView {
                 )
                 .child(
                     div().flex_1().min_w_0().text_sm().child(
-                        crate::markdown::MarkdownView::new(
-                            SharedString::from(format!("steer-narration-{}", item.id)),
-                            text.clone(),
-                        )
-                        // EXP-698: the feed reads at the chat rhythm, and its
-                        // inline code takes the semantic tint.
-                        .chat(true)
-                        .selectable(true),
+                        self.with_issue_chips(
+                            crate::markdown::MarkdownView::new(
+                                SharedString::from(format!("steer-narration-{}", item.id)),
+                                text.clone(),
+                            )
+                            // EXP-698: the feed reads at the chat rhythm, and
+                            // its inline code takes the semantic tint.
+                            .chat(true)
+                            .selectable(true),
+                            cx,
+                        ),
                     ),
                 )
                 .into_any_element(),
@@ -2255,11 +2312,14 @@ impl SteerSessionView {
             .child(column)
             .when(!embeds.is_empty(), |this| {
                 this.child(
-                    crate::markdown::MarkdownView::new(
-                        SharedString::from(format!("steer-msg-images-{id}")),
-                        embeds,
-                    )
-                    .selectable(true),
+                    self.with_issue_chips(
+                        crate::markdown::MarkdownView::new(
+                            SharedString::from(format!("steer-msg-images-{id}")),
+                            embeds,
+                        )
+                        .selectable(true),
+                        cx,
+                    ),
                 )
             })
             .into_any_element()
@@ -2327,12 +2387,15 @@ impl SteerSessionView {
         // EXP-698: every body this renders is a CHAT body — the user bubble,
         // the plan card, the ask card, a stepper step — so the rhythm and the
         // code tint are set once, here.
-        let view = crate::markdown::MarkdownView::new(
-            SharedString::from(format!("steer-body-{id}")),
-            text.to_string(),
-        )
-        .chat(true)
-        .selectable(true);
+        let view = self.with_issue_chips(
+            crate::markdown::MarkdownView::new(
+                SharedString::from(format!("steer-body-{id}")),
+                text.to_string(),
+            )
+            .chat(true)
+            .selectable(true),
+            cx,
+        );
         if !fold || !clampable(text) {
             return div().w_full().min_w_0().child(view).into_any_element();
         }

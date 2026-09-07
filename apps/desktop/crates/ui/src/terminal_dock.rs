@@ -112,7 +112,7 @@ const DOCK_SLIDE_DURATION: Duration = theme::motion::STANDARD;
 
 /// Upstream `Dock::render`'s CLOSED height — the toggle strip it keeps when
 /// `open == false`. The slide's closed endpoint.
-const DOCK_STRIP_H: f32 = 29.;
+pub(crate) const DOCK_STRIP_H: f32 = 29.;
 
 /// EXP-723: height of the OPEN dock's own header row — the web dock's shape,
 /// carrying the window/collapse controls above the content while the bottom
@@ -575,6 +575,16 @@ impl TerminalDockPanel {
         self.dock_collapsed(cx) && self.dock_slide.is_none() && self.bubble_preferred(cx)
     }
 
+    /// EXP-760: is the bottom strip painted on the WINDOW GROUND right now?
+    /// True whenever the strip renders at all — which is every form but the
+    /// bubble ([`Self::bubble_showing`]), where the 29px band paints nothing.
+    /// The Shell asks so it can stop the cutout panel's card face
+    /// [`DOCK_STRIP_H`] short of its bottom edge
+    /// (`shell::panel_backdrop_inset`) and let the chips sit outside it.
+    pub(crate) fn strip_on_ground(&self, cx: &App) -> bool {
+        !self.bubble_showing(cx)
+    }
+
     /// EXP-742: pick this machine's collapsed form (bubble or strip) and
     /// collapse into it — the header toggle's action. The pick persists per
     /// device through the ui-prefs save (no doctor rerun, no launch-defaults
@@ -773,7 +783,21 @@ impl TerminalDockPanel {
     /// EXP-523), and the band the clip exposes above itself is the same
     /// `theme::background_gradient()` quad the center already paints, so it
     /// reads as the center growing rather than as a hole.
-    fn pin_content<E: Styled + IntoElement>(&self, content: E) -> AnyElement {
+    fn pin_content<E: Styled + IntoElement>(&self, content: E, cx: &App) -> AnyElement {
+        // EXP-760: the OPEN dock's body is the bottom of the cutout panel's
+        // card now — the card face stops [`DOCK_STRIP_H`] short of the panel
+        // edge (`shell::panel_backdrop_inset`) so the tab chips sit on the
+        // window ground, and this body closes it off: the opaque `popover`
+        // fill, the seam hairline to the content above, and the panel's own
+        // bottom radius (gpui's content mask is rectangular — it rounds
+        // itself). The root used to carry all three; there they also painted
+        // BEHIND the strip.
+        let content = content
+            .bg(cx.theme().popover)
+            .border_t_1()
+            .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+            .rounded_b(px(theme::tokens::radius::LG))
+            .overflow_hidden();
         match self.dock_slide {
             Some(slide) => div()
                 .absolute()
@@ -1115,7 +1139,7 @@ impl TerminalDockPanel {
 
         let chips: Vec<AnyElement> = visible
             .into_iter()
-            .map(|ix| self.render_local_chip(&metas[ix], ix, selected_ix, collapsed, cx))
+            .map(|ix| self.render_local_chip(&metas[ix], ix, selected_ix, collapsed, true, cx))
             .collect();
         // EXP-497: the hidden tabs collapse into a "+N" dropdown; clicking
         // one activates it. Keyed by TabId, not strip index — the menu's
@@ -1225,13 +1249,11 @@ impl TerminalDockPanel {
             .gap_1()
             .items_center()
             .flex_shrink_0()
-            .border_t_1()
-            .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-            .bg(theme::tokens::glass::FILL_CARD.to_hsla())
-            // EXP-723: the strip IS the panel's bottom edge (the dock root
-            // above rounds the same corners for the open case) — gpui's
-            // content mask is rectangular, so it has to round itself.
-            .rounded_b(px(theme::tokens::radius::LG))
+            // EXP-760: the strip paints NOTHING. It used to be the panel's
+            // bottom edge (fill, hairline, bottom radius); now the panel's
+            // card face stops above it (`shell::panel_backdrop_inset`) and
+            // the chips sit directly on the window's gradient, JetBrains
+            // style. Each chip and button is its own glass surface instead.
             .cursor_pointer()
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 if showing {
@@ -1248,14 +1270,17 @@ impl TerminalDockPanel {
                 // EXP-723: the label is the EMPTY strip's whole content — with
                 // chips present they name the dock themselves, and the glyph
                 // only stole width from them.
+                // EXP-760: on the ground it needs its own surface, so the
+                // label is a readonly glass pill rather than bare text.
                 strip.child(
-                    h_flex()
-                        .flex_shrink_0()
-                        .gap_1p5()
-                        .items_center()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(Icon::new(registry::NAV_TERMINAL).xsmall())
-                        .child(div().text_xs().child("Terminal")),
+                    crate::surface::glass_pill(
+                        "terminal-strip-empty-label",
+                        crate::surface::PillSize::Sm,
+                        crate::surface::PillMode::Readonly,
+                        cx,
+                    )
+                    .child(Icon::new(registry::NAV_TERMINAL).xsmall())
+                    .child(div().text_xs().child("Terminal")),
                 )
             })
             .child(
@@ -1423,7 +1448,7 @@ impl TerminalDockPanel {
         let hidden = total - visible.len();
         let chips: Vec<AnyElement> = visible
             .into_iter()
-            .map(|ix| self.render_local_chip(&metas[ix], ix, selected_ix, true, cx))
+            .map(|ix| self.render_local_chip(&metas[ix], ix, selected_ix, true, false, cx))
             .collect();
         let signal = metas
             .iter()
@@ -1518,11 +1543,16 @@ impl TerminalDockPanel {
         ix: usize,
         selected_ix: usize,
         collapsed: bool,
+        ground: bool,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let id = meta.id;
         let manager_ix = meta.manager_ix;
-        let mut tab = crate::surface::RichTab::new(("terminal-tab", ix), ix == selected_ix);
+        // EXP-760: `ground` for the bottom STRIP's chips (they sit on the
+        // window gradient now, so each is its own glass surface); the
+        // bubble's are inside a card and keep the plain tab treatment.
+        let mut tab =
+            crate::surface::RichTab::new(("terminal-tab", ix), ix == selected_ix).ground(ground);
         // EXP-325: an issue-session tab renders the center issue-tab
         // treatment (status glyph + mono identifier + synced title,
         // mirroring `screens::render_tab_strip`); everything else keeps
@@ -1659,11 +1689,10 @@ impl TerminalDockPanel {
         // would neither launch nor toggle the dock for the whole doctor probe
         // after launch. Dim the glyph instead and decide in the handler.
         let inert = pending.is_some() || agent.is_none();
-        Button::new("new-chat-tab")
-            .ghost()
+        // EXP-760: a glass circle, not a ghost button — the strip is on the
+        // window ground now and a fill-less button reads as a floating glyph.
+        crate::controls::glass_icon_button("new-chat-tab", Icon::new(registry::ACTION_CHAT), cx)
             .cursor_pointer()
-            .xsmall()
-            .icon(Icon::new(registry::ACTION_CHAT))
             .tooltip(tooltip)
             .when(inert, |this| this.opacity(0.4))
             .on_click(move |_, window, cx| {
@@ -1698,10 +1727,8 @@ impl TerminalDockPanel {
     /// doctor report yet → only the shell item.
     fn new_tab_menu(&self, cx: &gpui::Context<Self>) -> impl IntoElement {
         let panel = cx.entity().downgrade();
-        Button::new("new-terminal-tab")
-            .ghost().cursor_pointer()
-            .xsmall()
-            .icon(registry::UI_ADD)
+        crate::controls::glass_icon_button("new-terminal-tab", Icon::new(registry::UI_ADD), cx)
+            .cursor_pointer()
             .tooltip("New session")
             .dropdown_menu(move |mut menu, window, cx| {
                 let hub = CodingHub::global(cx);
@@ -2818,24 +2845,13 @@ impl Render for TerminalDockPanel {
             .on_action(cx.listener(Self::on_prev_tab))
             .relative()
             .size_full()
-            .overflow_hidden()
-            // EXP-723: the dock is an OPAQUE card at the bottom of the cutout
-            // panel, not a translucent band on the page gradient — with the
-            // panel's own wash behind it the old glass read as a smudge
-            // rather than a separate surface. `popover` is the theme's opaque
-            // overlay ground; the hairline is the seam to the content above.
-            .when(!bubble, |root| root.bg(cx.theme().popover))
-            // The seam to the content above. Only while OPEN: collapsed, the
-            // strip IS the whole dock and carries the same hairline one pixel
-            // lower, which would read as a 2px double rule.
-            .when(!collapsed, |root| {
-                root.border_t_1()
-                    .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-            })
-            // The dock sits in the panel's BOTTOM corners and gpui's content
-            // mask is rectangular, so it has to round itself (the strip below
-            // does the same, for the collapsed case and for its own fill).
-            .rounded_b(px(theme::tokens::radius::LG));
+            .overflow_hidden();
+        // EXP-723 history: the ROOT used to paint the dock's opaque card
+        // (popover fill, seam hairline, the panel's bottom radius). EXP-760
+        // moved all three onto the dock BODY (`pin_content`), because the
+        // root also spans the bottom strip and the strip is on the window
+        // ground now — the card has to close ABOVE it, not behind it. The
+        // root is pure layout.
 
         let content: Option<AnyElement> = if collapsed {
             None
@@ -2853,15 +2869,16 @@ impl Render for TerminalDockPanel {
                         .child(div().flex_1().min_h_0().child(active_view))
                         .when_some(active_exit, |this, code| this.child(exit_strip(code, cx)))
                         .children(active_id.and_then(|id| self.render_changes_bar(id, cx))),
+                    cx,
                 ),
                 // Tabs exist but none is visible/active here — every one is
                 // undocked (or the active tab just popped out mid-frame).
                 None if tab_count > 0 => {
-                    self.pin_content(body.child(self.render_undocked_hint(cx)))
+                    self.pin_content(body.child(self.render_undocked_hint(cx)), cx)
                 }
                 // EXP-369: an expanded, empty dock offers its launch cards —
                 // nothing spawns until the user picks something.
-                None => self.pin_content(body.child(self.render_empty_dock_options(window, cx))),
+                None => self.pin_content(body.child(self.render_empty_dock_options(window, cx)), cx),
             })
         };
 

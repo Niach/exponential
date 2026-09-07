@@ -3,7 +3,7 @@ import { Plugin, PluginKey } from "@tiptap/pm/state"
 import { Decoration, DecorationSet } from "@tiptap/pm/view"
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model"
 import type { IconName } from "@exp/icons"
-import { createIssueRefRegExp } from "@/lib/issue-refs"
+import { createIssueRefRegExp, matchedIdentifier } from "@/lib/issue-refs"
 import { statusIconDataUri } from "@/lib/status-icon-svg"
 
 // Renders `#IDENTIFIER` issue references as clickable pills via inline
@@ -26,6 +26,13 @@ export interface IssueRefOptions {
   } | null
   /** Navigate to the referenced issue. */
   onOpen: (identifier: string) => void
+  /**
+   * EXP-760: also chip BARE identifiers (`EXP-758`, no `#`). Steering feeds
+   * only — agents narrate them that way, while descriptions and comments keep
+   * the `#IDENT` contract (lib/issue-refs.ts documents the split). Read at
+   * editor CREATION, like every other option here.
+   */
+  bare?: boolean
 }
 
 /** Keep chips readable — the full title stays available as the tooltip. */
@@ -40,7 +47,8 @@ function chipTitle(title: string): string {
 
 function buildDecorations(
   doc: ProseMirrorNode,
-  getResolved: IssueRefOptions[`getResolved`]
+  getResolved: IssueRefOptions[`getResolved`],
+  bare: boolean
 ): Decoration[] {
   const decorations: Decoration[] = []
   doc.descendants((node, pos) => {
@@ -48,10 +56,10 @@ function buildDecorations(
     if (!node.isText || !node.text) return undefined
     if (node.marks.some((mark) => mark.type.name === `code`)) return undefined
 
-    const regExp = createIssueRefRegExp()
+    const regExp = createIssueRefRegExp({ bare })
     let match: RegExpExecArray | null
     while ((match = regExp.exec(node.text)) !== null) {
-      const identifier = match[1]
+      const identifier = matchedIdentifier(match)
       const resolved = getResolved(identifier)
       if (!resolved) continue
       const from = pos + match.index
@@ -80,6 +88,7 @@ export const IssueRefExtension = Extension.create<IssueRefOptions>({
     return {
       getResolved: () => null,
       onOpen: () => {},
+      bare: false,
     }
   },
 
@@ -92,7 +101,11 @@ export const IssueRefExtension = Extension.create<IssueRefOptions>({
           decorations(state) {
             return DecorationSet.create(
               state.doc,
-              buildDecorations(state.doc, options.getResolved)
+              buildDecorations(
+                state.doc,
+                options.getResolved,
+                options.bare === true
+              )
             )
           },
           handleClick(_view, _pos, event) {

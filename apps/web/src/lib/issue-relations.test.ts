@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { issueRelationTypeValues } from "@exp/db-schema/domain"
+import {
+  issueRelationTypeValues,
+  type IssueRelationType,
+} from "@exp/db-schema/domain"
 
 const h = vi.hoisted(() => ({
   recordIssueEvent: vi.fn(async (..._args: unknown[]) => undefined),
@@ -21,13 +24,18 @@ vi.mock(`@/lib/integrations/mentions`, () => ({
 
 import { comments, issueRelations, issues } from "@/db/schema"
 import {
+  RELATION_GROUP_ORDER,
+  RELATION_GROUP_TITLES,
   canonicalizeRelation,
+  groupRelationRows,
   insertRelationInTx,
+  relationGroupTitle,
   relationEventParts,
   relationEventPhrase,
   relationLabel,
   syncDuplicateMirror,
   syncReferenceRelations,
+  type RelationDirection,
 } from "@/lib/issue-relations"
 
 // EXP-736 — the pure half of the relation module. Canonicalization is what
@@ -577,5 +585,52 @@ describe(`syncReferenceRelations`, () => {
     expect(h.resolveIssueRefs).not.toHaveBeenCalled()
     expect(state.inserted).toHaveLength(0)
     expect(state.deletes).toBe(0)
+  })
+})
+
+describe(`relation group headings (EXP-760)`, () => {
+  it(`titles every side Linear-style`, () => {
+    expect(relationGroupTitle(`parent`, `forward`)).toBe(`Sub-issues`)
+    expect(relationGroupTitle(`parent`, `inverse`)).toBe(`Parent`)
+    expect(relationGroupTitle(`blocks`, `forward`)).toBe(`Blocks`)
+    expect(relationGroupTitle(`blocks`, `inverse`)).toBe(`Blocked by`)
+    expect(relationGroupTitle(`duplicate`, `forward`)).toBe(`Duplicate of`)
+    expect(relationGroupTitle(`duplicate`, `inverse`)).toBe(`Duplicated by`)
+    expect(relationGroupTitle(`related`, `forward`)).toBe(`Related`)
+    expect(relationGroupTitle(`related`, `inverse`)).toBe(`Related`)
+  })
+
+  it(`covers every relation type in both directions`, () => {
+    for (const type of issueRelationTypeValues) {
+      expect(RELATION_GROUP_TITLES[`${type}:forward`]).toBeTruthy()
+      expect(RELATION_GROUP_TITLES[`${type}:inverse`]).toBeTruthy()
+    }
+    expect(new Set(RELATION_GROUP_ORDER).size).toBe(RELATION_GROUP_ORDER.length)
+  })
+
+  it(`degrades an unknown type to Related`, () => {
+    expect(relationGroupTitle(`mystery` as never, `forward`)).toBe(`Related`)
+  })
+
+  it(`groups rows in heading order and merges both related sides`, () => {
+    // Row 6 carries a type this build does not know (a newer server's fifth
+    // relation type reaching an old tab over Electric) — it must land in
+    // "Related", never crash the block.
+    const rows: Array<{
+      id: number
+      type: IssueRelationType
+      direction: RelationDirection
+    }> = [
+      { id: 1, type: `related`, direction: `inverse` },
+      { id: 2, type: `blocks`, direction: `forward` },
+      { id: 3, type: `parent`, direction: `forward` },
+      { id: 4, type: `related`, direction: `forward` },
+      { id: 5, type: `parent`, direction: `forward` },
+      { id: 6, type: `mystery` as IssueRelationType, direction: `forward` },
+    ]
+    const groups = groupRelationRows(rows)
+    expect(groups.map((g) => g.title)).toEqual([`Sub-issues`, `Blocks`, `Related`])
+    expect(groups[0].rows.map((r) => r.id)).toEqual([3, 5])
+    expect(groups[2].rows.map((r) => r.id)).toEqual([1, 4, 6])
   })
 })

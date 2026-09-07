@@ -6,6 +6,7 @@ import type { Board, Issue, Label, User } from "@/db/schema"
 
 const mockState = vi.hoisted(() => ({
   addLabelMutate: vi.fn(),
+  createRelationMutate: vi.fn(),
   clipboardWriteText: vi.fn(),
   deleteMutate: vi.fn(),
   moveMutate: vi.fn(),
@@ -34,7 +35,40 @@ vi.mock(`@/lib/trpc-client`, () => ({
         mutate: mockState.updateMutate,
       },
     },
+    relations: {
+      create: {
+        mutate: mockState.createRelationMutate,
+      },
+    },
   },
+}))
+
+// EXP-760: the picker is the shared IssuePickerDialog, whose real results come
+// from the IssueRefProvider (not mounted here). Stand in for it with the same
+// two observable facts the tests need: the empty-state line the duplicate flow
+// asserts on, and one row to click so a relation pick can be completed.
+vi.mock(`@/components/issue-picker-dialog`, () => ({
+  IssuePickerDialog: ({
+    open,
+    title,
+    onPick,
+  }: {
+    open: boolean
+    title?: string
+    onPick: (issue: { id: string; identifier: string }) => void
+  }) =>
+    open ? (
+      <div>
+        <span>{title}</span>
+        <span>No issues to pick from</span>
+        <button
+          type="button"
+          onClick={() => onPick({ id: `issue-9`, identifier: `APP-9` })}
+        >
+          Pick APP-9
+        </button>
+      </div>
+    ) : null,
 }))
 
 vi.mock(`@/components/ui/context-menu`, () => ({
@@ -258,6 +292,8 @@ describe(`IssueRowContextMenu`, () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date(`2026-03-07T09:00:00Z`))
     mockState.addLabelMutate.mockReset()
+    mockState.createRelationMutate.mockReset()
+    mockState.createRelationMutate.mockResolvedValue({})
     mockState.clipboardWriteText.mockReset()
     mockState.deleteMutate.mockReset()
     mockState.moveMutate.mockReset()
@@ -503,5 +539,68 @@ describe(`IssueRowContextMenu`, () => {
 
     expect(mockState.deleteMutate).toHaveBeenCalledTimes(1)
     expect(mockState.deleteMutate).toHaveBeenCalledWith({ id: `issue-1` })
+  })
+
+  // EXP-760: the same six sides the issue header's `…` offers, from the one
+  // hook that owns the picker — so a pick made from a list row lands on the
+  // SAME canonical row a pick made from the detail page would.
+  it(`adds a relation from the picked side (inverse sides pass inverse)`, async () => {
+    render(
+      <IssueRowContextMenu
+        issue={buildIssue()}
+        issueLabels={[]}
+        labels={labels}
+        users={users}
+        userMap={new Map(users.map((user) => [user.id, user]))}
+        onOpenIssue={vi.fn()}
+      >
+        <div>Issue row</div>
+      </IssueRowContextMenu>
+    )
+
+    fireEvent.click(screen.getByText(`Blocked by`))
+    // The picker opens on a deferred tick (past the menu's focus restore).
+    await act(async () => {
+      vi.runAllTimers()
+    })
+    fireEvent.click(screen.getByText(`Pick APP-9`))
+
+    expect(mockState.createRelationMutate).toHaveBeenCalledWith({
+      issueId: `issue-1`,
+      relatedIssueId: `issue-9`,
+      type: `blocks`,
+      // "Blocked by" is the inverse half of the stored `blocks` row.
+      inverse: true,
+    })
+  })
+
+  // "Duplicate of" is the exception: it is the dual-write of
+  // issues.duplicate_of_id, so it goes through issues.update and the mirrored
+  // relation row comes back from the server.
+  it(`routes "Duplicate of" through issues.update, not relations.create`, async () => {
+    render(
+      <IssueRowContextMenu
+        issue={buildIssue()}
+        issueLabels={[]}
+        labels={labels}
+        users={users}
+        userMap={new Map(users.map((user) => [user.id, user]))}
+        onOpenIssue={vi.fn()}
+      >
+        <div>Issue row</div>
+      </IssueRowContextMenu>
+    )
+
+    fireEvent.click(screen.getByText(`Duplicate of`))
+    await act(async () => {
+      vi.runAllTimers()
+    })
+    fireEvent.click(screen.getByText(`Pick APP-9`))
+
+    expect(mockState.createRelationMutate).not.toHaveBeenCalled()
+    expect(mockState.updateMutate).toHaveBeenCalledWith({
+      id: `issue-1`,
+      duplicateOfId: `issue-9`,
+    })
   })
 })

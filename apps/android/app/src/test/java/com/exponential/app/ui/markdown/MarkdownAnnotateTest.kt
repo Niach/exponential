@@ -298,6 +298,52 @@ class MarkdownAnnotateTest {
         assertTrue(line.chips.isEmpty())
     }
 
+    // --- EXP-760: bare identifiers, steering feeds only ---
+
+    @Test
+    fun aBareTokenOnlyChipsInBareMode() {
+        val plain = annotateLine("closes MET-1 now", emptyList(), refsWithStatus("MET-1", "Fix login"))
+        assertTrue(plain.chips.isEmpty())
+        assertEquals("closes MET-1 now", plain.text.text)
+
+        val bare = annotateLine(
+            "closes MET-1 now", emptyList(), refsWithStatus("MET-1", "Fix login"), bare = true,
+        )
+        assertEquals("closes MET-1 Fix login now", bare.text.text)
+        assertEquals(1, bare.chips.size)
+        assertEquals("MET-1 Fix login", bare.text.text.substring(bare.chips[0].start, bare.chips[0].end))
+    }
+
+    /**
+     * A bare chip has no `#` cell: painting the status glyph there would sit on
+     * the prefix's first LETTER, and the transparent span would delete it.
+     */
+    @Test
+    fun aBareChipPaintsNoStatusGlyphAndHidesNothing() {
+        val line = annotateLine(
+            "closes MET-1 now", emptyList(), refsWithStatus("MET-1", "Fix login"), bare = true,
+        )
+        assertNull(line.chips[0].iconName)
+        assertTrue(line.text.spanStyles.none { it.item.color == Color.Transparent })
+    }
+
+    /** The `#` form keeps its glyph and its hidden hash while bare mode is on. */
+    @Test
+    fun theHashFormIsUnchangedInBareMode() {
+        val line = annotateLine(
+            "closes #MET-1 now", emptyList(), refsWithStatus("MET-1", "Fix login"), bare = true,
+        )
+        assertEquals("closes #MET-1 Fix login now", line.text.text)
+        assertEquals(inProgress.iconName, line.chips[0].iconName)
+        assertTrue(
+            line.text.spanStyles.any {
+                it.start == line.chips[0].tokenStart &&
+                    it.end == line.chips[0].tokenStart + 1 &&
+                    it.item.color == Color.Transparent
+            },
+        )
+    }
+
     // --- EXP-440: bare-URL autolink, render-only surfaces (the agent feed). ---
 
     private val signInUrl =

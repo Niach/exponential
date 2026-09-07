@@ -45,6 +45,7 @@ import { EditorSelectionRail } from "@/components/issue-editor/selection-rail"
 import { EditorInsertBar } from "@/components/issue-editor/formatting-rail"
 import { EditorTableControls } from "@/components/issue-editor/table-controls"
 import { EditorMobileFormattingBar } from "@/components/issue-editor/mobile-formatting-bar"
+import { IssueRefHoverLayer } from "@/components/issue-editor/issue-ref-hover-layer"
 import { useIsMobile } from "@/hooks/use-mobile"
 import {
   findEmojiByShortcode,
@@ -124,6 +125,12 @@ interface MarkdownEditorProps {
    * `scrollThreshold`/`scrollMargin` so edits scroll clear of the band.
    */
   topScrollInset?: number
+  /**
+   * EXP-760: chip BARE identifiers (`EXP-758`) as well as `#IDENT` ones.
+   * STEERING FEEDS ONLY — agents narrate bare identifiers, while descriptions
+   * and comments keep the `#` contract. Read once, at editor creation.
+   */
+  bareIssueRefs?: boolean
 }
 
 type MarkdownEditorInstance = Editor & {
@@ -181,6 +188,7 @@ export const MarkdownEditor = forwardRef<
       hardBreaks,
       ariaLabel,
       onFocusChange,
+      bareIssueRefs,
     },
     ref
   ) => {
@@ -291,6 +299,7 @@ export const MarkdownEditor = forwardRef<
           getResolved: (identifier) =>
             issueRefsRef.current?.resolve(identifier) ?? null,
           onOpen: (identifier) => issueRefsRef.current?.open(identifier),
+          bare: bareIssueRefs === true,
         }),
         MentionPillExtension.configure({
           getResolved: (email) => mentionsRef.current?.resolve(email) ?? null,
@@ -691,6 +700,12 @@ export const MarkdownEditor = forwardRef<
           )
         ) : null}
         <EditorContent editor={editor} />
+        {/* EXP-760: `#IDENT` chips are ProseMirror DECORATIONS, so their hover
+            preview cannot be a wrapped React trigger — one delegated layer per
+            editor covers every one of them (descriptions, comments, the plan
+            card, the steering feed). Desktop only: on a phone the chip is a
+            link and a card under the finger would eat the tap. */}
+        {!isMobile ? <IssueRefHoverLayer editor={editor} /> : null}
         {/* EXP-587: emoji / image / attach sit under the editor on desktop —
             the selection rail only shows over a selection, where inserting
             would replace it. */}

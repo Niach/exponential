@@ -236,6 +236,32 @@ impl WysiwygDescription {
                         }
                     }
                 }
+                // EXP-760: an issue pill under the pointer opens the shared
+                // hover preview (mentions stay inert, block-editor parity).
+                // The token's issue is resolved HERE — the host takes a row
+                // id, and an unresolved token has no preview to show.
+                MarkdownEditorEvent::ReferenceHover { hover } => {
+                    let host = crate::issue_preview::host_for_window(window, cx);
+                    let key = format!("wysiwyg-description-{}", this.editor.entity_id());
+                    match hover {
+                        Some((ReferenceKind::IssueRef, value, bounds)) => {
+                            let issue_id = this.team_id.as_deref().and_then(|team_id| {
+                                crate::description_editor::issue_id_by_identifier(
+                                    team_id,
+                                    value.trim_start_matches('#'),
+                                    cx,
+                                )
+                            });
+                            match issue_id {
+                                Some(issue_id) => host.update(cx, |host, cx| {
+                                    host.request(key, issue_id, *bounds, cx)
+                                }),
+                                None => host.update(cx, |host, cx| host.release(key, cx)),
+                            }
+                        }
+                        _ => host.update(cx, |host, cx| host.release(key, cx)),
+                    }
+                }
                 MarkdownEditorEvent::Error { message } => {
                     log::warn!("wysiwyg editor error: {message}");
                 }

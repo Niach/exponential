@@ -90,6 +90,78 @@ export function relationLabel(
   return direction === `forward` ? labels.forward : labels.inverse
 }
 
+export type RelationSideKey = `${IssueRelationType}:${RelationDirection}`
+
+/**
+ * EXP-760: the Linear-style section headings the relations block renders
+ * DIRECTLY (no "Relations" card title above them). Both `related` sides share
+ * one heading; the order is the render order. Desktop mirrors this table in
+ * `crates/domain/src/relations.rs` (`group_title`), lock-tested on both ends.
+ */
+export const RELATION_GROUP_TITLES: Record<RelationSideKey, string> = {
+  "parent:forward": `Sub-issues`,
+  "parent:inverse": `Parent`,
+  "blocks:inverse": `Blocked by`,
+  "blocks:forward": `Blocks`,
+  "duplicate:forward": `Duplicate of`,
+  "duplicate:inverse": `Duplicated by`,
+  "related:forward": `Related`,
+  "related:inverse": `Related`,
+}
+
+export const RELATION_GROUP_ORDER: RelationSideKey[] = [
+  `parent:forward`,
+  `parent:inverse`,
+  `blocks:inverse`,
+  `blocks:forward`,
+  `duplicate:forward`,
+  `duplicate:inverse`,
+  `related:forward`,
+]
+
+/** Heading for one side; unknown types degrade to "Related" (see relationLabel). */
+export function relationGroupTitle(
+  type: IssueRelationType,
+  direction: RelationDirection
+): string {
+  return (
+    RELATION_GROUP_TITLES[`${type}:${direction}`] ??
+    RELATION_GROUP_TITLES[`related:forward`]
+  )
+}
+
+export interface RelationGroup<T> {
+  key: RelationSideKey
+  title: string
+  rows: T[]
+}
+
+/**
+ * Fold flat rows into ordered heading groups. `related:inverse` merges into
+ * the `related:forward` group; unknown types land in "Related" too. Rows keep
+ * their input order inside a group (the hook already sorts by identifier).
+ */
+export function groupRelationRows<
+  T extends { type: IssueRelationType; direction: RelationDirection },
+>(rows: T[]): RelationGroup<T>[] {
+  const buckets = new Map<RelationSideKey, T[]>()
+  for (const row of rows) {
+    const sideKey: RelationSideKey = `${row.type}:${row.direction}`
+    const key: RelationSideKey =
+      row.type === `related` || !(sideKey in RELATION_GROUP_TITLES)
+        ? `related:forward`
+        : sideKey
+    const bucket = buckets.get(key)
+    if (bucket) bucket.push(row)
+    else buckets.set(key, [row])
+  }
+  return RELATION_GROUP_ORDER.filter((key) => buckets.has(key)).map((key) => ({
+    key,
+    title: RELATION_GROUP_TITLES[key],
+    rows: buckets.get(key) ?? [],
+  }))
+}
+
 export type RelationEventKind = `relation_added` | `relation_removed`
 
 /**
