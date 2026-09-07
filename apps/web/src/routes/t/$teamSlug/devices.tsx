@@ -78,70 +78,77 @@ function DevicesPage() {
   }
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-3xl flex-col px-4 py-4 md:max-w-5xl">
-      <div className={`flex-1 overflow-y-auto ${TAB_BAR_CLEARANCE}`}>
-        {isMember && steerConfig?.enabled && (
-          <MyMachines
-            devices={remote.devices}
-            runBusy={runBusy}
-            sentTo={remote.sentTo}
-            onStartCoding={(deviceId) => setLaunchDeviceId(deviceId)}
-            onChanged={remote.refresh}
-            latestVersions={remote.latestVersions}
-            teamId={teamId}
-          />
-        )}
+    <>
+      {/* EXP-771: the SCROLLER is full width, the reading column lives inside
+          it — so the scrollbar rides the panel's right edge instead of
+          appearing mid-page beside a centred list (the actions.tsx pattern). */}
+      <div className="h-full overflow-y-auto">
+        <div
+          className={`mx-auto w-full max-w-3xl px-4 py-4 md:max-w-5xl ${TAB_BAR_CLEARANCE}`}
+        >
+          {isMember && steerConfig?.enabled && (
+            <MyMachines
+              devices={remote.devices}
+              runBusy={runBusy}
+              sentTo={remote.sentTo}
+              onStartCoding={(deviceId) => setLaunchDeviceId(deviceId)}
+              onChanged={remote.refresh}
+              latestVersions={remote.latestVersions}
+              teamId={teamId}
+            />
+          )}
 
-        {/* The native apps' Running section, on every viewport (EXP-697 —
-            it used to be mobile-only because the dock strip covers desktop,
-            but the machines page lists sessions everywhere now). A row opens
-            the run's own session page (EXP-740). */}
-        {isLoading ? (
-          <div className="text-muted-foreground p-6 text-sm">Loading…</div>
-        ) : (
-          <div className="mb-6">
-            <GlassSectionHeader label="Running" />
-            {running.length > 0 ? (
+          {/* The native apps' Running section, on every viewport (EXP-697 —
+              it used to be mobile-only because the dock strip covers desktop,
+              but the machines page lists sessions everywhere now). A row opens
+              the run's own session page (EXP-740). */}
+          {isLoading ? (
+            <div className="text-muted-foreground p-6 text-sm">Loading…</div>
+          ) : (
+            <div className="mb-6">
+              <GlassSectionHeader label="Running" />
+              {running.length > 0 ? (
+                <div className="flex flex-col gap-2">
+                  {running.map((row) => (
+                    <SessionRow
+                      key={row.session.id}
+                      row={row}
+                      teamSlug={teamSlug}
+                      isOwner={isOwner}
+                      currentUserId={currentUserId}
+                      steerEnabled={steerEnabled}
+                      onOpen={() => openSession(row.session)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <GlassRow className="text-sm text-muted-foreground">
+                  No agents running right now.
+                </GlassRow>
+              )}
+            </div>
+          )}
+
+          {/* EXP-746: Past — the caller's own finished runs, newest first,
+              capped at PAST_RUN_CAP. Hidden entirely when empty: a header over
+              nothing is noise, and the natives do the same. */}
+          {past.length > 0 && (
+            <div className="mb-6">
+              <GlassSectionHeader label="Past" />
               <div className="flex flex-col gap-2">
-                {running.map((row) => (
-                  <SessionRow
+                {past.map((row) => (
+                  <EndedSessionRow
                     key={row.session.id}
-                    row={row}
-                    teamSlug={teamSlug}
-                    isOwner={isOwner}
-                    currentUserId={currentUserId}
-                    steerEnabled={steerEnabled}
-                    onOpen={() => openSession(row.session)}
+                    row={{ session: row.session, canResume: row.canResume }}
+                    title={row.title}
+                    identifier={row.identifier ?? undefined}
+                    byline={pastRunRowByline(row)}
                   />
                 ))}
               </div>
-            ) : (
-              <GlassRow className="text-sm text-muted-foreground">
-                No agents running right now.
-              </GlassRow>
-            )}
-          </div>
-        )}
-
-        {/* EXP-746: Past — the caller's own finished runs, newest first,
-            capped at PAST_RUN_CAP. Hidden entirely when empty: a header over
-            nothing is noise, and the natives do the same. */}
-        {past.length > 0 && (
-          <div className="mb-6">
-            <GlassSectionHeader label="Past" />
-            <div className="flex flex-col gap-2">
-              {past.map((row) => (
-                <EndedSessionRow
-                  key={row.session.id}
-                  row={{ session: row.session, canResume: row.canResume }}
-                  title={row.title}
-                  identifier={row.identifier ?? undefined}
-                  byline={pastRunRowByline(row)}
-                />
-              ))}
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       <LaunchDialog
@@ -167,6 +174,6 @@ function DevicesPage() {
             .catch(() => {})
         }}
       />
-    </div>
+    </>
   )
 }

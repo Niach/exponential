@@ -29,6 +29,7 @@ import { BoardSettingsDialog } from "@/components/team/board-settings-dialog"
 import { SettingsSidebar } from "@/components/team/settings-sidebar"
 import { TeamAvatar } from "@/components/team/team-avatar"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
+import { FeedbackButton } from "@/components/feedback-button"
 import { GettingStartedButton } from "@/components/getting-started/getting-started-button"
 import { ChangelogSheet, WhatsNewCard } from "@/components/whats-new"
 import { resolveBoardTarget } from "@/components/team/mobile-tab-bar"
@@ -449,6 +450,10 @@ export function TeamSidebar({
                   entry — hidden again until the next release once dismissed. */}
               <WhatsNewCard onOpen={() => setWhatsNewOpen(true)} />
               <SidebarMenu>
+                {/* EXP-771: the ONLY way into the feedback widget now that the
+                    in-app mount is headless. Cloud-only — self-hosted renders
+                    nothing here. */}
+                <FeedbackButton />
                 {/* EXP-88: re-entry point for the Getting started cards once the
                     board's inline block is gone (issues exist / dismissed). */}
                 <GettingStartedButton />

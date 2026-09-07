@@ -269,8 +269,14 @@ function ReviewsPage() {
   }
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-3xl flex-col px-4 py-4">
-      <div className={`flex-1 overflow-y-auto ${TAB_BAR_CLEARANCE}`}>
+    // EXP-771: the SCROLLER is full width, the reading column lives inside it
+    // — so the scrollbar rides the panel's right edge instead of appearing
+    // mid-page beside a centred list (the actions.tsx pattern). The dialogs
+    // below are portalled, so sitting in the scrollport costs them nothing.
+    <div className="h-full overflow-y-auto">
+      <div
+        className={`mx-auto w-full max-w-3xl px-4 py-4 ${TAB_BAR_CLEARANCE}`}
+      >
         {isLoading ? (
           <div className="text-muted-foreground px-1 py-6 text-sm">Loading…</div>
         ) : count === 0 ? (

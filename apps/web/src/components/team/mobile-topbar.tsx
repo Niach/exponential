@@ -30,9 +30,9 @@ import {
 const NavAboutIcon = conceptIcon(`settings-about`)
 const NavAdminIcon = conceptIcon(`nav-admin`)
 const NavChangelogIcon = conceptIcon(`nav-changelog`)
+const NavReportBugIcon = conceptIcon(`nav-report-bug`)
 const NavSettingsIcon = conceptIcon(`nav-settings`)
 const NavSignOutIcon = conceptIcon(`nav-sign-out`)
-const NavSupportIcon = conceptIcon(`nav-support`)
 const NavTeamSwitcherIcon = conceptIcon(`nav-team-switcher`)
 
 interface TeamMobileTopbarProps {
@@ -157,10 +157,12 @@ export function TeamMobileTopbar({
               <NavAboutIcon className="mr-2 size-4" />
               About
             </DropdownMenuItem>
+            {/* EXP-771: same label and glyph as the sidebar footer entry —
+                one name for the one way into the widget. */}
             {feedbackAvailable && (
               <DropdownMenuItem onClick={() => openFeedbackWidget()}>
-                <NavSupportIcon className="mr-2 size-4" />
-                Feedback & support
+                <NavReportBugIcon className="mr-2 size-4" />
+                Report bug
               </DropdownMenuItem>
             )}
             <DropdownMenuSeparator />

@@ -13,6 +13,9 @@ interface IconSwatchGridProps {
 // EXP-575 it only renders inside `IconPicker`'s popover — forms show the slim
 // trigger, never this grid inline. The search filter it once had was dropped
 // in EXP-390: 60 glyphs scan faster than they search, on every platform.
+//
+// EXP-771 shape rule: icon cells are rounded SQUARES (`rounded-md`, 10px),
+// like the picker trigger that opens them; only COLOR swatches are circles.
 export function IconSwatchGrid({ value, onChange, color }: IconSwatchGridProps) {
   return (
     <div className="flex flex-wrap gap-1.5">

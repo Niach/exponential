@@ -1,11 +1,15 @@
 import { useEffect, useState } from "react"
-import { LifeBuoy } from "lucide-react"
 import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
+import { conceptIcon } from "@/lib/icons.generated"
 import { getRuntimeConfig } from "@/lib/runtime-config"
 import { openFeedbackWidget } from "@/components/feedback-widget-provider"
+
+// EXP-317: a cross-client CONCEPT, not a raw lucide import — the natives'
+// bug-report entry uses the same glyph.
+const ReportBugIcon = conceptIcon(`nav-report-bug`)
 
 // One-shot fetch — runtime config is set at deploy time and won't change
 // during a session. Cached at module scope so subsequent mounts don't refetch.
@@ -42,10 +46,12 @@ export function useFeedbackWidgetAvailable(): boolean {
   return available
 }
 
-// Sidebar entry point into the embedded feedback widget (the same widget the
-// FeedbackWidgetProvider mounts as a floating launcher). Renders nothing when
-// the runtime config exposes no widget — EXP-180 removed the legacy
-// public-feedback-board redirect fallback.
+// EXP-771: THE way into the embedded feedback widget on the web. The provider
+// mounts it headless now (no floating launcher anywhere), so this muted
+// sidebar-footer entry — sitting right above "Getting started", same shape,
+// same muted weight — is the one that opens the panel. Renders nothing when
+// the runtime config exposes no widget (every self-hosted instance); EXP-180
+// removed the legacy public-feedback-board redirect fallback.
 export function FeedbackButton() {
   const available = useFeedbackWidgetAvailable()
 
@@ -55,11 +61,11 @@ export function FeedbackButton() {
     <SidebarMenuItem>
       <SidebarMenuButton
         onClick={() => openFeedbackWidget()}
-        aria-label="Feedback & support"
+        aria-label="Report bug"
         className="text-muted-foreground"
       >
-        <LifeBuoy className="size-4" />
-        <span>Feedback &amp; support</span>
+        <ReportBugIcon className="size-4" />
+        <span>Report bug</span>
       </SidebarMenuButton>
     </SidebarMenuItem>
   )

@@ -9,8 +9,9 @@ import type { ExponentialWidgetStub, QueuedCall } from "@exp/widget/types"
 // In-app mount of the embeddable feedback widget: the same loader script a
 // customer would paste, pointed at the cloud's own feedback config (key
 // hardcoded in lib/runtime-config.ts). Cloud-only (runtime config carries no
-// widget on self-hosted instances — there the sidebar FeedbackButton renders
-// nothing). Installed once per page load.
+// widget on self-hosted instances — there the sidebar's Report bug entry
+// renders nothing). Installed once per page load, HEADLESS since EXP-771 —
+// the panel only ever opens from our own chrome.
 type LoadStatus = `idle` | `loading` | `ready` | `failed`
 let status: LoadStatus = `idle`
 
@@ -50,6 +51,10 @@ export function openFeedbackWidget(): boolean {
 // the phone issue-detail properties sheet). The panel is untouched, so a
 // half-typed report survives. Optional-chained on the method too: a cached
 // pre-EXP-642 loader has replaced the stub without it.
+//
+// EXP-771: a NO-OP in this app now — the in-app mount is headless
+// (`showButton: false`), so there is no launcher left to hide. Kept as the
+// widget API's own affordance, for a host whose UI does cover the corner.
 export function setFeedbackLauncherHidden(hidden: boolean): void {
   if (status === `idle` || status === `failed`) return
   window.ExponentialWidget?.setLauncherHidden?.(hidden)
@@ -76,11 +81,19 @@ export function FeedbackWidgetProvider() {
     installSnippetStub()
     window.ExponentialWidget!.init({
       key: widget.widgetKey,
-      // Dogfood the floating launcher like any customer site (EXP-163). The
-      // sidebar's FeedbackButton stays as a second entry point. NOTHING is
-      // pinned here (EXP-642): the stored widget config decides the launcher
-      // on every device, so the owner-picked nudge reaches desktop too
-      // instead of only viewports under 767px.
+      // EXP-771: HEADLESS on the web app. The sidebar's "Report bug" entry is
+      // the ONE way in now (`openFeedbackWidget()`); a floating launcher on
+      // top of our own chrome was one corner-camping button too many, and it
+      // collided with the phone bars. A customer site still gets the launcher
+      // — only this in-app mount opts out.
+      showButton: false,
+      // The panel is positioned from the RESOLVED launcher even when no
+      // button renders (packages/widget resolveLauncher), and an init
+      // `launcher` field wins over the served config. Pin desktop bottom-LEFT
+      // so the panel opens beside the sidebar footer, where the button that
+      // opened it lives. Mobile is left at its default: there the panel is a
+      // bottom sheet and the placement barely reads.
+      launcher: { desktop: { mode: `fab`, position: `bottom-left` } },
     })
     window.ExponentialWidget!.setCustomData({
       app: `exponential-web`,

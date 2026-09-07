@@ -47,7 +47,11 @@ export function IconPicker({
           disabled={disabled}
           aria-label={value ? `Icon: ${value}` : `Pick an icon`}
           title={value || `Pick an icon`}
-          className={`h-9 w-9 shrink-0 p-0 ${Icon ? `` : `border-dashed text-muted-foreground`}`}
+          // EXP-771 shape rule: an icon-only ACTION is a circle (the Button
+          // base), an icon PICKER is a rounded SQUARE — it previews a swatch,
+          // and the grid it opens is squares (`IconSwatchGrid`). `rounded-md`
+          // is 10px here (`--radius` 12px − 2), the swatches' radius.
+          className={`h-9 w-9 shrink-0 rounded-md p-0 ${Icon ? `` : `border-dashed text-muted-foreground`}`}
         >
           {Icon ? (
             <Icon className="h-4 w-4" style={color ? { color } : undefined} />

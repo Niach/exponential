@@ -18,6 +18,7 @@ import {
 } from "@/lib/session-identity"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useKillSession } from "@/hooks/use-kill-session"
+import { DOCK_BAND_CLASS } from "@/components/team/app-shell"
 import { useOpenSession } from "@/hooks/use-open-session"
 import { useChromeHeightVar } from "@/hooks/use-chrome-height-var"
 
@@ -30,9 +31,11 @@ import { useChromeHeightVar } from "@/hooks/use-chrome-height-var"
 // full-height in the content panel. That killed the drag-resize, the 85 vh
 // cap, the fullscreen toggle and the mobile takeover along with it.
 //
-// The strip is the team panel's LAST flex child at a fixed `h-9`, so it needs
-// no `sticky`/`z-*`/glass of its own; it renders even with zero sessions,
-// because the Chat button is always reachable.
+// EXP-771: the strip sits BELOW the cutout card, on the bare page ground, as
+// a 36px band the team layout lays out for it (`DOCK_BAND_CLASS`) — it is not
+// the card's last flex child any more. So it needs no `sticky`/`z-*`/glass and
+// no border of its own; it renders even with zero sessions, because the Chat
+// button is always reachable.
 // Desktop-only chrome (EXP-193): phones get no strip at all — sessions are
 // reached from the Devices tab, the issue's Watch button and the chat FAB.
 
@@ -96,7 +99,7 @@ export function AgentDock({
   return (
     <div
       ref={publishDockHeight}
-      className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-t border-border/60 px-2"
+      className={DOCK_BAND_CLASS}
     >
       <div role="tablist" className="flex min-w-0 items-center gap-1">
         {running.map((row) => (
