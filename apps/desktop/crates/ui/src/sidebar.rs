@@ -1475,11 +1475,13 @@ impl Render for RailView {
             // EXP-285/EXP-293 history: the rail used to be the app's ONE
             // lighter column, painting a `FILL_SECTION` wash over the Shell's
             // sidebar-alpha ramp. EXP-723 took the wash away and gave the
-            // brightness step to the CONTENT side instead: the content column
-            // now floats a rounded `FILL_PANEL` card over the same ground, so
-            // a wash here would make the rail read brighter than the panel and
-            // undo the cutout. The rail paints NOTHING — the Shell's left
-            // column owns both the ramp and the window's left frame corners.
+            // brightness step to the CONTENT side instead: the content
+            // floats a rounded `FILL_PANEL` card over the ground, so a wash
+            // here would make the rail read brighter than the panel and undo
+            // the cutout. EXP-767 then dropped the column's own glassier ramp
+            // too. The rail paints NOTHING — it sits implicitly on the ONE
+            // ground the Shell ROOT paints under the whole window, with no
+            // edge where it meets the content.
             .text_color(cx.theme().sidebar_foreground)
             .children(top_strip)
             .child(self.render_header(cx))

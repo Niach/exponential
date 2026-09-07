@@ -67,12 +67,13 @@ pub fn open_shell_window(cx: &mut App) {
             // min/max/close + Snap Layouts.
             titlebar: Some(gpui_component::TitleBar::title_bar_options()),
             // EXP-290 glass: a non-opaque window with behind-window blur, so
-            // the translucent page gradient (`theme::glass_sidebar_alpha` /
-            // `glass_content_alpha`) lets the desktop show through. macOS gets a
-            // real `NSVisualEffectView` backdrop; Wayland asks the compositor's
-            // blur manager (KDE protocol) and degrades to plain transparency
-            // where it is absent, which is also what X11 does. That degrade is
-            // still worth asking for here — it is harmless (Linux CSD already
+            // the translucent page gradient (`theme::glass_ground_alpha`, ONE
+            // value under the whole window) lets the desktop show through.
+            // macOS gets a real `NSVisualEffectView` backdrop; Wayland asks the
+            // compositor's blur manager (KDE protocol) and degrades to plain
+            // transparency where it is absent, which is also what X11 does.
+            // That degrade is still worth asking for here — it is harmless
+            // (Linux CSD already
             // REQUIRES a non-opaque window: the shadow margins and rounded
             // corners of `ui::window_frame` can only composite against
             // transparency; X11 without a compositor falls back to Server

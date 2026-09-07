@@ -796,13 +796,11 @@ impl Render for SettingsNavPanel {
             .size_full()
             .min_w_0()
             .overflow_hidden()
-            // EXP-456/EXP-303: the nav is the window's glass column now —
-            // the rail's exact material: the ONE solid section wash over the
-            // column's sidebar-alpha ramp, rounding the window's left frame
-            // corners itself (rectangular content masks cannot clip it).
-            .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
-            .rounded_tl(crate::window_frame::frame_radii(window).top_left)
-            .rounded_bl(crate::window_frame::frame_radii(window).bottom_left)
+            // EXP-456: the nav takes the rail's slot, so it wears the rail's
+            // exact material — which since EXP-723/EXP-767 is NOTHING: no
+            // section wash, no ramp, no rounded corners. It sits on the
+            // Shell root's one ground like the rail does (a wash here read as
+            // a lighter block with a hard right edge next to the content).
             .text_color(cx.theme().sidebar_foreground)
             // EXP-760: no strip means no 34px reserve — the back row takes
             // the same 8px top inset the rail's first row does.
