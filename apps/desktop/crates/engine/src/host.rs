@@ -29,7 +29,7 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use agent_client_protocol::schema::v1::{
     BooleanConfigOptionCapabilities, CancelNotification, ClientCapabilities,
@@ -221,6 +221,29 @@ pub(crate) enum EngineCommand {
 /// One user message as ACP content blocks.
 pub(crate) fn text_blocks(text: &str) -> Vec<ContentBlock> {
     vec![ContentBlock::Text(TextContent::new(text))]
+}
+
+/// FEED-25: does this mapping step count as the agent being alive? Anything
+/// but a bare worktree `diff` snapshot does (the lifecycle ticker produces
+/// those on its own clock), and so does a turn-end edge. The two flags alone
+/// do not: `Cancel`'s bookkeeping flips `needs_input` without the agent
+/// having said a word, and the watchdog must not read its own interrupt as
+/// a sign of life.
+pub(crate) fn out_is_activity(out: &MapOut) -> bool {
+    let wire = out
+        .wire
+        .iter()
+        .any(|event| !matches!(event, steer::ActivityEvent::Diff { .. }));
+    let local = out.local.iter().any(|event| {
+        !matches!(
+            event,
+            LocalFeedEvent::Activity {
+                event: steer::ActivityEvent::Diff { .. },
+                ..
+            }
+        )
+    });
+    wire || local || out.idle == Some(true)
 }
 
 // ---------------------------------------------------------------------------
@@ -714,6 +737,14 @@ pub(crate) struct SessionCtx {
     pub(crate) ids: Mutex<SessionIds>,
     /// EXP-214: the latest pending flag; the lifecycle ticker forwards it.
     pub(crate) needs_input: AtomicBool,
+    /// FEED-25: when the agent last produced anything the mapper emitted (or
+    /// a turn edge) — the stall watchdog's clock. The `diff` ticker's own
+    /// snapshots never advance it.
+    pub(crate) last_activity: Mutex<Instant>,
+    /// FEED-25: the reason a watchdog ended this run, surfaced as
+    /// `EnginePhase::Failed` ahead of `Ended` (the connection itself did not
+    /// error, so nothing else would say why).
+    pub(crate) failure: Mutex<Option<String>>,
     pub(crate) exit: ExitState,
     /// Set by `Shutdown`; wins over the child's exit code.
     pub(crate) outcome: Mutex<Option<&'static str>>,
@@ -730,6 +761,9 @@ impl SessionCtx {
     /// host, and the two flags to their owners. The ONLY place events leave
     /// the mapper.
     pub(crate) fn dispatch(&self, out: MapOut) {
+        if out_is_activity(&out) {
+            self.touch_activity();
+        }
         if let Some(sink) = self.sink.get() {
             for event in out.wire {
                 sink.send(event);
@@ -754,6 +788,31 @@ impl SessionCtx {
         if let Some(idle) = out.idle {
             self.turn_signal.set_idle(idle);
         }
+    }
+
+    /// FEED-25: the agent (or a turn edge) just said something.
+    pub(crate) fn touch_activity(&self) {
+        if let Ok(mut at) = self.last_activity.lock() {
+            *at = Instant::now();
+        }
+    }
+
+    pub(crate) fn last_activity(&self) -> Instant {
+        self.last_activity
+            .lock()
+            .map(|at| *at)
+            .unwrap_or_else(|poisoned| *poisoned.into_inner())
+    }
+
+    /// FEED-25: record why a watchdog is ending this run. First reason wins.
+    pub(crate) fn set_failure(&self, reason: String) {
+        if let Ok(mut slot) = self.failure.lock() {
+            slot.get_or_insert(reason);
+        }
+    }
+
+    pub(crate) fn take_failure(&self) -> Option<String> {
+        self.failure.lock().ok().and_then(|mut slot| slot.take())
     }
 
     /// A local-only edge (phases): never a wire event.
@@ -1449,6 +1508,46 @@ mod tests {
             .elicitation
             .as_ref()
             .is_some_and(|elicitation| elicitation.supports_form()));
+    }
+
+    // ── FEED-25: what counts as the agent being alive ─────────────────────
+
+    #[test]
+    fn a_diff_snapshot_or_a_bare_flag_flip_is_not_activity() {
+        let diff = steer::ActivityEvent::Diff {
+            diff: "--- a\n+++ b\n".to_string(),
+            at: None,
+        };
+        let mut ticker = MapOut::default();
+        ticker.wire.push(diff.clone());
+        ticker.local.push(LocalFeedEvent::Activity {
+            event: diff,
+            tool_call_id: None,
+        });
+        assert!(!out_is_activity(&ticker), "the diff ticker runs on its own clock");
+
+        // `Cancel`'s bookkeeping: flags only, nothing the agent said.
+        let mut cancel = MapOut::default();
+        cancel.needs_input = Some(false);
+        assert!(!out_is_activity(&cancel));
+
+        let mut spoke = MapOut::default();
+        spoke.wire.push(steer::ActivityEvent::narration("still here"));
+        assert!(out_is_activity(&spoke));
+
+        let mut card = MapOut::default();
+        card.local.push(LocalFeedEvent::Plan {
+            entries: Vec::new(),
+        });
+        assert!(out_is_activity(&card));
+
+        // A turn-end edge resets the clock even when it carries no event.
+        let mut stopped = MapOut::default();
+        stopped.idle = Some(true);
+        assert!(out_is_activity(&stopped));
+        let mut started = MapOut::default();
+        started.idle = Some(false);
+        assert!(!out_is_activity(&started));
     }
 
     // ── The local feed's backlog and its latest-wins state (review UI-2) ───

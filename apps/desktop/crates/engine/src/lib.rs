@@ -38,6 +38,10 @@ pub mod local;
 pub mod mapper;
 pub mod session;
 pub mod sink;
+// FEED-25: the stall watchdog — a live turn silent for `STALL_AFTER` is
+// interrupted, one that ignores the interrupt for `STALL_KILL_GRACE` ends the
+// run with a reason. Pure; the lifecycle ticker drives it.
+pub mod stall;
 // EXP-750: the ACP `terminal/*` capability. Session-owned, host-local: the
 // registry lives on `SessionCtx` and nothing it produces leaves the machine.
 mod terminals;

@@ -41,9 +41,9 @@ use terminal::TerminalManager;
 
 use crate::agent::{AgentKind, CodingAgent};
 use crate::argv::{
-    session_args, AgentMcp, LaunchOptions, SessionIdentity, SessionTail, HOOK_CONFIG_ENV,
-    HOOK_PORT_ENV, MCP_SESSION_ID_ENV, MCP_TOKEN_ENV, MCP_URL_ENV, OBSERVER_TOKEN_ENV,
-    OBSERVER_URL_ENV,
+    session_args, AgentMcp, LaunchOptions, SessionIdentity, SessionTail,
+    CLAUDE_MCP_TOOL_TIMEOUT_ENV, CLAUDE_MCP_TOOL_TIMEOUT_MS, HOOK_CONFIG_ENV, HOOK_PORT_ENV,
+    MCP_SESSION_ID_ENV, MCP_TOKEN_ENV, MCP_URL_ENV, OBSERVER_TOKEN_ENV, OBSERVER_URL_ENV,
 };
 use crate::action_prompt::{
     chat_prompt, render_action_prompt_full, render_run_resume_prompt, ActionInputValue,
@@ -1371,10 +1371,15 @@ fn apply_mcp_env(
     let spawn = match agent {
         // EXP-746: the ACP arm's inline `--mcp-config` reads the key from the
         // env (`${EXP_MCP_TOKEN}`); the PTY arm keeps it in `.exp-mcp.json`.
-        CodingAgent::Claude if transport == LaunchTransport::Acp => spawn
-            .env(MCP_URL_ENV, mcp_url(base_url))
-            .env(MCP_TOKEN_ENV, personal_key),
-        CodingAgent::Claude => spawn,
+        CodingAgent::Claude if transport == LaunchTransport::Acp => with_claude_mcp_timeout(
+            spawn
+                .env(MCP_URL_ENV, mcp_url(base_url))
+                .env(MCP_TOKEN_ENV, personal_key),
+            std::env::var_os(CLAUDE_MCP_TOOL_TIMEOUT_ENV),
+        ),
+        CodingAgent::Claude => {
+            with_claude_mcp_timeout(spawn, std::env::var_os(CLAUDE_MCP_TOOL_TIMEOUT_ENV))
+        }
         CodingAgent::Codex => spawn.env(MCP_TOKEN_ENV, personal_key),
         CodingAgent::Pi => spawn
             .env(MCP_URL_ENV, mcp_url(base_url))
@@ -1390,6 +1395,17 @@ fn apply_mcp_env(
         Some(id) => spawn.env(MCP_SESSION_ID_ENV, id),
         None => spawn,
     }
+}
+
+/// FEED-25: bound every claude MCP call (both transports — the PTY child and
+/// the ACP child run with the same [`SpawnSpec`] env). `inherited` is the
+/// host's own `MCP_TOOL_TIMEOUT`: a user who tuned it keeps their value, the
+/// launcher only fills the CLI's no-timeout default.
+fn with_claude_mcp_timeout(spawn: SpawnSpec, inherited: Option<std::ffi::OsString>) -> SpawnSpec {
+    if inherited.is_some_and(|value| !value.is_empty()) {
+        return spawn;
+    }
+    spawn.env(CLAUDE_MCP_TOOL_TIMEOUT_ENV, CLAUDE_MCP_TOOL_TIMEOUT_MS.to_string())
 }
 
 /// EXP-637: everything between `codingSessions.start` and the spawn can
@@ -4854,6 +4870,51 @@ Claude Code 2.1.240 has no ACP control protocol."
         assert!(acp.env.iter().any(|(k, v)| k == MCP_TOKEN_ENV && v == "expu_k"));
         assert!(acp.env.iter().any(|(k, v)| k == MCP_URL_ENV && v == "http://x/api/mcp"));
         assert!(acp.env.iter().any(|(k, v)| k == MCP_SESSION_ID_ENV && v == "s"));
+    }
+
+    /// FEED-25: a claude child carries a finite per-call MCP timeout on BOTH
+    /// transports (the CLI's own default is 27 hours); codex and pi have their
+    /// own bounds and never see the variable.
+    #[test]
+    fn apply_mcp_env_bounds_claude_mcp_calls_on_both_arms() {
+        let timeout = |spawn: &SpawnSpec| {
+            spawn
+                .env
+                .iter()
+                .find(|(k, _)| k == CLAUDE_MCP_TOOL_TIMEOUT_ENV)
+                .map(|(_, v)| v.clone())
+        };
+        let base = SpawnSpec::new("agent");
+        for transport in [LaunchTransport::Terminal, LaunchTransport::Acp] {
+            let claude = apply_mcp_env(base.clone(), &AgentKind::Builtin(CodingAgent::Claude), "http://x/", "expu_k", Some("s"), transport);
+            // The host's own value wins when set; the test process may carry
+            // one, so only the shape is pinned here — the pure helper below
+            // pins the fill-the-gap rule.
+            if std::env::var_os(CLAUDE_MCP_TOOL_TIMEOUT_ENV).is_none_or(|v| v.is_empty()) {
+                assert_eq!(timeout(&claude), Some(CLAUDE_MCP_TOOL_TIMEOUT_MS.to_string()), "{transport:?}");
+            }
+            let codex = apply_mcp_env(base.clone(), &AgentKind::Builtin(CodingAgent::Codex), "http://x/", "expu_k", Some("s"), transport);
+            assert_eq!(timeout(&codex), None, "{transport:?}");
+            let pi = apply_mcp_env(base.clone(), &AgentKind::Builtin(CodingAgent::Pi), "http://x/", "expu_k", Some("s"), transport);
+            assert_eq!(timeout(&pi), None, "{transport:?}");
+        }
+    }
+
+    #[test]
+    fn the_claude_mcp_timeout_only_fills_the_gap() {
+        let base = SpawnSpec::new("claude");
+        let filled = with_claude_mcp_timeout(base.clone(), None);
+        assert_eq!(
+            filled.env,
+            vec![(CLAUDE_MCP_TOOL_TIMEOUT_ENV.to_string(), "120000".to_string())]
+        );
+        // An empty inherited value is no value.
+        let empty = with_claude_mcp_timeout(base.clone(), Some(std::ffi::OsString::new()));
+        assert_eq!(empty.env, filled.env);
+        // A tuned host keeps its own number: nothing is pushed, so the child
+        // inherits the parent's variable untouched.
+        let tuned = with_claude_mcp_timeout(base, Some(std::ffi::OsString::from("30000")));
+        assert!(tuned.env.is_empty(), "{:?}", tuned.env);
     }
 
     /// The repo-less action-scratch flow keeps working: no governing work

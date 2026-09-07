@@ -533,6 +533,8 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
         terminals: Default::default(),
         ids: Mutex::new(SessionIds::default()),
         needs_input: AtomicBool::new(false),
+        last_activity: Mutex::new(std::time::Instant::now()),
+        failure: Mutex::new(None),
         exit: ExitState::default(),
         outcome: Mutex::new(None),
         child_exit: spec.child_exit,
@@ -574,7 +576,12 @@ where
                     adapter,
                     inbox,
                 ));
-            let error = result.err().map(|err| err.to_string());
+            // FEED-25: a watchdog end is not a connection error, but it has
+            // a reason the banner must show.
+            let error = result
+                .err()
+                .map(|err| err.to_string())
+                .or_else(|| thread_ctx.take_failure());
             let outcome = thread_ctx.end_outcome();
             let child = thread_ctx.child_exit.get();
             lifecycle.end(&thread_ctx, host.as_ref(), &outcome, child, error);

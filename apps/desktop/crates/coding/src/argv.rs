@@ -43,6 +43,18 @@ pub const MCP_URL_ENV: &str = "EXP_MCP_URL";
 /// it only names the row the launcher just created for this run.
 pub const MCP_SESSION_ID_ENV: &str = "EXP_MCP_SESSION_ID";
 
+/// FEED-25: claude's per-call MCP wall-clock timeout, in milliseconds. The
+/// CLI (2.1.263) defaults it to 1e8 ms — 27 hours, i.e. none — so a
+/// `tools/call` whose response is lost inside its HTTP client never settles
+/// and the whole turn wedges: every later steer message is enqueued and never
+/// dequeued, and the run sits "running" for hours. With the variable set, a
+/// lost response surfaces as an ordinary tool error the model recovers from.
+/// Generous against everything `/api/mcp` does (`sessions_start` polls 10 s,
+/// GitHub-backed diffs take seconds); a user's own value in the host env
+/// wins ([`crate::launcher`] only fills the gap).
+pub const CLAUDE_MCP_TOOL_TIMEOUT_ENV: &str = "MCP_TOOL_TIMEOUT";
+pub const CLAUDE_MCP_TOOL_TIMEOUT_MS: u64 = 120_000;
+
 /// EXP-249 — the hooks sidecar's spawn env (mirrors `steer::hooks`'
 /// `HOOK_PORT_ENV`/`HOOK_CONFIG_ENV`; the two crates cannot depend on each
 /// other, §3.1). The `--settings` file's hook commands expand these at hook
