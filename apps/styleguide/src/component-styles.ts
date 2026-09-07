@@ -131,7 +131,7 @@ export const componentStyles = `
 }
 
 /* ------------------------------------------------------------- rich tab */
-/* The STRIP tab — desktop's top tab strip and terminal dock, web's agent dock.
+/* The STRIP tab — desktop's top tab strip and session bar, web's agent dock.
    Not a pill: it carries a status, an identifier and a close, and a dozen of
    them sit side by side, so it draws no chrome until it is hovered or active. */
 .cmp-rich-tab {
@@ -407,85 +407,34 @@ export const componentStyles = `
   background: var(--popover);
 }
 
-/* ------------------------------------------------------------ dock header */
-/* The open dock's own chrome: window controls on top, tabs below. */
-.cmp-dock-header {
-  border: 1px solid var(--stroke);
-  border-radius: var(--r-lg);
-  background: var(--popover);
-  overflow: hidden;
-}
-.cmp-dock-header .header {
+/* ------------------------------------------------------------ session bar */
+/* The bottom strip of coding tabs (EXP-769): rich tabs, then the Chat and
+   add tools right after the last one, on a row hairline inside the card. */
+.cmp-session-bar {
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 2px;
-  height: 28px;
-  padding: 0 6px;
-}
-.cmp-dock-header .strip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px;
-  border-top: 1px solid var(--stroke);
-}
-.cmp-dock-header .tool {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: none;
-  border-radius: var(--r-sm);
-  background: none;
-  color: var(--fg-50);
-  cursor: pointer;
-  transition: background var(--dur) var(--ease);
-}
-.cmp-dock-header .tool:hover { background: var(--active); color: var(--fg); }
-.cmp-dock-header .tool .glyph { width: 14px; height: 14px; }
-.cmp-app-shell .add, .cmp-dock-header .add {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: none;
-  border-radius: var(--r-sm);
-  background: none;
-  color: var(--fg-50);
-  cursor: pointer;
-  transition: background var(--dur) var(--ease);
-}
-.cmp-app-shell .add:hover, .cmp-dock-header .add:hover { background: var(--active); color: var(--fg); }
-.cmp-app-shell .add .glyph, .cmp-dock-header .add .glyph { width: 14px; height: 14px; }
-
-/* The COLLAPSED dock's other form (EXP-742): the glass card on the opaque
-   popover fill, floating in the panel's bottom-right corner. It carries the
-   strip's own rich tabs, so it is the strip folded into a corner rather than
-   a new control; the dot and count are the whole bubble when nothing fits. */
-.cmp-dock-bubble {
-  display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 4px 4px 6px;
-  border: 1px solid var(--stroke);
-  border-radius: var(--r-xl);
-  background: var(--popover);
+  height: 36px;
+  padding: 0 8px;
+  border-top: 1px solid var(--stroke-soft);
+}
+.cmp-session-bar .tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--fg-50);
   cursor: pointer;
+  transition: background var(--dur) var(--ease);
 }
-.cmp-dock-bubble .dot { flex: none; width: 6px; height: 6px; margin-left: 4px; border-radius: 50%; color: var(--ok); background: currentColor; }
-.cmp-dock-bubble .amount {
-  margin-right: 2px;
-  color: var(--fg-70);
-  font-size: 12px;
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-}
-.cmp-dock-bubble .caption { padding: 0 4px; color: var(--fg-50); font-size: 12px; }
-.cmp-dock-bubble .tool {
+.cmp-session-bar .tool:hover { background: var(--active); color: var(--fg); }
+.cmp-session-bar .tool .glyph { width: 14px; height: 14px; }
+.cmp-app-shell .add {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -499,8 +448,8 @@ export const componentStyles = `
   cursor: pointer;
   transition: background var(--dur) var(--ease);
 }
-.cmp-dock-bubble .tool:hover { background: var(--active); color: var(--fg); }
-.cmp-dock-bubble .tool .glyph { width: 14px; height: 14px; }
+.cmp-app-shell .add:hover { background: var(--active); color: var(--fg); }
+.cmp-app-shell .add .glyph { width: 14px; height: 14px; }
 
 /* ---------------------------------------------------------- comment card */
 /* The avatar rides the timeline gutter; the card holds everything else. The

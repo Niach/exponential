@@ -167,6 +167,10 @@ pub(crate) fn build_screen_content(
                 crate::session_screen::SessionScreenView::remote(session_id.clone(), window, cx)
             })
             .into(),
+        // EXP-769: a terminal pops out through `undock::open_undocked_terminal_tab`
+        // (the manager keeps the tab; the window renders the same view) —
+        // never through here. Kept total for the compiler.
+        Screen::Terminal { .. } => cx.new(|_| NeverUndocked).into(),
         // Never undockable — unreachable via the undock path, kept total for
         // the compiler.
         Screen::Devices => cx
@@ -188,12 +192,68 @@ pub(crate) fn build_screen_content(
     }
 }
 
+/// The stand-in view for a screen kind that is never undocked
+/// (`Screen::undockable` is false for it) — `build_screen_content` stays a
+/// total match without inventing a real view for a path nothing takes.
+struct NeverUndocked;
+
+impl Render for NeverUndocked {
+    fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        div()
+    }
+}
+
 /// One open tab: the detail screen it shows plus the sidebar entry it was
 /// opened from (EXP-288 — activating the tab re-selects that entry).
 #[derive(Clone)]
 struct TabEntry {
     screen: Screen,
     origin: TabOrigin,
+}
+
+/// EXP-769: one entry of the bottom session bar, in bar order — the web
+/// `AgentDock`'s tab list. The bar is a second VIEW of the panel's one tab
+/// list (its [`Screen::is_dock_tab`] entries) plus, web parity, every live
+/// run of the caller's that has no tab open yet: a run started remotely, by
+/// an automation, or from Devices is one click away without a hunt through
+/// the Devices page, and it opens on click like any tab.
+enum DockEntry {
+    /// An open tab (`ix` into `ScreensPanel::tabs`).
+    Open { ix: usize, screen: Screen },
+    /// A live run of the caller's with no open tab; clicking opens one.
+    Running { session_id: String },
+}
+
+impl DockEntry {
+    fn screen(&self) -> Screen {
+        match self {
+            DockEntry::Open { screen, .. } => screen.clone(),
+            DockEntry::Running { session_id } => Screen::Session {
+                session_id: session_id.clone(),
+            },
+        }
+    }
+}
+
+/// EXP-769: what a session-bar chip's × does (web `DockTab` semantics).
+#[derive(Clone)]
+enum DockClose {
+    /// A terminal: close it (the child is killed) — the retired dock's cmd-w.
+    CloseTerminal(terminal::TabId),
+    /// A live run of the caller's: kill it, after the confirm.
+    Kill(crate::session_bar::KillTarget),
+    /// An ended run's transcript tab: just close the tab.
+    CloseTab(Screen),
+}
+
+impl DockClose {
+    fn label(&self) -> &'static str {
+        match self {
+            DockClose::CloseTerminal(_) => "Close terminal",
+            DockClose::Kill(_) => "Kill session",
+            DockClose::CloseTab(_) => "Close",
+        }
+    }
 }
 
 /// Shaped width of a single line, in pixels (EXP-326).
@@ -314,10 +374,33 @@ pub(crate) fn partition_tabs(
 /// chip, where `screen_title`'s identifier fallback would render it twice.
 /// Non-issue tabs (and issue rows not yet synced) keep the plain
 /// `screen_title`.
+///
+/// EXP-769: the session bar's chips are built from the same struct — a
+/// session chip adds the web `RichTab`'s trailing ` · machine` caption and a
+/// terminal chip its exit-code badge.
 struct ChipContent {
     lead: ChipLead,
     identifier: Option<gpui::SharedString>,
     title: Option<gpui::SharedString>,
+    /// EXP-769: a trailing muted caption (` · machine`) — session chips only.
+    caption: Option<gpui::SharedString>,
+    /// EXP-769: a tinted exit-code badge — terminal chips whose child exited.
+    badge: Option<(gpui::SharedString, gpui::Hsla)>,
+    /// EXP-769: a paused host's chip dims whole (EXP-696, web `paused`).
+    paused: bool,
+}
+
+impl ChipContent {
+    fn plain(title: gpui::SharedString) -> Self {
+        Self {
+            lead: ChipLead::None,
+            identifier: None,
+            title: Some(title),
+            caption: None,
+            badge: None,
+            paused: false,
+        }
+    }
 }
 
 /// A chip's leading glyph (EXP-426). Cloneable — the overflow dropdown
@@ -330,9 +413,12 @@ enum ChipLead {
     /// Resolution is per-issue, so it stays correct on this cross-team strip
     /// — only GROUPING is team-scoped.
     Status(domain::statuses::ResolvedStatus),
-    /// EXP-746: a liveness tone dot — the session screen's chip, mirroring
-    /// the terminal dock's remote chips.
+    /// EXP-746: a liveness tone dot — the session chip (web `tabStatus`).
     Dot(gpui::Hsla),
+    /// EXP-769: the `session-shell` glyph — a plain terminal chip (EXP-723: a
+    /// chip carrying only a title read as a nameless tab next to the issue
+    /// chips' status glyphs).
+    Shell,
 }
 
 impl ChipLead {
@@ -342,6 +428,7 @@ impl ChipLead {
         match self {
             ChipLead::None | ChipLead::Dot(_) => None,
             ChipLead::Status(status) => Some(crate::icons::resolved_status_icon(status, cx)),
+            ChipLead::Shell => Some(Icon::new(registry::SESSION_SHELL)),
         }
     }
 }
@@ -360,40 +447,143 @@ fn lead_reserve_rems(lead: &ChipLead) -> f32 {
     const LEAD_DOT_REMS: f32 = 0.375;
     match lead {
         ChipLead::None => 0.,
-        ChipLead::Status(_) => LEAD_ICON_REMS,
+        ChipLead::Status(_) | ChipLead::Shell => LEAD_ICON_REMS,
         ChipLead::Dot(_) => LEAD_DOT_REMS,
     }
 }
 
-/// EXP-746: a session chip's liveness dot. Deliberately the SAME tones the
-/// dock's remote chips wear (`terminal_dock::remote_chip_tone`) — one strip
-/// entry per run, one vocabulary, wherever it is hosted.
-fn session_chip_tone(session_id: &str, cx: &App) -> gpui::Hsla {
+/// EXP-746/EXP-769: a session chip, the web `DockTab` piece for piece — the
+/// liveness dot (`tabStatus`), the issue identifier in the mono slot, the
+/// subject, and the ` · machine` caption; a paused host dims the chip. Every
+/// degrade (no row yet, the issue still syncing) lands on the generic label,
+/// like an issue tab's "Issue" — a tab is chrome, so it never renders a
+/// transient status string.
+fn session_chip_content(session_id: &str, cx: &App) -> ChipContent {
     let muted = cx.theme().muted_foreground.opacity(0.5);
     let Some(store) = Store::try_global(cx) else {
-        return muted;
+        return ChipContent {
+            lead: ChipLead::Dot(muted),
+            ..ChipContent::plain("Session".into())
+        };
     };
     let collections = store.collections();
     let sessions = collections.coding_sessions.read(cx);
     let Some(row) = sessions.get(session_id) else {
-        return muted;
+        return ChipContent {
+            lead: ChipLead::Dot(muted),
+            ..ChipContent::plain("Session".into())
+        };
     };
+    let issues = collections.issues.read(cx);
+    let issue = row.issue_id.as_deref().and_then(|issue_id| issues.get(issue_id));
+    let (identifier, title): (Option<gpui::SharedString>, gpui::SharedString) = match issue {
+        Some(issue) => {
+            let title = issue.title.trim();
+            (
+                Some(gpui::SharedString::from(issue.identifier.clone())),
+                if title.is_empty() {
+                    "Untitled issue".into()
+                } else {
+                    title.to_string().into()
+                },
+            )
+        }
+        None if row.issue_id.is_some() => (None, "Session".into()),
+        None => (
+            None,
+            row.action_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .map(|name| gpui::SharedString::from(name.to_string()))
+                // An issue-less, action-less run is a batch (`exp/batch-<id8>`).
+                .unwrap_or_else(|| "Batch".into()),
+        ),
+    };
+    let now = chrono::Utc::now().timestamp();
+    let presentation = crate::queries::session_device_presentation(
+        row,
+        collections.devices.read(cx).iter(),
+        now * 1_000,
+    );
+    let caption = presentation
+        .label
+        .as_deref()
+        .map(str::trim)
+        .filter(|label| !label.is_empty())
+        .map(|label| gpui::SharedString::from(format!("· {label}")));
     // An ended run keeps its tab as a read-only transcript — its dot says so
     // rather than claiming the agent is still working.
-    if row.status.as_deref() == Some(domain::contract::CODING_SESSION_STATUS_ENDED) {
-        return muted;
+    let ended = row.status.as_deref() == Some(domain::contract::CODING_SESSION_STATUS_ENDED);
+    let display = crate::queries::coding_session_display(
+        row,
+        issue
+            .and_then(|issue| issue.pr_state.as_deref())
+            .or(row.pr_state.as_deref()),
+    );
+    let paused = !ended && crate::queries::session_is_paused(display, &presentation);
+    let tone = if ended || paused {
+        muted
+    } else {
+        match display {
+            crate::queries::CodingSessionDisplay::NeedsInput => theme::tokens::YELLOW.to_hsla(),
+            crate::queries::CodingSessionDisplay::Done => theme::tokens::BLUE.to_hsla(),
+            crate::queries::CodingSessionDisplay::Review
+            | crate::queries::CodingSessionDisplay::Running => theme::tokens::GREEN.to_hsla(),
+        }
+    };
+    ChipContent {
+        lead: ChipLead::Dot(tone),
+        identifier,
+        title: Some(title),
+        caption,
+        badge: None,
+        paused,
     }
-    let pr_state = row
-        .issue_id
-        .as_deref()
-        .and_then(|issue_id| collections.issues.read(cx).get(issue_id).cloned())
-        .and_then(|issue| issue.pr_state);
-    match crate::queries::coding_session_display(row, pr_state.as_deref()) {
-        crate::queries::CodingSessionDisplay::NeedsInput => theme::tokens::YELLOW.to_hsla(),
-        crate::queries::CodingSessionDisplay::Done => theme::tokens::BLUE.to_hsla(),
-        crate::queries::CodingSessionDisplay::Review
-        | crate::queries::CodingSessionDisplay::Running => theme::tokens::GREEN.to_hsla(),
-    }
+}
+
+/// EXP-769: a terminal chip — the retired dock strip's local chip: an issue
+/// coding run on the PTY path renders the center issue-tab treatment (status
+/// glyph + mono identifier + synced title), everything else the terminal
+/// glyph and the tab's own title; an exited child adds its code as a badge.
+fn terminal_chip_content(tab: terminal::TabId, cx: &App) -> ChipContent {
+    let Some(manager) = crate::session_bar::manager_for_tab(tab, cx) else {
+        return ChipContent {
+            lead: ChipLead::Shell,
+            ..ChipContent::plain("Terminal".into())
+        };
+    };
+    let manager = manager.read(cx);
+    let Some(entry) = manager.tab(tab) else {
+        return ChipContent {
+            lead: ChipLead::Shell,
+            ..ChipContent::plain("Terminal".into())
+        };
+    };
+    let badge = entry.exit_code().map(|code| {
+        let color = if code == 0 {
+            cx.theme().success
+        } else {
+            cx.theme().danger
+        };
+        (gpui::SharedString::from(code.to_string()), color)
+    });
+    let mut content = match crate::session_bar::issue_tab_meta(tab, cx) {
+        Some(issue) => ChipContent {
+            lead: ChipLead::Status(issue.status),
+            identifier: Some(issue.identifier),
+            title: issue.title,
+            caption: None,
+            badge: None,
+            paused: false,
+        },
+        None => ChipContent {
+            lead: ChipLead::Shell,
+            ..ChipContent::plain(entry.title().clone())
+        },
+    };
+    content.badge = badge;
+    content
 }
 
 fn chip_content(screen: &Screen, cx: &App) -> ChipContent {
@@ -401,11 +591,10 @@ fn chip_content(screen: &Screen, cx: &App) -> ChipContent {
         // The tab strip says WHAT is running and how it is doing without the
         // tab having to be open — the dock's remote chips did this, and the
         // session screen inherits it.
-        return ChipContent {
-            lead: ChipLead::Dot(session_chip_tone(session_id, cx)),
-            identifier: None,
-            title: Some(screen_title(screen, cx)),
-        };
+        return session_chip_content(session_id, cx);
+    }
+    if let Screen::Terminal { tab } = screen {
+        return terminal_chip_content(*tab, cx);
     }
     if let Screen::IssueDetail { issue_id } = screen {
         let store = Store::global(cx);
@@ -422,14 +611,13 @@ fn chip_content(screen: &Screen, cx: &App) -> ChipContent {
                 lead: ChipLead::Status(resolved),
                 identifier: Some(gpui::SharedString::from(issue.identifier.clone())),
                 title,
+                caption: None,
+                badge: None,
+                paused: false,
             };
         }
     }
-    ChipContent {
-        lead: ChipLead::None,
-        identifier: None,
-        title: Some(screen_title(screen, cx)),
-    }
+    ChipContent::plain(screen_title(screen, cx))
 }
 
 /// EXP-746, THE rule of the resume swap: an open tab for `resumed_from`
@@ -744,7 +932,12 @@ impl ScreensPanel {
             self.issue_detail
                 .update(cx, |detail, cx| detail.flush_description(cx));
             self.tabs_team = team;
-            self.tabs.clear();
+            // EXP-769: terminal tabs SURVIVE a team switch — a PTY is not
+            // team-scoped, and dropping its chip would orphan a running shell
+            // (the manager would keep it alive, invisibly). Everything else
+            // is team data and goes.
+            self.tabs
+                .retain(|tab| matches!(tab.screen, Screen::Terminal { .. }));
             // EXP-746: the session views go with their tabs (a dropped tab
             // must not keep a relay socket or an engine drain alive).
             self.shutdown_all_sessions(cx);
@@ -833,6 +1026,14 @@ impl ScreensPanel {
                         crate::session_screen::SessionScreenView::new(session_id, window, cx)
                     })
                 });
+            }
+            Screen::Terminal { tab } => {
+                // EXP-769: the manager's active tab follows the screen (cmd-w
+                // closes the ACTIVE tab; the Latest-changes poll reads it),
+                // and the grid takes the keyboard.
+                if let Some(host) = crate::session_bar::host_for_window(window, cx) {
+                    host.update(cx, |host, cx| host.activate_tab_by_id(tab, window, cx));
+                }
             }
             Screen::PrDiff { .. }
             | Screen::Devices
@@ -1025,10 +1226,18 @@ impl ScreensPanel {
     /// then screen — so observers reading tool/board during the nav notify
     /// see final state. Deliberately NOT `navigate`: activation must never
     /// rewrite the tab's remembered origin.
+    ///
+    /// EXP-769: a session-bar tab (session / terminal) just shows its screen —
+    /// the web's session route leaves the sidebar alone, and a terminal has no
+    /// meaningful origin at all.
     fn activate_tab(&mut self, ix: usize, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let Some(entry) = self.tabs.get(ix).cloned() else {
             return;
         };
+        if entry.screen.is_dock_tab() {
+            set_screen(window, cx, Some(entry.screen));
+            return;
+        }
         crate::sidebar::select_tool_for_tab(window, cx, entry.origin.tool);
         if entry.origin.tool == ToolWindow::BoardIssues {
             if let Some(board_id) = entry.origin.board_id {
@@ -1062,7 +1271,25 @@ impl ScreensPanel {
     /// Close the tab at `ix`. Closing the active tab activates its right
     /// neighbor (else the new last); closing the last clears the center.
     /// Direct tab management never touches the back stack.
+    ///
+    /// EXP-769: a TERMINAL tab's close is the terminal's close — the child is
+    /// killed and the manager drops the tab (the retired dock's cmd-w; an
+    /// issue run on the PTY path ends its row through the exit hook). The
+    /// manager's `TabClosed` echo then finds the entry already gone.
     fn close_tab(&mut self, ix: usize, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.remove_tab(ix, true, window, cx);
+    }
+
+    /// [`Self::close_tab`]'s core. `kill_terminal` is false on the paths where
+    /// the terminal itself must survive: the manager's own `TabClosed` echo
+    /// (already gone) and an undock (the tab moves to its own window).
+    fn remove_tab(
+        &mut self,
+        ix: usize,
+        kill_terminal: bool,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
         if ix >= self.tabs.len() {
             return;
         }
@@ -1077,29 +1304,83 @@ impl ScreensPanel {
         self.shutdown_session_view(&closed.screen, cx);
         let active = resolved_screen(&self.nav, cx);
         if active.as_ref() == Some(&closed.screen) {
+            // The neighbor within the SAME strip: closing a bottom-bar tab
+            // lands on the next bottom-bar tab (the web's dock never jumps to
+            // an issue), closing a top tab on the next top tab.
+            let dock = closed.screen.is_dock_tab();
             let next = self
                 .tabs
-                .get(ix)
-                .or_else(|| self.tabs.last())
+                .iter()
+                .skip(ix)
+                .chain(self.tabs.iter().take(ix).rev())
+                .find(|tab| tab.screen.is_dock_tab() == dock)
+                .or_else(|| self.tabs.get(ix).or_else(|| self.tabs.last()))
                 .map(|tab| tab.screen.clone());
             set_screen(window, cx, next);
+        }
+        if let (true, Screen::Terminal { tab }) = (kill_terminal, &closed.screen) {
+            let tab = *tab;
+            if let Some(host) = crate::session_bar::host_for_window(window, cx) {
+                host.update(cx, |host, cx| host.close_terminal(tab, cx));
+            }
         }
         cx.notify();
     }
 
-    /// Close every tab except `ix` (EXP-235 context menu). The kept tab
-    /// becomes active — the active tab may be among the closed ones.
+    /// EXP-769: drop `screen`'s tab if it is open — the session bar host's
+    /// `TabClosed` echo (the terminal is already gone, so never kill). A
+    /// no-op for a screen without a tab.
+    pub(crate) fn close_screen_tab(
+        &mut self,
+        screen: &Screen,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        if let Some(ix) = self.tabs.iter().position(|tab| &tab.screen == screen) {
+            self.remove_tab(ix, false, window, cx);
+        }
+    }
+
+    /// EXP-769: the session bar's entries, in bar order — the open
+    /// session/terminal tabs first (tab order), then the caller's live runs
+    /// that have no tab yet (newest start first, the web `running` order).
+    /// A run hosted on THIS process's PTY path is its terminal tab, never a
+    /// second entry.
+    fn dock_entries(&self, cx: &mut App) -> Vec<DockEntry> {
+        let mut entries: Vec<DockEntry> = self
+            .tabs
+            .iter()
+            .enumerate()
+            .filter(|(_, tab)| tab.screen.is_dock_tab())
+            .map(|(ix, tab)| DockEntry::Open {
+                ix,
+                screen: tab.screen.clone(),
+            })
+            .collect();
+        let open: std::collections::HashSet<String> = self.open_session_ids().into_iter().collect();
+        for session_id in crate::session_bar::running_session_ids(cx) {
+            if !open.contains(&session_id) {
+                entries.push(DockEntry::Running { session_id });
+            }
+        }
+        entries
+    }
+
+    /// Close every TOP-strip tab except `ix` (EXP-235 context menu). The kept
+    /// tab becomes active — the active tab may be among the closed ones.
+    /// EXP-769: the session bar's tabs are another strip and stay.
     fn close_other_tabs(&mut self, ix: usize, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if ix >= self.tabs.len() || self.tabs.len() <= 1 {
+        if ix >= self.tabs.len() || self.top_tab_count() <= 1 {
             return;
         }
         let keep = self.tabs[ix].screen.clone();
+        let goes = |screen: &Screen| *screen != keep && !screen.is_dock_tab();
         // Same EXP-68 flush as `close_tab`: a closing issue tab may hold a
         // pending description edit.
         if self
             .tabs
             .iter()
-            .any(|tab| tab.screen != keep && matches!(tab.screen, Screen::IssueDetail { .. }))
+            .any(|tab| goes(&tab.screen) && matches!(tab.screen, Screen::IssueDetail { .. }))
         {
             self.issue_detail
                 .update(cx, |detail, cx| detail.flush_description(cx));
@@ -1107,10 +1388,10 @@ impl ScreensPanel {
         let dropped: Vec<Screen> = self
             .tabs
             .iter()
-            .filter(|tab| tab.screen != keep)
+            .filter(|tab| goes(&tab.screen))
             .map(|tab| tab.screen.clone())
             .collect();
-        self.tabs.retain(|tab| tab.screen == keep);
+        self.tabs.retain(|tab| !goes(&tab.screen));
         for screen in &dropped {
             self.shutdown_session_view(screen, cx);
         }
@@ -1118,23 +1399,45 @@ impl ScreensPanel {
         cx.notify();
     }
 
-    /// Close every tab (EXP-235 context menu) and clear the center.
+    /// Close every TOP-strip tab (EXP-235 context menu) and clear the center.
+    /// EXP-769: the session bar's tabs stay (a terminal must never be killed
+    /// by a context menu on the issue strip).
     fn close_all_tabs(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if self.tabs.is_empty() {
+        if self.top_tab_count() == 0 {
             return;
         }
         if self
             .tabs
             .iter()
-            .any(|tab| matches!(tab.screen, Screen::IssueDetail { .. }))
+            .any(|tab| !tab.screen.is_dock_tab() && matches!(tab.screen, Screen::IssueDetail { .. }))
         {
             self.issue_detail
                 .update(cx, |detail, cx| detail.flush_description(cx));
         }
-        self.tabs.clear();
-        self.shutdown_all_sessions(cx);
-        set_screen(window, cx, None);
+        let dropped: Vec<Screen> = self
+            .tabs
+            .iter()
+            .filter(|tab| !tab.screen.is_dock_tab())
+            .map(|tab| tab.screen.clone())
+            .collect();
+        self.tabs.retain(|tab| tab.screen.is_dock_tab());
+        for screen in &dropped {
+            self.shutdown_session_view(screen, cx);
+        }
+        // The center clears only if a closed tab was showing; a session bar
+        // tab that was up stays up.
+        if resolved_screen(&self.nav, cx).is_some_and(|screen| dropped.contains(&screen)) {
+            set_screen(window, cx, None);
+        }
         cx.notify();
+    }
+
+    /// EXP-769: how many tabs the TOP strip holds.
+    fn top_tab_count(&self) -> usize {
+        self.tabs
+            .iter()
+            .filter(|tab| !tab.screen.is_dock_tab())
+            .count()
     }
 
     /// EXP-746: drop the session view a closing tab owned. Never called for
@@ -1167,6 +1470,27 @@ impl ScreensPanel {
         };
         crate::undock::open_undocked_screen(screen, window.window_handle(), cx);
         self.close_tab(ix, window, cx);
+    }
+
+    /// EXP-769: pop a TERMINAL tab out into its own window (EXP-65's terminal
+    /// path: the manager keeps the tab, the new window renders its view). The
+    /// tab entry leaves this bar WITHOUT killing the terminal; reattaching
+    /// (or closing that window) navigates back here and the entry returns.
+    fn undock_terminal_tab(
+        &mut self,
+        ix: usize,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let Some(Screen::Terminal { tab }) = self.tabs.get(ix).map(|tab| tab.screen.clone())
+        else {
+            return;
+        };
+        let Some(host) = crate::session_bar::host_for_window(window, cx) else {
+            return;
+        };
+        self.remove_tab(ix, false, window, cx);
+        host.update(cx, |host, cx| host.undock_tab(tab, window, cx));
     }
 
     /// Chip width for the overflow computation.
@@ -1207,8 +1531,20 @@ impl ScreensPanel {
             children.push(measure_text(window, identifier, font, gpui::rems(0.75)));
         }
         if let Some(title) = content.title.as_ref() {
-            let width = measure_text(window, title, base_font, gpui::rems(0.875));
+            let width = measure_text(window, title, base_font.clone(), gpui::rems(0.875));
             children.push(width.min(TITLE_MAX_W));
+        }
+        // EXP-769: the session chip's ` · machine` caption (`text_xs`, capped
+        // at `RICH_TAB_CAPTION_MAX_W`) and the terminal chip's exit badge
+        // (`px_1` a side around a `text_xs` code).
+        if let Some(caption) = content.caption.as_ref() {
+            let width = measure_text(window, caption, base_font.clone(), gpui::rems(0.75));
+            children.push(width.min(crate::surface::RICH_TAB_CAPTION_MAX_W));
+        }
+        if let Some((label, _)) = content.badge.as_ref() {
+            children.push(
+                0.5 * rem + measure_text(window, label, base_font, gpui::rems(0.75)),
+            );
         }
         // The undock slot is `invisible`, not absent, so it keeps its box.
         children.push(if entry.screen.undockable() {
@@ -1219,6 +1555,20 @@ impl ScreensPanel {
 
         let gaps = rich_tab_child_gap(window) * children.len().saturating_sub(1) as f32;
         CHIP_PADDING_REMS * rem + gaps + children.into_iter().sum::<f32>()
+    }
+
+    /// EXP-769: [`Self::measure_chip_width`] for a session-bar entry that is
+    /// not an open tab yet — same chip, same close slot.
+    fn measure_screen_chip_width(&self, screen: &Screen, window: &Window, cx: &App) -> f32 {
+        let entry = TabEntry {
+            screen: screen.clone(),
+            origin: TabOrigin {
+                tool: ToolWindow::Inbox,
+                board_id: None,
+                inbox_tab: None,
+            },
+        };
+        self.measure_chip_width(&entry, window, cx)
     }
 
     /// EXP-277: the hand-rolled rounded tab strip. Hosted INSIDE the titlebar
@@ -1239,30 +1589,42 @@ impl ScreensPanel {
         window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
-        if self.tabs.is_empty() {
+        // EXP-769: the TOP strip holds the issue/support tabs only — the
+        // session and terminal tabs are the bottom session bar's
+        // (`render_session_bar_tabs`). `top` maps strip position → real tab
+        // index; every handler keys on the real index.
+        let top: Vec<usize> = (0..self.tabs.len())
+            .filter(|&ix| !self.tabs[ix].screen.is_dock_tab())
+            .collect();
+        if top.is_empty() {
             return gpui::Empty.into_any_element();
         }
-        let active_ix = resolved_screen(&self.nav, cx)
-            .and_then(|screen| self.tabs.iter().position(|tab| tab.screen == screen));
+        let active = resolved_screen(&self.nav, cx);
+        let active_ix = active
+            .as_ref()
+            .and_then(|screen| self.tabs.iter().position(|tab| &tab.screen == screen));
+        let active_pos = active_ix.and_then(|ix| top.iter().position(|&t| t == ix));
         let panel = cx.entity().downgrade();
-        let tab_count = self.tabs.len();
+        let tab_count = top.len();
 
-        let widths: Vec<f32> = self
-            .tabs
+        let widths: Vec<f32> = top
             .iter()
-            .map(|entry| self.measure_chip_width(entry, window, cx))
+            .map(|&ix| self.measure_chip_width(&self.tabs[ix], window, cx))
             .collect();
         let visible = partition_tabs(
             &widths,
             f32::from(available),
             chip_gap(window),
             overflow_button_width(window, tab_count.saturating_sub(1)),
-            active_ix,
+            active_pos,
         );
-        let hidden: Vec<usize> = (0..tab_count).filter(|ix| !visible.contains(ix)).collect();
+        let hidden: Vec<usize> = (0..tab_count)
+            .filter(|pos| !visible.contains(pos))
+            .map(|pos| top[pos])
+            .collect();
         let chips: Vec<(usize, Screen)> = visible
             .iter()
-            .map(|&ix| (ix, self.tabs[ix].screen.clone()))
+            .map(|&pos| (top[pos], self.tabs[top[pos]].screen.clone()))
             .collect();
 
         let mut strip = h_flex()
@@ -1382,67 +1744,282 @@ impl ScreensPanel {
         // EXP-288: the hidden tabs collapse into a "+N" dropdown; clicking
         // one activates it (origin re-selection included via activate_tab).
         if !hidden.is_empty() {
-            // Keyed by SCREEN, not by index: the menu's closures run at click
-            // time, and a tab closed while the dropdown is open (middle-click
-            // on a visible chip, a team switch) shifts every index after it,
-            // which would activate the wrong tab. Tabs are deduped by screen,
-            // so it is a stable identity.
-            let hidden_entries: Vec<(Screen, ChipLead, gpui::SharedString)> = hidden
+            let screens: Vec<Screen> = hidden
                 .iter()
-                .map(|&ix| {
-                    let screen = self.tabs[ix].screen.clone();
-                    // EXP-310: the menu rows carry the same lead glyph +
-                    // shortcode as the chips (composed into the label —
-                    // menu items are plain icon + text).
-                    let content = chip_content(&screen, cx);
-                    let label = match (&content.identifier, &content.title) {
-                        (Some(identifier), Some(title)) => {
-                            gpui::SharedString::from(format!("{identifier} {title}"))
-                        }
-                        (Some(identifier), None) => identifier.clone(),
-                        _ => content
-                            .title
-                            .unwrap_or_else(|| screen_title(&screen, cx)),
-                    };
-                    (screen, content.lead, label)
-                })
+                .map(|&ix| self.tabs[ix].screen.clone())
                 .collect();
-            let panel = panel.clone();
-            strip = strip.child(
-                Button::new("center-tab-overflow")
-                    .ghost().cursor_pointer()
-                    .xsmall()
-                    .label(format!("+{}", hidden_entries.len()))
-                    .tooltip("More tabs")
-                    .dropdown_menu(move |mut menu, _window, cx| {
-                        menu = menu.scrollable(true).max_h(px(320.));
-                        for (screen, lead, title) in &hidden_entries {
-                            let panel = panel.clone();
-                            let screen = screen.clone();
-                            let mut item = PopupMenuItem::new(title.clone());
-                            if let Some(icon) = lead.icon(cx) {
-                                item = item.icon(icon);
-                            }
-                            menu = menu.item(item.on_click(
-                                move |_, window, cx| {
-                                    let _ = panel.update(cx, |this, cx| {
-                                        let Some(ix) = this
-                                            .tabs
-                                            .iter()
-                                            .position(|tab| tab.screen == screen)
-                                        else {
-                                            return;
-                                        };
-                                        this.activate_tab(ix, window, cx);
-                                    });
-                                },
-                            ));
-                        }
-                        menu
-                    }),
-            );
+            strip = strip.child(self.overflow_menu("center-tab-overflow", screens, cx));
         }
         strip.into_any_element()
+    }
+
+    /// The "+N" dropdown of the tabs a strip could not fit (EXP-288), shared
+    /// by both strips (EXP-769). Keyed by SCREEN, not by index: the menu's
+    /// closures run at click time, and a tab closed while the dropdown is
+    /// open (middle-click on a visible chip, a team switch) shifts every index
+    /// after it, which would activate the wrong tab. Tabs are deduped by
+    /// screen, so it is a stable identity — and a session-bar entry without a
+    /// tab has only its screen anyway.
+    fn overflow_menu(
+        &self,
+        id: &'static str,
+        hidden: Vec<Screen>,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl IntoElement {
+        // EXP-310: the menu rows carry the same lead glyph + shortcode as
+        // the chips (composed into the label — menu items are plain icon +
+        // text).
+        let hidden_entries: Vec<(Screen, ChipLead, gpui::SharedString)> = hidden
+            .into_iter()
+            .map(|screen| {
+                let content = chip_content(&screen, cx);
+                let label = match (&content.identifier, &content.title) {
+                    (Some(identifier), Some(title)) => {
+                        gpui::SharedString::from(format!("{identifier} {title}"))
+                    }
+                    (Some(identifier), None) => identifier.clone(),
+                    _ => content
+                        .title
+                        .unwrap_or_else(|| screen_title(&screen, cx)),
+                };
+                (screen, content.lead, label)
+            })
+            .collect();
+        let panel = cx.entity().downgrade();
+        Button::new(id)
+            .ghost().cursor_pointer()
+            .xsmall()
+            .label(format!("+{}", hidden_entries.len()))
+            .tooltip("More tabs")
+            .dropdown_menu(move |mut menu, _window, cx| {
+                menu = menu.scrollable(true).max_h(px(320.));
+                for (screen, lead, title) in &hidden_entries {
+                    let panel = panel.clone();
+                    let screen = screen.clone();
+                    let mut item = PopupMenuItem::new(title.clone());
+                    if let Some(icon) = lead.icon(cx) {
+                        item = item.icon(icon);
+                    }
+                    menu = menu.item(item.on_click(move |_, window, cx| {
+                        let _ = panel.update(cx, |this, cx| {
+                            this.open_screen(screen.clone(), window, cx);
+                        });
+                    }));
+                }
+                menu
+            })
+    }
+
+    /// Show `screen`: activate its tab when one is open (origin restore and
+    /// all), else navigate to it — a session-bar entry without a tab
+    /// (EXP-769) opens exactly like Devices → Running would open it.
+    fn open_screen(&mut self, screen: Screen, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        match self.tabs.iter().position(|tab| tab.screen == screen) {
+            Some(ix) => self.activate_tab(ix, window, cx),
+            None => match screen {
+                Screen::Session { session_id } => {
+                    crate::session_screen::open_session(&session_id, window, cx)
+                }
+                other => crate::navigation::navigate(window, cx, other),
+            },
+        }
+    }
+
+    /// EXP-769: the bottom session bar's TABS — the web `AgentDock`'s
+    /// `tablist`: one rich tab per [`DockEntry`], the ACTIVE one following the
+    /// screen the center shows, the rest folding into "+N" past `available`
+    /// (the same measured partition as the top strip). Hosted by the
+    /// [`crate::session_bar::SessionBar`], which wraps it with the Chat and
+    /// `+` buttons and records `available` off its own painted slot.
+    ///
+    /// The trailing ×, web semantics: a LIVE session's × kills it (confirmed,
+    /// `useKillSession`) — its tab would only come straight back as a running
+    /// entry otherwise; an ENDED session's × closes the transcript tab; a
+    /// terminal's × closes the terminal (kills the child). Middle-click is
+    /// the same. A terminal chip's context menu adds "Open in new window"
+    /// (EXP-65's terminal undock) — the only place that affordance is left.
+    pub(crate) fn render_session_bar_tabs(
+        &mut self,
+        available: f32,
+        trailing: Vec<gpui::AnyElement>,
+        window: &Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let entries = self.dock_entries(cx);
+        let active = resolved_screen(&self.nav, cx);
+        let active_pos = active
+            .as_ref()
+            .and_then(|screen| entries.iter().position(|entry| &entry.screen() == screen));
+        let count = entries.len();
+        let widths: Vec<f32> = entries
+            .iter()
+            .map(|entry| match entry {
+                DockEntry::Open { ix, .. } => self.measure_chip_width(&self.tabs[*ix], window, cx),
+                DockEntry::Running { .. } => {
+                    self.measure_screen_chip_width(&entry.screen(), window, cx)
+                }
+            })
+            .collect();
+        let visible = partition_tabs(
+            &widths,
+            available,
+            chip_gap(window),
+            overflow_button_width(window, count.saturating_sub(1)),
+            active_pos,
+        );
+        let hidden: Vec<Screen> = (0..count)
+            .filter(|pos| !visible.contains(pos))
+            .map(|pos| entries[pos].screen())
+            .collect();
+
+        let panel = cx.entity().downgrade();
+        let chips: Vec<gpui::AnyElement> = visible
+            .into_iter()
+            .map(|pos| {
+                let entry = &entries[pos];
+                let screen = entry.screen();
+                let content = chip_content(&screen, cx);
+                let mut tab = crate::surface::RichTab::new(
+                    ("session-bar-tab", pos),
+                    Some(pos) == active_pos,
+                );
+                tab.status = match &content.lead {
+                    ChipLead::Dot(tone) => crate::surface::RichTabStatus::Dot(*tone),
+                    lead => match lead.icon(cx) {
+                        Some(icon) => crate::surface::RichTabStatus::Glyph(icon),
+                        None => crate::surface::RichTabStatus::None,
+                    },
+                };
+                tab.identifier = content.identifier;
+                tab.title = content.title;
+                tab.caption = content.caption;
+                tab.badge = content.badge;
+                tab.paused = content.paused;
+                let close = self.dock_close_action(&screen, cx);
+                let close_for_middle = close.clone();
+                let open_screen = screen.clone();
+                let close_button = Button::new(("close-session-bar-tab", pos))
+                    .ghost()
+                    .cursor_pointer()
+                    .xsmall()
+                    .icon(registry::UI_CLOSE)
+                    .tooltip(close.label())
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        cx.stop_propagation();
+                        this.run_dock_close(&close, window, cx);
+                    }));
+                let chip = crate::surface::rich_tab(tab, cx)
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        cx.stop_propagation();
+                        this.open_screen(open_screen.clone(), window, cx);
+                    }))
+                    .on_mouse_down(MouseButton::Middle, {
+                        let panel = panel.clone();
+                        move |_, window, cx| {
+                            cx.stop_propagation();
+                            let _ = panel.update(cx, |this, cx| {
+                                this.run_dock_close(&close_for_middle, window, cx);
+                            });
+                        }
+                    })
+                    .child(close_button);
+                if let Screen::Terminal { .. } = &screen {
+                    let terminal = screen.clone();
+                    let panel = panel.clone();
+                    return chip.context_menu(move |menu, _window, _cx| {
+                        let undock = panel.clone();
+                        let undock_screen = terminal.clone();
+                        let close = panel.clone();
+                        let close_screen = terminal.clone();
+                        menu.item(PopupMenuItem::new("Open in new window").on_click(
+                            move |_, window, cx| {
+                                let _ = undock.update(cx, |this, cx| {
+                                    if let Some(ix) = this
+                                        .tabs
+                                        .iter()
+                                        .position(|tab| tab.screen == undock_screen)
+                                    {
+                                        this.undock_terminal_tab(ix, window, cx);
+                                    }
+                                });
+                            },
+                        ))
+                        .item(PopupMenuItem::new("Close").on_click(move |_, window, cx| {
+                            let _ = close.update(cx, |this, cx| {
+                                this.close_screen_tab_killing(&close_screen, window, cx);
+                            });
+                        }))
+                    })
+                    .into_any_element();
+                }
+                chip.into_any_element()
+            })
+            .collect();
+
+        // The Chat and `+` buttons ride right AFTER the last tab (the
+        // JetBrains placement the retired dock used, and what the issue asked
+        // for), inside the same slot — the partition above reserved their
+        // width.
+        h_flex()
+            .id("session-bar-tabs")
+            .min_w_0()
+            .flex_1()
+            .overflow_x_hidden()
+            .gap_1()
+            .items_center()
+            .children(chips)
+            .when(!hidden.is_empty(), |this| {
+                this.child(self.overflow_menu("session-bar-overflow", hidden, cx))
+            })
+            .children(trailing)
+            .into_any_element()
+    }
+
+    /// EXP-769: what a session-bar chip's × does — resolved at render time
+    /// off the synced row, so the tooltip can say it.
+    fn dock_close_action(&self, screen: &Screen, cx: &App) -> DockClose {
+        match screen {
+            Screen::Terminal { tab } => DockClose::CloseTerminal(*tab),
+            Screen::Session { session_id } => {
+                match crate::session_bar::kill_target(session_id, cx) {
+                    Some(target) => DockClose::Kill(target),
+                    None => DockClose::CloseTab(screen.clone()),
+                }
+            }
+            other => DockClose::CloseTab(other.clone()),
+        }
+    }
+
+    fn run_dock_close(&mut self, close: &DockClose, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        match close {
+            DockClose::CloseTerminal(tab) => {
+                let screen = Screen::Terminal { tab: *tab };
+                self.close_screen_tab_killing(&screen, window, cx);
+            }
+            DockClose::CloseTab(screen) => self.close_screen_tab(screen, window, cx),
+            DockClose::Kill(target) => crate::session_bar::prompt_kill(target.clone(), window, cx),
+        }
+    }
+
+    /// Close `screen`'s tab AND, for a terminal, the terminal itself.
+    fn close_screen_tab_killing(
+        &mut self,
+        screen: &Screen,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        match self.tabs.iter().position(|tab| &tab.screen == screen) {
+            Some(ix) => self.close_tab(ix, window, cx),
+            // No entry (undocked terminal?) — still honor the close.
+            None => {
+                if let Screen::Terminal { tab } = screen {
+                    let tab = *tab;
+                    if let Some(host) = crate::session_bar::host_for_window(window, cx) {
+                        host.update(cx, |host, cx| host.close_terminal(tab, cx));
+                    }
+                }
+            }
+        }
     }
 
     /// §4.1: while the team/boards shapes have not caught up, render a
@@ -1992,6 +2569,18 @@ impl Render for ScreensPanel {
                 .cloned()
                 .map(gpui::IntoElement::into_any_element)
                 .unwrap_or_else(|| self.render_syncing(cx)),
+            // EXP-769: the terminal fills the center — its grid, exit strip
+            // and Latest-changes bar are the session bar host's (the entity
+            // that owns the manager and the dock-scoped key bindings).
+            Some(Screen::Terminal { tab }) => {
+                match crate::session_bar::host_for_window(window, cx) {
+                    Some(host) => {
+                        let tab = *tab;
+                        host.update(cx, |host, cx| host.render_terminal_screen(tab, window, cx))
+                    }
+                    None => self.render_syncing(cx),
+                }
+            }
             Some(Screen::Devices) => self.devices.clone().into_any_element(),
             Some(Screen::Actions) => self.actions.clone().into_any_element(),
             Some(Screen::Automations) => self.automations.clone().into_any_element(),
@@ -2016,7 +2605,7 @@ impl Render for ScreensPanel {
         // decorations the titlebar is hidden, so the strip renders here in
         // its legacy in-panel position (with its own EXP-288 divider — the
         // titlebar carries it otherwise).
-        let fallback_strip = (!self.tabs.is_empty()
+        let fallback_strip = (self.top_tab_count() > 0
             && !crate::app_title_bar::client_chrome(window))
         .then(|| {
             // Conservative width budget: the strip shares the row with

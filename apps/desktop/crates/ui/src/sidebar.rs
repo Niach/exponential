@@ -19,7 +19,7 @@
 //!   settings gear on its right. The account dropdown is the web's exactly:
 //!   What's new, About, Sign out (team switching lives in the header).
 //! - [`SidebarPanel`] — the tool-window column right of the rail (a resizable
-//!   pane INSIDE the dock-area center, so the bottom terminal dock runs
+//!   pane INSIDE the dock-area center, so the bottom session bar runs
 //!   beneath it): the active tool window's content. Issue tools are mini
 //!   master lists whose rows open the full detail in the center pane; Source
 //!   Control lists the trunk's local branches — rows VIEW that branch's
@@ -637,7 +637,7 @@ fn rail_row(
 
 /// The 44px tool-window rail. Owned and rendered by the `Shell` shell
 /// OUTSIDE the `DockArea`, below the full-width top bar. (No terminal
-/// toggle — the bottom terminal strip is the single toggle affordance.)
+/// entry — terminals are session-bar tabs, EXP-769.)
 pub struct RailView {
     nav: Entity<Navigation>,
     shared: Entity<RailShared>,
@@ -1596,7 +1596,7 @@ impl Render for RailView {
 
 /// The tool-window column right of the rail. A plain view — it lives inside
 /// the dock-area center's resizable split (NOT a dock), so the bottom
-/// terminal dock spans beneath it.
+/// session bar spans beneath it.
 pub struct SidebarPanel {
     nav: Entity<Navigation>,
     shared: Entity<RailShared>,

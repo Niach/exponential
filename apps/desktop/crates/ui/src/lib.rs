@@ -13,8 +13,9 @@
 //! picker + nav rows + board rows), the [`screens`] panel in the center
 //! (per-window [`navigation`] routing: board / issue detail / my-issues /
 //! inbox / settings / account — §4.2), the virtualized [`issue_list`] core
-//! with inline status/priority dropdowns (§4.6), a collapsed bottom terminal
-//! dock, per-window `DockAreaState` persistence (§3.3), plus the [`login`]
+//! with inline status/priority dropdowns (§4.6), the bottom [`session_bar`]
+//! (session + terminal tabs; terminals render fullscreen in the center,
+//! EXP-769), per-window `DockAreaState` persistence (§3.3), plus the [`login`]
 //! surface + [`session`] wiring (the §5 state machine: the shell renders
 //! login whenever the session is not `Synced`). The Phase-2 [`debug_board`]
 //! stays reachable behind `EXP_DEV_BOARD=1`.
@@ -107,6 +108,7 @@ mod scroll_pane;
 mod search_sheet;
 mod session;
 mod session_extras;
+mod session_bar;
 mod session_registry;
 mod session_screen;
 mod settings;
@@ -119,7 +121,6 @@ mod start_coding_dialog;
 mod steer_viewer;
 pub mod steer_wiring;
 mod support_thread;
-mod terminal_dock;
 mod worktree_prune;
 mod trunk_sync;
 mod timeline;
@@ -163,7 +164,7 @@ pub fn init(cx: &mut App) {
     // every client until the server staleness sweep catches it.
     coding_flow::install_quit_hook(cx);
     // EXP-65 multi-window undock: the observable registry the screens panel
-    // and terminal dock filter against.
+    // and session bar filter against.
     undock::init(cx);
     // EXP-284: native dialog windows — Escape/Enter bindings + the
     // dialog-window → opener registry every dialog opens through.
@@ -198,9 +199,9 @@ pub fn init(cx: &mut App) {
     register_panel(cx, screens::PANEL_NAME, |_, _, _, window, cx| {
         Box::new(cx.new(|cx| screens::ScreensPanel::new(window, cx)))
     });
-    // Terminal dock: panel registration (cold shell-tab restore, §6.13) +
-    // the cmd-t/cmd-w/ctrl-tab keybindings scoped to the dock.
-    terminal_dock::init(cx);
+    // Session bar (EXP-769): the cmd-t/cmd-w/ctrl-tab keybindings scoped to
+    // the terminal screen.
+    session_bar::init(cx);
     // EXP-71: shadow Root's window-wide tab/shift-tab focus-cycle bindings
     // inside the terminal so they reach the PTY (shift+tab = Claude modes).
     terminal::init(cx);
