@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 //   REV2-39 — bounded send concurrency, and a throttle blip must not buy the
 //             user a 22h backoff (which, for rows already ≥2h old, meant the
 //             digest was never sent at all).
-//   REV2-52 — an unverified address defers its rows instead of claiming them.
+//   EXP-774 — verification is no gate; unmailable rows are claimed outright.
 //   REV2-51 — issue-less support_reply items link to the team Support inbox.
 //
 // The fake db is chainable and thenable: every builder method returns the
@@ -129,7 +129,6 @@ const row = (over: Partial<Record<string, unknown>> = {}) => ({
   createdAt: SIX_HOURS_AGO,
   readAt: null,
   email: `user-1@example.com`,
-  emailVerified: true,
   timezone: null,
   issueIdentifier: `EXP-1`,
   teamSlug: `acme`,
@@ -265,20 +264,7 @@ describe(`digest deep links (REV2-51)`, () => {
   })
 })
 
-describe(`unverified recipients (REV2-52)`, () => {
-  it(`defers their rows instead of claiming them away forever`, async () => {
-    selectResults.push([row({ emailVerified: false })], [])
-    updateReturning.push([])
-
-    const result = await runEmailDigestSweep(NOW)
-
-    expect(result).toEqual({ emailsSent: 0, notificationsClaimed: 0 })
-    // Nothing was claimed and nothing was sent — verifying inside the 24h
-    // backstop still digests these.
-    expect(ops.some((op) => op.kind === `update`)).toBe(false)
-    expect(sendNotificationDigestEmail).not.toHaveBeenCalled()
-  })
-
+describe(`unmailable recipients`, () => {
   it(`still claims rows the recipient can never receive (no address / no membership)`, async () => {
     selectResults.push(
       [row({ notificationId: `n-gone`, isMember: false })],

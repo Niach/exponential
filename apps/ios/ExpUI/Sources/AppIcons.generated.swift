@@ -636,8 +636,12 @@ public enum AppIcons {
     public static let uiInvite: String = "user-plus"
     /// Concept `ui-issue`.
     public static let uiIssue: String = "file-text"
+    /// Concept `ui-link`.
+    public static let uiLink: String = "link"
     /// Concept `ui-loading`.
     public static let uiLoading: String = "loader-circle"
+    /// Concept `ui-mail`.
+    public static let uiMail: String = "mail"
     /// Concept `ui-mcp`.
     public static let uiMcp: String = "plug"
     /// Concept `ui-member`.

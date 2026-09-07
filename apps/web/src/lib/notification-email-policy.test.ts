@@ -136,11 +136,10 @@ function plan(
 describe(`isDigestSendable`, () => {
   const sendable = {
     email: `member@example.com`,
-    emailVerified: true,
     isMember: true,
   }
 
-  it(`allows a verified member address`, () => {
+  it(`allows a member address`, () => {
     expect(isDigestSendable(sendable)).toBe(true)
   })
 
@@ -149,28 +148,15 @@ describe(`isDigestSendable`, () => {
     expect(isDigestSendable({ ...sendable, email: `` })).toBe(false)
   })
 
-  it(`blocks an unverified address`, () => {
-    expect(isDigestSendable({ ...sendable, emailVerified: false })).toBe(false)
-  })
-
   it(`blocks a recipient who lost team access (REV2-14: ex-members must not
       be digested content the shape hides from them)`, () => {
     expect(isDigestSendable({ ...sendable, isMember: false })).toBe(false)
   })
 
-  // REV2-52: unverified is a one-click-fixable user state, not a permanent
-  // one — claiming those rows silently dropped the digest forever.
-  it(`defers an unverified address but claims the permanently unmailable`, () => {
+  it(`claims the permanently unmailable`, () => {
     expect(digestSendability(sendable)).toBe(`send`)
-    expect(digestSendability({ ...sendable, emailVerified: false })).toBe(
-      `defer`
-    )
     expect(digestSendability({ ...sendable, email: null })).toBe(`claim`)
     expect(digestSendability({ ...sendable, isMember: false })).toBe(`claim`)
-    // No address AND unverified is still permanently unmailable.
-    expect(
-      digestSendability({ ...sendable, email: null, emailVerified: false })
-    ).toBe(`claim`)
   })
 })
 

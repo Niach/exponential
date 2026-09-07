@@ -6722,8 +6722,12 @@ public object ExpIcons {
     public val uiInvite: ImageVector get() = `user-plus`
     /** Concept `ui-issue`. */
     public val uiIssue: ImageVector get() = `file-text`
+    /** Concept `ui-link`. */
+    public val uiLink: ImageVector get() = `link`
     /** Concept `ui-loading`. */
     public val uiLoading: ImageVector get() = `loader-circle`
+    /** Concept `ui-mail`. */
+    public val uiMail: ImageVector get() = `mail`
     /** Concept `ui-mcp`. */
     public val uiMcp: ImageVector get() = `plug`
     /** Concept `ui-member`. */

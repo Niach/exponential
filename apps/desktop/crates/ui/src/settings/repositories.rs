@@ -81,6 +81,15 @@ pub(super) struct RepoRow {
     pub github_default_branch: Option<String>,
     #[serde(default)]
     pub private: bool,
+    /// The GitHub App installation the repo was connected through — joins
+    /// the row to `integrations.github.status`'s installations for the
+    /// per-repo suspended banner (EXP-774, web parity).
+    #[serde(default)]
+    pub installation_id: Option<i64>,
+    /// Stamped when the App lost access to the repo (token mint failed);
+    /// cleared on the next successful heal. Drives the "Re-grant" banner.
+    #[serde(default)]
+    pub inaccessible_at: Option<String>,
     /// The member who shared (connected) this repo with the team (EXP-557).
     /// Drives the "Shared by" line and the sharer-or-owner row gating.
     /// `None` on pre-sharing rows and older servers — owner-managed only.
@@ -704,8 +713,13 @@ impl Render for RepositoriesPane {
                                 || repo.shared_by.as_ref().is_some_and(|shared| {
                                     me.as_deref() == Some(shared.id.as_str())
                                 });
-                            list =
-                                list.child(self.render_repo_row(index, repo, can_manage, cx));
+                            list = list.child(self.render_repo_row(
+                                index,
+                                repo,
+                                can_manage,
+                                loaded.status.as_ref(),
+                                cx,
+                            ));
                         }
                         body = body.child(list);
                     }
@@ -937,6 +951,7 @@ impl RepositoriesPane {
         index: usize,
         repo: &RepoRow,
         can_manage: bool,
+        status: Option<&GithubStatus>,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let mut head = h_flex()
@@ -996,6 +1011,51 @@ impl RepositoriesPane {
             });
         }
 
+        // EXP-774 (web `RepoRow` parity): the per-repo access banner. A
+        // suspension flags every repo of the installation as inaccessible —
+        // the banner must then say "unsuspend", not "re-grant" (REV2-29).
+        // Both buttons hand off to GitHub's installation page.
+        let installation = status.and_then(|status| {
+            status
+                .installations
+                .iter()
+                .find(|inst| Some(inst.installation_id) == repo.installation_id)
+        });
+        let suspended = installation.is_some_and(|inst| inst.suspended);
+        let access_banner = (repo.inaccessible_at.is_some() || suspended).then(|| {
+            let manage_url = installation
+                .map(|inst| inst.manage_url.clone())
+                .filter(|url| !url.is_empty())
+                .or_else(|| status.and_then(|status| status.install_url.clone()));
+            let (message, action) = if suspended {
+                (
+                    "GitHub suspended the Exponential app for this repository's account. \
+                     Unsuspend it on GitHub to code on this repo again.",
+                    "Unsuspend",
+                )
+            } else {
+                (
+                    "The GitHub App lost access to this repository. Re-grant it on GitHub.",
+                    "Re-grant",
+                )
+            };
+            h_flex()
+                .w_full()
+                .flex_wrap()
+                .gap_2()
+                .pl_6()
+                .items_center()
+                .text_xs()
+                .text_color(cx.theme().danger)
+                .child(Icon::new(registry::UI_WARNING).xsmall().flex_shrink_0())
+                .child(div().flex_1().min_w_0().child(message))
+                .children(manage_url.map(|url| {
+                    crate::surface::glass_pill_button(("repo-regrant", index), crate::surface::PillSize::Sm, cx)
+                        .label(action)
+                        .on_click(move |_, _, cx| open_url(cx, url.clone()))
+                }))
+        });
+
         let mut links = h_flex().flex_wrap().gap_1p5().pl_6().items_center();
         if repo.boards.is_empty() {
             links = links.child(
@@ -1045,6 +1105,7 @@ impl RepositoriesPane {
             .px_3()
             .py_2()
             .child(head)
+            .children(access_banner)
             .child(links)
     }
 

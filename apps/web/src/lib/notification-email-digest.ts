@@ -92,7 +92,6 @@ export async function runEmailDigestSweep(
       createdAt: notifications.createdAt,
       readAt: notifications.readAt,
       email: users.email,
-      emailVerified: users.emailVerified,
       // The clock the daily send hour is read in; NULL → UTC.
       timezone: users.timezone,
       issueIdentifier: issues.identifier,
@@ -141,9 +140,7 @@ export async function runEmailDigestSweep(
   // of REV-8's create-time fan-out recheck: teamMembers.remove leaves pending
   // unread rows behind, and the shape hides them from the ex-member, so they
   // can never be marked read in-app). Claim those outright so they don't
-  // rescan forever. An UNVERIFIED address is different (REV2-52): it is a
-  // one-click-fixable user state, so those rows are left untouched to digest
-  // late if the user verifies inside the backstop window.
+  // rescan forever.
   const unmailable = rows.filter((row) => digestSendability(row) === `claim`)
   const candidates = rows.filter((row) => digestSendability(row) === `send`)
 

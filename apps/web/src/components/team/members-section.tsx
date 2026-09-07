@@ -1,11 +1,7 @@
 import { useEffect, useState } from "react"
 import {
-  Check,
-  Copy,
   Crown,
-  Link as LinkIcon,
   LoaderCircle,
-  Mail,
   Ellipsis,
   ShieldCheck,
   Trash2,
@@ -47,6 +43,11 @@ import { UpgradeDialog } from "@/components/upgrade-dialog"
 // both red, both the same concepts the natives draw.
 const NavSignOutIcon = conceptIcon(`nav-sign-out`)
 const UiRemoveMemberIcon = conceptIcon(`ui-remove-member`)
+// EXP-774: the invite glyphs are registry concepts so the IDE draws the same.
+const UiMailIcon = conceptIcon(`ui-mail`)
+const UiLinkIcon = conceptIcon(`ui-link`)
+const UiCopyIcon = conceptIcon(`ui-copy`)
+const UiCheckIcon = conceptIcon(`ui-check`)
 
 export function TeamMembersSection({
   currentUserId,
@@ -395,7 +396,7 @@ function InviteControls({ teamId }: { teamId: string }) {
             {sending ? (
               <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
             ) : (
-              <Mail className="mr-2 h-4 w-4" />
+              <UiMailIcon className="mr-2 h-4 w-4" />
             )}
             Send invite
           </Button>
@@ -417,9 +418,9 @@ function InviteControls({ teamId }: { teamId: string }) {
               aria-label="Copy invite URL"
             >
               {copied ? (
-                <Check className="h-4 w-4" />
+                <UiCheckIcon className="h-4 w-4" />
               ) : (
-                <Copy className="h-4 w-4" />
+                <UiCopyIcon className="h-4 w-4" />
               )}
             </Button>
           </div>
@@ -431,7 +432,7 @@ function InviteControls({ teamId }: { teamId: string }) {
           disabled={generating}
         >
           {generating && <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />}
-          <LinkIcon className="mr-2 h-4 w-4" />
+          <UiLinkIcon className="mr-2 h-4 w-4" />
           Generate invite link
         </Button>
 
@@ -444,7 +445,7 @@ function InviteControls({ teamId }: { teamId: string }) {
                 className="mb-2 justify-between px-3 py-2 text-sm last:mb-0"
               >
                 <div className="flex min-w-0 items-center gap-3">
-                  <Pill leading={<Mail className="size-3" />}>
+                  <Pill leading={<UiMailIcon className="size-3" />}>
                     {invite.role}
                   </Pill>
                   {/* EXP-698: a link invite carries no address, and an empty

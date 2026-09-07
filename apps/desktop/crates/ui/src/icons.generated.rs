@@ -638,8 +638,12 @@ pub const UI_INFO: ExpIcon = ExpIcon::Info;
 pub const UI_INVITE: ExpIcon = ExpIcon::UserPlus;
 /// Registry concept `ui-issue` -> Lucide `file-text`.
 pub const UI_ISSUE: ExpIcon = ExpIcon::FileText;
+/// Registry concept `ui-link` -> Lucide `link`.
+pub const UI_LINK: ExpIcon = ExpIcon::Link;
 /// Registry concept `ui-loading` -> Lucide `loader-circle`.
 pub const UI_LOADING: ExpIcon = ExpIcon::LoaderCircle;
+/// Registry concept `ui-mail` -> Lucide `mail`.
+pub const UI_MAIL: ExpIcon = ExpIcon::Mail;
 /// Registry concept `ui-mcp` -> Lucide `plug`.
 pub const UI_MCP: ExpIcon = ExpIcon::Plug;
 /// Registry concept `ui-member` -> Lucide `shield-check`.

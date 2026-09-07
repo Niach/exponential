@@ -90,6 +90,8 @@ export function TeamRepositoriesSection({
   // the status line. Linking happens via the OAuth claim flow (connectUrl)
   // or the install-page round-trip fallback (installUrl).
   const [githubStatus, setGithubStatus] = useState<GithubStatus | null>(null)
+  // EXP-774 (IDE parity): a failed probe says so instead of rendering nothing.
+  const [githubStatusFailed, setGithubStatusFailed] = useState(false)
 
   // Billing lives on its own settings page since EXP-146 — the plan-cap
   // upgrade nudge links there instead of scrolling within this page.
@@ -112,8 +114,10 @@ export function TeamRepositoriesSection({
       setGithubStatus(
         await trpc.integrations.github.status.query({ teamId })
       )
+      setGithubStatusFailed(false)
     } catch {
       // Banner is a best-effort hint; the connect dialog self-detects anyway.
+      setGithubStatusFailed(true)
     }
   }, [teamId])
 
@@ -247,6 +251,7 @@ export function TeamRepositoriesSection({
         <div className="space-y-3">
           <GithubStatusLine
             status={githubStatus}
+            probeFailed={githubStatusFailed}
             busy={busy}
             canUnlink
             connectHopUrl={connectHopUrl}
@@ -453,6 +458,7 @@ const installationLabel = (inst: GithubInstallation) =>
 // use the account and the message lands in the section's inline error box.
 function GithubStatusLine({
   status,
+  probeFailed,
   busy,
   canUnlink,
   connectHopUrl,
@@ -461,6 +467,7 @@ function GithubStatusLine({
   onDisconnectStale,
 }: {
   status: GithubStatus | null
+  probeFailed: boolean
   busy: boolean
   canUnlink: boolean
   connectHopUrl: string | null
@@ -468,7 +475,17 @@ function GithubStatusLine({
   onUnlink: (installationId: number) => void
   onDisconnectStale: (installation: GithubInstallation) => void
 }) {
-  if (!status) return null
+  if (!status) {
+    // The probe is best-effort — say nothing definite rather than a false
+    // "not connected" (EXP-774, the IDE's copy). Nothing while still loading.
+    if (!probeFailed) return null
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Github className="h-3.5 w-3.5 shrink-0" />
+        <span>Couldn&rsquo;t reach GitHub connect state.</span>
+      </div>
+    )
+  }
 
   if (!status.configured) {
     return (

@@ -5,8 +5,8 @@ import { PgDialect } from "drizzle-orm/pg-core"
 // rows, and NOTHING in the Support surface ever cleared them —
 // markReadByIssue can't (their issue_id is NULL by construction), so the
 // badge stayed lit no matter how many tickets a member answered.
-// REV2-52: emailPrefs must report whether the address is verified — the
-// digest sweep silently refuses unverified ones.
+// EXP-774: emailPrefs no longer reports verification — the digest sweep does
+// not gate on it anymore.
 //
 // The router runs against ctx.db, so a fake db is enough: `update()` records
 // the table + the set values and captures the where condition for rendering
@@ -132,19 +132,11 @@ describe(`notifications.markReadSupport (REV2-13)`, () => {
   })
 })
 
-describe(`notifications.emailPrefs (REV2-52)`, () => {
-  it(`reports a verified address`, async () => {
+describe(`notifications.emailPrefs`, () => {
+  it(`reports the transport state only (EXP-774: verification is no gate)`, async () => {
     const prefs = await caller().emailPrefs()
-    expect(prefs).toMatchObject({
-      transportConfigured: true,
-      emailVerified: true,
-      email: `a@example.com`,
-    })
-  })
-
-  it(`reports an unverified address so the panel can offer a resend`, async () => {
-    const prefs = await caller({ emailVerified: false }).emailPrefs()
-    expect(prefs.emailVerified).toBe(false)
+    expect(prefs).toMatchObject({ transportConfigured: true })
+    expect(prefs).not.toHaveProperty(`emailVerified`)
   })
 })
 

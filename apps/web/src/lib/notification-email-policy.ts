@@ -307,34 +307,28 @@ export function isDigestRetryDue(
 
 // Per-row sendability gate applied to the sweep's scan BEFORE planning
 // (REV2-14). A row may only produce email when the recipient address is
-// present AND verified (digest content must never go to an address the
-// account holder hasn't proven they own) AND the recipient still holds
-// membership of the row's team — the sweep mirrors the notifications shape's
-// scoping: teamMembers.remove leaves pending unread rows behind, the shape
-// hides them from the ex-member (so they can never be read in-app), and
-// emailing them would deliver issue titles + previews after access was
-// revoked. Rows failing this gate are claimed WITHOUT sending, like the
-// pref-opted-out claimOnly bucket, so they don't rescan forever.
+// present AND the recipient still holds membership of the row's team — the
+// sweep mirrors the notifications shape's scoping: teamMembers.remove leaves
+// pending unread rows behind, the shape hides them from the ex-member (so
+// they can never be read in-app), and emailing them would deliver issue
+// titles + previews after access was revoked. Rows failing this gate are
+// claimed WITHOUT sending, like the pref-opted-out claimOnly bucket, so they
+// don't rescan forever. Verification is NOT a gate (EXP-774): cloud accounts
+// arrive provider-verified and self-hosted password users would otherwise
+// configure a channel that silently does nothing.
 export interface DigestRecipientLike {
   email: string | null
-  emailVerified: boolean
   isMember: boolean
 }
 
-// Three outcomes, not two (REV2-52):
+// Two outcomes:
 //   send  — mailable now
 //   claim — permanently unmailable (no address, or access revoked): stamp
 //           emailed_at without sending so the row stops rescanning forever
-//   defer — unmailable ONLY because the address isn't verified yet. Leave the
-//           row untouched, exactly like the no-transport guard: verifying
-//           inside the 24h backstop still digests recent items, and anything
-//           older ages out by itself. Claiming these was a silent permanent
-//           drop for a state the user can fix in one click.
-export type DigestSendability = `send` | `defer` | `claim`
+export type DigestSendability = `send` | `claim`
 
 export function digestSendability(row: DigestRecipientLike): DigestSendability {
   if (!row.email || !row.isMember) return `claim`
-  if (!row.emailVerified) return `defer`
   return `send`
 }
 
