@@ -1,3 +1,8 @@
+- Upravljanje v2: model, trud i način rada agenta promijenite izravno u živoj sesiji čipovima iznad uređivača; očitanja konteksta i potrošnje osvježavaju se kako ih izvođenje javlja
+- Prošla izvođenja: završene sesije navode se po uređaju uz „Resume“, pa se završeno izvođenje može nastaviti
+- Chat bez repozitorija: chat pokrenut iz lista „Start coding“ više ne treba repozitorij i radi u privremenoj mapi samo s alatima Exponentiala
+- Odabir agenta: kad uređaj agenta može pokrenuti, ali ne i voditi ga na stranici sesije, odabir kaže da se pokreće u terminalu umjesto da tiho prijeđe na zamjenu
+- Pregled upravljanja: identifikatori zadataka poput #EXP-12 postaju čipovi koje možete dodirnuti, a naredbe agenta prikazuju se kao naredbene oznake
 - Veze među zadacima: povežite zadatke kao nadređeni, podzadatak, blokira, blokiran, duplikat ili povezan iz lista svojstava; upisivanje #EXP-12 u opis ili komentar samo poveže dva zadatka
 - Niti komentara: odgovorite ispod komentara iz usidrenog uređivača; niti ostaju na jednoj razini, a komentar koji je agent objavio preko MCP-a to navodi u svom zaglavlju
 - Vođeno prvo pokretanje: stvaranje tima vodi vas kroz prvi board, pozivanje suradnika i postavljanje uređaja, istim redoslijedom kao na webu i desktopu

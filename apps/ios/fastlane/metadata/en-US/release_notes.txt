@@ -1,3 +1,8 @@
+- Steering v2: switch the agent's model, effort and mode from the live session with chips above the composer; context and usage readouts update as the run reports them
+- Past runs: finished sessions are listed per machine with Resume, so an ended run can be picked up again
+- Chat without a repository: a chat started from the Start coding sheet no longer needs a repository and runs in a scratch folder with only the Exponential tools
+- Agent picker: when a machine can run an agent but not drive it on the session page, the picker says it starts in a terminal instead of falling back silently
+- Steering feed: issue identifiers like #EXP-12 become tappable chips, and agent commands render as command pills
 - Issue relations: link issues as parent, sub-issue, blocking, blocked by, duplicate or related from the properties sheet; typing #EXP-12 in a description or comment links the two issues on its own
 - Threaded comments: reply under a comment from the docked composer; threads stay one level deep, and a comment an agent posted over MCP says so in its header
 - A guided first run: creating a team walks through the first board, inviting teammates and setting up devices, in the same order as web and desktop

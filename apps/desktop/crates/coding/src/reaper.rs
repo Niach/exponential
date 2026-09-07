@@ -244,8 +244,13 @@ pub fn reap(data_dir: &Path) -> usize {
 ///   gone; the record is still cleaned up, which is why the caller re-records
 ///   every candidate rather than only the killed ones.
 /// - **A recycled pid.** The command line must still look like the recorded
-///   agent ([`looks_like_agent`]). A false negative here only leaves an
-///   escapee alive one more time; a false positive kills a stranger.
+///   agent ([`looks_like_agent`]) AND the process must be ORPHANED
+///   ([`orphaned_or_ours`]) — the marker sweep's own up-walk rule. A recorded
+///   child that died before a reboot can have its number handed to the user's
+///   own interactive `claude`, which passes the command-line test; what it
+///   cannot pass is the parentage one, because a live shell (or the terminal
+///   app) is still its parent. A false negative here only leaves an escapee
+///   alive one more time; a false positive kills a stranger.
 pub fn select_recorded(
     records: &[crate::run_registry::RunRecord],
     procs: &[Proc],
@@ -264,10 +269,19 @@ pub fn select_recorded(
                 return None;
             }
             let proc = procs.iter().find(|proc| proc.pid == child)?;
-            looks_like_agent(&proc.command, record)
+            (orphaned_or_ours(proc, self_pid) && looks_like_agent(&proc.command, record))
                 .then(|| (record.session_id.clone(), child))
         })
         .collect()
+}
+
+/// Is `proc` unparented (reparented to init, or our own child)? The rule
+/// [`select`]'s up-walk climbs on: a process whose parent is some OTHER live
+/// process is somebody's — a shell's `claude`, a sibling's agent — and never
+/// an orphan our dead host left behind. An ACP child of a host that is gone
+/// is always `ppid == 1` (the kernel reparents it) or ours.
+fn orphaned_or_ours(proc: &Proc, self_pid: i32) -> bool {
+    proc.ppid <= 1 || proc.ppid == self_pid
 }
 
 /// Does `command` still belong to the agent this run recorded? The pid may
@@ -619,6 +633,33 @@ mod tests {
             acp_record("sess-gone", CodingAgent::Claude, 4777, 3000),
         ];
         assert!(select_recorded(&records, &strangers, 9999).is_empty());
+    }
+
+    /// The pid-recycle case the command-line guard alone cannot catch: after
+    /// a reboot the recorded number belongs to the USER'S OWN `claude`, run
+    /// from a shell. It looks exactly like the recorded agent — what saves it
+    /// is that a live shell is still its parent.
+    #[test]
+    fn skips_a_recycled_pid_whose_parent_is_a_live_process() {
+        let procs = vec![
+            Proc { pid: 1, ppid: 0, command: "/sbin/launchd".into() },
+            Proc { pid: 500, ppid: 1, command: "-fish".into() },
+            Proc { pid: 4001, ppid: 500, command: "/usr/local/bin/claude --resume".into() },
+        ];
+        let records = vec![acp_record("sess-1", CodingAgent::Claude, 4001, 3000)];
+        assert!(
+            select_recorded(&records, &procs, 9999).is_empty(),
+            "killed a user's own claude on a recycled pid"
+        );
+        // Orphaned (its host died and the kernel reparented it), it is ours.
+        let orphan = vec![
+            Proc { pid: 1, ppid: 0, command: "/sbin/launchd".into() },
+            Proc { pid: 4001, ppid: 1, command: "/usr/local/bin/claude --resume".into() },
+        ];
+        assert_eq!(
+            select_recorded(&records, &orphan, 9999),
+            vec![("sess-1".to_string(), 4001)]
+        );
     }
 
     /// pi and an external agent are named by their own program; a record

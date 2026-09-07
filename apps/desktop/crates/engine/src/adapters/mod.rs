@@ -89,6 +89,12 @@ pub struct AdapterSpec {
     /// PROMPT.md delivery is a TUI affordance and never happens here.
     pub prompt: Option<String>,
     pub resume: Option<ResumeHandle>,
+    /// Read-only transcript replay (`EngineSession::open_transcript`): the
+    /// session is loaded to be READ and never prompted. A live resume takes
+    /// the same `session/load` route with this `false`, and an adapter that
+    /// has to do more than read history to become steerable (codex:
+    /// `thread/resume` + its notification pumps) keys on it.
+    pub replay: bool,
     /// The `expu_` key — the codex/pi MCP bearer.
     pub personal_key: Option<String>,
     /// The claude `--settings <path>` reaper anchor (`{}`, no hooks). `None`

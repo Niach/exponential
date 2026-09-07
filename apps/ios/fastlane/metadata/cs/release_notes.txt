@@ -1,3 +1,8 @@
+- Řízení v2: model, úsilí i režim agenta přepnete přímo v běžící relaci pomocí čipů nad editorem; údaje o kontextu a spotřebě se obnovují, jak je běh hlásí
+- Minulé běhy: dokončené relace se vypisují u každého zařízení s tlačítkem „Resume“, takže ukončený běh můžete znovu rozjet
+- Chat bez repozitáře: chat spuštěný z panelu „Start coding“ už repozitář nepotřebuje a běží v pracovní složce jen s nástroji Exponential
+- Výběr agenta: když zařízení agenta umí spustit, ale ne řídit na stránce relace, výběr uvede, že se spustí v terminálu, místo aby tiše přepnul jinam
+- Přehled řízení: identifikátory úkolů jako #EXP-12 se mění na klepnutelné čipy a příkazy agenta se vykreslují jako štítky příkazů
 - Vazby mezi úkoly: propojte úkoly jako nadřazený, podúkol, blokuje, blokován, duplikát nebo souvisí přímo v panelu vlastností; napsáním #EXP-12 do popisu nebo komentáře se oba úkoly propojí samy
 - Vlákna komentářů: odpovězte pod komentářem přímo v ukotveném editoru; vlákna zůstávají jen o úroveň hlouběji a komentář, který agent poslal přes MCP, to uvádí ve své hlavičce
 - Provázený první start: po vytvoření týmu vás průvodce provede prvním boardem, pozvánkami pro kolegy a nastavením zařízení, ve stejném pořadí jako na webu a na desktopu

@@ -238,6 +238,7 @@ fn spec_at(scenario_dir: &Path, work: &Path, plan_mode: bool) -> AdapterSpec {
         session_id: "row-1".to_string(),
         prompt: None,
         resume: None,
+        replay: false,
         personal_key: Some("expu_test-key".to_string()),
         reaper_settings_path: Some(work.join("claude-hooks/1/row-1.settings.json")),
         exit: engine::ChildExitLink::new(),

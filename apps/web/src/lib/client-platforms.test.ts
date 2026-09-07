@@ -121,7 +121,7 @@ describe(`touchUserClientPlatform`, () => {
     })
   })
 
-  it(`clears the throttle slot when the write fails`, async () => {
+  it(`retries a failed write after a short cooldown, not per request`, async () => {
     const { db, calls, failNext } = fakeDb()
     failNext()
     expect(
@@ -134,6 +134,8 @@ describe(`touchUserClientPlatform`, () => {
     ).toBe(true)
     await Promise.resolve()
     await Promise.resolve()
+    // The very next request is still throttled: a persistently failing
+    // client must not cost one DB round-trip per request.
     expect(
       touchUserClientPlatform(db, {
         userId: `u2`,
@@ -141,7 +143,26 @@ describe(`touchUserClientPlatform`, () => {
         version: `2.0.0`,
         now: 6,
       })
+    ).toBe(false)
+    expect(
+      touchUserClientPlatform(db, {
+        userId: `u2`,
+        platform: `android`,
+        version: `2.0.0`,
+        now: 5 + 60_000,
+      })
     ).toBe(true)
     expect(calls).toHaveLength(2)
+  })
+
+  it(`bounds last_version to the column width`, () => {
+    const { db, calls } = fakeDb()
+    touchUserClientPlatform(db, {
+      userId: `u3`,
+      platform: `ios`,
+      version: `1.2.3-` + `x`.repeat(60),
+      now: 5,
+    })
+    expect((calls[0] as { lastVersion: string }).lastVersion).toHaveLength(32)
   })
 })

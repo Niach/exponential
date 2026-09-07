@@ -26,7 +26,7 @@ A second run can work in parallel on one of the user's own machines. Use it for 
 3. Its questions and its finish arrive here as `[Exponential child run ...]` user messages. Answer with `exponential_sessions_message`; `exponential_sessions_get` is only a fallback poll.
 4. Read the child's report before merging its PR. Merging first ends the run unreported.
 
-If you are the child (`exponential_sessions_end` is registered): ask your starter with `exponential_sessions_ask_parent` and then stop until the answer arrives; finish with `exponential_sessions_end` as your last call.
+If `exponential_sessions_ask_parent` is registered, another run started you: ask it and stop until the answer arrives. If `exponential_sessions_end` is registered, finish with it as your last call.
 
 ## Pull requests
 

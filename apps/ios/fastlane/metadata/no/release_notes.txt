@@ -1,3 +1,8 @@
+- Styring v2: bytt agentens modell, innsats og modus fra den pågående økten med chips over skrivefeltet; kontekst- og forbrukstall oppdateres etter hvert som kjøringen melder dem
+- Tidligere kjøringer: avsluttede økter listes per enhet med «Resume», slik at en avsluttet kjøring kan tas opp igjen
+- Chat uten repository: en chat som startes fra «Start coding»-arket trenger ikke lenger et repository og kjører i en midlertidig mappe med bare Exponential-verktøyene
+- Agentvelger: når en enhet kan kjøre en agent, men ikke styre den på øktsiden, sier velgeren at den starter i en terminal i stedet for å falle tilbake i stillhet
+- Styringsstrøm: saksidentifikatorer som #EXP-12 blir til chips du kan trykke på, og agentkommandoer vises som kommandomerker
 - Relasjoner mellom saker: knytt saker som overordnet, undersak, blokkerer, blokkert av, duplikat eller relatert fra egenskapsarket; skriver du #EXP-12 i en beskrivelse eller kommentar, knyttes de to sakene sammen av seg selv
 - Kommentartråder: svar under en kommentar fra det forankrede skrivefeltet; tråder går bare ett nivå ned, og en kommentar en agent har lagt inn via MCP sier det i toppteksten sin
 - En veiledet første gang: å opprette et team tar deg gjennom den første tavlen, invitasjoner til lagkamerater og oppsett av enheter, i samme rekkefølge som på web og desktop

@@ -126,6 +126,7 @@ fn adapter(
             session_id: "sess-1".to_string(),
             prompt: None,
             resume: None,
+            replay: false,
             personal_key: None,
             reaper_settings_path: None,
             exit: engine::ChildExitLink::new(),

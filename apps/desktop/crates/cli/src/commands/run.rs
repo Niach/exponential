@@ -116,7 +116,11 @@ pub fn run(args: &[String]) -> CommandResult {
     // EXP-757 (daemon parity): a repo-less run's scratch dir goes with the
     // run; the run record keeps it resumable.
     if coding::scratch::is_scratch_dir(&ctx.data_dir, &session.worktree) {
-        coding::scratch::reclaim(&ctx.data_dir, &session.worktree);
+        coding::scratch::reclaim(
+            &ctx.data_dir,
+            &session.worktree,
+            std::time::SystemTime::now(),
+        );
     }
     outcome
 }

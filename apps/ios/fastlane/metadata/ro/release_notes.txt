@@ -1,3 +1,8 @@
+- Ghidare v2: schimbă modelul, efortul și modul agentului direct din sesiunea în curs, cu marcaje deasupra editorului; valorile de context și de consum se actualizează pe măsură ce execuția le raportează
+- Execuții anterioare: sesiunile încheiate sunt listate pe fiecare dispozitiv, cu „Resume”, așa că o execuție terminată poate fi reluată
+- Chat fără repository: un chat pornit din foaia „Start coding” nu mai are nevoie de repository și rulează într-un folder temporar, doar cu uneltele Exponential
+- Alegerea agentului: când un dispozitiv poate porni un agent, dar nu îl poate ghida în pagina sesiunii, selecția spune că pornește într-un terminal, în loc să treacă în tăcere pe altceva
+- Flux de ghidare: identificatorii de taskuri precum #EXP-12 devin marcaje pe care le poți atinge, iar comenzile agentului sunt redate ca etichete de comandă
 - Relații între taskuri: leagă taskurile ca părinte, subtask, blochează, blocat de, duplicat sau înrudit din foaia de proprietăți; scrierea lui #EXP-12 într-o descriere sau într-un comentariu leagă singură cele două taskuri
 - Comentarii pe fire: răspunde sub un comentariu din editorul ancorat; firele rămân pe un singur nivel, iar un comentariu publicat de un agent prin MCP o spune în antetul lui
 - O primă pornire ghidată: crearea unei echipe te poartă prin primul board, invitarea colegilor și configurarea dispozitivelor, în aceeași ordine ca pe web și pe desktop

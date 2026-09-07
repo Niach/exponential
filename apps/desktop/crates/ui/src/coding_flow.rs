@@ -588,9 +588,13 @@ impl LocalSessions {
                 // what keeps the run resumable; the resume re-creates the dir.
                 let session_id = entry.session_id.clone();
                 let worktree = entry.worktree.clone();
+                // Stamped HERE, not in the spawned task: a resume that
+                // re-enters the dir while this sits in the queue keeps it.
+                let requested_at = std::time::SystemTime::now();
                 cx.background_executor()
                     .spawn(async move {
-                        let removed = coding::scratch::reclaim(&data_dir, &worktree);
+                        let removed =
+                            coding::scratch::reclaim(&data_dir, &worktree, requested_at);
                         log::info!(
                             "scratch reclaim [{session_id}] {}: removed={removed}",
                             worktree.display()

@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 use agent_client_protocol::schema::v1::{
     CancelNotification, ClientCapabilities, ContentBlock, CreateElicitationRequest,
     CreateElicitationResponse, ElicitationAcceptAction, ElicitationContentValue,
-    ElicitationMode, InitializeRequest, NewSessionRequest,
+    ElicitationMode, InitializeRequest, LoadSessionRequest, NewSessionRequest,
     PermissionOptionId, PromptRequest, RequestPermissionOutcome, RequestPermissionRequest,
     RequestPermissionResponse, SelectedPermissionOutcome, SessionConfigOptionValue, SessionId,
     SessionModeId, SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
@@ -285,6 +285,7 @@ fn spec() -> engine::adapters::AdapterSpec {
         session_id: "row-1".to_string(),
         prompt: None,
         resume: None,
+        replay: false,
         personal_key: Some("expu_test".to_string()),
         reaper_settings_path: None,
         exit: engine::ChildExitLink::new(),
@@ -458,6 +459,71 @@ async fn a_turn_becomes_tool_calls_narration_a_plan_and_usage() {
         .texts()
         .iter()
         .all(|text| !text.contains("aGk=") && !text.contains("reverted")));
+}
+
+/// A RESUME of an ended ACP run arrives as `session/load`, never
+/// `session/new` (`host.rs` routes `ResumeHandle::Acp` there), and it has to
+/// come back STEERABLE. Reading the rollout is not enough: without
+/// `thread/resume` codex has no live thread, and without the pumps nothing
+/// drains its notifications — the first prompt then hangs in `turn/start`
+/// forever with no symptom at all.
+#[tokio::test]
+async fn a_loaded_thread_resumes_and_its_next_turn_runs() {
+    let _session = one_session_at_a_time();
+    let (fake, connection) =
+        FakeServer::new(vec![frames("turn.jsonl")], Vec::new(), Vec::new());
+    let agent = CodexAgent::with_connection(spec(), connection);
+    let recorded = Recorded::default();
+    let sink = recorded.clone();
+
+    Client
+        .builder()
+        .on_receive_notification(
+            async move |notification: SessionNotification, _cx| {
+                sink.push(notification.update);
+                Ok(())
+            },
+            agent_client_protocol::on_receive_notification!(),
+        )
+        .connect_with(agent, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(ClientCapabilities::new()),
+            )
+            .block_task()
+            .await?;
+            let loaded = cx
+                .send_request(LoadSessionRequest::new(
+                    SessionId::new("thread_1"),
+                    PathBuf::from("/work/tree"),
+                ))
+                .block_task()
+                .await?;
+            // The chips come back too: the resume seeds them off its own
+            // thread response, like a fresh one does.
+            let options = loaded.config_options.clone().expect("config options");
+            let ids: Vec<String> = options.iter().map(|option| option.id.0.to_string()).collect();
+            assert!(ids.contains(&"model".to_string()), "{ids:?}");
+
+            let response = cx
+                .send_request(PromptRequest::new(
+                    SessionId::new("thread_1"),
+                    vec![text("run the tests")],
+                ))
+                .block_task()
+                .await?;
+            assert_eq!(response.stop_reason, StopReason::EndTurn);
+            Ok(())
+        })
+        .await
+        .expect("the resumed session runs");
+
+    // History first, then the live thread — and never a NEW one.
+    assert!(fake.saw("thread/read"));
+    assert!(fake.saw("thread/resume"));
+    assert!(!fake.saw("thread/start"), "a resume must not start a new thread");
+    // The pumps ran: the turn's notifications became feed updates.
+    assert!(recorded.texts().iter().any(|text| text == "The tests pass."));
 }
 
 #[tokio::test]

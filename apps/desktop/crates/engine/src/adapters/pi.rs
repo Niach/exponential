@@ -724,6 +724,15 @@ fn on_ui_request(
             return;
         }
         PiUi::Ignored => return,
+        // A dialog a NEWER pi added. It may be waiting on us, and nothing
+        // bounds that wait (`prompt` awaits the turn with no deadline), so a
+        // silent drop would wedge the run for ever. Cancelling releases pi
+        // through the same path its own timeout takes.
+        PiUi::Unknown { method } => {
+            log_unknown_ui(&method);
+            answer_ui(session, &id, json!({ "cancelled": true }));
+            return;
+        }
         _ => {}
     }
     let session_id = guard(&session.session_id).clone();
@@ -864,7 +873,20 @@ async fn ask_client(
                 _ => json!({ "cancelled": true }),
             }
         }
-        PiUi::Notify { .. } | PiUi::Ignored => json!({ "cancelled": true }),
+        PiUi::Notify { .. } | PiUi::Ignored | PiUi::Unknown { .. } => {
+            json!({ "cancelled": true })
+        }
+    }
+}
+
+/// ONE warning per unknown dialog method for the life of the process: a pi
+/// that asks for it once asks for it every turn, and the point is to name the
+/// method the next build should render, not to fill the journal.
+fn log_unknown_ui(method: &str) {
+    static SEEN: std::sync::OnceLock<Mutex<HashSet<String>>> = std::sync::OnceLock::new();
+    let mut seen = guard(SEEN.get_or_init(Mutex::default));
+    if seen.insert(method.to_string()) {
+        log::warn!("engine: pi asked for the unknown dialog `{method}`; cancelled it");
     }
 }
 
@@ -1923,6 +1945,7 @@ mod tests {
             session_id: "sess-1".to_string(),
             prompt: None,
             resume: Some(ResumeHandle::PiSessionFile(PathBuf::from("/s/run.jsonl"))),
+            replay: false,
             personal_key: None,
             reaper_settings_path: None,
             exit: crate::ChildExitLink::new(),

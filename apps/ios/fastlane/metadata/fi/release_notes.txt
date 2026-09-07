@@ -1,3 +1,8 @@
+- Ohjaus v2: vaihda agentin malli, panostus ja tila suoraan käynnissä olevasta istunnosta kirjoituskentän yläpuolella olevilla chipeillä; konteksti- ja käyttölukemat päivittyvät sitä mukaa kuin ajo ne ilmoittaa
+- Aiemmat ajot: päättyneet istunnot listataan laitteittain "Resume"-painikkeella, joten päättyneen ajon voi ottaa uudelleen käsittelyyn
+- Chat ilman repositoriota: "Start coding" -paneelista aloitettu chat ei enää tarvitse repositoriota ja pyörii väliaikaisessa kansiossa vain Exponentialin työkaluilla
+- Agentin valinta: kun laite osaa käynnistää agentin muttei ohjata sitä istuntonäkymässä, valinta kertoo sen käynnistyvän terminaalissa sen sijaan, että vaihtaisi hiljaa
+- Ohjausvirta: issue-tunnisteet kuten #EXP-12 muuttuvat napautettaviksi chip-painikkeiksi, ja agentin komennot näkyvät komentomerkkeinä
 - Issue-yhteydet: liitä issueita toisiinsa ylätehtävänä, alitehtävänä, estävänä, estettynä, duplikaattina tai liittyvänä ominaisuuspaneelista; #EXP-12 kuvauksessa tai kommentissa yhdistää kaksi issueta itsestään
 - Kommenttiketjut: vastaa kommentin alle telakoidusta kirjoituskentästä; ketjut pysyvät yhden tason syvyisinä, ja MCP:n kautta agentin kirjoittama kommentti kertoo sen otsikossaan
 - Ohjattu ensimmäinen käynnistys: tiimin luominen vie sinut ensimmäisen boardin, tiimikavereiden kutsumisen ja laitteiden käyttöönoton läpi, samassa järjestyksessä kuin webissä ja työpöydällä

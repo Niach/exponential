@@ -283,6 +283,23 @@ fn retain_projects(config: &Path, keep: impl Fn(&str) -> bool) -> Result<usize, 
     }
     let serialized = serde_json::to_string_pretty(&root)
         .map_err(|err| format!("serialize {}: {err}", config.display()))?;
+    // EXP-757 runs this at every session end AND every start, so it now races
+    // a `claude` that owns the same file (history, `numStartups`, a trust
+    // answer). Our rename would replace ITS write wholesale with the copy we
+    // parsed a moment ago. Re-read: if the bytes moved under us, the sweep is
+    // abandoned — the next one (every start, every end) retries against the
+    // current file. Cheap and one-sided: a false skip only delays a cleanup,
+    // a false write loses the user's data.
+    match std::fs::read_to_string(config) {
+        Ok(current) if current == existing => {}
+        _ => {
+            log::info!(
+                "{} changed while pruning its trust entries; retrying on the next sweep",
+                config.display()
+            );
+            return Ok(0);
+        }
+    }
     let temp = config.with_extension("json.exp-tmp");
     crate::atomic_config::replace_preserving_mode(config, &temp, &serialized)?;
     Ok(dropped)
@@ -626,6 +643,39 @@ mod tests {
             std::fs::read_to_string(&config).unwrap(),
             r#"{"hasCompletedOnboarding": true}"#
         );
+        let _ = std::fs::remove_dir_all(config.parent().unwrap());
+    }
+
+    /// The `claude` CLI saving its own file between our read and our rename
+    /// (EXP-757 runs this at every session start and end): the prune must
+    /// abandon the write instead of replaying its stale copy over it. The
+    /// `keep` closure runs exactly in that window, so it stands in for the CLI.
+    #[test]
+    fn a_concurrent_write_aborts_the_prune() {
+        let config = temp_config("race");
+        std::fs::create_dir_all(config.parent().unwrap()).unwrap();
+        std::fs::write(
+            &config,
+            serde_json::json!({ "projects": { "/data/actions/x/y": {} } }).to_string(),
+        )
+        .unwrap();
+        let concurrent =
+            serde_json::json!({ "numStartups": 7, "projects": { "/data/actions/x/y": {} } })
+                .to_string();
+        assert_eq!(
+            retain_projects(&config, |_| {
+                std::fs::write(&config, &concurrent).unwrap();
+                false
+            }),
+            Ok(0)
+        );
+        assert_eq!(std::fs::read_to_string(&config).unwrap(), concurrent);
+        // The next sweep, with nobody else writing, prunes against the
+        // CURRENT file — the CLI's key survives.
+        assert_eq!(retain_projects(&config, |_| false), Ok(1));
+        let root = parsed(&config);
+        assert_eq!(root["numStartups"], 7);
+        assert!(root["projects"].as_object().unwrap().is_empty());
         let _ = std::fs::remove_dir_all(config.parent().unwrap());
     }
 }

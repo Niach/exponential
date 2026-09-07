@@ -978,6 +978,17 @@ fn a_terminal_round_trip_streams_into_the_local_feed_and_settles_the_exit() {
             .expect("the exit slot is not poisoned")
             .is_some()
     });
+    // The output request is a SECOND round trip that trails the exit one, so
+    // it needs its own wait: asserting the slot straight off the exit races
+    // the agent on a loaded machine.
+    until("the agent's terminal output", || {
+        harness
+            .state
+            .terminal_output
+            .lock()
+            .expect("the output slot is not poisoned")
+            .is_some()
+    });
     // The agent read back exactly what the command wrote, and its exit.
     assert_eq!(
         harness
