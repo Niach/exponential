@@ -36,8 +36,8 @@ use std::time::Duration;
 
 use gpui::{
     div, prelude::FluentBuilder as _, px, size, App, AppContext as _, Div, Entity, IntoElement,
-    ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
-    Task, Window,
+    ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled,
+    Subscription, Task, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
@@ -66,6 +66,11 @@ use crate::surface;
 /// "Not shared" sentinel in the sharing select (the web dialog's Radix
 /// sentinel twin — a select row needs a non-empty value).
 const NOT_SHARED: &str = "__not_shared__";
+
+/// EXP-762: the worktrees column's width. Fixed rather than a flex share so
+/// resizing the dialog widens the settings column (its pickers and account
+/// line are what need the room); a mono `repo branch` path truncates.
+const WORKTREES_COLUMN_W: f32 = 320.;
 
 /// Queued-command poll cadence while the dialog is open (offline machines
 /// keep their commands queued server-side — poll slowly).
@@ -115,12 +120,17 @@ pub(crate) fn editor_agents(
 /// Open the dialog for a synced devices row (own devices only — the
 /// machines menu never offers Edit on teammates' rows).
 pub fn open(window: &mut Window, cx: &mut App, device_row_id: String) {
+    // EXP-762: LANDSCAPE — the settings column and the worktrees column side
+    // by side (the Start-coding dialog's footprint), each scrolling on its
+    // own. The portrait stack put the agent's usage windows at the bottom of
+    // one long column, and the shell's scroll wrapper squeezed the clipped
+    // agent card until the last window was cut off (see [`Render`]).
     let height = (window.viewport_size().height * 0.85).min(px(560.));
-    let spec = DialogSpec::new("Device settings", size(px(440.), height))
-        .resizable(size(px(400.), px(420.)));
+    let spec = DialogSpec::new("Device settings", size(px(820.), height))
+        .resizable(size(px(680.), px(420.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
         let view = cx.new(|cx| DeviceSettingsView::new(device_row_id, window, cx));
-        DialogContent::new(view)
+        DialogContent::new(view).self_scrolling()
     });
 }
 
@@ -535,6 +545,10 @@ pub struct DeviceSettingsView {
     /// EXP-484: the sign-in links finished logins handed back (keyed by
     /// agent id).
     login_notes: HashMap<String, LoginNote>,
+    /// EXP-762: the two columns' scroll positions (view state, so a
+    /// re-render — every autosave, every heartbeat resync — keeps them).
+    settings_scroll: ScrollHandle,
+    worktrees_scroll: ScrollHandle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -748,6 +762,8 @@ impl DeviceSettingsView {
             tracked: Vec::new(),
             polling: false,
             login_notes: HashMap::new(),
+            settings_scroll: ScrollHandle::new(),
+            worktrees_scroll: ScrollHandle::new(),
             _subscriptions: subscriptions,
         }
     }
@@ -2057,11 +2073,48 @@ impl Render for DeviceSettingsView {
             }
         }
 
-        let defaults_section = self.render_defaults_section(online, cx);
-        let worktrees_section = self.render_worktrees_section(online, cx);
         // Every group in the dialog sits on the SAME 8px rhythm (the ×4
         // parity look) — the worktrees section included.
-        body.child(defaults_section).child(worktrees_section)
+        let body = body.child(self.render_defaults_section(online, cx));
+        let worktrees_section = self.render_worktrees_section(online, cx);
+
+        // EXP-762: two columns, each its own scroll pane. The dialog is
+        // `self_scrolling` (see [`open`]) so this root gets a DEFINITE height
+        // and the panes resolve to the visible height, and each pane's scroll
+        // area is a BLOCK container: nothing inside can be flex-squeezed the
+        // way the shell's `overflow_y_scrollbar` wrapper squeezed the
+        // overflow-clipped agent card (a taffy scroll container has an
+        // automatic minimum size of ZERO, so it was the one thing in the
+        // column that could give — and the usage windows at its foot were what
+        // got cut). The settings column takes the wider share: its rows carry
+        // pickers and the account line, the worktree rows one mono path each.
+        h_flex()
+            .size_full()
+            .min_h_0()
+            .items_stretch()
+            .gap_4()
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .min_h_0()
+                    .child(crate::scroll_pane::v_scroll_pane(
+                        "device-settings-settings",
+                        &self.settings_scroll,
+                        body.pr_2().pb_2(),
+                    )),
+            )
+            .child(
+                v_flex()
+                    .w(px(WORKTREES_COLUMN_W))
+                    .flex_shrink_0()
+                    .min_h_0()
+                    .child(crate::scroll_pane::v_scroll_pane(
+                        "device-settings-worktrees",
+                        &self.worktrees_scroll,
+                        worktrees_section.pr_2().pb_2(),
+                    )),
+            )
     }
 }
 
