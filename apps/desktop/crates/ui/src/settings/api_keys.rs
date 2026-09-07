@@ -161,9 +161,9 @@ impl ApiKeysPane {
         let content_input = self.name_input.clone();
         let ok_input = self.name_input.clone();
         let spec = AlertSpec::new(
-            "New API key",
-            "The key acts as you across the API, MCP and CLI, with your full \
-             team membership. You'll see the full key exactly once.",
+            "Create API key",
+            "The key acts as you with your full team membership. You can \
+             revoke it here at any time.",
             "Create key",
         )
         .height(gpui::px(300.))
@@ -247,16 +247,42 @@ impl ApiKeysPane {
             .as_deref()
             .is_some_and(|name| name.starts_with(DEVICE_KEY_PREFIX));
         let description = if device_row {
-            "This key was minted automatically for a signed-in device. \
-             Revoking it signs that device's coding-agent and MCP wiring out \
-             until it mints a fresh key (usually at its next coding session \
-             or sign-in). Anything else using the key stops working \
-             immediately."
+            "This key was minted by a signed-in device. Revoking it \
+             disconnects that device's coding-agent and MCP wiring until it \
+             signs in again."
         } else {
-            "Scripts, MCP clients and CLI logins using this key stop working \
-             immediately. This cannot be undone."
+            "Anything still using this key stops working immediately. This \
+             cannot be undone."
         };
-        let spec = AlertSpec::new(format!("Revoke \"{label}\"?"), description, "Revoke key")
+        // EXP-771: the title names the ACTION (web parity), so the key it hits
+        // rides the body — its name and the visible prefix, like the web's.
+        let identity_name: SharedString = label.clone().into();
+        let identity_preview: SharedString = row
+            .start
+            .clone()
+            .map(|start| format!("{start}\u{2026}").into())
+            .unwrap_or_else(|| "expu_\u{2026}".into());
+        let spec = AlertSpec::new("Revoke API key", description, "Revoke key")
+            .height(gpui::px(260.))
+            .content(move |_, cx| {
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(identity_name.clone()),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .font_family(theme::terminal::FONT_FAMILY)
+                            .child(identity_preview.clone()),
+                    )
+                    .into_any_element()
+            })
             .ok_variant(ButtonVariant::Danger)
             .on_ok(move |_, cx| {
                 let Some(trpc) = queries::trpc_client(cx) else {
@@ -331,13 +357,16 @@ impl ApiKeysPane {
                 div()
                     .text_sm()
                     .font_weight(FontWeight::MEDIUM)
-                    .child("Copy your new key now"),
+                    .child("Copy your API key"),
             )
             .child(
                 div()
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
-                    .child("This is the only time the full key is shown."),
+                    .child(
+                        "This is the only time the full key is shown. Store it \
+                         somewhere safe \u{2014} only a hash stays on the server.",
+                    ),
             )
             .child(
                 h_flex()
@@ -369,7 +398,7 @@ impl ApiKeysPane {
                     )
                     .child(
                         glass_pill_button("api-key-dismiss", PillSize::Sm, cx)
-                            .label("Dismiss")
+                            .label("Done")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.minted = None;
                                 cx.notify();

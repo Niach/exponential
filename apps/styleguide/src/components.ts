@@ -783,9 +783,9 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `app-shell`,
     title: `App shell`,
     kind: `Surfaces`,
-    blurb: `The CUTOUT (EXP-723). The window is the page gradient; the navigation column sits directly on it with no fill of its own; the content is a card inset 10 on the sides and 6 at the bottom — radius 12, a card hairline, the panel wash, overflow hidden. Chrome that is not content sits on the bare ground AROUND the card, symmetrically (EXP-771): the title strip above it and the session band below, both 36 tall with no fill and no border, their chips inset 8, and the band running to the window bottom. The wash is translucent on purpose: the ground darkens down the page and a solid fill would drift away from it. Phones drop the card entirely and run full-bleed under the tab bar.`,
+    blurb: `The CUTOUT (EXP-723). The window is the page gradient; the navigation column sits directly on it with no fill of its own; the content is a card inset 10 on the sides and top, and 6 at the bottom while a session band renders (10 otherwise) — radius 12, a card hairline, the panel wash, overflow hidden. Chrome that is not content sits on the bare ground AROUND the card, symmetrically (EXP-771): the desktop's title strip above it and the session band below on both clients, each 36 tall with no fill and no border, their chips inset 8, and the band running to the window bottom. The wash is translucent on purpose: the ground darkens down the page and a solid fill would drift away from it. Phones drop the card entirely and run full-bleed under the tab bar.`,
     status: {
-      web: ok(`MAIN_PANEL_CLASS`, `apps/web/src/routes/t/$teamSlug/route.tsx`),
+      web: ok(`mainPanelClass`, `apps/web/src/components/team/app-shell.ts`),
       desktop: ok(
         `Shell::render`,
         `apps/desktop/crates/ui/src/shell.rs`,
@@ -820,7 +820,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `page-header`,
     title: `Settings page header`,
     kind: `Surfaces`,
-    blurb: `Every settings page on web and desktop opens identically (EXP-771): the title Settings at 2xl bold, the subtitle "Manage {team name} and your account" at sm muted, then a hairline divider. All three ride a centred 896px column with 24px padding, while the SCROLL region is the full width of the pane, so the scrollbar rides the viewport edge instead of the text column. The nav beside it lists every page: web gains Helpdesk as its own entry next to Feedback widget, and the desktop carries both under a Features group.`,
+    blurb: `Every settings page on web and desktop opens identically (EXP-771): the title Settings at 2xl bold, the subtitle "Manage {team name} and your account" at sm muted, then a hairline divider. All three ride a centred column capped at 56rem (896px at a 16px root; the desktop pins 896 outright) with 1.5rem padding, while the SCROLL region is the full width of the pane, so the scrollbar rides the viewport edge instead of the text column. The nav beside it lists every page: web gains Helpdesk as its own entry next to Feedback widget, and the desktop carries both under a Features group.`,
     status: {
       web: ok(`SettingsLayout`, `apps/web/src/routes/t/$teamSlug/settings/route.tsx`),
       desktop: ok(

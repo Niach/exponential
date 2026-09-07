@@ -173,10 +173,13 @@ impl StoragePane {
         let attachment_id = row.id.clone();
         let filename = row.filename.clone();
         let spec = AlertSpec::new(
-            format!("Delete \"{filename}\"?"),
-            "The attachment is deleted for everyone and cannot be restored. \
-             Every description or comment that embeds it is rewritten in the \
-             same step, replacing the image with a plain-text note.",
+            "Delete this attachment?",
+            format!(
+                "{filename} is deleted for everyone and cannot be restored. \
+                 Every description or comment that embeds it is rewritten in \
+                 the same step, replacing the image with a plain \u{201C}deleted \
+                 image\u{201D} note."
+            ),
             "Delete attachment",
         )
         .ok_variant(ButtonVariant::Danger)

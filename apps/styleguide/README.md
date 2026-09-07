@@ -59,7 +59,7 @@ Two rules the entries carry rather than restate, both from EXP-771:
   shell**, which draws both symmetrically.
 
 **Settings page header** is the third entry of that kind: the one header every
-settings page opens with on web and desktop, on a centred 896px column inside a
+settings page opens with on web and desktop, on a centred 56rem column (896 at a 16px root) inside a
 full-width scroll region.
 
 Under each control is a per-platform table naming the ONE symbol and file that

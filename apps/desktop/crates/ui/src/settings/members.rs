@@ -14,16 +14,17 @@
 //!
 //! Reads are live: members/users/invites come from the synced collections
 //! (the web reads the same shapes); role/remove/revoke are §4.1 un-gated
-//! mutations reflected by the Electric echo. Invite creation is stateful
-//! (spinner + the generated URL); its plan-cap failure surfaces as the §4.9
-//! neutral "Upgrade on the web" notice — never an upgrade dialog.
+//! mutations reflected by the Electric echo, except remove/leave — those
+//! confirm first, in the web's words. Invite creation is stateful (spinner +
+//! the generated URL); its seat-cap failure surfaces as the web's "Out of
+//! seats" copy, rendered as a §4.9 inline notice — never an upgrade dialog.
 
 use gpui::{
     div, prelude::FluentBuilder as _, App, AppContext as _, ElementId, Entity, FontWeight,
     IntoElement, ParentElement, Render, SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariants as _},
+    button::{Button, ButtonVariant, ButtonVariants as _},
     clipboard::Clipboard,
     h_flex,
     input::{InputEvent, InputState},
@@ -37,12 +38,11 @@ use domain::contract::TEAM_ROLE_OWNER;
 use domain::rows::{User, TeamInvite, TeamMember};
 
 use crate::controls::{glass_input, WebControl as _};
+use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 
-use super::{
-    section, error_notice, is_owner, is_plan_limit, spawn_trpc, upgrade_notice,
-};
+use super::{section, error_notice, is_owner, is_plan_limit, spawn_trpc};
 use crate::icons::registry;
 
 /// EXP-771 (web copy wins): the server accepted the invite but could not mail
@@ -50,6 +50,15 @@ use crate::icons::registry;
 /// it. Kept byte-identical to `members-section.tsx`'s toast.
 const EMAIL_FALLBACK_MESSAGE: &str =
     "Couldn't email the invite. Copy the link below and share it instead.";
+
+/// EXP-771: the seat cap is not "some plan limit" — it is the web's
+/// `UpgradeDialog` on the invite controls, rendered inline here (the desktop
+/// never shows pricing, §4.9). Title + body byte-identical to
+/// `members-section.tsx`.
+const OUT_OF_SEATS_TITLE: &str = "Out of seats";
+const OUT_OF_SEATS_MESSAGE: &str =
+    "Everyone on your plan's seats is already in this team. Add seats to \
+     invite more teammates.";
 
 /// One joined member row (web `members` + `userMap`).
 struct MemberRow {
@@ -67,7 +76,8 @@ pub struct MembersPane {
     /// Web `sending` — the PRIMARY "Send invite" is in flight.
     sending: bool,
     error: Option<SharedString>,
-    limit_notice: Option<SharedString>,
+    /// The seat cap rejected the invite — the web's "Out of seats" notice.
+    out_of_seats: bool,
     /// "Invite sent to X" after a delivered email invite.
     sent_notice: Option<SharedString>,
     _subscriptions: Vec<Subscription>,
@@ -87,7 +97,7 @@ impl MembersPane {
                 // Team switch: the generated URL belongs to the old one.
                 this.invite_url = None;
                 this.error = None;
-                this.limit_notice = None;
+                this.out_of_seats = false;
                 this.sent_notice = None;
                 cx.notify();
             }),
@@ -109,7 +119,7 @@ impl MembersPane {
             generating: false,
             sending: false,
             error: None,
-            limit_notice: None,
+            out_of_seats: false,
             sent_notice: None,
             _subscriptions: subscriptions,
         }
@@ -186,7 +196,7 @@ impl MembersPane {
             self.generating = true;
         }
         self.error = None;
-        self.limit_notice = None;
+        self.out_of_seats = false;
         self.sent_notice = None;
         cx.notify();
 
@@ -230,10 +240,7 @@ impl MembersPane {
                         this.invite_url = Some(url);
                     }
                     Err(err) if is_plan_limit(&err) => {
-                        this.limit_notice = Some(
-                            "You've reached the maximum number of members for your plan."
-                                .into(),
-                        );
+                        this.out_of_seats = true;
                     }
                     Err(err) => {
                         this.error = Some(format!("Couldn't create the invite: {err}").into());
@@ -391,25 +398,74 @@ fn member_actions_menu(
                 }
                 if is_self || i_am_owner {
                     let member_id = member_id.clone();
-                    let label = if is_self {
-                        "Leave team".to_string()
+                    let name = name.clone();
+                    // EXP-687: leaving is a sign-out, removing someone is a
+                    // user-minus — the web draws the same two concepts.
+                    let (label, icon) = if is_self {
+                        ("Leave team", registry::NAV_SIGN_OUT)
                     } else {
-                        format!("Remove {name}")
+                        ("Remove member", registry::UI_REMOVE_MEMBER)
                     };
                     menu = menu.item(
-                        PopupMenuItem::new(SharedString::from(label))
-                            .icon(Icon::new(registry::UI_REMOVE_MEMBER))
-                            .on_click(move |_, _, cx| {
-                                let member_id = member_id.clone();
-                                spawn_trpc(cx, "teamMembers.remove", move |trpc| {
-                                    api::teams::team_members_remove(trpc, &member_id)
-                                });
+                        PopupMenuItem::new(label)
+                            .icon(Icon::new(icon))
+                            // EXP-771: losing team access is instant and has
+                            // no undo — it confirms first, in the web's words.
+                            .on_click(move |_, window, cx| {
+                                open_remove_member_dialog(
+                                    member_id.clone(),
+                                    name.clone(),
+                                    is_self,
+                                    window,
+                                    cx,
+                                );
                             }),
                     );
                 }
                 menu
             }
         })
+}
+
+/// The web's remove/leave confirm (`members-section.tsx`), word for word:
+/// losing access to a team is immediate and cannot be undone, and the item sits
+/// right under the role toggles — so it asks first, like every other
+/// destructive settings action.
+fn open_remove_member_dialog(
+    member_id: String,
+    name: String,
+    is_self: bool,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let (title, description, ok_text) = if is_self {
+        (
+            "Leave team",
+            "Leave this team? You lose access to its boards and issues \
+             immediately and need a new invite to rejoin."
+                .to_string(),
+            "Leave team",
+        )
+    } else {
+        (
+            "Remove member",
+            format!(
+                "Remove {name} from the team? They lose access to its boards \
+                 and issues immediately."
+            ),
+            "Remove",
+        )
+    };
+    let spec = AlertSpec::new(title, description, ok_text)
+        .ok_variant(ButtonVariant::Danger)
+        .on_ok(move |_, cx| {
+            let member_id = member_id.clone();
+            spawn_trpc(cx, "teamMembers.remove", move |trpc| {
+                api::teams::team_members_remove(trpc, &member_id)
+            });
+            true
+        });
+    native_dialog::open_alert(window, cx, spec);
 }
 
 impl Render for MembersPane {
@@ -523,8 +579,8 @@ impl Render for MembersPane {
             if let Some(notice) = &self.sent_notice {
                 invite_section = invite_section.child(sent_notice(notice.clone(), cx));
             }
-            if let Some(notice) = &self.limit_notice {
-                invite_section = invite_section.child(upgrade_notice(notice.clone(), cx));
+            if self.out_of_seats {
+                invite_section = invite_section.child(out_of_seats_notice(cx));
             }
             if let Some(error) = &self.error {
                 invite_section = invite_section.child(error_notice(error.clone(), cx));
@@ -698,6 +754,33 @@ fn display_name(row: &MemberRow) -> String {
                 .filter(|email| !email.is_empty())
         })
         .unwrap_or_else(|| domain::member_fallback_label(&row.member.user_id))
+}
+
+/// The web's seat-cap `UpgradeDialog`, inline: its title as the lead line, its
+/// description under it, and the desktop's one billing hand-off (§4.9 — seats
+/// are bought on the web).
+fn out_of_seats_notice(cx: &App) -> impl IntoElement {
+    v_flex()
+        .gap_1()
+        .px_3()
+        .py_2()
+        .rounded(cx.theme().radius)
+        .border_1()
+        .border_color(cx.theme().primary.opacity(0.4))
+        .bg(cx.theme().primary.opacity(0.05))
+        .child(
+            div()
+                .text_sm()
+                .font_weight(FontWeight::MEDIUM)
+                .child(OUT_OF_SEATS_TITLE),
+        )
+        .child(div().text_sm().child(OUT_OF_SEATS_MESSAGE))
+        .child(
+            div()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child("Add seats on the web."),
+        )
 }
 
 /// "Invite sent to X" confirmation (EXP-188 invite-by-email).

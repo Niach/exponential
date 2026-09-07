@@ -47,19 +47,6 @@ export function openFeedbackWidget(): boolean {
   return true
 }
 
-// Hide the floating launcher while our own UI owns its corner (EXP-642 —
-// the phone issue-detail properties sheet). The panel is untouched, so a
-// half-typed report survives. Optional-chained on the method too: a cached
-// pre-EXP-642 loader has replaced the stub without it.
-//
-// EXP-771: a NO-OP in this app now — the in-app mount is headless
-// (`showButton: false`), so there is no launcher left to hide. Kept as the
-// widget API's own affordance, for a host whose UI does cover the corner.
-export function setFeedbackLauncherHidden(hidden: boolean): void {
-  if (status === `idle` || status === `failed`) return
-  window.ExponentialWidget?.setLauncherHidden?.(hidden)
-}
-
 export function FeedbackWidgetProvider() {
   const { data: session } = useSession()
   const [widget, setWidget] = useState<FeedbackWidgetConfig | null>(null)

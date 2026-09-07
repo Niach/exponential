@@ -55,8 +55,7 @@ export function TeamHelpdeskSection({ team }: { team: Team }) {
 
   return (
     <div className="space-y-6">
-      {/* Anchor target for the "Getting started" helpdesk card's link. */}
-      <div id="helpdesk" className="scroll-mt-6">
+      <div>
         <GlassSectionHeader
           leading={<HelpdeskIcon className="size-3.5 text-foreground/50" />}
           label="Helpdesk"

@@ -1656,7 +1656,7 @@
       },
       "webMobile": "inherit",
       "notes": {
-        "desktop": "Captured under settings-widget parity: the IDE pane is the same single toggle.",
+        "desktop": "No desktop capture: the IDE pane (SettingsSection::Helpdesk) is the same single toggle; the web shot is the reference.",
         "ios": "No native section: helpdesk configuration is web-only.",
         "android": "No native section: helpdesk configuration is web-only."
       }
