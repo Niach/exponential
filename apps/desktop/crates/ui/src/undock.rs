@@ -43,6 +43,15 @@ use crate::shell::Shell;
 
 /// Cascade offset so stacked undocks don't open exactly on top of each other.
 const CASCADE_STEP: f32 = 24.;
+
+/// EXP-771 — the undocked window's cutout-panel inset, byte-identical to
+/// `shell.rs`'s (private) `PANEL_MARGIN` / `PANEL_MARGIN_TOP`: 10px on the
+/// sides and the bottom, 6px under the decoration band (the band already
+/// supplies breathing room; the full margin there reads as a hole). A window
+/// with no client chrome (the Linux server-decoration fallback) has no band
+/// and takes the full margin on all four sides. Change one, change both.
+const PANEL_MARGIN: f32 = 10.;
+const PANEL_MARGIN_TOP: f32 = 6.;
 static UNDOCK_ORDINAL: AtomicUsize = AtomicUsize::new(0);
 
 /// One undocked terminal-tab window: the handle plus the shell window
@@ -293,8 +302,9 @@ pub(crate) fn open_undocked_screen(screen: Screen, origin: AnyWindowHandle, cx: 
     .detach();
 }
 
-/// A slim native window hosting one content screen: header (title +
-/// Reattach) over a fresh screen view, with the Root overlay layers so
+/// A slim native window hosting one content screen: the decoration band
+/// (title + Reattach) on the window ground over a fresh screen view in the
+/// shell's cutout panel (EXP-771), with the Root overlay layers so
 /// dialogs/notifications opened from the content still paint.
 pub(crate) struct UndockedScreenWindow {
     screen: Screen,
@@ -420,7 +430,8 @@ impl Render for UndockedScreenWindow {
                 .text_sm()
                 .child(title)
         };
-        let header: AnyElement = if crate::app_title_bar::client_chrome(window) {
+        let client_chrome = crate::app_title_bar::client_chrome(window);
+        let header: AnyElement = if client_chrome {
             TitleBar::new()
                 .child(
                     h_flex()
@@ -461,6 +472,14 @@ impl Render for UndockedScreenWindow {
             // so it must carry the frame's radii — gpui's content mask is
             // rectangular and would leave opaque square corners under the
             // rounded frame (`window_frame::frame_radii`).
+            //
+            // EXP-771: still NO border on this root. Under Linux CSD
+            // `window_frame` already paints the 1px `window_border`, and a
+            // second stroke inside it doubles the line and shifts the inner
+            // arc off the radius the `TitleBar` rounds to (the EXP-269
+            // square-corner class of bug) — the rule `Shell` and
+            // `native_dialog::DialogShell` follow too. The card EDGE lives on
+            // the cutout panel below instead.
             crate::window_frame::round_to_frame(div(), window)
                 .size_full()
                 .bg(theme::background_gradient())
@@ -469,8 +488,40 @@ impl Render for UndockedScreenWindow {
                 .child(
                     gpui_component::v_flex()
                         .size_full()
+                        // The decoration band stays on bare GROUND — that is
+                        // what makes the panel under it read as a cutout.
                         .child(header)
-                        .child(div().flex_1().min_h_0().child(self.content.clone())),
+                        .child(
+                            // EXP-771: the SAME cutout panel as the main
+                            // window (`shell::render`) — an undocked issue is
+                            // the same page, so it must not read as a
+                            // near-black slab beside the shell.
+                            gpui_component::v_flex()
+                                .flex_1()
+                                .min_h_0()
+                                .min_w_0()
+                                .mt(px(if client_chrome {
+                                    PANEL_MARGIN_TOP
+                                } else {
+                                    PANEL_MARGIN
+                                }))
+                                .mx(px(PANEL_MARGIN))
+                                .mb(px(PANEL_MARGIN))
+                                .overflow_hidden()
+                                .relative()
+                                // The card FACE is a backdrop child (EXP-760)
+                                // — FIRST, so it paints behind the content.
+                                .child(
+                                    div()
+                                        .absolute()
+                                        .inset_0()
+                                        .rounded(px(theme::tokens::radius::LG))
+                                        .border_1()
+                                        .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+                                        .bg(theme::tokens::glass::FILL_PANEL.to_hsla()),
+                                )
+                                .child(div().flex_1().min_h_0().child(self.content.clone())),
+                        ),
                 )
                 .children(sheet_layer)
                 .children(dialog_layer)
