@@ -46,6 +46,10 @@ import {
 import type { SessionDevice } from "@/lib/session-device"
 import type { SessionIdentity } from "@/lib/session-identity"
 import {
+  staleActivityLabel,
+  staleActivityMinutes,
+} from "@/lib/stale-activity"
+import {
   activeQuestionIds,
   answerKey,
   askStepperView,
@@ -480,6 +484,21 @@ export function AgentSessionView({
       phase.kind === `connecting` ||
       phase.kind === `idle` ||
       phase.kind === `closed`)
+  /** FEED-26: when the feed last changed while live — the viewer's own clock
+   *  for "this run has gone quiet". A compaction edge counts as activity too.
+   *  State (not a ref) so the render that appends the item already sees the
+   *  reset instead of one stale 30 s tick. */
+  const [lastActivityAt, setLastActivityAt] = useState(() => Date.now())
+  useEffect(() => {
+    setLastActivityAt(Date.now())
+  }, [feed, compacting, live])
+  /** Minutes of silence past the threshold, or null while the agent is
+   *  working, waiting on a human, compacting or paused — each of those has
+   *  its own caption. */
+  const staleMinutes =
+    live && !paused && !awaitingInput && !compactingNow
+      ? staleActivityMinutes(usageNow.getTime(), lastActivityAt)
+      : null
   /** EXP-688: the kill confirmation is shared with the dock tab's X. Live
    *  implies ownership (EXP-312), and only a live stream can be killed. */
   const {
@@ -602,6 +621,7 @@ export function AgentSessionView({
               phase={phase}
               awaitingInput={awaitingInput}
               paused={paused}
+              stale={staleMinutes !== null}
             />
             {identity.identifier && (
               <span className="shrink-0 font-mono text-xs text-muted-foreground">
@@ -613,7 +633,14 @@ export function AgentSessionView({
             </span>
           </div>
           <span className="max-w-full truncate text-[11px] text-muted-foreground">
-            {phaseLabel(phase, device, awaitingInput, paused, compactingNow)}
+            {phaseLabel(
+              phase,
+              device,
+              awaitingInput,
+              paused,
+              compactingNow,
+              staleMinutes
+            )}
           </span>
         </div>
         {/* A dropped stream redials from here too — a phone has no desktop
@@ -1022,7 +1049,9 @@ function phaseLabel(
   awaitingInput: boolean,
   paused: boolean,
   /** EXP-724: folding its context, which is neither working nor waiting. */
-  compacting = false
+  compacting = false,
+  /** FEED-26: minutes past the no-activity threshold, null while healthy. */
+  staleMinutes: number | null = null
 ): string {
   const deviceLabel = device.label
   if (paused) return `Paused · ${deviceLabel ?? `device`} is offline`
@@ -1035,6 +1064,7 @@ function phaseLabel(
     if (awaitingInput) {
       return deviceLabel ? `Needs your input · ${deviceLabel}` : `Needs your input`
     }
+    if (staleMinutes !== null) return staleActivityLabel(staleMinutes, deviceLabel)
     return deviceLabel ? `Live · ${deviceLabel}` : `Live`
   }
   if (phase.kind === `starting`) return `Agent starting…`
@@ -1044,19 +1074,22 @@ function phaseLabel(
 }
 
 /** The status dot that leads the phase: green live, amber pulsing while it
- * connects, amber steady while it waits on a human, grey otherwise. */
+ * connects, amber steady while it waits on a human (or, FEED-26, has gone
+ * quiet past the threshold), grey otherwise. */
 function PhaseDot({
   phase,
   awaitingInput = false,
   paused = false,
+  stale = false,
 }: {
   phase: ViewerPhase
   awaitingInput?: boolean
   paused?: boolean
+  stale?: boolean
 }) {
   const connecting =
     !paused && (phase.kind === `connecting` || phase.kind === `starting`)
-  const awaiting = phase.kind === `live` && awaitingInput
+  const awaiting = phase.kind === `live` && (awaitingInput || stale)
   return (
     <span
       className={cn(

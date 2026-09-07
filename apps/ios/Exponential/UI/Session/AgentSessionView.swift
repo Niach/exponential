@@ -430,24 +430,35 @@ struct AgentSessionView: View {
         let row = model?.session ?? session
         // EXP-734: a run that opened its own issue-less PR carries the state
         // on its OWN row.
-        return CodingSessionDisplayState.of(
+        let state = CodingSessionDisplayState.of(
             session: row, prState: headerIssue?.prState ?? row.prState
         )
+        // FEED-26: a live run whose feed went quiet gets the steady amber of
+        // "Needs your input" — a pulsing green "coding now" dot over a caption
+        // that says `No activity for 27 min` is a lie. Never over review/done:
+        // those outrank every attention state (EXP-531).
+        if state == .running, model?.staleActivityMinutes != nil { return .needsInput }
+        return state
     }
 
     /// Line 2: what the header used to say on its own — the phase, and the
     /// machine the run is parked on.
     private var headerCaption: String {
         let label = model?.hostDevice.label ?? session.deviceLabel
-        let device = (label?.isEmpty == false) ? " · \(label!)" : ""
+        let deviceName = (label?.isEmpty == false) ? label : nil
+        let device = deviceName.map { " · \($0)" } ?? ""
         if hostPaused { return "Paused\(device)" }
         switch model?.phase {
         case .live:
             // A trailing question/plan means the session is blocked on a
             // human — say so instead of looking silently stuck (EXP-97).
-            return model?.awaitingInput == true
-                ? "Needs your input\(device)"
-                : "Live\(device)"
+            if model?.awaitingInput == true { return "Needs your input\(device)" }
+            // FEED-26: nothing is blocking it and nothing has happened for ten
+            // minutes — say how long instead of a healthy-looking "Live".
+            if let minutes = model?.staleActivityMinutes {
+                return AgentFeed.staleActivityLabel(minutes: minutes, deviceLabel: deviceName)
+            }
+            return "Live\(device)"
         case .ended: return "Session ended"
         case let .closed(_, reconnecting): return reconnecting ? "Reconnecting…" : "Disconnected"
         default: return "Connecting…"

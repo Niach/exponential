@@ -73,6 +73,9 @@ final class AgentSessionModel {
             // EXP-724: nothing is compacting on a session that is over — the
             // `ended` edge that would have closed the strip is never coming.
             if case .ended = phase { clearCompaction() }
+            // FEED-26: the fallback "last activity" — a run that goes quiet
+            // the moment it comes live still needs a clock to count from.
+            if phase == .live { markActivity() }
         }
     }
     /// The feed stays visible while disconnected (closed/ended states) and is
@@ -81,7 +84,12 @@ final class AgentSessionModel {
     /// so the client never has to guess when to wipe. Item shapes and the pure
     /// grouping/resolution rules live in ExpCore's AgentFeed.
     private(set) var feed: [AgentFeedItem] = [] {
-        didSet { if !applyingBatch { reproject() } }
+        didSet {
+            // FEED-26: any appended or replaced item counts as activity. The
+            // event's own `at` never does — it is optional on the wire.
+            if phase == .live { markActivity() }
+            if !applyingBatch { reproject() }
+        }
     }
     /// EXP-582: the O(feed) projections, derived ONCE per feed change. They
     /// used to be computed properties read from the view body — `rows` three
@@ -106,6 +114,14 @@ final class AgentSessionModel {
     /// `compaction` activity event and cleared by its `ended` edge, the replay
     /// swap, the end of the session, and a backstop timer.
     private(set) var compacting: AgentCompaction?
+    /// FEED-26: when this run's feed last CHANGED while live, falling back to
+    /// the moment the phase became live. What `staleActivityMinutes` counts
+    /// from.
+    private(set) var lastActivityAt: Date?
+    /// FEED-26: the clock `staleActivityMinutes` reads, re-stamped every 30s.
+    /// Silence is the ABSENCE of frames, so without a tick nothing would ever
+    /// redraw the header while a run goes quiet (the host-liveness pattern).
+    private(set) var activityNow = Date()
     /// EXP-746: the agent's live configuration behind the composer chips —
     /// model, effort, mode, and the agent's own slash commands. Latest-wins
     /// STATE beside the feed, never a row: the relay replays the newest
@@ -310,6 +326,19 @@ final class AgentSessionModel {
     /// the message), so the input row advertises it via its placeholder.
     var awaitingPlanApproval: Bool { phase == .live && hasActivePlanCard }
 
+    /// FEED-26: whole minutes this LIVE run's feed has said nothing, once past
+    /// `AgentFeed.staleActivityAfter` — what the header prints as `No activity
+    /// for 27 min` instead of a healthy-looking "Live". Nil in every state
+    /// that ALREADY explains the silence: a paused host (its own caption), a
+    /// trailing question or plan card (the run is blocked on a human, not
+    /// stuck) and a running compaction, which is work that emits no frames.
+    var staleActivityMinutes: Int? {
+        guard phase == .live, !hostDeviceOffline, !awaitingInput, compacting == nil else {
+            return nil
+        }
+        return AgentFeed.staleActivityMinutes(since: lastActivityAt, now: activityNow)
+    }
+
     private let accountId: String
     private let codingSessionId: String
     private let currentUserId: String?
@@ -357,6 +386,9 @@ final class AgentSessionModel {
     /// a machine going quiet writes nothing).
     private var deviceObservationTask: Task<Void, Never>?
     private var deviceLivenessTask: Task<Void, Never>?
+    /// FEED-26: the 30s tick that re-derives `staleActivityMinutes` — see
+    /// `activityNow`.
+    private var activityClockTask: Task<Void, Never>?
     /// EXP-656: wakes when our own `devices` shape completes a poll. Presence
     /// is only as current as that cursor — after a suspension the rows still
     /// carry the pre-sleep `last_seen_at`, and this is the edge that turns
@@ -480,6 +512,7 @@ final class AgentSessionModel {
         startObservingSession()
         startObservingHostDevice()
         startObservingMergeIssue()
+        startActivityClock()
         if phase == .idle { connect() }
     }
 
@@ -513,6 +546,10 @@ final class AgentSessionModel {
     /// of the old `reconnectNow()`, so nothing left in the process could revive
     /// them.
     func kick(_ reason: String) {
+        // FEED-26: a backgrounded process runs no timers, so the quiet clock
+        // comes back as stale as everything else — re-stamp it on the way in
+        // instead of showing a minute-old count until the next tick.
+        activityNow = Date()
         let stale = phase == .live
             && (lastFrameAt.map { Date().timeIntervalSince($0) > Self.liveStaleSeconds } ?? true)
         let decision = SteerReconnectPolicy.revive(
@@ -581,6 +618,7 @@ final class AgentSessionModel {
         startObservingSession()
         startObservingHostDevice()
         startObservingMergeIssue()
+        startActivityClock()
         connect()
     }
 
@@ -606,6 +644,8 @@ final class AgentSessionModel {
         deviceLivenessTask = nil
         deviceFreshnessTask?.cancel()
         deviceFreshnessTask = nil
+        activityClockTask?.cancel()
+        activityClockTask = nil
         mergeObservationTask?.cancel()
         mergeObservationTask = nil
         connected = false
@@ -897,6 +937,29 @@ final class AgentSessionModel {
                 self.rebuildHostDevice()
             }
         }
+    }
+
+    /// FEED-26: re-stamp `activityNow` every 30s so a quiet run's caption
+    /// counts up on its own. Same cadence as the host-liveness clock, and for
+    /// the same reason: nothing writes while a machine (or an agent) goes
+    /// silent, so no observation can report it.
+    private func startActivityClock() {
+        guard activityClockTask == nil else { return }
+        activityClockTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                guard let self, !Task.isCancelled else { return }
+                self.activityNow = Date()
+            }
+        }
+    }
+
+    /// FEED-26: the feed moved (or the run just came live) — restart the
+    /// quiet clock.
+    private func markActivity() {
+        let now = Date()
+        lastActivityAt = now
+        activityNow = now
     }
 
     private func rebuildHostDevice() {
