@@ -20,11 +20,21 @@ pub struct PiArgs<'a> {
     /// Extensions to load with `-e`. On this path that is the MCP bridge and
     /// NOTHING else: the observer and plan extensions belong to the PTY path.
     pub extensions: &'a [std::path::PathBuf],
+    /// EXP-763: `--append-system-prompt <text>` — the run playbook. pi
+    /// rebuilds its system prompt on every launch, so a `--session` resume
+    /// carries the current text too.
+    pub append_system_prompt: Option<&'a str>,
 }
 
 impl Default for PiArgs<'_> {
     fn default() -> Self {
-        PiArgs { model: None, thinking: None, session_file: None, extensions: &[] }
+        PiArgs {
+            model: None,
+            thinking: None,
+            session_file: None,
+            extensions: &[],
+            append_system_prompt: None,
+        }
     }
 }
 
@@ -46,6 +56,10 @@ pub fn pi_argv(args: &PiArgs<'_>) -> Vec<String> {
     for extension in args.extensions {
         argv.push("-e".to_string());
         argv.push(extension.display().to_string());
+    }
+    if let Some(text) = args.append_system_prompt {
+        argv.push("--append-system-prompt".to_string());
+        argv.push(text.to_string());
     }
     argv
 }
@@ -720,6 +734,7 @@ mod tests {
             thinking: Some("high"),
             session_file: Some(&session),
             extensions: &extensions,
+            append_system_prompt: Some("# playbook"),
         };
         assert_eq!(
             pi_argv(&args),
@@ -734,6 +749,9 @@ mod tests {
                 "/sessions/abc.jsonl",
                 "-e",
                 "./.exp-pi-mcp.ts",
+                // EXP-763: the playbook LAST, as text (never a path).
+                "--append-system-prompt",
+                "# playbook",
             ]
         );
     }

@@ -381,8 +381,18 @@ pub const OPT_OUT_NOTIFICATIONS: &[&str] = &[
 /// this is the exact replacement for the PTY path's `-c mcp_servers.*` argv
 /// overrides. `projects.<root>.trust_level` is what stops the app-server
 /// asking about an untrusted directory.
-pub fn thread_start_params(cwd: &std::path::Path, config: Value) -> Value {
-    json!({ "cwd": cwd.display().to_string(), "config": config })
+pub fn thread_start_params(
+    cwd: &std::path::Path,
+    config: Value,
+    developer_instructions: Option<&str>,
+) -> Value {
+    let mut params = json!({ "cwd": cwd.display().to_string(), "config": config });
+    if let Some(text) = developer_instructions {
+        // EXP-763: the run playbook as codex's own developer message — the
+        // app-server twin of the PTY path's `-c developer_instructions=…`.
+        params["developerInstructions"] = json!(text);
+    }
+    params
 }
 
 /// The `config` blob for [`thread_start_params`]: the exponential MCP server,
@@ -561,9 +571,18 @@ pub fn model_list_params(cursor: Option<&str>) -> Value {
 }
 
 /// `thread/resume` — re-enters a recorded thread id. Same override set as
-/// `thread/start`, so the config blob rides along unchanged.
-pub fn thread_resume_params(thread_id: &str, cwd: &std::path::Path, config: Value) -> Value {
-    json!({ "threadId": thread_id, "cwd": cwd.display().to_string(), "config": config })
+/// `thread/start`, so the config blob rides along unchanged. EXP-763: the
+/// developer message too — codex replays it from the rollout, so every
+/// resume passes the SAME text the start did.
+pub fn thread_resume_params(
+    thread_id: &str,
+    cwd: &std::path::Path,
+    config: Value,
+    developer_instructions: Option<&str>,
+) -> Value {
+    let mut params = thread_start_params(cwd, config, developer_instructions);
+    params["threadId"] = json!(thread_id);
+    params
 }
 
 /// `thread/read` — the whole thread including its turns, which is how an
@@ -1175,6 +1194,25 @@ mod tests {
             config["sandbox_workspace_write"]["writable_roots"],
             json!(["/work/tree"])
         );
+    }
+
+    /// EXP-763: the playbook is codex's developer message on BOTH thread
+    /// entries — a resume replays it from the rollout, so it must be the
+    /// same text every time.
+    #[test]
+    fn thread_start_and_resume_carry_the_developer_instructions() {
+        let cwd = std::path::PathBuf::from("/work/tree");
+        let start = thread_start_params(&cwd, json!({}), Some("# playbook"));
+        assert_eq!(start["cwd"], json!("/work/tree"));
+        assert_eq!(start["developerInstructions"], json!("# playbook"));
+        assert!(start.get("threadId").is_none());
+        let resume = thread_resume_params("t-1", &cwd, json!({ "k": 1 }), Some("# playbook"));
+        assert_eq!(resume["threadId"], json!("t-1"));
+        assert_eq!(resume["config"], json!({ "k": 1 }));
+        assert_eq!(resume["developerInstructions"], json!("# playbook"));
+        // An agent shell without a playbook sends no key at all.
+        let bare = thread_start_params(&cwd, json!({}), None);
+        assert!(bare.get("developerInstructions").is_none());
     }
 
     #[test]

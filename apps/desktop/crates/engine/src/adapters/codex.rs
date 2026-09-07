@@ -702,12 +702,15 @@ async fn open_thread(
         Some(ResumeHandle::Acp(id)) | Some(ResumeHandle::Native(id)) => Some(id.clone()),
         _ => None,
     };
+    // EXP-763: the run playbook, on start AND resume (codex replays the
+    // developer message from the rollout; identical text keeps it stable).
+    let playbook = Some(coding::skill::RUN_SKILL);
     let response = match &resumed {
         Some(thread_id) => {
             call(
                 shared,
                 "thread/resume",
-                codex_wire::thread_resume_params(thread_id, &cwd, config),
+                codex_wire::thread_resume_params(thread_id, &cwd, config, playbook),
             )
             .await?
         }
@@ -715,7 +718,7 @@ async fn open_thread(
             call(
                 shared,
                 "thread/start",
-                codex_wire::thread_start_params(&cwd, config),
+                codex_wire::thread_start_params(&cwd, config, playbook),
             )
             .await?
         }

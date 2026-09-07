@@ -171,6 +171,8 @@ fn pi_argv_for(spec: &AdapterSpec) -> Vec<String> {
         thinking: (!thinking.is_empty()).then_some(thinking),
         session_file: session_file.as_deref(),
         extensions: &extensions,
+        // EXP-763: the run playbook, on every start and resume.
+        append_system_prompt: Some(coding::skill::RUN_SKILL),
     })
 }
 
@@ -1942,6 +1944,9 @@ mod tests {
                 "/s/run.jsonl",
                 "-e",
                 "./.exp-pi-mcp.ts",
+                // EXP-763: the run playbook, last.
+                "--append-system-prompt",
+                coding::skill::RUN_SKILL,
             ]
         );
     }
@@ -1953,8 +1958,15 @@ mod tests {
     fn the_rpc_argv_adds_the_plan_extension_only_in_plan_mode() {
         let planning = pi_argv_for(&pi_spec(true));
         assert_eq!(
-            planning.iter().rev().take(4).rev().collect::<Vec<_>>(),
-            vec!["-e", "./.exp-pi-mcp.ts", "-e", "./.exp-pi-plan.ts"]
+            planning.iter().rev().take(6).rev().collect::<Vec<_>>(),
+            vec![
+                "-e",
+                "./.exp-pi-mcp.ts",
+                "-e",
+                "./.exp-pi-plan.ts",
+                "--append-system-prompt",
+                coding::skill::RUN_SKILL,
+            ]
         );
         assert!(!pi_argv_for(&pi_spec(false))
             .iter()

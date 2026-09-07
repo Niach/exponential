@@ -25,6 +25,7 @@ use crate::agent::CodingAgent;
 use crate::mcp_json::MCP_JSON_FILE;
 use crate::pi_bridge::{PI_BRIDGE_FILE, PI_OBSERVER_FILE, PI_PLAN_FILE};
 use crate::settings::Settings;
+use crate::skill::RUN_SKILL;
 
 /// The env var carrying the raw `expu_` key for codex + pi sessions (EXP-201)
 /// — those agents get the MCP credential via the spawn environment instead of
@@ -133,6 +134,31 @@ pub fn permission_args(plan_mode: bool) -> Vec<String> {
     } else {
         vec!["--dangerously-skip-permissions".into()]
     }
+}
+
+/// A TOML basic string (double-quoted, single line) for a `-c key=value`
+/// override — codex parses the value as TOML, and its argv splitter must
+/// never meet a raw newline or an unescaped quote. Backslash, quote and
+/// every control character are escaped; everything else (UTF-8 included)
+/// passes through verbatim.
+pub fn toml_basic_string(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 2);
+    out.push('"');
+    for ch in text.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 || c == '\u{7f}' => {
+                out.push_str(&format!("\\u{:04X}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 /// Per-agent MCP wiring, resolved by the launcher (step 4) and consumed by
@@ -406,6 +432,12 @@ pub fn session_args(
             }
             args.extend(mcp_config_args());
             args.extend(permission_args(opts.plan_mode));
+            // EXP-763: the run playbook, appended to the system prompt (never
+            // the seed prompt). Passing the flag also turns claude's
+            // system-prompt snapshot off, so a `--resume` gets the CURRENT
+            // text rather than the one recorded with the transcript.
+            args.push("--append-system-prompt".into());
+            args.push(RUN_SKILL.into());
         }
         CodingAgent::Codex => {
             // EXP-389: codex's startup update prompt ("Update now / Skip …
@@ -448,6 +480,16 @@ pub fn session_args(
                 args.push("-c".into());
                 args.push("experimental_use_rmcp_client=true".into());
             }
+            // EXP-763: the run playbook as codex's own developer message
+            // (additive to AGENTS.md; `developer_instructions` is a plain
+            // config string, so it rides `-c` like the MCP block). A TOML
+            // basic string on ONE line — the `-c key=value` parser must
+            // never see a raw newline.
+            args.push("-c".into());
+            args.push(format!(
+                "developer_instructions={}",
+                toml_basic_string(RUN_SKILL)
+            ));
             // EXP-690: every codex run bypasses approvals and the sandbox.
             args.push("--dangerously-bypass-approvals-and-sandbox".into());
         }
@@ -484,6 +526,12 @@ pub fn session_args(
             // without [`PI_PLAN_MODE_ENV`], so it rides unconditionally too.
             args.push("-e".into());
             args.push(format!("./{PI_PLAN_FILE}"));
+            // EXP-763: the run playbook. pi appends the argument's TEXT (or a
+            // file's contents when the argument is an existing path — this
+            // one never is) and rebuilds the system prompt on every launch,
+            // `--session` resumes included.
+            args.push("--append-system-prompt".into());
+            args.push(RUN_SKILL.into());
         }
     }
     match tail {
@@ -513,6 +561,26 @@ pub fn session_args(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-763: the codex playbook override is one TOML basic string — what
+    /// `-c developer_instructions=<value>` hands the TOML parser must decode
+    /// back to the exact playbook, newlines and quotes included.
+    #[test]
+    fn toml_basic_string_round_trips_the_playbook() {
+        let encoded = toml_basic_string(RUN_SKILL);
+        assert!(encoded.starts_with('"') && encoded.ends_with('"'));
+        assert!(!encoded[1..encoded.len() - 1].contains('\n'));
+        let doc: toml::Value = format!("v = {encoded}").parse().unwrap();
+        assert_eq!(doc["v"].as_str(), Some(RUN_SKILL));
+    }
+
+    #[test]
+    fn toml_basic_string_escapes_quotes_backslashes_and_controls() {
+        let encoded = toml_basic_string("say \"hi\"\\ tab\there\r\n\u{1}end");
+        assert_eq!(encoded, r#""say \"hi\"\\ tab\there\r\n\u0001end""#);
+        let doc: toml::Value = format!("v = {encoded}").parse().unwrap();
+        assert_eq!(doc["v"].as_str(), Some("say \"hi\"\\ tab\there\r\n\u{1}end"));
+    }
 
     fn claude_opts() -> LaunchOptions {
         LaunchOptions {
@@ -578,6 +646,10 @@ mod tests {
                 "--permission-mode",
                 "plan",
                 "--allow-dangerously-skip-permissions",
+                // EXP-763: the playbook rides the system prompt, right
+                // before the positional.
+                "--append-system-prompt",
+                RUN_SKILL,
                 "do the thing",
             ]
         );
@@ -600,16 +672,21 @@ mod tests {
                 ".exp-mcp.json",
                 "--strict-mcp-config",
                 "--dangerously-skip-permissions",
+                "--append-system-prompt",
+                RUN_SKILL,
                 "prompt",
             ]
         );
 
-        // Plan OFF (EXP-690 default): the bypass flag, nothing else.
+        // Plan OFF (EXP-690 default): the bypass flag, then the playbook,
+        // then the positional.
         let args = session_args(&claude_opts(), &AgentMcp::ClaudeFile, None, SessionIdentity::default(), SessionTail::Prompt("p"));
         assert_eq!(
-            args[args.len() - 2..],
+            args[args.len() - 4..],
             [
                 "--dangerously-skip-permissions".to_string(),
+                "--append-system-prompt".to_string(),
+                RUN_SKILL.to_string(),
                 "p".to_string(),
             ]
         );
@@ -673,6 +750,8 @@ mod tests {
                 ".exp-mcp.json",
                 "--strict-mcp-config",
                 "--dangerously-skip-permissions",
+                "--append-system-prompt",
+                RUN_SKILL,
                 "prompt",
             ]
         );
@@ -713,7 +792,9 @@ mod tests {
             session_id: None,
         };
         // EXP-690: the yolo flag rides EVERY codex argv; MCP via -c
-        // overrides with the env-var token.
+        // overrides with the env-var token. EXP-763: the playbook is one
+        // more -c override, right before the yolo flag.
+        let playbook = format!("developer_instructions={}", toml_basic_string(RUN_SKILL));
         let opts = LaunchOptions {
             agent: CodingAgent::Codex,
             model: "gpt-5.6-sol".to_string(),
@@ -737,6 +818,8 @@ mod tests {
                 "mcp_servers.exponential.bearer_token_env_var=\"EXP_MCP_TOKEN\"",
                 "-c",
                 "experimental_use_rmcp_client=true",
+                "-c",
+                playbook.as_str(),
                 "--dangerously-bypass-approvals-and-sandbox",
                 "prompt",
             ]
@@ -764,6 +847,8 @@ mod tests {
                 "mcp_servers.exponential.bearer_token_env_var=\"EXP_MCP_TOKEN\"",
                 "-c",
                 "experimental_use_rmcp_client=true",
+                "-c",
+                playbook.as_str(),
                 "--dangerously-bypass-approvals-and-sandbox",
                 "prompt",
             ]
@@ -798,6 +883,8 @@ mod tests {
                 "./.exp-pi-observer.ts",
                 "-e",
                 "./.exp-pi-plan.ts",
+                "--append-system-prompt",
+                RUN_SKILL,
                 "prompt",
             ]
         );
@@ -822,6 +909,8 @@ mod tests {
                 "./.exp-pi-observer.ts",
                 "-e",
                 "./.exp-pi-plan.ts",
+                "--append-system-prompt",
+                RUN_SKILL,
                 "p"
             ]
         );
@@ -875,6 +964,8 @@ mod tests {
                 "./.exp-pi-observer.ts",
                 "-e",
                 "./.exp-pi-plan.ts",
+                "--append-system-prompt",
+                RUN_SKILL,
             ]
         );
 
@@ -916,9 +1007,15 @@ mod tests {
     #[test]
     fn none_tail_appends_nothing_on_every_agent() {
         let args = session_args(&claude_opts(), &AgentMcp::ClaudeFile, None, SessionIdentity::default(), SessionTail::None);
+        // EXP-763: the playbook is the last FLAG on every agent; nothing
+        // trails it.
         assert_eq!(
-            args.last().map(String::as_str),
-            Some("--dangerously-skip-permissions")
+            args[args.len() - 3..],
+            [
+                "--dangerously-skip-permissions".to_string(),
+                "--append-system-prompt".to_string(),
+                RUN_SKILL.to_string(),
+            ]
         );
         assert!(!args.iter().any(|arg| arg == "--continue"));
 
@@ -957,7 +1054,9 @@ mod tests {
                 "-e",
                 "./.exp-pi-observer.ts",
                 "-e",
-                "./.exp-pi-plan.ts"
+                "./.exp-pi-plan.ts",
+                "--append-system-prompt",
+                RUN_SKILL,
             ]
         );
     }

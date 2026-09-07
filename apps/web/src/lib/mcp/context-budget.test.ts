@@ -254,12 +254,50 @@ it(`keeps the MCP server instructions self-contained and in budget`, () => {
   expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_report_bug`)
 })
 
-it(`keeps CLAUDE.md under Claude Code's 40k-char performance warning`, () => {
-  // Walk up from the vitest cwd (apps/web) to the repo root.
+/** The repo root, walked up from the vitest cwd (apps/web). */
+function repoRoot(): string {
   let dir = process.cwd()
   while (!existsSync(join(dir, `CLAUDE.md`)) && dirname(dir) !== dir) {
     dir = dirname(dir)
   }
-  const claudeMd = readFileSync(join(dir, `CLAUDE.md`), `utf8`)
+  return dir
+}
+
+it(`keeps CLAUDE.md under Claude Code's 40k-char performance warning`, () => {
+  const claudeMd = readFileSync(join(repoRoot(), `CLAUDE.md`), `utf8`)
   expect(claudeMd.length).toBeLessThan(40_000)
+})
+
+// EXP-763: the run playbook the desktop + CLI launcher appends to EVERY
+// coding session's system prompt (claude/pi `--append-system-prompt`, codex
+// `developer_instructions`). It lives with the launcher
+// (`crates/coding/src/skill.md`) because that is what ships it, but it names
+// server tools by their exact names — so the server's test is what catches a
+// renamed or removed tool, and the byte cap mirrors the crate's own.
+it(`keeps the run playbook in budget and naming only registered tools`, () => {
+  const playbook = readFileSync(
+    join(repoRoot(), `apps/desktop/crates/coding/src/skill.md`),
+    `utf8`
+  )
+  expect(playbook.length).toBeLessThan(6 * 1024)
+  const registered = new Set(serializeToolDefs().map((def) => def.name))
+  const mentioned = new Set(
+    [...playbook.matchAll(/exponential_[a-z_]+/g)].map((m) => m[0])
+  )
+  for (const name of mentioned) {
+    expect(registered.has(name), `playbook names unregistered ${name}`).toBe(true)
+  }
+  // The point of the document: the deferred tools a run never found by itself.
+  for (const name of [
+    `exponential_sessions_start`,
+    `exponential_issues_create`,
+    `exponential_issue_relations_add`,
+    `exponential_report_bug`,
+  ]) {
+    expect(mentioned.has(name), `playbook never names ${name}`).toBe(true)
+  }
+  // `parentId` on issues_create lands with EXP-760 — until then the playbook
+  // must not teach it.
+  expect(playbook).not.toContain(`parentId`)
+  expect(playbook).not.toContain(`\u2014`)
 })

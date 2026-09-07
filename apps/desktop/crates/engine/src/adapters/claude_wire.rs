@@ -73,6 +73,11 @@ pub struct ClaudeArgs<'a> {
     pub settings: Option<&'a Path>,
     pub add_dirs: &'a [std::path::PathBuf],
     pub disallowed_tools: &'a [&'a str],
+    /// EXP-763: `--append-system-prompt <text>` — the run playbook
+    /// (`coding::skill::RUN_SKILL`). Not an SDK flag: it is the one addition
+    /// to the SDK's base array, and passing it turns the CLI's system-prompt
+    /// snapshot off so a `--resume` gets the current text.
+    pub append_system_prompt: Option<&'a str>,
 }
 
 impl Default for ClaudeArgs<'_> {
@@ -91,6 +96,7 @@ impl Default for ClaudeArgs<'_> {
             settings: None,
             add_dirs: &[],
             disallowed_tools: &[],
+            append_system_prompt: None,
         }
     }
 }
@@ -177,6 +183,10 @@ pub fn claude_argv(args: &ClaudeArgs<'_>) -> Vec<String> {
     if !args.disallowed_tools.is_empty() {
         push("--disallowedTools");
         push(&args.disallowed_tools.join(","));
+    }
+    if let Some(text) = args.append_system_prompt {
+        push("--append-system-prompt");
+        push(text);
     }
     argv
 }

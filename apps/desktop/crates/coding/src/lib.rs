@@ -69,6 +69,7 @@ pub mod run_registry;
 pub mod scratch;
 pub mod scm;
 pub mod settings;
+pub mod skill;
 #[cfg(test)]
 pub(crate) mod test_support;
 pub mod token_cache;

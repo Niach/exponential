@@ -6688,6 +6688,9 @@ Claude Code 2.1.240 has no ACP control protocol."
                 "--permission-mode".to_string(),
                 "plan".to_string(),
                 "--allow-dangerously-skip-permissions".to_string(),
+                // EXP-763: the run playbook, on the system prompt.
+                "--append-system-prompt".to_string(),
+                crate::skill::RUN_SKILL.to_string(),
                 render_prompt("EXP-42", "Fix login flicker", Some("Steps in the issue."), false),
             ]
         );
