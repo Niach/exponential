@@ -296,8 +296,7 @@ it(`keeps the run playbook in budget and naming only registered tools`, () => {
   ]) {
     expect(mentioned.has(name), `playbook never names ${name}`).toBe(true)
   }
-  // `parentId` on issues_create lands with EXP-760 — until then the playbook
-  // must not teach it.
-  expect(playbook).not.toContain(`parentId`)
+  // EXP-760: a sub-issue is one issues_create call with parentId.
+  expect(playbook).toContain(`parentId`)
   expect(playbook).not.toContain(`\u2014`)
 })

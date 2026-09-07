@@ -132,8 +132,9 @@ user's membership.
   `#<IDENTIFIER>` issue refs, image embeds), a priority (`none`, `urgent`,
   `high`, `medium`, `low`), labels, an assignee, a due date, comments, and
   attachments. A `#<IDENTIFIER>` ref in a description or comment auto-links
-  the two issues as related; precise relations (parent, blocks, duplicate)
-  are set with `issue_relations_add`.
+  the two issues as related; `issues_create` takes `parentId` to file a
+  sub-issue, and the other relations (blocks, duplicate, related) are set
+  with `issue_relations_add`.
 - **Statuses** are per-team rows in six categories (backlog, unstarted,
   started, completed, cancelled, duplicate). Six builtins always exist
   (backlog, in_progress, in_review, done, cancelled, duplicate) and

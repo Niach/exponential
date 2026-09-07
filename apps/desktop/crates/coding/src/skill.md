@@ -11,8 +11,8 @@ You are running as an Exponential coding session. The `exponential` MCP server i
 
 Prefer a new issue over widening your PR. When you find work that is out of scope, a bug you will not fix now, or a task that should run on its own:
 
-1. `exponential_issues_create` on the board of the issue you work on (`boardId`), a GFM description that names your issue as `#IDENT`, and `priority`, `labelIds` (`exponential_labels_list`) or `assigneeId` when you know them. A custom status needs `statusId` from `exponential_statuses_list`.
-2. `exponential_issue_relations_add` to state the precise relation: `parent` (the new issue is a sub-issue of yours: `issueId` = yours, `relatedIssueId` = the new one), `blocks` (ordering), `duplicate` (with the canonical one), or `related`. `inverse: true` states it the other way round.
+1. `exponential_issues_create` on the board of the issue you work on (`boardId`), a GFM description that names your issue as `#IDENT`, and `priority`, `labelIds` (`exponential_labels_list`) or `assigneeId` when you know them. A custom status needs `statusId` from `exponential_statuses_list`. A sub-issue of the issue you work on: pass `parentId` (the parent's UUID, from `exponential_issues_get`) in the same call.
+2. Any other relation via `exponential_issue_relations_add`: `parent`, `blocks` (ordering), `duplicate` (with the canonical one), or `related`; `issueId` is the first issue, `relatedIssueId` the other, and `inverse: true` states it the other way round.
 3. Name the new identifier (`#IDENT`) in your comment or PR body so the link shows both ways.
 
 Do not file an issue for something you can finish inside your own PR.

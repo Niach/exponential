@@ -89,12 +89,12 @@ mod tests {
     }
 
     #[test]
-    fn the_playbook_carries_no_front_matter_dashes_or_unshipped_params() {
+    fn the_playbook_carries_no_front_matter_or_dashes_and_teaches_parent_id() {
         assert!(RUN_SKILL.starts_with("# "), "plain markdown, no YAML front matter");
         assert!(!RUN_SKILL.contains('\u{2014}'), "no em dashes");
-        // `parentId` on issues_create lands with EXP-760; until then the
-        // playbook teaches relations_add `parent`.
-        assert!(!RUN_SKILL.contains("parentId"));
+        // EXP-760: a sub-issue is one `issues_create` call with `parentId`;
+        // every other relation goes through relations_add.
+        assert!(RUN_SKILL.contains("`parentId`"));
         assert!(RUN_SKILL.contains("Never use `gh`"));
         assert!(!RUN_SKILL.contains("expu_"));
     }
