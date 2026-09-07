@@ -160,6 +160,7 @@ fn codex_app_server_thread_start_and_turn() {
             codex_wire::thread_start_params(
                 &cwd,
                 codex_wire::thread_config(None, "spike", std::slice::from_ref(&cwd)),
+                None,
             ),
             Duration::from_secs(60),
         )

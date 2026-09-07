@@ -891,7 +891,7 @@ fn run_codex(checkpoint: &str) -> bool {
     );
     let thread = server.request_blocking(
         "thread/start",
-        codex_wire::thread_start_params(&cwd, config),
+        codex_wire::thread_start_params(&cwd, config, None),
         Duration::from_secs(60),
     );
     let thread_id = match &thread {
@@ -1265,7 +1265,7 @@ fn codex_interrupt() -> bool {
     let _ = server.notify("initialized", json!({}));
     let thread = server.request_blocking(
         "thread/start",
-        codex_wire::thread_start_params(&cwd, codex_wire::thread_config(None, "spike", std::slice::from_ref(&cwd))),
+        codex_wire::thread_start_params(&cwd, codex_wire::thread_config(None, "spike", std::slice::from_ref(&cwd)), None),
         Duration::from_secs(60),
     );
     let Ok(thread) = thread else { return false };

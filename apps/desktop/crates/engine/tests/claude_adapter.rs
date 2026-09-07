@@ -449,6 +449,13 @@ async fn the_argv_pins_the_permission_mode_and_the_reaper_anchor() {
     assert!(mcp.contains("X-Exp-Session-Id"));
     assert!(!mcp.contains("expu_test-key"));
     assert!(run.argv.iter().any(|arg| arg == "--strict-mcp-config"));
+    // EXP-763: the run playbook, appended to the system prompt. The fixture
+    // records argv one LINE per entry, so only the playbook's first line is
+    // addressable here.
+    assert_eq!(
+        run.argv_value("--append-system-prompt"),
+        coding::skill::RUN_SKILL.lines().next()
+    );
     // The session id pin doubles as the ACP session id, so `--resume=<acp id>`
     // reopens exactly this conversation.
     let pinned = run

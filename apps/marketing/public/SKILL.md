@@ -81,6 +81,9 @@ Around 75 tools, all named `exponential_<family>_<verb>`:
   `pr_retarget` repoints an open PR's base; `issues_pr_files` lists the
   linked PR's changed files with patches.
 - **labels** and **issue_labels**: team label CRUD; attach and detach.
+- **issue_relations**: `add` / `remove` link two issues as `blocks`,
+  `parent` (sub-issue), `duplicate` or `related`; `inverse: true` states
+  the relation the other way round (blocked by, sub-issue of, duplicated by).
 - **comments**: list, create, update, delete on issues.
 - **notifications**: list, mark read.
 - **members** and **invites**: list team members (resolve assignee ids),
@@ -101,9 +104,13 @@ Around 75 tools, all named `exponential_<family>_<verb>`:
 - **sessions**: list, get, message (steer), kill, and start a coding,
   action or chat session on one of the user's own machines. A start
   targets an ONLINE device (`devices_list` first) — offline devices are
-  refused, never queued. Inside a launcher-started run two more tools
-  register: `sessions_end` (the run's own close-out summary, unattended
-  runs only) and `sessions_ask_parent` (ask the run that started this one).
+  refused, never queued. A run may delegate independent work to a second
+  run with `sessions_start`; the child reports back into the starter's
+  session. Inside a launcher-started run two more tools register:
+  `sessions_end` (the run's own close-out summary, unattended runs only)
+  and `sessions_ask_parent` (ask the run that started this one). Every
+  launched run also gets a short playbook of these conventions appended to
+  its system prompt.
 - **devices**: `devices_list` shows the user's machines, their online state
   and the agent CLIs each one can run.
 - **helpdesk**: list and read support threads, reply, add an internal note,
@@ -124,7 +131,10 @@ user's membership.
 - **Issues** carry GFM markdown descriptions (plain `@<email>` mentions,
   `#<IDENTIFIER>` issue refs, image embeds), a priority (`none`, `urgent`,
   `high`, `medium`, `low`), labels, an assignee, a due date, comments, and
-  attachments.
+  attachments. A `#<IDENTIFIER>` ref in a description or comment auto-links
+  the two issues as related; `issues_create` takes `parentId` to file a
+  sub-issue, and the other relations (blocks, duplicate, related) are set
+  with `issue_relations_add`.
 - **Statuses** are per-team rows in six categories (backlog, unstarted,
   started, completed, cancelled, duplicate). Six builtins always exist
   (backlog, in_progress, in_review, done, cancelled, duplicate) and

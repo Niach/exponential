@@ -330,6 +330,10 @@ fn main() {
             ".exp-mcp.json".to_string(),
             "--strict-mcp-config".to_string(),
             "--dangerously-skip-permissions".to_string(),
+            // EXP-763: the run playbook rides the system prompt, never the
+            // seed prompt.
+            "--append-system-prompt".to_string(),
+            coding::skill::RUN_SKILL.to_string(),
             prompt.clone(),
         ]
     );

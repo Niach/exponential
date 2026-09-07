@@ -33,8 +33,18 @@ pub const PROMPT_FILE: &str = "PROMPT.md";
 pub const SEED_LINE: &str = "Please read PROMPT.md in this directory, then follow it.";
 
 /// Windows CreateProcess caps the whole command line at 32,767 chars —
-/// keep ~4KB headroom for program path + flags.
+/// keep ~4KB headroom for program path + flags. This is the TOTAL text
+/// budget; the seed prompt gets what the run playbook leaves
+/// ([`prompt_argv_budget`]).
 pub const PROMPT_ARGV_MAX_BYTES: usize = 28 * 1024;
+
+/// EXP-763: the seed prompt's share of [`PROMPT_ARGV_MAX_BYTES`] — the run
+/// playbook ([`crate::skill::RUN_SKILL`]) rides the same argv on every
+/// agent (`--append-system-prompt` / `-c developer_instructions=…`), so it
+/// is subtracted before the prompt is sized.
+pub fn prompt_argv_budget() -> usize {
+    PROMPT_ARGV_MAX_BYTES.saturating_sub(crate::skill::RUN_SKILL.len())
+}
 
 /// How the rendered prompt reaches the spawned claude.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -55,7 +65,7 @@ impl PromptDelivery {
     }
 }
 
-/// Size-gated delivery: a prompt within [`PROMPT_ARGV_MAX_BYTES`] goes
+/// Size-gated delivery: a prompt within [`prompt_argv_budget`] goes
 /// [`PromptDelivery::Direct`] — any stale `PROMPT.md` from an earlier launch
 /// is best-effort removed so claude can never read an outdated copy. Bigger
 /// prompts fall back to [`deliver_prompt_file`].
@@ -64,7 +74,7 @@ pub fn deliver_prompt(
     clone: &Path,
     rendered: &str,
 ) -> io::Result<PromptDelivery> {
-    if rendered.len() <= PROMPT_ARGV_MAX_BYTES {
+    if rendered.len() <= prompt_argv_budget() {
         let _ = fs::remove_file(worktree.join(PROMPT_FILE));
         return Ok(PromptDelivery::Direct(rendered.to_string()));
     }
@@ -344,19 +354,23 @@ The login page flickers on slow connections.
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// The size gate is exact: PROMPT_ARGV_MAX_BYTES rides argv, one byte
-    /// more falls back to the file + seed-line pointer.
+    /// The size gate is exact: the prompt's share of PROMPT_ARGV_MAX_BYTES
+    /// (EXP-763: minus the run playbook, which rides the same argv) goes
+    /// argv, one byte more falls back to the file + seed-line pointer.
     #[test]
     fn delivery_flips_to_file_exactly_past_the_argv_budget() {
         let dir = temp_dir("boundary");
-        let at_limit = "x".repeat(PROMPT_ARGV_MAX_BYTES);
+        let budget = prompt_argv_budget();
+        assert_eq!(budget, PROMPT_ARGV_MAX_BYTES - crate::skill::RUN_SKILL.len());
+        assert!(budget > 20 * 1024, "the playbook must leave the prompt most of the argv");
+        let at_limit = "x".repeat(budget);
         match deliver_prompt(&dir, &dir, &at_limit).unwrap() {
-            PromptDelivery::Direct(rendered) => assert_eq!(rendered.len(), PROMPT_ARGV_MAX_BYTES),
+            PromptDelivery::Direct(rendered) => assert_eq!(rendered.len(), budget),
             PromptDelivery::File => panic!("at-limit prompt must ride argv"),
         }
         assert!(!dir.join(PROMPT_FILE).exists());
 
-        let over_limit = "x".repeat(PROMPT_ARGV_MAX_BYTES + 1);
+        let over_limit = "x".repeat(budget + 1);
         let delivery = deliver_prompt(&dir, &dir, &over_limit).unwrap();
         assert_eq!(delivery, PromptDelivery::File);
         assert_eq!(delivery.positional(), SEED_LINE);
