@@ -111,10 +111,7 @@ export const notificationsRouter = router({
   // unsubscribeToken on first read/write; a user who never touched the panel
   // simply has the defaults (email on, all types on, daily digest).
   // `transportConfigured` lets the web panel hide/disable email affordances on
-  // self-hosted instances without AWS_SES_REGION/SMTP_HOST (§6.6), and
-  // `emailVerified` (REV2-52) lets it say so when the address itself is the
-  // blocker: the digest sweep refuses unverified addresses, so without this
-  // the panel renders live toggles over a channel that silently does nothing.
+  // self-hosted instances without AWS_SES_REGION/SMTP_HOST (§6.6).
   emailPrefs: authedProcedure.query(async ({ ctx }) => {
     const prefs = await getOrCreateEmailPrefs(ctx.session.user.id)
     return {
@@ -123,8 +120,6 @@ export const notificationsRouter = router({
       digest: prefs.digest,
       digestHour: prefs.digestHour,
       transportConfigured: emailEnabled,
-      emailVerified: ctx.session.user.emailVerified === true,
-      email: ctx.session.user.email,
     }
   }),
 

@@ -554,14 +554,11 @@ impl Render for MembersPane {
                             .child(glass_input(&self.email_input, window, cx).web_input_sm()),
                     )
                     .child(
-                        // No `ui-mail` concept in the shared registry — send
-                        // (paper plane) is the closest, and it is what the
-                        // button DOES.
                         Button::new("invite-send")
                             .primary()
                             .web_sm()
                             .label("Send invite")
-                            .icon(registry::UI_SEND)
+                            .icon(registry::UI_MAIL)
                             .loading(self.sending)
                             .disabled(busy || email_empty)
                             .on_click(cx.listener({
@@ -617,14 +614,11 @@ impl Render for MembersPane {
 
             invite_section = invite_section.child(
                 h_flex().child(
-                    // Web `LinkIcon`; the registry has no plain link concept
-                    // outside the editor's, so share-2 carries "a link you
-                    // hand out yourself".
                     Button::new("invite-generate")
                         .outline()
                         .web_sm()
                         .label("Generate invite link")
-                        .icon(registry::UI_SHARE)
+                        .icon(registry::UI_LINK)
                         .loading(self.generating)
                         .disabled(busy)
                         .on_click(cx.listener({

@@ -327,6 +327,14 @@ describe(`TeamRepositoriesSection`, () => {
     ).toBeTruthy()
   })
 
+  it(`a failed status probe says so instead of rendering nothing (EXP-774)`, async () => {
+    mockState.statusQuery.mockRejectedValue(new Error(`boom`))
+    renderSection()
+
+    await screen.findByText(/Couldn.t reach GitHub connect state\./)
+    expect(screen.queryByText(/No GitHub account connected/)).toBeNull()
+  })
+
   it(`suspension outranks reconnect and never offers it`, async () => {
     mockState.statusQuery.mockResolvedValue(
       githubStatus([

@@ -11,15 +11,9 @@ export const Route = createFileRoute(`/t/$teamSlug/settings/notifications`)({
 })
 
 // Personal section (EXP-238): the email digest preferences, formerly the
-// /account/notifications page. The verification email's link returns here.
+// /account/notifications page.
 function SettingsNotifications() {
-  const { teamSlug } = Route.useParams()
   const { emailPrefs } = Route.useLoaderData()
 
-  return (
-    <EmailNotificationsCard
-      emailPrefs={emailPrefs}
-      verifyCallbackPath={`/t/${teamSlug}/settings/notifications`}
-    />
-  )
+  return <EmailNotificationsCard emailPrefs={emailPrefs} />
 }

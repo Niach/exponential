@@ -1,10 +1,8 @@
 import { useState } from "react"
-import { Mail } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
-import { authClient } from "@/lib/auth/client"
+import { conceptIcon } from "@/lib/icons.generated"
 import type { NotificationType } from "@/lib/domain"
 import type { DigestCadence } from "@/lib/notification-email-policy"
-import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import {
   GlassGroup,
@@ -15,6 +13,8 @@ import {
 export type EmailPrefs = Awaited<
   ReturnType<typeof trpc.notifications.emailPrefs.query>
 >
+
+const UiMailIcon = conceptIcon(`ui-mail`)
 
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => hour)
 
@@ -66,14 +66,11 @@ const TYPE_ROWS: Array<{ type: NotificationType; label: string; hint: string }> 
   ]
 
 // The whole email-digest preferences card, split out of the old
-// /account/notifications page (EXP-238). `verifyCallbackPath` is where the
-// verification email's link lands — callers pass their own settings URL.
+// /account/notifications page (EXP-238).
 export function EmailNotificationsCard({
   emailPrefs,
-  verifyCallbackPath,
 }: {
   emailPrefs: EmailPrefs
-  verifyCallbackPath: string
 }) {
   const [emailEnabled, setEmailEnabled] = useState(emailPrefs.emailEnabled)
   const [typePrefs, setTypePrefs] = useState<
@@ -81,30 +78,7 @@ export function EmailNotificationsCard({
   >(emailPrefs.typePrefs ?? {})
   const [digest, setDigest] = useState(emailPrefs.digest)
   const [digestHour, setDigestHour] = useState(emailPrefs.digestHour)
-  // REV2-52: the digest sweep never mails an unverified address. Signup fires
-  // exactly ONE verification email and nothing else stamps emailVerified, so
-  // a user who missed it configures a channel that silently does nothing —
-  // unless the panel says so and offers a resend.
-  const [verifyState, setVerifyState] = useState<
-    `idle` | `sending` | `sent` | `error`
-  >(`idle`)
-
   const transportConfigured = emailPrefs.transportConfigured
-  const emailVerified = emailPrefs.emailVerified
-
-  const resendVerification = async () => {
-    if (verifyState === `sending`) return
-    setVerifyState(`sending`)
-    try {
-      const { error } = await authClient.sendVerificationEmail({
-        email: emailPrefs.email,
-        callbackURL: verifyCallbackPath,
-      })
-      setVerifyState(error ? `error` : `sent`)
-    } catch {
-      setVerifyState(`error`)
-    }
-  }
 
   const handleEmailEnabled = (next: boolean) => {
     setEmailEnabled(next)
@@ -143,7 +117,7 @@ export function EmailNotificationsCard({
     <div className="space-y-3">
       <div className="flex items-center gap-3 px-1 pt-1 pb-1">
         <div className="flex h-10 w-10 items-center justify-center rounded-md border bg-muted">
-          <Mail className="h-5 w-5" />
+          <UiMailIcon className="h-5 w-5" />
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-foreground">
@@ -172,37 +146,6 @@ export function EmailNotificationsCard({
             SMTP_HOST
           </code>
           to enable it.
-        </div>
-      )}
-
-      {transportConfigured && !emailVerified && (
-        <div className="flex items-start gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-          <div className="flex-1 text-muted-foreground">
-            <p className="font-medium text-foreground">
-              Verify your email to receive digest emails
-            </p>
-            <p className="mt-0.5 text-xs">
-              Digests are never sent to an unverified address. In-app and push
-              notifications are unaffected.
-              {verifyState === `sent` &&
-                ` Verification email sent to ${emailPrefs.email}.`}
-              {verifyState === `error` &&
-                ` Couldn't send the verification email. Try again in a moment.`}
-            </p>
-          </div>
-          <Button
-            size="sm"
-            variant="outline"
-            className="shrink-0"
-            disabled={verifyState === `sending` || verifyState === `sent`}
-            onClick={() => void resendVerification()}
-          >
-            {verifyState === `sending`
-              ? `Sending…`
-              : verifyState === `sent`
-                ? `Sent`
-                : `Resend`}
-          </Button>
         </div>
       )}
 

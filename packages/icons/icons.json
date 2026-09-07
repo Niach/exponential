@@ -230,6 +230,8 @@
     "ui-help": "circle-question-mark",
     "ui-empty-search": "search-x",
     "ui-share": "share-2",
+    "ui-mail": "mail",
+    "ui-link": "link",
     "ui-undo": "undo-2",
     "ui-watch": "eye",
     "ui-send": "send",

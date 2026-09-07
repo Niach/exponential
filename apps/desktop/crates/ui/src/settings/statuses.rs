@@ -79,6 +79,9 @@ pub struct StatusesPane {
     create_error: Option<String>,
     /// (status id, message) — inline error under a row.
     row_error: Option<(String, String)>,
+    /// Inline error under the PR-automation card (EXP-774, web parity: the
+    /// card holds ONE error for its three writes).
+    pr_automation_error: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -94,6 +97,7 @@ impl StatusesPane {
                 this.creating = None;
                 this.create_error = None;
                 this.row_error = None;
+                this.pr_automation_error = None;
                 this.sync_inputs(window, cx);
                 cx.notify();
             }),
@@ -128,6 +132,7 @@ impl StatusesPane {
             submitting: false,
             create_error: None,
             row_error: None,
+            pr_automation_error: None,
             _subscriptions: subscriptions,
         };
         this.sync_inputs(window, cx);
@@ -545,9 +550,70 @@ impl StatusesPane {
     ) {
         let team_id = row.team_id.clone();
         let status_id = row.id.clone();
-        super::spawn_trpc(cx, "statuses.move", move |trpc| {
-            api::statuses::statuses_move(trpc, &team_id, &status_id, direction)
-        });
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            return;
+        };
+        // EXP-774 (web parity): a rejected move says so under the row.
+        cx.spawn(async move |this, cx| {
+            let call_id = status_id.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    api::statuses::statuses_move(&trpc, &team_id, &call_id, direction)
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.set_row_error(&status_id, result, "Failed to move status.", cx);
+            });
+        })
+        .detach();
+    }
+
+    /// The row-error writer for the awaited row mutations (EXP-774): a
+    /// rejection puts the server's message (or `fallback`) under the row, a
+    /// success clears whatever that row showed before.
+    fn set_row_error<T>(
+        &mut self,
+        status_id: &str,
+        result: Result<T, api::ApiError>,
+        fallback: &str,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        match result {
+            Ok(_) => {
+                if self.row_error.as_ref().is_some_and(|(id, _)| id == status_id) {
+                    self.row_error = None;
+                    cx.notify();
+                }
+            }
+            Err(err) => {
+                log::warn!("[ui] status row mutation failed: {err}");
+                self.row_error = Some((status_id.to_string(), super::form_error(&err, fallback)));
+                cx.notify();
+            }
+        }
+    }
+
+    /// The PR-automation card's error writer (EXP-774): one slot for the
+    /// card's three writes, cleared by the next success.
+    fn set_pr_automation_error<T>(
+        &mut self,
+        result: Result<T, api::ApiError>,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        match result {
+            Ok(_) => {
+                if self.pr_automation_error.take().is_some() {
+                    cx.notify();
+                }
+            }
+            Err(err) => {
+                log::warn!("[ui] statuses PR automation write failed: {err}");
+                self.pr_automation_error =
+                    Some(super::form_error(&err, "Failed to update PR automation."));
+                cx.notify();
+            }
+        }
     }
 
     // -- rendering -----------------------------------------------------------
@@ -555,9 +621,9 @@ impl StatusesPane {
     #[allow(clippy::too_many_arguments)]
     /// EXP-319 — the "PR automation" card: where issues move when their
     /// pull request opens/merges, per event a status picker (duplicate
-    /// excluded) plus "Do nothing". Reads the synced teams row; writes are
-    /// fire-and-forget and converge via the Electric echo (no local pending
-    /// state — the picker idiom everywhere else).
+    /// excluded) plus "Do nothing". Reads the synced teams row; writes
+    /// converge via the Electric echo (no local pending state — the picker
+    /// idiom everywhere else) and a rejection lands under the card (EXP-774).
     fn render_pr_automation(
         &self,
         statuses: &[(IssueStatusRow, ResolvedStatus)],
@@ -568,6 +634,7 @@ impl StatusesPane {
             statuses.iter().map(|(row, _)| row.clone()).collect();
 
         let mut card = section(cx).child(card_title("PR automation"));
+        let pane = cx.entity().downgrade();
 
         let events: [(
             &'static str,
@@ -650,6 +717,9 @@ impl StatusesPane {
                 .filter(|(_, resolved)| resolved.category != IssueStatusCategory::Duplicate)
                 .map(|(_, resolved)| resolved.clone())
                 .collect();
+            // The menu closure moves its own weak handle; the card's outlives
+            // the loop for the switch row below.
+            let pane = pane.clone();
 
             card = card.child(
                 h_flex()
@@ -664,36 +734,35 @@ impl StatusesPane {
                                 continue;
                             };
                             let team_id = team_id.clone();
+                            let pane = pane.clone();
                             menu = menu.item(crate::pickers::option_item(
                                 SharedString::from(status.name.clone()),
                                 crate::icons::resolved_status_icon(status, cx),
                                 current_key.as_deref() == Some(status.group_key.as_str()),
                                 move |_window, cx| {
-                                    let team_id = team_id.clone();
-                                    let target =
-                                        api::statuses::PrAutomationTarget::Status(row_id.clone());
-                                    super::spawn_trpc(cx, "statuses.setPrAutomation", move |trpc| {
-                                        api::statuses::statuses_set_pr_automation(
-                                            trpc, &team_id, event, &target,
-                                        )
-                                    });
+                                    set_pr_automation(
+                                        pane.clone(),
+                                        team_id.clone(),
+                                        event,
+                                        api::statuses::PrAutomationTarget::Status(row_id.clone()),
+                                        cx,
+                                    );
                                 },
                             ));
                         }
                         let team_id = team_id.clone();
+                        let pane = pane.clone();
                         menu.item(
                             PopupMenuItem::new("Do nothing")
                                 .checked(current_key.is_none())
                                 .on_click(move |_, _window, cx| {
-                                    let team_id = team_id.clone();
-                                    super::spawn_trpc(cx, "statuses.setPrAutomation", move |trpc| {
-                                        api::statuses::statuses_set_pr_automation(
-                                            trpc,
-                                            &team_id,
-                                            event,
-                                            &api::statuses::PrAutomationTarget::DoNothing,
-                                        )
-                                    });
+                                    set_pr_automation(
+                                        pane.clone(),
+                                        team_id.clone(),
+                                        event,
+                                        api::statuses::PrAutomationTarget::DoNothing,
+                                        cx,
+                                    );
                                 }),
                         )
                     })),
@@ -705,6 +774,7 @@ impl StatusesPane {
         // third row of the same card, sub-hint included.
         let ends_sessions = team.ends_sessions_on_merge();
         let team_id = team.id.clone();
+        let switch_pane = pane.clone();
         card = card.child(
             h_flex()
                 .gap_2()
@@ -733,14 +803,38 @@ impl StatusesPane {
                         .on_click(move |checked: &bool, _window, cx| {
                             let team_id = team_id.clone();
                             let enabled = *checked;
-                            super::spawn_trpc(cx, "statuses.setEndSessionsOnMerge", move |trpc| {
-                                api::statuses::statuses_set_end_sessions_on_merge(
-                                    trpc, &team_id, enabled,
-                                )
-                            });
+                            let pane = switch_pane.clone();
+                            let Some(trpc) = crate::queries::trpc_client(cx) else {
+                                return;
+                            };
+                            cx.spawn(async move |cx| {
+                                let result = cx
+                                    .background_executor()
+                                    .spawn(async move {
+                                        api::statuses::statuses_set_end_sessions_on_merge(
+                                            &trpc, &team_id, enabled,
+                                        )
+                                    })
+                                    .await;
+                                let _ = pane.update(cx, |this, cx| {
+                                    this.set_pr_automation_error(result, cx);
+                                });
+                            })
+                            .detach();
                         }),
                 ),
         );
+
+        // EXP-774 (web parity): the card's one inline error line.
+        if let Some(message) = self.pr_automation_error.clone() {
+            card = card.child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().danger)
+                    .px_1()
+                    .child(SharedString::from(message)),
+            );
+        }
 
         Some(card)
     }
@@ -792,6 +886,7 @@ impl StatusesPane {
             let current = row.color.clone().unwrap_or_default();
             let swatch_status = status_id.clone();
             let swatch_team = team_id.clone();
+            let swatch_pane = cx.entity().downgrade();
             line.child(
                 Popover::new(row_id("status-color", &status_id))
                     .trigger(
@@ -804,6 +899,7 @@ impl StatusesPane {
                         let popover = cx.entity();
                         let status_id = swatch_status.clone();
                         let team_id = swatch_team.clone();
+                        let pane = swatch_pane.clone();
                         swatch_grid(
                             &format!("status-swatch-{status_id}"),
                             &STATUS_COLORS,
@@ -812,16 +908,37 @@ impl StatusesPane {
                                 let team_id = team_id.clone();
                                 let status_id = status_id.clone();
                                 let picked = picked.to_string();
-                                super::spawn_trpc(cx, "statuses.update(color)", move |trpc| {
-                                    api::statuses::statuses_update(
-                                        trpc,
-                                        &team_id,
-                                        &status_id,
-                                        None,
-                                        Some(&picked),
-                                    )
-                                });
+                                let pane = pane.clone();
                                 popover.update(cx, |state, cx| state.dismiss(window, cx));
+                                // EXP-774 (web parity): a rejected color pick
+                                // says so under the row.
+                                let Some(trpc) = crate::queries::trpc_client(cx) else {
+                                    return;
+                                };
+                                cx.spawn(async move |cx| {
+                                    let call_id = status_id.clone();
+                                    let result = cx
+                                        .background_executor()
+                                        .spawn(async move {
+                                            api::statuses::statuses_update(
+                                                &trpc,
+                                                &team_id,
+                                                &call_id,
+                                                None,
+                                                Some(&picked),
+                                            )
+                                        })
+                                        .await;
+                                    let _ = pane.update(cx, |this, cx| {
+                                        this.set_row_error(
+                                            &status_id,
+                                            result,
+                                            "Failed to set color.",
+                                            cx,
+                                        );
+                                    });
+                                })
+                                .detach();
                             },
                             cx,
                         )
@@ -1295,6 +1412,33 @@ impl Render for DeleteStatusContent {
 }
 
 use gpui::prelude::FluentBuilder as _;
+
+/// One PR-automation write (status pick / "Do nothing"): awaited off the
+/// foreground thread, result routed to the pane's card-level error slot
+/// (EXP-774). Menu callbacks only see `&mut App`, hence the weak pane.
+fn set_pr_automation(
+    pane: gpui::WeakEntity<StatusesPane>,
+    team_id: String,
+    event: api::statuses::PrAutomationEvent,
+    target: api::statuses::PrAutomationTarget,
+    cx: &mut App,
+) {
+    let Some(trpc) = crate::queries::trpc_client(cx) else {
+        return;
+    };
+    cx.spawn(async move |cx| {
+        let result = cx
+            .background_executor()
+            .spawn(async move {
+                api::statuses::statuses_set_pr_automation(&trpc, &team_id, event, &target)
+            })
+            .await;
+        let _ = pane.update(cx, |this, cx| {
+            this.set_pr_automation_error(result, cx);
+        });
+    })
+    .detach();
+}
 
 /// Web `CreateStatusForm`'s placeholder: "New {category} status", the category
 /// LOWERCASED (`statuses-section.tsx`).
