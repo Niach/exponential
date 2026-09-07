@@ -470,7 +470,7 @@ pub fn blended_background_top() -> Hsla {
 /// page. `t` is clamped, so a caller passing a NaN/─ve ratio still gets the
 /// top stop rather than a garbage color.
 ///
-/// EXP-290 made the painted gradient translucent ([`glass_content_alpha`]);
+/// EXP-290 made the painted gradient translucent ([`glass_ground_alpha`]);
 /// this sampler stays FULLY OPAQUE on purpose — an occluder that lets the cells
 /// behind it through is not an occluder. It therefore reads slightly more solid
 /// than the page it sits on, which is the correct trade for one IME quad.
@@ -531,40 +531,25 @@ pub fn blur_backdrop_available() -> bool {
     }
 }
 
-/// EXP-293: how opaque the page paints under the SIDEBAR — the icon/nav rail,
-/// the most transparent surface in the app. This is the swap the issue asks
-/// for: the rail used to read as the solid column (its white-4% `FILL_SECTION`
-/// wash) over a uniformly translucent page, and now it is the glass one while
-/// the content next to it is nearly solid — the native macOS Finder/Mail idiom.
+/// EXP-767: how opaque the page paints — ONE value for the whole window
+/// ground. The rail, the settings nav, the decoration band and the cutout
+/// panel's margins all sit on this one ramp; no column is glassier or
+/// brighter than the one next to it.
 ///
-/// 1.0 without a real blur backdrop ([`blur_backdrop_available`]).
-pub fn glass_sidebar_alpha() -> f32 {
-    if blur_backdrop_available() {
-        0.72
-    } else {
-        1.0
-    }
-}
-
-/// How opaque the page paints under the MAIN CONTENT — everything right of
-/// the rail (issue list, tabs, detail sidebar, terminal dock) and every
-/// standalone window (undocked views, dialogs, the login/update surfaces).
-/// 0.96 was dialed in visually over the restored frost (0.88 through 0.98
-/// were all tried once the REAL blur landed — a working backdrop makes even
-/// a tiny bleed read strongly, and the review settled here). The mechanism
-/// is EXP-290's: the lightly frosted content
-/// the EXP-293 flip accidentally LOST — its base+top-up layering stacked two
-/// translucent gradients, which never composite to the intended alpha (the
-/// content rendered fully opaque at every top-up value; the commit's own
-/// "not verified visually" note). EXP-303 restored the EXP-290 mechanism —
-/// each region paints ONE gradient at its own alpha ([`background_gradient`]
-/// for content, [`sidebar_background_gradient`] for the rail column) — so
-/// this value reaches the screen again. The sidebar stays 0.72, deliberately
-/// the glassier region.
+/// History: EXP-293 made the rail "the glass column" (0.72) beside a nearly
+/// solid content column (0.96), the Finder idiom, and EXP-303 restored that
+/// split after the layering broke. Once EXP-723 floated the content as a
+/// card, the split read as a second, glassier grey next to the ground with
+/// a hard seam where the two columns met. The web has ONE ground and the
+/// sidebar sits on it implicitly; the desktop now does the same, so the
+/// only brightness step left is the cutout panel's own wash.
 ///
-/// 1.0 without a real blur backdrop ([`blur_backdrop_available`]) — Windows
-/// and non-KDE-Wayland Linux have no glassy blur and stay fully opaque.
-pub fn glass_content_alpha() -> f32 {
+/// 0.96 is the reviewed content value (0.88 through 0.98 were tried once the
+/// REAL macOS blur landed — a working backdrop makes even a tiny bleed read
+/// strongly). 1.0 without a real blur backdrop ([`blur_backdrop_available`])
+/// — Windows and non-KDE-Wayland Linux have no glassy blur and stay fully
+/// opaque.
+pub fn glass_ground_alpha() -> f32 {
     if blur_backdrop_available() {
         0.96
     } else {
@@ -573,42 +558,27 @@ pub fn glass_content_alpha() -> f32 {
 }
 
 /// The glass page background (EXP-269): the mobile `AppBackground` gradient —
-/// top to bottom, at [`glass_content_alpha`]. Paint it on the root content
-/// element of every window that is ALL content (undocked windows, dialogs, the
-/// login + update-required surfaces); panel surfaces above it are transparent
-/// or white-alpha glass fills so the ramp shows through. EXP-277 softens the
-/// desktop's top stop (see [`blended_background_top`]) so the titlebar band no
-/// longer steps hard against the content panels.
+/// top to bottom, at [`glass_ground_alpha`]. Paint it ONCE on the root
+/// content element of every window (the Shell root, undocked windows,
+/// dialogs, the login + update-required surfaces); everything above it is
+/// transparent or a white-alpha glass fill so the ramp shows through.
+/// EXP-277 softens the desktop's top stop (see [`blended_background_top`]) so
+/// the titlebar band no longer steps hard against the content panels.
 ///
-/// The Shell window splits the page into the rail column
-/// ([`sidebar_background_gradient`]) and the content column (this gradient),
-/// painted SIDE BY SIDE — never stacked (EXP-303: stacked translucent
-/// gradients do not composite to the intended alpha).
+/// EXP-767: the Shell window paints this on its ROOT, under the rail column
+/// and the content column alike — never per column (the old
+/// `sidebar_background_gradient` at its own alpha is gone), and never
+/// stacked (EXP-303: two stacked translucent gradients do not composite to
+/// the intended alpha — the page reads opaque).
 ///
-/// EXP-290/EXP-293: the stops carry the region's alpha — the ONE place the
-/// window turns translucent. It pairs with
-/// `WindowBackgroundAppearance::Blurred` on the window itself; without the blur
-/// this would just be a smeared raw desktop (hence
-/// [`blur_backdrop_available`]), and without the alpha the blur would be
-/// invisible behind an opaque page. Deliberately NOT applied to
+/// EXP-290/EXP-293: the stops carry the alpha — the ONE place the window
+/// turns translucent. It pairs with `WindowBackgroundAppearance::Blurred` on
+/// the window itself; without the blur this would just be a smeared raw
+/// desktop (hence [`blur_backdrop_available`]), and without the alpha the
+/// blur would be invisible behind an opaque page. Deliberately NOT applied to
 /// [`background_gradient_color_at`], which must stay an opaque occluder.
 pub fn background_gradient() -> gpui::Background {
-    gradient_at_alpha(glass_content_alpha())
-}
-
-/// The page gradient under the sidebar/rail column, at
-/// [`glass_sidebar_alpha`]. EXP-303: the Shell paints this on the RAIL COLUMN
-/// ONLY (the rail's white wash sits on top of it), side by side with the
-/// content column's [`background_gradient`] — never stacked. The EXP-293
-/// base+top-up layering (this gradient full-window, a second "top-up"
-/// gradient over the content) is gone: two stacked translucent gradients do
-/// not composite to the intended alpha, which left the content fully opaque.
-pub fn sidebar_background_gradient() -> gpui::Background {
-    gradient_at_alpha(glass_sidebar_alpha())
-}
-
-fn gradient_at_alpha(alpha: f32) -> gpui::Background {
-    let (top, bottom) = gradient_stops_at_alpha(alpha);
+    let (top, bottom) = background_gradient_stops();
     gpui::linear_gradient(
         180.,
         gpui::linear_color_stop(top, 0.),
@@ -621,15 +591,7 @@ fn gradient_at_alpha(alpha: f32) -> gpui::Background {
 /// fields are private at the pinned gpui rev, so the EXP-290/EXP-293 alpha
 /// contract is otherwise untestable.
 pub fn background_gradient_stops() -> (Hsla, Hsla) {
-    gradient_stops_at_alpha(glass_content_alpha())
-}
-
-/// [`background_gradient_stops`] for the sidebar base layer.
-pub fn sidebar_background_gradient_stops() -> (Hsla, Hsla) {
-    gradient_stops_at_alpha(glass_sidebar_alpha())
-}
-
-fn gradient_stops_at_alpha(alpha: f32) -> (Hsla, Hsla) {
+    let alpha = glass_ground_alpha();
     (
         blended_background_top().opacity(alpha),
         t::glass::BACKGROUND_BOTTOM.to_hsla().opacity(alpha),
@@ -798,51 +760,41 @@ mod tests {
     }
 
     #[test]
-    fn page_gradient_stops_carry_their_regions_alpha() {
+    fn page_gradient_stops_carry_the_ground_alpha() {
         // EXP-290/EXP-293: the page is the ONE translucent layer — both stops
-        // of both regions carry that region's alpha so the window's
-        // behind-window blur shows the desktop through. Hues/lightnesses are
-        // untouched, and the two regions share the ramp exactly.
-        for (label, (top, bottom), alpha) in [
-            ("content", background_gradient_stops(), glass_content_alpha()),
-            ("sidebar", sidebar_background_gradient_stops(), glass_sidebar_alpha()),
-        ] {
-            assert!(approx(top.a, alpha), "{label} top stop alpha: {top:?}");
-            assert!(approx(bottom.a, alpha), "{label} bottom stop alpha: {bottom:?}");
-            assert!(approx(top.l, blended_background_top().l), "{label} top color unchanged");
-            assert!(
-                approx(bottom.l, tokens::glass::BACKGROUND_BOTTOM.to_hsla().l),
-                "{label} bottom color unchanged"
-            );
-        }
+        // carry the ground alpha so the window's behind-window blur shows the
+        // desktop through. Hues/lightnesses are untouched.
+        let (top, bottom) = background_gradient_stops();
+        let alpha = glass_ground_alpha();
+        assert!(approx(top.a, alpha), "top stop alpha: {top:?}");
+        assert!(approx(bottom.a, alpha), "bottom stop alpha: {bottom:?}");
+        assert!(approx(top.l, blended_background_top().l), "top color unchanged");
+        assert!(
+            approx(bottom.l, tokens::glass::BACKGROUND_BOTTOM.to_hsla().l),
+            "bottom color unchanged"
+        );
         // The occluder sampler is deliberately NOT translucent (it hides the
         // grid cells behind IME composition text) — the two must not drift.
         assert!(approx(background_gradient_color_at(0.).a, 1.0));
     }
 
     #[test]
-    fn glass_alphas_keep_the_sidebar_the_glassier_region() {
-        // EXP-293 flip + EXP-303 restore: the rail is the GLASS column
-        // (untouched at 0.72) and the content next to it is lightly frosted
-        // (EXP-290's 0.92). Guard rails: the sidebar never goes below 0.7
-        // (its own labels must stay legible over a bright blurred backdrop)
-        // and the content never below 0.85 (body text, code, diffs).
-        let (sidebar, content) = (glass_sidebar_alpha(), glass_content_alpha());
-        assert!(sidebar <= content, "sidebar {sidebar} must be the more transparent region");
-        assert!((0.7..=1.0).contains(&sidebar), "sidebar alpha: {sidebar}");
-        assert!((0.85..=1.0).contains(&content), "content alpha: {content}");
+    fn the_ground_is_one_alpha_and_stays_legible() {
+        // EXP-767: there is ONE ground alpha — the rail is no longer a
+        // glassier region of its own (the seam between a 0.72 rail column
+        // and a 0.96 content column is what the issue removed). Guard rail:
+        // never below 0.85 (body text, code, diffs sit on it).
+        let ground = glass_ground_alpha();
+        assert!((0.85..=1.0).contains(&ground), "ground alpha: {ground}");
         if blur_backdrop_available() {
-            // A real blurred backdrop exists — BOTH regions must actually be
-            // see-through (EXP-303: the content is glassy too), and the two
-            // must differ visibly.
-            assert!(content < 1.0, "the content must actually be see-through");
-            assert!(sidebar < content - 0.05, "the regions must differ perceptibly");
+            // A real blurred backdrop exists — the page must actually be
+            // see-through (EXP-303: the glass is the whole point on macOS).
+            assert!(ground < 1.0, "the ground must actually be see-through");
         } else {
             // EXP-293: no blur means translucency would be a sharp ghost of the
             // desktop (the Linux/X11 report), so the page is FULLY opaque and
             // the glass reduces to the ramp itself.
-            assert!(approx(sidebar, 1.0), "no-blur sidebar must be opaque: {sidebar}");
-            assert!(approx(content, 1.0), "no-blur content must be opaque: {content}");
+            assert!(approx(ground, 1.0), "no-blur ground must be opaque: {ground}");
         }
     }
 

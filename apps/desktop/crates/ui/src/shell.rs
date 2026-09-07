@@ -546,13 +546,16 @@ impl Shell {
     /// or (mid-swap) both riding a sliding strip inside a width-morphing
     /// clip.
     ///
-    /// EXP-303: the COLUMN paints the one sidebar-alpha ramp and the
-    /// window's left frame corners. The Shell root paints no full-window base
-    /// ramp, because a second translucent GRADIENT stacked on it never
-    /// composited to the intended alpha — the content read fully opaque at
-    /// any top-up value (the EXP-293 "not verified visually" gap).
+    /// EXP-767: the column paints NOTHING — no ramp of its own, no wash, no
+    /// edge. The Shell ROOT paints the one window ground (`Shell::render`)
+    /// and the sidebar sits on it implicitly, exactly like the web's. This
+    /// is what removed the seam: EXP-303 gave this column its own
+    /// `sidebar_background_gradient` at a glassier alpha than the content
+    /// column's, and once EXP-723 floated the content as a cutout card the
+    /// two ramps met in a hard vertical edge with the rail a different,
+    /// glassier grey. The window's frame corners are the root's too now.
     ///
-    /// EXP-723: the children now add NOTHING on top. The rail dropped its
+    /// EXP-723: the children add nothing either. The rail dropped its
     /// `FILL_SECTION` wash so the brightness step belongs to the cutout panel
     /// on the content side; a wash here would make the sidebar read brighter
     /// than the panel and undo the cutout.
@@ -561,19 +564,12 @@ impl Shell {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
-        let _ = cx;
-        let radii = crate::window_frame::frame_radii(window);
+        let _ = (window, cx);
         let column = div()
             .h_full()
             .flex_shrink_0()
             .relative()
-            .overflow_hidden()
-            .bg(theme::sidebar_background_gradient())
-            // EXP-269 corners, left half — the ramp runs flush into the
-            // window's left edge (the children round their washes the same
-            // way).
-            .rounded_tl(radii.top_left)
-            .rounded_bl(radii.bottom_left);
+            .overflow_hidden();
 
         let anim = self.left_anim;
         if !anim.swapping {
@@ -912,7 +908,6 @@ impl Render for Shell {
             SessionPhase::Synced { .. } if self.onboarding.read(cx).is_active(cx) => {
                 crate::window_frame::round_to_frame(v_flex(), window)
                     .size_full()
-                    .bg(theme::background_gradient())
                     // EXP-364: chrome only — the wizard replaces the dock, so
                     // the tab row has nothing to point at (same rule as the
                     // login and update-gate surfaces).
@@ -935,25 +930,17 @@ impl Render for Shell {
                 // EXP-303 material rules live on `render_left_column`.
                 .child(self.render_left_column(window, cx))
                 .child({
-                    // EXP-723's cutout: the RIGHT column paints the content
-                    // ground edge to edge (decoration band included) and the
-                    // app's working surface floats on it as a rounded card
-                    // inset by `PANEL_MARGIN`. The margin and the band are the
-                    // only places the ground shows through.
-                    let radii = crate::window_frame::frame_radii(window);
+                    // EXP-723's cutout: the app's working surface floats on
+                    // the window ground as a rounded card inset by
+                    // `PANEL_MARGIN`. The margin and the decoration band are
+                    // the only places the ground shows through on this side.
+                    // EXP-767: the column paints NO ground of its own — the
+                    // Shell root paints the one ramp under both columns, so
+                    // there is no edge where the rail ends and this begins.
                     v_flex()
                         .flex_1()
                         .min_w_0()
                         .h_full()
-                        // EXP-303/EXP-723: ONE gradient for the whole column
-                        // — never a second translucent layer stacked on it
-                        // (that never composited to the intended alpha).
-                        .bg(theme::background_gradient())
-                        // EXP-269 corners: this column reaches the window's
-                        // right edge top and bottom (rectangular content mask
-                        // — it must round itself).
-                        .rounded_tr(radii.top_right)
-                        .rounded_br(radii.bottom_right)
                         .when(client_chrome, |col| {
                             // EXP-525: pin the decoration band to a COMPUTED
                             // definite width (the same budget terms as
@@ -1028,11 +1015,10 @@ impl Render for Shell {
                         )
                 })
                 .into_any_element(),
-            // No rail here, so the whole window is content: one content-alpha
-            // gradient on all four corners (EXP-303 single-layer rule).
+            // No rail here, so the whole window is content on the root's
+            // ground (EXP-303 single-layer rule: no second ramp here).
             _ => crate::window_frame::round_to_frame(v_flex(), window)
                 .size_full()
-                .bg(theme::background_gradient())
                 // EXP-364: chrome only here too — a signed-out window kept
                 // rendering the previous session's tabs above the login card.
                 .when(client_chrome, |body| {
@@ -1071,24 +1057,27 @@ impl Render for Shell {
                 // (`window_frame::frame_radii`).
                 crate::window_frame::round_to_frame(div(), window)
                     .size_full()
-                    // EXP-303/EXP-723: the root paints NO page gradient, and
-                    // no region ever stacks two. There are exactly three
-                    // layers left, each painted once:
-                    //   1. the RAIL column — the sidebar-alpha ramp
-                    //      (`render_left_column`); the rail view itself paints
-                    //      nothing on top of it.
-                    //   2. the CONTENT column — the content-alpha ramp, the
-                    //      "ground" the cutout floats on. It is visible in the
-                    //      34px decoration band and in the panel's margins.
-                    //   3. the PANEL — a SOLID wash (`glass::FILL_PANEL`)
+                    // EXP-767: the ROOT paints the ONE page gradient, the
+                    // window's ground, and no region ever stacks a second
+                    // ramp on it. There are exactly two layers, each painted
+                    // once:
+                    //   1. the GROUND — this ramp at `glass_ground_alpha`,
+                    //      under the rail column and the content column
+                    //      alike. The rail sits on it implicitly (no fill,
+                    //      no edge — `render_left_column`), and it shows in
+                    //      the 34px decoration band and the panel's margins.
+                    //   2. the PANEL — a SOLID wash (`glass::FILL_PANEL`)
                     //      inside a `strokeCard` hairline, holding the banners
-                    //      and the dock.
-                    // Stacking a second translucent gradient over a
-                    // full-window base never composited to the intended alpha
-                    // (the content stayed opaque at any top-up value), which
-                    // is why the base+top-up layering EXP-293 introduced is
-                    // gone and why the panel's wash is a flat fill, not a
-                    // second ramp.
+                    //      and the dock: the cutout card, the only brightness
+                    //      step in the window.
+                    // EXP-303 had each column paint its own ramp at its own
+                    // alpha (the rail glassier) because a second translucent
+                    // gradient stacked on a base never composited to the
+                    // intended alpha; painting the ground once on the root
+                    // and nothing per column keeps that single-layer rule
+                    // AND removes the seam the two alphas drew between the
+                    // rail and the content.
+                    .bg(theme::background_gradient())
                     .text_color(cx.theme().foreground)
                     .child(body)
                     .child(preview_host)
