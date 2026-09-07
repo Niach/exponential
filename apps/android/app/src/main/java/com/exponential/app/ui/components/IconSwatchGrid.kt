@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
 /**
@@ -29,6 +30,11 @@ import com.exponential.app.ui.theme.TextEmphasis
  * (EXP-390 dropped the query field on every platform). [selected] naming no
  * pickable glyph (null, blank, or a name this build's registry doesn't carry)
  * simply highlights nothing — that is the "no icon" state for optional inputs.
+ *
+ * A cell is a rounded square at the radius ladder's MD step
+ * ([GlassTokens.RowRadius]), the same corner the [IconPicker] trigger wears:
+ * a circle is an action, a rounded square is a picker (EXP-771). Only COLOUR
+ * swatches stay circles.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -55,7 +61,7 @@ fun IconSwatchGrid(
                         if (isSelected) 2.dp else 1.dp,
                         if (isSelected) accentColor
                         else MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary),
-                        RoundedCornerShape(10.dp),
+                        RoundedCornerShape(GlassTokens.RowRadius),
                     )
                     .clickable { onSelect(glyphName) },
                 contentAlignment = Alignment.Center,

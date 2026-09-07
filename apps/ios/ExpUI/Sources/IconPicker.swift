@@ -3,8 +3,13 @@ import SwiftUI
 /// EXP-575: THE icon picker — one slim 36pt swatch showing the current pick
 /// that opens the curated grid (`IconSwatchGrid`) in a medium sheet, so the
 /// 60-glyph grid never sits inline in a form. Every surface that picks an icon
-/// (board form, Start-coding `icon` inputs) renders this; web, desktop and
-/// Android ship the same shape.
+/// (board form, Start-coding `icon` inputs) renders this.
+///
+/// EXP-771, the shape rule: a circle is an ACTION and a rounded square is a
+/// PICKER, so the trigger and the grid's cells are rounded squares at the
+/// radius ladder's MD step (`GlassTokens.rowRadius`, 10) while every icon-only
+/// action button stays a circle. Web (`rounded-md`), desktop (the theme radius)
+/// and Android (`GlassTokens.RowRadius`) draw the same corner.
 ///
 /// The selection is a registry NAME; `""` means nothing picked, which only
 /// `allowsNone` hosts can produce — they get a "No icon" reset in the sheet
@@ -37,9 +42,9 @@ public struct IconPicker: View {
             }
             .frame(width: 36, height: 36)
             .background(GlassTokens.fillCard)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: GlassTokens.rowRadius))
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: GlassTokens.rowRadius)
                     .strokeBorder(
                         GlassTokens.strokeStrong,
                         style: StrokeStyle(lineWidth: 1, dash: selection.isEmpty ? [3, 3] : [])
