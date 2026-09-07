@@ -76,11 +76,20 @@ pub enum Screen {
     /// `coding_sessions` ROW id — never the issue, the branch or the tab: a
     /// resume mints a NEW row, and the two runs are two screens (the resumed
     /// one takes the old one's tab slot, see `ScreensPanel::sync_session_tabs`).
-    /// A run THIS process hosts on the PTY path is not one of these: its dock
-    /// terminal is the surface, which is why every entry point funnels through
-    /// [`crate::session_screen::open_session`] rather than navigating here
-    /// directly.
+    /// A run THIS process hosts on the PTY path is not one of these: its
+    /// terminal is the surface ([`Screen::Terminal`]), which is why every entry
+    /// point funnels through [`crate::session_screen::open_session`] rather
+    /// than navigating here directly. EXP-769: a session's tab lives in the
+    /// BOTTOM session bar, not the top strip ([`Screen::is_dock_tab`]).
     Session { session_id: String },
+    /// One PTY terminal of this window's `TerminalManager` (EXP-769): a plain
+    /// shell, an agent login, or a coding run hosted on the PTY path. The
+    /// terminal used to live in a sliding bottom dock; it renders FULLSCREEN
+    /// in the center now, like every other screen, and its tab sits in the
+    /// bottom session bar beside the session tabs (web `AgentDock` parity).
+    /// Keyed by the manager's stable [`terminal::TabId`] — never persisted
+    /// (EXP-301: nothing terminal-side survives a relaunch).
+    Terminal { tab: terminal::TabId },
     /// The Getting-started checklist (EXP-470 — the desktop mirror of the
     /// web checklist). Tab-less full-page mode exactly like Actions, opened
     /// from a conditional rail entry. EXP-686: the page carries the
@@ -106,8 +115,21 @@ impl Screen {
     /// EXP-746 keeps [`Screen::Session`] OUT: an undocked window builds a
     /// FRESH view (`screens::build_screen_content`), and a second view over a
     /// live local run would mean a second engine handle for one agent.
+    /// [`Screen::Terminal`] is out too — a terminal pops out through its OWN
+    /// path (`undock::open_undocked_terminal_tab`, the manager keeps the tab),
+    /// offered from the session bar chip's context menu.
     pub(crate) fn undockable(&self) -> bool {
         matches!(self, Screen::IssueDetail { .. } | Screen::PrDiff { .. })
+    }
+
+    /// EXP-769: whether the screen's tab lives in the BOTTOM session bar
+    /// (coding sessions and PTY terminals — web `AgentDock` parity) rather
+    /// than the top strip (issue and support-thread tabs). Both kinds are
+    /// [`Self::is_detail`] tabs of the one `ScreensPanel` list; only where the
+    /// chip renders differs. The split is the whole point: issue tabs and
+    /// coding tabs were hard to tell apart in one strip.
+    pub(crate) fn is_dock_tab(&self) -> bool {
+        matches!(self, Screen::Session { .. } | Screen::Terminal { .. })
     }
 
     /// EXP-288: whether the screen is a DETAIL view — the only kind that
@@ -123,11 +145,15 @@ impl Screen {
     /// Reviews page (a merged PR used to leave a stale diff tab behind);
     /// `ScreensPanel::dismiss_stale_pr_diff` retires them. EXP-746: a coding
     /// session is a detail tab too — several run at once, and an ended one
-    /// keeps its tab as a read-only transcript instead of closing.
+    /// keeps its tab as a read-only transcript instead of closing. EXP-769: so
+    /// is a PTY terminal (its chip sits in the bottom bar, [`Self::is_dock_tab`]).
     pub(crate) fn is_detail(&self) -> bool {
         matches!(
             self,
-            Screen::IssueDetail { .. } | Screen::SupportThread { .. } | Screen::Session { .. }
+            Screen::IssueDetail { .. }
+                | Screen::SupportThread { .. }
+                | Screen::Session { .. }
+                | Screen::Terminal { .. }
         )
     }
 
@@ -203,6 +229,10 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
             .map(|issue| gpui::SharedString::from(format!("{} · Diff", issue_tab_title(issue))))
             .unwrap_or_else(|| "Diff".into()),
         Screen::Session { session_id } => session_tab_title(session_id, cx),
+        // EXP-769: the manager's live tab title (OSC-updated), looked up
+        // across this process's windows — a tab id is process-unique.
+        Screen::Terminal { tab } => crate::session_bar::terminal_tab_title(*tab, cx)
+            .unwrap_or_else(|| "Terminal".into()),
         Screen::Devices => "Devices".into(),
         Screen::Actions => "Actions".into(),
         Screen::Automations => "Automations".into(),

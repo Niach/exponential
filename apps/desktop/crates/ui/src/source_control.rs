@@ -473,7 +473,7 @@ impl SourceControlView {
             return;
         };
         let Some(manager) = coding_flow::window_terminal_manager(window, cx) else {
-            self.error = Some("No terminal dock in this window.".into());
+            self.error = Some("No terminal in this window.".into());
             cx.notify();
             return;
         };

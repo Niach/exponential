@@ -50,7 +50,6 @@ use gpui_component::{
     h_flex, notification::Notification, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
     WindowExt as _,
 };
-use gpui_component::dock::DockItem;
 use sync::Store;
 use terminal::{TabId, TabKind, TerminalManager, TerminalManagerEvent};
 
@@ -64,8 +63,7 @@ use coding::{
 use crate::controls::WebControl as _;
 use crate::queries;
 use crate::session::AuthContext;
-use crate::terminal_dock::TerminalDockPanel;
-use crate::shell::Shell;
+use crate::session_bar::SessionBar;
 use crate::icons::registry;
 
 // ---------------------------------------------------------------------------
@@ -1213,41 +1211,32 @@ pub(crate) fn terminal_shell_override(cx: &mut App) -> Option<String> {
 }
 
 // ---------------------------------------------------------------------------
-// Window plumbing — this window's TerminalManager (§06 dock)
+// Window plumbing — this window's TerminalManager (the session bar, EXP-769)
 // ---------------------------------------------------------------------------
 
-/// Resolve THIS window's bottom terminal dock manager: `Root` → [`Shell`]
-/// → `DockArea` → bottom `Dock` → the registered [`TerminalDockPanel`].
-/// `None` on non-shell windows (login) — the caller surfaces an error.
+/// Resolve THIS window's terminal manager — the [`SessionBar`]'s, looked up
+/// in its per-window registry. `None` on non-shell windows (login) — the
+/// caller surfaces an error.
 pub fn window_terminal_manager(window: &Window, cx: &App) -> Option<Entity<TerminalManager>> {
-    let panel = window_terminal_dock(window, cx)?;
-    Some(panel.read(cx).manager().clone())
+    let bar = window_session_bar(window, cx)?;
+    Some(bar.read(cx).manager().clone())
 }
 
-/// THIS window's terminal dock PANEL — the manager's owner, for callers that
-/// need the panel's own launch paths (EXP-369: the settings pane's
-/// per-worktree agent shell) rather than just its tab store.
-pub fn window_terminal_dock(window: &Window, cx: &App) -> Option<Entity<TerminalDockPanel>> {
-    let root = window.root::<gpui_component::Root>().flatten()?;
-    let team = root
-        .read(cx)
-        .view()
-        .clone()
-        .downcast::<Shell>()
-        .ok()?;
-    let dock_area = team.read(cx).dock_area().clone();
-    let bottom = dock_area.read(cx).bottom_dock()?.clone();
-    find_terminal_dock(bottom.read(cx).panel())
+/// THIS window's session bar — the manager's owner, for callers that need
+/// its own launch paths (EXP-369: the settings pane's per-worktree agent
+/// shell, the agent-login tab) rather than just its tab store.
+pub fn window_session_bar(window: &Window, cx: &App) -> Option<Entity<SessionBar>> {
+    crate::session_bar::host_for_window(window, cx)
 }
 
-/// EXP-484: ANY window that owns a terminal dock, preferring the active one.
+/// EXP-484: ANY window that owns a session bar, preferring the active one.
 ///
 /// The device-settings dialog and the alert windows are windows of their own
-/// with no dock at all, so a login started from one cannot resolve its dock
-/// through `navigation::on_active_window` — it would land on the dialog and
-/// silently do nothing. Probing each window instead is also the re-entrancy
-/// guard: a window already inside an `update` (the caller's own) answers
-/// `Err` and is skipped, so callers DEFER before asking.
+/// with no bar at all, so a login started from one cannot resolve its
+/// terminals through `navigation::on_active_window` — it would land on the
+/// dialog and silently do nothing. Probing each window instead is also the
+/// re-entrancy guard: a window already inside an `update` (the caller's own)
+/// answers `Err` and is skipped, so callers DEFER before asking.
 pub fn any_terminal_dock(cx: &mut App) -> Option<gpui::AnyWindowHandle> {
     let mut candidates: Vec<gpui::AnyWindowHandle> = Vec::new();
     if let Some(active) = cx.active_window() {
@@ -1255,29 +1244,14 @@ pub fn any_terminal_dock(cx: &mut App) -> Option<gpui::AnyWindowHandle> {
     }
     candidates.extend(cx.windows());
     for handle in candidates {
-        let has_dock = handle
-            .update(cx, |_, window, cx| window_terminal_dock(window, cx).is_some())
+        let has_bar = handle
+            .update(cx, |_, window, cx| window_session_bar(window, cx).is_some())
             .unwrap_or(false);
-        if has_dock {
+        if has_bar {
             return Some(handle);
         }
     }
     None
-}
-
-/// Walk a `DockItem` tree for the terminal dock panel (the bottom dock is a
-/// single `Tabs` today, but a user-rearranged layout may nest it in splits).
-pub(crate) fn find_terminal_dock(item: &DockItem) -> Option<Entity<TerminalDockPanel>> {
-    match item {
-        DockItem::Tabs { items, .. } => items
-            .iter()
-            .find_map(|panel| panel.view().downcast::<TerminalDockPanel>().ok()),
-        DockItem::Panel { view, .. } => view.view().downcast::<TerminalDockPanel>().ok(),
-        DockItem::Split { items, .. } => items.iter().find_map(find_terminal_dock),
-        // Tiles never host the terminal dock (team layout never creates
-        // them); skipping is safe — the caller degrades to an error surface.
-        _ => None,
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1564,12 +1538,12 @@ fn spawn_pty_into_window(
     cx: &mut App,
 ) -> Result<(), String> {
     let Some(manager) = window_terminal_manager(window, cx) else {
-        // No dock in this window — end the already-started row so the
+        // No terminals in this window — end the already-started row so the
         // "coding now" badge doesn't ghost (§7.1 step 6 created it).
         if let Some(trpc) = queries::trpc_client(cx) {
             end_row_best_effort(&Arc::new(trpc), &prepared.session_id);
         }
-        return Err("No terminal dock in this window.".to_string());
+        return Err("No terminal in this window.".to_string());
     };
     let Some(trpc) = queries::trpc_client(cx) else {
         return Err("Not signed in.".to_string());

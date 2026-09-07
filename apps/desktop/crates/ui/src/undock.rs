@@ -526,8 +526,8 @@ pub(crate) fn open_undocked_terminal_tab(
 
 /// Bring a terminal tab into VIEW wherever it currently lives (EXP-686 — the
 /// automations run log opens a live run from its row): an undocked tab raises
-/// its own window, a docked one expands `origin`'s bottom dock and activates
-/// the tab. Best-effort: a tab whose window is already gone simply no-ops.
+/// its own window, a docked one shows its terminal screen in `origin`
+/// (EXP-769). Best-effort: a tab whose window is already gone simply no-ops.
 pub(crate) fn reveal_terminal_tab(
     tab_id: TabId,
     manager: Entity<TerminalManager>,
@@ -559,8 +559,9 @@ pub(crate) fn register_terminal_tab(
 }
 
 /// Bring an undocked-then-returned tab back into view in its owner window:
-/// expand the bottom dock, activate the tab, optionally raise the window.
-/// Deferred + best-effort (the owner may already be gone).
+/// show its terminal screen (EXP-769 — the tab entry returns to the session
+/// bar with it), activate the tab, optionally raise the window. Deferred +
+/// best-effort (the owner may already be gone).
 pub(crate) fn restore_tab_in_owner(
     owner: AnyWindowHandle,
     manager: Entity<TerminalManager>,
@@ -570,15 +571,8 @@ pub(crate) fn restore_tab_in_owner(
 ) {
     cx.defer(move |cx| {
         let _ = owner.update(cx, |_, window, cx| {
-            if let Some(team) = window
-                .root::<Root>()
-                .flatten()
-                .and_then(|root| root.read(cx).view().clone().downcast::<Shell>().ok())
-            {
-                let dock_area = team.read(cx).dock_area().clone();
-                // EXP-523: through the panel, so a re-dock slides like every
-                // other way the dock opens instead of snapping.
-                crate::terminal_dock::expand_terminal_dock(&dock_area, window, cx);
+            if manager.read(cx).tab(tab_id).is_some() {
+                navigation::navigate(window, cx, Screen::Terminal { tab: tab_id });
             }
             manager.update(cx, |manager, cx| {
                 if let Some(ix) = manager.tabs().iter().position(|tab| tab.id == tab_id) {

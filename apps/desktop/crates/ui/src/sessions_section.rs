@@ -23,10 +23,9 @@ use gpui::{
     App, Entity, Hsla, IntoElement, ParentElement, Render, SharedString, Styled, Subscription,
     Window,
 };
-use gpui_component::{button::ButtonVariant, v_flex, ActiveTheme as _};
+use gpui_component::{v_flex, ActiveTheme as _};
 
 use crate::coding_flow::{LocalSessionHost, LocalSessions};
-use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::{active_team_id, nav_for_window, Navigation};
 use crate::queries::{self, CodingSessionDisplay};
 use crate::run_rows::{self, RunRowKill, RunRowLead, RunRowSpec};
@@ -172,9 +171,8 @@ impl RunningSessionsSection {
             .collect()
     }
 
-    /// The confirm before a live run is ended. A run this process hosts stops
-    /// through its [`LocalSessionHost`] (the same path the issue header's stop
-    /// takes); anything else goes out as `steer.killSession`.
+    /// The confirm before a live run is ended — the session bar's ×
+    /// (EXP-769) and this list share it (`session_bar::prompt_kill_session`).
     fn prompt_kill(
         row_local: Option<LocalSessionHost>,
         device_label: Option<String>,
@@ -182,35 +180,7 @@ impl RunningSessionsSection {
         window: &mut Window,
         cx: &mut App,
     ) {
-        let spec = match row_local {
-            Some(host) => {
-                // EXP-746: the copy names what actually happens — a run
-                // without a terminal must not be promised one.
-                let detail = if host.tab().is_some() {
-                    "The agent stops immediately and the terminal tab closes. \
-                     Uncommitted work in the worktree is kept."
-                } else {
-                    "The agent stops immediately. Uncommitted work in the worktree is kept."
-                };
-                AlertSpec::new("Stop this coding session?", detail, "Stop session").on_ok(
-                    move |_, cx| {
-                        host.stop(cx);
-                        true
-                    },
-                )
-            }
-            None => AlertSpec::new(
-                "Kill this coding session?",
-                crate::steer_viewer::kill_description(device_label.as_deref()),
-                "Kill session",
-            )
-            .ok_variant(ButtonVariant::Danger)
-            .on_ok(move |_, cx| {
-                crate::steer_viewer::kill_session(&session_id, cx);
-                true
-            }),
-        };
-        native_dialog::open_alert(window, cx, spec);
+        crate::session_bar::prompt_kill_session(row_local, device_label, session_id, window, cx);
     }
 }
 

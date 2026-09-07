@@ -256,7 +256,7 @@ fn spawn_login_tab(
         return;
     };
     let opened = handle.update(cx, |_, window, cx| {
-        let panel = crate::coding_flow::window_terminal_dock(window, cx)?;
+        let panel = crate::coding_flow::window_session_bar(window, cx)?;
         let manager = panel.read(cx).manager().clone();
         // EXP-695: a login tab has served its purpose the moment the CLI
         // exits CLEANLY — close it instead of leaving a "finished" strip to

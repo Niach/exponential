@@ -125,7 +125,7 @@ pub struct RevealInFileManager {
 }
 
 /// Context-menu "Open terminal here" (and the viewer's oversized/binary
-/// placeholder button): open a `+` shell tab in the bottom dock at `path` (an
+/// placeholder button): open a `+` shell tab (a terminal screen) at `path` (an
 /// absolute directory — for a file it is the containing directory).
 #[derive(Clone, Action, PartialEq, Eq, Deserialize)]
 #[action(namespace = exp, no_json)]
@@ -186,7 +186,7 @@ pub(crate) fn ensure_actions_registered(cx: &mut App) {
             let repository_id = action.repository_id.clone();
             let full_name = action.full_name.clone();
             navigation::on_active_window(cx, move |window, cx| {
-                let Some(panel) = crate::coding_flow::window_terminal_dock(window, cx) else {
+                let Some(panel) = crate::coding_flow::window_session_bar(window, cx) else {
                     return;
                 };
                 panel.update(cx, |panel, cx| {

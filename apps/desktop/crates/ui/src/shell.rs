@@ -6,10 +6,11 @@
 //! the 44px **icon rail** left of the dock area, and the dock area filling
 //! the rest — all over the page gradient. The dock area's **center** is
 //! [`CenterPanel`] — a resizable split of the tool window column (sidebar)
-//! and the screens panel — and its **bottom dock** is the terminal dock.
-//! Because the sidebar lives inside the center (not a left dock), the bottom
-//! terminal dock spans the full width right of the rail, running beneath the
-//! sidebar. (The old EXP-253 top bar is gone — boards live in the rail.)
+//! and the screens panel; under the dock area sits the **session bar**
+//! (`crate::session_bar`, EXP-769 — session + terminal tabs, Chat, `+`).
+//! Because the sidebar lives inside the center (not a left dock), the bar
+//! spans the full width right of the rail, running beneath the sidebar. (The
+//! old EXP-253 top bar is gone — boards live in the rail.)
 //!
 //! Every window gets its own `Root → Shell → DockArea`, but they all read
 //! the same global `Store` (§3.6 multi-window) — the sidebar's window counter
@@ -24,7 +25,7 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, bail, Context as _, Result};
 use gpui::{
-    div, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, ClickEvent, Edges,
+    div, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, ClickEvent,
     Entity, FocusHandle, Focusable, FontWeight, IntoElement, ParentElement, Pixels, Render,
     SharedString, Size, Styled, Task, WeakEntity, Window,
 };
@@ -43,7 +44,6 @@ use crate::{
     screens::ScreensPanel,
     settings::{SettingsNavPanel, SETTINGS_NAV_WIDTH},
     sidebar::{RailView, SidebarPanel},
-    terminal_dock::TerminalDockPanel,
     update::{self, UpdatePhase, UpdateState},
     window_size::SizeFrame,
 };
@@ -72,16 +72,16 @@ use crate::icons::registry;
 /// v9: EXP-723's cutout panel — the dock area is inset by a 10px margin on
 ///     every side (6px under the decoration band) and the terminal dock grew
 ///     its own 28px header row, so every persisted pane size shifts once more.
-const LAYOUT_VERSION: usize = 9;
+/// v10: the bottom terminal dock is GONE (EXP-769) — terminals are center
+///     screens and the session bar under the dock area is the Shell's own
+///     36px strip; a persisted bottom dock would rehydrate a dead panel.
+const LAYOUT_VERSION: usize = 10;
 
 const DOCK_AREA_ID: &str = "exp-workspace";
 
 /// Default tool-window width inside the center split — web parity. The 44px
 /// icon rail renders OUTSIDE the dock area (`Shell::render`).
 const SIDEBAR_WIDTH: Pixels = px(crate::sidebar::DEFAULT_DOCK_WIDTH);
-
-/// Default (closed) terminal-dock height when first opened.
-const TERMINAL_DOCK_HEIGHT: Pixels = px(240.);
 
 /// EXP-723 cutout: the gap between the working panel and the window edges —
 /// the same 10px the web shell uses (`app-shell.ts` `md:m-[10px]`).
@@ -93,23 +93,6 @@ const PANEL_MARGIN: f32 = 10.;
 /// (the Linux server-decoration fallback) have no band and take
 /// [`PANEL_MARGIN`] on all four sides.
 const PANEL_MARGIN_TOP: f32 = 6.;
-
-/// EXP-760: how far above the cutout panel's bottom edge its CARD FACE stops.
-///
-/// The terminal dock's bottom strip is a fixed 29px band pinned there. When
-/// it paints its chips (every collapsed/open form but the floating bubble)
-/// the card ends above them, so the tab chips read as sitting on the
-/// window's gradient — JetBrains' tool-window tabs — with the dock body
-/// closing the card off from inside (`terminal_dock::pin_content`). In the
-/// bubble form nothing is painted in that band, so the card runs the full
-/// height and the panel looks exactly as it did before.
-fn panel_backdrop_inset(strip_on_ground: bool) -> f32 {
-    if strip_on_ground {
-        crate::terminal_dock::DOCK_STRIP_H
-    } else {
-        0.
-    }
-}
 
 /// EXP-456: whether this window is in the tab-less Settings mode — the left
 /// column shows the settings nav instead of the rail.
@@ -243,6 +226,11 @@ const SAVE_DEBOUNCE: Duration = Duration::from_secs(2);
 
 pub struct Shell {
     dock_area: Entity<DockArea>,
+    /// EXP-769: the bottom session bar — the strip of session/terminal tabs
+    /// with the Chat and `+` buttons, the cutout panel's LAST child under the
+    /// dock area. It owns this window's `TerminalManager`; a terminal's
+    /// content renders in the center as `Screen::Terminal`.
+    session_bar: Entity<crate::session_bar::SessionBar>,
     /// The in-app titlebar (EXP-269) — the first row of the DOCK shell;
     /// hidden under the Linux server-decoration fallback (`client_chrome`).
     /// EXP-364: the full-window surfaces (login, wizard, update gate) mount
@@ -250,8 +238,7 @@ pub struct Shell {
     /// row, since there is no dock behind them.
     title_bar: Entity<crate::app_title_bar::AppTitleBar>,
     /// The JetBrains-style tool-window rail — rendered LEFT of the dock area
-    /// (so the bottom terminal dock spans everything right of it and lines
-    /// up with the rail's terminal toggle).
+    /// (so the session bar spans everything right of it).
     rail: Entity<RailView>,
     /// EXP-456: the settings navigation — it takes the RAIL's slot (the
     /// window's leftmost column) while `Screen::Settings` is up, sliding in
@@ -289,12 +276,6 @@ pub struct Shell {
 }
 
 impl Shell {
-    /// The window's `DockArea` — the §7 coding flow resolves this window's
-    /// bottom terminal dock through it (`coding_flow::window_terminal_manager`).
-    pub(crate) fn dock_area(&self) -> &Entity<DockArea> {
-        &self.dock_area
-    }
-
     pub fn new(ordinal: usize, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let dock_area =
             cx.new(|cx| DockArea::new(DOCK_AREA_ID, Some(LAYOUT_VERSION), window, cx));
@@ -338,12 +319,13 @@ impl Shell {
                 crate::repo_resolver::remove_window(window_id, cx);
                 crate::sidebar::remove_window(window_id, cx);
                 crate::screens::remove_window(window_id, cx);
+                crate::session_bar::remove_window(window_id, cx);
                 shared.update(cx, |state, cx| {
                     state.windows_open = state.windows_open.saturating_sub(1);
                     cx.notify();
                 });
                 // EXP-65: close this window's undocked terminal windows (their
-                // manager died with the dock panel), and ALL undocked windows
+                // manager died with the session bar), and ALL undocked windows
                 // once no shell window remains — nothing left to reattach
                 // to, and non-macOS is about to quit.
                 crate::undock::on_shell_released(window_id, cx);
@@ -476,6 +458,12 @@ impl Shell {
         // so the dock already exists.
         let rail = cx.new(|cx| RailView::new(window, cx));
         let title_bar = cx.new(|_| crate::app_title_bar::AppTitleBar::new());
+        // EXP-769: the session bar (and with it this window's terminal
+        // manager). After the nav registry entry above — a tab opening
+        // navigates through it — and before the first frame, so the coding
+        // flow's `window_terminal_manager` resolves from the start.
+        let session_bar = cx.new(|cx| crate::session_bar::SessionBar::new(window, cx));
+        cx.observe(&session_bar, |_, _, cx| cx.notify()).detach();
         // EXP-456: the settings nav shares the rail's slot (see the struct
         // docs); building it here keeps its subscriptions alive across
         // settings round-trips.
@@ -494,6 +482,7 @@ impl Shell {
 
         Self {
             dock_area,
+            session_bar,
             title_bar,
             rail,
             settings_nav,
@@ -700,11 +689,10 @@ impl Shell {
     ///   restore the center from disk. `EXP_DEV_BOARD=1` keeps a tab strip so
     ///   the second (debug-board) tab stays reachable.
     /// - There is deliberately **no left dock** (v6): the sidebar lives
-    ///   inside the center split so the bottom terminal dock spans beneath it.
-    /// - The **bottom terminal dock** is added if the restored state lacked
-    ///   it; its height persists across restarts, but its open state does NOT
-    ///   (EXP-301: every launch starts collapsed, with no terminal tabs).
-    /// - Collapsibility: bottom dock collapsible (the terminal toggle).
+    ///   inside the center split so the session bar spans beneath it.
+    /// - There is **no bottom dock** either (v10, EXP-769): terminals are
+    ///   center screens, and the session bar is the Shell's own strip under
+    ///   the dock area — nothing terminal-shaped is persisted (EXP-301).
     fn install_fixed_chrome(
         dock_area: &Entity<DockArea>,
         window: &mut Window,
@@ -725,58 +713,6 @@ impl Shell {
 
         dock_area.update(cx, |dock_area, cx| {
             dock_area.set_center(center, window, cx);
-
-            match dock_area.bottom_dock().cloned() {
-                None => {
-                    let terminal: Arc<dyn PanelView> =
-                        Arc::new(cx.new(|cx| TerminalDockPanel::new(weak.clone(), window, cx)));
-                    // Chrome-less like the center (§8.8c): a single `DockItem::Panel`
-                    // renders raw with no `TabPanel` wrapper, so there is no zoom
-                    // control over the terminal — the panel's own tab strip is the
-                    // only chrome, and the Dock toggle handles collapse.
-                    let bottom = DockItem::panel(terminal);
-                    // Collapsed by default — the Dock keeps a 29px toggle strip.
-                    dock_area.set_bottom_dock(
-                        bottom,
-                        Some(TERMINAL_DOCK_HEIGHT),
-                        false,
-                        window,
-                        cx,
-                    );
-                }
-                Some(dock) => {
-                    // A RESTORED bottom dock rehydrates `PanelInfo::Panel`
-                    // wrapped in a `TabPanel` (title row + zoom/menu chrome —
-                    // the same "growing the bar back" problem the center
-                    // solves by rebuilding fresh). Re-wrap the SAME restored
-                    // panel chrome-less; the dock's persisted height is
-                    // untouched.
-                    let restored = terminal_panel_view(dock.read(cx).panel(), cx)
-                        .unwrap_or_else(|| {
-                            Arc::new(
-                                cx.new(|cx| TerminalDockPanel::new(weak.clone(), window, cx)),
-                            )
-                        });
-                    dock.update(cx, |dock, cx| {
-                        dock.set_panel(DockItem::panel(restored), window, cx);
-                        // EXP-301: the OPEN state is deliberately NOT restored —
-                        // a launch always comes up with the terminal collapsed
-                        // to its 29px strip, so nothing terminal-shaped greets
-                        // the user (the restored panel has zero tabs; an open
-                        // dock would come up on EXP-369's empty-state cards).
-                        dock.set_open(false, window, cx);
-                    });
-                }
-            }
-
-            dock_area.set_dock_collapsible(
-                Edges {
-                    bottom: true,
-                    ..Default::default()
-                },
-                window,
-                cx,
-            );
         });
     }
 
@@ -894,8 +830,8 @@ impl Render for Shell {
         // left column renders).
         self.sync_left_column(window, cx);
         // Synced shell = rail + dock area, no header (EXP-253 removed the top
-        // bar) — the bottom terminal dock spans the full width right of the
-        // rail (beneath the sidebar, which lives inside the center split).
+        // bar) — the session bar spans the full width right of the rail
+        // (beneath the sidebar, which lives inside the center split).
         // EXP-285: the rail spans the FULL window height — through the
         // titlebar strip (Cursor look); titlebar + update banner + dock stack
         // in the column to its right. The login/update surfaces keep the
@@ -979,26 +915,17 @@ impl Render for Shell {
                                 .mx(px(PANEL_MARGIN))
                                 .mb(px(PANEL_MARGIN))
                                 .overflow_hidden()
-                                // EXP-742: the bubble below positions
-                                // against the panel, and the panel's own
-                                // clip + radii keep it inside the card.
                                 .relative()
-                                // EXP-760: the card FACE is a backdrop child,
-                                // not the panel's own fill, so it can stop
-                                // short of the terminal dock's 29px strip:
-                                // the card closes above the tab chips and
-                                // they read as sitting on the window's
-                                // ground (JetBrains). Nothing moves — the
-                                // panel keeps its box, so no LAYOUT_VERSION
-                                // bump. FIRST child, so it paints behind the
-                                // banners, the dock area and the bubble.
+                                // The card FACE is a backdrop child (EXP-760)
+                                // — FIRST, so it paints behind the banners,
+                                // the dock area and the session bar. EXP-769
+                                // runs it the full height again: the session
+                                // bar sits INSIDE the card on a hairline, the
+                                // web strip's shape.
                                 .child(
                                     div()
                                         .absolute()
                                         .inset_0()
-                                        .bottom(px(panel_backdrop_inset(
-                                            self.terminal_strip_on_ground(cx),
-                                        )))
                                         .rounded(px(theme::tokens::radius::LG))
                                         .border_1()
                                         .border_color(
@@ -1009,9 +936,10 @@ impl Render for Shell {
                                 .children(self.render_update_banner(cx))
                                 .children(self.render_offline_banner(cx))
                                 .child(div().flex_1().min_h_0().child(self.dock_area.clone()))
-                                // LAST child: it must paint over the dock
-                                // area's band.
-                                .children(self.render_dock_bubble(cx)),
+                                // EXP-769: the session bar is the panel's LAST
+                                // child — under the dock area, above the
+                                // card's bottom edge.
+                                .child(self.session_bar.clone()),
                         )
                 })
                 .into_any_element(),
@@ -1090,43 +1018,6 @@ impl Render for Shell {
 }
 
 impl Shell {
-    /// EXP-742: the collapsed terminal dock's BUBBLE — the panel's own
-    /// element (`TerminalDockPanel::render_bubble`, listeners and all),
-    /// hosted HERE as the cutout panel's last child. The upstream `Dock`
-    /// clips its closed band to a hard 29px, so the only place a card can
-    /// float over the corner is above the dock area, and the shell is what
-    /// owns that layer. `None` while the dock is open, mid-slide, or when
-    /// this machine collapses to the strip.
-    ///
-    /// Reading the pick through `CodingHub::global` (not the read-only peek)
-    /// is deliberate: it WARMS the hub on the shell's first frame, before
-    /// the panel renders, so a launch lands straight on the persisted form.
-    /// EXP-760: is the terminal dock's bottom strip painted on the window
-    /// ground? Resolved through the same bottom-dock lookup
-    /// [`Self::render_dock_bubble`] uses. No panel (a signed-out window, a
-    /// frame before the dock area warms) means no strip, so the card face
-    /// runs the full height.
-    fn terminal_strip_on_ground(&self, cx: &App) -> bool {
-        let Some(dock) = self.dock_area.read(cx).bottom_dock().cloned() else {
-            return false;
-        };
-        crate::coding_flow::find_terminal_dock(dock.read(cx).panel())
-            .is_some_and(|panel| panel.read(cx).strip_on_ground(cx))
-    }
-
-    fn render_dock_bubble(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        if !crate::coding_flow::CodingHub::global(cx)
-            .read(cx)
-            .settings
-            .terminal_dock_bubble
-        {
-            return None;
-        }
-        let dock = self.dock_area.read(cx).bottom_dock().cloned()?;
-        let panel = crate::coding_flow::find_terminal_dock(dock.read(cx).panel())?;
-        panel.update(cx, |panel, cx| panel.render_bubble(cx))
-    }
-
     /// The §11.2 update banner: a thin strip above everything else, shown once
     /// the launch-time check found a newer `desktop-v*` release. Self-update
     /// capable installs get an in-app "Update" pipeline (download progress →
@@ -1512,22 +1403,6 @@ impl Shell {
     }
 }
 
-/// Find the restored [`TerminalDockPanel`] view inside a rehydrated bottom
-/// dock item (the registry re-created it with its persisted shell tabs —
-/// keep THAT entity, only strip the `TabPanel` wrapper around it).
-fn terminal_panel_view(item: &DockItem, cx: &App) -> Option<Arc<dyn PanelView>> {
-    let is_terminal =
-        |view: &Arc<dyn PanelView>| view.panel_name(cx) == crate::terminal_dock::PANEL_NAME;
-    match item {
-        DockItem::Panel { view, .. } => is_terminal(view).then(|| view.clone()),
-        DockItem::Tabs { items, .. } => items.iter().find(|view| is_terminal(view)).cloned(),
-        DockItem::Split { items, .. } => {
-            items.iter().find_map(|item| terminal_panel_view(item, cx))
-        }
-        _ => None,
-    }
-}
-
 /// Human progress: percent when the size is known, transferred MB otherwise.
 fn format_progress(received: u64, total: Option<u64>) -> String {
     match total {
@@ -1775,18 +1650,6 @@ mod tests {
     use super::*;
     use crate::settings::SETTINGS_NAV_WIDTH;
     use crate::sidebar::RAIL_W;
-
-    /// EXP-760: the panel's card face stops exactly one terminal strip short
-    /// of its bottom edge while that strip is painting, and nowhere else.
-    #[test]
-    fn panel_card_closes_above_the_terminal_strip() {
-        assert_eq!(
-            panel_backdrop_inset(true),
-            crate::terminal_dock::DOCK_STRIP_H
-        );
-        // Bubble form (or no dock panel at all): unchanged full-height card.
-        assert_eq!(panel_backdrop_inset(false), 0.);
-    }
 
     /// EXP-698 round 7: only a Board Issues tool, on a real board, whose
     /// SYNCED issue set is empty, takes the whole center. Every other fact

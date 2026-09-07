@@ -138,7 +138,7 @@ impl Render for UndockedTerminalWindow {
             .ghost().cursor_pointer()
             .xsmall()
             .icon(crate::icons::ExpIcon::ExternalLinkIn)
-            .tooltip("Move back into the terminal dock")
+            .tooltip("Move back into the main window")
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.reattach(window, cx);
             }));
@@ -183,7 +183,7 @@ impl Render for UndockedTerminalWindow {
             body = body.child(div().flex_1());
         }
         if let Some(code) = exit_code {
-            body = body.child(crate::terminal_dock::exit_strip(code, cx));
+            body = body.child(crate::session_bar::exit_strip(code, cx));
         }
 
         crate::window_frame::window_frame().child(

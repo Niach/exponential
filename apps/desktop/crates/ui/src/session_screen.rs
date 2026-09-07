@@ -5,11 +5,14 @@
 //! process hosts, a "remote chip" beside it for one on another machine. The
 //! ACP engine ends that split. A run this process hosts is an in-process
 //! [`engine::EngineSession`], not a terminal, so it renders in the CENTER pane
-//! like every other detail screen; the dock keeps PTY tabs and nothing else.
+//! like every other detail screen. EXP-769: a PTY-hosted run renders in the
+//! center too (`Screen::Terminal`), and both kinds tab in the bottom session
+//! bar.
 //!
 //! [`open_session`] is the ONE entry point (the start dialog, the issue
-//! header's "coding now" pill, Devices → Running / Past): a run still hosted
-//! on a PTY reveals its dock tab, everything else navigates here.
+//! header's "coding now" pill, Devices → Running / Past, a session bar
+//! chip): a run still hosted on a PTY shows its terminal screen, everything
+//! else navigates here.
 //!
 //! Three feed sources, one renderer ([`SteerSessionView`]): the in-process
 //! engine (`Local`), the relay viewer (`Remote` — another machine, or another
@@ -48,13 +51,13 @@ use crate::steer_viewer::{FeedSource, SteerSessionView};
 
 /// Open `session_id`'s surface in this window.
 ///
-/// A run THIS process hosts on the PTY path keeps its dock terminal — there is
-/// no ACP conversation to render and nothing to steer remotely about a child
-/// whose grid is right there. Everything else (a local ACP run, a run on
-/// another machine, an ended one) is a center screen.
+/// A run THIS process hosts on the PTY path is its terminal — there is no ACP
+/// conversation to render and nothing to steer remotely about a child whose
+/// grid is right there. Everything else (a local ACP run, a run on another
+/// machine, an ended one) is a session screen.
 pub(crate) fn open_session(session_id: &str, window: &mut Window, cx: &mut App) {
     if let Some((tab, manager)) = pty_tab(session_id, cx) {
-        crate::terminal_dock::reveal_pty_tab(tab, &manager, window, cx);
+        crate::session_bar::reveal_pty_tab(tab, &manager, window, cx);
         return;
     }
     // EXP-746 D5: a resume mints a NEW row id, so opening it plainly would put
@@ -222,7 +225,7 @@ fn local_engine(session_id: &str, cx: &App) -> Option<engine::EngineSession> {
     }
 }
 
-/// The dock terminal a run this process hosts occupies, if it is on the PTY
+/// The terminal tab a run this process hosts occupies, if it is on the PTY
 /// path — the tab plus the manager that owns it.
 fn pty_tab(
     session_id: &str,

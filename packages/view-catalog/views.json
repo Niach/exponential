@@ -1907,7 +1907,7 @@
       "id": "terminal",
       "group": "ide",
       "title": "Terminal",
-      "blurb": "The embedded terminal an agent session actually runs in, docked under the workspace.",
+      "blurb": "The embedded terminal an agent session actually runs in: fullscreen in the content area, one tab in the bottom session bar.",
       "order": 3,
       "desktop": {
         "drive": {
