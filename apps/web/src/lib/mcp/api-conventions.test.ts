@@ -60,7 +60,11 @@ import { ALL_MCP_TOOL_GATES } from "@/lib/mcp/gates"
 import { issueWireColumns } from "@/lib/issue-columns"
 import type { McpUser } from "@/lib/mcp/server"
 
-type ToolDef = { description?: string; inputSchema?: z.ZodType }
+type ToolDef = {
+  description?: string
+  inputSchema?: z.ZodType
+  annotations?: { readOnlyHint?: boolean }
+}
 
 function collectDefs(): Map<string, ToolDef> {
   const defs = new Map<string, ToolDef>()
@@ -111,6 +115,28 @@ function paramSchema(tool: string, param: string): z.ZodType {
   expect(shape[param], `${tool}.${param}`).toBeDefined()
   return shape[param]
 }
+
+// FEED-25: a read without `readOnlyHint` costs a permission card in claude's
+// plan mode — the run behind that issue waited two hours on one for
+// `attachments_get`. Reads are the `*_get`/`*_list` tools plus the two
+// GitHub-backed diffs; nothing that writes may claim the hint.
+const READ_ONLY_EXTRA = new Set([
+  `exponential_issues_pr_files`,
+  `exponential_repositories_branch_diff`,
+])
+function isRead(name: string): boolean {
+  return /_(get|list)$/.test(name) || READ_ONLY_EXTRA.has(name)
+}
+
+describe(`read-only hints (FEED-25)`, () => {
+  it(`every read carries readOnlyHint and no write does`, () => {
+    const reads = [...defs.keys()].filter(isRead)
+    expect(reads.length).toBeGreaterThan(20)
+    for (const [name, def] of defs) {
+      expect(def.annotations?.readOnlyHint === true, name).toBe(isRead(name))
+    }
+  })
+})
 
 describe(`one pagination model (EXP-707 theme G)`, () => {
   it(`every *_list tool declares a limit`, () => {

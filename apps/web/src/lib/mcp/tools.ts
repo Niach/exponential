@@ -361,6 +361,13 @@ const MAX_INLINE_TEXT_BYTES = 32 * 1024
 // Serializes as additionalProperties:false (gated by api-conventions.test.ts).
 const strictInput = <S extends z.ZodRawShape>(shape: S) => z.strictObject(shape)
 
+// FEED-25: every read declares MCP's `readOnlyHint`. Without it claude's
+// plan mode (and any "ask before side effects" posture) raises a permission
+// card for a plain `*_get`/`*_list` — the batch run behind FEED-25 sat on one
+// such card for two hours. Gated by api-conventions.test.ts: reads carry it,
+// nothing else does.
+const READ_ONLY = { readOnlyHint: true } as const
+
 // EXP-707: the ONE pagination model — every *_list tool declares limit/offset
 // (default 50, cap 200; gated by api-conventions.test.ts). Small-table tools
 // slice after their existing filters rather than in SQL.
@@ -596,6 +603,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_teams_list`,
     {
+      annotations: READ_ONLY,
       description: `List teams the MCP user is a member of.`,
       inputSchema: strictInput({ ...pageInput }),
     },
@@ -634,6 +642,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_teams_get`,
     {
+      annotations: READ_ONLY,
       description: `Get a single team by id.`,
       inputSchema: strictInput({ id: uuidString }),
     },
@@ -662,6 +671,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_boards_list`,
     {
+      annotations: READ_ONLY,
       description: `List boards in a team, or across all teams the user belongs to.`,
       inputSchema: strictInput({
         teamId: uuidString.optional(),
@@ -702,6 +712,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_boards_get`,
     {
+      annotations: READ_ONLY,
       description: `Get a single board by id.`,
       inputSchema: strictInput({ id: uuidString }),
     },
@@ -808,6 +819,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_list`,
     {
+      annotations: READ_ONLY,
       // EXP-684: every filter a scheduled sweep needs server-side. The schema
       // is budget-trimmed (context-budget.test.ts): value lists appear once,
       // their exclude* twins and priority validate at runtime.
@@ -1060,6 +1072,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_get`,
     {
+      annotations: READ_ONLY,
       description: `Get a single issue by UUID or identifier (e.g. "MET-12"), including its label ids and latest comments (newest first, capped at 50; commentsLimit overrides).`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
@@ -1234,6 +1247,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_attachments_get`,
     {
+      annotations: READ_ONLY,
       description: `Fetch an attachment by id — every content type. Markdown embeds look like ![alt](/api/attachments/{id}); pass that {id}. Always returns metadata plus a short-lived signed downloadUrl: fetch it (curl/wget) into your working directory to read non-image files (xlsx, PDF, CSV, ...) with real tooling. Images additionally come back as inline image content; small text files include their text inline.`,
       inputSchema: strictInput({ id: uuidString }),
     },
@@ -1336,6 +1350,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_labels_list`,
     {
+      annotations: READ_ONLY,
       description: `List labels for a team.`,
       inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
     },
@@ -1362,6 +1377,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_labels_get`,
     {
+      annotations: READ_ONLY,
       description: `Get a label by id (must be in a team the user belongs to).`,
       inputSchema: strictInput({ id: uuidString }),
     },
@@ -1609,6 +1625,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_comments_list`,
     {
+      annotations: READ_ONLY,
       description: `List comments on an issue (oldest first) by UUID or human identifier (e.g. "MET-12"). Rows include their linked attachments. The MCP user must have access to the issue's team.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
@@ -1818,6 +1835,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_statuses_list`,
     {
+      annotations: READ_ONLY,
       description: `List a team's issue statuses (id, name, category, color, position, builtinKey). Use id as statusId in exponential_issues_update.`,
       inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
     },
@@ -2601,6 +2619,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_list`,
     {
+      annotations: READ_ONLY,
       description: `List coding sessions (newest first) across your teams or one team: status, issue, action, branch, device, and once ended the run's own summary/endedBy. mine limits to runs you started or host.`,
       inputSchema: strictInput({
         teamId: uuidString.optional(),
@@ -2666,6 +2685,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_get`,
     {
+      annotations: READ_ONLY,
       description: `Get one coding session by id. Poll it after exponential_sessions_start: status running → in_review (PR open) → ended, then summary is the run's own close-out. ackedAt is the device's liveness ack, stamped within seconds of the launch; null for more than a couple of minutes = the launch died on the device.`,
       inputSchema: strictInput({ id: uuidString }),
     },
@@ -3011,6 +3031,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_devices_list`,
     {
+      annotations: READ_ONLY,
       description: `List your registered machines (desktop app / CLI daemon), plus servers teammates shared with teamId. Pick an online device whose agents includes the agent you want; caps must include resume-run to resume an ended run.`,
       inputSchema: strictInput({
         teamId: uuidString.optional(),
@@ -3178,6 +3199,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_notifications_list`,
     {
+      annotations: READ_ONLY,
       description: `List the MCP user's own notifications, newest first. Set unreadOnly to show only those not yet read.`,
       inputSchema: strictInput({
         unreadOnly: z.boolean().default(false),
@@ -3282,6 +3304,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_members_list`,
     {
+      annotations: READ_ONLY,
       description: `List the members of a team. id is the USER id (use it for assigneeId); memberId is the team_members row id (what teamMembers.updateRole/remove take).`,
       inputSchema: strictInput({
         teamId: uuidString,
@@ -3322,6 +3345,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_repositories_list`,
     {
+      annotations: READ_ONLY,
       description: `List the repositories registered in a team, each with the boards it backs. The MCP user must be a member of the team.`,
       inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
     },
@@ -3382,6 +3406,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_repositories_branch_diff`,
     {
+      annotations: READ_ONLY,
       description: `Get the diff of an issue's exp/<IDENTIFIER> branch against the repo's default branch (UUID or identifier). Returns null when the branch was never pushed. Team members only.`,
       inputSchema: strictInput({ issueId: z.string().min(1) }),
     },
@@ -3409,6 +3434,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_actions_list`,
     {
+      annotations: READ_ONLY,
       description: `List a team's actions: reusable markdown prompts run as interactive agent sessions on a member's own desktop. Team members only.`,
       inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
     },
@@ -3558,6 +3584,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_automations_list`,
     {
+      annotations: READ_ONLY,
       description: `List a team's automations: which action runs on which device, its trigger (schedule or issue event), launch agent/model/effort and whether it is enabled. Team members only.`,
       inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
     },
@@ -3663,6 +3690,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_pr_files`,
     {
+      annotations: READ_ONLY,
       description: `List the changed files (with patches and add/delete counts) of the issue's linked pull request (UUID or identifier). Empty list when no PR is linked. Team members only.`,
       inputSchema: strictInput({ issueId: z.string().min(1) }),
     },
@@ -3819,6 +3847,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_invites_list`,
     {
+      annotations: READ_ONLY,
       description: `List the pending (unaccepted) invites for a team. The MCP user must be a member of the team.`,
       inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
     },
@@ -4009,6 +4038,7 @@ export function registerExponentialTools(
     server.registerTool(
       `exponential_helpdesk_threads_list`,
       {
+        annotations: READ_ONLY,
         description: `List a team's support tickets (newest activity first) with their last message and an unread flag. Page with cursor = the oldest loaded row's updatedAt. Team members only; needs helpdesk enabled.`,
         inputSchema: strictInput({
           teamId: uuidString,
@@ -4041,6 +4071,7 @@ export function registerExponentialTools(
     server.registerTool(
       `exponential_helpdesk_threads_get`,
       {
+        annotations: READ_ONLY,
         description: `Get a support ticket with its full conversation (public replies and internal notes, each with its email delivery status) and the escalated issue if any.`,
         inputSchema: strictInput({ id: uuidString }),
       },

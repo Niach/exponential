@@ -1,3 +1,4 @@
+import Foundation
 import XCTest
 
 @testable import ExpCore
@@ -793,6 +794,55 @@ final class AgentFeedTests: XCTestCase {
     func testTheConfigDefaultLabelIsTheOneEveryClientShows() {
         XCTAssertEqual(AgentFeed.configDefaultValueLabel, "CLI default")
         XCTAssertEqual(AgentFeed.configModeLabel, "Mode")
+    }
+
+    // MARK: - Quiet live runs (FEED-26)
+
+    func testStaleActivityStaysSilentInsideTheThreshold() {
+        let now = Date()
+        XCTAssertNil(AgentFeed.staleActivityMinutes(since: now, now: now))
+        XCTAssertNil(
+            AgentFeed.staleActivityMinutes(since: now.addingTimeInterval(-599), now: now)
+        )
+    }
+
+    func testStaleActivityCountsWholeMinutesFromTheThreshold() {
+        let now = Date()
+        XCTAssertEqual(
+            AgentFeed.staleActivityMinutes(since: now.addingTimeInterval(-600), now: now),
+            10
+        )
+        // 27m40s reads as 27, never rounded up: the caption promises elapsed
+        // time, not the nearest minute.
+        XCTAssertEqual(
+            AgentFeed.staleActivityMinutes(since: now.addingTimeInterval(-1660), now: now),
+            27
+        )
+    }
+
+    func testStaleActivityIsNilWithoutAKnownLastActivity() {
+        XCTAssertNil(AgentFeed.staleActivityMinutes(since: nil, now: Date()))
+    }
+
+    func testStaleActivityThresholdIsTenMinutes() {
+        // Byte-identical ×4 — moving it means moving web, Android and desktop.
+        XCTAssertEqual(AgentFeed.staleActivityAfter, 600)
+    }
+
+    func testStaleActivityLabelCarriesTheDeviceSuffix() {
+        XCTAssertEqual(
+            AgentFeed.staleActivityLabel(minutes: 27, deviceLabel: "macbook"),
+            "No activity for 27 min · macbook"
+        )
+        XCTAssertEqual(
+            AgentFeed.staleActivityLabel(minutes: 10, deviceLabel: nil),
+            "No activity for 10 min"
+        )
+        // A blank label is an absent one — never a dangling separator.
+        XCTAssertEqual(
+            AgentFeed.staleActivityLabel(minutes: 10, deviceLabel: ""),
+            "No activity for 10 min"
+        )
     }
 
     // MARK: - Fixtures

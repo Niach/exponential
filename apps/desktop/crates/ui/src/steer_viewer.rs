@@ -92,6 +92,17 @@ const FREE_TEXT_MAX: usize = 4000;
 /// How often the staged-replay fallback re-checks its quiet window.
 const STAGING_TICK: Duration = Duration::from_millis(100);
 
+/// FEED-26 — how long a LIVE run's feed may sit unchanged before the header
+/// stops claiming a healthy "Live". The rule is shared byte-for-byte with the
+/// web, iOS and Android session headers: only a live, unpaused run that is
+/// neither awaiting an answer nor compacting can go stale.
+pub(crate) const STALE_ACTIVITY_AFTER: Duration = Duration::from_secs(10 * 60);
+
+/// How often the header re-reads that clock. The feed is clock-free, so a
+/// caption counting MINUTES needs a beat of its own or it would sit on
+/// whatever number the last event painted.
+const STALE_TICK: Duration = Duration::from_secs(30);
+
 /// The pending strip's thumbnail edge (web/iOS parity).
 const PENDING_THUMB: f32 = 48.;
 
@@ -200,6 +211,14 @@ pub(crate) struct SteerSessionView {
     /// Bumped whenever a compaction opens; a [`COMPACTION_TIMEOUT`] backstop
     /// that finds its generation superseded exits without clearing.
     compaction_generation: u64,
+    /// FEED-26: when the feed last MOVED — the clock behind the header's
+    /// "No activity for N min". Stamped on any appended/replaced row and on
+    /// the edge into [`ViewerPhase::Live`], deliberately NOT read off event
+    /// `at` timestamps (optional on the wire, and a host's clock is not
+    /// ours). A reopened tab replays its backlog, which stamps: a view built
+    /// over an already-stalled run waits out the window once more before it
+    /// says so.
+    last_activity: std::time::Instant,
     /// Composer.
     input: Entity<TextareaState>,
     /// EXP-724: the open `/` menu, refreshed on every draft change.
@@ -358,6 +377,7 @@ impl SteerSessionView {
             staging_generation: 0,
             staging_started: None,
             compaction_generation: 0,
+            last_activity: std::time::Instant::now(),
             input,
             slash: None,
             slash_dismissed_for: None,
@@ -382,6 +402,7 @@ impl SteerSessionView {
             _subscriptions: subscriptions,
         };
         this.refresh_row(cx);
+        this.arm_stale_tick(cx);
         // Seed the wakeup edges from the world as it is right now, so the
         // first observer call is a comparison rather than a false edge.
         this.device_offline = this.device(cx).offline;
@@ -448,15 +469,22 @@ impl SteerSessionView {
     }
 
     /// The header's liveness dot tone and its caption, resolved together
-    /// because both read the same three facts (paused, awaiting an answer,
-    /// the phase).
+    /// because both read the same four facts (paused, awaiting an answer,
+    /// the phase, and FEED-26's stale-activity clock).
     pub(crate) fn header_status(&self, cx: &App) -> (gpui::Hsla, String) {
         let paused = self.paused(cx);
         let awaiting = !self.feed.active_question_ids().is_empty();
+        let stale = self.stale_minutes(paused, awaiting);
         let device = self.device(cx);
         (
-            self.phase_tone(cx, paused, awaiting),
-            phase_label(&self.phase, device.label.as_deref(), awaiting, paused),
+            self.phase_tone(cx, paused, awaiting, stale.is_some()),
+            phase_label(
+                &self.phase,
+                device.label.as_deref(),
+                awaiting,
+                paused,
+                stale,
+            ),
         )
     }
 
@@ -720,8 +748,9 @@ impl SteerSessionView {
 
     fn apply_event(&mut self, event: ViewerEvent, cx: &mut gpui::Context<Self>) {
         let was_compacting = self.feed.compacting().is_some();
+        let pulse = feed_pulse(&self.feed);
         match event {
-            ViewerEvent::Phase(phase) => self.phase = phase,
+            ViewerEvent::Phase(phase) => self.note_phase(phase),
             ViewerEvent::Connected(connected) => {
                 self.connected = connected;
                 if !connected && self.feed.is_staging() {
@@ -752,8 +781,69 @@ impl SteerSessionView {
                 self.feed.push_local_message(&text);
             }
         }
+        self.note_feed_moved(pulse);
         self.note_compaction(was_compacting, cx);
         cx.notify();
+    }
+
+    /// FEED-26 — every phase assignment that is not an END goes through here.
+    /// The edge INTO `Live` starts the stale-activity clock: a run that has
+    /// only just connected has not been quiet for anything yet, and its feed
+    /// may not move for a while after the handshake.
+    fn note_phase(&mut self, phase: ViewerPhase) {
+        if phase == ViewerPhase::Live && self.phase != ViewerPhase::Live {
+            self.last_activity = std::time::Instant::now();
+        }
+        self.phase = phase;
+    }
+
+    /// Stamp the stale-activity clock when the feed actually moved between
+    /// `before` and now (a latest-wins state kind — config, usage, the
+    /// published diff — appends nothing and is not activity the reader can
+    /// see).
+    fn note_feed_moved(&mut self, before: FeedPulse) {
+        if feed_pulse(&self.feed) != before {
+            self.last_activity = std::time::Instant::now();
+        }
+    }
+
+    /// FEED-26: whole minutes of quiet, or `None` while the header must keep
+    /// saying "Live" — see [`STALE_ACTIVITY_AFTER`]. Paused, awaiting an
+    /// answer and compacting are all deliberate quiet: the header already
+    /// says what is happening, and none of them is a stalled run.
+    fn stale_minutes(&self, paused: bool, awaiting: bool) -> Option<u64> {
+        if paused || awaiting || self.phase != ViewerPhase::Live {
+            return None;
+        }
+        if self.feed.compacting().is_some() {
+            return None;
+        }
+        let quiet = self.last_activity.elapsed();
+        (quiet >= STALE_ACTIVITY_AFTER).then(|| quiet.as_secs() / 60)
+    }
+
+    /// FEED-26 — the header's own beat. The feed is clock-free and a stalled
+    /// run produces no events by definition, so the minute count needs a
+    /// wakeup of its own; it only repaints once a live run is ACTUALLY quiet
+    /// past the window, so an ordinary session pays a timer and nothing else.
+    fn arm_stale_tick(&self, cx: &mut gpui::Context<Self>) {
+        cx.spawn(async move |this, cx| loop {
+            cx.background_executor().timer(STALE_TICK).await;
+            if this
+                .update(cx, |this, cx| {
+                    let paused = this.paused(cx);
+                    let awaiting = !this.feed.active_question_ids().is_empty();
+                    if this.stale_minutes(paused, awaiting).is_some() {
+                        cx.notify();
+                    }
+                })
+                .is_err()
+            {
+                // The view is gone with its tab.
+                return;
+            }
+        })
+        .detach();
     }
 
     /// The feed pane's wheel handler: an upward scroll is the reader looking
@@ -790,6 +880,7 @@ impl SteerSessionView {
                 tool_call_id,
             } => {
                 let was_compacting = self.feed.compacting().is_some();
+                let pulse = feed_pulse(&self.feed);
                 let before = self.feed.items().last().map(|item| item.id);
                 self.feed.apply(event);
                 if let Some(tool_call_id) = tool_call_id {
@@ -802,6 +893,7 @@ impl SteerSessionView {
                         }
                     }
                 }
+                self.note_feed_moved(pulse);
                 self.note_compaction(was_compacting, cx);
             }
             engine::LocalFeedEvent::Phase(phase) => {
@@ -812,7 +904,7 @@ impl SteerSessionView {
                     phase,
                     engine::EnginePhase::Ended | engine::EnginePhase::Failed(_)
                 );
-                self.phase = merge_ended_phase(&self.phase, viewer_phase(phase.clone()));
+                self.note_phase(merge_ended_phase(&self.phase, viewer_phase(phase.clone())));
                 // There is no socket on this path — "connected" is simply
                 // whether the engine is still talking to us.
                 self.connected = !over;
@@ -903,7 +995,9 @@ impl SteerSessionView {
                         .is_some_and(|started| started.elapsed() >= REPLAY_MAX);
                     if quiet >= REPLAY_QUIET || capped {
                         let was_compacting = this.feed.compacting().is_some();
+                        let pulse = feed_pulse(&this.feed);
                         this.feed.force_swap();
+                        this.note_feed_moved(pulse);
                         this.note_compaction(was_compacting, cx);
                         this.staging_started = None;
                         cx.notify();
@@ -982,6 +1076,9 @@ impl SteerSessionView {
             return;
         }
         self.feed.note_answer_sent(&key, keys, labels);
+        // FEED-26: answering is the freshest activity there is — the quiet
+        // that led up to the card was the reader's, not the agent's.
+        self.last_activity = std::time::Instant::now();
         self.picked.remove(&key);
         self.free_text = None;
         // The ack deadline is the CALLER's (the feed reads no clock).
@@ -1724,12 +1821,32 @@ pub(crate) fn merge_ended_phase(current: &ViewerPhase, next: ViewerPhase) -> Vie
     }
 }
 
+/// FEED-26 — the cheap "did the feed move?" probe behind the stale-activity
+/// clock. Ids are monotonic, so an APPEND always changes the tail's id and a
+/// splice its length; a REPLACED last row (a question resolving, a subagent
+/// marker updating) changes the item itself. One tail clone per event costs
+/// less than the event that produced it, and a mid-feed edit is deliberately
+/// out of scope: it can only make the caption appear a beat early, never
+/// hide a genuinely stalled run.
+pub(crate) type FeedPulse = (usize, Option<FeedItem>);
+
+pub(crate) fn feed_pulse(feed: &SteerFeed) -> FeedPulse {
+    (feed.len(), feed.items().last().cloned())
+}
+
 /// The header/tooltip caption for a phase, mirroring the web `phaseLabel`.
+///
+/// FEED-26: `stale_minutes` is the whole minutes a LIVE run's feed has been
+/// quiet past [`STALE_ACTIVITY_AFTER`] — `None` for every other state, so
+/// the caller owns the "is this quiet meaningful?" question (not live,
+/// paused, awaiting an answer or compacting all answer no) and this stays a
+/// pure formatter.
 pub(crate) fn phase_label(
     phase: &ViewerPhase,
     device: Option<&str>,
     awaiting_input: bool,
     paused: bool,
+    stale_minutes: Option<u64>,
 ) -> String {
     if paused {
         return format!("Paused · {} is offline", device.unwrap_or("device"));
@@ -1737,13 +1854,15 @@ pub(crate) fn phase_label(
     match phase {
         ViewerPhase::Live => {
             let head = if awaiting_input {
-                "Needs your input"
+                "Needs your input".to_string()
+            } else if let Some(minutes) = stale_minutes {
+                format!("No activity for {minutes} min")
             } else {
-                "Live"
+                "Live".to_string()
             };
             match device {
                 Some(device) => format!("{head} · {device}"),
-                None => head.to_string(),
+                None => head,
             }
         }
         ViewerPhase::Starting => "Agent starting…".to_string(),
@@ -1793,7 +1912,14 @@ impl SteerSessionView {
         let paused = self.paused(cx);
         let device = self.device(cx);
         let awaiting = !self.feed.active_question_ids().is_empty();
-        let caption = phase_label(&self.phase, device.label.as_deref(), awaiting, paused);
+        let stale = self.stale_minutes(paused, awaiting);
+        let caption = phase_label(
+            &self.phase,
+            device.label.as_deref(),
+            awaiting,
+            paused,
+            stale,
+        );
         let identity = self.identity(cx);
         let can_kill = self.can_kill(cx);
 
@@ -1806,7 +1932,7 @@ impl SteerSessionView {
             .py_1p5()
             .border_b_1()
             .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
-            .child(status_dot(self.phase_tone(cx, paused, awaiting)))
+            .child(status_dot(self.phase_tone(cx, paused, awaiting, stale.is_some())))
             .when_some(identity.0, |this, identifier| {
                 this.child(
                     div()
@@ -1883,11 +2009,15 @@ impl SteerSessionView {
         )
     }
 
-    fn phase_tone(&self, cx: &App, paused: bool, awaiting: bool) -> gpui::Hsla {
+    fn phase_tone(&self, cx: &App, paused: bool, awaiting: bool, stale: bool) -> gpui::Hsla {
         if paused || self.row_ended() {
             return cx.theme().muted_foreground.opacity(0.5);
         }
-        if awaiting {
+        // FEED-26: a live run whose feed has gone quiet wears the SAME steady
+        // amber as "Needs your input" — both mean "this is not progressing on
+        // its own", and a green dot over a stalled agent is the lie the issue
+        // is about.
+        if awaiting || stale {
             return theme::tokens::YELLOW.to_hsla();
         }
         match self.phase {
@@ -3886,22 +4016,58 @@ mod tests {
     #[test]
     fn the_phase_caption_mirrors_the_web_labels() {
         assert_eq!(
-            phase_label(&ViewerPhase::Live, Some("macbook"), false, false),
+            phase_label(&ViewerPhase::Live, Some("macbook"), false, false, None),
             "Live · macbook"
         );
-        assert_eq!(phase_label(&ViewerPhase::Live, None, false, false), "Live");
         assert_eq!(
-            phase_label(&ViewerPhase::Live, Some("macbook"), true, false),
+            phase_label(&ViewerPhase::Live, None, false, false, None),
+            "Live"
+        );
+        assert_eq!(
+            phase_label(&ViewerPhase::Live, Some("macbook"), true, false, None),
             "Needs your input · macbook"
         );
         assert_eq!(
-            phase_label(&ViewerPhase::Starting, Some("macbook"), false, false),
+            phase_label(&ViewerPhase::Starting, Some("macbook"), false, false, None),
             "Agent starting…"
         );
         assert_eq!(
-            phase_label(&ViewerPhase::Ended { outcome: None }, None, false, false),
+            phase_label(&ViewerPhase::Ended { outcome: None }, None, false, false, None),
             "Session ended"
         );
+        // FEED-26: a live run whose feed has gone quiet says so, with the
+        // same ` · {device}` suffix every other live caption carries.
+        assert_eq!(
+            phase_label(&ViewerPhase::Live, Some("macbook"), false, false, Some(27)),
+            "No activity for 27 min · macbook"
+        );
+        assert_eq!(
+            phase_label(&ViewerPhase::Live, None, false, false, Some(10)),
+            "No activity for 10 min"
+        );
+        // …and a card waiting for an answer still wins: the run is not stuck,
+        // the reader is.
+        assert_eq!(
+            phase_label(&ViewerPhase::Live, Some("macbook"), true, false, Some(27)),
+            "Needs your input · macbook"
+        );
+        // Quiet only means anything while LIVE.
+        assert_eq!(
+            phase_label(&ViewerPhase::Starting, None, false, false, Some(27)),
+            "Agent starting…"
+        );
+        assert_eq!(
+            phase_label(&ViewerPhase::Live, Some("macbook"), false, true, Some(27)),
+            "Paused · macbook is offline"
+        );
+    }
+
+    /// FEED-26: the threshold is shared byte-for-byte with the other three
+    /// clients — 10 minutes, and the caption counts WHOLE minutes.
+    #[test]
+    fn the_stale_activity_window_is_ten_minutes() {
+        assert_eq!(STALE_ACTIVITY_AFTER, Duration::from_secs(600));
+        assert!(STALE_TICK < STALE_ACTIVITY_AFTER);
     }
 
     /// A paused host wins over every other phase — the run is not gone, the
@@ -3909,11 +4075,11 @@ mod tests {
     #[test]
     fn a_paused_host_beats_the_phase() {
         assert_eq!(
-            phase_label(&ViewerPhase::Live, Some("macbook"), true, true),
+            phase_label(&ViewerPhase::Live, Some("macbook"), true, true, None),
             "Paused · macbook is offline"
         );
         assert_eq!(
-            phase_label(&ViewerPhase::Live, None, false, true),
+            phase_label(&ViewerPhase::Live, None, false, true, None),
             "Paused · device is offline"
         );
     }

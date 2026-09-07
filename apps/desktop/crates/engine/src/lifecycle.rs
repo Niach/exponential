@@ -14,6 +14,9 @@
 //!   stays the debounced WHOLE-worktree patch on both transports; per-edit ACP
 //!   diffs are local-only);
 //! - `NeedsInputForwarder` (EXP-214);
+//! - the FEED-25 stall watchdog ([`crate::stall`]): a live turn silent for
+//!   `STALL_AFTER` gets `Cancel`, one that ignores it for `STALL_KILL_GRACE`
+//!   gets `Shutdown` with a `Failed` reason;
 //! - the kill feed, where `AfterTurn` waits `steer::STOP_GRACE` on the
 //!   `TurnSignal` before ending;
 //! - the D8 `runs.json` upsert of `acp_session_id`/`agent_native_session_id`
@@ -85,8 +88,8 @@ impl RunLifecycle {
                 .set(Arc::new(publisher.activity_sender()) as Arc<dyn crate::sink::EventSink>);
         }
 
-        spawn_kill_pump(&ctx, kill.rx.clone(), commands, Arc::clone(&active));
-        spawn_tickers(&ctx, Arc::clone(&active));
+        spawn_kill_pump(&ctx, kill.rx.clone(), commands.clone(), Arc::clone(&active));
+        spawn_tickers(&ctx, Arc::clone(&active), commands);
 
         let refresher = ctx.run.repository_id.as_deref().map(|repository_id| {
             coding::clone_refreshers().retain(Arc::clone(&ctx.trpc), repository_id, &ctx.run.clone)
@@ -453,15 +456,21 @@ fn spawn_kill_pump(
         });
 }
 
-/// The two periodic jobs: the debounced worktree diff (the wire `diff`, same
-/// on both transports) and the EXP-214 `needs_input` forward.
-fn spawn_tickers(ctx: &Arc<SessionCtx>, active: Arc<AtomicBool>) {
+/// The periodic jobs: the debounced worktree diff (the wire `diff`, same on
+/// both transports), the EXP-214 `needs_input` forward and the FEED-25 stall
+/// watchdog (`commands` carries its `Cancel` / `Shutdown`).
+fn spawn_tickers(
+    ctx: &Arc<SessionCtx>,
+    active: Arc<AtomicBool>,
+    commands: flume::Sender<EngineCommand>,
+) {
     let ctx = Arc::clone(ctx);
     let _ = std::thread::Builder::new()
         .name("engine-ticks".to_string())
         .spawn(move || {
             let mut diffs = steer::DiffSnapshots::new();
             let mut needs_input = steer::NeedsInputForwarder::new();
+            let mut stall = crate::stall::StallWatchdog::new();
             let hook: Option<steer::NeedsInputHook> = {
                 let trpc = Arc::clone(&ctx.trpc);
                 let session_id = ctx.session_id.clone();
@@ -475,6 +484,7 @@ fn spawn_tickers(ctx: &Arc<SessionCtx>, active: Arc<AtomicBool>) {
                     break;
                 }
                 needs_input.tick(ctx.needs_input.load(Ordering::SeqCst), &hook);
+                tick_stall(&ctx, &mut stall, &commands);
                 // REV2-17: the run's ONE redactor (`SessionCtx.redactor`),
                 // never a weaker key-only one — the worktree patch is the
                 // likeliest place a launcher secret an agent copied into a
@@ -497,6 +507,46 @@ fn spawn_tickers(ctx: &Arc<SessionCtx>, active: Arc<AtomicBool>) {
             // on a session whose engine is gone.
             needs_input.clear_on_teardown(&hook);
         });
+}
+
+/// One watchdog tick (FEED-25). Runs on the ticker thread, never in the
+/// dispatch loop: the two commands it may send are the same ones Escape and
+/// the Stop button send, routed through the inbox like theirs.
+fn tick_stall(
+    ctx: &SessionCtx,
+    stall: &mut crate::stall::StallWatchdog,
+    commands: &flume::Sender<EngineCommand>,
+) {
+    let now = std::time::Instant::now();
+    let last_activity = ctx.last_activity();
+    let action = stall.tick(crate::stall::StallInput {
+        now,
+        live: ctx.feed.phase() == Some(EnginePhase::Live),
+        idle: ctx.turn_signal.is_idle(),
+        needs_input: ctx.needs_input.load(Ordering::SeqCst),
+        last_activity,
+    });
+    let silent = now.saturating_duration_since(last_activity);
+    match action {
+        crate::stall::StallAction::None => {}
+        crate::stall::StallAction::Interrupt => {
+            log::warn!(
+                "engine: session {} silent for {}s mid-turn — interrupting the stalled turn",
+                ctx.session_id,
+                silent.as_secs()
+            );
+            let _ = commands.send(EngineCommand::Cancel);
+        }
+        crate::stall::StallAction::End => {
+            log::error!(
+                "engine: session {} still silent {}s after the interrupt — ending the run",
+                ctx.session_id,
+                silent.as_secs()
+            );
+            ctx.set_failure(crate::stall::StallWatchdog::end_reason(silent));
+            let _ = commands.send(EngineCommand::Shutdown { outcome: "ended" });
+        }
+    }
 }
 
 #[cfg(test)]

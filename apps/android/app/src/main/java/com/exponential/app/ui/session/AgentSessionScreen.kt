@@ -66,6 +66,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -183,6 +184,7 @@ import com.exponential.app.ui.theme.glassCard
 import com.exponential.app.ui.theme.glassGroup
 import com.exponential.app.ui.theme.glassRow
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -390,6 +392,31 @@ fun AgentSessionScreen(
             }
         }
 
+    // FEED-26: a live run whose feed has gone quiet for a long time must not
+    // read as a healthy "Live". Wire events carry no dependable `at`, so the
+    // screen dates the quiet itself: the moment the feed last CHANGED while
+    // live, falling back to when the phase became live. `nowMs` ticks every
+    // 30s so the caption counts up on its own; a compacting agent is working,
+    // not quiet (the paused/awaiting gates live in the header).
+    val live = phase == AgentPhase.Live
+    var lastActivityMs by remember { mutableLongStateOf(0L) }
+    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(live, feed) {
+        if (live) lastActivityMs = System.currentTimeMillis()
+    }
+    LaunchedEffect(live) {
+        if (!live) return@LaunchedEffect
+        while (true) {
+            nowMs = System.currentTimeMillis()
+            delay(STALE_ACTIVITY_TICK_MS)
+        }
+    }
+    val staleMinutes = if (live && activity.compacting == null) {
+        staleActivityMinutes(lastActivityMs.takeIf { it > 0L }, nowMs)
+    } else {
+        null
+    }
+
     var diffSheetOpen by remember { mutableStateOf(false) }
     var killDialogOpen by remember { mutableStateOf(false) }
     var mergeConfirmOpen by remember { mutableStateOf(false) }
@@ -441,6 +468,7 @@ fun AgentSessionScreen(
                         deviceLabel = hostDevice.displayLabel,
                         awaitingInput = awaitingInput,
                         paused = hostOffline && phase.isWaitingForStream,
+                        staleMinutes = staleMinutes,
                     )
                 },
                 navigationIcon = {
@@ -1227,6 +1255,9 @@ private fun SessionHeaderTitle(
     /** EXP-550: the host machine is offline while we wait for its stream —
      *  the run is parked on it, so nothing here reads as connecting. */
     paused: Boolean = false,
+    /** FEED-26: whole minutes the live feed has been quiet, once past
+     *  [STALE_ACTIVITY_AFTER_MS] — null while the run reads as healthy. */
+    staleMinutes: Int? = null,
 ) {
     // Auto-reconnecting after a drop reads as connecting (EXP-243) — unless
     // the machine itself is offline, which is a paused run, not a connection
@@ -1236,6 +1267,8 @@ private fun SessionHeaderTitle(
             (phase is AgentPhase.Closed && phase.reconnecting)
         )
     val awaiting = phase == AgentPhase.Live && awaitingInput
+    // FEED-26: only a live, unpaused, unblocked run can read as quiet.
+    val stale = staleMinutes?.takeIf { !paused && !awaiting && phase == AgentPhase.Live }
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         SessionRowTitle(
             identifier = sessionRowIdentifier(issue),
@@ -1247,6 +1280,9 @@ private fun SessionHeaderTitle(
                 when {
                     paused -> StaticDot(LostGray)
                     awaiting -> StaticDot(NeedsInputAmber)
+                    // FEED-26: a long-quiet live run is parked too — same
+                    // steady amber, never the healthy pulse.
+                    stale != null -> StaticDot(NeedsInputAmber)
                     phase == AgentPhase.Live -> PulsingDot()
                     connecting -> StaticDot(ConnectingYellow)
                     else -> StaticDot(LostGray)
@@ -1254,7 +1290,7 @@ private fun SessionHeaderTitle(
             },
         )
         Text(
-            sessionStatusLine(phase, deviceLabel, awaiting, paused),
+            sessionStatusLine(phase, deviceLabel, awaiting, paused, stale),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
             maxLines = 1,
@@ -1263,20 +1299,52 @@ private fun SessionHeaderTitle(
     }
 }
 
-/** `Live · macbook` / `Needs your input · macbook` / `Paused · …` / `Session
- *  ended` — the caption under the identity line. */
-private fun sessionStatusLine(
+/**
+ * FEED-26: a live run whose feed has been silent this long stops reading as a
+ * healthy "Live" — the caption counts the quiet minutes and the dot goes the
+ * steady amber of "Needs your input". Byte-identical across the four clients.
+ */
+internal const val STALE_ACTIVITY_AFTER_MS = 10L * 60L * 1000L
+
+/** FEED-26: how often the quiet clock ticks, so the minute count moves on its
+ *  own without a feed event. */
+private const val STALE_ACTIVITY_TICK_MS = 30_000L
+
+/**
+ * FEED-26: whole minutes of silence once a live run crosses
+ * [STALE_ACTIVITY_AFTER_MS] — null while it still reads as healthy (and
+ * whenever nothing has dated the feed yet). [lastActivityMs] is OUR
+ * observation of the last feed change, never a wire `at` (they are optional).
+ */
+internal fun staleActivityMinutes(lastActivityMs: Long?, nowMs: Long): Int? {
+    val quiet = nowMs - (lastActivityMs ?: return null)
+    if (quiet < STALE_ACTIVITY_AFTER_MS) return null
+    return (quiet / 60_000L).toInt()
+}
+
+/** `Live · macbook` / `Needs your input · macbook` / `No activity for 27 min ·
+ *  macbook` / `Paused · …` / `Session ended` — the caption under the identity
+ *  line. */
+internal fun sessionStatusLine(
     phase: AgentPhase,
     deviceLabel: String?,
     awaiting: Boolean,
     paused: Boolean,
+    /** FEED-26: minutes of silence, already thresholded (see
+     *  [staleActivityMinutes]); null = the run reads as healthy. Paused,
+     *  awaiting and compacting runs never get one. */
+    staleMinutes: Int? = null,
 ): String {
     val label = deviceLabel?.takeIf { it.isNotBlank() }
     return when {
         paused -> if (label != null) "Paused · $label" else "Paused"
         else -> when (phase) {
             AgentPhase.Live -> {
-                val prefix = if (awaiting) "Needs your input" else "Live"
+                val prefix = when {
+                    awaiting -> "Needs your input"
+                    staleMinutes != null -> "No activity for $staleMinutes min"
+                    else -> "Live"
+                }
                 if (label != null) "$prefix · $label" else prefix
             }
             AgentPhase.Connecting, AgentPhase.Starting, AgentPhase.Idle -> "Connecting…"

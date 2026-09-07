@@ -522,6 +522,38 @@ public enum AgentFeed {
     /// this long rather than sticking forever. Same 180s ×4.
     public static let compactionTimeoutSeconds: TimeInterval = 180
 
+    // MARK: - Quiet live runs (FEED-26)
+
+    /// FEED-26: how long a LIVE run's feed may stay unchanged before the
+    /// header stops reading as a healthy "Live". Byte-identical ×4 (web
+    /// `stale-activity.ts` STALE_ACTIVITY_AFTER_MS, Android
+    /// `AgentSessionScreen.kt`, desktop `steer_viewer.rs`).
+    public static let staleActivityAfter: TimeInterval = 10 * 60
+
+    /// Whole minutes the feed has been quiet, or nil while inside the
+    /// threshold (and with no known last activity).
+    ///
+    /// `since` is when the feed last CHANGED while live, falling back to the
+    /// moment the phase went live — never an event's own `at`, which is
+    /// optional on the wire, so the clock is the viewer's own. The caller
+    /// gates the states that already explain the silence: a paused host, a
+    /// trailing question or plan card, and a running compaction.
+    public static func staleActivityMinutes(since: Date?, now: Date) -> Int? {
+        guard let since else { return nil }
+        let silent = now.timeIntervalSince(since)
+        guard silent >= staleActivityAfter else { return nil }
+        return Int(silent / 60)
+    }
+
+    /// The caption: `No activity for 27 min` / `No activity for 27 min ·
+    /// macbook` — the same ` · <device>` suffix "Live" and "Needs your input"
+    /// carry.
+    public static func staleActivityLabel(minutes: Int, deviceLabel: String?) -> String {
+        let head = "No activity for \(minutes) min"
+        guard let deviceLabel, !deviceLabel.isEmpty else { return head }
+        return "\(head) · \(deviceLabel)"
+    }
+
     /// Fold one `compaction` activity event into the current state: `started`
     /// opens a fresh window (a re-emitted `started` just re-stamps the
     /// trigger), `ended` closes it, and anything else — an unknown phase, a
