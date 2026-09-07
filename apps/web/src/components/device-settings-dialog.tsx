@@ -22,12 +22,15 @@ import {
 } from "@/lib/coding-launch-prefs"
 import {
   deviceCanAgentLogin,
+  deviceCanAgentLoginCode,
   deviceRowIsOnline,
   type SteerDevice,
 } from "@/lib/steer-devices"
 import {
   AgentAccountBlock,
+  agentLoginCodeKey,
   agentLoginKey,
+  agentOfLoginCodeKey,
 } from "@/components/device-agent-account"
 import { Button } from "@/components/ui/button"
 import {
@@ -492,6 +495,7 @@ export function DeviceSettingsDialog({
       | { kind: `worktree_prune` }
       | { kind: `worktree_remove`; repoFullName: string; branch: string }
       | { kind: `agent_login`; agent: string; switch: boolean }
+      | { kind: `agent_login_code`; agent: string; code: string }
   ) => {
     if (!deviceId) return
     setSectionErrors((current) => ({ ...current, [key]: `` }))
@@ -534,7 +538,14 @@ export function DeviceSettingsDialog({
           // through `sectionErrors` like every other command.
           if (result.status === `done` && result.result) {
             const text = result.result
-            setCommandResults((current) => ({ ...current, [command.key]: text }))
+            setCommandResults((current) => {
+              const next = { ...current, [command.key]: text }
+              // EXP-765: the code went in — the link has served its purpose
+              // and the row flips signed-in on the machine's re-probe.
+              const codeAgent = agentOfLoginCodeKey(command.key)
+              if (codeAgent) delete next[agentLoginKey(codeAgent)]
+              return next
+            })
           }
           setTracked((current) => current.filter((c) => c.id !== command.id))
           if (result.status === `failed`) {
@@ -577,11 +588,29 @@ export function DeviceSettingsDialog({
   const pendingKey = (key: string) =>
     tracked.some((command) => command.key === key)
 
-  const queueAgentLogin = (agent: string, switchAccount: boolean) =>
+  const queueAgentLogin = (agent: string, switchAccount: boolean) => {
+    // A fresh login supersedes whatever its code round trip last said.
+    const codeKey = agentLoginCodeKey(agent)
+    setCommandResults((current) => {
+      if (!(codeKey in current)) return current
+      const next = { ...current }
+      delete next[codeKey]
+      return next
+    })
+    setSectionErrors((current) => ({ ...current, [codeKey]: `` }))
     void queueCommand(agentLoginKey(agent), {
       kind: `agent_login`,
       agent,
       switch: switchAccount,
+    })
+  }
+
+  // EXP-765: hand claude's authorization code back to the waiting login.
+  const queueAgentLoginCode = (agent: string, code: string) =>
+    void queueCommand(agentLoginCodeKey(agent), {
+      kind: `agent_login_code`,
+      agent,
+      code,
     })
 
   const startAgentLogin = (agent: string, switchAccount: boolean) => {
@@ -789,6 +818,13 @@ export function DeviceSettingsDialog({
                 pending={pendingKey(agentLoginKey(agent))}
                 result={commandResults[agentLoginKey(agent)] ?? null}
                 onLogin={startAgentLogin}
+                canEnterCode={deviceCanAgentLoginCode({
+                  caps: row?.caps ?? [],
+                })}
+                codeError={sectionErrors[agentLoginCodeKey(agent)] ?? ``}
+                codePending={pendingKey(agentLoginCodeKey(agent))}
+                codeResult={commandResults[agentLoginCodeKey(agent)] ?? null}
+                onEnterCode={queueAgentLoginCode}
               />
             )}
           />

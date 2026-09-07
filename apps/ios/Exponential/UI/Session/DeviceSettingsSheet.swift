@@ -20,7 +20,11 @@ import SwiftUI
 //              which queue an `agent_login` command the machine runs locally)
 //              and its usage cards. No credential is ever held or forwarded —
 //              the machine publishes only the sign-in link it shows on its own
-//              screen. There is no separate Agents section any more.
+//              screen. EXP-765 closes that loop for Claude: the browser hands
+//              back an authorization code, and a field under the link sends it
+//              to the waiting login as an `agent_login_code` command (cap
+//              `agent-login-code`). There is no separate Agents section any
+//              more.
 //   Worktrees — the synced inventory (shape 18) with per-row Remove and a
 //              Prune button, queued as devices.createCommand rows the device
 //              runs on its next heartbeat (immediately when online). Progress
@@ -92,6 +96,13 @@ struct DeviceSettingsSheet: View {
     /// The sign-in payload a finished `agent_login` command carried, per agent.
     /// Cleared the moment that agent is queued again.
     @State private var loginResults: [String: String] = [:]
+    /// EXP-765: the code typed back from the browser, per agent — the draft
+    /// behind the field a Claude sign-in link opens.
+    @State private var codeDrafts: [String: String] = [:]
+    /// EXP-765: what a finished `agent_login_code` command reported, per agent
+    /// ("Code entered — …"). Held apart from `loginResults` because a done
+    /// code command RETIRES the link it answered.
+    @State private var codeResults: [String: String] = [:]
     /// The agent a Switch-account tap is confirming (codex only — its logout
     /// revokes the token server-side).
     @State private var switchConfirmAgent: String?
@@ -662,7 +673,7 @@ struct DeviceSettingsSheet: View {
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
             }
-            loginOutcome(agent: agent)
+            loginOutcome(device, agent: agent)
         }
     }
 
@@ -724,8 +735,13 @@ struct DeviceSettingsSheet: View {
     /// sign-in link is on its screen, so this is the link (and codex's device
     /// code) — not a finished login. The row itself flips to "signed in" later,
     /// when the machine re-probes and the devices row syncs.
+    /// EXP-765: the two agents point opposite ways. Codex's code goes INTO the
+    /// browser, so its link is the whole story. Claude's browser hands the
+    /// code back to a CLI still waiting on the machine — so when the payload
+    /// carries no code and the machine advertises `agent-login-code`, the
+    /// field below is the way back.
     @ViewBuilder
-    private func loginOutcome(agent: String) -> some View {
+    private func loginOutcome(_ device: SteerDevice, agent: String) -> some View {
         if let message = commandErrors["login:\(agent)"] {
             Text(message)
                 .font(.caption)
@@ -735,6 +751,7 @@ struct DeviceSettingsSheet: View {
         if let result = loginResults[agent] {
             if let link = AgentUsagePresentation.parseAgentLoginResult(result),
                let url = URL(string: link.url) {
+                let wantsCodeBack = link.code == nil && device.canAgentLoginCode
                 VStack(alignment: .leading, spacing: 6) {
                     Link(destination: url) {
                         Label("Open the sign-in link", appIcon: AppIcons.uiExternalLink)
@@ -753,9 +770,10 @@ struct DeviceSettingsSheet: View {
                             .accessibilityLabel("Copy code")
                         }
                     }
-                    Text(link.code == nil
-                        ? "Open the link on any device."
-                        : "Open the link on any device and enter the code on the machine.")
+                    if wantsCodeBack {
+                        codeEntry(agent: agent)
+                    }
+                    Text(loginLinkCaption(hasCode: link.code != nil, wantsCodeBack: wantsCodeBack))
                         .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .fixedSize(horizontal: false, vertical: true)
@@ -768,6 +786,79 @@ struct DeviceSettingsSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+        // EXP-765: the code round-trip reports OUTSIDE the link block on
+        // purpose — a done code command retires the link that opened it, so
+        // its own progress and outcome have to outlive it.
+        if pendingCommands["login-code:\(agent)"] != nil {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("Sending the code to the machine…")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+        }
+        if let message = commandErrors["login-code:\(agent)"] {
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(DesignTokens.Semantic.red)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        if let done = codeResults[agent] {
+            Text(done)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// The caption under a published sign-in link, in the three shapes it
+    /// takes: codex's code goes into the browser, Claude's comes back here,
+    /// and a machine too old to take it back gets the bare instruction.
+    private func loginLinkCaption(hasCode: Bool, wantsCodeBack: Bool) -> String {
+        if hasCode {
+            return "Open the link on any device and enter the code on the machine."
+        }
+        return wantsCodeBack
+            ? "Open the link on any device, then paste the code it shows here."
+            : "Open the link on any device."
+    }
+
+    /// EXP-765: the return path. The browser shows an authorization code the
+    /// machine's login is still blocked on ("Paste code here if prompted >");
+    /// this hands it back over an `agent_login_code` command the machine types
+    /// into that waiting PTY. Nothing is stored — the code rides straight
+    /// through and the draft dies with the finished command.
+    private func codeEntry(agent: String) -> some View {
+        let pending = pendingCommands["login-code:\(agent)"] != nil
+        let typed = (codeDrafts[agent] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return HStack(spacing: 8) {
+            TextField("Code from the browser", text: Binding(
+                get: { codeDrafts[agent] ?? "" },
+                set: { codeDrafts[agent] = $0 }
+            ))
+            .font(.caption.monospaced())
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .onSubmit { submitLoginCode(agent: agent) }
+            GlassPill(
+                "Enter code",
+                icon: AppIcons.uiSignIn,
+                mode: .action { submitLoginCode(agent: agent) },
+                enabled: !typed.isEmpty && !pending
+            )
+        }
+    }
+
+    private func submitLoginCode(agent: String) {
+        let code = (codeDrafts[agent] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !code.isEmpty, pendingCommands["login-code:\(agent)"] == nil else { return }
+        codeResults[agent] = nil
+        runCommand(
+            targetKey: "login-code:\(agent)",
+            kind: "agent_login_code",
+            agent: agent,
+            code: code
+        )
     }
 
     private func queueLogin(agent: String, switchAccount: Bool) {
@@ -921,11 +1012,19 @@ struct DeviceSettingsSheet: View {
         repoFullName: String? = nil,
         branch: String? = nil,
         agent: String? = nil,
-        switchAccount: Bool? = nil
+        switchAccount: Bool? = nil,
+        code: String? = nil
     ) {
         commandErrors[targetKey] = nil
-        // A re-queued login supersedes whatever link the last one published.
-        if let agent { loginResults[agent] = nil }
+        // A re-queued LOGIN supersedes whatever link the last one published,
+        // and the code round-trip that answered it (EXP-765). A queued code
+        // command must not clear the link it is answering — only finishing
+        // does that.
+        if let agent, kind == "agent_login" {
+            loginResults[agent] = nil
+            codeResults[agent] = nil
+            codeDrafts[agent] = nil
+        }
         pendingCommands[targetKey] = ""
         Task {
             do {
@@ -936,7 +1035,8 @@ struct DeviceSettingsSheet: View {
                     repoFullName: repoFullName,
                     branch: branch,
                     agent: agent,
-                    switchAccount: switchAccount
+                    switchAccount: switchAccount,
+                    code: code
                 )
                 pendingCommands[targetKey] = created.id
                 // ~2 minutes of 2s polls; a queued-behind-offline command
@@ -956,8 +1056,17 @@ struct DeviceSettingsSheet: View {
                             // ("Pruned 2 worktrees").
                             commandSummary = command.result
                         } else if let agent {
-                            // EXP-484: the sign-in link the machine published.
-                            loginResults[agent] = command.result
+                            if kind == "agent_login_code" {
+                                // EXP-765: the code is in. The link it
+                                // answered is spent, so it goes and the
+                                // machine's own words take its place.
+                                loginResults[agent] = nil
+                                codeDrafts[agent] = nil
+                                codeResults[agent] = command.result
+                            } else {
+                                // EXP-484: the sign-in link the machine published.
+                                loginResults[agent] = command.result
+                            }
                         }
                         return
                     }

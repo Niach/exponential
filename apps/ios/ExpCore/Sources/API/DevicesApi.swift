@@ -95,7 +95,8 @@ private struct SetLaunchDefaultsInput: Encodable {
 private struct CreateCommandInput: Encodable {
     let deviceId: String
     /// `worktree_remove` (repoFullName + branch required) | `worktree_prune` |
-    /// `agent_login` (EXP-484: `agent` required, `switch` optional).
+    /// `agent_login` (EXP-484: `agent` required, `switch` optional) |
+    /// `agent_login_code` (EXP-765: `agent` + `code` required).
     let kind: String
     let repoFullName: String?
     let branch: String?
@@ -106,9 +107,14 @@ private struct CreateCommandInput: Encodable {
     /// Swift keyword, so the property is renamed and the wire key restored via
     /// CodingKeys; the server takes a real JSON boolean.
     let switchAccount: Bool?
+    /// EXP-765: the authorization code the browser showed, for
+    /// `agent_login_code` — the machine types it into the sign-in still
+    /// waiting on its own screen. The server trims it and refuses an empty
+    /// one; nil is simply omitted like the rest.
+    let code: String?
 
     enum CodingKeys: String, CodingKey {
-        case deviceId, kind, repoFullName, branch, agent
+        case deviceId, kind, repoFullName, branch, agent, code
         case switchAccount = "switch"
     }
 }
@@ -241,6 +247,8 @@ public final class DevicesApi: Sendable {
     /// EXP-484: `agent_login` needs `agent` (and optionally `switchAccount`) —
     /// the device runs the agent's own sign-in and completes the command early
     /// with the URL/code as its `result`.
+    /// EXP-765: `agent_login_code` needs `agent` + `code` — the way BACK from
+    /// that link, typed into the sign-in still waiting on the machine.
     public func createCommand(
         accountId: String,
         deviceId: String,
@@ -248,14 +256,15 @@ public final class DevicesApi: Sendable {
         repoFullName: String? = nil,
         branch: String? = nil,
         agent: String? = nil,
-        switchAccount: Bool? = nil
+        switchAccount: Bool? = nil,
+        code: String? = nil
     ) async throws -> CreatedDeviceCommand {
         try await trpc.mutation(
             accountId: accountId,
             path: "devices.createCommand",
             input: CreateCommandInput(
                 deviceId: deviceId, kind: kind, repoFullName: repoFullName, branch: branch,
-                agent: agent, switchAccount: switchAccount
+                agent: agent, switchAccount: switchAccount, code: code
             )
         )
     }

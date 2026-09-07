@@ -98,16 +98,21 @@ pub const MIN_CODEX_ACP_VERSION: (u32, u32, u32) = (0, 144, 0);
 ///   device without it.
 /// - `acp` (EXP-746) — this build speaks the ACP engine and steering v2:
 ///   `set_config`/`set_mode` frames, `config_state`/`usage` kinds.
+/// - `agent-login-code` (EXP-765) — this build runs `agent_login_code`: it
+///   types the authorization code claude's browser page hands the requester
+///   into the login PTY still waiting for it. A build without it reports the
+///   command "unsupported", so requesters hide the code field.
 ///
 /// Ceiling check: `devices.register`'s `capsInput` accepts 16 caps
-/// (`apps/web/src/lib/trpc/devices.ts`); this is 6 + 6 = 12.
-pub const DEVICE_CAPS: [&str; 6] = [
+/// (`apps/web/src/lib/trpc/devices.ts`); this is 7 + 6 = 13.
+pub const DEVICE_CAPS: [&str; 7] = [
     "resume",
     "worktrees",
     "launch-defaults",
     "agent-login",
     "agent-start",
     "acp",
+    "agent-login-code",
 ];
 
 /// The action-run capabilities — advertised only while at least one agent is
@@ -1499,6 +1504,11 @@ mod tests {
         let signed_out = device_caps(&advert(&[]));
         assert!(signed_out.contains(&"agent-login".to_string()));
         assert!(device_caps(&advert(&["claude"])).contains(&"agent-login".to_string()));
+        // EXP-765: handing the login its code is part of the same signed-out
+        // story — a build cap beside `agent-login`, never an action cap.
+        assert!(DEVICE_CAPS.contains(&"agent-login-code"));
+        assert!(!ACTION_CAPS.contains(&"agent-login-code"));
+        assert!(signed_out.contains(&"agent-login-code".to_string()));
     }
 
     /// EXP-679: `agent-start` asserts this build understands a start frame's

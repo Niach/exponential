@@ -221,9 +221,16 @@ pub fn start_device_sync(account: &api::Account, cx: &mut App) {
                 });
             }
             // EXP-484 (D): an `agent_login` command runs on the FOREGROUND —
-            // it opens a terminal tab and watches its grid.
+            // it opens a terminal tab and watches its grid. EXP-765: so does
+            // the code for it — the write goes into that tab's PTY.
             for command in outcome.deferred {
-                let _ = cx.update(|cx| crate::agent_login::start_remote_login(command, cx));
+                let _ = cx.update(|cx| {
+                    if command.kind == "agent_login_code" {
+                        crate::agent_login::enter_remote_code(command, cx);
+                    } else {
+                        crate::agent_login::start_remote_login(command, cx);
+                    }
+                });
             }
             if outcome.defaults_changed {
                 // The server copy landed in settings.json — reload the hub
@@ -748,6 +755,22 @@ fn run_device_command(
         };
         if let Some(refusal) = refusal {
             complete(snapshot, &command.id, false, refusal);
+            return CommandDisposition::Completed;
+        }
+        if !claim_login(&snapshot.inflight_logins, &command.id) {
+            return CommandDisposition::AlreadyRunning;
+        }
+        return CommandDisposition::Deferred(command.clone());
+    }
+    // EXP-765: the code claude's browser page handed the requester — typed
+    // into the login tab on the foreground, the only place the PTY handle
+    // lives. Same claim set: it completes at once, but the completion is a
+    // background call and the next beat must not type the code twice.
+    if command.kind == "agent_login_code" {
+        let agent = command.payload["agent"].as_str().unwrap_or_default();
+        let code = command.payload["code"].as_str().unwrap_or_default().trim();
+        if coding::CodingAgent::parse(agent).is_none() || code.is_empty() {
+            complete(snapshot, &command.id, false, "Malformed command payload.");
             return CommandDisposition::Completed;
         }
         if !claim_login(&snapshot.inflight_logins, &command.id) {

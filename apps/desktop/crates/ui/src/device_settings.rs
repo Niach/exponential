@@ -147,9 +147,24 @@ fn login_key(agent: CodingAgent) -> String {
     format!("login {}", agent.id())
 }
 
+/// EXP-765: the key an agent's handed-back authorization code is tracked
+/// under (`agent_login_code`).
+fn login_code_key(agent: CodingAgent) -> String {
+    format!("login-code {}", agent.id())
+}
+
+/// EXP-765: whether the machine's build types a handed-back code into its
+/// waiting login (`agent_login_code`). Its own cap: a build with only
+/// `agent-login` would report the command unsupported, so the field stays
+/// hidden without it. Mirrors the web `deviceCanAgentLoginCode`.
+pub(crate) fn can_enter_login_code(own: bool, caps: &[String]) -> bool {
+    !own && caps.iter().any(|cap| cap == "agent-login-code")
+}
+
 /// EXP-484: what a finished `agent_login` command handed back — the CLI's
 /// own sign-in URL (open it anywhere) plus, for Codex's device-code flow,
 /// the code to type on the machine.
+#[derive(Clone)]
 struct LoginNote {
     url: String,
     code: Option<String>,
@@ -545,6 +560,12 @@ pub struct DeviceSettingsView {
     /// EXP-484: the sign-in links finished logins handed back (keyed by
     /// agent id).
     login_notes: HashMap<String, LoginNote>,
+    /// EXP-765: the field under a claude link where the code the browser
+    /// showed is pasted, one per agent (keyed by agent id).
+    code_inputs: HashMap<String, Entity<InputState>>,
+    /// EXP-765: what the machine said once the code went in (keyed by agent
+    /// id) — shown in place of the link, which has served its purpose.
+    code_notes: HashMap<String, SharedString>,
     /// EXP-762: the two columns' scroll positions (view state, so a
     /// re-render — every autosave, every heartbeat resync — keeps them).
     settings_scroll: ScrollHandle,
@@ -596,6 +617,23 @@ impl DeviceSettingsView {
             state.set_value(row.label.clone().unwrap_or_default(), window, cx);
             state
         });
+        // EXP-765: one code field per agent, so a link on one tab keeps its
+        // draft while another tab is looked at. Enter submits, like the pill.
+        let mut code_inputs = HashMap::new();
+        let mut code_subscriptions = Vec::new();
+        for agent in CodingAgent::ALL {
+            let input = cx.new(|cx| InputState::new(window, cx).placeholder("Code from the browser"));
+            code_subscriptions.push(cx.subscribe_in(
+                &input,
+                window,
+                move |this: &mut Self, _, event: &InputEvent, window, cx| {
+                    if let InputEvent::PressEnter { .. } = event {
+                        this.submit_login_code(agent, window, cx);
+                    }
+                },
+            ));
+            code_inputs.insert(agent.id().to_string(), input);
+        }
 
         // Sharing rows: "Not shared" + the caller's teams.
         let share_teams: Vec<(String, String)> = collections
@@ -721,6 +759,7 @@ impl DeviceSettingsView {
         // inside the 800ms would be dropped on the floor. Flush it as the view
         // is released (the web dialog's unmount flush / iOS's `.onDisappear`).
         cx.on_release(|this, cx| this.flush_pending_name(cx)).detach();
+        subscriptions.extend(code_subscriptions);
 
         Self {
             device_row_id,
@@ -762,6 +801,8 @@ impl DeviceSettingsView {
             tracked: Vec::new(),
             polling: false,
             login_notes: HashMap::new(),
+            code_inputs,
+            code_notes: HashMap::new(),
             settings_scroll: ScrollHandle::new(),
             worktrees_scroll: ScrollHandle::new(),
             _subscriptions: subscriptions,
@@ -1323,12 +1364,73 @@ impl DeviceSettingsView {
         let device_id = self.device_id.clone();
         self.set_error(key.clone(), None);
         self.login_notes.remove(agent.id());
+        // A fresh login supersedes whatever its code round trip last said.
+        self.set_error(login_code_key(agent), None);
+        self.code_notes.remove(agent.id());
         cx.notify();
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
                 .spawn(async move {
                     api::devices::create_agent_login_command(&trpc, &device_id, agent.id(), switch)
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Ok(created) => {
+                        this.tracked.push(TrackedCommand {
+                            id: created.id,
+                            key,
+                        });
+                        this.ensure_polling(cx);
+                    }
+                    Err(err) => this.set_error(key, Some(err.user_message().into())),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// EXP-765: hand the code claude's browser page showed back to the
+    /// machine, whose login tab is still waiting for it. Queued as an
+    /// `agent_login_code` command; the machine types it and completes at
+    /// once, and the signed-in flip follows on the synced row.
+    fn submit_login_code(
+        &mut self,
+        agent: CodingAgent,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let key = login_code_key(agent);
+        if self.command_pending(&key) {
+            return;
+        }
+        let Some(input) = self.code_inputs.get(agent.id()).cloned() else {
+            return;
+        };
+        let code = input.read(cx).value().trim().to_string();
+        if code.is_empty() {
+            return;
+        }
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
+        };
+        input.update(cx, |state, cx| state.set_value("", window, cx));
+        let device_id = self.device_id.clone();
+        self.set_error(key.clone(), None);
+        self.code_notes.remove(agent.id());
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    api::devices::create_agent_login_code_command(
+                        &trpc,
+                        &device_id,
+                        agent.id(),
+                        &code,
+                    )
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -1405,6 +1507,17 @@ impl DeviceSettingsView {
                                         Some(SharedString::from(row.result.unwrap_or_else(
                                             || "The machine reported a failure.".to_string(),
                                         ))),
+                                    );
+                                } else if let Some(agent) = key.strip_prefix("login-code ") {
+                                    // EXP-765: the code went in — the link
+                                    // has served its purpose; what the
+                                    // machine said takes its place.
+                                    this.login_notes.remove(agent);
+                                    this.code_notes.insert(
+                                        agent.to_string(),
+                                        SharedString::from(
+                                            row.result.unwrap_or_else(|| "Done.".to_string()),
+                                        ),
                                     );
                                 } else if let Some(agent) = key.strip_prefix("login ") {
                                     // EXP-484: a login completes EARLY, the
@@ -1553,6 +1666,7 @@ impl DeviceSettingsView {
     fn render_defaults_section(
         &mut self,
         online: bool,
+        window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::Div {
         let status = self.agent_status(cx);
@@ -1581,7 +1695,7 @@ impl DeviceSettingsView {
             .collect();
         // EXP-688: the agent's account + usage ride INSIDE the agent's own
         // group, under its toggles.
-        let account_rows = self.render_agent_account(agent_tab, online, &status, cx);
+        let account_rows = self.render_agent_account(agent_tab, online, &status, window, cx);
         let (model, effort) = match agent_tab {
             CodingAgent::Claude => (self.model_select.clone(), self.effort_select.clone()),
             CodingAgent::Codex => (
@@ -1756,6 +1870,7 @@ impl DeviceSettingsView {
         agent: CodingAgent,
         online: bool,
         status: &DeviceAgentStatus,
+        window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Vec<Div> {
         let muted = cx.theme().muted_foreground;
@@ -1787,28 +1902,55 @@ impl DeviceSettingsView {
                 ),
             );
         }
-        if let Some(note) = self.login_notes.get(agent.id()) {
-            let note = self.render_login_note(agent, note, cx);
+        if let Some(note) = self.login_notes.get(agent.id()).cloned() {
+            let can_enter_code = can_enter_login_code(self.own, &status.caps);
+            let note = self.render_login_note(agent, &note, can_enter_code, window, cx);
             rows.push(surface::glass_row_shell().child(div().flex_1().min_w_0().child(note)));
         }
         if let Some(error) = self.error_line(&key, cx) {
+            rows.push(surface::glass_row_shell().child(error));
+        }
+        // EXP-765: the code round trip's own lines — waiting, what the
+        // machine said, or why it refused.
+        let code_key = login_code_key(agent);
+        if self.command_pending(&code_key) {
+            rows.push(
+                surface::glass_row_shell().child(
+                    div().text_xs().text_color(muted).child("Sending the code to the machine…"),
+                ),
+            );
+        }
+        if let Some(note) = self.code_notes.get(agent.id()).cloned() {
+            rows.push(
+                surface::glass_row_shell().child(div().text_xs().text_color(muted).child(note)),
+            );
+        }
+        if let Some(error) = self.error_line(&code_key, cx) {
             rows.push(surface::glass_row_shell().child(error));
         }
         rows
     }
 
     /// The link a finished login handed back (plus Codex's device code).
+    /// EXP-765: a link WITHOUT a code is claude's — the browser hands one
+    /// back instead, and the field below returns it to the machine when its
+    /// build can take it.
     fn render_login_note(
         &self,
         agent: CodingAgent,
         note: &LoginNote,
+        can_enter_code: bool,
+        window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::Div {
         let muted = cx.theme().muted_foreground;
         let url = note.url.clone();
         let copy = url.clone();
+        let wants_code_back = note.code.is_none() && can_enter_code;
         let caption = if note.code.is_some() {
             "Open the link on any device and enter the code on the machine."
+        } else if wants_code_back {
+            "Open the link on any device, then paste the code it shows here."
         } else {
             "Open the link on any device."
         };
@@ -1843,10 +1985,45 @@ impl DeviceSettingsView {
                     cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy.clone()));
                 }),
         );
-        v_flex()
-            .gap_0p5()
-            .child(line)
-            .child(div().text_xs().text_color(muted).child(caption))
+        let mut body = v_flex().gap_0p5().child(line);
+        if wants_code_back {
+            if let Some(input) = self.code_inputs.get(agent.id()) {
+                let pending = self.command_pending(&login_code_key(agent));
+                let code_line = h_flex()
+                    .w_full()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(glass_input(input, window, cx).appearance(false).h_auto().px_0().py_0()),
+                    )
+                    .child(
+                        surface::glass_pill(
+                            SharedString::from(format!("device-login-code-{}", agent.id())),
+                            surface::PillSize::Sm,
+                            if pending {
+                                surface::PillMode::Readonly
+                            } else {
+                                surface::PillMode::Action
+                            },
+                            cx,
+                        )
+                        .when(pending, |pill| pill.opacity(0.5))
+                        .child(
+                            Icon::new(registry::UI_SIGN_IN)
+                                .with_size(px(surface::PillSize::Sm.glyph())),
+                        )
+                        .child(SharedString::from("Enter code"))
+                        .on_click(cx.listener(move |this: &mut Self, _, window, cx| {
+                            this.submit_login_code(agent, window, cx);
+                        })),
+                    );
+                body = body.child(code_line);
+            }
+        }
+        body.child(div().text_xs().text_color(muted).child(caption))
     }
 
     /// Start a sign-in for `agent`: locally in a terminal tab on the OWN
@@ -2075,7 +2252,7 @@ impl Render for DeviceSettingsView {
 
         // Every group in the dialog sits on the SAME 8px rhythm (the ×4
         // parity look) — the worktrees section included.
-        let body = body.child(self.render_defaults_section(online, cx));
+        let body = body.child(self.render_defaults_section(online, window, cx));
         let worktrees_section = self.render_worktrees_section(online, cx);
 
         // EXP-762: two columns, each its own scroll pane. The dialog is
@@ -2142,6 +2319,18 @@ mod tests {
         // Unparseable / absent stamps fail closed.
         assert!(!row_is_online(Some("garbage"), now_ms));
         assert!(!row_is_online(None, now_ms));
+    }
+
+    /// EXP-765: the code field rides its OWN cap, and never on the own
+    /// machine (its login tab is right there to type into).
+    #[test]
+    fn login_code_field_gates_on_its_own_cap() {
+        let both = vec!["agent-login".to_string(), "agent-login-code".to_string()];
+        let login_only = vec!["agent-login".to_string()];
+        assert!(can_enter_login_code(false, &both));
+        assert!(!can_enter_login_code(false, &login_only));
+        assert!(!can_enter_login_code(false, &[]));
+        assert!(!can_enter_login_code(true, &both));
     }
 
     /// EXP-484/694: the line, byte-identical to the web `accountLine` — the

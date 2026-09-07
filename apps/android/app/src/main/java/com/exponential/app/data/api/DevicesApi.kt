@@ -260,6 +260,21 @@ fun agentLoginCommand(deviceId: String, agent: String, switchAccount: Boolean): 
     }
 
 /**
+ * The `agent_login_code` input for [DevicesApi.createCommand] (EXP-765) — hand
+ * the authorization code the browser showed back to the sign-in still waiting
+ * on the machine, which types it into that login's prompt. The server trims
+ * [code] and refuses an empty one, `pi`, and a machine without the cap. Gated
+ * on [SteerDevice.canAgentLoginCode].
+ */
+fun agentLoginCodeCommand(deviceId: String, agent: String, code: String): JsonObject =
+    buildJsonObject {
+        put("deviceId", deviceId)
+        put("kind", "agent_login_code")
+        put("agent", agent)
+        put("code", code)
+    }
+
+/**
  * Whether [version] compares below [latest] (both `major.minor.patch`).
  * Missing or unparseable on either side = no hint, never a false alarm.
  * Mirrors `updateAvailable` in apps/web/src/components/my-machines.tsx.

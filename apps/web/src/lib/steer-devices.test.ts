@@ -223,6 +223,7 @@ import {
   defaultDeviceId,
   deviceAgentIds,
   deviceCanAgentLogin,
+  deviceCanAgentLoginCode,
   deviceHasRunnableAgent,
   deviceRowIsOnline,
   resumeWorktree,
@@ -565,6 +566,16 @@ describe(`agent status mapping (EXP-484)`, () => {
     )
     expect(deviceCanAgentLogin({ caps: [`worktrees`] })).toBe(false)
     expect(deviceCanAgentLogin({})).toBe(false)
+  })
+
+  // EXP-765: the code field is its OWN cap — a build that runs the login but
+  // not the code command must not show a field that goes nowhere.
+  it(`gates the login code field on its own cap`, () => {
+    expect(
+      deviceCanAgentLoginCode({ caps: [`agent-login`, `agent-login-code`] })
+    ).toBe(true)
+    expect(deviceCanAgentLoginCode({ caps: [`agent-login`] })).toBe(false)
+    expect(deviceCanAgentLoginCode({})).toBe(false)
   })
 })
 

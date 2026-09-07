@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -22,8 +23,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,6 +36,7 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -363,6 +367,7 @@ fun DeviceSettingsSheet(
                         usage = device.agentUsage?.get(agentTab),
                         usageAt = device.agentUsageAt,
                         state = commandStates[agentLoginCommandKey(agentTab)],
+                        codeState = commandStates[agentLoginCodeCommandKey(agentTab)],
                         // The command opens a login flow ON the machine and
                         // publishes its URL back, so it needs a machine that is
                         // ours, online, and new enough to advertise the cap. pi
@@ -380,6 +385,20 @@ fun DeviceSettingsSheet(
                                     device.online,
                                 )
                             }
+                        },
+                        // EXP-765: claude's login URL carries `code=true`, so
+                        // the browser hands back a code the waiting CLI still
+                        // wants. Same gate as the login itself, plus the cap
+                        // for the machine that can type it in.
+                        canEnterCode = device.canAgentLoginCode && device.online &&
+                            device.isMine,
+                        onEnterCode = { code ->
+                            viewModel.agentLoginCode(
+                                device.deviceId,
+                                agentTab,
+                                code,
+                                device.online,
+                            )
                         },
                     )
                 },
@@ -594,7 +613,11 @@ private fun AgentAccountBlock(
     usage: AgentUsage?,
     usageAt: String?,
     state: DeviceCommandUiState?,
+    /** EXP-765: the `agent_login_code` command's own state, captioned under the link. */
+    codeState: DeviceCommandUiState?,
     canLogin: Boolean,
+    canEnterCode: Boolean,
+    onEnterCode: (String) -> Unit,
     onLogin: (Boolean) -> Unit,
 ) {
     val busy = state is DeviceCommandUiState.Sending || state is DeviceCommandUiState.Running
@@ -637,7 +660,28 @@ private fun AgentAccountBlock(
                 }
             }
         }
-        LoginResultCaption(state)
+        LoginResultCaption(
+            agent = agent,
+            state = state,
+            codeState = codeState,
+            canEnterCode = canEnterCode,
+            onEnterCode = onEnterCode,
+        )
+        // EXP-765: outside the link block on purpose — a Done code command
+        // retires the link (the sign-in it belonged to is over), and its
+        // outcome still has to be readable after that.
+        if (codeState is DeviceCommandUiState.Sending ||
+            codeState is DeviceCommandUiState.Running
+        ) {
+            Text(
+                "Sending the code to the machine…",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        } else {
+            CommandCaption(codeState)
+        }
         if (fresh != null) {
             Spacer(Modifier.height(10.dp))
             AgentUsageCards(usage = fresh, compact = true)
@@ -667,9 +711,20 @@ private fun AgentAccountBlock(
  * renders as an openable link and a copyable code; anything else (queued,
  * failed, a result that isn't a login publication) falls through to the
  * ordinary command caption.
+ *
+ * EXP-765: a link WITHOUT a code is claude's (`code=true` — the browser shows
+ * the code and the CLI on the machine is still waiting for it), so when the
+ * machine can take it back the link gets a field and an "Enter code" pill; the
+ * `agent_login_code` command's own progress captions right below.
  */
 @Composable
-private fun LoginResultCaption(state: DeviceCommandUiState?) {
+private fun LoginResultCaption(
+    agent: String,
+    state: DeviceCommandUiState?,
+    codeState: DeviceCommandUiState?,
+    canEnterCode: Boolean,
+    onEnterCode: (String) -> Unit,
+) {
     val login = (state as? DeviceCommandUiState.Done)?.let { parseAgentLoginResult(it.message) }
     when {
         state is DeviceCommandUiState.Sending || state is DeviceCommandUiState.Running ->
@@ -722,15 +777,62 @@ private fun LoginResultCaption(state: DeviceCommandUiState?) {
                     }
                 }
             }
+            // Only the codeless (claude) flow returns a code to us; codex's is
+            // typed into the browser, so nothing comes back and nothing is
+            // offered here.
+            val returnsCode = login.code == null && canEnterCode
             Text(
-                if (login.code == null) {
-                    "Open the link on any device."
-                } else {
-                    "Open the link on any device and enter the code on the machine."
+                when {
+                    login.code != null ->
+                        "Open the link on any device and enter the code on the machine."
+                    returnsCode ->
+                        "Open the link on any device, then paste the code it shows here."
+                    else -> "Open the link on any device."
                 },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
             )
+            if (returnsCode) {
+                // Per agent: switching tabs must not carry a half-typed code
+                // over to another agent's sign-in.
+                key(agent) {
+                    var draft by rememberSaveable(agent) { mutableStateOf("") }
+                    val sending = codeState is DeviceCommandUiState.Sending ||
+                        codeState is DeviceCommandUiState.Running
+                    Spacer(Modifier.height(6.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        GlassTextField(
+                            value = draft,
+                            onValueChange = { draft = it },
+                            placeholder = "Code from the browser",
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(
+                                autoCorrectEnabled = false,
+                                capitalization = KeyboardCapitalization.None,
+                            ),
+                            textStyle = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        GlassPill(
+                            "Enter code",
+                            onClick = {
+                                val code = draft.trim()
+                                if (code.isNotEmpty() && !sending) {
+                                    onEnterCode(code)
+                                    draft = ""
+                                }
+                            },
+                            icon = ExpIcons.uiSignIn,
+                            enabled = draft.isNotBlank() && !sending,
+                            loading = sending,
+                        )
+                    }
+                }
+            }
         }
         else -> CommandCaption(state)
     }

@@ -23,9 +23,16 @@
 //! within a beat. A CLEAN exit also closes the tab itself (EXP-695): a
 //! finished sign-in has nothing left to read, while a failed one keeps its
 //! tab so the error stays on screen.
+//!
+//! EXP-765: claude's link carries `code=true` — the browser page ends by
+//! showing an authorization CODE the CLI in the tab is still waiting for
+//! ("Paste code here if prompted >"). A requester on another device hands it
+//! back as an `agent_login_code` command; [`enter_remote_code`] finds the
+//! agent's live login tab in [`LoginTabs`] and types it there.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use gpui::{App, Entity, SharedString};
@@ -59,6 +66,60 @@ const CODEX_SWITCH_TITLE: &str = "Switch Codex account";
 const CODEX_SWITCH_BODY: &str =
     "Codex logout revokes the token server-side; you'll sign in again on that machine.";
 const CODEX_SWITCH_OK: &str = "Sign out and sign in";
+
+/// The two sentences a code command completes with — byte-identical to the
+/// daemon executor (`cli::agent_login_host`); the clients show a failed
+/// row's `result` verbatim.
+const CODE_ENTERED: &str = "Code entered — the machine is finishing the sign-in.";
+const NO_LOGIN_WAITING: &str = "No sign-in is waiting for a code on this machine.";
+
+/// EXP-765: the login tabs currently open, by agent id — where a handed-back
+/// authorization code gets typed. Local and remote logins both register (a
+/// code can be sent to a machine whose own user opened the tab); a run's
+/// finish removes ITS entry only, so a login started after it keeps its own.
+#[derive(Default)]
+struct LoginTabs {
+    by_agent: HashMap<String, (Entity<TerminalManager>, TabId)>,
+}
+
+impl gpui::Global for LoginTabs {}
+
+/// EXP-765: run an `agent_login_code` device command — type the code into
+/// the agent's waiting login tab. Completes at once either way: the login's
+/// own run reports the exit, and a claimed id never comes back here.
+pub(crate) fn enter_remote_code(command: api::devices::PendingCommand, cx: &mut App) {
+    let agent = command.payload["agent"].as_str().unwrap_or_default().to_string();
+    let code = command.payload["code"]
+        .as_str()
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let target = cx
+        .default_global::<LoginTabs>()
+        .by_agent
+        .get(&agent)
+        .cloned();
+    let typed = match target {
+        Some((manager, tab)) if !code.is_empty() => {
+            match tab_state(&manager, tab, cx) {
+                Some((_, true)) => {
+                    write_input(&manager, tab, format!("{code}\r").as_bytes(), cx);
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    };
+    if typed {
+        complete(&command.id, true, CODE_ENTERED.to_string(), cx);
+    } else {
+        complete(&command.id, false, NO_LOGIN_WAITING.to_string(), cx);
+    }
+    // The claim is deliberately NOT released: `complete` lands on the
+    // background executor, and a beat in between would otherwise type the
+    // same code a second time. The set holds one id per code ever entered.
+}
 
 /// The remote half of a login: which `device_commands` row to answer.
 #[derive(Clone)]
@@ -172,6 +233,9 @@ struct LoginRun {
     agent: CodingAgent,
     remote: Option<RemoteLogin>,
     finished: AtomicBool,
+    /// EXP-765: the tab this run opened — set once it exists, so `finish`
+    /// can drop exactly this entry from [`LoginTabs`].
+    tab: OnceLock<TabId>,
 }
 
 impl LoginRun {
@@ -181,6 +245,12 @@ impl LoginRun {
     fn finish(&self, cx: &mut App) {
         if self.finished.swap(true, Ordering::SeqCst) {
             return;
+        }
+        if let Some(tab) = self.tab.get().copied() {
+            let tabs = cx.default_global::<LoginTabs>();
+            if tabs.by_agent.get(self.agent.id()).is_some_and(|(_, open)| *open == tab) {
+                tabs.by_agent.remove(self.agent.id());
+            }
         }
         self.answer_remote("The sign-in ended before a link appeared.", cx);
         // EXP-484: a SWITCH leaves the cache naming the previous account
@@ -244,6 +314,7 @@ fn spawn_login_tab(
         agent,
         remote,
         finished: AtomicBool::new(false),
+        tab: OnceLock::new(),
     });
     let Some(handle) = crate::coding_flow::any_terminal_dock(cx) else {
         notify(
@@ -282,6 +353,12 @@ fn spawn_login_tab(
     });
     match opened {
         Ok(Some((manager, tab))) => {
+            // EXP-765: this is where a handed-back code gets typed while the
+            // tab lives. Latest wins per agent (a second login supersedes).
+            let _ = run.tab.set(tab);
+            cx.default_global::<LoginTabs>()
+                .by_agent
+                .insert(agent.id().to_string(), (manager.clone(), tab));
             // Closing the tab by hand never fires the exit hook — watch the
             // manager for it (the `LocalSessions::insert` idiom). Detached:
             // the subscription lives with the manager, and the run's own
