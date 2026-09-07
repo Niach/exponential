@@ -44,6 +44,16 @@ class DevicesWireFormatTest {
             """{"deviceId":"dev-1","kind":"worktree_prune"}""",
             worktreePruneCommand("dev-1").toString(),
         )
+        assertEquals(
+            """{"deviceId":"dev-1","kind":"agent_login","agent":"claude","switch":false}""",
+            agentLoginCommand("dev-1", "claude", false).toString(),
+        )
+        // EXP-765: the return path for claude's browser code — the server
+        // trims it, so the client sends what the user typed.
+        assertEquals(
+            """{"deviceId":"dev-1","kind":"agent_login_code","agent":"claude","code":"ABC-123"}""",
+            agentLoginCodeCommand("dev-1", "claude", "ABC-123").toString(),
+        )
     }
 
     @Test

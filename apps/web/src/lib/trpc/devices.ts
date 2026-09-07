@@ -57,6 +57,11 @@ import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 // relay is a dumb pipe and the same strings land here via `register`.
 const agentsInput = z.array(z.string().min(1).max(32)).max(16)
 const capsInput = z.array(z.string().min(1).max(32)).max(16)
+
+/** EXP-765: the longest `agent_login_code` a requester may hand a machine.
+ * claude's authorization codes are ~80 chars of `code#state`; the cap only
+ * has to keep a paste of the wrong thing from becoming a 2000-char payload. */
+const AGENT_LOGIN_CODE_MAX = 512
 const deviceIdInput = z.string().min(1).max(128)
 const codingAgentValues = contract.codingAgent.values as [string, ...string[]]
 
@@ -670,12 +675,20 @@ export const devicesRouter = router({
   // heartbeat (nudged immediately when online); an offline device runs it on
   // return — deliberately durable. EXP-484 adds `agent_login`: the device
   // drives the agent CLI's own login flow and completes the row EARLY with
-  // the sign-in URL, which the requester polls for via `getCommand`.
+  // the sign-in URL, which the requester polls for via `getCommand`. EXP-765
+  // adds `agent_login_code`: claude's link hands the browser an authorization
+  // code the CLI on the machine is still waiting for, and this is how the
+  // requester hands it back — the device types it into that login PTY.
   createCommand: authedProcedure
     .input(
       z.object({
         deviceId: deviceIdInput,
-        kind: z.enum([`worktree_remove`, `worktree_prune`, `agent_login`]),
+        kind: z.enum([
+          `worktree_remove`,
+          `worktree_prune`,
+          `agent_login`,
+          `agent_login_code`,
+        ]),
         repoFullName: z.string().min(1).max(255).optional(),
         branch: z.string().min(1).max(255).optional(),
         // EXP-484 `agent_login` inputs (ignored by the other kinds): which
@@ -683,6 +696,10 @@ export const devicesRouter = router({
         // first (Switch account).
         agent: z.enum(codingAgentValues).optional(),
         switch: z.boolean().optional(),
+        // EXP-765 `agent_login_code`: the code the browser showed. Trimmed;
+        // the cap is generous because it is opaque to us, and one line
+        // because it is typed into a PTY as one line.
+        code: z.string().trim().min(1).max(AGENT_LOGIN_CODE_MAX).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -759,6 +776,38 @@ export const devicesRouter = router({
           agent: input.agent,
           switch: input.switch === true ? `true` : `false`,
         }
+      }
+
+      if (input.kind === `agent_login_code`) {
+        if (!input.agent || !input.code) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `agent_login_code needs an agent and a code`,
+          })
+        }
+        if (input.agent === `pi`) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `pi has no remote sign-in`,
+          })
+        }
+        if (/[\r\n]/.test(input.code)) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `The code must be a single line`,
+          })
+        }
+        // Typing into the waiting login is a newer executor than the login
+        // itself: a build that only runs `agent_login` would report the code
+        // command "unsupported", so requesters hide the field and the server
+        // refuses here, on the cap that names the executor.
+        if (!(row.caps ?? []).includes(`agent-login-code`)) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `That device does not declare the agent-login-code capability`,
+          })
+        }
+        payload = { agent: input.agent, code: input.code }
       }
 
       // One pending command per (device, kind, payload) — a double-click must

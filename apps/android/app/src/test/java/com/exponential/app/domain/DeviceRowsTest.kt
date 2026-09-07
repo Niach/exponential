@@ -193,6 +193,25 @@ class DeviceRowsTest {
     }
 
     @Test
+    fun `the agent-login caps are read independently`() {
+        // EXP-765: taking the browser's code BACK is its own cap — a machine
+        // that can start a sign-in may be too old to have a prompt waiting.
+        val both = entity { copy(caps = """["agent-login","agent-login-code"]""") }
+            .toSteerDevice(nowMs, "me")
+        assertTrue(both.canAgentLogin)
+        assertTrue(both.canAgentLoginCode)
+
+        val loginOnly = entity { copy(caps = """["agent-login"]""") }
+            .toSteerDevice(nowMs, "me")
+        assertTrue(loginOnly.canAgentLogin)
+        assertFalse(loginOnly.canAgentLoginCode)
+
+        // An older machine advertises neither (and null caps are "unknown").
+        assertFalse(entity().toSteerDevice(nowMs, "me").canAgentLoginCode)
+        assertFalse(entity { copy(caps = null) }.toSteerDevice(nowMs, "me").canAgentLoginCode)
+    }
+
+    @Test
     fun `acp_agents maps through and null means every agent is assumed ready`() {
         // EXP-749: an agent the machine runs but does NOT drive through the
         // engine starts on a terminal tab; nothing is filtered on it.

@@ -296,6 +296,17 @@ data class SteerDevice(
     val canAgentLogin: Boolean get() = caps?.contains("agent-login") == true
 
     /**
+     * EXP-765: whether this machine can take the authorization CODE back — the
+     * `agent_login_code` device command types it into the sign-in that is still
+     * waiting on its PTY. Claude's login URL carries `code=true`, so the browser
+     * shows a code that has to travel back; codex's is typed into the browser
+     * instead and nothing returns. Cap-gated: an older build has no waiting
+     * prompt to type into, so the field only appears for machines that
+     * advertise it.
+     */
+    val canAgentLoginCode: Boolean get() = caps?.contains("agent-login-code") == true
+
+    /**
      * EXP-746: whether this machine runs coding sessions through the in-process
      * ACP engine (the session screen) rather than only on a terminal PTY.
      * Read-only here — nothing on mobile picks a transport, and the machine's

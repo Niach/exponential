@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.DeviceCommandDto
 import com.exponential.app.data.api.DeviceLaunchDefaults
 import com.exponential.app.data.api.DevicesApi
+import com.exponential.app.data.api.agentLoginCodeCommand
 import com.exponential.app.data.api.agentLoginCommand
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.api.worktreePruneCommand
@@ -66,6 +67,16 @@ const val PRUNE_COMMAND_KEY = "__prune__"
  * command's plain-text summary, so its payload is parsed as a login URL.
  */
 fun agentLoginCommandKey(agent: String): String = "login:$agent"
+
+/**
+ * One agent's sign-in CODE command key (EXP-765). Its own prefix keeps the
+ * `login:` parsing honest: a `login-code:` result is plain text, never a login
+ * publication.
+ */
+fun agentLoginCodeCommandKey(agent: String): String = "login-code:$agent"
+
+/** The prefix [agentLoginCodeCommandKey] builds — see [DeviceSettingsViewModel.issueCommand]. */
+private const val LOGIN_CODE_KEY_PREFIX = "login-code:"
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
@@ -287,6 +298,26 @@ class DeviceSettingsViewModel @Inject constructor(
         )
     }
 
+    /**
+     * EXP-765: the return path for claude's sign-in — the browser shows an
+     * authorization code, and this hands it to the login still waiting on the
+     * machine, which types it into its prompt. Same durable queue as every
+     * other command; a Done here also retires the login link (see
+     * [issueCommand]), because the sign-in it belonged to is over.
+     */
+    fun agentLoginCode(
+        deviceId: String,
+        agent: String,
+        code: String,
+        deviceOnline: Boolean,
+    ) {
+        issueCommand(
+            key = agentLoginCodeCommandKey(agent),
+            command = agentLoginCodeCommand(deviceId, agent, code),
+            deviceOnline = deviceOnline,
+        )
+    }
+
     fun pruneWorktrees(deviceId: String, deviceOnline: Boolean) {
         issueCommand(
             key = PRUNE_COMMAND_KEY,
@@ -324,8 +355,7 @@ class DeviceSettingsViewModel @Inject constructor(
                     .getOrNull() ?: continue
                 when (row.status) {
                     DeviceCommandDto.STATUS_DONE -> {
-                        _commandStates.value = _commandStates.value +
-                            (key to DeviceCommandUiState.Done(row.result))
+                        markDone(key, row.result)
                         return@launch
                     }
                     DeviceCommandDto.STATUS_FAILED -> {
@@ -341,6 +371,20 @@ class DeviceSettingsViewModel @Inject constructor(
             // honest caption is "queued", not a failure.
             _commandStates.value = _commandStates.value + (key to DeviceCommandUiState.Queued)
         }
+    }
+
+    /**
+     * Land a command's Done state. EXP-765: a completed `login-code:` also
+     * retires that agent's `login:` state — the machine has the code, so the
+     * link it published belongs to a sign-in that is finishing, and leaving it
+     * on screen would invite a second, stale attempt.
+     */
+    private fun markDone(key: String, message: String?) {
+        var next = _commandStates.value + (key to DeviceCommandUiState.Done(message))
+        if (key.startsWith(LOGIN_CODE_KEY_PREFIX)) {
+            next = next - agentLoginCommandKey(key.removePrefix(LOGIN_CODE_KEY_PREFIX))
+        }
+        _commandStates.value = next
     }
 }
 

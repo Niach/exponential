@@ -132,14 +132,15 @@ pub struct HeartbeatInput<'a> {
 #[serde(rename_all = "camelCase")]
 pub struct PendingCommand {
     pub id: String,
-    /// `worktree_remove` | `worktree_prune` | `agent_login`; unknown kinds
-    /// are completed
+    /// `worktree_remove` | `worktree_prune` | `agent_login` |
+    /// `agent_login_code`; unknown kinds are completed
     /// `ok: false` ("unsupported") by the executor, never dropped silently.
     #[serde(default)]
     pub kind: String,
     /// `worktree_remove`: `{repoFullName, branch}`; `worktree_prune`: `{}`;
     /// `agent_login`: `{agent, switch}` (both STRINGS — the payload column is
-    /// a `Record<string,string>`).
+    /// a `Record<string,string>`); `agent_login_code`: `{agent, code}`
+    /// (EXP-765).
     #[serde(default)]
     pub payload: serde_json::Value,
 }
@@ -529,6 +530,37 @@ pub fn create_agent_login_command(
     )
 }
 
+/// `devices.createCommand` for an `agent_login_code` (EXP-765) — hand the
+/// authorization code claude's browser page showed back to the machine whose
+/// `agent_login` is still waiting for it at "Paste code here if prompted".
+/// The device types it into that login PTY and completes the command at
+/// once; the signed-in flip follows on the synced row after the re-probe.
+/// Gated server-side on the `agent-login-code` cap.
+pub fn create_agent_login_code_command(
+    trpc: &TrpcClient,
+    device_id: &str,
+    agent: &str,
+    code: &str,
+) -> Result<CreatedCommand, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        device_id: &'a str,
+        kind: &'a str,
+        agent: &'a str,
+        code: &'a str,
+    }
+    trpc.mutation(
+        "devices.createCommand",
+        &Input {
+            device_id,
+            kind: "agent_login_code",
+            agent,
+            code,
+        },
+    )
+}
+
 /// One `device_commands` row (`devices.getCommand` / `devices.listCommands`).
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -828,6 +860,21 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(
             r#"{"deviceId":"dev-1","kind":"agent_login","agent":"claude","switch":false}"#
+        ));
+    }
+
+    /// EXP-765: the code goes back as its own command kind, beside the agent
+    /// whose login is waiting for it.
+    #[test]
+    fn agent_login_code_command_posts_agent_and_code() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"id":"cmd-9"}}}"#);
+        let created =
+            create_agent_login_code_command(&client(&base), "dev-1", "claude", "abc#xyz").unwrap();
+        assert_eq!(created.id, "cmd-9");
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/devices.createCommand HTTP/1.1"));
+        assert!(request.ends_with(
+            r#"{"deviceId":"dev-1","kind":"agent_login_code","agent":"claude","code":"abc#xyz"}"#
         ));
     }
 

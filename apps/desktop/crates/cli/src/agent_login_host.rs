@@ -31,8 +31,15 @@
 //! EVERY heartbeat until it is completed), so an id already in flight is a
 //! silent no-op — never a second `claude auth login`, and never a
 //! completion the in-flight run would then race.
+//!
+//! EXP-765: claude's link carries `code=true` — the browser page ends by
+//! showing an authorization CODE the CLI here is still waiting for ("Paste
+//! code here if prompted >"), and nobody can type it at a headless machine.
+//! The requester hands it back as an `agent_login_code` command; [`enter_code`]
+//! drops it into the [`CodeInbox`] slot the live login registered for its
+//! agent, and the poll loop types it into the PTY on its next tick.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -59,6 +66,40 @@ const POLL_INTERVAL: Duration = Duration::from_millis(250);
 /// CLI open on the machine forever.
 const LOGIN_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
+/// EXP-765: one slot per agent id — the sender a LIVE login polls for the
+/// code the requester hands back. Registered by [`run`]'s thread for the
+/// login's lifetime, read by [`enter_code`].
+pub type CodeInbox = Arc<Mutex<HashMap<String, flume::Sender<String>>>>;
+
+/// The two sentences a code command completes with — the clients show a
+/// failed row's `result` verbatim, and the success line is byte-identical on
+/// the desktop executor (`ui::agent_login`).
+pub const CODE_ENTERED: &str = "Code entered — the machine is finishing the sign-in.";
+pub const NO_LOGIN_WAITING: &str = "No sign-in is waiting for a code on this machine.";
+
+/// EXP-765: run one `agent_login_code` command — type the code into the
+/// login that is waiting for it. Completes at once, either way: there is
+/// nothing to watch after the write (the login's own run reports the exit),
+/// and a redelivery of a completed id never reaches this executor.
+pub fn enter_code(ctx: &Ctx, command: &api::devices::PendingCommand, codes: &CodeInbox) {
+    let agent = command.payload["agent"].as_str().unwrap_or_default();
+    let code = command.payload["code"].as_str().unwrap_or_default().trim();
+    if CodingAgent::parse(agent).is_none() || code.is_empty() {
+        complete(ctx, &command.id, false, "Malformed command payload.");
+        return;
+    }
+    let sender = codes
+        .lock()
+        .ok()
+        .and_then(|inbox| inbox.get(agent).cloned());
+    let delivered = matches!(sender, Some(sender) if sender.send(code.to_string()).is_ok());
+    if delivered {
+        complete(ctx, &command.id, true, CODE_ENTERED);
+    } else {
+        complete(ctx, &command.id, false, NO_LOGIN_WAITING);
+    }
+}
+
 /// Start one `agent_login` command. Validation and the dedupe claim happen
 /// on the caller's (device-worker) thread — everything that can block moves
 /// to a thread of its own.
@@ -67,6 +108,7 @@ pub fn run(
     settings: Settings,
     command: api::devices::PendingCommand,
     inflight: Arc<Mutex<HashSet<String>>>,
+    codes: CodeInbox,
     doctor_soon: Arc<AtomicBool>,
 ) {
     let raw_agent = command.payload["agent"].as_str().unwrap_or_default();
@@ -107,7 +149,21 @@ pub fn run(
     let thread = std::thread::Builder::new()
         .name("exp-agent-login".to_string())
         .spawn(move || {
-            let outcome = drive(&trpc, &settings, agent, switch, &command_id);
+            // EXP-765: the slot the requester's code lands in while this
+            // login runs. Keyed by agent — one login per agent at a time is
+            // what the server's pending-dedupe already guarantees.
+            let (code_tx, code_rx) = flume::unbounded::<String>();
+            if let Ok(mut inbox) = codes.lock() {
+                inbox.insert(agent.id().to_string(), code_tx.clone());
+            }
+            let outcome = drive(&trpc, &settings, agent, switch, &command_id, &code_rx);
+            if let Ok(mut inbox) = codes.lock() {
+                // Only OUR slot — a login started after this one exited
+                // must keep its own.
+                if inbox.get(agent.id()).is_some_and(|tx| tx.same_channel(&code_tx)) {
+                    inbox.remove(agent.id());
+                }
+            }
             if let Some((ok, message)) = outcome {
                 complete_with(&trpc, &command_id, ok, &message);
             }
@@ -140,6 +196,7 @@ fn drive(
     agent: CodingAgent,
     switch: bool,
     command_id: &str,
+    code_rx: &flume::Receiver<String>,
 ) -> Option<(bool, String)> {
     // A switch signs OUT first — otherwise every agent CLI here would just
     // report the account already signed in and exit.
@@ -217,6 +274,13 @@ fn drive(
                 LoginObservation::MethodPicker | LoginObservation::Nothing => {}
             }
         }
+        // EXP-765: the code the requester handed back — typed as the one
+        // line the CLI's "Paste code here" prompt is waiting for. Written
+        // whether or not the URL was observed: the prompt is the CLI's
+        // business, and a code with nobody waiting is harmless input.
+        while let Ok(code) = code_rx.try_recv() {
+            pty.writer_write(format!("{code}\r").as_bytes());
+        }
 
         exited = exit_slot
             .as_ref()
@@ -276,6 +340,27 @@ mod tests {
         assert!(!inflight.lock().unwrap().insert("cmd-1".to_string()));
         inflight.lock().unwrap().remove("cmd-1");
         assert!(inflight.lock().unwrap().insert("cmd-1".to_string()));
+    }
+
+    /// EXP-765: a code lands in the live login's slot and nowhere else —
+    /// with no login waiting, the send has no receiver.
+    #[test]
+    fn a_code_reaches_only_the_live_login_slot() {
+        let codes: CodeInbox = Arc::new(Mutex::new(HashMap::new()));
+        let (tx, rx) = flume::unbounded::<String>();
+        codes.lock().unwrap().insert("claude".to_string(), tx.clone());
+        let slot = codes.lock().unwrap().get("claude").cloned().unwrap();
+        assert!(slot.send("abc#xyz".to_string()).is_ok());
+        assert_eq!(rx.try_recv().unwrap(), "abc#xyz");
+        assert!(codes.lock().unwrap().get("codex").is_none());
+        // The run's exit removes only ITS slot.
+        let (other, _other_rx) = flume::unbounded::<String>();
+        assert!(!codes.lock().unwrap().get("claude").unwrap().same_channel(&other));
+        assert!(codes.lock().unwrap().get("claude").unwrap().same_channel(&tx));
+        // Once the receiver is gone the send fails — the executor answers
+        // "no sign-in waiting" instead of a completion that lies.
+        drop(rx);
+        assert!(tx.send("late".to_string()).is_err());
     }
 
     /// pi is refused with the sentence the clients show verbatim, and an

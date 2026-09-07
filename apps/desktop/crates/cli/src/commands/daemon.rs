@@ -1600,6 +1600,10 @@ fn spawn_device_worker(
         // for minutes must not block this worker) — the set is what makes a
         // REDELIVERED command id a no-op instead of a second sign-in.
         let logins_inflight: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
+        // EXP-765: where a live login's requester drops the authorization
+        // code claude's browser page showed (one slot per agent).
+        let login_codes: crate::agent_login_host::CodeInbox =
+            Arc::new(Mutex::new(std::collections::HashMap::new()));
         while let Ok(work) = rx.recv() {
             match work {
                 DeviceWork::ServerDefaults { defaults, stamp } => {
@@ -1627,6 +1631,7 @@ fn spawn_device_worker(
                             &sessions,
                             &command,
                             &logins_inflight,
+                            &login_codes,
                             &doctor_soon,
                         );
                     }
@@ -1784,6 +1789,7 @@ fn run_device_command(
     sessions: &Sessions,
     command: &api::devices::PendingCommand,
     logins_inflight: &Arc<Mutex<HashSet<String>>>,
+    login_codes: &crate::agent_login_host::CodeInbox,
     doctor_soon: &Arc<AtomicBool>,
 ) {
     let settings = coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir));
@@ -1817,8 +1823,15 @@ fn run_device_command(
                 settings,
                 command.clone(),
                 Arc::clone(logins_inflight),
+                Arc::clone(login_codes),
                 Arc::clone(doctor_soon),
             );
+            return;
+        }
+        // EXP-765: the code for the login above — typed into its PTY and
+        // completed on the spot, by the host that owns the slot.
+        "agent_login_code" => {
+            crate::agent_login_host::enter_code(ctx, command, login_codes);
             return;
         }
         other => {

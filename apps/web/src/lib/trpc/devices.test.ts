@@ -1220,3 +1220,100 @@ describe(`devices.createCommand — agent_login`, () => {
     ).rejects.toMatchObject({ code: `CONFLICT` })
   })
 })
+
+// EXP-765: handing claude's authorization code back to the waiting login.
+describe(`devices.createCommand — agent_login_code`, () => {
+  const codeCapableProbe = () => [
+    [{ id: `row-1`, caps: [`agent-login`, `agent-login-code`] }],
+  ]
+
+  it(`queues the agent and the trimmed code`, async () => {
+    h.state.selectQueue = [...codeCapableProbe(), []]
+    h.state.insertReturning = [[{ id: `cmd-2` }]]
+    const result = await caller.createCommand({
+      deviceId: `dev-1`,
+      kind: `agent_login_code`,
+      agent: `claude`,
+      code: `  abc123#state456  `,
+    })
+    expect(result).toEqual({ id: `cmd-2` })
+    expect(h.state.inserted[0]).toMatchObject({
+      deviceRowId: `row-1`,
+      kind: `agent_login_code`,
+      payload: { agent: `claude`, code: `abc123#state456` },
+    })
+    expect(h.relayPostNudge).toHaveBeenCalled()
+  })
+
+  it(`needs an agent and a code`, async () => {
+    h.state.selectQueue = codeCapableProbe()
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_login_code`,
+        agent: `claude`,
+      })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    h.state.selectQueue = codeCapableProbe()
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_login_code`,
+        code: `abc`,
+      })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+  })
+
+  it(`refuses a blank or multi-line code`, async () => {
+    h.state.selectQueue = codeCapableProbe()
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_login_code`,
+        agent: `claude`,
+        code: `   `,
+      })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    h.state.selectQueue = codeCapableProbe()
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_login_code`,
+        agent: `claude`,
+        code: `abc\nrm -rf /`,
+      })
+    ).rejects.toMatchObject({
+      code: `BAD_REQUEST`,
+      message: `The code must be a single line`,
+    })
+    expect(h.state.inserted).toHaveLength(0)
+  })
+
+  it(`refuses pi`, async () => {
+    h.state.selectQueue = codeCapableProbe()
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_login_code`,
+        agent: `pi`,
+        code: `abc`,
+      })
+    ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
+  })
+
+  it(`refuses a machine that runs the login but not the code command`, async () => {
+    h.state.selectQueue = [[{ id: `row-1`, caps: [`agent-login`] }]]
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_login_code`,
+        agent: `claude`,
+        code: `abc`,
+      })
+    ).rejects.toMatchObject({
+      code: `PRECONDITION_FAILED`,
+      message: `That device does not declare the agent-login-code capability`,
+    })
+    expect(h.state.inserted).toHaveLength(0)
+  })
+})

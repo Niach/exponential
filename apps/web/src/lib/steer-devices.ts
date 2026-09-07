@@ -222,6 +222,16 @@ export function deviceCanAgentLogin(
   return (device.caps ?? []).includes(`agent-login`)
 }
 
+/** EXP-765: the machine runs `agent_login_code` — it types the authorization
+ * code claude's browser page hands the requester into the login still
+ * waiting for it. A build with only `agent-login` would report the command
+ * unsupported, so requesters show the code field only behind this cap. */
+export function deviceCanAgentLoginCode(
+  device: Pick<SteerDevice, `caps`>
+): boolean {
+  return (device.caps ?? []).includes(`agent-login-code`)
+}
+
 /** EXP-481: whether a devices row reads "online" — `last_seen_at` within the
  * contract window of `now` (devices heartbeat ~30s; the window is three
  * missed beats). A negative age (server stamp ahead of the client clock)
