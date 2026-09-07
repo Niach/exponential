@@ -210,7 +210,10 @@ impl RunningSession {
         self.backend.kind().supports_resize()
     }
 
-    /// Block until the agent child exits.
+    /// Block until the agent child exits. Half of the exit contract this
+    /// handle mirrors from `engine::EngineSession`; every caller in here
+    /// wants the failure text too and goes through `wait_detailed`.
+    #[allow(dead_code)]
     pub fn wait(&self) -> ChildExit {
         self.wait_detailed().child
     }

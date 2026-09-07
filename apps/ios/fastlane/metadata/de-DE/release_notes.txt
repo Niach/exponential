@@ -1,3 +1,8 @@
+- Steuerung v2: Modell, Aufwand und Modus des Agenten wechselst du direkt in der laufenden Session über Chips oberhalb des Editors; Kontext- und Verbrauchsanzeigen aktualisieren sich, sobald der Lauf sie meldet
+- Frühere Läufe: beendete Sessions stehen pro Gerät mit „Resume“ in der Liste, sodass ein beendeter Lauf wieder aufgenommen werden kann
+- Chat ohne Repository: ein Chat aus dem Sheet „Start coding“ braucht kein Repository mehr und läuft in einem temporären Ordner mit nur den Exponential-Werkzeugen
+- Agenten-Auswahl: kann ein Gerät einen Agenten zwar starten, aber nicht auf der Session-Seite steuern, sagt die Auswahl, dass er im Terminal startet, statt still darauf auszuweichen
+- Steuerungs-Feed: Issue-Kennungen wie #EXP-12 werden zu antippbaren Chips, und Agentenbefehle erscheinen als Befehls-Badges
 - Issue-Verknüpfungen: verknüpfe Issues als übergeordnet, Sub-Issue, blockiert, blockiert von, Duplikat oder verwandt direkt im Eigenschaften-Sheet; ein #EXP-12 in einer Beschreibung oder einem Kommentar verknüpft die beiden Issues von selbst
 - Kommentar-Threads: antworte unter einem Kommentar aus dem angedockten Editor; Threads bleiben eine Ebene tief, und ein Kommentar, den ein Agent über MCP geschrieben hat, sagt das in seiner Kopfzeile
 - Ein geführter erster Start: das Anlegen eines Teams führt dich durch das erste Board, das Einladen von Teamkollegen und das Einrichten von Geräten, in derselben Reihenfolge wie Web und Desktop

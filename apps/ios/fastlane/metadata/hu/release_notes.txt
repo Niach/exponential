@@ -1,3 +1,8 @@
+- Irányítás v2: az agent modelljét, ráfordítását és módját az élő munkamenetből váltod a szerkesztő fölötti chipekkel; a kontextus- és használati értékek frissülnek, ahogy a futtatás jelenti őket
+- Korábbi futtatások: a befejezett munkamenetek eszközönként, „Resume” gombbal jelennek meg, így egy lezárt futtatás újra folytatható
+- Chat repository nélkül: a „Start coding” lapról indított chathez már nem kell repository, és ideiglenes mappában fut, csak az Exponential eszközeivel
+- Agentválasztó: ha egy eszköz el tudja indítani az agentet, de a munkamenet oldalán nem tudja irányítani, a választó jelzi, hogy terminálban indul, ahelyett hogy csendben visszaváltana
+- Irányítási folyam: a feladatazonosítók, például a #EXP-12, koppintható chipekké válnak, az agent parancsai pedig parancscímkeként jelennek meg
 - Feladatkapcsolatok: kösd össze a feladatokat szülőként, részfeladatként, blokkolóként, blokkoltként, duplikátumként vagy kapcsolódóként a tulajdonságlapon; ha #EXP-12 szerepel egy leírásban vagy kommentben, a két feladat magától összekapcsolódik
 - Kommentszálak: válaszolj egy komment alatt a dokkolt szerkesztőből; a szálak egy szint mélyek maradnak, és az a komment, amelyet egy agent MCP-n át írt, ezt jelzi a fejlécében
 - Vezetett első indulás: a csapat létrehozása végigvisz az első boardon, a csapattársak meghívásán és az eszközök beállításán, ugyanabban a sorrendben, mint a weben és az asztali appban

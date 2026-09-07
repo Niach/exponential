@@ -46,16 +46,16 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-acp-follow-ups",
+    id: "2026-09-issue-previews-and-relations",
     date: "2026-09-07",
-    title: "Steering that keeps its transcript",
-    summary: "Your chat with an agent survives long subagent runs, remote pickers say which agents start in a terminal, and pi plans on the session page.",
-    body: r#"- **Transcript survives subagents**: rejoining a session after a subagent made thousands of tool calls no longer shows an empty transcript. Subagent tool rows are dropped first, each subagent keeps its last 50, and the collapsed subagent card still says how many calls it made.
-- **Terminal hint in remote pickers**: when a machine can run an agent but not drive it on the session page, the agent picker on web, desktop, iOS and Android says it starts in a terminal tab instead of falling back silently.
-- **Live command output**: an agent that runs its commands through the session page streams output as it happens, shows the real exit code, and gets a Stop button on the running command.
-- **pi plan mode on the session page**: a pi run started in plan mode now opens as a session tab like claude's, with a Plan and Default mode switch and the plan approval card.
-- **Codex usage from the live session**: the usage sheet reads Codex rate limits from the running session, so the desktop no longer starts a second app-server to ask.
-- **Faster tool checks**: the pi check remembers its verdict per installed build and honours a hand-configured pi path; run the CLI doctor to re-check in full."#,
+    title: "Issue previews and tidier relations",
+    summary: "Hover an issue reference for a preview card, add sub-issues inline, and find Merge PR next to Start coding.",
+    body: r#"- **Issue preview cards**: hovering a #EXP-12 pill in a description, comment, timeline, relation row or steering feed on web and desktop opens a card with the issue's identifier, assignee, title, status, priority and labels. On iOS and Android the chips in the steering feed open the issue on tap.
+- **Relations as headings**: relations sit below the description under Sub-issues, Parent, Blocked by, Blocks, Duplicate of, Duplicated by and Related, and disappear when there are none.
+- **Add sub-issues inline**: an Add sub-issues row opens an inline composer; the new issue is created with its parent relation in one step, and the MCP create tool takes a parentId too.
+- **One issue menu**: Copy link, Add relation, Unmark duplicate and Delete live in a single round menu on the issue page and in the issue list's context menu.
+- **Merge PR next to Start coding**: on an issue with an open pull request the Merge button sits in the properties card beside Start coding.
+- **Session pages**: a coding session opens on its own page from the bottom strip, and Chat starts an agent without an issue or a repository. Read the entries below for the full story."#,
 };
 
 /// Whether the rail's "What's new" card renders, given the stored

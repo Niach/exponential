@@ -614,9 +614,20 @@ pub enum PiUi {
     Editor { title: String, prefill: Option<String> },
     /// A notice: rendered, never answered.
     Notify { message: String },
-    /// Chrome we have no surface for; drop it silently.
+    /// A KNOWN fire-and-forget method ([`FIRE_AND_FORGET`]): chrome we have
+    /// no surface for, dropped silently. Answering one would be an unmatched
+    /// id, because `rpc-mode.js` never waits for it.
     Ignored,
+    /// A method this build has never heard of — a newer pi's dialog. It may
+    /// well be WAITING, and nothing bounds that wait (`prompt` has no
+    /// deadline), so the adapter cancels it instead of wedging the run.
+    Unknown { method: String },
 }
+
+/// The `extension_ui_request` methods `rpc-mode.js` fires without a waiter.
+/// `notify` is the fourth, but it has a surface (a message chunk) and its own
+/// variant. Anything NOT listed here is answered, not ignored.
+const FIRE_AND_FORGET: [&str; 4] = ["setStatus", "setWidget", "setTitle", "set_editor_text"];
 
 /// Classify one `extension_ui_request` by its `method`.
 pub fn classify_ui(method: &str, params: &Value) -> PiUi {
@@ -669,7 +680,8 @@ pub fn classify_ui(method: &str, params: &Value) -> PiUi {
                 .unwrap_or_default()
                 .to_string(),
         },
-        _ => PiUi::Ignored,
+        method if FIRE_AND_FORGET.contains(&method) => PiUi::Ignored,
+        method => PiUi::Unknown { method: method.to_string() },
     }
 }
 
@@ -971,6 +983,14 @@ mod tests {
         // Fire-and-forget chrome: answering it would be a protocol error.
         assert_eq!(classify_ui("setWidget", &json!({ "widgetKey": "w" })), PiUi::Ignored);
         assert_eq!(classify_ui("setTitle", &json!({ "title": "t" })), PiUi::Ignored);
+        assert_eq!(classify_ui("setStatus", &json!({ "status": "busy" })), PiUi::Ignored);
+        assert_eq!(classify_ui("set_editor_text", &json!({ "text": "x" })), PiUi::Ignored);
+        // Anything else may be WAITING: a newer pi's dialog is cancelled,
+        // never dropped, or its request would never resolve.
+        assert_eq!(
+            classify_ui("pickFile", &json!({ "title": "Pick a file" })),
+            PiUi::Unknown { method: "pickFile".to_string() }
+        );
     }
 
     #[test]

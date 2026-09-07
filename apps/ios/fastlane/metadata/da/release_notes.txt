@@ -1,3 +1,8 @@
+- Styring v2: skift agentens model, indsats og tilstand fra den kørende session med chips over skrivefeltet; kontekst- og forbrugstal opdateres, efterhånden som kørslen melder dem
+- Tidligere kørsler: afsluttede sessioner vises pr. enhed med "Resume", så en afsluttet kørsel kan tages op igen
+- Chat uden repository: en chat, der startes fra "Start coding"-arket, kræver ikke længere et repository og kører i en midlertidig mappe med kun Exponential-værktøjerne
+- Agentvælger: når en enhed kan køre en agent, men ikke styre den på sessionssiden, siger vælgeren, at den starter i en terminal, i stedet for stille at falde tilbage
+- Styringsfeed: issue-identifikatorer som #EXP-12 bliver til chips, du kan trykke på, og agentkommandoer vises som kommandomærker
 - Relationer mellem issues: knyt issues sammen som overordnet, underissue, blokerer, blokeret af, dublet eller relateret fra egenskabsarket; skriver du #EXP-12 i en beskrivelse eller kommentar, knyttes de to issues sammen af sig selv
 - Kommentartråde: svar under en kommentar fra det fastgjorte skrivefelt; tråde går kun ét niveau ned, og en kommentar, som en agent har sendt via MCP, siger det i sin header
 - En guidet første gang: at oprette et team fører dig gennem det første board, invitationer til holdkammerater og opsætning af enheder, i samme rækkefølge som på web og desktop

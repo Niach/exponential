@@ -1,3 +1,8 @@
+- Styrning v2: byt agentens modell, insats och läge från den pågående sessionen med chips ovanför skrivfältet; kontext- och användningsvärden uppdateras allteftersom körningen rapporterar dem
+- Tidigare körningar: avslutade sessioner listas per enhet med "Resume", så att en avslutad körning kan tas upp igen
+- Chatt utan repository: en chatt som startas från "Start coding"-bladet behöver inget repository och körs i en tillfällig mapp med bara Exponential-verktygen
+- Agentväljare: när en enhet kan köra en agent men inte styra den på sessionssidan säger väljaren att den startar i en terminal i stället för att tyst falla tillbaka
+- Styrningsflöde: ärendeidentifierare som #EXP-12 blir chips du kan trycka på, och agentkommandon visas som kommandomärken
 - Relationer mellan ärenden: koppla ärenden som överordnat, underärende, blockerar, blockeras av, dubblett eller relaterat från egenskapsbladet; skriver du #EXP-12 i en beskrivning eller kommentar kopplas de två ärendena ihop av sig själva
 - Kommentarstrådar: svara under en kommentar från det dockade skrivfältet; trådar går bara en nivå ned, och en kommentar som en agent lagt via MCP säger det i sin rubrik
 - En guidad första start: att skapa ett team tar dig genom första boarden, att bjuda in lagkamrater och att sätta upp enheter, i samma ordning som på webben och desktop

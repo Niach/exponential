@@ -1,3 +1,8 @@
+- Sterowanie v2: model, wysiłek i tryb agenta przełączysz wprost w trwającej sesji chipami nad polem pisania; odczyty kontekstu i zużycia odświeżają się, gdy uruchomienie je zgłasza
+- Poprzednie uruchomienia: zakończone sesje są wypisane przy każdym urządzeniu z „Resume”, więc zakończone uruchomienie można podjąć na nowo
+- Czat bez repozytorium: czat otwarty z panelu „Start coding” nie potrzebuje już repozytorium i działa w tymczasowym folderze wyłącznie z narzędziami Exponential
+- Wybór agenta: gdy urządzenie potrafi uruchomić agenta, ale nie sterować nim na stronie sesji, wybór mówi, że ruszy on w terminalu, zamiast po cichu się przełączyć
+- Strumień sterowania: identyfikatory zadań takie jak #EXP-12 stają się chipami, które można dotknąć, a polecenia agenta pokazują się jako etykiety poleceń
 - Relacje między zadaniami: powiąż zadania jako nadrzędne, podzadanie, blokuje, zablokowane przez, duplikat lub powiązane z panelu właściwości; wpisanie #EXP-12 w opisie lub komentarzu samo łączy oba zadania
 - Wątki komentarzy: odpowiadaj pod komentarzem z zadokowanego pola pisania; wątki mają tylko jeden poziom, a komentarz, który agent wysłał przez MCP, mówi o tym w swoim nagłówku
 - Prowadzony pierwszy start: utworzenie zespołu przeprowadza przez pierwszą tablicę, zapraszanie współpracowników i konfigurację urządzeń, w tej samej kolejności co w wersji web i desktop

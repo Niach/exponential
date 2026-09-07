@@ -362,6 +362,16 @@ impl ContextWindow {
         }
     }
 
+    /// A live model switch (`set_config`): the locked window belonged to the
+    /// model that just went away, so it is dropped and re-derived from the
+    /// new id. Without this the 1M ↔ 200k switch published the OLD size for
+    /// the rest of the run — [`Self::infer`] is a no-op once anything is
+    /// known and [`Self::report`] is final once exact.
+    fn switch_model(&mut self, model: &str) {
+        *self = ContextWindow::Unknown;
+        self.infer(model);
+    }
+
     /// An authoritative report; the first exact one is final.
     fn report(&mut self, report: wire::ContextWindowReport) {
         if matches!(self, ContextWindow::Reported { exact: true, .. }) {
@@ -1063,6 +1073,10 @@ impl ClaudeSession {
                 let model = picked.unwrap_or_default();
                 self.control_request(wire::set_model(Some(&model))).await?;
                 let mut state = self.lock();
+                // EXP-761: the window follows the model (1M ↔ 200k), so the
+                // one taken for the previous id is dropped here — nothing
+                // else in the run ever re-derives it.
+                state.context_window.switch_model(&model);
                 state.model = model;
                 // The CLI persists `/effort` per model since 2.1.243, so a
                 // pinned effort carries across the switch and an unpinned one
@@ -3633,6 +3647,16 @@ mod tests {
         assert_eq!(window.size(), 1_000_000);
         window.report(ContextWindowReport { window: 500_000, exact: true });
         assert_eq!(window.size(), 500_000);
+
+        // ...but a LIVE model switch is a new model: the locked window goes
+        // and the new id is re-derived, so 1M ↔ 200k publishes the size of
+        // the model actually running.
+        let mut window = ContextWindow::Reported { window: 1_000_000, exact: true };
+        window.switch_model("claude-opus-5");
+        assert_eq!(window.size(), 200_000, "kept the old model's window");
+        window.report(ContextWindowReport { window: 200_000, exact: true });
+        window.switch_model("claude-opus-5[1m]");
+        assert_eq!(window.size(), 1_000_000);
     }
 
     #[test]

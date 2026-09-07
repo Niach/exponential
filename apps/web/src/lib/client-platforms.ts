@@ -54,6 +54,9 @@ export function deriveClientPlatform(
 // captureReturnVisit precedent) — this map only saves round-trips on the
 // natives' ~14 shape long-polls per minute. Bounded by a hard clear.
 const TOUCH_INTERVAL_MS = 15 * 60_000
+const FAILED_TOUCH_COOLDOWN_MS = 60_000
+// `last_version` is varchar(32); the header parser does not bound it.
+const MAX_VERSION_LENGTH = 32
 const MAX_TRACKED = 20_000
 const lastTouched = new Map<string, number>()
 
@@ -63,8 +66,10 @@ export function resetClientPlatformThrottle(): void {
 
 /** Fire-and-forget upsert; returns whether a write was issued. NEVER throws
  * and is never awaited by the caller — analytics must not be able to break
- * session resolution. A failed write clears the throttle slot so the next
- * request retries. */
+ * session resolution. A failed write shortens the throttle slot to
+ * FAILED_TOUCH_COOLDOWN_MS instead of clearing it, so a persistently failing
+ * client (an over-long version string, a deleted user with a still-cached
+ * session, a DB outage) costs one round-trip per cooldown, not per request. */
 export function touchUserClientPlatform(
   dbx: typeof db,
   args: {
@@ -80,13 +85,17 @@ export function touchUserClientPlatform(
   if (last !== undefined && now - last < TOUCH_INTERVAL_MS) return false
   if (lastTouched.size >= MAX_TRACKED) lastTouched.clear()
   lastTouched.set(key, now)
+  const onFailure = (err: unknown) => {
+    lastTouched.set(key, now - TOUCH_INTERVAL_MS + FAILED_TOUCH_COOLDOWN_MS)
+    console.error(`[client-platforms] touch failed:`, err)
+  }
   try {
     void dbx
       .insert(userClientPlatforms)
       .values({
         userId: args.userId,
         platform: args.platform,
-        lastVersion: args.version,
+        lastVersion: args.version?.slice(0, MAX_VERSION_LENGTH) ?? null,
       })
       .onConflictDoUpdate({
         target: [userClientPlatforms.userId, userClientPlatforms.platform],
@@ -95,13 +104,9 @@ export function touchUserClientPlatform(
           lastVersion: sql`coalesce(excluded.last_version, ${userClientPlatforms.lastVersion})`,
         },
       })
-      .catch((err: unknown) => {
-        lastTouched.delete(key)
-        console.error(`[client-platforms] touch failed:`, err)
-      })
+      .catch(onFailure)
   } catch (err) {
-    lastTouched.delete(key)
-    console.error(`[client-platforms] touch failed:`, err)
+    onFailure(err)
   }
   return true
 }

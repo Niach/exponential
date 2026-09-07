@@ -1,3 +1,8 @@
+- Dirección v2: cambia el modelo, el esfuerzo y el modo del agente desde la sesión en marcha con chips encima del editor; las lecturas de contexto y de uso se actualizan según las informa la ejecución
+- Ejecuciones anteriores: las sesiones terminadas se listan por dispositivo con «Resume», así que una ejecución acabada se puede retomar
+- Chat sin repositorio: un chat abierto desde la hoja «Start coding» ya no necesita repositorio y se ejecuta en una carpeta temporal solo con las herramientas de Exponential
+- Selector de agente: cuando un dispositivo puede ejecutar un agente pero no dirigirlo en la página de la sesión, el selector avisa de que arranca en un terminal en vez de cambiar en silencio
+- Feed de dirección: los identificadores de issues como #EXP-12 se convierten en chips que puedes tocar, y los comandos del agente se muestran como etiquetas de comando
 - Relaciones entre issues: enlaza issues como padre, sub-issue, bloquea, bloqueado por, duplicado o relacionado desde la hoja de propiedades; escribir #EXP-12 en una descripción o un comentario enlaza los dos issues por su cuenta
 - Comentarios en hilo: responde debajo de un comentario desde el editor acoplado; los hilos se quedan en un solo nivel, y un comentario que un agente publicó por MCP lo indica en su cabecera
 - Un primer arranque guiado: crear un equipo te lleva por el primer board, las invitaciones a compañeros y la configuración de dispositivos, en el mismo orden que en web y escritorio

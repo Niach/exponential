@@ -557,6 +557,10 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 .collect();
             guard.retain(|live| !live.session.is_done());
             drop(guard);
+            // The moment the runs were seen to END: the git work below can
+            // hold the loop for seconds, and a resume that re-enters a
+            // scratch dir in that window keeps it (`scratch::reclaim`).
+            let reaped_at = std::time::SystemTime::now();
             for (session_id, cleanup, worktree) in reaped {
                 match cleanup {
                     Some(cleanup) => {
@@ -570,7 +574,8 @@ fn run_daemon(args: &[String]) -> CommandResult {
                         );
                     }
                     None if coding::scratch::is_scratch_dir(&ctx.data_dir, &worktree) => {
-                        let removed = coding::scratch::reclaim(&ctx.data_dir, &worktree);
+                        let removed =
+                            coding::scratch::reclaim(&ctx.data_dir, &worktree, reaped_at);
                         log::info!(
                             "scratch reclaim [{session_id}] {}: removed={removed}",
                             worktree.display()

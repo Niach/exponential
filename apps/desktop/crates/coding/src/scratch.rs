@@ -78,12 +78,28 @@ fn is_plain_segment(name: Option<&std::ffi::OsStr>) -> bool {
 }
 
 /// Reclaim ONE ended run's scratch dir and its agent trust entries. Returns
-/// whether the directory was removed (`false` when it was already gone, or
-/// when `cwd` is not a scratch dir at all — logged, never fatal). The run
-/// record is deliberately left alone: it is what keeps the run resumable.
-pub fn reclaim(data_dir: &Path, cwd: &Path) -> bool {
+/// whether the directory was removed (`false` when it was already gone, when
+/// `cwd` is not a scratch dir at all, or when a resume re-entered it — logged,
+/// never fatal). The run record is deliberately left alone: it is what keeps
+/// the run resumable.
+///
+/// `requested_at` is the moment the run was seen to END, not the moment this
+/// runs: both hosts queue the reclaim (the desktop onto its background
+/// executor, the daemon behind the git work of its 1Hz tick), and a resume of
+/// the just-ended run lands in that window — `prepare_resume_run` re-creates
+/// the SAME recorded cwd and [`touch`]es it, so anything newer than the
+/// request means the dir is live again and must not be deleted under its
+/// fresh `.exp-mcp.json`.
+pub fn reclaim(data_dir: &Path, cwd: &Path, requested_at: SystemTime) -> bool {
     if !is_scratch_dir(data_dir, cwd) {
         log::warn!("scratch reclaim: {} is not a scratch dir; kept", cwd.display());
+        return false;
+    }
+    if newest_mtime(cwd).is_some_and(|newest| newest > requested_at) {
+        log::info!(
+            "scratch reclaim: {} was re-entered after the run ended; kept",
+            cwd.display()
+        );
         return false;
     }
     // The trust keys, raw AND canonical, resolved BEFORE the dirs go —
@@ -295,11 +311,11 @@ mod tests {
     fn reclaim_removes_the_run_dir_and_its_emptied_action_dir() {
         let dir = temp_dir("scratch-reclaim");
         let run = scratch(&dir.0, "builtin_chat", "1a2b3c4d");
-        assert!(reclaim(&dir.0, &run));
+        assert!(reclaim(&dir.0, &run, SystemTime::now()));
         assert!(!run.exists());
         assert!(!run.parent().unwrap().exists(), "the empty action dir goes too");
         // Already gone: a no-op, not an error.
-        assert!(!reclaim(&dir.0, &run));
+        assert!(!reclaim(&dir.0, &run, SystemTime::now()));
     }
 
     #[test]
@@ -307,9 +323,26 @@ mod tests {
         let dir = temp_dir("scratch-reclaim-sibling");
         let run = scratch(&dir.0, "builtin_chat", "1a2b3c4d");
         let sibling = scratch(&dir.0, "builtin_chat", "ffffffff");
-        assert!(reclaim(&dir.0, &run));
+        assert!(reclaim(&dir.0, &run, SystemTime::now()));
         assert!(!run.exists());
         assert!(sibling.join(crate::mcp_json::MCP_JSON_FILE).exists());
+    }
+
+    /// The resume race: the run ended, the reclaim was queued, and a resume
+    /// re-created the recorded cwd (and its fresh `.exp-mcp.json`) before the
+    /// queued reclaim ran. The dir is live again — deleting it would pull the
+    /// MCP config out from under the relaunch.
+    #[test]
+    fn reclaim_keeps_a_dir_a_resume_re_entered() {
+        let dir = temp_dir("scratch-reclaim-resumed");
+        let run = scratch(&dir.0, "builtin_chat", "1a2b3c4d");
+        let requested_at = SystemTime::now() - Duration::from_secs(5);
+        assert!(!reclaim(&dir.0, &run, requested_at));
+        assert!(run.join(crate::mcp_json::MCP_JSON_FILE).exists());
+        // Untouched since the run ended, it goes on the next pass.
+        age(&run, OLD);
+        assert!(reclaim(&dir.0, &run, requested_at));
+        assert!(!run.exists());
     }
 
     #[test]
@@ -319,9 +352,9 @@ mod tests {
         let action_dir = run.parent().unwrap().to_path_buf();
         let foreign = dir.0.join("worktree");
         std::fs::create_dir_all(&foreign).unwrap();
-        assert!(!reclaim(&dir.0, &action_dir));
-        assert!(!reclaim(&dir.0, &scratch_root(&dir.0)));
-        assert!(!reclaim(&dir.0, &foreign));
+        assert!(!reclaim(&dir.0, &action_dir, SystemTime::now()));
+        assert!(!reclaim(&dir.0, &scratch_root(&dir.0), SystemTime::now()));
+        assert!(!reclaim(&dir.0, &foreign, SystemTime::now()));
         assert!(run.exists());
         assert!(foreign.exists());
     }

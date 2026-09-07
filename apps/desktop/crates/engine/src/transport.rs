@@ -283,12 +283,18 @@ pub fn spawn_lines(spec: &SpawnSpec, stderr: StderrPolicy) -> std::io::Result<Ch
         })?;
 
     if let Some(child_stderr) = child_stderr {
+        // The child's env carries `EXP_MCP_TOKEN` (the user's `expu_` MCP
+        // key) and the launcher's other secrets, and an agent CLI that dumps
+        // its config on stderr would write them straight into the daemon's
+        // journal. Same masking the wire gets (`steer::Redactor`), off this
+        // spawn's OWN env.
+        let redactor = steer::Redactor::new(secret_env_values(&spec.env));
         std::thread::Builder::new()
             .name(format!("acp-stderr-{pid}"))
             .spawn(move || {
                 for line in BufReader::new(child_stderr).lines() {
                     let Ok(line) = line else { break };
-                    log::warn!("engine: agent stderr: {line}");
+                    log::warn!("engine: agent stderr: {}", redactor.redact(&line));
                 }
             })?;
     }
@@ -329,6 +335,24 @@ pub fn spawn_lines(spec: &SpawnSpec, stderr: StderrPolicy) -> std::io::Result<Ch
     })
 }
 
+/// The values of `env` that must never reach a log line: anything under a
+/// secret-shaped NAME plus anything with a credential PREFIX whatever it is
+/// called (`expu_` personal keys, `ghs_` installation tokens). Names, not
+/// values, decide the first half: a spec-provided token is opaque, and the
+/// generic patterns `steer::Redactor` also applies cannot know it.
+fn secret_env_values(env: &[(String, String)]) -> Vec<String> {
+    const SECRET_NAME_PARTS: [&str; 4] = ["TOKEN", "SECRET", "KEY", "PASSWORD"];
+    const SECRET_VALUE_PREFIXES: [&str; 2] = ["expu_", "ghs_"];
+    env.iter()
+        .filter(|(key, value)| {
+            let key = key.to_ascii_uppercase();
+            SECRET_NAME_PARTS.iter().any(|part| key.contains(part))
+                || SECRET_VALUE_PREFIXES.iter().any(|prefix| value.starts_with(prefix))
+        })
+        .map(|(_, value)| value.clone())
+        .collect()
+}
+
 /// `std::process` reports a signal as a raw number where `portable_pty`
 /// reports a name; the code is what the publisher's `exit:<code>` outcome
 /// uses either way, so the number is kept verbatim.
@@ -350,6 +374,28 @@ fn child_exit(status: std::process::ExitStatus) -> ChildExit {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+
+    /// The stderr journal is a LOG of the agent's own diagnostics, and the
+    /// child's env holds the user's `expu_` MCP key: a CLI that prints its
+    /// config would otherwise write the key into the daemon's journal.
+    #[test]
+    fn stderr_masking_takes_every_secret_out_of_the_spawn_env() {
+        let env = vec![
+            ("EXP_MCP_TOKEN".to_string(), "expu_supersecretvalue".to_string()),
+            ("GIT_ASKPASS_TOKEN".to_string(), "ghs_installationtoken".to_string()),
+            ("ANTHROPIC_API_KEY".to_string(), "sk-ant-notarealkey".to_string()),
+            ("BEARER".to_string(), "ghs_prefixedbutplainlynamed".to_string()),
+            ("PATH".to_string(), "/usr/bin".to_string()),
+        ];
+        let secrets = secret_env_values(&env);
+        assert_eq!(secrets.len(), 4, "PATH is not a secret: {secrets:?}");
+        assert!(!secrets.iter().any(|value| value == "/usr/bin"));
+
+        let redactor = steer::Redactor::new(secrets);
+        let masked = redactor.redact("config: token=expu_supersecretvalue path=/usr/bin");
+        assert!(!masked.contains("expu_supersecretvalue"), "{masked}");
+        assert!(masked.contains("/usr/bin"), "{masked}");
+    }
 
     #[test]
     fn spawn_lines_round_trips_a_line_through_a_child() {

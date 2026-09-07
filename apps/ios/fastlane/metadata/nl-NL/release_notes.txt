@@ -1,3 +1,8 @@
+- Sturen v2: wissel het model, de inspanning en de modus van de agent vanuit de lopende sessie met chips boven het invoerveld; context- en verbruikswaarden werken bij zodra de run ze meldt
+- Eerdere runs: afgeronde sessies staan per apparaat in de lijst met "Resume", zodat een beëindigde run weer opgepakt kan worden
+- Chat zonder repository: een chat vanuit het "Start coding"-blad heeft geen repository meer nodig en draait in een tijdelijke map met alleen de Exponential-tools
+- Agentkiezer: kan een apparaat een agent wel starten maar niet aansturen op de sessiepagina, dan zegt de kiezer dat hij in een terminal start in plaats van stil terug te vallen
+- Stuurfeed: issue-identifiers als #EXP-12 worden chips waarop je kunt tikken, en agentcommando's verschijnen als commandolabels
 - Relaties tussen issues: koppel issues als bovenliggend, sub-issue, blokkeert, geblokkeerd door, duplicaat of gerelateerd vanuit het eigenschappenblad; #EXP-12 typen in een beschrijving of reactie koppelt de twee issues vanzelf
 - Reacties in threads: reageer onder een reactie vanuit het vastgezette invoerveld; threads blijven één niveau diep, en een reactie die een agent via MCP plaatste, zegt dat in zijn koptekst
 - Een begeleide eerste start: een team aanmaken loodst je langs het eerste board, het uitnodigen van teamgenoten en het instellen van apparaten, in dezelfde volgorde als web en desktop

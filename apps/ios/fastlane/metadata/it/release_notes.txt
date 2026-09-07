@@ -1,3 +1,8 @@
+- Guida v2: cambia modello, sforzo e modalità dell'agente dalla sessione in corso con i chip sopra l'editor; le letture di contesto e di utilizzo si aggiornano man mano che l'esecuzione le riporta
+- Esecuzioni passate: le sessioni concluse sono elencate per dispositivo con «Resume», così un'esecuzione finita si può riprendere
+- Chat senza repository: una chat avviata dal foglio «Start coding» non richiede più un repository e gira in una cartella temporanea con i soli strumenti di Exponential
+- Scelta dell'agente: quando un dispositivo può eseguire un agente ma non guidarlo nella pagina della sessione, la scelta dice che parte in un terminale invece di ripiegare in silenzio
+- Feed di guida: gli identificatori delle issue come #EXP-12 diventano chip toccabili, e i comandi dell'agente compaiono come etichette di comando
 - Relazioni tra issue: collega le issue come padre, sotto-issue, blocca, bloccata da, duplicato o correlata dal foglio delle proprietà; scrivere #EXP-12 in una descrizione o in un commento collega le due issue da solo
 - Commenti in thread: rispondi sotto un commento dall'editor agganciato; i thread restano di un solo livello, e un commento pubblicato da un agente via MCP lo dichiara nella sua intestazione
 - Un primo avvio guidato: creare un team ti porta attraverso la prima board, l'invito dei compagni di squadra e la configurazione dei dispositivi, nello stesso ordine di web e desktop

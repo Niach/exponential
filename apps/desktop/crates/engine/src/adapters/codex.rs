@@ -316,6 +316,10 @@ struct Shared {
     compacted: Mutex<HashSet<String>>,
     usage: CodexUsage,
     closed: AtomicBool,
+    /// [`start_pumps`] already ran. Both entry points call it — `thread/start`
+    /// and a resuming `session/load` — and the receivers they hold are clones
+    /// of ONE queue, so a second pump would steal half the frames.
+    pumping: AtomicBool,
 }
 
 /// The item table. A value of its own so the whole notification → update
@@ -439,9 +443,15 @@ impl ConnectTo<Client> for CodexAgent {
                 compacted: Mutex::new(HashSet::new()),
                 usage,
                 closed: AtomicBool::new(false),
+                pumping: AtomicBool::new(false),
             });
             let notifications = connection.notifications.clone();
             let requests = connection.requests.clone();
+            // The SAME queue, for the other entry point: a run that resumes
+            // arrives as `session/load`, never `session/new`, and needs the
+            // pumps just as much ([`load_thread`]).
+            let load_notifications = notifications.clone();
+            let load_requests = requests.clone();
 
             let main_shared = shared.clone();
             let init = shared.clone();
@@ -497,12 +507,34 @@ impl ConnectTo<Client> for CodexAgent {
                     agent_client_protocol::on_receive_request!(),
                 )
                 .on_receive_request(
-                    async move |request: LoadSessionRequest, responder, cx| {
+                    async move |request: LoadSessionRequest, responder, cx: ConnectionTo<Client>| {
+                        // SPAWNED for the same reason `session/new` is: a
+                        // resuming load is `thread/resume` plus the config
+                        // seed's `model/list` pages, each with `CALL_TIMEOUT`
+                        // behind it, and inline none of those seconds can
+                        // dispatch a `session/cancel`.
                         let shared = load.clone();
-                        match replay_thread(&shared, &cx, request).await {
-                            Ok(response) => responder.respond(response),
-                            Err(error) => responder.respond_with_error(error),
-                        }
+                        let notifications = load_notifications.clone();
+                        let requests = load_requests.clone();
+                        let spawned = cx.clone();
+                        cx.spawn(async move {
+                            let loaded =
+                                load_thread(&shared, &spawned, request, notifications, requests)
+                                    .await;
+                            let _ = match loaded {
+                                Ok(response) => {
+                                    let sent = responder.respond(response);
+                                    if !shared.spec.replay {
+                                        publish_commands(&shared, &spawned);
+                                    }
+                                    sent
+                                }
+                                Err(error) => responder.respond_with_error(error),
+                            };
+                            // NEVER `Err`: a spawned task that fails takes the
+                            // whole connection down with it.
+                            Ok(())
+                        })
                     },
                     agent_client_protocol::on_receive_request!(),
                 )
@@ -681,19 +713,7 @@ async fn open_thread(
         *slot = roots.clone();
     }
 
-    let (mcp_url, mcp_session) = match &shared.spec.mcp {
-        coding::AgentMcp::CodexOverrides { url, session_id } => {
-            (Some(url.clone()), session_id.clone())
-        }
-        // The other postures belong to other agents; a codex launch without an
-        // MCP block is legal (an agent shell) and just means no tools.
-        _ => (None, None),
-    };
-    let config = codex_wire::thread_config(
-        mcp_url.as_deref(),
-        mcp_session.as_deref().unwrap_or(&shared.spec.session_id),
-        &roots,
-    );
+    let config = thread_config_for(shared, &roots);
 
     // A recorded thread id re-enters the SAME conversation; anything else
     // starts a fresh one. `Acp` and `Native` are the same string here because
@@ -747,12 +767,34 @@ async fn open_thread(
         .config_options(config_options(shared)))
 }
 
+/// The `thread/start` | `thread/resume` config block: the run's MCP posture
+/// plus the roots. Shared by both entry points so a resumed thread gets the
+/// SAME tools and sandbox roots a fresh one does.
+fn thread_config_for(shared: &Arc<Shared>, roots: &[PathBuf]) -> Value {
+    let (mcp_url, mcp_session) = match &shared.spec.mcp {
+        coding::AgentMcp::CodexOverrides { url, session_id } => {
+            (Some(url.clone()), session_id.clone())
+        }
+        // The other postures belong to other agents; a codex launch without an
+        // MCP block is legal (an agent shell) and just means no tools.
+        _ => (None, None),
+    };
+    codex_wire::thread_config(
+        mcp_url.as_deref(),
+        mcp_session.as_deref().unwrap_or(&shared.spec.session_id),
+        roots,
+    )
+}
+
 fn start_pumps(
     shared: &Arc<Shared>,
     cx: &ConnectionTo<Client>,
     notifications: flume::Receiver<(String, Value)>,
     requests: flume::Receiver<ServerRequest>,
 ) {
+    if shared.pumping.swap(true, Ordering::SeqCst) {
+        return;
+    }
     let notification_shared = shared.clone();
     let notification_cx = cx.clone();
     let _ = cx.spawn(async move {
@@ -2398,10 +2440,22 @@ fn answer(shared: &Arc<Shared>, key: &str, request: &ServerRequest, result: Valu
 // History: session/load and session/list
 // ---------------------------------------------------------------------------
 
-async fn replay_thread(
+/// `session/load`, both of its callers: the read-only transcript replay AND
+/// the RESUME of an ended ACP run (`ResumeHandle::Acp`, `host.rs`) — the host
+/// routes both here, and only `spec.replay` tells them apart.
+///
+/// A replay reads the rollout and stops. A resume has to come back STEERABLE,
+/// which takes the two things `open_thread` does for a fresh thread and a
+/// `thread/read` does not: `thread/resume` (codex has no live thread until it
+/// is asked for one) and [`start_pumps`] (without them nothing drains
+/// notifications or approvals, so the first prompt's `wait_for_turn` never
+/// returns and the run wedges with no symptom).
+async fn load_thread(
     shared: &Arc<Shared>,
     cx: &ConnectionTo<Client>,
     request: LoadSessionRequest,
+    notifications: flume::Receiver<(String, Value)>,
+    requests: flume::Receiver<ServerRequest>,
 ) -> Result<LoadSessionResponse, Error> {
     let thread_id = request.session_id.0.to_string();
     if let Ok(mut slot) = shared.session_id.lock() {
@@ -2437,9 +2491,55 @@ async fn replay_thread(
             }
         }
     }
+    if !shared.spec.replay {
+        resume_loaded_thread(shared, cx, &thread_id, &request.cwd, notifications, requests).await?;
+    }
     Ok(LoadSessionResponse::new()
         .modes(mode_state(shared))
         .config_options(config_options(shared)))
+}
+
+/// The half a RESUME needs on top of the history: `open_thread`'s tail, in its
+/// order. A `thread/read` leaves codex with no live thread and this host with
+/// no pumps, which is exactly what wedged a resumed run — the first prompt
+/// reached `turn/start` and nothing ever drained the answer.
+async fn resume_loaded_thread(
+    shared: &Arc<Shared>,
+    cx: &ConnectionTo<Client>,
+    thread_id: &str,
+    cwd: &Path,
+    notifications: flume::Receiver<(String, Value)>,
+    requests: flume::Receiver<ServerRequest>,
+) -> Result<(), Error> {
+    let roots = vec![cwd.to_path_buf()];
+    if let Ok(mut slot) = shared.roots.lock() {
+        *slot = roots.clone();
+    }
+    let config = thread_config_for(shared, &roots);
+    // EXP-763: the run playbook, on start AND resume — same text both times.
+    let response = call(
+        shared,
+        "thread/resume",
+        codex_wire::thread_resume_params(thread_id, cwd, config, Some(coding::skill::RUN_SKILL)),
+    )
+    .await?;
+    // The thread codex actually re-opened is the one every later `turn/start`
+    // has to name (`run_prompt` reads this slot), so the response wins over
+    // the id we were loaded with — normally the same string.
+    if let Some(id) = response
+        .get("thread")
+        .and_then(|thread| thread.get("id"))
+        .and_then(Value::as_str)
+    {
+        if let Ok(mut slot) = shared.session_id.lock() {
+            *slot = Some(SessionId::new(id));
+        }
+    }
+    // Only now, like `open_thread`: the channels buffer from spawn, so the
+    // resume's own frames are still there to drain.
+    start_pumps(shared, cx, notifications, requests);
+    seed_config(shared, &response).await;
+    Ok(())
 }
 
 async fn list_threads(

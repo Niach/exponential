@@ -1,3 +1,8 @@
+- Pilotage v2 : changez le modèle, l'effort et le mode de l'agent depuis la session en cours avec des chips au-dessus du champ ; les indicateurs de contexte et d'usage se mettent à jour au fur et à mesure que l'exécution les remonte
+- Exécutions passées : les sessions terminées sont listées par appareil avec « Resume », pour reprendre une exécution qui s'est terminée
+- Chat sans dépôt : un chat lancé depuis la feuille « Start coding » n'a plus besoin d'un dépôt et tourne dans un dossier temporaire avec les seuls outils Exponential
+- Choix de l'agent : quand un appareil peut lancer un agent mais pas le piloter sur la page de session, le sélecteur indique qu'il démarre dans un terminal au lieu de basculer en silence
+- Flux de pilotage : les identifiants d'issues comme #EXP-12 deviennent des chips sur lesquelles vous pouvez appuyer, et les commandes de l'agent s'affichent comme des badges de commande
 - Relations entre issues : liez des issues comme parent, sous-issue, bloque, bloquée par, doublon ou liée depuis la feuille de propriétés ; taper #EXP-12 dans une description ou un commentaire lie les deux issues tout seul
 - Commentaires en fil : répondez sous un commentaire depuis le champ ancré ; les fils restent sur un seul niveau, et un commentaire posté par un agent via MCP l'indique dans son en-tête
 - Un premier lancement guidé : créer une équipe vous fait passer par le premier board, les invitations de coéquipiers et la configuration des appareils, dans le même ordre que sur le web et le bureau

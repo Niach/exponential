@@ -200,7 +200,10 @@ pub fn attend_acp(session: &Arc<RunningSession>) -> CommandResult {
         });
     }
 
-    let exit = session.wait_detailed();
+    // The line attach has no raw mode, so Ctrl-C reaches THIS process alone
+    // (the agent child lives in its own process group): without the handler
+    // the CLI would exit and leave the agent editing and pushing.
+    let exit = wait_interruptible(session);
     println!();
     print_exit(&exit)
 }
@@ -600,16 +603,26 @@ fn lock(state: &Mutex<AttachState>) -> std::sync::MutexGuard<'_, AttachState> {
 /// Detached wait: Ctrl-C / SIGTERM end the session cleanly (kill the child,
 /// end the row) instead of orphaning a `running` badge.
 pub fn wait_with_signals(session: &Arc<RunningSession>) -> CommandResult {
+    print_exit(&wait_interruptible(session))
+}
+
+/// The ONE interrupt-aware wait the detached wait and the ACP attach share.
+/// Neither has a PTY in raw mode relaying the keystroke, and the agent child
+/// runs in its OWN process group (`engine::transport`), so a signal reaches
+/// this process only: without killing the session first the CLI would exit
+/// while the agent kept editing and pushing. `kill` shuts the session down
+/// (the transport's EOF → SIGTERM → SIGKILL teardown), then we wait for the
+/// real exit so the row ends before the process does.
+fn wait_interruptible(session: &Arc<RunningSession>) -> session_host::SessionExit {
     crate::commands::daemon::install_signal_handler();
     loop {
         if crate::commands::daemon::shutdown_requested() {
             eprintln!("Stopping the session...");
             session.kill();
-            let exit = session.wait();
-            return Ok(if exit.success { ExitCode::SUCCESS } else { ExitCode::FAILURE });
+            return session.wait_detailed();
         }
         if let Some(exit) = session.wait_timeout_detailed(Duration::from_millis(500)) {
-            return print_exit(&exit);
+            return exit;
         }
     }
 }

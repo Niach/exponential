@@ -1,3 +1,8 @@
+- Orientação v2: mude o modelo, o esforço e o modo do agente a partir da sessão em curso com chips por cima do editor; as leituras de contexto e de utilização atualizam-se à medida que a execução as reporta
+- Execuções anteriores: as sessões terminadas são listadas por dispositivo com «Resume», para retomar uma execução que já acabou
+- Chat sem repositório: um chat aberto a partir da folha «Start coding» já não precisa de repositório e corre numa pasta temporária apenas com as ferramentas do Exponential
+- Escolha do agente: quando um dispositivo consegue executar um agente mas não orientá-lo na página da sessão, a escolha avisa que arranca num terminal em vez de mudar em silêncio
+- Fluxo de orientação: os identificadores de issues como #EXP-12 passam a chips em que pode tocar, e os comandos do agente aparecem como etiquetas de comando
 - Relações entre issues: ligue issues como pai, subissue, bloqueia, bloqueada por, duplicado ou relacionada a partir da folha de propriedades; escrever #EXP-12 numa descrição ou num comentário liga as duas issues sozinho
 - Comentários em fio: responda por baixo de um comentário a partir do editor fixo; os fios ficam por um nível, e um comentário publicado por um agente via MCP di-lo no seu cabeçalho
 - Um primeiro arranque guiado: criar uma equipa passa pelo primeiro board, pelos convites a colegas e pela configuração de dispositivos, pela mesma ordem que na web e no desktop

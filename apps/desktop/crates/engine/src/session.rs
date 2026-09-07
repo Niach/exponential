@@ -170,6 +170,7 @@ impl EngineSession {
             session_id: String::new(),
             prompt: None,
             resume: Some(resume.clone()),
+            replay: true,
             personal_key: personal_key.clone(),
             reaper_settings_path: None,
             exit: child_exit.clone(),
@@ -383,6 +384,7 @@ pub fn start(start: EngineStart, host: Arc<dyn EngineHost>) -> Result<EngineSess
         session_id: acp.session_id.clone(),
         prompt: acp.prompt.clone(),
         resume: acp.resume.clone().map(ResumeHandle::from),
+        replay: false,
         personal_key: start.personal_key.clone(),
         reaper_settings_path: acp.reaper_settings_path.clone(),
     exit: child_exit.clone(),
@@ -559,6 +561,11 @@ where
     let spawned = std::thread::Builder::new()
         .name(thread_name(&ctx.session_id))
         .spawn(move || {
+            // The exit slot is flipped by `RunLifecycle::end` alone, so a
+            // PANIC under `run_session` would leave `is_done()` false forever
+            // — the daemon's `LiveSession` never leaves its map and a
+            // self-update parks behind it. The guard flips it on an unwind.
+            let mut guard = ExitGuard::arm(&thread_ctx.exit, &thread_ctx.session_id);
             let runtime = Arc::clone(&thread_ctx.runtime);
             let result = runtime
                 .handle()
@@ -571,6 +578,7 @@ where
             let outcome = thread_ctx.end_outcome();
             let child = thread_ctx.child_exit.get();
             lifecycle.end(&thread_ctx, host.as_ref(), &outcome, child, error);
+            guard.disarm();
         });
     match spawned {
         Ok(_) => Ok(EngineSession(Arc::new(Inner {
@@ -579,6 +587,49 @@ where
             commands,
         }))),
         Err(err) => Err(EngineError::Spawn(err)),
+    }
+}
+
+/// The engine thread's last resort: an exit for a run that never reached
+/// `RunLifecycle::end`.
+///
+/// `end` is the ONLY writer of the exit slot, and a panic anywhere under
+/// `run_session` skips it — leaving `is_done()` false and every `wait()`
+/// blocked for the life of the process. Armed for the whole thread body and
+/// disarmed once `end` returned, so the normal path never writes twice.
+///
+/// Deliberately minimal: it flips the slot and nothing else. It runs on an
+/// UNWINDING thread, where any lock the panic was holding is poisoned, so it
+/// touches only `ExitState::finish` (which recovers from a poisoned summary
+/// by skipping it) — no publisher, no row end, no host callback.
+struct ExitGuard<'a> {
+    exit: &'a ExitState,
+    session_id: &'a str,
+    armed: bool,
+}
+
+impl<'a> ExitGuard<'a> {
+    fn arm(exit: &'a ExitState, session_id: &'a str) -> Self {
+        ExitGuard { exit, session_id, armed: true }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for ExitGuard<'_> {
+    fn drop(&mut self) {
+        if !self.armed || self.exit.is_done() {
+            return;
+        }
+        self.exit.finish(&EngineExit {
+            session_id: self.session_id.to_string(),
+            outcome: "ended".to_string(),
+            child: None,
+            error: Some("the engine thread ended unexpectedly".to_string()),
+            end: None,
+        });
     }
 }
 
@@ -706,6 +757,26 @@ impl From<api::error::ApiError> for EngineError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A run that dies without reaching `RunLifecycle::end` (a panic under
+    /// `run_session`) STILL ends: the daemon reaps on `is_done`, so a slot
+    /// that never flips parks a self-update forever. The normal path disarms
+    /// the guard, so it never writes over the real exit.
+    #[test]
+    fn the_exit_guard_finishes_a_run_that_never_ended() {
+        let exit = ExitState::default();
+        drop(ExitGuard::arm(&exit, "sess-1"));
+        assert!(exit.is_done());
+        let finished = exit.wait(Some(Duration::from_millis(0))).expect("an exit");
+        assert_eq!(finished.session_id, "sess-1");
+        assert!(finished.error.is_some());
+
+        let ended = ExitState::default();
+        let mut guard = ExitGuard::arm(&ended, "sess-2");
+        guard.disarm();
+        drop(guard);
+        assert!(!ended.is_done());
+    }
 
     #[test]
     fn a_resume_seed_becomes_a_resume_handle() {
