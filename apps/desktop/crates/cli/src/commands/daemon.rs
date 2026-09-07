@@ -1234,15 +1234,9 @@ fn remote_issue_start(
             start_resume,
         )),
     };
-    // EXP-758: binds only the sidecar this launch's agent can use (none
-    // for codex, none for an external ACP agent).
-    let wired = sidecars.for_launch(launch::request_agent(&request));
-    let prepared = coding::prepare_with_hooks(
-        &request,
-        &deps,
-        wired.hooks.as_ref(),
-        wired.observer.as_ref(),
-    )
+    // EXP-761: the sidecars bind inside `prepare` — on its Terminal arm
+    // only, for the launched CLI's own one. An ACP launch binds nothing.
+    let prepared = coding::prepare_with_hooks(&request, &deps, &*sidecars)
     .map_err(|err| anyhow::anyhow!("{err}"))?;
     spawn_prepared(
         ctx, sidecars, runtime, sessions, personal_key, prepared,
@@ -1331,15 +1325,9 @@ fn remote_batch_start(
     };
     let deps = launch::coding_deps(ctx, seeds, launch::LaunchHost::Daemon, runtime);
     let request = PrepareRequest::Batch(request);
-    // EXP-758: binds only the sidecar this launch's agent can use (none
-    // for codex, none for an external ACP agent).
-    let wired = sidecars.for_launch(launch::request_agent(&request));
-    let prepared = coding::prepare_with_hooks(
-        &request,
-        &deps,
-        wired.hooks.as_ref(),
-        wired.observer.as_ref(),
-    )
+    // EXP-761: the sidecars bind inside `prepare` — on its Terminal arm
+    // only, for the launched CLI's own one. An ACP launch binds nothing.
+    let prepared = coding::prepare_with_hooks(&request, &deps, &*sidecars)
     .map_err(|err| anyhow::anyhow!("{err}"))?;
     spawn_prepared(ctx, sidecars, runtime, sessions, personal_key, prepared, None, false)
 }
@@ -1416,15 +1404,9 @@ fn remote_action_start(
 
     let deps = launch::coding_deps(ctx, HashMap::new(), launch::LaunchHost::Daemon, runtime);
     let request = PrepareRequest::Action(request);
-    // EXP-758: binds only the sidecar this launch's agent can use (none
-    // for codex, none for an external ACP agent).
-    let wired = sidecars.for_launch(launch::request_agent(&request));
-    let prepared = coding::prepare_with_hooks(
-        &request,
-        &deps,
-        wired.hooks.as_ref(),
-        wired.observer.as_ref(),
-    )
+    // EXP-761: the sidecars bind inside `prepare` — on its Terminal arm
+    // only, for the launched CLI's own one. An ACP launch binds nothing.
+    let prepared = coding::prepare_with_hooks(&request, &deps, &*sidecars)
     .map_err(|err| anyhow::anyhow!("{err}"))?;
     spawn_prepared(ctx, sidecars, runtime, sessions, personal_key, prepared, None, is_fix_run)
 }
@@ -1487,15 +1469,9 @@ fn remote_resume_start(
     };
     let deps = launch::coding_deps(ctx, seeds, launch::LaunchHost::Daemon, runtime);
     let request = PrepareRequest::ResumeRun(request);
-    // EXP-758: binds only the sidecar this launch's agent can use (none
-    // for codex, none for an external ACP agent).
-    let wired = sidecars.for_launch(launch::request_agent(&request));
-    let prepared = coding::prepare_with_hooks(
-        &request,
-        &deps,
-        wired.hooks.as_ref(),
-        wired.observer.as_ref(),
-    )
+    // EXP-761: the sidecars bind inside `prepare` — on its Terminal arm
+    // only, for the launched CLI's own one. An ACP launch binds nothing.
+    let prepared = coding::prepare_with_hooks(&request, &deps, &*sidecars)
     .map_err(|err| anyhow::anyhow!("{err}"))?;
     spawn_prepared(ctx, sidecars, runtime, sessions, personal_key, prepared, issue_id, false)
 }
@@ -2360,14 +2336,9 @@ impl AutomationHost {
             self.runtime.as_ref(),
         );
         let request = PrepareRequest::Action(request);
-        // EXP-758: binds only the sidecar this launch's agent can use.
-        let wired = self.sidecars.for_launch(launch::request_agent(&request));
-        let prepared = coding::prepare_with_hooks(
-            &request,
-            &deps,
-            wired.hooks.as_ref(),
-            wired.observer.as_ref(),
-        )
+        // EXP-761: the sidecars bind inside `prepare` — on its Terminal arm
+        // only, for the launched CLI's own one. An ACP launch binds nothing.
+        let prepared = coding::prepare_with_hooks(&request, &deps, &*self.sidecars)
         .map_err(|err| anyhow::anyhow!("{err}"))?;
         if let Prepared::Disabled(reason) = &prepared {
             log::warn!("automation run refused: {}", reason.message());

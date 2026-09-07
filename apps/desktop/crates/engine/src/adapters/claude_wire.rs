@@ -1159,22 +1159,37 @@ impl TokenSnapshot {
     }
 }
 
+/// A context window read off `result.modelUsage`: `exact` when it is the
+/// session model's own entry, false when it is the map's largest window
+/// (the id spelled differently, or a turn the session model never ran in).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ContextWindowReport {
+    pub window: u64,
+    pub exact: bool,
+}
+
 /// The authoritative context window for `model`, from `result.modelUsage`.
 /// Falls back to the largest window reported for any model in the map, which
-/// is what the turn actually ran against when the id is spelled differently.
-pub fn context_window_from_model_usage(model_usage: &Value, model: &str) -> Option<u64> {
+/// is what the turn actually ran against when the id is spelled differently
+/// (EXP-761: the adapter keeps the first exact report for the whole session,
+/// so a fallback read on a later, helper-only turn never replaces it).
+pub fn context_window_from_model_usage(
+    model_usage: &Value,
+    model: &str,
+) -> Option<ContextWindowReport> {
     let entries = model_usage.as_object()?;
     if let Some(window) = entries
         .get(model)
         .and_then(|entry| entry.get("contextWindow"))
         .and_then(Value::as_u64)
     {
-        return Some(window);
+        return Some(ContextWindowReport { window, exact: true });
     }
     entries
         .values()
         .filter_map(|entry| entry.get("contextWindow").and_then(Value::as_u64))
         .max()
+        .map(|window| ContextWindowReport { window, exact: false })
 }
 
 /// The heuristic the upstream adapter uses before any authoritative number
@@ -1832,10 +1847,14 @@ mod tests {
         });
         assert_eq!(
             context_window_from_model_usage(&model_usage, "claude-opus-5[1m]"),
-            Some(1_000_000)
+            Some(ContextWindowReport { window: 1_000_000, exact: true })
         );
-        // An id spelled differently still resolves to the turn's real window.
-        assert_eq!(context_window_from_model_usage(&model_usage, "opus"), Some(1_000_000));
+        // An id spelled differently still resolves to the turn's real window
+        // — flagged as the fallback it is.
+        assert_eq!(
+            context_window_from_model_usage(&model_usage, "opus"),
+            Some(ContextWindowReport { window: 1_000_000, exact: false })
+        );
         assert_eq!(context_window_from_model_usage(&json!({}), "opus"), None);
         assert_eq!(infer_context_window("claude-opus-5[1m]"), 1_000_000);
         assert_eq!(infer_context_window("claude-sonnet-5"), 200_000);

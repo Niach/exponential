@@ -75,15 +75,9 @@ pub fn run(args: &[String]) -> CommandResult {
     let personal_key = context::ensure_personal_key(&ctx).ok();
 
     let request = PrepareRequest::Action(request);
-    // EXP-758: binds only the sidecar this launch's agent can use: a codex
-    // run (or an external ACP agent) binds neither server.
-    let wired = sidecars.for_launch(launch::request_agent(&request));
-    let prepared = coding::prepare_with_hooks(
-        &request,
-        &deps,
-        wired.hooks.as_ref(),
-        wired.observer.as_ref(),
-    )
+    // EXP-761: the sidecars bind inside `prepare` — on its Terminal arm
+    // only, for the launched CLI's own one. An ACP launch binds nothing.
+    let prepared = coding::prepare_with_hooks(&request, &deps, &sidecars)
     .map_err(|err| anyhow!("{err}"))?;
     let prepared = match prepared {
         Prepared::Ready(prepared) => prepared,

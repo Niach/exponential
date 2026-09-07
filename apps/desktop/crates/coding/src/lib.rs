@@ -125,12 +125,14 @@ pub use launcher::{set_session_end_observer, start_heartbeat, HeartbeatStop};
 pub use launcher::SESSION_HEARTBEAT_INTERVAL;
 pub use launcher::{
     claude_projects_root, claude_transcript_exists, default_device_label, end_session,
-    end_session_best_effort, prepare, prepare_agent_shell,
-    prepare_with_hooks, resolve_transport, resolve_transport_with_reason, transport_notice,
+    end_session_best_effort, locate_claude_transcript, prepare, prepare_agent_shell,
+    prepare_with_hooks, resolve_pty_sidecars, resolve_transport, resolve_transport_with_reason,
+    transport_notice,
     AcpLaunch, ActionLaunchRequest, ActionRunKind,
     AgentShellLaunch, AgentShellRequest, CodingDeps, CodingError, DisabledReason,
     GitWorktrees, HookSetup, IssueSeed, IssueSeedFn, LaunchOrigin, LaunchOutcome, LaunchRequest,
-    LaunchTransport, ObserverSetup, ResumeRunRequest, ResumeSeed, SessionEndObserver,
+    LaunchTransport, NoSidecars, ObserverSetup, ResumeRunRequest, ResumeSeed, SessionEndObserver,
+    SidecarSource,
     Prepared, PreparedAgentShell, PrepareRequest, PreparedLaunch, TransportChoice,
     TransportFallback, WorktreeProvider,
 };
