@@ -88,6 +88,22 @@ fn screen_window(screen: &Screen, cx: &App) -> Option<AnyWindowHandle> {
     state(cx).and_then(|state| state.read(cx).screens.get(screen).copied())
 }
 
+/// EXP-771: bring the window that ALREADY shows `screen` forward, if there is
+/// one. `true` = the screen is undocked and was revealed, so the caller must
+/// not open a second copy of it in its own tab strip (an undocked issue used
+/// to reopen as a docked tab on the next click from the list, search or an
+/// issue ref, leaving the same issue in two windows).
+///
+/// Only [`Screen::undockable`] screens can ever answer `true` — nothing else
+/// reaches the registry — so callers may check it unconditionally.
+pub(crate) fn reveal_screen(screen: &Screen, cx: &mut App) -> bool {
+    let Some(handle) = screen_window(screen, cx) else {
+        return false;
+    };
+    activate_window(handle, cx);
+    true
+}
+
 fn terminal_tab_window(id: TabId, cx: &App) -> Option<AnyWindowHandle> {
     state(cx).and_then(|state| state.read(cx).terminal_tabs.get(&id).map(|entry| entry.handle))
 }
