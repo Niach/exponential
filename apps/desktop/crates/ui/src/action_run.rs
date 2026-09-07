@@ -123,35 +123,13 @@ pub(crate) fn fetch_repositories(
     trpc.query_with_input("repositories.list", &Input { team_id })
 }
 
-/// The ONE repository dropdown (EXP-615): the launch dialog's Chat tab and
-/// the create-action dialog pick a repo through this, so the two read
-/// identically. `optional` adds the leading "None" row (the create dialog's
-/// repo-less default); `pick` writes the choice back onto the host view.
-pub(crate) fn repo_dropdown<V: gpui::Render>(
-    id: SharedString,
-    picked: Option<&ActionRepoRow>,
-    repos: Vec<ActionRepoRow>,
-    optional: bool,
-    pick: fn(&mut V, Option<ActionRepoRow>, &mut gpui::Context<V>),
-    cx: &mut gpui::Context<V>,
-) -> impl gpui::IntoElement {
-    use crate::controls::WebControl as _;
-    use gpui_component::button::Button;
-
-    let label: SharedString = match picked {
-        Some(repo) => repo.full_name.clone().into(),
-        // Web parity ("Select a repository" placeholder), in the desktop's
-        // own ellipsis form like every other picker in these dialogs.
-        None => "Select a repository…".into(),
-    };
-    let trigger = Button::new(id).outline().web_input_sm().label(label);
-    repo_menu(trigger, repos, optional, pick, cx)
-}
-
-/// EXP-694 — the same dropdown as a GROUPED picker row (S2/S7): the label
-/// leading, the picked repo trailing at 70% behind a caret, and no field
-/// chrome — the group IS the field. Same behavior as [`repo_dropdown`]; only
-/// the trigger's clothes differ (the launch_options `choice_pin_row` idiom).
+/// The ONE repository picker (EXP-615/EXP-694) as a GROUPED picker row
+/// (S2/S7): the label leading, the picked repo trailing at 70% behind a caret,
+/// and no field chrome — the group IS the field (the launch_options
+/// `choice_pin_row` idiom). The launch dialog's Chat tab and the create-action
+/// dialog pick a repo through this, so the two read identically. `optional`
+/// adds the leading "None" row (the repo-less default); `pick` writes the
+/// choice back onto the host view.
 pub(crate) fn repo_picker_row<V: gpui::Render>(
     label: impl Into<SharedString>,
     id: SharedString,

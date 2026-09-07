@@ -248,24 +248,6 @@ pub(crate) fn agent_tabs_row<V: Render>(
     surface::glass_tabs_row().children(agent_segments(id, pills, active, on_select, true, cx))
 }
 
-/// A labeled field column with an optional muted hint under the control.
-pub(crate) fn labeled_field(
-    label: impl Into<SharedString>,
-    field: gpui::AnyElement,
-    hint: Option<&'static str>,
-    cx: &App,
-) -> impl IntoElement {
-    let muted = cx.theme().muted_foreground;
-    v_flex()
-        .flex_1()
-        .gap_1()
-        .child(div().text_xs().text_color(muted).child(label.into()))
-        .child(field)
-        .when_some(hint, |this, hint| {
-            this.child(div().text_xs().text_color(muted.opacity(0.7)).child(hint))
-        })
-}
-
 /// The label a pin shows for `picked` — the choice's own label, or the
 /// "CLI default" sentinel while nothing is pinned.
 fn pin_label(choices: &'static [(&'static str, &'static str)], picked: Option<&str>) -> String {

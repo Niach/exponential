@@ -75,7 +75,6 @@ use gpui::{
 use crate::controls::{glass_input, WebControl as _};
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    checkbox::Checkbox,
     h_flex,
     input::{InputEvent, InputState, Textarea, TextareaState},
     menu::{DropdownMenu as _, PopupMenuItem},
@@ -91,12 +90,13 @@ use coding::{
     run_registry::RunRecord, ActionInputValue, BatchIssueSpec, BatchLaunchRequest, LaunchOptions,
     LaunchOrigin, Prepared, PrepareRequest, RepoGroup, ResumeRunRequest,
 };
-use domain::IssueStatus;
+use domain::options::get_issue_priority_config;
+use domain::{IssuePriority, IssueStatus};
 
 use crate::action_run::{self, ActionRepo, ActionRepoRow, StartActionArgs};
 use crate::coding_flow::{self, CodingHub, SessionSubject};
 use crate::launch_options::{self, LaunchOptionsSection};
-use crate::icons::registry;
+use crate::icons::{option_icon, registry, resolved_status_icon};
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::queries;
 
@@ -364,6 +364,11 @@ struct IssueRow {
     /// Status snapshot at open — the launcher's step 6.5 flips backlog
     /// to `in_progress` at launch (EXP-194).
     status: IssueStatus,
+    /// EXP-768: the row wears the issue-list anatomy on every client —
+    /// priority glyph + resolved status glyph beside the identifier, both
+    /// snapshotted at open like the rest of the row.
+    priority: IssuePriority,
+    resolved: domain::statuses::ResolvedStatus,
     /// The closed-state note (`done`/`cancelled`/`duplicate`/PR-merged),
     /// shown muted next to the title. Only pre-seeded rows can carry one
     /// (EXP-119 filters closed rows out of the pool) — it flags a re-run.
@@ -575,9 +580,11 @@ impl StartCodingDialogView {
                 .then_with(|| a.number.cmp(&b.number))
         });
         let mut checked = HashSet::new();
+        let app: &App = cx;
         let rows: Vec<IssueRow> = issues
             .into_iter()
             .map(|issue| {
+                let resolved = queries::resolve_issue_status(app, &issue);
                 let merged = issue.pr_state.as_deref() == Some("merged");
                 let state_hint = if merged {
                     Some("PR merged")
@@ -601,6 +608,8 @@ impl StartCodingDialogView {
                     title: issue.title,
                     description: issue.description,
                     status: issue.status,
+                    priority: issue.priority,
+                    resolved,
                     state_hint,
                 }
             })
@@ -2079,8 +2088,10 @@ impl StartCodingDialogView {
 
     // -- render pieces --------------------------------------------------------
 
-    /// One checklist row: checkbox + identifier + title (+ state hint or the
-    /// probe's exclusion note).
+    /// One checklist row (EXP-768, the mobile anatomy on every client):
+    /// selection glyph · priority · identifier · status · title (+ state hint
+    /// or the probe's exclusion note). A hairline-divided row of the picker
+    /// group, tinted while checked, the whole row toggles.
     fn issue_row(&self, ix: usize, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let row = &self.rows[ix];
         let theme = cx.theme();
@@ -2097,48 +2108,98 @@ impl StartCodingDialogView {
             _ => None,
         };
         let toggle_id = row.issue_id.clone();
+        let priority = get_issue_priority_config(row.priority);
 
-        h_flex()
-            .w_full()
-            .items_center()
-            .gap_2()
+        crate::surface::glass_row_divider(
+            h_flex()
+                .id(SharedString::from(format!("sc-check-{}", row.issue_id)))
+                .w_full()
+                .items_center()
+                .gap_2p5()
+                .px_4()
+                .py_2()
+                .cursor_pointer()
+                .when(is_checked, |this| this.bg(theme.accent.opacity(0.4)))
+                .hover(|this| this.bg(theme.accent.opacity(0.3)))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                    this.toggle_checked(toggle_id.clone(), !is_checked, cx);
+                })),
+        )
+        .child(
+            Icon::new(if is_checked {
+                registry::UI_SELECTED
+            } else {
+                registry::UI_UNSELECTED
+            })
+            .small()
+            .text_color(if is_checked { theme.foreground } else { muted }),
+        )
+        .child(option_icon(priority, cx).xsmall())
+        .child(
+            div()
+                .flex_shrink_0()
+                .min_w(px(60.))
+                .text_xs()
+                .text_color(muted)
+                .font_family(theme::terminal::FONT_FAMILY)
+                .child(SharedString::from(row.identifier.clone())),
+        )
+        .child(resolved_status_icon(&row.resolved, cx).xsmall())
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_sm()
+                .truncate()
+                .text_color(theme.foreground)
+                .child(SharedString::from(row.title.clone())),
+        )
+        .when_some(
+            probe_note.or_else(|| row.state_hint.map(SharedString::from)),
+            |this, note| {
+                this.child(
+                    div()
+                        .flex_shrink_0()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(note),
+                )
+            },
+        )
+        .into_any_element()
+    }
+
+    /// EXP-768: the SEARCH row heading a picker group — the search glyph
+    /// leading, a chrome-less field filling the row (the Android
+    /// `GlassTextField(bordered = false)` / web `GlassSearchRow` twin). The
+    /// list it filters follows as the group's next child.
+    fn search_row(&self, state: &Entity<InputState>, window: &Window, cx: &App) -> gpui::Div {
+        let muted = cx.theme().muted_foreground;
+        crate::surface::glass_row_shell()
+            .child(Icon::new(registry::NAV_SEARCH).small().text_color(muted))
             .child(
-                Checkbox::new(SharedString::from(format!("sc-check-{}", row.issue_id)))
-                    .checked(is_checked)
-                    .on_click(cx.listener(move |this, on: &bool, _, cx| {
-                        this.toggle_checked(toggle_id.clone(), *on, cx);
-                    })),
+                div().flex_1().min_w_0().child(
+                    glass_input(state, window, cx)
+                        .appearance(false)
+                        .h_auto()
+                        .px_0()
+                        .py_0()
+                        .cleanable(true),
+                ),
             )
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_xs()
-                    .text_color(muted)
-                    .font_family(theme::terminal::FONT_FAMILY)
-                    .child(SharedString::from(row.identifier.clone())),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_sm()
-                    .truncate()
-                    .text_color(theme.foreground)
-                    .child(SharedString::from(row.title.clone())),
-            )
-            .when_some(
-                probe_note.or_else(|| row.state_hint.map(SharedString::from)),
-                |this, note| {
-                    this.child(
-                        div()
-                            .flex_shrink_0()
-                            .text_xs()
-                            .text_color(muted)
-                            .child(note),
-                    )
-                },
-            )
-            .into_any_element()
+    }
+
+    /// EXP-768: one muted, hairline-divided NOTE row of a picker group (the
+    /// empty / no-match / overflow copy) on the same rhythm as its rows.
+    fn list_note(text: impl Into<SharedString>, cx: &App) -> gpui::Div {
+        crate::surface::glass_row_divider(
+            div()
+                .px_4()
+                .py_3()
+                .text_sm()
+                .text_color(cx.theme().foreground.opacity(0.7))
+                .child(text.into()),
+        )
     }
 
     /// EXP-202/EXP-662: the "Resume previous session" switch row —
@@ -2282,17 +2343,33 @@ impl StartCodingDialogView {
     /// dropdown carries a "None" row and no repositories is not a blocker).
     /// Both fields come from the hidden builtin's own input definitions, so
     /// their labels/placeholder cannot drift from the other three clients.
+    ///
+    /// EXP-768: two glass groups like the other three clients — the prompt
+    /// card carries its "Prompt" caption INSIDE, above the chrome-less field
+    /// (never a section title over the card), and the repository is a grouped
+    /// picker row of its own.
     fn chat_pane(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        let muted = cx.theme().muted_foreground;
+        let foreground = cx.theme().foreground;
         let repos = self.team_repos.clone();
-        let repo_field: gpui::AnyElement = if repos.is_empty() {
-            div()
-                .text_xs()
-                .text_color(muted)
-                .child("No repositories connected. The chat runs without one.")
-                .into_any_element()
+        let repo_group = if repos.is_empty() {
+            crate::surface::glass_group().child(
+                crate::surface::glass_row_shell().child(
+                    v_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .gap_0p5()
+                        .child(div().text_sm().text_color(foreground).child("Repository"))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(foreground.opacity(0.5))
+                                .child("No repository connected. The chat runs without one."),
+                        ),
+                ),
+            )
         } else {
-            action_run::repo_dropdown(
+            crate::surface::glass_group_rows(vec![action_run::repo_picker_row(
+                "Repository",
                 "sc-chat-repo".into(),
                 self.chat_repo.as_ref(),
                 repos,
@@ -2302,24 +2379,28 @@ impl StartCodingDialogView {
                     cx.notify();
                 },
                 cx,
-            )
-            .into_any_element()
+            )])
         };
+        let prompt_group = crate::surface::glass_group().child(
+            v_flex()
+                .w_full()
+                .gap_1()
+                .px_4()
+                .py_3()
+                .child(div().text_xs().text_color(foreground.opacity(0.5)).child("Prompt"))
+                .child(
+                    Textarea::new(&self.chat_prompt)
+                        .appearance(false)
+                        .w_full()
+                        .px_0()
+                        .py_0(),
+                ),
+        );
         v_flex()
             .w_full()
-            .gap_3()
-            .child(launch_options::labeled_field(
-                "Prompt",
-                Textarea::new(&self.chat_prompt).into_any_element(),
-                None,
-                cx,
-            ))
-            .child(launch_options::labeled_field(
-                "Repository",
-                repo_field,
-                None,
-                cx,
-            ))
+            .gap_2()
+            .child(prompt_group)
+            .child(repo_group)
             .into_any_element()
     }
 
@@ -2346,54 +2427,58 @@ impl StartCodingDialogView {
             .map(str::trim)
             .filter(|text| !text.is_empty())
             .map(|text| SharedString::from(text.to_string()));
-        h_flex()
-            .id(SharedString::from(format!("sc-action-{}", action.id)))
-            .w_full()
-            .items_center()
-            .gap_2()
-            .px_1p5()
-            .py_1()
-            .rounded(theme.radius)
-            .when(is_selected, |this| this.bg(theme.accent.opacity(0.4)))
-            .hover(|this| this.bg(theme.accent.opacity(0.3)))
-            .on_click(cx.listener(move |this, _: &gpui::ClickEvent, window, cx| {
-                this.select_action(select_id.clone(), window, cx);
-            }))
-            .child(
-                Icon::new(if is_selected {
-                    registry::UI_SELECTED
-                } else {
-                    registry::UI_UNSELECTED
-                })
-                .small()
-                .text_color(if is_selected { theme.foreground } else { muted }),
-            )
-            // EXP-273: each action draws its own curated glyph (the builtins
-            // set one explicitly), so the row reads the same as the web list.
-            .child(crate::icons::action_icon(action.icon.as_deref()).xsmall().text_color(muted))
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .child(
-                        div()
-                            .text_sm()
-                            .truncate()
-                            .text_color(theme.foreground)
-                            .child(SharedString::from(action.name.clone())),
-                    )
-                    // ONE line, ellipsised (the iOS `lineLimit(1)` twin) — a
-                    // wrapping blurb would make the four-row pane scroll on
-                    // its first paint.
-                    .children(description.map(|text| {
-                        div()
-                            .text_xs()
-                            .truncate()
-                            .text_color(muted)
-                            .child(text)
-                    })),
-            )
-            .into_any_element()
+        // EXP-768: a hairline-divided row of the picker group (the issue
+        // row's rhythm), no rounded pill of its own.
+        crate::surface::glass_row_divider(
+            h_flex()
+                .id(SharedString::from(format!("sc-action-{}", action.id)))
+                .w_full()
+                .items_center()
+                .gap_2p5()
+                .px_4()
+                .py_2()
+                .cursor_pointer()
+                .when(is_selected, |this| this.bg(theme.accent.opacity(0.4)))
+                .hover(|this| this.bg(theme.accent.opacity(0.3)))
+                .on_click(cx.listener(move |this, _: &gpui::ClickEvent, window, cx| {
+                    this.select_action(select_id.clone(), window, cx);
+                })),
+        )
+        .child(
+            Icon::new(if is_selected {
+                registry::UI_SELECTED
+            } else {
+                registry::UI_UNSELECTED
+            })
+            .small()
+            .text_color(if is_selected { theme.foreground } else { muted }),
+        )
+        // EXP-273: each action draws its own curated glyph (the builtins
+        // set one explicitly), so the row reads the same as the web list.
+        .child(crate::icons::action_icon(action.icon.as_deref()).xsmall().text_color(muted))
+        .child(
+            v_flex()
+                .flex_1()
+                .min_w_0()
+                .child(
+                    div()
+                        .text_sm()
+                        .truncate()
+                        .text_color(theme.foreground)
+                        .child(SharedString::from(action.name.clone())),
+                )
+                // ONE line, ellipsised (the iOS `lineLimit(1)` twin) — a
+                // wrapping blurb would make the four-row pane scroll on
+                // its first paint.
+                .children(description.map(|text| {
+                    div()
+                        .text_xs()
+                        .truncate()
+                        .text_color(muted)
+                        .child(text)
+                })),
+        )
+        .into_any_element()
     }
 
     /// One typed input field for the selected action (EXP-257): text →
@@ -2645,12 +2730,25 @@ impl StartCodingDialogView {
         content: gpui::AnyElement,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
-        div()
-            .relative()
-            .max_h(px(max_h))
+        self.bounded_scroll(id, handle, max_h, content)
             .border_1()
             .border_color(cx.theme().border)
             .rounded(cx.theme().radius)
+    }
+
+    /// The chrome-less half of [`Self::bounded_pane`] (EXP-768): a capped,
+    /// scrollable box with its own scrollbar and no border/radius, for the
+    /// list that sits INSIDE a glass group under its search row.
+    fn bounded_scroll(
+        &self,
+        id: &'static str,
+        handle: &ScrollHandle,
+        max_h: f32,
+        content: gpui::AnyElement,
+    ) -> gpui::Div {
+        div()
+            .relative()
+            .max_h(px(max_h))
             .overflow_hidden()
             .child(
                 div()
@@ -2756,7 +2854,6 @@ impl StartCodingDialogView {
 
 impl Render for StartCodingDialogView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let theme_muted = cx.theme().muted_foreground;
         let danger = cx.theme().danger;
         let warning = cx.theme().warning;
         let checked_count = self.checked.len();
@@ -2780,14 +2877,11 @@ impl Render for StartCodingDialogView {
         let no_matches = !query.is_empty() && match_ixs.is_empty() && !self.rows.is_empty();
         match_ixs.truncate(MAX_UNCHECKED_ROWS);
 
-        let mut checklist = v_flex().gap_1().p_2();
+        // EXP-768: the rows fuse into the picker group under its search row
+        // — every row (and note) draws the hairline above itself.
+        let mut checklist = v_flex().w_full();
         if self.rows.is_empty() {
-            checklist = checklist.child(
-                div()
-                    .text_sm()
-                    .text_color(theme_muted)
-                    .child("No open issues in this board."),
-            );
+            checklist = checklist.child(Self::list_note("No open issues in this board.", cx));
         }
         for ix in checked_ixs {
             checklist = checklist.child(self.issue_row(ix, cx));
@@ -2798,22 +2892,16 @@ impl Render for StartCodingDialogView {
         if no_matches {
             // Without this the scoped pool renders a silently blank list —
             // the filter (open issues, this board only) is invisible.
-            checklist = checklist.child(
-                div()
-                    .text_xs()
-                    .text_color(theme_muted)
-                    .child("No matches. Only open issues from this board are shown."),
-            );
+            checklist = checklist.child(Self::list_note(
+                "No matches. Only open issues from this board are shown.",
+                cx,
+            ));
         }
         if hidden > 0 {
-            checklist = checklist.child(
-                div()
-                    .text_xs()
-                    .text_color(theme_muted)
-                    .child(SharedString::from(format!(
-                        "+{hidden} more. Refine your search."
-                    ))),
-            );
+            checklist = checklist.child(Self::list_note(
+                format!("+{hidden} more. Refine your search."),
+                cx,
+            ));
         }
 
         // ---- resume (EXP-202/EXP-662): single checked issue with a recorded
@@ -2845,22 +2933,24 @@ impl Render for StartCodingDialogView {
         let mut left = v_flex().flex_1().min_w_0().gap_3();
         match self.subject_tab {
             SubjectTab::Issues => {
-                left = left
-                    .child(glass_input(&self.search, window, cx).web_input_sm())
-                    // Bounded, actually-scrollable checklist (EXP-119):
-                    // compose the EXP-67 scroll-pane primitives directly —
-                    // gpui-component's `overflow_y_scrollbar` wrapper drops
-                    // the wrapped element's `max_h`, so the bound never
-                    // constrained the list and it pushed the dialog body
-                    // instead of scrolling. (EXP-213: boxed like the web
-                    // picker.)
-                    .child(self.bounded_pane(
-                        "sc-issues-scroll",
-                        &self.list_scroll.clone(),
-                        360.,
-                        checklist.into_any_element(),
-                        cx,
-                    ));
+                // EXP-768: ONE glass group on every client — the search row
+                // heads it, the hairline-divided rows follow, no caption
+                // above the card. Bounded, actually-scrollable checklist
+                // (EXP-119): compose the EXP-67 scroll-pane primitives
+                // directly — gpui-component's `overflow_y_scrollbar` wrapper
+                // drops the wrapped element's `max_h`, so the bound never
+                // constrained the list and it pushed the dialog body instead
+                // of scrolling.
+                left = left.child(
+                    crate::surface::glass_group()
+                        .child(self.search_row(&self.search, window, cx))
+                        .child(self.bounded_scroll(
+                            "sc-issues-scroll",
+                            &self.list_scroll.clone(),
+                            360.,
+                            checklist.into_any_element(),
+                        )),
+                );
             }
             SubjectTab::Chat => {
                 // EXP-615: the free prompt + its OPTIONAL repository
@@ -2888,26 +2978,21 @@ impl Render for StartCodingDialogView {
                     })
                     .map(|(ix, _)| ix)
                     .collect();
-                let mut list = v_flex().gap_0p5().p_1();
+                let mut list = v_flex().w_full();
                 match &self.actions_load {
                     ActionsLoad::Loading => {
-                        list = list.child(
-                            div()
-                                .p_2()
-                                .text_xs()
-                                .text_color(theme_muted)
-                                .child("Loading actions…"),
-                        );
+                        list = list.child(Self::list_note("Loading actions…", cx));
                     }
                     ActionsLoad::Ready => {
                         if visible.is_empty() {
-                            list = list.child(
-                                div()
-                                    .p_2()
-                                    .text_xs()
-                                    .text_color(theme_muted)
-                                    .child("No matching actions."),
-                            );
+                            list = list.child(Self::list_note(
+                                if query.is_empty() {
+                                    "No actions yet."
+                                } else {
+                                    "No matching actions."
+                                },
+                                cx,
+                            ));
                         }
                         for ix in visible {
                             let action = self.actions[ix].clone();
@@ -2915,18 +3000,20 @@ impl Render for StartCodingDialogView {
                         }
                     }
                 }
-                left = left
-                    .child(glass_input(&self.action_search, window, cx).web_input_sm())
-                    // EXP-721: the rows carry a description line now, so the
-                    // cap grew with them — four rows still fit before the
-                    // pane starts scrolling.
-                    .child(self.bounded_pane(
-                        "sc-actions-scroll",
-                        &self.action_list_scroll.clone(),
-                        260.,
-                        list.into_any_element(),
-                        cx,
-                    ));
+                // EXP-768: the same glass group as the issue picker — search
+                // row first, hairline-divided rows under it. EXP-721: the
+                // rows carry a description line, so the cap grew with them —
+                // four rows still fit before the pane starts scrolling.
+                left = left.child(
+                    crate::surface::glass_group()
+                        .child(self.search_row(&self.action_search, window, cx))
+                        .child(self.bounded_scroll(
+                            "sc-actions-scroll",
+                            &self.action_list_scroll.clone(),
+                            260.,
+                            list.into_any_element(),
+                        )),
+                );
             }
         }
         // The selected action's typed input fields — shared by both Actions

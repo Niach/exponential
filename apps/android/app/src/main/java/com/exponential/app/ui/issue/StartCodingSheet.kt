@@ -530,7 +530,9 @@ fun StartCodingSheet(
         ) {
             if (subjectTab == SubjectTab.Issues) {
                 // ── Issues ───────────────────────────────────────────────
-                SectionHeader("Issues", modifier = Modifier.padding(horizontal = 12.dp))
+                // EXP-768: no caption over the card — the tabs already name
+                // the subject, and the search row IS the card's title.
+                Spacer(Modifier.height(8.dp))
                 // ONE grouped card for search + rows (EXP-211 — iOS Form
                 // parity): the search field is the first row of the glass
                 // container and hairlines separate the issue rows, instead of
@@ -642,10 +644,18 @@ fun StartCodingSheet(
                 // without one (EXP-739/EXP-756) it runs in the agent's
                 // scratch dir. The two fields ARE the hidden builtin's two
                 // inputs, labelled exactly as it declares them.
-                SectionHeader("Prompt", modifier = Modifier.padding(horizontal = 12.dp))
+                Spacer(Modifier.height(8.dp))
                 // EXP-698: inside the grouped card like every other field on
                 // this sheet, instead of a second chromed box beside them.
+                // EXP-768: the "Prompt" caption sits INSIDE the card above the
+                // field (iOS/web parity), never as a section title over it.
                 OptionGroup {
+                    Text(
+                        "Prompt",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp),
+                    )
                     GlassTextField(
                         value = chatPrompt,
                         onValueChange = {
@@ -692,7 +702,8 @@ fun StartCodingSheet(
                 Spacer(Modifier.height(4.dp))
             } else {
                 // ── Actions ──────────────────────────────────────────────
-                SectionHeader("Actions", modifier = Modifier.padding(horizontal = 12.dp))
+                // EXP-768: no caption over the card (see the Issues tab).
+                Spacer(Modifier.height(8.dp))
                 // Same grouped-card layout as the issue picker: search row
                 // + hairline-divided SINGLE-select action rows (builtin
                 // pinned first by its flag).
