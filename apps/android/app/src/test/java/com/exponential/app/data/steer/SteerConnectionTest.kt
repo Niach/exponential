@@ -790,6 +790,46 @@ class SteerConnectionTest {
             connection.close()
         }
     }
+    // ── EXP-796: earlier pages need an open socket ───────────────────────
+
+    @Test
+    fun canLoadEarlierNeedsATruncatedReplayAndAnOpenSocket() = runBlocking {
+        val transport = FakeTransport()
+        val connection = connection(transport, stagingTimings)
+        try {
+            connection.connect()
+            val socket = transport.awaitOpen()
+            socket.emit("""{"t":"activity_reset"}""")
+            socket.emit("""{"t":"activity","seq":40,"event":{"kind":"narration","text":"tail"}}""")
+            socket.emit("""{"t":"activity_synced","truncated":true,"firstSeq":40}""")
+            waitUntil("the truncated tail") { connection.activity.value.feed.size == 1 }
+            // The relay keeps the room open after the replay: pages flow.
+            assertTrue(connection.canLoadEarlier())
+            assertTrue(connection.loadEarlier())
+            waitUntil("the page ask") { socket.sent.any { it.contains(""""t":"history_page"""") } }
+            // The device signed off and the socket really closed: nothing
+            // is left to ask, whatever the replay said.
+            socket.emit("""{"t":"bye","outcome":"history"}""")
+            socket.hangUp()
+            waitUntil("the ended phase") { connection.phase.value is AgentPhase.Ended }
+            assertFalse(connection.canLoadEarlier())
+            assertFalse(connection.loadEarlier())
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
+    fun anUntruncatedReplayNeverOffersEarlierPages() = runBlocking {
+        val transport = FakeTransport()
+        val connection = connection(transport, stagingTimings)
+        try {
+            liveWithFeed(transport, connection)
+            assertFalse(connection.canLoadEarlier())
+        } finally {
+            connection.close()
+        }
+    }
 }
 
 private const val SESSION_ID = "11111111-2222-3333-4444-555555555555"

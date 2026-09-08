@@ -1283,8 +1283,12 @@ class SteerConnection internal constructor(
 
     /** EXP-783 — whether there is transcript BELOW the oldest row on screen
      *  that this client can still ask the device for. Drives the transcript's
-     *  "Load earlier" affordance together with the rendered window. */
-    fun canLoadEarlier(): Boolean = historyTruncated && !historyExhausted
+     *  "Load earlier" affordance together with the rendered window.
+     *
+     *  EXP-796: it also takes an OPEN viewer socket. The relay keeps a history
+     *  room open after the device's replay, so pages keep flowing until the
+     *  socket really closes — and once it has, there is nothing to ask. */
+    fun canLoadEarlier(): Boolean = historyTruncated && !historyExhausted && ws != null
 
     /** EXP-783 — one `history_page` ask, at most one in flight.
      *
