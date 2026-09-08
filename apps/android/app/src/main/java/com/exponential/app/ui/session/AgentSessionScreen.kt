@@ -205,6 +205,9 @@ import com.exponential.app.ui.theme.glassGroup
 import com.exponential.app.ui.theme.glassRow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -991,6 +994,36 @@ fun AgentSessionScreen(
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
+            }
+
+            // EXP-784: the agent's rate-limit window — ONE banner from the
+            // latest-wins slot (never a run of identical feed rows), with the
+            // reset instant in local time when the agent named one. Gone the
+            // moment an empty/`ok` status clears the slot.
+            val rateLimit = activity.rateLimit
+            if (rateLimit != null && phase !is AgentPhase.Ended) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .glassRow()
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Icon(
+                        ExpIcons.uiWarning,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = ConnectingYellow,
+                    )
+                    Text(
+                        rateLimitCaption(rateLimit.message, rateLimit.resetsAt),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
             }
 
             // EXP-724: the agent is compacting its context — an indeterminate
@@ -3071,6 +3104,25 @@ private fun SteerComposer(
         )
     }
 }
+
+/**
+ * EXP-784: the rate-limit banner's one line — the agent's own message (or a
+ * plain fallback) and, when it named a reset instant, "resets HH:MM" in the
+ * phone's local time.
+ */
+internal fun rateLimitCaption(
+    message: String?,
+    resetsAtMs: Long?,
+    zone: ZoneId = ZoneId.systemDefault(),
+): String {
+    val head = message?.trim()?.takeIf { it.isNotEmpty() } ?: "Rate limit reached"
+    val resets = resetsAtMs?.takeIf { it > 0 }?.let {
+        RESET_TIME.withZone(zone).format(Instant.ofEpochMilli(it))
+    } ?: return head
+    return "$head · resets $resets"
+}
+
+private val RESET_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
 /**
  * EXP-773: what the journal fetch is doing, named after the machine that holds
