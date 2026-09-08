@@ -63,12 +63,16 @@ use crate::frames::{
 /// The relay's `ACTIVITY_LOG_CAP` is deliberately NOT matched any more: it
 /// bounds the tail a joining viewer replays, and older pages are asked for
 /// (`history_page`) rather than pushed.
-pub const FEED_BYTE_CAP: usize = 16 * 1024 * 1024;
+///
+/// The contract's `steerFeed` section (EXP-795): web, iOS and Android read
+/// the same generated numbers, so the budgets and the trim target cannot
+/// drift per client.
+pub const FEED_BYTE_CAP: usize = domain::contract::STEER_FEED_BYTE_CAP;
 
 /// The companion item ceiling: a run of 200k one-word events would sit far
 /// under [`FEED_BYTE_CAP`] while costing a `Vec` entry each (web
 /// `FEED_ITEM_CAP` / iOS `feedItemCap` / Android `FEED_ITEM_CAP`).
-pub const FEED_ITEM_CAP: usize = 200_000;
+pub const FEED_ITEM_CAP: usize = domain::contract::STEER_FEED_ITEM_CAP;
 
 /// At most this many un-matched local echoes are remembered (web `ECHO_CAP`).
 pub const ECHO_CAP: usize = 8;
@@ -356,14 +360,6 @@ pub struct SteerFeed {
     /// EXP-783: the running size of `items`, maintained at every mutation so
     /// [`SteerFeed::trim`] is an integer compare rather than a walk.
     bytes: usize,
-    /// EXP-783: items mutated IN PLACE since the renderer last drained this
-    /// (a merged narration fragment, a replaced question card, a resolution).
-    /// An append needs no entry — a renderer always recomputes its tail — but
-    /// an edit halfway up the transcript has no other signal.
-    dirty: Vec<FeedItemId>,
-    /// Bumped by every full swap ([`SteerFeed::commit_staged`]): a renderer's
-    /// per-row memo is worthless across one.
-    generation: u64,
     /// EXP-783: the wire sequence of the event being folded in right now, so
     /// `push_item` can stamp it without threading it through every arm of
     /// `handle_activity`. Set for exactly the duration of one fold.
@@ -395,17 +391,6 @@ impl SteerFeed {
     /// EXP-783: the feed's current byte weight, against [`FEED_BYTE_CAP`].
     pub fn bytes(&self) -> usize {
         self.bytes
-    }
-
-    /// EXP-783: the swap counter — see [`SteerFeed::dirty`].
-    pub fn generation(&self) -> u64 {
-        self.generation
-    }
-
-    /// EXP-783: drain the ids mutated in place since the last call. A
-    /// renderer that memoizes per-row work calls this ONCE per frame.
-    pub fn take_dirty(&mut self) -> Vec<FeedItemId> {
-        std::mem::take(&mut self.dirty)
     }
 
     /// The worktree diff behind the pinned "Latest changes" strip — the
@@ -552,9 +537,6 @@ impl SteerFeed {
             .sum::<usize>();
         prepended.append(&mut self.items);
         self.items = prepended;
-        // A front splice moves every row's INDEX, and a renderer memoizes by
-        // id — but its window anchor and per-row state are unaffected, so a
-        // generation bump would be the wrong (whole-transcript) hammer here.
         self.trim();
         added
     }
@@ -650,10 +632,12 @@ impl SteerFeed {
             return;
         }
         // Evicting down to the budget would then evict again on the very next
-        // event, and each eviction shifts the whole `Vec`. Drop to 90% of it
-        // instead, so the cost is paid once per ~10% of a full transcript.
-        let byte_target = FEED_BYTE_CAP / 10 * 9;
-        let item_target = FEED_ITEM_CAP / 10 * 9;
+        // event, and each eviction shifts the whole `Vec`. Drop to the
+        // contract's target (90%) instead, so the cost is paid once per ~10%
+        // of a full transcript.
+        let percent = domain::contract::STEER_FEED_TRIM_TARGET_PERCENT;
+        let byte_target = FEED_BYTE_CAP * percent / 100;
+        let item_target = FEED_ITEM_CAP * percent / 100;
         let mut bytes = self.bytes;
         let mut drop_to = 0usize;
         while drop_to + 1 < self.items.len()
@@ -672,12 +656,6 @@ impl SteerFeed {
     /// edits whose per-item deltas are not worth threading through.
     fn recount_bytes(&mut self) {
         self.bytes = self.items.iter().map(|item| item_bytes(&item.kind)).sum();
-    }
-
-    fn mark_dirty(&mut self, id: FeedItemId) {
-        if self.dirty.last() != Some(&id) {
-            self.dirty.push(id);
-        }
     }
 
     fn push_echo(&mut self, text: &str) {
@@ -743,7 +721,6 @@ impl SteerFeed {
                         self.bytes += item_bytes(&kind);
                         let seq = self.seq;
                         self.items.insert(at, FeedItem { id, kind, seq });
-                        self.mark_dirty(id);
                         self.trim();
                         return;
                     }
@@ -752,14 +729,13 @@ impl SteerFeed {
                 // several narration events keyed by `message_id` — a fragment
                 // landing right behind its own message appends to that bubble
                 // instead of shredding the paragraph into rows.
-                if let Some(merged) = merge_narration_fragment(
+                if merge_narration_fragment(
                     &mut self.items,
                     message_id.as_deref(),
                     subagent_id.as_deref(),
                     &text,
                 ) {
                     self.bytes += text.len();
-                    self.mark_dirty(merged);
                     return;
                 }
                 self.push_item(FeedKind::Narration {
@@ -834,7 +810,6 @@ impl SteerFeed {
                             .question()
                             .cloned()
                             .expect("the item matched as a question");
-                        let id = existing.id;
                         let before = item_bytes(&existing.kind);
                         *existing.question_mut().expect("still a question") = QuestionCard {
                             resolved: previous.resolved,
@@ -844,7 +819,6 @@ impl SteerFeed {
                         };
                         let after = item_bytes(&existing.kind);
                         self.bytes = self.bytes.saturating_sub(before) + after;
-                        self.mark_dirty(id);
                         return;
                     }
                 }
@@ -984,7 +958,6 @@ impl SteerFeed {
         let dismissed = dismissed == Some(true);
         let joined = answers.join(", ");
         let mut cursor = 0usize;
-        let mut touched: Vec<FeedItemId> = Vec::new();
         for item in self.items.iter_mut() {
             let Some(card) = item.question_mut() else {
                 continue;
@@ -1015,10 +988,6 @@ impl SteerFeed {
             if answer.is_some() {
                 card.answer = answer;
             }
-            touched.push(item.id);
-        }
-        for id in touched {
-            self.mark_dirty(id);
         }
         // A resolution rewrites cards anywhere in the transcript; the running
         // byte count is cheaper to re-derive here than to thread through.
@@ -1066,9 +1035,6 @@ impl SteerFeed {
         self.items.clear();
         self.bytes = 0;
         let retained_next_id = retained.last().map(|item| item.id + 1);
-        // EXP-783: every per-row memo a renderer holds is about to be wrong.
-        self.generation = self.generation.wrapping_add(1);
-        self.dirty.clear();
         self.latest_diff = None;
         self.compacting = None;
         // EXP-746: the replay reinstates both slots inside the SAME staged
@@ -1187,31 +1153,31 @@ impl SteerFeed {
 /// Nothing merges without an id, across a row that is not narration, or across
 /// a scope change (a fragment stamped with a subagent id is a different
 /// bubble). Web `mergeNarrationFragment`, mirrored ×4.
-///
-/// `Some(id)` = merged into that item (EXP-783: an IN-PLACE edit the renderer
-/// has to be told about); `None` = push a row instead.
 fn merge_narration_fragment(
     items: &mut [FeedItem],
     message_id: Option<&str>,
     subagent_id: Option<&str>,
     fragment: &str,
-) -> Option<FeedItemId> {
-    let message_id = message_id.filter(|id| !id.is_empty())?;
-    let last = items.last_mut()?;
-    let id = last.id;
+) -> bool {
+    let Some(message_id) = message_id.filter(|id| !id.is_empty()) else {
+        return false;
+    };
+    let Some(last) = items.last_mut() else {
+        return false;
+    };
     let FeedKind::Narration {
         text,
         message_id: last_id,
         subagent_id: last_subagent,
     } = &mut last.kind
     else {
-        return None;
+        return false;
     };
     if last_id.as_deref() != Some(message_id) || last_subagent.as_deref() != subagent_id {
-        return None;
+        return false;
     }
     text.push_str(fragment);
-    Some(id)
+    true
 }
 
 fn non_blank(value: Option<String>) -> Option<String> {
@@ -1223,7 +1189,7 @@ fn non_blank(value: Option<String>) -> Option<String> {
 /// An estimate on purpose: this budget bounds memory, it does not account for
 /// it, and an exact `size_of_val` walk per push would cost more than it saves.
 fn item_bytes(kind: &FeedKind) -> usize {
-    const OVERHEAD: usize = 96;
+    const OVERHEAD: usize = domain::contract::STEER_FEED_ITEM_OVERHEAD_BYTES;
     let text = match kind {
         FeedKind::Narration { text, .. } | FeedKind::UserMessage { text, .. } => text.len(),
         FeedKind::Tool { name, detail, .. } => {
@@ -1798,50 +1764,6 @@ mod tests {
             feed.prepend_page(vec![(Some(0), ActivityEvent::narration("nope"))]),
             0
         );
-    }
-
-    /// Every in-place mutation site records its id for the renderer.
-    #[test]
-    fn in_place_mutations_are_recorded_as_dirty() {
-        let mut feed = SteerFeed::new();
-        // 1. a merged narration fragment.
-        feed.apply(fragment("one", Some("m1"), None));
-        let narration = feed.items()[0].id;
-        assert!(feed.take_dirty().is_empty());
-        feed.apply(fragment(" two", Some("m1"), None));
-        assert_eq!(feed.take_dirty(), vec![narration]);
-
-        // 2. a question card replaced in place, and 3. its resolution.
-        feed.apply(question(Some("q1"), "pick"));
-        let card = feed.items().last().unwrap().id;
-        feed.take_dirty();
-        feed.apply(question(Some("q1"), "pick again"));
-        assert_eq!(feed.take_dirty(), vec![card]);
-        feed.apply(ActivityEvent::QuestionResolved {
-            id: Some("q1".to_string()),
-            ask_id: None,
-            answers: Some(vec!["a".to_string()]),
-            dismissed: None,
-            at: None,
-        });
-        assert_eq!(feed.take_dirty(), vec![card]);
-
-        // 4. a narration spliced in above its card.
-        feed.apply(ActivityEvent::Narration {
-            text: "before".to_string(),
-            before_question_id: Some("q1".to_string()),
-            message_id: None,
-            subagent_id: None,
-            at: None,
-        });
-        assert_eq!(feed.take_dirty().len(), 1);
-
-        // 5. a swap bumps the generation instead.
-        let generation = feed.generation();
-        feed.apply_reset();
-        feed.apply(ActivityEvent::narration("replayed"));
-        feed.apply_synced();
-        assert_eq!(feed.generation(), generation + 1);
     }
 
     #[test]

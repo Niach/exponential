@@ -158,9 +158,9 @@ pub enum ClientFrame<'a> {
         seq: Option<u64>,
     },
     /// EXP-783 (viewer role): ask for the page of transcript BELOW `before_seq`.
-    /// The relay routes it to the room's publisher, or — for a room that is
-    /// not up — down the owning device's control socket. Answered with
-    /// [`ClientFrame::HistoryChunk`] frames carrying the same `request_id`.
+    /// The relay routes it to the room's LIVE publisher (a room without one
+    /// takes no asks — EXP-795) under an id of its own, and translates the
+    /// answering [`ClientFrame::HistoryChunk`]s back to this `request_id`.
     #[serde(rename_all = "camelCase")]
     HistoryPage {
         request_id: String,
@@ -836,11 +836,11 @@ pub enum ServerFrame {
     #[serde(rename_all = "camelCase")]
     HistoryRequest { session_id: String },
     /// EXP-783: a viewer scrolled past the top of what it holds and asked for
-    /// the page of transcript BELOW `before_seq`. Routed to the room's live
-    /// publisher, or to a device's control socket for a room that is not up —
-    /// either way the answer is read from the same journal file and sent as
-    /// [`ClientFrame::HistoryChunk`]s. Silence is a legal answer (no journal),
-    /// and the asking client's own timeout covers it.
+    /// the page of transcript BELOW `before_seq`. Reaches the room's live
+    /// publisher only (EXP-795), which reads the page off its journal file
+    /// and answers with [`ClientFrame::HistoryChunk`]s under the same
+    /// (relay-issued) `request_id`. Silence is a legal answer (no journal);
+    /// the relay frees the ask after its own timeout.
     #[serde(rename_all = "camelCase")]
     HistoryPage {
         session_id: String,

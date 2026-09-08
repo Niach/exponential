@@ -10,6 +10,7 @@ import {
   CONFIG_DEFAULT_VALUE_LABEL,
   CONFIG_MODE_LABEL,
 } from "@/lib/steer-commands"
+import { contract } from "@exp/domain-contract"
 
 /** A locally-echoed steered message awaiting its transcript-derived twin. */
 export interface EchoEntry {
@@ -32,11 +33,22 @@ export const ECHO_TTL_MS = 5 * 60_000
  *
  *  The relay's ACTIVITY_LOG_CAP is deliberately NOT matched any more: it
  *  bounds the tail a joining viewer replays, and older pages are asked for
- *  (`history_page`) rather than pushed. */
-export const FEED_BYTE_CAP = 16 * 1024 * 1024
+ *  (`history_page`) rather than pushed.
+ *
+ *  Every number here is the contract's `steerFeed` section (EXP-795): the
+ *  desktop, iOS and Android reducers read the same generated constants, so
+ *  the budgets, the trim target and the window cannot drift per client. */
+export const FEED_BYTE_CAP = contract.steerFeed.byteCap
 /** The companion item ceiling — a run of tiny events would sit far under the
  *  byte budget while costing an array slot each. */
-export const FEED_ITEM_CAP = 200_000
+export const FEED_ITEM_CAP = contract.steerFeed.itemCap
+/** How many of the run's newest rows the transcript renders, and how much
+ *  older transcript one "Load earlier" pulls in. */
+export const FEED_WINDOW = contract.steerFeed.window
+export const FEED_WINDOW_STEP = contract.steerFeed.windowStep
+/** Events per `history_page` ask — the relay's schema rejects anything
+ *  larger. */
+export const HISTORY_PAGE_LIMIT = contract.steerFeed.historyPageMax
 
 /** What one row weighs against FEED_BYTE_CAP: the text it carries plus a flat
  *  per-item overhead standing in for the object itself. An estimate on
@@ -51,7 +63,7 @@ export function feedItemBytes(item: {
   header?: string
   options?: { label: string; key: string }[]
 }): number {
-  const OVERHEAD = 96
+  const OVERHEAD = contract.steerFeed.itemOverheadBytes
   const len = (value?: string) => value?.length ?? 0
   return (
     OVERHEAD +
@@ -74,8 +86,9 @@ export function trimFeed<T extends { kind: string }>(
   bytes: number
 ): { feed: T[]; bytes: number } {
   if (bytes <= FEED_BYTE_CAP && feed.length <= FEED_ITEM_CAP) return { feed, bytes }
-  const byteTarget = Math.floor((FEED_BYTE_CAP / 10) * 9)
-  const itemTarget = Math.floor((FEED_ITEM_CAP / 10) * 9)
+  const percent = contract.steerFeed.trimTargetPercent
+  const byteTarget = Math.floor((FEED_BYTE_CAP * percent) / 100)
+  const itemTarget = Math.floor((FEED_ITEM_CAP * percent) / 100)
   let remaining = bytes
   let dropTo = 0
   while (

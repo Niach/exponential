@@ -527,6 +527,19 @@ fn blocking_tasks(state: &State) -> impl Iterator<Item = (&String, &TaskEntry)> 
     })
 }
 
+/// How long the defer timer sleeps: until the YOUNGEST blocking task — the
+/// last one to reach [`TASK_MAX_LIFETIME`] — has expired, plus a second so
+/// the sleep lands strictly past the expiry it is meant to observe. With no
+/// blocking task left (settled between the check and the arm) it still
+/// sleeps a full lifetime rather than spinning.
+fn defer_timer_wait(state: &State) -> Duration {
+    blocking_tasks(state)
+        .map(|(_, task)| TASK_MAX_LIFETIME.saturating_sub(task.started_at.elapsed()))
+        .max()
+        .unwrap_or(TASK_MAX_LIFETIME)
+        + Duration::from_secs(1)
+}
+
 struct ToolEntry {
     name: String,
     input: Value,
@@ -1028,18 +1041,17 @@ impl ClaudeSession {
     /// A deferral must not be able to outlive [`TASK_MAX_LIFETIME`] in total
     /// silence: nothing else wakes `settle_deferred` when the CLI simply stops
     /// sending frames for the task it is waiting on.
+    ///
+    /// Lock discipline: the timer task takes the state lock exactly as a
+    /// frame handler would, and everything it calls under it
+    /// (`expire_tasks` → `publish_subagent` → `notify_meta`, `settle_turns`)
+    /// only sends on channels — none of it re-enters the lock.
     fn arm_defer_timer(self: &Arc<Self>, cx: &ConnectionTo<Client>, state: &mut State) {
         if state.defer_timer_armed {
             return;
         }
         state.defer_timer_armed = true;
-        // The oldest blocking task bounds the wait; +1 s so the sleep lands
-        // strictly past the expiry it is meant to observe.
-        let wait = blocking_tasks(state)
-            .map(|(_, task)| TASK_MAX_LIFETIME.saturating_sub(task.started_at.elapsed()))
-            .max()
-            .unwrap_or(TASK_MAX_LIFETIME)
-            + Duration::from_secs(1);
+        let wait = defer_timer_wait(state);
         let session = self.clone();
         let out = cx.clone();
         let _ = cx.spawn(async move {
@@ -1047,6 +1059,13 @@ impl ClaudeSession {
             let mut state = session.lock();
             state.defer_timer_armed = false;
             session.settle_deferred(&out, &mut state);
+            // EXP-795: this timer was sized for the tasks blocking when it was
+            // armed. A deferral that survived it is held by a YOUNGER task (a
+            // later turn's, or one started after the arm) — without a fresh
+            // timer sized for that one, it would be the silent wedge again.
+            if state.deferred.is_some() {
+                session.arm_defer_timer(&out, &mut state);
+            }
             Ok(())
         });
     }
@@ -3601,6 +3620,28 @@ mod tests {
         state.tasks.clear();
         state.tasks.insert("t-done".to_string(), task(4, false, Duration::ZERO));
         assert_eq!(blocking_tasks(&state).count(), 0);
+    }
+
+    /// The defer timer is sized for the LAST blocking task to expire: an
+    /// older task's remaining lifetime is shorter, and a timer sized for it
+    /// would wake to find the younger one still blocking and go back to
+    /// sleep — which is why the wakeup re-arms when a deferral survives it.
+    #[test]
+    fn the_defer_timer_waits_for_the_youngest_blocking_task() {
+        let mut state = State { turn_seq: 2, ..State::default() };
+        state.tasks.insert("old".to_string(), task(2, true, Duration::from_secs(500)));
+        state.tasks.insert("young".to_string(), task(2, true, Duration::from_secs(20)));
+        // An earlier turn's task and a dead one never count.
+        state.tasks.insert("other-turn".to_string(), task(1, true, Duration::ZERO));
+        state.tasks.insert("done".to_string(), task(2, false, Duration::ZERO));
+
+        let wait = defer_timer_wait(&state);
+        // 600 - 20 (+1 s), give or take the test's own elapsed time.
+        assert!(wait >= Duration::from_secs(579) && wait <= Duration::from_secs(582), "{wait:?}");
+
+        // Nothing blocking: a full lifetime, not a zero-length spin.
+        state.tasks.clear();
+        assert_eq!(defer_timer_wait(&state), TASK_MAX_LIFETIME + Duration::from_secs(1));
     }
 
     /// A settled turn drops the dead tasks of every EARLIER turn, so `tasks`

@@ -57,6 +57,13 @@ public enum DomainContract {
     public static let actionTriggerMaxFilterIds: Int = 20
     public static let automationCooldownMs: Int = 60000
     public static let automationEventCatchupMs: Int = 86400000
+    public static let steerFeedByteCap: Int = 16777216
+    public static let steerFeedItemCap: Int = 200000
+    public static let steerFeedTrimTargetPercent: Int = 90
+    public static let steerFeedItemOverheadBytes: Int = 96
+    public static let steerFeedWindow: Int = 1500
+    public static let steerFeedWindowStep: Int = 500
+    public static let steerFeedHistoryPageMax: Int = 200
 
     public static let issueStatusCategoryBacklog: String = "backlog"
     public static let issueStatusCategoryUnstarted: String = "unstarted"

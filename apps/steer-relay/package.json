@@ -12,6 +12,7 @@
     "lint": "eslint . --fix"
   },
   "dependencies": {
+    "@exp/domain-contract": "workspace:*",
     "@exp/steer-ticket": "workspace:*",
     "hono": "^4.7.11",
     "zod": "^4.0.14"

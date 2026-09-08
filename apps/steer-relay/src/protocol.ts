@@ -10,6 +10,7 @@
 // The relay is a dumb pipe with auth + ephemeral presence: it never parses
 // terminal escape codes and never persists anything.
 
+import { contract } from "@exp/domain-contract"
 import { z } from "zod"
 
 // ── Client → relay control frames ────────────────────────────────────────────
@@ -124,8 +125,9 @@ export const questionOptionSchema = z.object({
 /** EXP-783: the most events one `history_page` request may ask for, and one
  *  `history_chunk` may carry. Sized so a full page stays well inside the
  *  socket's 1 MiB payload limit and inside the per-viewer 512 KiB high-water
- *  mark the fan-out evicts over. */
-export const HISTORY_PAGE_MAX = 200
+ *  mark the fan-out evicts over. The contract's `steerFeed.historyPageMax` —
+ *  the same number every client asks with (EXP-795). */
+export const HISTORY_PAGE_MAX = contract.steerFeed.historyPageMax
 
 export const activityEventSchema = z.discriminatedUnion(`kind`, [
   z.object({
@@ -335,10 +337,14 @@ export const activityFrame = z.object({
 })
 
 // EXP-783, viewer → relay: "send me the page of this run's transcript BELOW
-// `beforeSeq`". Routed to the room's publisher, or — for a room that is not up
-// — down the owning device's control socket, exactly like `history_request`.
-// The answer is `history_chunk`s addressed to `requestId`, delivered ONLY to
-// the viewer that asked and never appended to the room's replay log.
+// `beforeSeq`". Routed to the room's LIVE publisher only (EXP-795: the
+// control-socket route for a room without one was never answered by a device,
+// and a chunk names no session, so nothing could have routed it back; paging
+// an ended run is follow-up work). The relay forwards it under an id of its
+// own — viewers number their asks independently, so two in one room collide —
+// and the answer is `history_chunk`s translated back to the viewer's
+// `requestId`, delivered ONLY to the viewer that asked and never appended to
+// the room's replay log.
 export const historyPageFrame = z.object({
   t: z.literal(`history_page`),
   requestId: z.string().min(1).max(64),
@@ -346,10 +352,11 @@ export const historyPageFrame = z.object({
   limit: z.number().int().min(1).max(HISTORY_PAGE_MAX),
 })
 
-// EXP-783, publisher/device → relay: one page of older transcript. `done`
-// marks the last chunk of a request (including a request with nothing to
-// give). Never enters the room's log: these events are OLDER than everything
-// the log holds, and the log is a join tail.
+// EXP-783, publisher → relay: one page of older transcript, `requestId` being
+// the RELAY's id from the `history_page` it answers. `done` marks the last
+// chunk of a request (including a request with nothing to give). Never enters
+// the room's log: these events are OLDER than everything the log holds, and
+// the log is a join tail.
 export const historyChunkFrame = z.object({
   t: z.literal(`history_chunk`),
   requestId: z.string().min(1).max(64),
@@ -493,11 +500,10 @@ export type ServerFrame =
   // frame: a device with no journal stays silent and the room's own 20s timer
   // answers the viewer with `history_unavailable`.
   | { t: `history_request`; sessionId: string }
-  // EXP-783: relay → the room's PUBLISHER, or a device's control socket for a
-  // room that is not up. "Read your journal and send back the page below
-  // `beforeSeq`." Answered with `history_chunk` frames carrying the same
-  // `requestId`; a device with no journal simply stays silent, and the
-  // asking viewer's own timeout gives up.
+  // EXP-783: relay → the room's PUBLISHER. "Read your journal and send back
+  // the page below `beforeSeq`." Answered with `history_chunk` frames carrying
+  // the same (relay-issued) `requestId`; a publisher with no journal simply
+  // stays silent and the relay frees the ask after HISTORY_PAGE_TIMEOUT_MS.
   | {
       t: `history_page`
       sessionId: string

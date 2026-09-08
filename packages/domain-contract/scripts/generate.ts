@@ -43,6 +43,15 @@ interface Contract {
   codingSessionEndedBy: Section
   codingSession: { staleHours: number }
   device: { onlineWindowSeconds: number }
+  steerFeed: {
+    byteCap: number
+    itemCap: number
+    trimTargetPercent: number
+    itemOverheadBytes: number
+    window: number
+    windowStep: number
+    historyPageMax: number
+  }
   subscriberSource: Section
   issueEventType: Section
   issueRelationType: Section & { forwardLabels: string[]; inverseLabels: string[] }
@@ -96,6 +105,11 @@ const deviceOnlineWindowMs = contract.device.onlineWindowSeconds * 1000
 const automationCooldownMs = contract.automation.cooldownSeconds * 1000
 const automationEventCatchupMs =
   contract.automation.eventCatchupHours * 60 * 60 * 1000
+
+// EXP-783: the steering transcript's budgets, window and page size — the
+// same seven numbers on every client, so the byte-budget trim and the
+// rendered window cannot drift apart per platform.
+const steerFeed = contract.steerFeed
 
 // The 7 locked builtin issue statuses (EXP-314) — emitted as parallel arrays
 // (keys/categories/names/colors/sortOrders) so every client can construct its
@@ -265,6 +279,13 @@ ${swiftBoolArray("steerCommandConfirm", steerCommandConfirm)}
     public static let actionTriggerMaxFilterIds: Int = ${contract.actionTrigger.maxFilterIds}
     public static let automationCooldownMs: Int = ${automationCooldownMs}
     public static let automationEventCatchupMs: Int = ${automationEventCatchupMs}
+    public static let steerFeedByteCap: Int = ${steerFeed.byteCap}
+    public static let steerFeedItemCap: Int = ${steerFeed.itemCap}
+    public static let steerFeedTrimTargetPercent: Int = ${steerFeed.trimTargetPercent}
+    public static let steerFeedItemOverheadBytes: Int = ${steerFeed.itemOverheadBytes}
+    public static let steerFeedWindow: Int = ${steerFeed.window}
+    public static let steerFeedWindowStep: Int = ${steerFeed.windowStep}
+    public static let steerFeedHistoryPageMax: Int = ${steerFeed.historyPageMax}
 
 ${swiftNamedValues("issueStatusCategory", contract.issueStatusCategory.values)}
 ${swiftNamedValues("issueSource", contract.issueSource.values)}
@@ -338,6 +359,13 @@ ${kotlinBoolArray("steerCommandConfirm", steerCommandConfirm)}
     const val actionTriggerMaxFilterIds: Int = ${contract.actionTrigger.maxFilterIds}
     const val automationCooldownMs: Long = ${automationCooldownMs}L
     const val automationEventCatchupMs: Long = ${automationEventCatchupMs}L
+    const val steerFeedByteCap: Long = ${steerFeed.byteCap}L
+    const val steerFeedItemCap: Int = ${steerFeed.itemCap}
+    const val steerFeedTrimTargetPercent: Int = ${steerFeed.trimTargetPercent}
+    const val steerFeedItemOverheadBytes: Long = ${steerFeed.itemOverheadBytes}L
+    const val steerFeedWindow: Int = ${steerFeed.window}
+    const val steerFeedWindowStep: Int = ${steerFeed.windowStep}
+    const val steerFeedHistoryPageMax: Int = ${steerFeed.historyPageMax}
 
 ${kotlinNamedValues("issueStatusCategory", contract.issueStatusCategory.values)}
 ${kotlinNamedValues("issueSource", contract.issueSource.values)}
@@ -413,6 +441,13 @@ pub const ACTION_INPUT_TEXT_MAX: usize = ${contract.actionInputs.maxTextLength};
 pub const ACTION_TRIGGER_MAX_FILTER_IDS: usize = ${contract.actionTrigger.maxFilterIds};
 pub const AUTOMATION_COOLDOWN_MS: i64 = ${automationCooldownMs};
 pub const AUTOMATION_EVENT_CATCHUP_MS: i64 = ${automationEventCatchupMs};
+pub const STEER_FEED_BYTE_CAP: usize = ${steerFeed.byteCap};
+pub const STEER_FEED_ITEM_CAP: usize = ${steerFeed.itemCap};
+pub const STEER_FEED_TRIM_TARGET_PERCENT: usize = ${steerFeed.trimTargetPercent};
+pub const STEER_FEED_ITEM_OVERHEAD_BYTES: usize = ${steerFeed.itemOverheadBytes};
+pub const STEER_FEED_WINDOW: usize = ${steerFeed.window};
+pub const STEER_FEED_WINDOW_STEP: usize = ${steerFeed.windowStep};
+pub const STEER_FEED_HISTORY_PAGE_MAX: u32 = ${steerFeed.historyPageMax};
 
 ${rustNamedValues("issueStatusCategory", contract.issueStatusCategory.values)}
 ${rustNamedValues("issueSource", contract.issueSource.values)}

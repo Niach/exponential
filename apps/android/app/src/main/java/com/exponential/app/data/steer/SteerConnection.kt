@@ -476,6 +476,9 @@ class SteerConnection internal constructor(
         ws = null
         _connected.value = false
         discardStaging()
+        // A page asked for on that socket is not coming either (EXP-795):
+        // the relay drops the ask with the viewer, so a new one may go out.
+        historyRequest = null
         setPhase(AgentPhase.Idle, "park")
     }
 
@@ -495,6 +498,9 @@ class SteerConnection internal constructor(
         ws = null
         _connected.value = false
         discardStaging()
+        // A page asked for on that socket is not coming either (EXP-795):
+        // the relay drops the ask with the viewer, so a new one may go out.
+        historyRequest = null
         // The phase is state a ViewModel still holding this connection reads;
         // leaving it on Connecting behind a cancelled scope stranded the
         // screen on a spinner nothing could clear (EXP-625).
@@ -749,6 +755,9 @@ class SteerConnection internal constructor(
                 // the fields above — a superseded dial unwinding late must not
                 // discard its replacement's staging.
                 discardStaging()
+                // A page asked for on that socket is not coming either (EXP-795):
+                // the relay drops the ask with the viewer, so a new one may go out.
+                historyRequest = null
             }
             runCatching { opened?.cancel() }
         }

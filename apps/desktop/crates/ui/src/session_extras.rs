@@ -119,14 +119,6 @@ impl LocalExtras {
         }
     }
 
-    /// How many feed rows currently carry extras. EXP-783: the renderer folds
-    /// this into its fingerprint memo's epoch — it moves exactly when a row
-    /// gains its first card, which is the only thing about extras a row's
-    /// HEIGHT depends on.
-    pub(crate) fn bound_items(&self) -> usize {
-        self.by_tool_call.len()
-    }
-
     /// Fold one local event in. [`engine::LocalFeedEvent::Activity`] and
     /// `Phase` are the caller's — they are feed and lifecycle, not extras.
     pub(crate) fn apply(&mut self, event: engine::LocalFeedEvent) {

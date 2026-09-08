@@ -114,21 +114,23 @@ const FEED_BULK_SPLICE: usize = 16;
 /// EXP-783 — how many of the feed's newest items the transcript projects into
 /// rows. The feed itself keeps the WHOLE run; this is what makes keeping it
 /// free, because every per-frame pass ([`SteerSessionView::sync_list`], the
-/// list's own bookkeeping) is over the window and not over the run.
-const FEED_WINDOW: usize = 1500;
+/// list's own bookkeeping) is over the window and not over the run. The
+/// contract's `steerFeed.window` — web, iOS and Android render the same.
+const FEED_WINDOW: usize = domain::contract::STEER_FEED_WINDOW;
 
 /// How much older transcript one "scrolled to the top" extension pulls in.
-const FEED_WINDOW_STEP: usize = 500;
+const FEED_WINDOW_STEP: usize = domain::contract::STEER_FEED_WINDOW_STEP;
 
-/// EXP-783 — the newest items whose rows are re-fingerprinted unconditionally
-/// each frame. Everything above reuses the previous frame's value unless the
-/// feed reported it dirty or the memo epoch moved. Sized past the longest
-/// group a streaming append can still be growing.
-const FEED_HOT_TAIL: usize = 64;
+/// EXP-783 — events per `history_page` ask: the contract's
+/// `steerFeed.historyPageMax`, which the relay's schema enforces.
+const HISTORY_PAGE_LIMIT: u32 = domain::contract::STEER_FEED_HISTORY_PAGE_MAX;
 
-/// EXP-783 — events per `history_page` ask. Mirrors the relay's
-/// `HISTORY_PAGE_MAX`, which rejects anything larger.
-const HISTORY_PAGE_LIMIT: u32 = 200;
+/// EXP-795 — the window anchor that means "the feed's first row, whatever it
+/// is". Set when the reader asks for a page the feed does not hold yet, so a
+/// prepended page is inside the window the moment it lands; below every real
+/// id because ids start at [`steer::feed::FEED_ID_BASE`] and only count down
+/// at the front by a finite amount.
+const WINDOW_FROM_START: FeedItemId = 0;
 
 /// FEED-26 — how long a LIVE run's feed may sit unchanged before the header
 /// stops claiming a healthy "Live". The rule is shared byte-for-byte with the
@@ -321,9 +323,10 @@ pub(crate) struct SteerSessionView {
     /// its whole life. Seeded at 0, which is below every real id.
     pruned_before: FeedItemId,
     /// EXP-783: the oldest feed item the transcript currently RENDERS —
-    /// `None` = the newest [`FEED_WINDOW`] items. An item id rather than an
-    /// index, so an eviction or a replay swap cannot silently move the
-    /// reader's window somewhere else.
+    /// `None` = the newest [`FEED_WINDOW`] items, [`WINDOW_FROM_START`] = the
+    /// feed's own first row. An item id rather than an index, so an eviction
+    /// or a replay swap cannot silently move the reader's window somewhere
+    /// else.
     window_from: Option<FeedItemId>,
     /// Set by the row renderer when it paints row 0 and there is older
     /// transcript above it: the next [`Self::sync_list`] extends the window by
@@ -331,10 +334,6 @@ pub(crate) struct SteerSessionView {
     /// gpui rebases the scroll anchor across, so the reader stays put and row
     /// 0 leaves the viewport — endless scroll that terminates on its own.
     extend_window: bool,
-    /// EXP-783: last frame's row fingerprints by row id. A row above the hot
-    /// tail that the feed did not report dirty reuses its value instead of
-    /// re-hashing every item it holds.
-    fingerprints: HashMap<FeedItemId, u64>,
     /// EXP-783: the `history_page` request in flight, if any — a chunk for
     /// any other id is not ours.
     history_request: Option<String>,
@@ -347,10 +346,6 @@ pub(crate) struct SteerSessionView {
     /// Numbers the request ids, so a late chunk from a superseded ask is
     /// dropped rather than prepended twice.
     history_requests: u64,
-    /// What [`Self::fingerprints`] was computed under — the feed's swap
-    /// generation folded with the view-side facet state. Any change clears
-    /// the memo rather than trying to work out which rows it touched.
-    fingerprint_epoch: u64,
     /// EXP-776: the virtualised transcript. `gpui::list` renders and
     /// measures only the rows in and around the viewport, and its
     /// [`FollowMode::Tail`] IS the auto-scroll: it snaps to the end on every
@@ -536,8 +531,6 @@ impl SteerSessionView {
             history_truncated: false,
             history_exhausted: false,
             history_requests: 0,
-            fingerprints: HashMap::new(),
-            fingerprint_epoch: 0,
             list: {
                 // A session tab opens on its newest rows (the question
                 // waiting for an answer, the composer's context) and every
@@ -828,15 +821,18 @@ impl SteerSessionView {
 
     /// Drop the per-row state of feed items the feed has trimmed away.
     ///
-    /// The feed drains its oldest items past `FEED_CAP`, but every map keyed
-    /// off a feed row lives here and hears nothing about it. Cheap in the
-    /// common case: the oldest surviving id only moves once the cap is full,
-    /// so this is a single integer compare per frame until then.
+    /// The feed drains its oldest items past `FEED_BYTE_CAP`, but every map
+    /// keyed off a feed row lives here and hears nothing about it. Cheap in
+    /// the common case: the oldest surviving id only moves once the cap is
+    /// full (or when a page is prepended — EXP-795: it moves DOWN then, and a
+    /// `<=` guard here would have skipped every eviction until the first id
+    /// climbed back past the old high-water mark), so this is a single
+    /// integer compare per frame until then.
     fn prune_dropped_rows(&mut self) {
         let Some(first) = self.feed.items().first().map(|item| item.id) else {
             return;
         };
-        if first <= self.pruned_before {
+        if first == self.pruned_before {
             return;
         }
         self.pruned_before = first;
@@ -883,8 +879,10 @@ impl SteerSessionView {
     }
 
     /// Pull [`FEED_WINDOW_STEP`] more of the run into the window, or — when
-    /// the window already reaches the feed's own first row — ask the device
-    /// for the page BELOW it (EXP-783).
+    /// the window already reaches the feed's own first row — pin it to the
+    /// FRONT and ask the device for the page BELOW it (EXP-783). The pin is
+    /// what puts the page inside the window when it lands, without the view
+    /// having to notice the arrival (EXP-795).
     fn grow_window(&mut self) {
         let start = self.window_start();
         if start > 0 {
@@ -892,6 +890,7 @@ impl SteerSessionView {
             self.window_from = Some(self.feed.items()[next].id);
             return;
         }
+        self.window_from = Some(WINDOW_FROM_START);
         self.request_older_page();
     }
 
@@ -944,39 +943,6 @@ impl SteerSessionView {
         }
     }
 
-    /// EXP-783 — what [`Self::fingerprints`] is valid under. The feed's swap
-    /// generation plus every VIEW-side input to a row fingerprint; anything
-    /// here moving invalidates the whole memo, which is right because all of
-    /// it is user-driven and none of it moves per frame.
-    fn facet_epoch(&self) -> u64 {
-        use std::hash::{Hash, Hasher};
-        // Order-independent: the sets are hashed member by member and mixed
-        // by XOR, so no sort is needed to get a stable value.
-        fn mix(acc: &mut u64, tag: u8, value: impl Hash) {
-            let mut hasher = std::hash::DefaultHasher::new();
-            tag.hash(&mut hasher);
-            value.hash(&mut hasher);
-            *acc ^= hasher.finish();
-        }
-        let mut acc = self.feed.generation().wrapping_mul(0x9E37_79B9_7F4A_7C15);
-        for id in &self.expanded_groups {
-            mix(&mut acc, 1, id);
-        }
-        for id in &self.expanded_bodies {
-            mix(&mut acc, 2, id);
-        }
-        for id in &self.expanded_extras {
-            mix(&mut acc, 3, id);
-        }
-        if let Some((answer, option)) = &self.free_text {
-            mix(&mut acc, 4, (answer, option));
-        }
-        // Which items HAVE extras is a facet bit; the count moves exactly when
-        // a new row gains its first card.
-        mix(&mut acc, 5, self.extras.bound_items());
-        acc
-    }
-
     /// Refresh the cached projection and tell the list what changed.
     ///
     /// Runs at the top of EVERY frame over the WINDOW (EXP-783), never over
@@ -987,6 +953,17 @@ impl SteerSessionView {
     /// (a row's content moved); the list re-renders every VISIBLE row each
     /// layout regardless, so a streaming row growing on screen needs nothing
     /// more than the notify that got us here.
+    ///
+    /// Every row in the window is re-fingerprinted every frame, on purpose
+    /// (EXP-795). The first cut memoised fingerprints by row id behind an
+    /// epoch hash of the view's facet state plus a dirty list from the feed —
+    /// and missed one input (the answer lock, which is feed state the epoch
+    /// never covered), so a card answered below the recomputed tail kept its
+    /// unlocked height. A window of [`FEED_WINDOW`] items hashes in ~60µs a
+    /// frame (release, 1000 rows of narration and tool calls), about what
+    /// maintaining the memo's own maps cost, and a missed invalidation here
+    /// is a wrong row height rather than a crash: exactly the class of bug
+    /// not worth a cache to earn.
     fn sync_list(&mut self, cx: &mut gpui::Context<Self>) {
         self.refresh_active();
         self.reanchor_window();
@@ -1001,39 +978,18 @@ impl SteerSessionView {
         self.prune_dropped_rows();
         self.working = self.working_now();
         self.chips = self.ref_resolver(cx);
-        let dirty: HashSet<FeedItemId> = self.feed.take_dirty().into_iter().collect();
-        let epoch = self.facet_epoch();
-        if epoch != self.fingerprint_epoch {
-            self.fingerprints.clear();
-            self.fingerprint_epoch = epoch;
-        }
         let items = self.feed.items();
-        let hot_from = items.len().saturating_sub(FEED_HOT_TAIL);
         let mut keys: Vec<RowKey> = Vec::with_capacity(self.rows.len() + 1);
-        let mut fingerprints = std::mem::take(&mut self.fingerprints);
         for spec in &self.rows {
             let id = spec.id();
-            // A row is recomputed when it is new, when the feed edited one of
-            // its items in place, or when it is still growing — which is only
-            // ever a row holding one of the newest items.
-            let hot = dirty.contains(&id)
-                || spec.item_indices().last().is_some_and(|&ix| ix >= hot_from);
-            let fingerprint = match fingerprints.get(&id) {
-                Some(&cached) if !hot => cached,
-                _ => transcript_rows::row_fingerprint(
-                    spec,
-                    items,
-                    self.expanded_groups.contains(&id),
-                    |item| self.item_facets(item),
-                ),
-            };
-            fingerprints.insert(id, fingerprint);
+            let fingerprint = transcript_rows::row_fingerprint(
+                spec,
+                items,
+                self.expanded_groups.contains(&id),
+                |item| self.item_facets(item),
+            );
             keys.push(RowKey { id, fingerprint });
         }
-        // Rows that left the window keep no memo entry.
-        let live: HashSet<FeedItemId> = keys.iter().map(|key| key.id).collect();
-        fingerprints.retain(|id, _| live.contains(id));
-        self.fingerprints = fingerprints;
         if self.working {
             keys.push(RowKey::WORKING);
         }
@@ -1227,9 +1183,15 @@ impl SteerSessionView {
             ViewerEvent::Phase(phase) => self.note_phase(phase),
             ViewerEvent::Connected(connected) => {
                 self.connected = connected;
-                if !connected && self.feed.is_staging() {
-                    // A partial replay of a room we are no longer joined to.
-                    self.feed.discard_staging();
+                if !connected {
+                    if self.feed.is_staging() {
+                        // A partial replay of a room we are no longer joined to.
+                        self.feed.discard_staging();
+                    }
+                    // A page asked for on that socket is not coming either
+                    // (EXP-795): the relay drops the ask with the viewer, so
+                    // the next scroll to the top may ask again.
+                    self.history_request = None;
                 }
             }
             ViewerEvent::Activity(seq, activity) => {
@@ -1256,21 +1218,17 @@ impl SteerSessionView {
                 self.sync_changes(cx);
             }
             // EXP-783: an older page, requested by scrolling past the top of
-            // what this client holds. It is PREPENDED, so the window anchor
-            // and every visible row stay exactly where they are.
+            // what this client holds. It is PREPENDED, so every visible row
+            // stays exactly where it is — and the window, pinned to the front
+            // by the ask ([`Self::grow_window`]), already covers it.
             ViewerEvent::HistoryPage {
                 request_id,
                 events,
                 done,
             } => {
                 if self.history_request.as_deref() == Some(request_id.as_str()) {
-                    let added = self.feed.prepend_page(events);
-                    if added == 0 {
+                    if self.feed.prepend_page(events) == 0 {
                         self.history_exhausted = true;
-                    } else if self.window_from.is_some() {
-                        // The reader asked for this page, so it belongs INSIDE
-                        // the window they were already at the top of.
-                        self.window_from = self.feed.items().first().map(|item| item.id);
                     }
                     if done {
                         self.history_request = None;

@@ -1111,9 +1111,9 @@ async fn republish_history(ws: &mut WsStream, journal: &ActivityJournal) -> bool
 /// JSON escaping can still inflate pathological content past the relay's frame
 /// limit — dropping the event beats letting the relay close the socket, so an
 /// oversize frame is a skip, not a failure.
-/// EXP-783: how many events one `history_page` answer carries. Mirrors the
-/// relay's `HISTORY_PAGE_MAX` — a bigger page is rejected by its zod.
-const HISTORY_PAGE_MAX: u32 = 200;
+/// EXP-783: how many events one `history_page` answer carries — the
+/// contract's `steerFeed.historyPageMax`, which the relay's zod enforces.
+const HISTORY_PAGE_MAX: u32 = domain::contract::STEER_FEED_HISTORY_PAGE_MAX;
 
 /// Answer one [`ServerFrame::HistoryPage`] as a single `history_chunk`. The
 /// page is already bounded to [`HISTORY_PAGE_MAX`] events, so it is one frame

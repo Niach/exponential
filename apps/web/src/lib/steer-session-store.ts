@@ -21,6 +21,7 @@ import {
   COMPACTION_TIMEOUT_MS,
   feedItemBytes,
   trimFeed,
+  HISTORY_PAGE_LIMIT,
   type AnswerStates,
   type EchoEntry,
   type SessionConfigState,
@@ -77,10 +78,6 @@ const ENDED_GRACE_MS = 5_000
  *  A request issued as the tab suspended can hang forever, and the store
  *  would sit on "Connecting…" with nothing to click. Bound it. */
 const MINT_TIMEOUT_MS = 20_000
-/** EXP-783: events per `history_page` ask. Mirrors the relay's
- *  HISTORY_PAGE_MAX, which rejects anything larger. */
-const HISTORY_PAGE_LIMIT = 200
-
 /** EXP-625: the relay ALWAYS answers a join (`activity_reset` + replay, or
  *  `error no_such_session` then close 4001), so silence after the join means
  *  a dead socket: one that opened but never delivers a frame. Close it so
@@ -1230,6 +1227,9 @@ export function createSteerSessionStore(
       // A replay the abandoned socket never finished delivering is a partial
       // history of a room this dial is leaving — keep what the reader sees.
       discardStaging()
+      // A page asked for on that socket is not coming either (EXP-795): the
+      // relay drops the ask with the viewer, so a new one may go out.
+      historyRequest = null
       if (connected) {
         connected = false
         // Dim the composer honestly for the gap; the phase itself holds.
@@ -1453,6 +1453,8 @@ export function createSteerSessionStore(
         // A half-delivered replay is worth less than the last complete
         // picture — the reader keeps what they were reading (EXP-656).
         discardStaging()
+        // Nor is an in-flight page ask answered on a closed socket (EXP-795).
+        historyRequest = null
         // EXP-773: the relay opens a pending history room for ANY join it
         // has no live room for, so a run whose publisher is still connecting
         // gets a device answer instead of `no_such_session`: a partial

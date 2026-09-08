@@ -104,9 +104,15 @@ final class AgentSessionModel {
     /// "Load earlier" affordance is gated on.
     private(set) var canLoadEarlier = false
     /// EXP-783: the id of the oldest RENDERED feed row — nil means the newest
-    /// `AgentFeed.feedWindow` rows. An id rather than an index, so an eviction
-    /// or a replay swap cannot slide the window under the reader.
+    /// `AgentFeed.feedWindow` rows, `windowFromStart` the feed's own first row
+    /// whatever it is. An id rather than an index, so an eviction or a replay
+    /// swap cannot slide the window under the reader.
     @ObservationIgnored private var windowFrom: Int?
+    /// EXP-795 — the anchor that means "the feed's first row": set when the
+    /// reader asks for a page the feed does not hold yet, so a prepended page
+    /// is inside the window the moment it lands. Below every real id (ids only
+    /// ever count down at the front by a finite amount).
+    private static let windowFromStart = Int.min
     private(set) var activeQuestionIds: Set<Int> = []
     private(set) var subagents: [AgentSubagentRun] = []
     private(set) var hasActivePlanCard = false
@@ -324,8 +330,9 @@ final class AgentSessionModel {
     }
 
     /// EXP-783 — pull one more page of the run into the view: more of the feed
-    /// if there is any, else the page below it from the device's journal.
-    /// `false` when there is nothing left to load.
+    /// if there is any, else — with the window pinned to the FRONT so the page
+    /// lands inside it (EXP-795) — the page below it from the device's
+    /// journal. `false` when there is nothing left to load.
     @discardableResult
     func loadEarlier() -> Bool {
         let start = windowStart
@@ -334,7 +341,17 @@ final class AgentSessionModel {
             reproject()
             return true
         }
+        windowFrom = Self.windowFromStart
         return requestOlderPage()
+    }
+
+    /// EXP-795 — the reader is back at the newest rows (web/Android/desktop
+    /// parity): release the window so it slides with the stream again instead
+    /// of growing without bound behind a pin nobody is reading at.
+    func noteAtBottom(_ atBottom: Bool) {
+        guard atBottom, windowFrom != nil else { return }
+        windowFrom = nil
+        reproject()
     }
 
     /// EXP-783 — one `history_page` ask, at most one in flight.
@@ -418,9 +435,6 @@ final class AgentSessionModel {
         }
         feed = renumbered + savedFeed
         feedBytes += renumbered.reduce(0) { $0 + AgentFeed.itemBytes($1) }
-        // The reader asked for this page, so it belongs INSIDE the window they
-        // were already at the top of.
-        if windowFrom != nil { windowFrom = renumbered.first?.id }
         trimFeed()
         if !applyingBatch { reproject() }
     }
@@ -1579,8 +1593,10 @@ final class AgentSessionModel {
         feed = []
         feedBytes = 0
         seqById = [:]
-        // EXP-783: a full swap re-opens the window at the newest rows.
-        windowFrom = nil
+        // The window anchor survives the swap on purpose (EXP-795, web/Android
+        // parity): the replayed prefix keeps its ids, so a reader scrolled up
+        // stays where they were instead of being yanked to the newest rows on
+        // every reconnect.
         latestDiff = nil
         recentEchoes = []
         answerTracker.reset()
@@ -2061,6 +2077,9 @@ final class AgentSessionModel {
         joinAckTask = nil
         pendingFrames = []
         discardStaging()
+        // A page asked for on that socket is not coming either (EXP-795): the
+        // relay drops the ask with the viewer, so a new one may go out.
+        historyRequest = nil
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
     }

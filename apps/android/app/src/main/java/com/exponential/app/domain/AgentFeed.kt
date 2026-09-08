@@ -24,27 +24,31 @@ import kotlinx.serialization.json.jsonArray
  *  a display cap, and they are sized to the device journal (JOURNAL_FILE_CAP)
  *  because that file is exactly what a replay reads back. The relay's
  *  ACTIVITY_LOG_CAP is deliberately NOT matched any more: it bounds the tail a
- *  joining viewer replays, and older pages are asked for (`history_page`). */
-const val FEED_BYTE_CAP = 16L * 1024 * 1024
+ *  joining viewer replays, and older pages are asked for (`history_page`).
+ *
+ *  Every number is the contract's `steerFeed` section (EXP-795): web, iOS and
+ *  the desktop read the same generated constants, so the budgets, the trim
+ *  target and the window cannot drift per client. */
+const val FEED_BYTE_CAP = DomainContract.steerFeedByteCap
 
 /** The companion item ceiling — a run of tiny events would sit far under the
  *  byte budget while costing a list slot each. */
-const val FEED_ITEM_CAP = 200_000
+const val FEED_ITEM_CAP = DomainContract.steerFeedItemCap
 
 /** How many of the run's newest rows the session screen renders, and how much
- *  older transcript one "Load earlier" pulls in (web/iOS/desktop parity). */
-const val FEED_WINDOW = 1500
-const val FEED_WINDOW_STEP = 500
+ *  older transcript one "Load earlier" pulls in. */
+const val FEED_WINDOW = DomainContract.steerFeedWindow
+const val FEED_WINDOW_STEP = DomainContract.steerFeedWindowStep
 
-/** EXP-783: events per `history_page` ask — the relay's HISTORY_PAGE_MAX,
- *  which rejects anything larger. */
-const val HISTORY_PAGE_LIMIT = 200
+/** EXP-783: events per `history_page` ask — the relay's schema rejects
+ *  anything larger. */
+const val HISTORY_PAGE_LIMIT = DomainContract.steerFeedHistoryPageMax
 
 /** What one row weighs against [FEED_BYTE_CAP]: the text it carries plus a
  *  flat per-item overhead standing in for the object itself. An estimate on
  *  purpose — this budget bounds memory, it does not account for it. */
 fun feedItemBytes(item: AgentFeedItem): Long {
-    val overhead = 96L
+    val overhead = DomainContract.steerFeedItemOverheadBytes
     return overhead + when (item) {
         is AgentFeedItem.Narration -> item.text.length.toLong()
         is AgentFeedItem.UserMessage -> item.text.length.toLong()
@@ -1093,8 +1097,9 @@ private fun ActivityFeedState.withFeed(next: List<AgentFeedItem>): ActivityFeedS
  *  newest row always survives. */
 fun ActivityFeedState.trimmed(): ActivityFeedState {
     if (feedBytes <= FEED_BYTE_CAP && feed.size <= FEED_ITEM_CAP) return this
-    val byteTarget = FEED_BYTE_CAP / 10 * 9
-    val itemTarget = FEED_ITEM_CAP / 10 * 9
+    val percent = DomainContract.steerFeedTrimTargetPercent
+    val byteTarget = FEED_BYTE_CAP * percent / 100
+    val itemTarget = FEED_ITEM_CAP * percent / 100
     var remaining = feedBytes
     var dropTo = 0
     while (dropTo + 1 < feed.size && (remaining > byteTarget || feed.size - dropTo > itemTarget)) {

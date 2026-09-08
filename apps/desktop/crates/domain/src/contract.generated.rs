@@ -54,6 +54,13 @@ pub const ACTION_INPUT_TEXT_MAX: usize = 4096;
 pub const ACTION_TRIGGER_MAX_FILTER_IDS: usize = 20;
 pub const AUTOMATION_COOLDOWN_MS: i64 = 60000;
 pub const AUTOMATION_EVENT_CATCHUP_MS: i64 = 86400000;
+pub const STEER_FEED_BYTE_CAP: usize = 16777216;
+pub const STEER_FEED_ITEM_CAP: usize = 200000;
+pub const STEER_FEED_TRIM_TARGET_PERCENT: usize = 90;
+pub const STEER_FEED_ITEM_OVERHEAD_BYTES: usize = 96;
+pub const STEER_FEED_WINDOW: usize = 1500;
+pub const STEER_FEED_WINDOW_STEP: usize = 500;
+pub const STEER_FEED_HISTORY_PAGE_MAX: u32 = 200;
 
 pub const ISSUE_STATUS_CATEGORY_BACKLOG: &str = "backlog";
 pub const ISSUE_STATUS_CATEGORY_UNSTARTED: &str = "unstarted";
