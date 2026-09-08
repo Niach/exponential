@@ -1145,6 +1145,181 @@ describe(`compaction`, () => {
   })
 })
 
+// EXP-785/786: `tool_update` folds INTO its tool row by call id — settle
+// state and the per-call diff — and is never a row of its own.
+describe(`tool_update folds into the tool row (EXP-785/786)`, () => {
+  const toolEvent = (id: string, over: Record<string, unknown> = {}) => ({
+    t: `activity`,
+    event: {
+      kind: `tool`,
+      name: `Edit`,
+      detail: `src/a.ts`,
+      id,
+      toolKind: `edit`,
+      ...over,
+    },
+  })
+  const updateEvent = (id: string, over: Record<string, unknown> = {}) => ({
+    t: `activity`,
+    event: { kind: `tool_update`, id, ...over },
+  })
+
+  it(`a tool row carries its callId and toolKind`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(toolEvent(`tc-1`))
+    socket.frame(toolEvent(`tc-2`, { toolKind: `teleport`, id: `  ` }))
+    await vi.advanceTimersByTimeAsync(100)
+    const feed = store.getSnapshot().feed
+    expect(feed[0]).toMatchObject({
+      kind: `tool`,
+      name: `Edit`,
+      callId: `tc-1`,
+      toolKind: `edit`,
+    })
+    // An unknown kind and a blank id are dropped, not kept as junk.
+    expect(feed[1]).toMatchObject({ kind: `tool`, name: `Edit` })
+    expect((feed[1] as { callId?: string }).callId).toBeUndefined()
+    expect((feed[1] as { toolKind?: string }).toolKind).toBeUndefined()
+    store.dispose()
+  })
+
+  it(`a settle and a diff fold into the row; a failed settle wins`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(toolEvent(`tc-1`))
+    socket.frame({ t: `activity`, event: { kind: `narration`, text: `between` } })
+    socket.frame(toolEvent(`tc-2`, { toolKind: `execute`, name: `Bash` }))
+    socket.frame(
+      updateEvent(`tc-1`, {
+        status: `completed`,
+        diff: `--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-a\n+b\n`,
+      })
+    )
+    await vi.advanceTimersByTimeAsync(100)
+    let feed = store.getSnapshot().feed
+    expect(feed).toHaveLength(3)
+    expect(feed[0]).toMatchObject({
+      kind: `tool`,
+      callId: `tc-1`,
+      settled: true,
+      failed: false,
+      diff: `--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-a\n+b\n`,
+    })
+    expect((feed[2] as { settled?: boolean }).settled).toBeUndefined()
+
+    socket.frame(updateEvent(`tc-1`, { status: `failed` }))
+    // A status-less update carrying only a diff never settles.
+    socket.frame(updateEvent(`tc-2`, { diff: `+x\n` }))
+    await vi.advanceTimersByTimeAsync(100)
+    feed = store.getSnapshot().feed
+    expect(feed[0]).toMatchObject({ settled: true, failed: true })
+    expect((feed[0] as { diff?: string }).diff).toContain(`+b`)
+    expect(feed[2]).toMatchObject({ diff: `+x\n` })
+    expect((feed[2] as { settled?: boolean }).settled).toBeUndefined()
+    store.dispose()
+  })
+
+  it(`an update for an unknown or evicted id is dropped`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(toolEvent(`tc-1`))
+    socket.frame({ t: `activity`, event: { kind: `tool`, name: `Grep` } })
+    socket.frame(updateEvent(`tc-nope`, { status: `failed`, diff: `+never\n` }))
+    socket.frame(updateEvent(``, { status: `completed` }))
+    await vi.advanceTimersByTimeAsync(100)
+    const feed = store.getSnapshot().feed
+    expect(feed).toHaveLength(2)
+    expect((feed[0] as { settled?: boolean }).settled).toBeUndefined()
+    expect((feed[1] as { settled?: boolean }).settled).toBeUndefined()
+    store.dispose()
+  })
+
+  it(`folds into the NEWEST row with that id`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(toolEvent(`tc-1`))
+    socket.frame(toolEvent(`tc-1`))
+    socket.frame(updateEvent(`tc-1`, { status: `completed` }))
+    await vi.advanceTimersByTimeAsync(100)
+    const feed = store.getSnapshot().feed
+    expect((feed[0] as { settled?: boolean }).settled).toBeUndefined()
+    expect(feed[1]).toMatchObject({ settled: true, failed: false })
+    store.dispose()
+  })
+
+  it(`a replayed update still folds after the staged commit`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({ t: `activity_reset` })
+    socket.frame(toolEvent(`tc-1`))
+    socket.frame(updateEvent(`tc-1`, { status: `failed` }))
+    socket.frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().feed).toHaveLength(1)
+    expect(store.getSnapshot().feed[0]).toMatchObject({ callId: `tc-1`, failed: true })
+    store.dispose()
+  })
+})
+
+// EXP-784: `rate_limit` is the fourth latest-wins slot; an empty/`ok` status
+// clears it.
+describe(`rate_limit slot (EXP-784)`, () => {
+  const rateLimitEvent = (over: Record<string, unknown> = {}) => ({
+    t: `activity`,
+    event: {
+      kind: `rate_limit`,
+      status: `allowed_warning`,
+      resetsAt: 1_700_000_000_000,
+      message: `80% of the 5-hour window`,
+      ...over,
+    },
+  })
+
+  it(`lands in the snapshot as a slot, never a feed row, and clears on ok or empty`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(rateLimitEvent())
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().feed).toEqual([])
+    expect(store.getSnapshot().rateLimit).toEqual({
+      status: `allowed_warning`,
+      resetsAt: 1_700_000_000_000,
+      message: `80% of the 5-hour window`,
+    })
+    socket.frame(rateLimitEvent({ status: `rejected`, resetsAt: undefined, message: `  ` }))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().rateLimit).toEqual({ status: `rejected` })
+    socket.frame(rateLimitEvent({ status: `ok` }))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().rateLimit).toBeNull()
+    socket.frame(rateLimitEvent({ status: `rejected` }))
+    socket.frame(rateLimitEvent({ status: `` }))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().rateLimit).toBeNull()
+    store.dispose()
+  })
+
+  it(`a committed replay repaints the slot from the staged events, or drops it`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(rateLimitEvent({ status: `rejected` }))
+    await vi.advanceTimersByTimeAsync(100)
+    socket.frame({ t: `activity_reset` })
+    socket.frame({ t: `activity`, event: { kind: `narration`, text: `replayed` } })
+    socket.frame(rateLimitEvent())
+    socket.frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().rateLimit?.status).toBe(`allowed_warning`)
+    socket.frame({ t: `activity_reset` })
+    socket.frame({ t: `activity`, event: { kind: `narration`, text: `again` } })
+    socket.frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().rateLimit).toBeNull()
+    store.dispose()
+  })
+})
+
 // EXP-746: `config_state` and `usage` are latest-wins SLOTS on the snapshot,
 // and the two outbound frames that change them are fire-and-forget.
 describe(`live config + usage (EXP-746)`, () => {

@@ -65,6 +65,8 @@ export function feedItemBytes(item: {
   tool?: string
   answer?: string
   header?: string
+  /** EXP-786: a tool row's folded per-call diff weighs too. */
+  diff?: string
   options?: { label: string; key: string }[]
 }): number {
   const OVERHEAD = contract.steerFeed.itemOverheadBytes
@@ -77,8 +79,44 @@ export function feedItemBytes(item: {
     len(item.tool) +
     len(item.answer) +
     len(item.header) +
+    len(item.diff) +
     (item.options?.reduce((sum, o) => sum + o.label.length + o.key.length, 0) ?? 0)
   )
+}
+
+/** EXP-785: ACP's tool-call kind buckets, the contract's `toolKind.values`
+ *  (locked by agent-feed.test.ts). A `tool` event carries one as `toolKind`
+ *  — never `kind`, which is the event discriminator. */
+export type ToolKind =
+  | `read`
+  | `edit`
+  | `delete`
+  | `move`
+  | `search`
+  | `execute`
+  | `think`
+  | `fetch`
+  | `switch_mode`
+  | `other`
+
+export const TOOL_KINDS: readonly ToolKind[] = [
+  `read`,
+  `edit`,
+  `delete`,
+  `move`,
+  `search`,
+  `execute`,
+  `think`,
+  `fetch`,
+  `switch_mode`,
+  `other`,
+]
+
+/** A wire `toolKind`, or undefined for anything this build does not know. */
+export function parseToolKind(value: unknown): ToolKind | undefined {
+  return typeof value === `string` && (TOOL_KINDS as readonly string[]).includes(value)
+    ? (value as ToolKind)
+    : undefined
 }
 
 /** Evict from the OLDEST end until the feed is inside both budgets, with the
@@ -969,6 +1007,41 @@ export function parseSessionUsage(event: unknown): SessionUsageState | null {
     usage.costUsd = cost
   }
   return usage
+}
+
+/** EXP-784: the agent's rate-limit window as it last reported it — the
+ *  fourth latest-wins slot beside `SessionUsageState` (`journal.rs`,
+ *  `hub.ts` LATEST_WINS_KINDS, iOS `AgentFeed.applyRateLimit`, Android
+ *  `AgentFeed.kt`, desktop `feed.rs` SessionRateLimit). `status` is the
+ *  agent's own word (`allowed_warning`, `rejected`, …). */
+export interface SessionRateLimitState {
+  status: string
+  /** Unix ms when the window resets, when the agent named one. */
+  resetsAt?: number
+  message?: string
+}
+
+/** EXP-784: the `rate_limit.status` values that CLEAR the slot. */
+export function rateLimitClears(status: string): boolean {
+  const trimmed = status.trim()
+  return trimmed === `` || trimmed.toLowerCase() === `ok`
+}
+
+/** Fold a `rate_limit` event; `null` CLEARS the slot — for an empty/`ok`
+ *  status (the agent is not limited any more) AND for an unusable payload:
+ *  a stale "rate limited" banner beside a live run is the worse error. */
+export function parseRateLimit(event: unknown): SessionRateLimitState | null {
+  if (!isEventRecord(event)) return null
+  const status = event.status
+  if (typeof status !== `string` || rateLimitClears(status)) return null
+  const state: SessionRateLimitState = { status: status.trim() }
+  const resetsAt = event.resetsAt
+  if (typeof resetsAt === `number` && Number.isFinite(resetsAt) && resetsAt >= 0) {
+    state.resetsAt = resetsAt
+  }
+  const message = event.message
+  if (typeof message === `string` && message.trim()) state.message = message.trim()
+  return state
 }
 
 /** The composer's ONE chip (EXP-772): the session mode. */

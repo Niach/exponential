@@ -6,7 +6,12 @@ import {
   modeChip,
   parseConfigState,
   planModeToggle,
+  parseRateLimit,
   parseSessionUsage,
+  parseToolKind,
+  rateLimitClears,
+  feedItemBytes,
+  TOOL_KINDS,
   answerKey,
   applyQuestionResolved,
   askStepperView,
@@ -37,6 +42,7 @@ import {
   type QuestionLike,
 } from "./agent-feed"
 import { CONFIG_DEFAULT_VALUE_LABEL } from "./steer-commands"
+import { contract } from "@exp/domain-contract"
 import designTokens from "../../../../packages/design-tokens/tokens.json" with { type: "json" }
 
 describe(`local-echo dedupe`, () => {
@@ -1118,6 +1124,47 @@ describe(`config state`, () => {
 
 // EXP-772: the ACP coalescer flushes one assistant message as several
 // narration events keyed by `messageId`.
+// EXP-784/785/786: the shared wire additions' pure folds.
+describe(`tool kinds, rate limit and diff bytes (EXP-784/785/786)`, () => {
+  it(`TOOL_KINDS is the contract's toolKind list, byte-equal`, () => {
+    expect([...TOOL_KINDS]).toEqual([...contract.toolKind.values])
+    expect(parseToolKind(`switch_mode`)).toBe(`switch_mode`)
+    expect(parseToolKind(`teleport`)).toBeUndefined()
+    expect(parseToolKind(undefined)).toBeUndefined()
+  })
+
+  it(`parseRateLimit keeps a limited window and clears on ok/empty/junk`, () => {
+    expect(
+      parseRateLimit({
+        kind: `rate_limit`,
+        status: ` allowed_warning `,
+        resetsAt: 1_700_000_000_000,
+        message: ` 80% used `,
+      })
+    ).toEqual({
+      status: `allowed_warning`,
+      resetsAt: 1_700_000_000_000,
+      message: `80% used`,
+    })
+    expect(parseRateLimit({ kind: `rate_limit`, status: `rejected`, resetsAt: -1 })).toEqual({
+      status: `rejected`,
+    })
+    expect(parseRateLimit({ kind: `rate_limit`, status: `ok` })).toBeNull()
+    expect(parseRateLimit({ kind: `rate_limit`, status: `` })).toBeNull()
+    expect(parseRateLimit({ kind: `rate_limit` })).toBeNull()
+    expect(parseRateLimit(null)).toBeNull()
+    expect(rateLimitClears(` OK `)).toBe(true)
+    expect(rateLimitClears(`allowed`)).toBe(false)
+  })
+
+  it(`a folded diff weighs against the byte budget`, () => {
+    const base = feedItemBytes({ kind: `tool`, name: `Edit`, detail: `a.ts` })
+    expect(feedItemBytes({ kind: `tool`, name: `Edit`, detail: `a.ts`, diff: `+abc\n` })).toBe(
+      base + 5
+    )
+  })
+})
+
 describe(`narration fragments`, () => {
   const row = (over: Record<string, unknown>) => ({
     id: 1,
