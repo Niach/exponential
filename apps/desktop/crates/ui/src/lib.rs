@@ -120,6 +120,7 @@ mod surface;
 mod source_control;
 mod start_coding_dialog;
 mod steer_viewer;
+mod transcript_rows;
 pub mod steer_wiring;
 mod support_thread;
 mod worktree_prune;

@@ -9,8 +9,8 @@
 //! `overflow_y_scroll` area with a sibling absolute scrollbar layer.
 
 use gpui::{
-    div, Div, ElementId, InteractiveElement as _, IntoElement, ParentElement as _, ScrollHandle,
-    StatefulInteractiveElement as _, Styled as _,
+    div, Div, ElementId, InteractiveElement as _, IntoElement, ListState, ParentElement as _,
+    ScrollHandle, StatefulInteractiveElement as _, Styled as _,
 };
 use gpui_component::scroll::{Scrollbar, ScrollbarAxis};
 
@@ -42,5 +42,27 @@ pub(crate) fn v_scroll_pane(
                 .right_0()
                 .bottom_0()
                 .child(Scrollbar::new(handle).axis(ScrollbarAxis::Vertical)),
+        )
+}
+
+/// EXP-776: the same `flex_1`/`min_h_0` shell around a VIRTUALISED
+/// [`gpui::list`] — the list scrolls itself (its state owns the offset and
+/// the wheel handling), so all this adds is the flex sizing and the overlay
+/// scrollbar driven by that same state (`gpui_base` implements
+/// `ScrollbarHandle for ListState`).
+pub(crate) fn v_list_pane(list: gpui::List, state: &ListState) -> Div {
+    div()
+        .relative()
+        .flex_1()
+        .min_h_0()
+        .child(list.size_full())
+        .child(
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .right_0()
+                .bottom_0()
+                .child(Scrollbar::new(state).axis(ScrollbarAxis::Vertical)),
         )
 }
