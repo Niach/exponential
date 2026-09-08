@@ -47,14 +47,14 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gpui::{
-    bounce, div, ease_in_out, prelude::FluentBuilder as _, px, relative, AnimationExt as _,
-    AnyElement, App, AppContext as _, ClickEvent, Entity, FocusHandle, Focusable,
-    InteractiveElement as _, IntoElement, ParentElement as _, Pixels, Render, ScrollHandle,
-    ScrollWheelEvent, SharedString, StatefulInteractiveElement as _, StyledImage as _, Styled as _,
-    Subscription, Task, Window,
+    bounce, div, ease_in_out, list, prelude::FluentBuilder as _, px, relative,
+    AnimationExt as _, AnyElement, App, AppContext as _, ClickEvent, Entity, FocusHandle,
+    Focusable, FollowMode, InteractiveElement as _, IntoElement, ListAlignment, ListState,
+    ParentElement as _, Render, SharedString, StatefulInteractiveElement as _,
+    StyledImage as _, Styled as _, Subscription, Task, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
@@ -68,9 +68,9 @@ use steer::commands::parse_command;
 use steer::feed::{COMPACTED_LABEL, COMPACTING_LABEL, COMPACTION_TIMEOUT};
 use steer::{
     answer_key, build_steer_image_message, insert_image_marker, parse_steer_message,
-    renumber_image_markers, summarize_subagent_row, AnswerStatus, FeedItem, FeedItemId, FeedKind, FeedRow, QuestionOption,
-    SteerFeed, SubagentStatus, ViewerEvent, ViewerHandle, ViewerPhase, ANSWER_ACK_TIMEOUT,
-    MAX_STEER_IMAGES, REPLAY_MAX, REPLAY_QUIET,
+    renumber_image_markers, summarize_subagent_row, AnswerStatus, FeedItem, FeedItemId, FeedKind,
+    FeedRow, FeedRowSpec, QuestionOption, SteerFeed, SubagentStatus, ViewerEvent, ViewerHandle,
+    ViewerPhase, ANSWER_ACK_TIMEOUT, MAX_STEER_IMAGES, REPLAY_MAX, REPLAY_QUIET,
 };
 
 use crate::controls::{glass_input, WebText as _};
@@ -80,6 +80,7 @@ use crate::markdown::image_paste::{
     self, max_upload_bytes_for, pasted_image_parts, read_image_file, validate_image,
 };
 use crate::native_dialog::{self, AlertSpec};
+use crate::transcript_rows::{self, facet, plan_list_sync, ItemFacets, ListOp, RowKey};
 
 /// How long a body may run before it folds behind "Show more" (web
 /// `clampable`: >600 chars or >6 lines).
@@ -91,6 +92,24 @@ const FREE_TEXT_MAX: usize = 4000;
 
 /// How often the staged-replay fallback re-checks its quiet window.
 const STAGING_TICK: Duration = Duration::from_millis(100);
+
+/// EXP-776: how far beyond the viewport the transcript list renders and
+/// measures rows (`gpui::ListState` overdraw) — about a screen, so a wheel
+/// flick never lands on an unmeasured row.
+const FEED_OVERDRAW: gpui::Pixels = px(1024.);
+
+/// EXP-776: the height hint every UNMEASURED row carries after a bulk
+/// splice (a journal fold, a replayed backlog, a staged swap), so the
+/// scrollbar thumb is sane before the rows have been on screen. Rows vary
+/// wildly (a one-line tool call, a screen of prose); the list replaces the
+/// hint with the real height as each row is measured.
+const FEED_ROW_HINT: gpui::Pixels = px(40.);
+
+/// EXP-776: a splice inserting at least this many rows re-applies
+/// [`FEED_ROW_HINT`]. Streaming appends are one or two rows and skip it —
+/// re-applying the hint turns every measured row back into a hinted one,
+/// which the overdraw then re-measures.
+const FEED_BULK_SPLICE: usize = 16;
 
 /// FEED-26 — how long a LIVE run's feed may sit unchanged before the header
 /// stops claiming a healthy "Live". The rule is shared byte-for-byte with the
@@ -218,13 +237,19 @@ pub(crate) struct SteerSessionView {
     /// non-edges).
     device_offline: bool,
     sync_offline: bool,
-    /// Bumped on every reset/activity while staging; a fallback timer that
-    /// finds its generation superseded exits without swapping.
-    staging_generation: u64,
+    /// EXP-776: whether the ONE staged-replay fallback task is running. The
+    /// old design spawned a fresh tick task per buffered event and let the
+    /// generation counter retire the rest — a 2000-event replay meant 2000
+    /// timers. Now every event only stamps [`Self::staging_last_event`] and
+    /// the single loop reads it.
+    staging_armed: bool,
+    /// When the last replayed event landed — the quiet window
+    /// ([`REPLAY_QUIET`]) counts from here.
+    staging_last_event: Instant,
     /// When the CURRENT staging window opened. The quiet window restarts on
     /// every buffered event; the [`REPLAY_MAX`] cap deliberately does not —
     /// a replay that keeps trickling must still commit.
-    staging_started: Option<std::time::Instant>,
+    staging_started: Option<Instant>,
     /// Bumped whenever a compaction opens; a [`COMPACTION_TIMEOUT`] backstop
     /// that finds its generation superseded exits without clearing.
     compaction_generation: u64,
@@ -270,26 +295,31 @@ pub(crate) struct SteerSessionView {
     /// The extras cards expanded on a row (their own set: a folded tool BODY
     /// and a folded diff are different questions about the same row).
     expanded_extras: HashSet<FeedItemId>,
-    scroll: ScrollHandle,
-    /// EXP-732: whether the feed pane follows its tail. On by default — a
-    /// session tab opens on the newest rows (the question waiting for an
-    /// answer, the composer's context), and every appended row keeps it
-    /// there. Any way the reader moves the pane UP releases it so they can
-    /// look back while the agent keeps talking; moving back DOWN to the
-    /// bottom re-arms it. While it is on, every render re-requests the tail
-    /// (the request is consumed at prepaint, AFTER render, so a gesture
-    /// dispatched earlier in the same frame wins over it); the decision
-    /// itself is [`follow_tail_next`].
-    follow_tail: bool,
-    /// What the last render saw in the pane: its scroll offset and the
-    /// extent that offset was measured against. Following is decided from
-    /// the MOVEMENT between these and the next render's pair — a pinned pane
-    /// sits at the bottom every frame, so a position alone says nothing.
-    last_offset_y: Pixels,
-    last_max_y: Pixels,
-    /// An upward wheel since the last render: the reader looking back. Set by
-    /// the pane's wheel handler, consumed by the next render.
-    wheel_up: bool,
+    /// EXP-776: the virtualised transcript. `gpui::list` renders and
+    /// measures only the rows in and around the viewport, and its
+    /// [`FollowMode::Tail`] IS the auto-scroll: it snaps to the end on every
+    /// layout while following, stops on an upward wheel, re-arms when the
+    /// reader is back within a pixel of the bottom (a wheel or a scrollbar
+    /// drag), and clamps wheel deltas at event time — so a trackpad's
+    /// momentum over-scroll can never read as "the reader moved up" the way
+    /// it did with the hand-rolled follow this replaced (EXP-732).
+    list: ListState,
+    /// EXP-776: the cached row projection the list indexes into, refreshed
+    /// once per frame by [`Self::sync_list`] together with `row_keys` (what
+    /// the list was last told) and `active` (the answerable cards, read by
+    /// the header and the rows instead of being rebuilt per call).
+    rows: Vec<FeedRowSpec>,
+    row_keys: Vec<RowKey>,
+    active: HashSet<FeedItemId>,
+    /// Whether the synthetic trailing "Working…" row is present — the list's
+    /// last index when it is.
+    working: bool,
+    /// EXP-776: the frame's issue-chip resolver (EXP-760), built ONCE per
+    /// frame over `chip_cache` instead of per prose body. `None` for a run
+    /// with no resolvable team.
+    chips: Option<crate::markdown::RefResolver>,
+    /// The memo behind `chips`, cleared when issues or statuses change.
+    chip_cache: crate::markdown::IssueChipCache,
     focus_handle: FocusHandle,
     _drain: Task<()>,
     _subscriptions: Vec<Subscription>,
@@ -348,7 +378,16 @@ impl SteerSessionView {
             subscriptions.push(cx.observe(&collections.coding_sessions, |this, _, cx| {
                 this.refresh_row(cx);
             }));
-            subscriptions.push(cx.observe(&collections.issues, |_, _, cx| cx.notify()));
+            // EXP-776: the chip memo is only as fresh as the issues and
+            // statuses it was read from (glyph and tint are part of a chip).
+            subscriptions.push(cx.observe(&collections.issues, |this, _, cx| {
+                this.chip_cache.borrow_mut().clear();
+                cx.notify();
+            }));
+            subscriptions.push(cx.observe(&collections.issue_statuses, |this, _, cx| {
+                this.chip_cache.borrow_mut().clear();
+                cx.notify();
+            }));
             // EXP-696 wakeup #1: the host machine came back (the devices
             // shape's `last_seen_at` moved back inside the online window).
             subscriptions.push(cx.observe(&collections.devices, |this, _, cx| {
@@ -398,7 +437,8 @@ impl SteerSessionView {
             connected: false,
             device_offline: false,
             sync_offline: false,
-            staging_generation: 0,
+            staging_armed: false,
+            staging_last_event: Instant::now(),
             staging_started: None,
             compaction_generation: 0,
             last_activity: std::time::Instant::now(),
@@ -424,11 +464,20 @@ impl SteerSessionView {
                 diff
             }),
             expanded_extras: HashSet::new(),
-            scroll: ScrollHandle::new(),
-            follow_tail: true,
-            last_offset_y: px(0.),
-            last_max_y: px(0.),
-            wheel_up: false,
+            list: {
+                // A session tab opens on its newest rows (the question
+                // waiting for an answer, the composer's context) and every
+                // appended row keeps it there: the list starts FOLLOWING.
+                let list = ListState::new(0, ListAlignment::Top, FEED_OVERDRAW);
+                list.set_follow_mode(FollowMode::Tail);
+                list
+            },
+            rows: Vec::new(),
+            row_keys: Vec::new(),
+            active: HashSet::new(),
+            working: false,
+            chips: None,
+            chip_cache: Default::default(),
             focus_handle: cx.focus_handle(),
             _drain: drain,
             _subscriptions: subscriptions,
@@ -464,8 +513,11 @@ impl SteerSessionView {
                 this.feed.apply(event);
             }
             this.sync_changes(cx);
+            this.refresh_active();
             this.connected = false;
             this.phase = ViewerPhase::Ended { outcome: None };
+            // The whole run is already here: open on its end.
+            this.list.scroll_to_end();
         }
         if let Some(session) = this.source.session().cloned() {
             // EXP-746 review UI-2: seed the phase from the engine, so a view
@@ -520,7 +572,7 @@ impl SteerSessionView {
     /// the phase, and FEED-26's stale-activity clock).
     pub(crate) fn header_status(&self, cx: &App) -> (gpui::Hsla, String) {
         let paused = self.paused(cx);
-        let awaiting = !self.feed.active_question_ids().is_empty();
+        let awaiting = !self.active.is_empty();
         let stale = self.stale_minutes(paused, awaiting);
         let device = self.device(cx);
         (
@@ -606,9 +658,16 @@ impl SteerSessionView {
     /// nothing here is stored, so the `#IDENT` interchange contract and the
     /// auto-relations it drives are untouched. `None` (board-less run, team
     /// not synced) leaves every token as plain text.
+    ///
+    /// EXP-776: built ONCE per frame ([`Self::sync_list`]) over the view's
+    /// chip memo; a transcript full of `EXP-nnn` tokens used to build a
+    /// fresh resolver per prose body and re-scan the team's issues per token.
     fn ref_resolver(&self, cx: &App) -> Option<crate::markdown::RefResolver> {
-        self.ref_team_id(cx)
-            .map(|team_id| crate::markdown::RefResolver::from_store(team_id).bare(true))
+        self.ref_team_id(cx).map(|team_id| {
+            crate::markdown::RefResolver::from_store(team_id)
+                .bare(true)
+                .memoized(self.chip_cache.clone())
+        })
     }
 
     /// EXP-760: hang the feed's bare-mode chip resolver (and the in-app
@@ -619,7 +678,7 @@ impl SteerSessionView {
         view: crate::markdown::MarkdownView,
         cx: &App,
     ) -> crate::markdown::MarkdownView {
-        let Some(resolver) = self.ref_resolver(cx) else {
+        let Some(resolver) = self.chips.clone() else {
             return view;
         };
         let Some(team_id) = self.ref_team_id(cx) else {
@@ -631,6 +690,121 @@ impl SteerSessionView {
                     &team_id, identifier, window, cx,
                 );
             })
+    }
+
+    // ── EXP-776: the cached row projection + list sync ─────────────────────
+
+    /// Re-read the answerable cards off the feed. Called wherever the feed
+    /// mutates (and at the top of every frame), so the header and the rows
+    /// read one cached set instead of rebuilding it per call.
+    fn refresh_active(&mut self) {
+        self.active = self.feed.active_question_ids();
+    }
+
+    /// Whether the synthetic "Working…" row sits under the transcript: a
+    /// live, unended run with nothing waiting on the reader and no strip
+    /// already saying what is happening.
+    fn working_now(&self) -> bool {
+        !self.feed.is_empty()
+            && self.phase == ViewerPhase::Live
+            && !self.row_ended()
+            && self.active.is_empty()
+            && !self.feed.is_staging()
+            // EXP-724: the compaction strip already says what is happening —
+            // a second "Working…" under it is noise (web parity).
+            && self.feed.compacting().is_none()
+    }
+
+    /// The view-side bits of one item that move its rendered height — see
+    /// [`transcript_rows::row_fingerprint`].
+    fn item_facets(&self, item: &FeedItem) -> ItemFacets {
+        let mut facets = 0;
+        if self.expanded_bodies.contains(&item.id) {
+            facets |= facet::BODY_EXPANDED;
+        }
+        if self.extras.has_extras(item.id) {
+            facets |= facet::HAS_EXTRAS;
+            if self.expanded_extras.contains(&item.id) {
+                facets |= facet::EXTRAS_EXPANDED;
+            }
+        }
+        if let Some(key) = answer_key(item) {
+            if self.feed.is_answer_locked(&key) {
+                facets |= facet::ANSWER_LOCKED;
+            }
+            if self.free_text.as_ref().is_some_and(|(answer, _)| *answer == key) {
+                facets |= facet::FREE_TEXT_OPEN;
+            }
+        }
+        facets
+    }
+
+    /// The focus handle a freshly spliced row registers with the list: an
+    /// answerable card carries the free-text input's, so an answer being
+    /// typed on a card the reader scrolled off-screen keeps receiving keys
+    /// (the list renders a focused off-screen item for exactly this).
+    fn row_focus_handle(&self, ix: usize, cx: &App) -> Option<FocusHandle> {
+        let spec = self.rows.get(ix)?;
+        let items = self.feed.items();
+        spec.item_indices()
+            .iter()
+            .any(|&item| items.get(item).is_some_and(|item| self.active.contains(&item.id)))
+            .then(|| self.free_text_input.focus_handle(cx))
+    }
+
+    /// Refresh the cached projection and tell the list what changed.
+    ///
+    /// Runs at the top of EVERY frame: an O(n) pass over at most `FEED_CAP`
+    /// items is nothing next to the element work it replaces, and a single
+    /// site cannot miss a mutation the way per-event bookkeeping could. The
+    /// diff against last frame's keys ([`plan_list_sync`]) becomes splices
+    /// (rows came or went) and remeasures (a row's content moved); the list
+    /// re-renders every VISIBLE row each layout regardless, so a streaming
+    /// row growing on screen needs nothing more than the notify that got us
+    /// here.
+    fn sync_list(&mut self, cx: &mut gpui::Context<Self>) {
+        self.refresh_active();
+        self.rows = self.feed.row_specs();
+        self.working = self.working_now();
+        self.chips = self.ref_resolver(cx);
+        let items = self.feed.items();
+        let mut keys: Vec<RowKey> = Vec::with_capacity(self.rows.len() + 1);
+        for spec in &self.rows {
+            let id = spec.id();
+            let fingerprint = transcript_rows::row_fingerprint(
+                spec,
+                items,
+                self.expanded_groups.contains(&id),
+                |item| self.item_facets(item),
+            );
+            keys.push(RowKey { id, fingerprint });
+        }
+        if self.working {
+            keys.push(RowKey::WORKING);
+        }
+        let ops = plan_list_sync(&self.row_keys, &keys);
+        if ops.is_empty() {
+            return;
+        }
+        let mut bulk = false;
+        for op in ops {
+            match op {
+                ListOp::Splice { range, count } => {
+                    bulk |= count >= FEED_BULK_SPLICE;
+                    let start = range.start;
+                    let handles: Vec<Option<FocusHandle>> = (start..start + count)
+                        .map(|ix| self.row_focus_handle(ix, cx))
+                        .collect();
+                    self.list.splice_focusable(range, handles);
+                }
+                ListOp::Remeasure(range) => self.list.remeasure_items(range),
+            }
+        }
+        self.row_keys = keys;
+        if bulk {
+            // `ListState` is a shared handle: hinting a clone hints the list.
+            let _ = self.list.clone().with_uniform_item_height(FEED_ROW_HINT);
+        }
     }
 
     /// Whether the run is over — a merged/ended session offers no Merge
@@ -807,7 +981,7 @@ impl SteerSessionView {
             }
             ViewerEvent::Reset => {
                 self.feed.apply_reset();
-                self.staging_started = Some(std::time::Instant::now());
+                self.staging_started = Some(Instant::now());
                 self.arm_staging_swap(cx);
             }
             ViewerEvent::Synced => {
@@ -826,6 +1000,7 @@ impl SteerSessionView {
                 self.feed.push_local_message(&text);
             }
         }
+        self.refresh_active();
         self.note_feed_moved(pulse);
         self.note_compaction(was_compacting, cx);
         cx.notify();
@@ -877,7 +1052,7 @@ impl SteerSessionView {
             if this
                 .update(cx, |this, cx| {
                     let paused = this.paused(cx);
-                    let awaiting = !this.feed.active_question_ids().is_empty();
+                    let awaiting = !this.active.is_empty();
                     if this.stale_minutes(paused, awaiting).is_some() {
                         cx.notify();
                     }
@@ -890,20 +1065,6 @@ impl SteerSessionView {
         })
         .detach();
     }
-
-    /// The feed pane's wheel handler: an upward scroll is the reader looking
-    /// back. It only RECORDS the gesture — the next render decides, so the
-    /// release cannot be undone by an offset the same frame is about to pin
-    /// (review C11).
-    fn on_feed_wheel(&mut self, event: &ScrollWheelEvent, window: &Window) {
-        if event.delta.pixel_delta(window.line_height()).y > px(0.) {
-            self.wheel_up = true;
-        }
-    }
-
-    /// Pixels of slack under which the pane counts as "at the bottom" — a
-    /// fractional-pixel offset after a resize must not un-follow the tail.
-    const TAIL_SLACK: gpui::Pixels = px(8.);
 
     /// EXP-746 — one event off the in-process engine.
     ///
@@ -938,6 +1099,7 @@ impl SteerSessionView {
                         }
                     }
                 }
+                self.refresh_active();
                 self.note_feed_moved(pulse);
                 self.sync_changes(cx);
                 self.note_compaction(was_compacting, cx);
@@ -1022,41 +1184,48 @@ impl SteerSessionView {
 
     /// EXP-656: a replay that never sends `activity_synced` commits on the
     /// caller's quiet window ([`REPLAY_QUIET`]), and unconditionally at
-    /// [`REPLAY_MAX`]. One task per staging window, superseded by generation.
+    /// [`REPLAY_MAX`].
+    ///
+    /// EXP-776: ONE task per staging window. Every buffered event lands here,
+    /// stamps [`Self::staging_last_event`] and returns; the single loop reads
+    /// that stamp on its tick and disarms itself when it swaps, when the
+    /// staging was discarded, or when the view is gone.
     fn arm_staging_swap(&mut self, cx: &mut gpui::Context<Self>) {
-        self.staging_generation += 1;
-        let generation = self.staging_generation;
-        cx.spawn(async move |this, cx| {
-            let mut quiet = Duration::ZERO;
-            loop {
-                cx.background_executor().timer(STAGING_TICK).await;
-                quiet += STAGING_TICK;
-                let Ok(done) = this.update(cx, |this, cx| {
-                    if this.staging_generation != generation || !this.feed.is_staging() {
-                        this.staging_started = None;
-                        return true;
-                    }
-                    let capped = this
-                        .staging_started
-                        .is_some_and(|started| started.elapsed() >= REPLAY_MAX);
-                    if quiet >= REPLAY_QUIET || capped {
-                        let was_compacting = this.feed.compacting().is_some();
-                        let pulse = feed_pulse(&this.feed);
-                        this.feed.force_swap();
-                        this.note_feed_moved(pulse);
-                        this.sync_changes(cx);
-                        this.note_compaction(was_compacting, cx);
-                        this.staging_started = None;
-                        cx.notify();
-                        return true;
-                    }
-                    false
-                }) else {
-                    return;
-                };
-                if done {
-                    return;
+        self.staging_last_event = Instant::now();
+        if self.staging_armed {
+            return;
+        }
+        self.staging_armed = true;
+        cx.spawn(async move |this, cx| loop {
+            cx.background_executor().timer(STAGING_TICK).await;
+            let Ok(done) = this.update(cx, |this, cx| {
+                if !this.feed.is_staging() {
+                    this.staging_started = None;
+                    this.staging_armed = false;
+                    return true;
                 }
+                let capped = this
+                    .staging_started
+                    .is_some_and(|started| started.elapsed() >= REPLAY_MAX);
+                if this.staging_last_event.elapsed() >= REPLAY_QUIET || capped {
+                    let was_compacting = this.feed.compacting().is_some();
+                    let pulse = feed_pulse(&this.feed);
+                    this.feed.force_swap();
+                    this.refresh_active();
+                    this.note_feed_moved(pulse);
+                    this.sync_changes(cx);
+                    this.note_compaction(was_compacting, cx);
+                    this.staging_started = None;
+                    this.staging_armed = false;
+                    cx.notify();
+                    return true;
+                }
+                false
+            }) else {
+                return;
+            };
+            if done {
+                return;
             }
         })
         .detach();
@@ -2022,7 +2191,7 @@ impl SteerSessionView {
         let muted = cx.theme().muted_foreground;
         let paused = self.paused(cx);
         let device = self.device(cx);
-        let awaiting = !self.feed.active_question_ids().is_empty();
+        let awaiting = !self.active.is_empty();
         let stale = self.stale_minutes(paused, awaiting);
         let caption = phase_label(
             &self.phase,
@@ -2140,7 +2309,7 @@ impl SteerSessionView {
         }
     }
 
-    fn render_feed(&self, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+    fn render_feed(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         if self.feed.is_empty() {
             let paused = self.paused(cx);
@@ -2196,41 +2365,56 @@ impl SteerSessionView {
             return div().flex_1().min_h_0().child(body).into_any_element();
         }
 
-        let rows = self.feed.rows();
-        let last_row = rows.len().saturating_sub(1);
-        let active = self.feed.active_question_ids();
+        // EXP-776: the virtualised transcript. The list holds `row_keys.len()`
+        // items ([`Self::sync_list`] ran at the top of this frame) and asks
+        // for each one it paints by index; the padding is the old column's,
+        // honoured by the list as its own (`last_padding`).
+        let list = list(
+            self.list.clone(),
+            cx.processor(|this, ix: usize, window, cx| this.render_list_row(ix, window, cx)),
+        )
+        .px_3()
+        .py_2();
+        crate::scroll_pane::v_list_pane(list, &self.list).into_any_element()
+    }
+
+    /// One transcript row by list index: the cached spec resolved against
+    /// the feed and rendered exactly as before, or — past the last spec —
+    /// the synthetic "Working…" line. Each row wears the 2px bottom gap the
+    /// old column's `gap_0p5` gave it, so the row rhythm is unchanged.
+    fn render_list_row(
+        &mut self,
+        ix: usize,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        let muted = cx.theme().muted_foreground;
+        let Some(spec) = self.rows.get(ix) else {
+            return div()
+                .w_full()
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .items_center()
+                        .py_1p5()
+                        .child(
+                            Icon::new(registry::CODING_ASSISTANT)
+                                .xsmall()
+                                .text_color(muted.opacity(0.6)),
+                        )
+                        .child(div().text_xs().text_color(muted).child("Working…")),
+                )
+                .into_any_element();
+        };
         let live = self.phase == ViewerPhase::Live;
-        let working = live
-            && !self.row_ended()
-            && active.is_empty()
-            && !self.feed.is_staging()
-            // EXP-724: the compaction strip already says what is happening —
-            // a second "Working…" under it is noise (web parity).
-            && self.feed.compacting().is_none();
-        let mut column = v_flex().w_full().min_w_0().gap_0p5().px_3().py_2();
-        for (index, row) in rows.iter().enumerate() {
-            column = column.child(self.render_row(
-                row,
-                index == last_row && live,
-                &active,
-                window,
-                cx,
-            ));
-        }
-        if working {
-            column = column.child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .py_1p5()
-                    .child(Icon::new(registry::CODING_ASSISTANT).xsmall().text_color(muted.opacity(0.6)))
-                    .child(div().text_xs().text_color(muted).child("Working…")),
-            );
-        }
-        crate::scroll_pane::v_scroll_pane("steer-feed", &self.scroll, column)
-            .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, window, _cx| {
-                this.on_feed_wheel(event, window);
-            }))
+        let last_row = self.rows.len().saturating_sub(1);
+        let row = spec.resolve(self.feed.items());
+        let element = self.render_row(&row, ix == last_row && live, &self.active, window, cx);
+        div()
+            .w_full()
+            .min_w_0()
+            .pb_0p5()
+            .child(element)
             .into_any_element()
     }
 
@@ -3960,70 +4144,13 @@ impl Focusable for SteerSessionView {
     }
 }
 
-/// EXP-732 (review C11) — whether the feed pane keeps following its tail.
-///
-/// Decided from the reader's GESTURE and the MOVEMENT this render observes,
-/// never from the position alone: a followed pane is pinned to the bottom at
-/// every frame, so "is it at the bottom?" re-arms whatever the reader just
-/// did. `prev` is the `(offset.y, max_offset.y)` pair the previous render
-/// read, `now` this one's. Offsets grow NEGATIVE downwards, so the pane
-/// moving UP is `offset.y` INCREASING.
-///
-/// Pure, so the ways a reader escapes a streaming feed are testable without a
-/// window.
-fn follow_tail_next(
-    following: bool,
-    prev: (Pixels, Pixels),
-    now: (Pixels, Pixels),
-    wheel_up: bool,
-) -> bool {
-    let (prev_offset, prev_max) = prev;
-    let (offset, max) = now;
-    // The reader looking back always wins, whatever the offset reads this
-    // frame — a pin requested by the previous render lands at prepaint, so
-    // the pane can be sitting exactly at the tail while the wheel that just
-    // arrived says otherwise.
-    if wheel_up {
-        return false;
-    }
-    if following {
-        // The pane is re-pinned by every render, so with an UNCHANGED extent
-        // nothing but the reader can move it up: dragging the overlay
-        // scrollbar's thumb or clicking its track, neither of which sends a
-        // wheel event. A changed extent means a layout ran (rows appended,
-        // the staged replay swapped, a resize) and the pin follows it.
-        let moved_up = offset > prev_offset;
-        return !(moved_up && max == prev_max);
-    }
-    // Re-arm only on a DOWNWARD movement that ENDS at the tail. Merely being
-    // at the bottom is not enough: a released reader whose content is shorter
-    // than the pane, or one the layout parked there, stays released.
-    offset < prev_offset && offset <= -max + SteerSessionView::TAIL_SLACK
-}
-
 impl Render for SteerSessionView {
-    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        // EXP-732: follow the tail, or let the reader read (see
-        // `follow_tail_next` for why this is a movement, not a position).
-        let offset_y = self.scroll.offset().y;
-        let max_y = self.scroll.max_offset().y;
-        self.follow_tail = follow_tail_next(
-            self.follow_tail,
-            (self.last_offset_y, self.last_max_y),
-            (offset_y, max_y),
-            std::mem::take(&mut self.wheel_up),
-        );
-        self.last_offset_y = offset_y;
-        self.last_max_y = max_y;
-        if self.follow_tail {
-            // Requested HERE, not from the event that appended the row: gpui
-            // consumes the request at prepaint, after this render, so a wheel
-            // dispatched earlier in the frame has already released following
-            // and never gets overridden by it.
-            self.scroll.scroll_to_bottom();
-        }
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        // EXP-776: the transcript list learns what changed since the last
+        // frame here, before anything reads the cached projection.
+        self.sync_list(cx);
         let header = self.chrome.then(|| self.render_header(cx));
-        let feed = self.render_feed(window, cx);
+        let feed = self.render_feed(cx);
         let banners = self.render_banners(cx);
         let composer_visible = self.composer_visible();
         // EXP-724: between the banners and the composer, exactly where the
@@ -4346,98 +4473,6 @@ mod tests {
     /// reopened over a long-running session has a live composer on its first
     /// paint, without waiting for a replayed edge that a full backlog may have
     /// evicted (`engine::LocalFeed` replays the latest phase for that too).
-    // ── EXP-732 / review C11: following the tail ──────────────────────────
-
-    /// The pane as a render sees it: `bottom(max)` is a pane pinned to its
-    /// tail, `up(max, by)` the same pane moved `by` pixels back up (offsets
-    /// grow negative downwards).
-    fn bottom(max: f32) -> (Pixels, Pixels) {
-        (px(-max), px(max))
-    }
-    fn up(max: f32, by: f32) -> (Pixels, Pixels) {
-        (px(-max + by), px(max))
-    }
-
-    /// The happy path: rows keep landing, the pane keeps being pinned, and
-    /// nothing in that ever looks like the reader moving.
-    #[test]
-    fn a_streaming_feed_keeps_following_its_tail() {
-        let mut following = true;
-        // Each frame: the extent grew, the previous frame's pin landed.
-        for (prev, now) in [
-            (bottom(100.), bottom(140.)),
-            (bottom(140.), bottom(190.)),
-            // A staged replay swap SHRINKS the extent; the pin follows it
-            // down, and the offset moving up with it is not a gesture.
-            (bottom(190.), bottom(60.)),
-        ] {
-            following = follow_tail_next(following, prev, now, false);
-            assert!(following, "{prev:?} → {now:?} is the feed, not the reader");
-        }
-    }
-
-    /// (a) A sub-slack upward tick during a streaming feed is the reader
-    /// looking back, and must not be undone by the frame it happens in.
-    #[test]
-    fn a_small_upward_wheel_releases_the_tail_and_stays_released() {
-        // The wheel arrives before render; the pane is still exactly at the
-        // bottom (the previous frame's pin landed), so only the gesture says
-        // what happened.
-        assert!(!follow_tail_next(true, bottom(200.), bottom(200.), true));
-        // gpui applied the 3px delta: still within TAIL_SLACK of the bottom,
-        // and the old position test re-armed here.
-        assert!(!follow_tail_next(false, bottom(200.), up(200., 3.), false));
-        // More rows land under the released pane: the extent grows, the
-        // offset the reader chose does not move, and it stays released even
-        // though it is still within the slack of the OLD bottom.
-        assert!(!follow_tail_next(
-            false,
-            up(200., 3.),
-            (px(-197.), px(260.)),
-            false
-        ));
-    }
-
-    /// (b) A pin queued for the frame must not swallow a wheel dispatched in
-    /// that same frame: the wheel is decided at render, the pin only lands at
-    /// prepaint afterwards.
-    #[test]
-    fn a_queued_pin_never_overrides_the_wheel_that_beat_it() {
-        assert!(!follow_tail_next(true, bottom(400.), bottom(430.), true));
-        // 40px up, well clear of the slack — and still not re-armed.
-        assert!(!follow_tail_next(false, bottom(430.), up(430., 40.), false));
-    }
-
-    /// (c) Dragging the overlay scrollbar's thumb sends NO wheel event, so
-    /// the movement itself has to release the tail — otherwise every
-    /// appended row yanks the thumb back mid-drag.
-    #[test]
-    fn a_scrollbar_drag_releases_the_tail_without_a_wheel() {
-        assert!(!follow_tail_next(true, bottom(300.), up(300., 12.), false));
-        // Reading on while the agent talks: rows keep landing (the extent
-        // grows) under a pane that does not move, and it stays released.
-        assert!(!follow_tail_next(
-            false,
-            up(300., 12.),
-            (px(-288.), px(360.)),
-            false
-        ));
-    }
-
-    /// Re-arming is a DOWNWARD movement landing at the tail — never the mere
-    /// fact that the pane sits at the bottom.
-    #[test]
-    fn only_a_move_back_down_to_the_tail_re_arms_the_follow() {
-        // Parked at the bottom with nothing moving: still released.
-        assert!(!follow_tail_next(false, bottom(150.), bottom(150.), false));
-        // Scrolled back down to within the slack: following again.
-        assert!(follow_tail_next(false, up(150., 40.), up(150., 4.), false));
-        // Scrolled down, but not all the way: still the reader's pane.
-        assert!(!follow_tail_next(false, up(150., 90.), up(150., 40.), false));
-        // A downward wheel that lands at the tail re-arms it too.
-        assert!(follow_tail_next(false, up(150., 20.), bottom(150.), false));
-    }
-
     #[test]
     fn an_engine_phase_becomes_the_matching_viewer_phase() {
         assert_eq!(

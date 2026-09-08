@@ -930,6 +930,12 @@ impl SteerFeed {
         group_feed_rows(&self.items)
     }
 
+    /// The same grouping as [`Self::rows`], as OWNED index specs
+    /// ([`group_feed_row_specs`]) — what a renderer caches between frames.
+    pub fn row_specs(&self) -> Vec<FeedRowSpec> {
+        group_feed_row_specs(&self.items)
+    }
+
     /// Every subagent seen in the feed ([`collect_subagents`]).
     pub fn subagents(&self) -> Vec<SubagentSummary> {
         collect_subagents(&self.items)
@@ -1039,7 +1045,94 @@ impl FeedRow<'_> {
 /// unaffected. Grouped items are pulled out of their in-place position into
 /// the row their group opened (web `groupFeedRows`).
 pub fn group_feed_rows(items: &[FeedItem]) -> Vec<FeedRow<'_>> {
-    let mut rows: Vec<FeedRow<'_>> = Vec::new();
+    group_feed_row_specs(items)
+        .iter()
+        .map(|spec| spec.resolve(items))
+        .collect()
+}
+
+/// EXP-776: a [`FeedRow`] as OWNED item INDICES into the feed instead of
+/// borrows of it — the shape a renderer can keep across frames (a virtualised
+/// transcript resolves only the rows it paints). Same variants, same `id`
+/// rule; [`Self::resolve`] turns one back into the borrowed row.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FeedRowSpec {
+    Single {
+        id: FeedItemId,
+        item: usize,
+    },
+    ToolRun {
+        id: FeedItemId,
+        items: Vec<usize>,
+    },
+    Ask {
+        id: FeedItemId,
+        ask_id: String,
+        items: Vec<usize>,
+    },
+    Subagent {
+        id: FeedItemId,
+        subagent_id: String,
+        items: Vec<usize>,
+    },
+}
+
+impl FeedRowSpec {
+    /// The row's stable key — its first item's id, like [`FeedRow::id`].
+    pub fn id(&self) -> FeedItemId {
+        match self {
+            FeedRowSpec::Single { id, .. }
+            | FeedRowSpec::ToolRun { id, .. }
+            | FeedRowSpec::Ask { id, .. }
+            | FeedRowSpec::Subagent { id, .. } => *id,
+        }
+    }
+
+    /// The indices of the items this row renders, in feed order.
+    pub fn item_indices(&self) -> &[usize] {
+        match self {
+            FeedRowSpec::Single { item, .. } => std::slice::from_ref(item),
+            FeedRowSpec::ToolRun { items, .. }
+            | FeedRowSpec::Ask { items, .. }
+            | FeedRowSpec::Subagent { items, .. } => items,
+        }
+    }
+
+    /// The borrowed row over `items` — the SAME slice the spec was grouped
+    /// from; a spec is only as current as the feed it came off.
+    pub fn resolve<'a>(&self, items: &'a [FeedItem]) -> FeedRow<'a> {
+        let pick = |indices: &[usize]| indices.iter().map(|&ix| &items[ix]).collect();
+        match self {
+            FeedRowSpec::Single { item, .. } => FeedRow::Single(&items[*item]),
+            FeedRowSpec::ToolRun { id, items: ixs } => FeedRow::ToolRun {
+                id: *id,
+                items: pick(ixs),
+            },
+            FeedRowSpec::Ask {
+                id,
+                ask_id,
+                items: ixs,
+            } => FeedRow::Ask {
+                id: *id,
+                ask_id: ask_id.clone(),
+                items: pick(ixs),
+            },
+            FeedRowSpec::Subagent {
+                id,
+                subagent_id,
+                items: ixs,
+            } => FeedRow::Subagent {
+                id: *id,
+                subagent_id: subagent_id.clone(),
+                items: pick(ixs),
+            },
+        }
+    }
+}
+
+/// The grouping behind [`group_feed_rows`], as index specs.
+pub fn group_feed_row_specs(items: &[FeedItem]) -> Vec<FeedRowSpec> {
+    let mut rows: Vec<FeedRowSpec> = Vec::new();
     // Row index of the open group, keyed by ask / subagent id.
     let mut ask_rows: HashMap<String, usize> = HashMap::new();
     let mut subagent_rows: HashMap<String, usize> = HashMap::new();
@@ -1049,16 +1142,16 @@ pub fn group_feed_rows(items: &[FeedItem]) -> Vec<FeedRow<'_>> {
         if let Some(ask_id) = item.question().and_then(|card| card.ask_id.clone()) {
             match ask_rows.get(&ask_id) {
                 Some(&row) => {
-                    if let FeedRow::Ask { items, .. } = &mut rows[row] {
-                        items.push(item);
+                    if let FeedRowSpec::Ask { items, .. } = &mut rows[row] {
+                        items.push(i);
                     }
                 }
                 None => {
                     ask_rows.insert(ask_id.clone(), rows.len());
-                    rows.push(FeedRow::Ask {
+                    rows.push(FeedRowSpec::Ask {
                         id: item.id,
                         ask_id,
-                        items: vec![item],
+                        items: vec![i],
                     });
                 }
             }
@@ -1068,16 +1161,16 @@ pub fn group_feed_rows(items: &[FeedItem]) -> Vec<FeedRow<'_>> {
         if let Some(subagent_id) = item.subagent_id().map(str::to_string) {
             match subagent_rows.get(&subagent_id) {
                 Some(&row) => {
-                    if let FeedRow::Subagent { items, .. } = &mut rows[row] {
-                        items.push(item);
+                    if let FeedRowSpec::Subagent { items, .. } = &mut rows[row] {
+                        items.push(i);
                     }
                 }
                 None => {
                     subagent_rows.insert(subagent_id.clone(), rows.len());
-                    rows.push(FeedRow::Subagent {
+                    rows.push(FeedRowSpec::Subagent {
                         id: item.id,
                         subagent_id,
-                        items: vec![item],
+                        items: vec![i],
                     });
                 }
             }
@@ -1085,7 +1178,10 @@ pub fn group_feed_rows(items: &[FeedItem]) -> Vec<FeedRow<'_>> {
             continue;
         }
         if !item.is_tool() {
-            rows.push(FeedRow::Single(item));
+            rows.push(FeedRowSpec::Single {
+                id: item.id,
+                item: i,
+            });
             i += 1;
             continue;
         }
@@ -1097,11 +1193,14 @@ pub fn group_feed_rows(items: &[FeedItem]) -> Vec<FeedRow<'_>> {
             end += 1;
         }
         if end == i {
-            rows.push(FeedRow::Single(item));
-        } else {
-            rows.push(FeedRow::ToolRun {
+            rows.push(FeedRowSpec::Single {
                 id: item.id,
-                items: items[i..=end].iter().collect(),
+                item: i,
+            });
+        } else {
+            rows.push(FeedRowSpec::ToolRun {
+                id: item.id,
+                items: (i..=end).collect(),
             });
         }
         i = end + 1;
@@ -1964,6 +2063,67 @@ mod tests {
         assert!(matches!(rows[2], FeedRow::Single(_)));
         // A LONE tool call is its own single row, never a run of one.
         assert!(matches!(rows[3], FeedRow::Single(_)));
+    }
+
+    /// EXP-776: the owned index specs are the SAME grouping as the borrowed
+    /// rows — a renderer caching specs paints exactly what `rows()` would.
+    #[test]
+    fn row_specs_resolve_to_the_same_rows_as_the_borrowed_grouping() {
+        let mut feed = SteerFeed::new();
+        feed.apply(ActivityEvent::narration("prose"));
+        feed.apply(ActivityEvent::tool("Read", None));
+        feed.apply(ActivityEvent::tool("Edit", None));
+        feed.apply(ActivityEvent::Subagent {
+            id: "agent_01".into(),
+            agent_type: "explore".into(),
+            status: SubagentStatus::Started,
+            detail: None,
+            at: None,
+            tool_calls: None,
+        });
+        feed.apply(ActivityEvent::Tool {
+            name: "Grep".into(),
+            detail: None,
+            subagent_id: Some("agent_01".into()),
+            at: None,
+        });
+        for index in 1..=2u32 {
+            feed.apply(ActivityEvent::Question {
+                text: format!("Step {index}"),
+                options: vec![QuestionOption::new("Yes", "1")],
+                multi_select: None,
+                plan_mode: None,
+                id: Some(format!("q{index}")),
+                ask_id: Some("ask_1".into()),
+                index: Some(index),
+                total: Some(2),
+                header: None,
+                at: None,
+            });
+        }
+        feed.apply(ActivityEvent::tool("Bash", None));
+        feed.apply(ActivityEvent::narration("done"));
+
+        let specs = feed.row_specs();
+        let resolved: Vec<FeedRow<'_>> = specs
+            .iter()
+            .map(|spec| spec.resolve(feed.items()))
+            .collect();
+        assert_eq!(resolved, feed.rows());
+        assert_eq!(
+            specs.iter().map(FeedRowSpec::id).collect::<Vec<_>>(),
+            feed.rows().iter().map(FeedRow::id).collect::<Vec<_>>()
+        );
+        // Every item lands in exactly one row, in feed order within it.
+        let mut seen: Vec<usize> = specs
+            .iter()
+            .flat_map(|spec| spec.item_indices().iter().copied())
+            .collect();
+        seen.sort_unstable();
+        assert_eq!(seen, (0..feed.items().len()).collect::<Vec<_>>());
+        assert!(matches!(specs[1], FeedRowSpec::ToolRun { ref items, .. } if items == &[1, 2]));
+        assert!(matches!(specs[2], FeedRowSpec::Subagent { ref items, .. } if items == &[3, 4]));
+        assert!(matches!(specs[3], FeedRowSpec::Ask { ref items, .. } if items == &[5, 6]));
     }
 
     #[test]

@@ -51,7 +51,7 @@ pub(crate) use editor::{
     scan_issue_refs, scan_mentions, sniff_format, truncate_chip_title, ImageSlot,
     RETRY_AFTER as IMAGE_RETRY_AFTER,
 };
-pub use editor::{ImageCache, MarkdownEditor, MarkdownView, RefResolver};
+pub use editor::{ImageCache, IssueChipCache, MarkdownEditor, MarkdownView, RefResolver};
 pub use image_paste::{
     read_any_file, AttachmentTransport, HttpAttachmentTransport, StagedImage, UploadedImage,
     MAX_FILE_UPLOAD_BYTES,

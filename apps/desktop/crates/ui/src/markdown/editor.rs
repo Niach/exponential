@@ -18,7 +18,8 @@
 //! collections ([`RefResolver`]) — re-resolved on every render, so a pill
 //! that could not resolve yet lights up once its issue syncs (§4.5).
 
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -81,6 +82,10 @@ pub struct IssueChipData {
     pub icon_color: gpui::Hsla,
 }
 
+/// EXP-776: the memo behind [`RefResolver::memoized`] — lower-cased
+/// identifier → the chip (or the cached miss).
+pub type IssueChipCache = Rc<RefCell<HashMap<String, Option<IssueChipData>>>>;
+
 /// Resolves decoration tokens against the synced collections at render time.
 #[derive(Clone)]
 pub struct RefResolver {
@@ -125,9 +130,20 @@ impl RefResolver {
             }),
             issue_chip: Rc::new(move |identifier, cx| {
                 let collections = sync::Store::global(cx).collections();
-                collections
-                    .issues_in_team(&ws_issues, cx)
+                // EXP-776: a SCAN, not `issues_in_team` — that clones and
+                // sorts every issue of the team, and a streaming transcript
+                // asks this once per bare `EXP-nnn` token per frame.
+                let boards = collections.boards.read(cx);
+                let board_ids: HashSet<&str> = boards
                     .iter()
+                    .filter(|board| board.team_id == ws_issues)
+                    .map(|board| board.id.as_str())
+                    .collect();
+                collections
+                    .issues
+                    .read(cx)
+                    .iter()
+                    .filter(|issue| board_ids.contains(issue.board_id.as_str()))
                     .find(|issue| issue.identifier.eq_ignore_ascii_case(identifier))
                     .map(|issue| {
                         // EXP-423: resolve status → glyph + tint per render,
@@ -143,6 +159,26 @@ impl RefResolver {
             }),
             bare: false,
         }
+    }
+
+    /// EXP-776: memoise `issue_chip` behind `cache`, keyed by the lower-cased
+    /// identifier. The CALLER owns the cache and clears it when the issues or
+    /// statuses collections notify (glyph and tint are part of the chip), so
+    /// a resolver built once per frame answers every repeated token off one
+    /// scan. A miss is cached too — an unknown identifier in a long
+    /// transcript is the common case.
+    pub fn memoized(mut self, cache: IssueChipCache) -> Self {
+        let inner = self.issue_chip.clone();
+        self.issue_chip = Rc::new(move |identifier, cx| {
+            let key = identifier.to_ascii_lowercase();
+            if let Some(hit) = cache.borrow().get(&key) {
+                return hit.clone();
+            }
+            let resolved = inner(identifier, cx);
+            cache.borrow_mut().insert(key, resolved.clone());
+            resolved
+        });
+        self
     }
 
     /// See [`Self::bare`]. Steering views only.

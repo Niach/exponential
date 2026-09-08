@@ -89,8 +89,9 @@ pub use activity::{
     STOP_GRACE, TRUNCATION_MARKER,
 };
 pub use feed::{
-    active_question_ids, answer_key, collect_subagents, group_feed_rows, summarize_subagent_row,
-    AnswerState, AnswerStatus, FeedItem, FeedItemId, FeedKind, FeedRow, QuestionCard,
+    active_question_ids, answer_key, collect_subagents, group_feed_row_specs, group_feed_rows,
+    summarize_subagent_row, AnswerState, AnswerStatus, FeedItem, FeedItemId, FeedKind, FeedRow,
+    FeedRowSpec, QuestionCard,
     SessionConfig, SessionUsage, SteerFeed, SubagentSummary, ANSWER_ACK_TIMEOUT, ECHO_CAP,
     FEED_CAP, REPLAY_MAX, REPLAY_QUIET,
 };
