@@ -129,6 +129,15 @@ export const questionOptionSchema = z.object({
  *  the same number every client asks with (EXP-795). */
 export const HISTORY_PAGE_MAX = contract.steerFeed.historyPageMax
 
+/** EXP-785: ACP's tool-call kinds, the contract's `toolKind.values`. */
+export const TOOL_KINDS = contract.toolKind.values as [string, ...string[]]
+
+/** EXP-786: what a `tool_update.diff` may weigh on the wire — the contract's
+ *  `toolDiffMaxBytes` the publisher cuts to (on line boundaries), plus room
+ *  for its one `\ N more lines truncated` marker line. Counted in UTF-16
+ *  units by zod, which never exceeds the publisher's UTF-8 byte count. */
+export const TOOL_DIFF_MAX_WIRE_BYTES = contract.steerFeed.toolDiffMaxBytes + 128
+
 export const activityEventSchema = z.discriminatedUnion(`kind`, [
   z.object({
     kind: z.literal(`narration`),
@@ -154,9 +163,27 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
     kind: z.literal(`tool`),
     name: z.string().max(128),
     detail: z.string().max(1024).optional(),
+    // EXP-785: the ACP tool-call id — the key a later `tool_update` folds
+    // into this row by — and ACP's kind bucket (the contract's `toolKind`).
+    // Both absent from pre-EXP-785 publishers. The key is `toolKind`, never
+    // `kind`: `kind` is this union's discriminator.
+    id: z.string().max(128).optional(),
+    toolKind: z.enum(TOOL_KINDS).optional(),
     // Set when the call came from a subagent's transcript (EXP-249) — clients
     // nest it under the matching `subagent` card.
     subagentId: z.string().max(128).optional(),
+    at: z.number().optional(),
+  }),
+  // EXP-785/786: a tool call settled (`status`) and/or an `edit` call's
+  // per-file unified diff (`diff`, cut by the publisher to the contract's
+  // toolDiffMaxLines/Bytes on line boundaries, plus one marker line). A LOG
+  // row like `tool` — NOT latest-wins — that clients fold INTO the tool row
+  // whose `id` matches, never a row of its own; an unknown id is dropped.
+  z.object({
+    kind: z.literal(`tool_update`),
+    id: z.string().min(1).max(128),
+    status: z.enum([`completed`, `failed`]).optional(),
+    diff: z.string().max(TOOL_DIFF_MAX_WIRE_BYTES).optional(),
     at: z.number().optional(),
   }),
   z.object({
@@ -317,6 +344,18 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
     contextUsed: z.number().int().min(0).max(1_000_000_000),
     contextSize: z.number().int().min(0).max(1_000_000_000),
     costUsd: z.number().min(0).max(1_000_000).optional(),
+    at: z.number().optional(),
+  }),
+  // EXP-784: the agent's rate-limit window as it last reported it. LATEST-WINS
+  // state like `usage` (the fourth slot: LATEST_WINS_KINDS/LATEST_REPLAY_ORDER
+  // in hub.ts). `status` is the agent's own word (`allowed_warning`,
+  // `rejected`, …); an EMPTY status or `ok` CLEARS the slot on every client.
+  // `resetsAt` is unix ms.
+  z.object({
+    kind: z.literal(`rate_limit`),
+    status: z.string().max(64),
+    resetsAt: z.number().int().min(0).optional(),
+    message: z.string().max(1024).optional(),
     at: z.number().optional(),
   }),
 ])

@@ -5,6 +5,7 @@ import {
   CLOSE_PUBLISHER_IDLE,
   CLOSE_SESSION_ENDED,
   CLOSE_SLOW_CONSUMER,
+  TOOL_DIFF_MAX_WIRE_BYTES,
 } from "./protocol"
 
 class FakeSocket implements RelaySocket {
@@ -1316,6 +1317,108 @@ describe(`activity event kinds`, () => {
     expect(room(hub).activityLog.length).toBe(1)
   })
 
+  // EXP-784: rate_limit is the fourth latest-wins slot, replayed between
+  // usage and the diff; an empty/`ok` status is a frame like any other here
+  // (the CLEAR is the clients' rule — the relay just keeps the newest).
+  test(`rate_limit is latest-wins, replayed after usage and before the diff`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    activity(hub, pub, { kind: `narration`, text: `working` })
+    activity(hub, pub, { kind: `diff`, diff: `+ line` })
+    activity(hub, pub, {
+      kind: `rate_limit`,
+      status: `allowed_warning`,
+      resetsAt: 1_700_000_000_000,
+      message: `80% of the 5-hour window`,
+    })
+    activity(hub, pub, usage)
+    activity(hub, pub, configState)
+    const cleared = { kind: `rate_limit`, status: `` }
+    activity(hub, pub, cleared)
+
+    const member = connectMember(hub)
+    expect(member.events().map((e) => e.kind)).toEqual([
+      `narration`,
+      `config_state`,
+      `usage`,
+      `rate_limit`,
+      `diff`,
+    ])
+    expect(member.events()[3]).toEqual(cleared as never)
+    expect(room(hub).activityLog.length).toBe(1)
+    expect(room(hub).lastByKind.size).toBe(4)
+    // Every declared field survives the re-serialize.
+    activity(hub, pub, {
+      kind: `rate_limit`,
+      status: `rejected`,
+      resetsAt: 1_700_000_000_000,
+      message: `limit reached`,
+      at: 5,
+    })
+    expect(slot(hub, `rate_limit`)).toEqual({
+      kind: `rate_limit`,
+      status: `rejected`,
+      resetsAt: 1_700_000_000_000,
+      message: `limit reached`,
+      at: 5,
+    })
+    // Out of bounds → dropped whole, the slot keeps the last good one.
+    activity(hub, pub, { kind: `rate_limit` })
+    activity(hub, pub, { kind: `rate_limit`, status: `x`, resetsAt: -1 })
+    expect(slot(hub, `rate_limit`)?.status).toBe(`rejected`)
+  })
+
+  // EXP-785/786: `tool` carries its ACP id + kind bucket, and `tool_update`
+  // is a plain LOG row (never a slot) — appended and budgeted like `tool`.
+  test(`tool carries id and toolKind, and tool_update is a log row`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const tool = {
+      kind: `tool`,
+      name: `Edit`,
+      detail: `src/a.ts`,
+      id: `tc-1`,
+      toolKind: `edit`,
+    }
+    const update = {
+      kind: `tool_update`,
+      id: `tc-1`,
+      status: `completed`,
+      diff: `--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-a\n+b\n`,
+    }
+    activity(hub, pub, tool)
+    activity(hub, pub, update)
+    activity(hub, pub, { kind: `tool_update`, id: `tc-1`, status: `failed` })
+    activity(hub, pub, { kind: `tool_update`, id: `tc-1`, diff: `+x\n` })
+    expect(room(hub).activityLog.length).toBe(4)
+    expect(room(hub).lastByKind.size).toBe(0)
+
+    const member = connectMember(hub)
+    expect(member.events()[0]).toEqual(tool as never)
+    expect(member.events()[1]).toEqual(update as never)
+    expect(member.events().map((e) => e.kind)).toEqual([
+      `tool`,
+      `tool_update`,
+      `tool_update`,
+      `tool_update`,
+    ])
+
+    // Schema bounds: an unknown toolKind, a blank id, a bad status, and an
+    // over-cap diff each drop the WHOLE frame.
+    activity(hub, pub, { kind: `tool`, name: `X`, toolKind: `teleport` })
+    activity(hub, pub, { kind: `tool_update`, id: `` })
+    activity(hub, pub, { kind: `tool_update`, id: `tc-1`, status: `pending` })
+    activity(hub, pub, {
+      kind: `tool_update`,
+      id: `tc-1`,
+      diff: `x`.repeat(TOOL_DIFF_MAX_WIRE_BYTES + 1),
+    })
+    expect(room(hub).activityLog.length).toBe(4)
+    // A pre-EXP-785 tool row (no id, no kind) still fans out untouched.
+    activity(hub, pub, { kind: `tool`, name: `Grep` })
+    expect(member.events().at(-1)).toEqual({ kind: `tool`, name: `Grep` } as never)
+  })
+
   test(`the latest config_state and usage are exempt from the log budget`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub)
@@ -1348,11 +1451,13 @@ describe(`activity event kinds`, () => {
     const pub = connectPublisher(hub)
     activity(hub, pub, configState)
     activity(hub, pub, usage)
+    activity(hub, pub, { kind: `rate_limit`, status: `rejected` })
     activity(hub, pub, { kind: `diff`, diff: `+ line` })
 
     hub.onMessage(pub, JSON.stringify({ t: `activity_reset` }))
     expect(room(hub).lastByKind.size).toBe(0)
     expect(slot(hub, `config_state`)).toBeUndefined()
+    expect(slot(hub, `rate_limit`)).toBeUndefined()
 
     const late = connectMember(hub)
     expect(late.events()).toEqual([])

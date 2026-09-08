@@ -116,7 +116,8 @@ interface Room {
    *  replay into the same room would append the whole transcript again, so
    *  the next publisher's hello starts from an empty log. */
   historyLog: boolean
-  /** EXP-746: latest-wins STATE by kind (`diff`, `config_state`, `usage`) —
+  /** EXP-746: latest-wins STATE by kind (`diff`, `config_state`, `usage`,
+   *  `rate_limit`) —
    *  the newest one replaces its predecessor, stays OUT of the count/byte
    *  budget, and the join replay sends them after the log. Each schema
    *  already caps the payload (a diff at 512KB, a config at 8 options). */
@@ -163,11 +164,12 @@ const SUBAGENT_TOOL_CAP = 50
 // EXP-746: kinds that are latest-wins STATE rather than transcript rows.
 // Appending them would burn the budgets above on stale snapshots — a `usage`
 // frame per turn on a long run would evict real transcript events out of the
-// replay window.
-const LATEST_WINS_KINDS = new Set([`diff`, `config_state`, `usage`])
+// replay window. EXP-784 adds `rate_limit`; a `tool_update` (EXP-785) is a
+// plain log row, deliberately NOT here — it folds into its tool row.
+const LATEST_WINS_KINDS = new Set([`diff`, `config_state`, `usage`, `rate_limit`])
 // Replay order for the latest-wins slots — `diff` stays LAST, exactly where
 // it replayed before this became a map.
-const LATEST_REPLAY_ORDER = [`config_state`, `usage`, `diff`] as const
+const LATEST_REPLAY_ORDER = [`config_state`, `usage`, `rate_limit`, `diff`] as const
 
 // An activity socket with more than this queued is evicted: activity is
 // low-volume JSON, so saturation means the consumer is gone, not lagging.
