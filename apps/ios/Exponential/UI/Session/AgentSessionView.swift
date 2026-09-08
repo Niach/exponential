@@ -285,10 +285,15 @@ struct AgentSessionView: View {
         // EXP-706: NOT while a recovery run is pushed on top of this screen —
         // that run's merge is what ends this one, and popping the parent would
         // yank the viewer out of the session they just started.
+        // Spelled out rather than one `ended == true && … && …` chain: the
+        // optional comparison inside a three-term condition is what tipped
+        // this body over the Release type-checker's budget (the app target is
+        // only compiled by the `ios-v*` tag build, so it fails nowhere else).
         .onChange(of: model?.sessionEnded) { _, ended in
-            if ended == false {
+            guard let ended else { return }
+            if !ended {
                 sawLiveSession = true
-            } else if ended == true && sawLiveSession && fixSessionTarget == nil {
+            } else if sawLiveSession, fixSessionTarget == nil {
                 dismiss()
             }
         }
