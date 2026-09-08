@@ -368,6 +368,46 @@ describe(`slow-consumer eviction (4008)`, () => {
     store.dispose()
   })
 
+  // EXP-781: the one ENDED case that must retry. A history replay is the
+  // device pushing a whole journal in a burst, which is exactly what overruns
+  // the relay's per-viewer buffer — and the staged feed is dropped on close,
+  // so landing in `closed` (where `kick()` refuses to recover) strands the
+  // reader on an empty transcript with no way back.
+  it(`an ended run redials when the eviction hit a history replay`, async () => {
+    const { store, sockets } = makeStore()
+    store.noteSessionStatus(`ended`)
+    store.noteDeviceLabel(`buildbox`)
+    store.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    const socket = sockets[0]
+    socket.open()
+    socket.frame({ t: `history_pending` })
+    socket.frame({ t: `activity_reset` })
+    socket.frame({ t: `activity`, event: { kind: `narration`, text: `half` } })
+    socket.serverClose(4008)
+
+    // Not terminal, and the redial is on the shared jittered backoff.
+    expect(store.getSnapshot().phase.kind).not.toBe(`closed`)
+    await vi.advanceTimersByTimeAsync(3_100)
+    expect(sockets).toHaveLength(2)
+
+    // The retry replays from scratch, so the half-delivered staging being
+    // discarded costs nothing.
+    sockets[1].open()
+    sockets[1].frame({ t: `history_pending` })
+    sockets[1].frame({ t: `activity_reset` })
+    sockets[1].frame({
+      t: `activity`,
+      event: { kind: `narration`, text: `whole` },
+    })
+    sockets[1].frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(
+      store.getSnapshot().feed.map((item) => (item as { text: string }).text)
+    ).toEqual([`whole`])
+    store.dispose()
+  })
+
   it(`other unexpected close codes stay terminal (manual Reconnect)`, async () => {
     const { store, sockets } = makeStore()
     const socket = await goLive(store, sockets)

@@ -566,6 +566,38 @@ pub(crate) fn reveals_undocked_window(screen: &Screen) -> bool {
     screen.undockable()
 }
 
+/// EXP-781: a navigation raised inside an UNDOCKED window has nowhere to go.
+///
+/// That window mounts one fixed `AnyView` and no [`crate::screens::
+/// ScreensPanel`], so writing the screen into its nav paints nothing — an
+/// issue ref clicked in an undocked issue, or the prev/next switcher, just
+/// looked dead. Forward to the shell the window was undocked from instead:
+/// navigate THERE and raise it, the shape `undock::restore_tab_in_owner`
+/// already uses.
+///
+/// `true` = handled, the caller must not touch this window's nav. A window
+/// that HAS a panel takes the normal path, so this costs one registry lookup
+/// per navigation in the common case.
+fn forward_to_owner_shell(window: &Window, cx: &mut App, screen: &Screen) -> bool {
+    if crate::screens::screens_for_window(window, cx).is_some() {
+        return false;
+    }
+    let window_id = window.window_handle().window_id();
+    let Some(owner) = crate::undock::owner_shell_for_window(window_id, cx) else {
+        return false;
+    };
+    let screen = screen.clone();
+    // Deferred: this runs from inside this window's update, and a
+    // cross-window `update` from there silently no-ops.
+    cx.defer(move |cx| {
+        let _ = owner.update(cx, |_, window, cx| {
+            navigate(window, cx, screen.clone());
+            window.activate_window();
+        });
+    });
+    true
+}
+
 fn navigate_inner(window: &Window, cx: &mut App, screen: Screen, origin: PendingOrigin) {
     // EXP-771: the screen may already have its own window (EXP-65 undock) —
     // then this is a REVEAL, not a navigation: bring that window forward and
@@ -574,6 +606,9 @@ fn navigate_inner(window: &Window, cx: &mut App, screen: Screen, origin: Pending
     // `screens::open_screen`), so the dedupe lives here rather than at each
     // call site.
     if reveals_undocked_window(&screen) && crate::undock::reveal_screen(&screen, cx) {
+        return;
+    }
+    if forward_to_owner_shell(window, cx, &screen) {
         return;
     }
     let Some(nav) = nav_for_window_readonly(window, cx) else {
@@ -608,6 +643,9 @@ pub fn replace_screen(window: &Window, cx: &mut App, screen: Screen) {
     // leaves this tab on the screen it was showing; swapping its identity
     // here would re-create the undocked issue as a docked tab beside it.
     if reveals_undocked_window(&screen) && crate::undock::reveal_screen(&screen, cx) {
+        return;
+    }
+    if forward_to_owner_shell(window, cx, &screen) {
         return;
     }
     let Some(nav) = nav_for_window_readonly(window, cx) else {

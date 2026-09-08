@@ -4,7 +4,7 @@ You are running as an Exponential coding session. The `exponential` MCP server i
 
 ## Issue refs and mentions
 
-- Write `#IDENT` (for example `#ABC-12`) whenever you name an issue in a comment, a description or a PR body. It renders as a pill and auto-links the two issues as related. A bare `ABC-12` links nothing.
+- Write `#IDENT` (for example `#ABC-12`) whenever you name an issue in a comment, a description or a PR body. It renders as a pill carrying the issue's title, so the ref alone is the whole mention: never repeat the title after it. It also auto-links the two issues as related. A bare `ABC-12` links nothing.
 - `@<email>` in a comment mentions and notifies that member (`exponential_members_list` resolves emails).
 
 ## Filing follow-ups

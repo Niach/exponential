@@ -965,10 +965,18 @@ impl Render for Shell {
                             // edge), and flush with the window bottom. Unlike
                             // the decoration band it is NOT a window-drag
                             // area — every pixel here is a control.
+                            //
+                            // EXP-781: "flush" stops at the Linux CSD resize
+                            // band. That overlay sits INSIDE the content box's
+                            // bottom edge and would eat the bar's last row of
+                            // hit area, so the band clears it
+                            // (`frame_bottom_resize_inset`, zero on every
+                            // other platform and on a tiled bottom edge).
                             div()
                                 .flex_shrink_0()
                                 .h(px(crate::session_bar::SESSION_BAR_H))
                                 .mx(px(PANEL_MARGIN))
+                                .mb(crate::window_frame::frame_bottom_resize_inset(window))
                                 .child(self.session_bar.clone()),
                         )
                 })

@@ -216,10 +216,24 @@ mod tests {
 
     #[test]
     fn requests_are_line_delimited_json_rpc() {
+        let rendered = rpc_request(2, "account/read", json!({"refreshToken": false}));
+        // EXP-781: compare the PARSED value, never the object text. Whether
+        // `serde_json` preserves insertion order is a FEATURE, and cargo
+        // unifies features across a workspace build — so a multi-crate run
+        // can flip the key order of every object this crate renders while a
+        // `cargo test -p coding` keeps the order this was written against.
         assert_eq!(
-            rpc_request(2, "account/read", json!({"refreshToken": false})),
-            r#"{"jsonrpc":"2.0","id":2,"method":"account/read","params":{"refreshToken":false}}"#
+            serde_json::from_str::<serde_json::Value>(&rendered).unwrap(),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "account/read",
+                "params": {"refreshToken": false},
+            })
         );
+        // The point of the test the equality above cannot make: the wire is
+        // LINE-delimited, so a request is exactly one line.
+        assert!(!rendered.contains('\n'), "a request must render on one line");
         assert!(!rpc_notification("initialized", json!({})).contains("\"id\""));
     }
 

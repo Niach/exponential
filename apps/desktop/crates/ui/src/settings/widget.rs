@@ -75,6 +75,14 @@ impl WidgetPane {
         cx.notify();
     }
 
+    /// Refetch (the Refresh button): drop the cached list; the next render
+    /// re-fetches. EXP-781 — without it a failed load had no way back except
+    /// switching sections or teams.
+    fn refetch(&mut self, cx: &mut gpui::Context<Self>) {
+        self.load = Load::Idle;
+        cx.notify();
+    }
+
     fn ensure_loaded(&mut self, team_id: &str, cx: &mut gpui::Context<Self>) {
         if self.team_id.as_deref() != Some(team_id) {
             self.team_id = Some(team_id.to_string());
@@ -188,11 +196,21 @@ impl Render for WidgetPane {
         };
         self.ensure_loaded(&team_id, cx);
 
+        let refresh = crate::surface::glass_pill_button(
+            "widget-refresh",
+            crate::surface::PillSize::Sm,
+            cx,
+        )
+        .label("Refresh")
+        .loading(matches!(self.load, Load::Loading))
+        .on_click(cx.listener(|this, _, _, cx| this.refetch(cx)))
+        .into_any_element();
+
         let mut body = section(cx).child(
             v_flex()
                 .child(crate::surface::glass_section_header(
                     "Exponential widget",
-                    None,
+                    Some(refresh),
                     cx,
                 ))
                 .child(section_description(WIDGET_DESCRIPTION, cx)),

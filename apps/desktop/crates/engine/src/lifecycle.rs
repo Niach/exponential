@@ -198,38 +198,39 @@ pub(crate) fn record_session_ids(ctx: &SessionCtx) {
 /// The one writer of the engine's fields on a [`coding::run_registry`]
 /// record. A present id wins over what is on disk, an absent one leaves it
 /// alone, and the pids are written verbatim (the end sequence clears them by
-/// passing [`RunPids::default`]). A no-op when nothing changed: `record`
-/// rewrites the whole file.
+/// passing [`RunPids::default`]). A no-op when nothing changed.
+///
+/// EXP-781: through [`coding::run_registry::update`], which holds the
+/// registry's section across the load, the mutation and the save. Spelled as
+/// `get` then `record` it took the lock twice, and a purge landing in the gap
+/// (the scratch sweep removing a repo-less run) was undone by the write that
+/// followed — a resumable record for a worktree that no longer exists.
 pub(crate) fn upsert_run_record(
     data_dir: &std::path::Path,
     session_id: &str,
     ids: &crate::host::SessionIds,
     pids: RunPids,
 ) {
-    let Some(mut record) = coding::run_registry::get(data_dir, session_id) else {
-        return;
-    };
-    let mut changed = false;
-    if ids.acp.is_some() && record.acp_session_id != ids.acp {
-        record.acp_session_id = ids.acp.clone();
-        changed = true;
-    }
-    if ids.native.is_some() && record.agent_native_session_id != ids.native {
-        record.agent_native_session_id = ids.native.clone();
-        changed = true;
-    }
-    if record.acp_child_pid != pids.acp_child {
-        record.acp_child_pid = pids.acp_child;
-        changed = true;
-    }
-    if record.host_pid != pids.host {
-        record.host_pid = pids.host;
-        changed = true;
-    }
-    if !changed {
-        return;
-    }
-    coding::run_registry::record(data_dir, record);
+    coding::run_registry::update(data_dir, session_id, |record| {
+        let mut changed = false;
+        if ids.acp.is_some() && record.acp_session_id != ids.acp {
+            record.acp_session_id = ids.acp.clone();
+            changed = true;
+        }
+        if ids.native.is_some() && record.agent_native_session_id != ids.native {
+            record.agent_native_session_id = ids.native.clone();
+            changed = true;
+        }
+        if record.acp_child_pid != pids.acp_child {
+            record.acp_child_pid = pids.acp_child;
+            changed = true;
+        }
+        if record.host_pid != pids.host {
+            record.host_pid = pids.host;
+            changed = true;
+        }
+        changed
+    });
 }
 
 /// EXP-758: the phase edges the end sequence emits, in order. An exit that

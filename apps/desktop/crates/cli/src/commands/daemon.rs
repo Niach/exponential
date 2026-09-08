@@ -899,6 +899,13 @@ fn run_daemon(args: &[String]) -> CommandResult {
     if orphans > 0 {
         log::info!("reaped {orphans} agent process(es) that outlived their session");
     }
+    // EXP-781: the same scratch reclaim startup does (EXP-757), now that the
+    // reaps are through and nothing this daemon owns is live. Without it a
+    // repo-less run stayed resumable — its record and scratch dir outliving
+    // the run — until the NEXT start swept it, which for a machine that is
+    // shut down for a while is a long time. Synchronous: the process exits on
+    // the next line.
+    sweep_scratch_dirs_now(&ctx);
     let _ = std::fs::remove_file(pidfile(&ctx.data_dir));
     Ok(ExitCode::SUCCESS)
 }
@@ -1085,24 +1092,29 @@ fn dial_control(
 /// loop should wait on).
 fn sweep_scratch_dirs(ctx: &Arc<Ctx>) {
     let ctx = Arc::clone(ctx);
-    std::thread::spawn(move || {
-        let live = registry::live_ids(&ctx.data_dir);
-        let report = coding::scratch::sweep(&ctx.data_dir, &live);
-        // EXP-764: the purged runs' steer journals go with their records.
-        for session_id in &report.purged {
-            steer::remove_journal(&ctx.data_dir, session_id);
-        }
-        if !report.is_noop() {
-            log::info!(
-                "scratch sweep: removed {} run dir(s), purged {} run(s), dropped {} trust entr(y/ies), kept {} live + {} young",
-                report.removed.len(),
-                report.purged.len(),
-                report.trust_dropped,
-                report.kept_live,
-                report.kept_young
-            );
-        }
-    });
+    std::thread::spawn(move || sweep_scratch_dirs_now(&ctx));
+}
+
+/// [`sweep_scratch_dirs`] on the CALLING thread — the quit sweep's shape.
+/// There is no next loop iteration to hand it to, and a detached thread would
+/// simply die with the process before it finished the walk.
+fn sweep_scratch_dirs_now(ctx: &Ctx) {
+    let live = registry::live_ids(&ctx.data_dir);
+    let report = coding::scratch::sweep(&ctx.data_dir, &live);
+    // EXP-764: the purged runs' steer journals go with their records.
+    for session_id in &report.purged {
+        steer::remove_journal(&ctx.data_dir, session_id);
+    }
+    if !report.is_noop() {
+        log::info!(
+            "scratch sweep: removed {} run dir(s), purged {} run(s), dropped {} trust entr(y/ies), kept {} live + {} young",
+            report.removed.len(),
+            report.purged.len(),
+            report.trust_dropped,
+            report.kept_live,
+            report.kept_young
+        );
+    }
 }
 
 fn reconcile_stale_sessions(ctx: &Ctx) {

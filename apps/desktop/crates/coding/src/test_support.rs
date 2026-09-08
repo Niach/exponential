@@ -160,7 +160,44 @@ echo '{{\"id\":\"1\",\"type\":\"response\",\"command\":\"get_state\",\"success\"
     )
     .unwrap();
     fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+    wait_until_executable(&stub);
     stub.to_string_lossy().into_owned()
+}
+
+/// EXP-781: probe a freshly written stub until exec'ing it stops answering
+/// `ETXTBSY`, then hand it out.
+///
+/// Every `make_deps` writes three of these, and ~30 tests run concurrently.
+/// A sibling thread's `Command::spawn` forks between THIS thread's
+/// `fs::write` opening the stub and closing it; the forked child inherits the
+/// write fd and holds it until its own exec, and for that window the kernel
+/// calls the file busy — so the exec our own test does next fails with
+/// `ETXTBSY` (Linux; macOS does not enforce this).
+///
+/// A probe-and-retry NARROWS the window rather than closing it: the fix that
+/// would close it is not forking with the fd open, which is `Command`'s
+/// business, not ours. In practice one short backoff is enough — the sibling
+/// exec is microseconds away.
+#[cfg(unix)]
+pub(crate) fn wait_until_executable(stub: &Path) {
+    use std::process::{Command, Stdio};
+    for attempt in 0..20 {
+        let spawned = Command::new(stub)
+            .arg("--version")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        match spawned {
+            Ok(_) => return,
+            Err(err) if err.raw_os_error() == Some(libc::ETXTBSY) => {
+                std::thread::sleep(std::time::Duration::from_millis(5 * (attempt + 1)));
+            }
+            // Anything else is not this race; let the caller's own exec
+            // report it with its real context.
+            Err(_) => return,
+        }
+    }
 }
 
 #[cfg(not(unix))]

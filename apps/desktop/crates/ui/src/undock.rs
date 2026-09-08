@@ -63,11 +63,22 @@ struct TerminalEntry {
     owner: WindowId,
 }
 
+/// One undocked content-screen window: the handle plus the shell window it
+/// was undocked FROM. The owner mirrors [`TerminalEntry`]'s and serves the
+/// same purpose in reverse — [`owner_shell_for_window`] resolves it so a
+/// navigation raised inside this window (an issue ref, the switcher) lands in
+/// a real tab strip instead of a nav nobody renders.
+#[derive(Clone, Copy)]
+struct ScreenEntry {
+    handle: AnyWindowHandle,
+    owner: AnyWindowHandle,
+}
+
 /// Runtime registry of undocked windows (dedupe + lifecycle). Observed by
 /// the screens panel and terminal dock.
 #[derive(Default)]
 pub struct UndockState {
-    screens: HashMap<Screen, AnyWindowHandle>,
+    screens: HashMap<Screen, ScreenEntry>,
     terminal_tabs: HashMap<TabId, TerminalEntry>,
 }
 
@@ -94,7 +105,38 @@ pub(crate) fn is_terminal_tab_undocked(id: TabId, cx: &App) -> bool {
 }
 
 fn screen_window(screen: &Screen, cx: &App) -> Option<AnyWindowHandle> {
-    state(cx).and_then(|state| state.read(cx).screens.get(screen).copied())
+    state(cx).and_then(|state| state.read(cx).screens.get(screen).map(|entry| entry.handle))
+}
+
+/// EXP-781: the shell window a navigation raised INSIDE undocked `window_id`
+/// should be forwarded to.
+///
+/// An undocked window mounts a fixed `AnyView` and no `ScreensPanel`, so
+/// `navigation::navigate` writing into its nav puts the screen somewhere
+/// nothing renders — the click looks dead. The registry knows which shell the
+/// window was undocked from; [`find_team_window`] falls back to any remaining
+/// shell when that one is gone (same rule reattach uses).
+///
+/// `None` when `window_id` is not an undocked screen window, i.e. the caller
+/// really is in a window without a panel for some other reason.
+pub(crate) fn owner_shell_for_window(
+    window_id: WindowId,
+    cx: &App,
+) -> Option<AnyWindowHandle> {
+    find_team_window(Some(undocked_screen_owner(window_id, cx)?), cx)
+}
+
+/// The raw registered owner of undocked `window_id` — [`None`] for a window
+/// that is not an undocked screen at all. Split from
+/// [`owner_shell_for_window`] so the registry lookup is testable without a
+/// live `Shell` root.
+fn undocked_screen_owner(window_id: WindowId, cx: &App) -> Option<AnyWindowHandle> {
+    state(cx)?
+        .read(cx)
+        .screens
+        .values()
+        .find(|entry| entry.handle.window_id() == window_id)
+        .map(|entry| entry.owner)
 }
 
 /// EXP-771: bring the window that ALREADY shows `screen` forward, if there is
@@ -208,7 +250,7 @@ pub(crate) fn on_shell_released(released: WindowId, cx: &mut App) {
         state
             .screens
             .values()
-            .copied()
+            .map(|entry| entry.handle)
             .chain(state.terminal_tabs.values().map(|entry| entry.handle))
             .collect()
     };
@@ -362,7 +404,7 @@ impl UndockedScreenWindow {
             let handle = window.window_handle();
             let key = screen.clone();
             state.update(cx, |state, cx| {
-                state.screens.insert(key, handle);
+                state.screens.insert(key, ScreenEntry { handle, owner: origin });
                 cx.notify();
             });
         }
@@ -383,7 +425,12 @@ impl UndockedScreenWindow {
                 .clone()
                 .downcast::<crate::issue_detail::IssueDetailView>()
             {
-                detail.update(cx, |detail, cx| detail.flush_description(cx));
+                detail.update(cx, |detail, cx| {
+                    // EXP-781: the title saves on blur too, so closing the
+                    // window straight from a half-typed title dropped it.
+                    detail.flush_title(cx);
+                    detail.flush_description(cx);
+                });
             }
             unregister_screen(&this.screen, cx);
             // The content views lazily created this window's registries
@@ -713,7 +760,10 @@ mod tests {
             };
             let state = state(cx).expect("init installed the registry");
             state.update(cx, |state, cx| {
-                state.screens.insert(screen.clone(), window.into());
+                state.screens.insert(
+                    screen.clone(),
+                    ScreenEntry { handle: window.into(), owner: window.into() },
+                );
                 cx.notify();
             });
 
@@ -748,7 +798,10 @@ mod tests {
             };
             let state = state(cx).expect("init installed the registry");
             state.update(cx, |state, cx| {
-                state.screens.insert(screen.clone(), window.into());
+                state.screens.insert(
+                    screen.clone(),
+                    ScreenEntry { handle: window.into(), owner: window.into() },
+                );
                 cx.notify();
             });
 
@@ -762,6 +815,53 @@ mod tests {
             assert!(
                 screen_window(&screen, cx).is_none(),
                 "the stale entry is dropped, not left to poison every later click"
+            );
+        });
+    }
+
+    /// EXP-781: an undocked window renders no `ScreensPanel`, so a navigation
+    /// raised inside it has to be forwarded to the shell it came from. The
+    /// registry is what knows that shell — and only for windows it actually
+    /// holds, so a plain window still answers `None` and takes the normal
+    /// path.
+    #[gpui::test]
+    fn an_undocked_window_resolves_the_shell_it_came_from(cx: &mut gpui::TestAppContext) {
+        let shell = cx.add_window(|_, _| Stub);
+        let undocked = cx.add_window(|_, _| Stub);
+        cx.update(|cx| {
+            init(cx);
+            let screen = Screen::IssueDetail {
+                issue_id: "i1".into(),
+            };
+            let state = state(cx).expect("init installed the registry");
+            state.update(cx, |state, cx| {
+                state.screens.insert(
+                    screen.clone(),
+                    ScreenEntry {
+                        handle: undocked.into(),
+                        owner: shell.into(),
+                    },
+                );
+                cx.notify();
+            });
+
+            assert_eq!(
+                undocked_screen_owner(undocked.window_id(), cx),
+                Some(shell.into()),
+                "the undocked window forwards to the shell it was undocked from"
+            );
+            // A window that was never undocked is not ours: it has its own
+            // panel and must take the normal navigation path.
+            assert_eq!(
+                undocked_screen_owner(shell.window_id(), cx),
+                None
+            );
+            // The Stub root is not a `Shell`, so `find_team_window` finds no
+            // shell to land in and the forward declines rather than aiming at
+            // a window that cannot host a tab.
+            assert!(
+                owner_shell_for_window(undocked.window_id(), cx).is_none(),
+                "with no shell window alive there is nothing to forward to"
             );
         });
     }

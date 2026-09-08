@@ -79,6 +79,7 @@ pub mod boards;
 pub mod device_identity;
 pub mod devices;
 pub mod repositories;
+pub mod settings_lock;
 pub mod statuses;
 pub mod steer;
 pub mod token_store;

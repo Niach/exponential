@@ -949,6 +949,35 @@ mod tests {
         git(path, &["commit", "--quiet", "-m", msg]);
     }
 
+    /// [`commit_all`] with a FIXED author/committer date.
+    ///
+    /// EXP-781: `log_graph`'s format ends in `%cr`, a RELATIVE committer date.
+    /// Two `git log` invocations of a just-made commit render "0 seconds ago"
+    /// and "1 second ago" if they straddle a second boundary, so a test that
+    /// compares two log renderings of the same commits fails under load. An
+    /// old, fixed timestamp pins `%cr` for good. Deliberately NOT folded into
+    /// `git()`: other tests here assert on commit ORDER, which same-second
+    /// commits would blur.
+    fn commit_all_at(path: &Path, msg: &str, date: &str) {
+        git(path, &["add", "-A"]);
+        let output = Command::new("git")
+            .args(["commit", "--quiet", "-m", msg])
+            .current_dir(path)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@example.com")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@example.com")
+            .env("GIT_AUTHOR_DATE", date)
+            .env("GIT_COMMITTER_DATE", date)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git commit failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
     fn find<'a>(s: &'a StatusSummary, path: &str, staged: bool) -> &'a FileChange {
         s.changes
             .iter()
@@ -1583,9 +1612,16 @@ new file mode 100644
         let d = temp_dir("graph-plain");
         let r = &d.0;
         init_repo(r);
-        for msg in ["first", "second"] {
+        // EXP-781: fixed, distinct, OLD dates. The two renderings below both
+        // end in `%cr` (a relative date), so fresh commits would compare
+        // "1 second ago" against "2 seconds ago" whenever the two git calls
+        // straddle a second — which under a loaded workspace run they do.
+        for (msg, date) in [
+            ("first", "2020-01-01T00:00:00+00:00"),
+            ("second", "2020-01-02T00:00:00+00:00"),
+        ] {
             write(r, "f.txt", msg);
-            commit_all(r, msg);
+            commit_all_at(r, msg, date);
         }
         assert_eq!(log_graph(r, 0, 10).unwrap(), log_branch(r, None, 0, 10).unwrap());
     }

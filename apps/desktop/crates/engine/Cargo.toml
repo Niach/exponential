@@ -17,10 +17,10 @@ publish = false
 [dependencies]
 api = { path = "../api" }
 domain = { path = "../domain" }
-# default-features = false: the engine only needs the gpui-free launcher core
-# (PreparedLaunch/AcpLaunch, settings, run registry). The desktop re-enables
-# coding's gpui half through crates/ui.
-coding = { path = "../coding", default-features = false }
+# The engine uses the launcher core (PreparedLaunch/AcpLaunch, settings, run
+# registry). EXP-781 retired coding's `gpui` feature — the crate is gpui-free
+# throughout now, so there is no half to opt out of.
+coding = { path = "../coding" }
 # The publisher, the wire vocabulary (ActivityEvent) and the tokio runtime the
 # ACP connection futures are driven on — the engine never spins up a second one.
 steer = { path = "../steer" }

@@ -70,6 +70,13 @@ pub struct StatusesPane {
     /// CUSTOM status id → its name input (builtins render plain text).
     name_inputs: HashMap<String, Entity<InputState>>,
     input_subs: HashMap<String, Subscription>,
+    /// CUSTOM status id → the synced name last pushed into its input. The
+    /// per-row twin of `team_general`'s `Snapshot`: it tells an untouched
+    /// input (which we may refresh from a teammate's rename) apart from a
+    /// half-typed one (which we must leave alone), and it is what
+    /// `persist_name` compares the typed text against — comparing against the
+    /// LIVE row would let a stale input write a remote rename back.
+    synced_names: HashMap<String, String>,
     /// The category whose inline create form is open.
     creating: Option<IssueStatusCategory>,
     new_name: Entity<InputState>,
@@ -126,6 +133,7 @@ impl StatusesPane {
             nav,
             name_inputs: HashMap::new(),
             input_subs: HashMap::new(),
+            synced_names: HashMap::new(),
             creating: None,
             new_name,
             new_color: LABEL_COLORS[6].to_string(),
@@ -184,7 +192,9 @@ impl StatusesPane {
     }
 
     /// One `InputState` per CUSTOM status; builtins never get one (their name
-    /// renders as plain text).
+    /// renders as plain text). An existing input tracks a teammate's rename as
+    /// long as it still holds the last synced name; once the user has typed
+    /// something else it is theirs until blur.
     fn sync_inputs(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let statuses = self.scoped_statuses(cx);
         let live: std::collections::HashSet<&str> = statuses
@@ -194,9 +204,19 @@ impl StatusesPane {
             .collect();
         self.name_inputs.retain(|id, _| live.contains(id.as_str()));
         self.input_subs.retain(|id, _| live.contains(id.as_str()));
+        self.synced_names.retain(|id, _| live.contains(id.as_str()));
 
         for (row, _) in statuses.iter().filter(|(row, _)| row.builtin_key.is_none()) {
-            if self.name_inputs.contains_key(&row.id) {
+            if let Some(input) = self.name_inputs.get(&row.id).cloned() {
+                let untouched = self
+                    .synced_names
+                    .get(&row.id)
+                    .is_some_and(|synced| input.read(cx).value().as_ref() == synced);
+                if untouched && self.synced_names.get(&row.id) != Some(&row.name) {
+                    let name = row.name.clone();
+                    input.update(cx, |state, cx| state.set_value(name, window, cx));
+                }
+                self.synced_names.insert(row.id.clone(), row.name.clone());
                 continue;
             }
             let input =
@@ -224,11 +244,14 @@ impl StatusesPane {
             );
             self.name_inputs.insert(row.id.clone(), input);
             self.input_subs.insert(row.id.clone(), sub);
+            self.synced_names.insert(row.id.clone(), row.name.clone());
         }
     }
 
     /// Labels-pane `persistName`: trim; empty or unchanged resets to the
-    /// synced name, otherwise `statuses.update`.
+    /// synced name, otherwise `statuses.update`. "Unchanged" means unchanged
+    /// against the name we last put IN the input, not against the live row: a
+    /// teammate's rename must not be undone by a click in and out.
     fn persist_name(&mut self, status_id: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let Some(input) = self.name_inputs.get(status_id).cloned() else {
             return;
@@ -241,8 +264,14 @@ impl StatusesPane {
             return;
         };
         let typed = input.read(cx).value().trim().to_string();
-        if typed.is_empty() || typed == row.name {
+        let synced = self
+            .synced_names
+            .get(status_id)
+            .cloned()
+            .unwrap_or_else(|| row.name.clone());
+        if typed.is_empty() || typed == synced {
             let name = row.name.clone();
+            self.synced_names.insert(status_id.to_string(), name.clone());
             input.update(cx, |state, cx| state.set_value(name, window, cx));
             self.row_error = None;
             cx.notify();

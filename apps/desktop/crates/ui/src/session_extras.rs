@@ -196,6 +196,19 @@ impl LocalExtras {
         self.thought.as_deref()
     }
 
+    /// Drop everything hanging off feed rows the feed itself has already
+    /// dropped. `steer::feed::trim` drains items past `FEED_CAP`, and without
+    /// this the extras (an `EditCard` holds a whole hunk diff) keep every one
+    /// of them for the life of the run. `first` is the id of the OLDEST
+    /// surviving feed item; entries below it, and any tool call no surviving
+    /// row still names, go.
+    pub(crate) fn prune_before(&mut self, first: FeedItemId) {
+        self.by_item.retain(|item, _| *item >= first);
+        let live: std::collections::HashSet<&str> =
+            self.by_item.values().map(String::as_str).collect();
+        self.by_tool_call.retain(|id, _| live.contains(id.as_str()));
+    }
+
     fn for_item(&self, item: FeedItemId) -> Option<&ToolExtras> {
         self.by_tool_call.get(self.by_item.get(&item)?)
     }
@@ -775,6 +788,36 @@ mod tests {
         assert_eq!(plain_thought("## Heading\nbody"), "Heading");
         assert_eq!(plain_thought("plain words"), "plain words");
         assert_eq!(plain_thought("   "), "");
+    }
+
+    /// The feed drops its oldest rows at `FEED_CAP`; the extras must follow,
+    /// or a long run keeps every hunk it ever rendered. A tool call whose LAST
+    /// row went keeps nothing; one that still has a row survives whole.
+    #[test]
+    fn pruning_drops_the_extras_of_dropped_rows() {
+        let mut extras = LocalExtras::default();
+        for (item, call) in [(1u64, "old"), (2, "kept"), (3, "kept"), (4, "new")] {
+            extras.bind(item, call.to_string());
+            extras.apply(engine::LocalFeedEvent::EditDiff {
+                tool_call_id: call.to_string(),
+                path: PathBuf::from("src/lib.rs"),
+                old_text: Some("a\n".to_string()),
+                new_text: "b\n".to_string(),
+            });
+        }
+        assert!(extras.has_extras(1));
+
+        extras.prune_before(3);
+
+        // Row 1 and 2 are gone; "old" had no other row, so it went with them.
+        assert!(!extras.has_extras(1));
+        assert!(!extras.has_extras(2));
+        assert!(!extras.by_tool_call.contains_key("old"));
+        // "kept" still has row 3, so row 3 still renders its edits.
+        assert!(extras.has_extras(3));
+        assert!(extras.has_extras(4));
+        assert_eq!(extras.by_item.len(), 2);
+        assert_eq!(extras.by_tool_call.len(), 2);
     }
 
     fn line(kind: DiffLineKind, content: &str) -> (DiffLineKind, String) {
