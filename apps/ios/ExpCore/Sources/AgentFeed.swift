@@ -943,6 +943,21 @@ public enum AgentFeed {
         return "\(message) · resets \(formatter.string(from: at))"
     }
 
+    // MARK: - Load earlier (EXP-783/796)
+
+    /// EXP-796: whether the transcript offers "Load earlier". Rows the feed
+    /// already holds above the window are always pageable; a page that only
+    /// the DEVICE's journal has needs the relay to have said its replay was a
+    /// tail, not to have run dry on it, AND an open viewer socket to ask on —
+    /// the relay keeps a history room open after the device's replay, so
+    /// pages keep flowing until the socket really closes, and a closed one
+    /// can't carry the ask at all.
+    public static func canLoadEarlier(
+        windowStart: Int, historyTruncated: Bool, historyExhausted: Bool, connected: Bool
+    ) -> Bool {
+        windowStart > 0 || (historyTruncated && !historyExhausted && connected)
+    }
+
     // MARK: - Composer answer routing (EXP-788)
 
     /// The composer's placeholder while nothing is pending.

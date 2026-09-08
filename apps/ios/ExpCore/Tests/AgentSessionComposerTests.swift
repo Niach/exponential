@@ -94,6 +94,30 @@ final class AgentSessionComposerTests: XCTestCase {
         )
     }
 
+    // MARK: - Load earlier (EXP-796)
+
+    func testRowsAlreadyHeldAreAlwaysPageable() {
+        XCTAssertTrue(AgentFeed.canLoadEarlier(
+            windowStart: 1, historyTruncated: false, historyExhausted: false, connected: false
+        ))
+    }
+
+    func testADevicePageNeedsAnOpenSocket() {
+        XCTAssertTrue(AgentFeed.canLoadEarlier(
+            windowStart: 0, historyTruncated: true, historyExhausted: false, connected: true
+        ))
+        // The socket closed under the history room: nothing left to ask on.
+        XCTAssertFalse(AgentFeed.canLoadEarlier(
+            windowStart: 0, historyTruncated: true, historyExhausted: false, connected: false
+        ))
+        XCTAssertFalse(AgentFeed.canLoadEarlier(
+            windowStart: 0, historyTruncated: true, historyExhausted: true, connected: true
+        ))
+        XCTAssertFalse(AgentFeed.canLoadEarlier(
+            windowStart: 0, historyTruncated: false, historyExhausted: false, connected: true
+        ))
+    }
+
     // MARK: - Rate-limit banner (EXP-784)
 
     func testRateLimitCaptionCarriesTheMessageAndALocalResetClock() {

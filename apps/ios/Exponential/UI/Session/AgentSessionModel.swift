@@ -446,7 +446,10 @@ final class AgentSessionModel {
 
     private func reproject() {
         let start = windowStart
-        canLoadEarlier = start > 0 || (historyTruncated && !historyExhausted)
+        canLoadEarlier = AgentFeed.canLoadEarlier(
+            windowStart: start, historyTruncated: historyTruncated,
+            historyExhausted: historyExhausted, connected: connected
+        )
         let next = AgentFeed.rows(feed, from: start)
         rows = next
         subagents = next.compactMap { row in
@@ -535,7 +538,11 @@ final class AgentSessionModel {
     private let db: DatabaseManager
 
     private var task: URLSessionWebSocketTask?
-    private var connected = false
+    /// EXP-796: an open viewer socket is one of `canLoadEarlier`'s inputs, so
+    /// the projection re-derives on every flip.
+    private var connected = false {
+        didSet { if oldValue != connected, !applyingBatch { reproject() } }
+    }
     private var stopped = false
     private var sawEnd = false
     private var retryStarting = false
@@ -1506,6 +1513,19 @@ final class AgentSessionModel {
         // EXP-773: a room answered, so the journal fetch (if there was one) is
         // over — whatever arrives next IS the transcript.
         history = nil
+        // EXP-796: an ENDED run's transcript comes down an open socket too —
+        // the relay keeps its history room open for minutes after the
+        // device's replay so older pages can still be asked for — and that
+        // socket is not a live run. The synced row is the truth: the phase
+        // goes straight to `ended` (the header, the composer and every
+        // steering gate already read the row), and paging keeps riding the
+        // socket until it really closes (`connected`, not the phase, gates
+        // `canLoadEarlier`).
+        if sessionEnded {
+            if case .ended = phase { return }
+            phase = .ended(detail: endDetail)
+            return
+        }
         guard phase != .live else { return }
         phase = .live
         reconnectAttempts = 0
