@@ -24,9 +24,71 @@ export const ECHO_CAP = 8
  *  identical message sent much later from another device. */
 export const ECHO_TTL_MS = 5 * 60_000
 
-/** Client-side feed cap — old events fall off the top. Matches the relay's
- *  ACTIVITY_LOG_CAP so a full-history replay renders in full. */
-export const FEED_CAP = 2000
+/** EXP-783: the transcript keeps the WHOLE run — the renderer paints a WINDOW
+ *  over it (`agent-session.tsx`) and grows it upward, so keeping everything
+ *  costs nothing per frame. These are safety ceilings on a tab's memory, not
+ *  a display cap, and they are sized to the device journal (JOURNAL_FILE_CAP)
+ *  because that file is exactly what a replay reads back.
+ *
+ *  The relay's ACTIVITY_LOG_CAP is deliberately NOT matched any more: it
+ *  bounds the tail a joining viewer replays, and older pages are asked for
+ *  (`history_page`) rather than pushed. */
+export const FEED_BYTE_CAP = 16 * 1024 * 1024
+/** The companion item ceiling — a run of tiny events would sit far under the
+ *  byte budget while costing an array slot each. */
+export const FEED_ITEM_CAP = 200_000
+
+/** What one row weighs against FEED_BYTE_CAP: the text it carries plus a flat
+ *  per-item overhead standing in for the object itself. An estimate on
+ *  purpose — this budget bounds memory, it does not account for it. */
+export function feedItemBytes(item: {
+  kind: string
+  text?: string
+  name?: string
+  detail?: string
+  tool?: string
+  answer?: string
+  header?: string
+  options?: { label: string; key: string }[]
+}): number {
+  const OVERHEAD = 96
+  const len = (value?: string) => value?.length ?? 0
+  return (
+    OVERHEAD +
+    len(item.text) +
+    len(item.name) +
+    len(item.detail) +
+    len(item.tool) +
+    len(item.answer) +
+    len(item.header) +
+    (item.options?.reduce((sum, o) => sum + o.label.length + o.key.length, 0) ?? 0)
+  )
+}
+
+/** Evict from the OLDEST end until the feed is inside both budgets, with the
+ *  same 90% hysteresis the desktop uses (`steer::feed::trim`): evicting down
+ *  to the budget exactly would evict again on the very next event, and every
+ *  eviction reallocates. The newest row always survives. */
+export function trimFeed<T extends { kind: string }>(
+  feed: T[],
+  bytes: number
+): { feed: T[]; bytes: number } {
+  if (bytes <= FEED_BYTE_CAP && feed.length <= FEED_ITEM_CAP) return { feed, bytes }
+  const byteTarget = Math.floor((FEED_BYTE_CAP / 10) * 9)
+  const itemTarget = Math.floor((FEED_ITEM_CAP / 10) * 9)
+  let remaining = bytes
+  let dropTo = 0
+  while (
+    dropTo + 1 < feed.length &&
+    (remaining > byteTarget || feed.length - dropTo > itemTarget)
+  ) {
+    remaining -= feedItemBytes(feed[dropTo])
+    dropTo++
+  }
+  return dropTo > 0
+    ? { feed: feed.slice(dropTo), bytes: Math.max(0, remaining) }
+    : { feed, bytes }
+}
 
 /** Record a just-sent message so its transcript-derived `user_message` event
  *  is not appended a second time. Mutates `echoes` in place. */
@@ -83,7 +145,7 @@ export function resumesAfterCompaction(kind: string): boolean {
 
 /** How long incoming activity frames buffer before flushing to state. A join
  *  replay (and a desktop re-publish after `activity_reset`) fans the relay's
- *  whole log — up to FEED_CAP frames — out as individual ws messages, each its
+ *  whole log — up to the relay's ACTIVITY_LOG_CAP frames — out as individual ws messages, each its
  *  own browser task; applying them one state update at a time re-rendered the
  *  full non-virtualized feed per frame, O(n²) element work that froze the tab
  *  for seconds. One batched apply per window is a handful of renders instead,
@@ -532,14 +594,19 @@ export function groupFeedRows<
     askId?: string
     subagentId?: string
   },
->(feed: readonly T[]): FeedRow<T>[] {
+>(feed: readonly T[], start = 0): FeedRow<T>[] {
   const rows: FeedRow<T>[] = []
   const askRows = new Map<string, Extract<FeedRow<T>, { kind: `ask` }>>()
   const subagentRows = new Map<
     string,
     Extract<FeedRow<T>, { kind: `subagent` }>
   >()
-  for (let i = 0; i < feed.length; i++) {
+  // EXP-783: `start` restricts the projection to the rendered WINDOW. The
+  // grouping state begins empty there, so a window that cuts through a tool
+  // run, an ask or a subagent's calls opens a FRESH group at the boundary —
+  // keyed on the first item the reader can actually see. `start = 0` is the
+  // whole projection, byte for byte.
+  for (let i = Math.max(0, Math.min(start, feed.length)); i < feed.length; i++) {
     const item = feed[i]
     if (item.kind === `question` && item.askId !== undefined) {
       const open = askRows.get(item.askId)

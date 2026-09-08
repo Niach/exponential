@@ -54,10 +54,21 @@ use crate::frames::{
     SubagentStatus,
 };
 
-/// Client-side feed cap — old items fall off the top. Matches the relay's
-/// `ACTIVITY_LOG_CAP` so a full-history replay renders in full (web
-/// `FEED_CAP`).
-pub const FEED_CAP: usize = 2000;
+/// EXP-783: the transcript keeps the WHOLE run. These are safety ceilings on
+/// a client's memory, not a display cap — the renderer paints a WINDOW over
+/// the feed and grows it upward, so keeping everything costs nothing per
+/// frame. Sized to the device journal (`JOURNAL_FILE_CAP`), because that file
+/// is exactly what a replay reads back.
+///
+/// The relay's `ACTIVITY_LOG_CAP` is deliberately NOT matched any more: it
+/// bounds the tail a joining viewer replays, and older pages are asked for
+/// (`history_page`) rather than pushed.
+pub const FEED_BYTE_CAP: usize = 16 * 1024 * 1024;
+
+/// The companion item ceiling: a run of 200k one-word events would sit far
+/// under [`FEED_BYTE_CAP`] while costing a `Vec` entry each (web
+/// `FEED_ITEM_CAP` / iOS `feedItemCap` / Android `FEED_ITEM_CAP`).
+pub const FEED_ITEM_CAP: usize = 200_000;
 
 /// At most this many un-matched local echoes are remembered (web `ECHO_CAP`).
 pub const ECHO_CAP: usize = 8;
@@ -103,6 +114,17 @@ pub const COMPACTED_LABEL: &str = "Context compacted";
 /// for the unchanged prefix so the UI keeps its row identity (and the
 /// reader's scroll anchor).
 pub type FeedItemId = u64;
+
+/// EXP-783 — where a feed's ids start.
+///
+/// Ids must stay STRICTLY INCREASING in feed order: the renderer prunes its
+/// per-row state with `id >= oldest`, the list diff keys rows by id, and
+/// [`SteerFeed::prepend_page`] gives an older page ids BELOW everything on
+/// screen so no row on the reader's side is renumbered. That needs headroom
+/// under the first id, and a feed that started at 0 has none. 2^32 of it is
+/// four billion prepends' worth, and stays far from `u64::MAX` (the desktop's
+/// synthetic "Working…" row key).
+pub const FEED_ID_BASE: FeedItemId = 1 << 32;
 
 /// One rendered row's payload. `diff` is deliberately absent: diffs are not
 /// feed items ([`SteerFeed::latest_diff`]).
@@ -188,6 +210,11 @@ pub struct SessionUsage {
 pub struct FeedItem {
     pub id: FeedItemId,
     pub kind: FeedKind,
+    /// EXP-783: the publisher's wire sequence for the event behind this row,
+    /// when it sent one. The only monotonic anchor a client has: it is what
+    /// lets a replay be spliced onto a prefix already on screen, and what an
+    /// older-page request is addressed relative to.
+    pub seq: Option<u64>,
 }
 
 impl FeedItem {
@@ -301,7 +328,7 @@ impl AnswerState {
 /// The staged half of an EXP-656 replay swap.
 #[derive(Default)]
 struct Staged {
-    events: Vec<ActivityEvent>,
+    events: Vec<(Option<u64>, ActivityEvent)>,
     /// Messages sent WHILE the replay was staging: the replay predates them,
     /// so the commit re-appends whatever it did not carry back.
     local_echoes: Vec<String>,
@@ -326,11 +353,29 @@ pub struct SteerFeed {
     /// TTL is a refinement this port leaves out — the cap alone bounds it).
     echoes: VecDeque<String>,
     staged: Option<Staged>,
+    /// EXP-783: the running size of `items`, maintained at every mutation so
+    /// [`SteerFeed::trim`] is an integer compare rather than a walk.
+    bytes: usize,
+    /// EXP-783: items mutated IN PLACE since the renderer last drained this
+    /// (a merged narration fragment, a replaced question card, a resolution).
+    /// An append needs no entry — a renderer always recomputes its tail — but
+    /// an edit halfway up the transcript has no other signal.
+    dirty: Vec<FeedItemId>,
+    /// Bumped by every full swap ([`SteerFeed::commit_staged`]): a renderer's
+    /// per-row memo is worthless across one.
+    generation: u64,
+    /// EXP-783: the wire sequence of the event being folded in right now, so
+    /// `push_item` can stamp it without threading it through every arm of
+    /// `handle_activity`. Set for exactly the duration of one fold.
+    seq: Option<u64>,
 }
 
 impl SteerFeed {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            next_id: FEED_ID_BASE,
+            ..Self::default()
+        }
     }
 
     // ── Reading ────────────────────────────────────────────────────────────
@@ -345,6 +390,22 @@ impl SteerFeed {
 
     pub fn len(&self) -> usize {
         self.items.len()
+    }
+
+    /// EXP-783: the feed's current byte weight, against [`FEED_BYTE_CAP`].
+    pub fn bytes(&self) -> usize {
+        self.bytes
+    }
+
+    /// EXP-783: the swap counter — see [`SteerFeed::dirty`].
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    /// EXP-783: drain the ids mutated in place since the last call. A
+    /// renderer that memoizes per-row work calls this ONCE per frame.
+    pub fn take_dirty(&mut self) -> Vec<FeedItemId> {
+        std::mem::take(&mut self.dirty)
     }
 
     /// The worktree diff behind the pinned "Latest changes" strip — the
@@ -390,11 +451,18 @@ impl SteerFeed {
     /// One `activity` frame. Buffered instead of applied while a replay is
     /// staging ([`SteerFeed::apply_reset`]).
     pub fn apply(&mut self, event: ActivityEvent) {
+        self.apply_seq(None, event);
+    }
+
+    /// EXP-783: one `activity` frame WITH its wire sequence.
+    pub fn apply_seq(&mut self, seq: Option<u64>, event: ActivityEvent) {
         if let Some(staged) = self.staged.as_mut() {
-            staged.events.push(event);
+            staged.events.push((seq, event));
             return;
         }
+        self.seq = seq;
         self.handle_activity(event);
+        self.seq = None;
     }
 
     /// `activity_reset` — the relay/desktop is about to (re)publish the whole
@@ -408,7 +476,16 @@ impl SteerFeed {
     /// `activity_synced` (EXP-656) — "the picture is complete, commit it".
     /// A no-op when nothing is staging.
     pub fn apply_synced(&mut self) {
-        self.commit_staged();
+        self.commit_staged(None);
+    }
+
+    /// EXP-783 — the span-aware commit. `first_seq` is the OLDEST sequence
+    /// the replay carried: everything the feed already holds BELOW it is a
+    /// prefix the replay does not restate, so it is KEPT and the replay is
+    /// spliced on top. Without a `first_seq` (a publisher or relay older than
+    /// EXP-783) this is the full swap it has always been.
+    pub fn apply_synced_from(&mut self, first_seq: Option<u64>) {
+        self.commit_staged(first_seq);
     }
 
     /// The caller's fallback for a replay that ends without a marker: commit
@@ -417,7 +494,7 @@ impl SteerFeed {
     /// [`SteerFeed::apply_synced`] — named apart so the call sites read as
     /// what they are.
     pub fn force_swap(&mut self) {
-        self.commit_staged();
+        self.commit_staged(None);
     }
 
     /// Whether a replay is buffering right now. The caller arms its
@@ -430,6 +507,64 @@ impl SteerFeed {
     /// the caller's quiet-timer bookkeeping).
     pub fn staged_len(&self) -> usize {
         self.staged.as_ref().map_or(0, |s| s.events.len())
+    }
+
+    /// EXP-783 — PREPEND one older page (a `history_chunk`), oldest first.
+    ///
+    /// The page is transcript from BELOW everything on screen, so it is folded
+    /// into a scratch feed and its rows are spliced in front rather than
+    /// appended: the reader's rows keep their ids, their answer state and
+    /// their position, and the renderer sees exactly one front insertion. A
+    /// page overlapping what is already held is trimmed against the oldest
+    /// sequence in the feed — a re-asked page must never double the
+    /// transcript. Returns how many rows were added.
+    ///
+    /// Ignored while a replay is staging: the replay is authoritative and is
+    /// about to decide what the prefix even is.
+    pub fn prepend_page(&mut self, page: Vec<(Option<u64>, ActivityEvent)>) -> usize {
+        if self.staged.is_some() || page.is_empty() {
+            return 0;
+        }
+        let oldest = self.items.iter().find_map(|item| item.seq);
+        let mut scratch = SteerFeed::new();
+        for (seq, event) in page {
+            if oldest.is_some_and(|oldest| seq.is_some_and(|seq| seq >= oldest)) {
+                continue;
+            }
+            scratch.apply_seq(seq, event);
+        }
+        if scratch.items.is_empty() {
+            return 0;
+        }
+        // The prepended rows take ids BELOW every id in the feed, so the
+        // renderer's `>= first` pruning and the list's key diff both still
+        // see one strictly increasing sequence.
+        let added = scratch.items.len();
+        let base = self.items.first().map(|item| item.id).unwrap_or(added as u64);
+        let base = base.saturating_sub(added as u64);
+        let mut prepended = scratch.items;
+        for (offset, item) in prepended.iter_mut().enumerate() {
+            item.id = base + offset as u64;
+        }
+        self.bytes += prepended
+            .iter()
+            .map(|item| item_bytes(&item.kind))
+            .sum::<usize>();
+        prepended.append(&mut self.items);
+        self.items = prepended;
+        // A front splice moves every row's INDEX, and a renderer memoizes by
+        // id — but its window anchor and per-row state are unaffected, so a
+        // generation bump would be the wrong (whole-transcript) hammer here.
+        self.trim();
+        added
+    }
+
+    /// EXP-783: the oldest wire sequence the feed still holds — what the next
+    /// older-page request is asked relative to. `None` when nothing on screen
+    /// is numbered (every publisher older than EXP-783), which is also the
+    /// signal that paging is unavailable for this run.
+    pub fn oldest_seq(&self) -> Option<u64> {
+        self.items.iter().find_map(|item| item.seq)
     }
 
     /// Drop a staged replay and KEEP the visible feed: the socket went away
@@ -497,14 +632,51 @@ impl SteerFeed {
 
     fn push_item(&mut self, kind: FeedKind) -> FeedItemId {
         let id = self.take_id();
-        self.items.push(FeedItem { id, kind });
+        let seq = self.seq;
+        self.bytes += item_bytes(&kind);
+        self.items.push(FeedItem { id, kind, seq });
         self.trim();
         id
     }
 
+    /// EXP-783: evict from the OLDEST end only once the run exceeds
+    /// [`FEED_BYTE_CAP`] or [`FEED_ITEM_CAP`]. A transcript that fits — which
+    /// is every real run — is never trimmed at all, so the renderer's window
+    /// is the only thing that bounds per-frame work. The newest item always
+    /// survives, however large it is: a feed that evicted everything would
+    /// render blank.
     fn trim(&mut self) {
-        if self.items.len() > FEED_CAP {
-            self.items.drain(..self.items.len() - FEED_CAP);
+        if self.bytes <= FEED_BYTE_CAP && self.items.len() <= FEED_ITEM_CAP {
+            return;
+        }
+        // Evicting down to the budget would then evict again on the very next
+        // event, and each eviction shifts the whole `Vec`. Drop to 90% of it
+        // instead, so the cost is paid once per ~10% of a full transcript.
+        let byte_target = FEED_BYTE_CAP / 10 * 9;
+        let item_target = FEED_ITEM_CAP / 10 * 9;
+        let mut bytes = self.bytes;
+        let mut drop_to = 0usize;
+        while drop_to + 1 < self.items.len()
+            && (bytes > byte_target || self.items.len() - drop_to > item_target)
+        {
+            bytes = bytes.saturating_sub(item_bytes(&self.items[drop_to].kind));
+            drop_to += 1;
+        }
+        if drop_to > 0 {
+            self.items.drain(..drop_to);
+            self.bytes = bytes;
+        }
+    }
+
+    /// Re-derive [`Self::bytes`] from scratch. Used after the bulk in-place
+    /// edits whose per-item deltas are not worth threading through.
+    fn recount_bytes(&mut self) {
+        self.bytes = self.items.iter().map(|item| item_bytes(&item.kind)).sum();
+    }
+
+    fn mark_dirty(&mut self, id: FeedItemId) {
+        if self.dirty.last() != Some(&id) {
+            self.dirty.push(id);
         }
     }
 
@@ -563,17 +735,15 @@ impl SteerFeed {
                 if let Some(anchor) = before_question_id {
                     if let Some(at) = self.question_position(&anchor) {
                         let id = self.take_id();
-                        self.items.insert(
-                            at,
-                            FeedItem {
-                                id,
-                                kind: FeedKind::Narration {
-                                    text,
-                                    message_id,
-                                    subagent_id,
-                                },
-                            },
-                        );
+                        let kind = FeedKind::Narration {
+                            text,
+                            message_id,
+                            subagent_id,
+                        };
+                        self.bytes += item_bytes(&kind);
+                        let seq = self.seq;
+                        self.items.insert(at, FeedItem { id, kind, seq });
+                        self.mark_dirty(id);
                         self.trim();
                         return;
                     }
@@ -582,12 +752,14 @@ impl SteerFeed {
                 // several narration events keyed by `message_id` — a fragment
                 // landing right behind its own message appends to that bubble
                 // instead of shredding the paragraph into rows.
-                if merge_narration_fragment(
+                if let Some(merged) = merge_narration_fragment(
                     &mut self.items,
                     message_id.as_deref(),
                     subagent_id.as_deref(),
                     &text,
                 ) {
+                    self.bytes += text.len();
+                    self.mark_dirty(merged);
                     return;
                 }
                 self.push_item(FeedKind::Narration {
@@ -662,12 +834,17 @@ impl SteerFeed {
                             .question()
                             .cloned()
                             .expect("the item matched as a question");
+                        let id = existing.id;
+                        let before = item_bytes(&existing.kind);
                         *existing.question_mut().expect("still a question") = QuestionCard {
                             resolved: previous.resolved,
                             answer: previous.answer,
                             dismissed: previous.dismissed,
                             ..card
                         };
+                        let after = item_bytes(&existing.kind);
+                        self.bytes = self.bytes.saturating_sub(before) + after;
+                        self.mark_dirty(id);
                         return;
                     }
                 }
@@ -807,6 +984,7 @@ impl SteerFeed {
         let dismissed = dismissed == Some(true);
         let joined = answers.join(", ");
         let mut cursor = 0usize;
+        let mut touched: Vec<FeedItemId> = Vec::new();
         for item in self.items.iter_mut() {
             let Some(card) = item.question_mut() else {
                 continue;
@@ -837,15 +1015,39 @@ impl SteerFeed {
             if answer.is_some() {
                 card.answer = answer;
             }
+            touched.push(item.id);
         }
+        for id in touched {
+            self.mark_dirty(id);
+        }
+        // A resolution rewrites cards anywhere in the transcript; the running
+        // byte count is cheaper to re-derive here than to thread through.
+        self.recount_bytes();
     }
 
     /// Swap a staged replay in as ONE change: the old feed and the replayed
     /// one never coexist and the feed is never momentarily empty, so no
     /// scroll observer sees the collapse that used to yank the reader.
-    fn commit_staged(&mut self) {
+    fn commit_staged(&mut self, first_seq: Option<u64>) {
         let Some(staged) = self.staged.take() else {
             return;
+        };
+        // EXP-783: everything the client already holds BELOW the replay's
+        // oldest sequence is a prefix the replay does not restate — pages a
+        // reader scrolled back to load, which a full swap used to throw away.
+        // It is kept only when the WHOLE prefix is numbered: an unnumbered row
+        // cannot be proved to be older than the replay, so one of them makes
+        // this today's full swap.
+        let retained: Vec<FeedItem> = match first_seq {
+            Some(first) => {
+                let split = self
+                    .items
+                    .iter()
+                    .position(|item| item.seq.is_none_or(|seq| seq >= first))
+                    .unwrap_or(self.items.len());
+                self.items.drain(..split).collect()
+            }
+            None => Vec::new(),
         };
         // Locks still waiting for their `answer_ack` when the replay started:
         // a tap made DURING the staging window must not be undone by the swap
@@ -862,6 +1064,11 @@ impl SteerFeed {
         let anchor_id = self.items.first().map(|item| item.id);
 
         self.items.clear();
+        self.bytes = 0;
+        let retained_next_id = retained.last().map(|item| item.id + 1);
+        // EXP-783: every per-row memo a renderer holds is about to be wrong.
+        self.generation = self.generation.wrapping_add(1);
+        self.dirty.clear();
         self.latest_diff = None;
         self.compacting = None;
         // EXP-746: the replay reinstates both slots inside the SAME staged
@@ -874,9 +1081,20 @@ impl SteerFeed {
         if let Some(anchor) = anchor_id {
             self.next_id = anchor;
         }
+        // The retained prefix keeps its rows AND its ids; the replay continues
+        // numbering above them, so no row identity is reused.
+        if !retained.is_empty() {
+            self.items = retained;
+            self.bytes = self.items.iter().map(|item| item_bytes(&item.kind)).sum();
+            if let Some(next) = retained_next_id {
+                self.next_id = next;
+            }
+        }
 
-        for event in staged.events {
+        for (seq, event) in staged.events {
+            self.seq = seq;
             self.handle_activity(event);
+            self.seq = None;
         }
         for text in staged.local_echoes {
             if self.tail_carries_echo(&text) {
@@ -936,6 +1154,25 @@ impl SteerFeed {
         group_feed_row_specs(&self.items)
     }
 
+    /// EXP-783: the same specs over `items[start..]` only, with ABSOLUTE
+    /// indices — the transcript window. `start = 0` is [`Self::row_specs`].
+    pub fn row_specs_from(&self, start: usize) -> Vec<FeedRowSpec> {
+        group_feed_row_specs_from(&self.items, start)
+    }
+
+    /// [`Self::row_specs_from`] into a caller-owned buffer, so a renderer that
+    /// reprojects every frame reuses one allocation.
+    pub fn row_specs_from_into(&self, start: usize, out: &mut Vec<FeedRowSpec>) {
+        group_feed_row_specs_into(&self.items, start, out);
+    }
+
+    /// The index of the first item at or after `id` — what a renderer turns
+    /// its remembered window anchor back into. Feed ids only ever increase,
+    /// so this is a binary search.
+    pub fn position_of(&self, id: FeedItemId) -> usize {
+        self.items.partition_point(|item| item.id < id)
+    }
+
     /// Every subagent seen in the feed ([`collect_subagents`]).
     pub fn subagents(&self) -> Vec<SubagentSummary> {
         collect_subagents(&self.items)
@@ -950,35 +1187,70 @@ impl SteerFeed {
 /// Nothing merges without an id, across a row that is not narration, or across
 /// a scope change (a fragment stamped with a subagent id is a different
 /// bubble). Web `mergeNarrationFragment`, mirrored ×4.
+///
+/// `Some(id)` = merged into that item (EXP-783: an IN-PLACE edit the renderer
+/// has to be told about); `None` = push a row instead.
 fn merge_narration_fragment(
     items: &mut [FeedItem],
     message_id: Option<&str>,
     subagent_id: Option<&str>,
     fragment: &str,
-) -> bool {
-    let Some(message_id) = message_id.filter(|id| !id.is_empty()) else {
-        return false;
-    };
-    let Some(last) = items.last_mut() else {
-        return false;
-    };
+) -> Option<FeedItemId> {
+    let message_id = message_id.filter(|id| !id.is_empty())?;
+    let last = items.last_mut()?;
+    let id = last.id;
     let FeedKind::Narration {
         text,
         message_id: last_id,
         subagent_id: last_subagent,
     } = &mut last.kind
     else {
-        return false;
+        return None;
     };
     if last_id.as_deref() != Some(message_id) || last_subagent.as_deref() != subagent_id {
-        return false;
+        return None;
     }
     text.push_str(fragment);
-    true
+    Some(id)
 }
 
 fn non_blank(value: Option<String>) -> Option<String> {
     value.filter(|text| !text.trim().is_empty())
+}
+
+/// EXP-783: what one item weighs against [`FEED_BYTE_CAP`] — the text it
+/// carries plus a flat per-item overhead standing in for the struct itself.
+/// An estimate on purpose: this budget bounds memory, it does not account for
+/// it, and an exact `size_of_val` walk per push would cost more than it saves.
+fn item_bytes(kind: &FeedKind) -> usize {
+    const OVERHEAD: usize = 96;
+    let text = match kind {
+        FeedKind::Narration { text, .. } | FeedKind::UserMessage { text, .. } => text.len(),
+        FeedKind::Tool { name, detail, .. } => {
+            name.len() + detail.as_ref().map_or(0, String::len)
+        }
+        FeedKind::Permission { tool, detail } => {
+            tool.len() + detail.as_ref().map_or(0, String::len)
+        }
+        FeedKind::Subagent {
+            subagent_id,
+            agent_type,
+            detail,
+            ..
+        } => subagent_id.len() + agent_type.len() + detail.as_ref().map_or(0, String::len),
+        FeedKind::Question(card) => {
+            card.text.len()
+                + card.answer.as_ref().map_or(0, String::len)
+                + card.header.as_ref().map_or(0, String::len)
+                + card
+                    .options
+                    .iter()
+                    .map(|option| option.key.len() + option.label.len())
+                    .sum::<usize>()
+        }
+        FeedKind::Compaction => 0,
+    };
+    OVERHEAD + text
 }
 
 // ---------------------------------------------------------------------------
@@ -1132,11 +1404,32 @@ impl FeedRowSpec {
 
 /// The grouping behind [`group_feed_rows`], as index specs.
 pub fn group_feed_row_specs(items: &[FeedItem]) -> Vec<FeedRowSpec> {
-    let mut rows: Vec<FeedRowSpec> = Vec::new();
+    group_feed_row_specs_from(items, 0)
+}
+
+/// EXP-783 — the same grouping restricted to `items[start..]`, emitting
+/// ABSOLUTE indices so [`FeedRowSpec::resolve`] still takes the WHOLE feed and
+/// every row-rendering path is untouched.
+///
+/// A window that cuts through a tool run, an ask or a subagent's calls opens a
+/// FRESH group at the boundary: the grouping state starts empty at `start`, so
+/// the first in-window row of a cut group is keyed by the first in-window item
+/// rather than by an item the reader cannot see. Extending the window upward
+/// therefore re-keys that boundary row, which the list sync renders as a
+/// replacement of one row alongside the front splice.
+pub fn group_feed_row_specs_from(items: &[FeedItem], start: usize) -> Vec<FeedRowSpec> {
+    let mut rows = Vec::new();
+    group_feed_row_specs_into(items, start, &mut rows);
+    rows
+}
+
+/// [`group_feed_row_specs_from`] into a caller-owned buffer (cleared first).
+pub fn group_feed_row_specs_into(items: &[FeedItem], start: usize, rows: &mut Vec<FeedRowSpec>) {
+    rows.clear();
     // Row index of the open group, keyed by ask / subagent id.
     let mut ask_rows: HashMap<String, usize> = HashMap::new();
     let mut subagent_rows: HashMap<String, usize> = HashMap::new();
-    let mut i = 0usize;
+    let mut i = start.min(items.len());
     while i < items.len() {
         let item = &items[i];
         if let Some(ask_id) = item.question().and_then(|card| card.ask_id.clone()) {
@@ -1205,7 +1498,6 @@ pub fn group_feed_row_specs(items: &[FeedItem]) -> Vec<FeedRowSpec> {
         }
         i = end + 1;
     }
-    rows
 }
 
 /// `subagent.agent_type` when the desktop's hook payload carried none — old
@@ -1364,19 +1656,192 @@ mod tests {
 
     // ── Appending, trimming, blanks ────────────────────────────────────────
 
+    /// EXP-783: a run far past the OLD 2000-event cap keeps every event —
+    /// the renderer windows, the feed does not truncate.
     #[test]
-    fn applies_activity_frames_to_the_feed_and_caps_it() {
+    fn applies_activity_frames_and_keeps_the_whole_run() {
         let mut feed = SteerFeed::new();
-        for i in 0..FEED_CAP + 10 {
+        for i in 0..5_000 {
             feed.apply(ActivityEvent::narration(format!("line {i}")));
         }
-        assert_eq!(feed.len(), FEED_CAP);
+        assert_eq!(feed.len(), 5_000);
+        assert_eq!(texts(&feed).first().unwrap(), "line 0");
+        assert_eq!(texts(&feed).last().unwrap(), "line 4999");
+    }
+
+    /// The byte budget evicts from the oldest end, keeps the newest item
+    /// however large, and leaves the running count consistent.
+    #[test]
+    fn the_byte_budget_evicts_the_oldest_and_always_keeps_one() {
+        let mut feed = SteerFeed::new();
+        let chunk = "x".repeat(64 * 1024);
+        // 200 × 64 KiB = 12.8 MiB, comfortably inside the 16 MiB budget.
+        for i in 0..200 {
+            feed.apply(ActivityEvent::narration(format!("{i}{chunk}")));
+        }
+        assert_eq!(feed.len(), 200, "nothing is evicted under the budget");
+        assert!(feed.bytes() <= FEED_BYTE_CAP, "{} bytes", feed.bytes());
+
+        // Past it, the oldest go and the count lands under the budget.
+        for i in 200..400 {
+            feed.apply(ActivityEvent::narration(format!("{i}{chunk}")));
+        }
+        assert!(feed.len() < 400, "the oldest were evicted");
+        assert!(feed.bytes() <= FEED_BYTE_CAP, "{} bytes", feed.bytes());
+        assert!(texts(&feed).last().unwrap().starts_with("399"));
+
+        let huge = "y".repeat(FEED_BYTE_CAP + 1);
+        feed.apply(ActivityEvent::narration(huge));
+        assert_eq!(feed.len(), 1, "the newest item survives on its own");
+        assert!(texts(&feed)[0].starts_with('y'));
+    }
+
+    /// `row_specs_from(0)` is `row_specs()` — the window is a restriction,
+    /// never a different grouping.
+    #[test]
+    fn a_window_from_zero_is_the_whole_projection() {
+        let mut feed = SteerFeed::new();
+        for i in 0..50 {
+            feed.apply(ActivityEvent::narration(format!("line {i}")));
+            feed.apply(ActivityEvent::tool(format!("Bash {i}"), None));
+            feed.apply(ActivityEvent::tool(format!("Read {i}"), None));
+        }
+        assert_eq!(feed.row_specs_from(0), feed.row_specs());
+        assert!(feed.row_specs().len() > 1);
+    }
+
+    /// A window that cuts a tool run re-keys the boundary row onto the first
+    /// item the reader can actually see.
+    #[test]
+    fn a_window_cut_mid_tool_run_rekeys_the_boundary_row() {
+        let mut feed = SteerFeed::new();
+        feed.apply(ActivityEvent::narration("hello"));
+        for i in 0..6 {
+            feed.apply(ActivityEvent::tool(format!("Bash {i}"), None));
+        }
+        let whole = feed.row_specs();
+        // narration + one tool run.
+        assert_eq!(whole.len(), 2);
+        let windowed = feed.row_specs_from(4);
+        assert_eq!(windowed.len(), 1);
+        assert_eq!(windowed[0].item_indices(), &[4, 5, 6]);
+        assert_eq!(windowed[0].id(), feed.items()[4].id);
+        // The absolute indices still resolve against the WHOLE feed.
+        assert_eq!(windowed[0].resolve(feed.items()).id(), feed.items()[4].id);
+    }
+
+    /// EXP-783: a replay that names its span keeps the pages the reader had
+    /// already scrolled back to load, instead of swapping the run away.
+    #[test]
+    fn a_replay_that_names_its_span_keeps_the_prefix_below_it() {
+        let mut feed = SteerFeed::new();
+        for seq in 0..6u64 {
+            feed.apply_seq(Some(seq), ActivityEvent::narration(format!("line {seq}")));
+        }
+        let first_ids: Vec<FeedItemId> = feed.items().iter().map(|item| item.id).collect();
+
+        // The relay's log only reaches back to seq 3.
+        feed.apply_reset();
+        for seq in 3..8u64 {
+            feed.apply_seq(Some(seq), ActivityEvent::narration(format!("line {seq}")));
+        }
+        feed.apply_synced_from(Some(3));
+
         assert_eq!(
-            texts(&feed).last().unwrap(),
-            &format!("line {}", FEED_CAP + 9)
+            texts(&feed),
+            vec!["line 0", "line 1", "line 2", "line 3", "line 4", "line 5", "line 6", "line 7"]
         );
-        // The oldest survivor is the one right after the dropped prefix.
-        assert_eq!(texts(&feed).first().unwrap(), "line 10");
+        // The retained rows kept their identity, so nothing the reader had
+        // open or expanded moved.
+        assert_eq!(
+            feed.items()[..3].iter().map(|item| item.id).collect::<Vec<_>>(),
+            first_ids[..3]
+        );
+        // …and the ids stay strictly increasing across the seam.
+        assert!(feed.items().windows(2).all(|pair| pair[0].id < pair[1].id));
+
+        // Without a span it is still the full swap.
+        feed.apply_reset();
+        feed.apply_seq(Some(9), ActivityEvent::narration("only"));
+        feed.apply_synced();
+        assert_eq!(texts(&feed), vec!["only"]);
+    }
+
+    /// EXP-783: an older page lands in FRONT, below every id on screen, and a
+    /// re-asked page cannot double the transcript.
+    #[test]
+    fn an_older_page_is_prepended_and_never_doubles() {
+        let mut feed = SteerFeed::new();
+        for seq in 5..8u64 {
+            feed.apply_seq(Some(seq), ActivityEvent::narration(format!("line {seq}")));
+        }
+        assert_eq!(feed.oldest_seq(), Some(5));
+
+        let page: Vec<(Option<u64>, ActivityEvent)> = (2..5u64)
+            .map(|seq| (Some(seq), ActivityEvent::narration(format!("line {seq}"))))
+            .collect();
+        assert_eq!(feed.prepend_page(page.clone()), 3);
+        assert_eq!(
+            texts(&feed),
+            vec!["line 2", "line 3", "line 4", "line 5", "line 6", "line 7"]
+        );
+        assert!(feed.items().windows(2).all(|pair| pair[0].id < pair[1].id));
+        assert_eq!(feed.oldest_seq(), Some(2));
+
+        // The same page again is entirely at-or-above the oldest seq: nothing.
+        assert_eq!(feed.prepend_page(page), 0);
+        assert_eq!(feed.len(), 6);
+
+        // A page arriving mid-replay is dropped — the replay decides the prefix.
+        feed.apply_reset();
+        assert_eq!(
+            feed.prepend_page(vec![(Some(0), ActivityEvent::narration("nope"))]),
+            0
+        );
+    }
+
+    /// Every in-place mutation site records its id for the renderer.
+    #[test]
+    fn in_place_mutations_are_recorded_as_dirty() {
+        let mut feed = SteerFeed::new();
+        // 1. a merged narration fragment.
+        feed.apply(fragment("one", Some("m1"), None));
+        let narration = feed.items()[0].id;
+        assert!(feed.take_dirty().is_empty());
+        feed.apply(fragment(" two", Some("m1"), None));
+        assert_eq!(feed.take_dirty(), vec![narration]);
+
+        // 2. a question card replaced in place, and 3. its resolution.
+        feed.apply(question(Some("q1"), "pick"));
+        let card = feed.items().last().unwrap().id;
+        feed.take_dirty();
+        feed.apply(question(Some("q1"), "pick again"));
+        assert_eq!(feed.take_dirty(), vec![card]);
+        feed.apply(ActivityEvent::QuestionResolved {
+            id: Some("q1".to_string()),
+            ask_id: None,
+            answers: Some(vec!["a".to_string()]),
+            dismissed: None,
+            at: None,
+        });
+        assert_eq!(feed.take_dirty(), vec![card]);
+
+        // 4. a narration spliced in above its card.
+        feed.apply(ActivityEvent::Narration {
+            text: "before".to_string(),
+            before_question_id: Some("q1".to_string()),
+            message_id: None,
+            subagent_id: None,
+            at: None,
+        });
+        assert_eq!(feed.take_dirty().len(), 1);
+
+        // 5. a swap bumps the generation instead.
+        let generation = feed.generation();
+        feed.apply_reset();
+        feed.apply(ActivityEvent::narration("replayed"));
+        feed.apply_synced();
+        assert_eq!(feed.generation(), generation + 1);
     }
 
     #[test]

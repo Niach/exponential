@@ -18,8 +18,46 @@ import kotlinx.serialization.json.jsonArray
 // result — mirroring iOS's ExpCore `AgentFeed.swift` and web's
 // `lib/agent-feed.ts`.
 
-/** Client-side feed cap — matches the relay's ACTIVITY_LOG_CAP (EXP-249). */
-const val FEED_CAP = 2000
+/** EXP-783: the transcript keeps the WHOLE run — the session screen paints a
+ *  WINDOW over it ([FEED_WINDOW]) and grows it upward, so keeping everything
+ *  costs nothing per frame. These are safety ceilings on the app's memory, not
+ *  a display cap, and they are sized to the device journal (JOURNAL_FILE_CAP)
+ *  because that file is exactly what a replay reads back. The relay's
+ *  ACTIVITY_LOG_CAP is deliberately NOT matched any more: it bounds the tail a
+ *  joining viewer replays, and older pages are asked for (`history_page`). */
+const val FEED_BYTE_CAP = 16L * 1024 * 1024
+
+/** The companion item ceiling — a run of tiny events would sit far under the
+ *  byte budget while costing a list slot each. */
+const val FEED_ITEM_CAP = 200_000
+
+/** How many of the run's newest rows the session screen renders, and how much
+ *  older transcript one "Load earlier" pulls in (web/iOS/desktop parity). */
+const val FEED_WINDOW = 1500
+const val FEED_WINDOW_STEP = 500
+
+/** EXP-783: events per `history_page` ask — the relay's HISTORY_PAGE_MAX,
+ *  which rejects anything larger. */
+const val HISTORY_PAGE_LIMIT = 200
+
+/** What one row weighs against [FEED_BYTE_CAP]: the text it carries plus a
+ *  flat per-item overhead standing in for the object itself. An estimate on
+ *  purpose — this budget bounds memory, it does not account for it. */
+fun feedItemBytes(item: AgentFeedItem): Long {
+    val overhead = 96L
+    return overhead + when (item) {
+        is AgentFeedItem.Narration -> item.text.length.toLong()
+        is AgentFeedItem.UserMessage -> item.text.length.toLong()
+        is AgentFeedItem.Tool -> (item.name.length + (item.detail?.length ?: 0)).toLong()
+        is AgentFeedItem.Permission -> (item.tool.length + (item.detail?.length ?: 0)).toLong()
+        is AgentFeedItem.Subagent ->
+            (item.subagentId.length + item.agentType.length + (item.detail?.length ?: 0)).toLong()
+        is AgentFeedItem.Question ->
+            (item.text.length + (item.answer?.length ?: 0) + (item.header?.length ?: 0) +
+                item.options.sumOf { it.label.length + it.key.length }).toLong()
+        is AgentFeedItem.Compaction -> 0L
+    }
+}
 
 /** One answer choice of a [AgentFeedItem.Question] — `key` is the raw
  *  keystroke that selects it in the desktop TUI picker (mapped desktop-side)
@@ -48,6 +86,12 @@ fun AnswerState?.locksCard(): Boolean = this == AnswerState.Sending || this == A
 sealed interface AgentFeedItem {
     val id: Long
 
+    /** EXP-783: the publisher's monotonic index for the event behind this row,
+     *  when it sent one. The only monotonic anchor on the wire — it is what
+     *  lets a join replay be spliced onto a transcript prefix already on
+     *  screen, and what an older-page request is addressed relative to. */
+    val seq: Long?
+
     /** Agent prose.
      *
      *  [messageId] (EXP-772) is the ACP id of the assistant message this
@@ -62,6 +106,7 @@ sealed interface AgentFeedItem {
         val text: String,
         val messageId: String? = null,
         val subagentId: String? = null,
+        override val seq: Long? = null,
     ) : AgentFeedItem
 
     data class Tool(
@@ -71,6 +116,7 @@ sealed interface AgentFeedItem {
         /** Set when the call came from a subagent (EXP-249) — the row renders
          *  inside that subagent's group, not in the main feed. */
         val subagentId: String? = null,
+        override val seq: Long? = null,
     ) : AgentFeedItem
 
     /** A human turn (EXP-78): the initial prompt or a steered message.
@@ -80,6 +126,7 @@ sealed interface AgentFeedItem {
         override val id: Long,
         val text: String,
         val subagentId: String? = null,
+        override val seq: Long? = null,
     ) : AgentFeedItem
 
     /** An interactive question (AskUserQuestion / plan approval, EXP-78).
@@ -108,6 +155,7 @@ sealed interface AgentFeedItem {
         val index: Int? = null,
         val total: Int? = null,
         val header: String? = null,
+        override val seq: Long? = null,
     ) : AgentFeedItem {
         /** The ask's final review/submit step: it belongs to an ask but
          *  carries no step position of its own, and consumes no answer. */
@@ -129,6 +177,7 @@ sealed interface AgentFeedItem {
         val completed: Boolean,
         val detail: String? = null,
         val toolCalls: Int? = null,
+        override val seq: Long? = null,
     ) : AgentFeedItem
 
     /** A permission prompt the agent hit (EXP-249) — informational only: it is
@@ -137,12 +186,30 @@ sealed interface AgentFeedItem {
         override val id: Long,
         val tool: String,
         val detail: String? = null,
+        override val seq: Long? = null,
     ) : AgentFeedItem
 
     /** EXP-724: the quiet "Context compacted" divider a `compaction ended`
      *  leaves in the timeline — the STRIP itself is
      *  [ActivityFeedState.compacting], never a row. */
-    data class Compaction(override val id: Long) : AgentFeedItem
+    data class Compaction(
+        override val id: Long,
+        override val seq: Long? = null,
+    ) : AgentFeedItem
+}
+
+/** EXP-783: the same row under a new feed id. Used only by the older-page
+ *  prepend, which folds a page through the ordinary reducer (ids from zero)
+ *  and then renumbers it BELOW everything on screen, so no visible row's
+ *  identity changes. */
+fun AgentFeedItem.withId(id: Long): AgentFeedItem = when (this) {
+    is AgentFeedItem.Narration -> copy(id = id)
+    is AgentFeedItem.Tool -> copy(id = id)
+    is AgentFeedItem.UserMessage -> copy(id = id)
+    is AgentFeedItem.Question -> copy(id = id)
+    is AgentFeedItem.Subagent -> copy(id = id)
+    is AgentFeedItem.Permission -> copy(id = id)
+    is AgentFeedItem.Compaction -> copy(id = id)
 }
 
 /** The subagent a feed item belongs to, if any — the grouping key of a
@@ -521,7 +588,14 @@ sealed interface AgentFeedRow {
  *    anchored where the ask's first card landed,
  *  - runs of ≥2 consecutive PLAIN tool calls collapse into one "N tool calls"
  *    row (a tagged tool belongs to its subagent, never to a main-thread run). */
-fun groupFeedRows(feed: List<AgentFeedItem>): List<AgentFeedRow> {
+fun groupFeedRows(feed: List<AgentFeedItem>, from: Int = 0): List<AgentFeedRow> {
+    // EXP-783: `from` restricts the projection to the rendered WINDOW. The
+    // grouping starts from an empty state there, so a window that cuts through
+    // a tool run, an ask or a subagent's calls opens a FRESH group at the
+    // boundary — keyed on the first item the reader can actually see.
+    // `from = 0` is the whole projection, item for item.
+    @Suppress("NAME_SHADOWING")
+    val feed = if (from <= 0) feed else feed.subList(minOf(from, feed.size), feed.size)
     val stepsByAsk = feed.filterIsInstance<AgentFeedItem.Question>()
         .filter { it.askId != null }
         .groupBy { it.askId!! }
@@ -675,6 +749,9 @@ data class ActivityFeedState(
      *  Dropped with a failed lock — a rolled-back step has no answer. */
     val answerLabels: Map<String, List<String>> = emptyMap(),
     val nextEventId: Long = 0L,
+    /** EXP-783: the running weight of [feed] against [FEED_BYTE_CAP], so the
+     *  budget is an integer compare per append rather than a walk. */
+    val feedBytes: Long = 0L,
 )
 
 /**
@@ -687,6 +764,9 @@ data class ActivityFeedState(
 fun ActivityFeedState.applyActivityEvent(
     event: JsonObject,
     isEcho: (String) -> Boolean = { false },
+    /** EXP-783: the publisher's wire sequence for this event, stamped onto
+     *  whatever row it produces. Absent from a publisher older than EXP-783. */
+    seq: Long? = null,
 ): ActivityFeedState = when (event.str("kind")) {
     "narration" -> {
         val text = event.str("text").orEmpty()
@@ -695,7 +775,7 @@ fun ActivityFeedState.applyActivityEvent(
         } else {
             val messageId = event.str("messageId")?.takeIf { it.isNotBlank() }
             val subagentId = event.str("subagentId")?.takeIf { it.isNotBlank() }
-            val row = AgentFeedItem.Narration(nextEventId, text, messageId, subagentId)
+            val row = AgentFeedItem.Narration(nextEventId, text, messageId, subagentId, seq)
             // EXP-483: prose from the withheld ask/plan entry flushes AFTER
             // its already-published card — splice it back above.
             val anchor = event.str("beforeQuestionId")?.takeIf { it.isNotBlank() }
@@ -708,8 +788,10 @@ fun ActivityFeedState.applyActivityEvent(
                 null
             }
             when {
-                spliced != null -> copy(feed = capFeed(spliced), nextEventId = nextEventId + 1)
-                merged != null -> copy(feed = merged)
+                spliced != null -> withFeed(spliced).copy(nextEventId = nextEventId + 1)
+                // A merge grows an existing row's text rather than adding one.
+                merged != null ->
+                    copy(feed = merged, feedBytes = feedBytes + text.length).trimmed()
                 else -> append(row)
             }
         }
@@ -725,6 +807,7 @@ fun ActivityFeedState.applyActivityEvent(
                     name = name,
                     detail = event.str("detail")?.takeIf { it.isNotBlank() },
                     subagentId = event.str("subagentId")?.takeIf { it.isNotBlank() },
+                    seq = seq,
                 ),
             )
         }
@@ -744,6 +827,7 @@ fun ActivityFeedState.applyActivityEvent(
                     id = nextEventId,
                     text = text,
                     subagentId = event.str("subagentId")?.takeIf { it.isNotBlank() },
+                    seq = seq,
                 ),
             )
         }
@@ -778,10 +862,10 @@ fun ActivityFeedState.applyActivityEvent(
                 index = event.int("index"),
                 total = event.int("total"),
                 header = event.str("header")?.takeIf { it.isNotBlank() },
+                seq = seq,
             )
             val next = upsertQuestion(feed, question)
-            copy(
-                feed = capFeed(next),
+            withFeed(next).copy(
                 // A replaced card consumed no id.
                 nextEventId = if (next.size > feed.size) nextEventId + 1 else nextEventId,
             )
@@ -794,7 +878,7 @@ fun ActivityFeedState.applyActivityEvent(
             event["answers"]?.jsonArray?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
         }.getOrNull().orEmpty()
         val next = resolveQuestions(feed, id, askId, answers, event.bool("dismissed"))
-        copy(feed = next ?: feed).releaseResolvedLocks()
+        (if (next != null) withFeed(next) else this).releaseResolvedLocks()
     }
     "answer_ack" -> {
         val id = event.str("id")?.takeIf { it.isNotBlank() }
@@ -827,6 +911,7 @@ fun ActivityFeedState.applyActivityEvent(
                     completed = completed,
                     detail = detail,
                     toolCalls = toolCalls,
+                    seq = seq,
                 ),
             )
         }
@@ -841,6 +926,7 @@ fun ActivityFeedState.applyActivityEvent(
                     id = nextEventId,
                     tool = tool,
                     detail = event.str("detail")?.takeIf { it.isNotBlank() },
+                    seq = seq,
                 ),
             )
         }
@@ -855,7 +941,7 @@ fun ActivityFeedState.applyActivityEvent(
                 startedAtMs = event.long("at"),
             ),
         )
-        "ended" -> copy(compacting = null).append(AgentFeedItem.Compaction(nextEventId))
+        "ended" -> copy(compacting = null).append(AgentFeedItem.Compaction(nextEventId, seq))
         else -> this
     }
     // EXP-746: the live configuration behind the composer chips. LATEST-WINS
@@ -989,14 +1075,35 @@ fun ActivityFeedState.appendUserMessage(text: String): ActivityFeedState =
     append(AgentFeedItem.UserMessage(nextEventId, text))
 
 private fun ActivityFeedState.append(item: AgentFeedItem): ActivityFeedState =
-    copy(feed = capFeed(feed + item), nextEventId = nextEventId + 1)
+    copy(
+        feed = feed + item,
+        feedBytes = feedBytes + feedItemBytes(item),
+        nextEventId = nextEventId + 1,
+    ).trimmed()
 
+/** The feed changed SHAPE (a splice, an in-place card replacement, a
+ *  resolution): the running weight is cheaper to re-derive than to track. */
 private fun ActivityFeedState.withFeed(next: List<AgentFeedItem>): ActivityFeedState =
-    copy(feed = capFeed(next))
+    copy(feed = next, feedBytes = next.sumOf { feedItemBytes(it) }).trimmed()
 
-/** Trim to the client cap — the oldest events fall off the top. */
-fun capFeed(feed: List<AgentFeedItem>): List<AgentFeedItem> =
-    if (feed.size > FEED_CAP) feed.takeLast(FEED_CAP) else feed
+/** EXP-783: evict from the OLDEST end only once the run exceeds
+ *  [FEED_BYTE_CAP] or [FEED_ITEM_CAP], with the 90% hysteresis every client
+ *  shares (`steer::feed::trim`): evicting down to the budget exactly would
+ *  evict again on the very next event, and every eviction reallocates. The
+ *  newest row always survives. */
+fun ActivityFeedState.trimmed(): ActivityFeedState {
+    if (feedBytes <= FEED_BYTE_CAP && feed.size <= FEED_ITEM_CAP) return this
+    val byteTarget = FEED_BYTE_CAP / 10 * 9
+    val itemTarget = FEED_ITEM_CAP / 10 * 9
+    var remaining = feedBytes
+    var dropTo = 0
+    while (dropTo + 1 < feed.size && (remaining > byteTarget || feed.size - dropTo > itemTarget)) {
+        remaining -= feedItemBytes(feed[dropTo])
+        dropTo++
+    }
+    if (dropTo == 0) return this
+    return copy(feed = feed.subList(dropTo, feed.size).toList(), feedBytes = maxOf(0, remaining))
+}
 
 /**
  * EXP-773: where an ENDED run's transcript is coming from. The relay has no

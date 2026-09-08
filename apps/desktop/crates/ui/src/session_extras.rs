@@ -90,14 +90,41 @@ pub(crate) struct LocalExtras {
     by_tool_call: HashMap<String, ToolExtras>,
     /// Which tool call a feed row belongs to (the join, see the module docs).
     by_item: HashMap<FeedItemId, String>,
+    /// EXP-783: `by_item` in bind order, so the cap evicts the OLDEST rows.
+    bound: std::collections::VecDeque<FeedItemId>,
     plan: Vec<engine::PlanEntryView>,
     thought: Option<String>,
 }
 
+/// EXP-783 — how many feed rows may carry extras at once.
+///
+/// The extras used to be bounded only by `steer::feed::trim` draining the
+/// feed at 2000 items ([`LocalExtras::prune_before`]). The feed now keeps the
+/// whole run, so a card holding a whole hunk diff or a terminal's scrollback
+/// needs a ceiling of its own — the transcript rows above it stay, their
+/// heavyweight attachments do not.
+const EXTRAS_ITEM_CAP: usize = 2_000;
+
 impl LocalExtras {
     /// Record that `item` is the feed row of `tool_call_id`.
     pub(crate) fn bind(&mut self, item: FeedItemId, tool_call_id: String) {
-        self.by_item.insert(item, tool_call_id);
+        if self.by_item.insert(item, tool_call_id).is_none() {
+            self.bound.push_back(item);
+        }
+        while self.bound.len() > EXTRAS_ITEM_CAP {
+            let Some(oldest) = self.bound.pop_front() else { break };
+            if let Some(tool_call_id) = self.by_item.remove(&oldest) {
+                self.by_tool_call.remove(&tool_call_id);
+            }
+        }
+    }
+
+    /// How many feed rows currently carry extras. EXP-783: the renderer folds
+    /// this into its fingerprint memo's epoch — it moves exactly when a row
+    /// gains its first card, which is the only thing about extras a row's
+    /// HEIGHT depends on.
+    pub(crate) fn bound_items(&self) -> usize {
+        self.by_tool_call.len()
     }
 
     /// Fold one local event in. [`engine::LocalFeedEvent::Activity`] and
@@ -197,13 +224,14 @@ impl LocalExtras {
     }
 
     /// Drop everything hanging off feed rows the feed itself has already
-    /// dropped. `steer::feed::trim` drains items past `FEED_CAP`, and without
+    /// dropped. `steer::feed::trim` evicts past `FEED_BYTE_CAP`, and without
     /// this the extras (an `EditCard` holds a whole hunk diff) keep every one
     /// of them for the life of the run. `first` is the id of the OLDEST
     /// surviving feed item; entries below it, and any tool call no surviving
-    /// row still names, go.
+    /// row still names, go. [`EXTRAS_ITEM_CAP`] bounds them meanwhile.
     pub(crate) fn prune_before(&mut self, first: FeedItemId) {
         self.by_item.retain(|item, _| *item >= first);
+        self.bound.retain(|item| *item >= first);
         let live: std::collections::HashSet<&str> =
             self.by_item.values().map(String::as_str).collect();
         self.by_tool_call.retain(|id, _| live.contains(id.as_str()));

@@ -246,6 +246,54 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertEqual(AgentFeed.rows([]), [])
     }
 
+    /// EXP-783: a window restricts the projection without changing it, and a
+    /// cut through a tool run re-keys the boundary row onto the first item the
+    /// reader can actually see.
+    func testAWindowRestrictsTheProjectionWithoutChangingIt() {
+        let feed: [AgentFeedItem] =
+            [.narration(id: 0, text: "hello")] + (1...6).map { tool($0) }
+        XCTAssertEqual(AgentFeed.rows(feed, from: 0), AgentFeed.rows(feed))
+        let windowed = AgentFeed.rows(feed, from: 4)
+        XCTAssertEqual(windowed.count, 1)
+        XCTAssertEqual(windowed[0].id, 4)
+    }
+
+    /// EXP-783: the byte budget evicts from the OLDEST end and always keeps
+    /// the newest row, however large it is.
+    func testTheByteBudgetEvictsTheOldestAndAlwaysKeepsOne() {
+        let chunk = String(repeating: "x", count: 64 * 1024)
+        let overflow: [AgentFeedItem] = (0..<400).map {
+            .narration(id: $0, text: "\($0)\(chunk)")
+        }
+        let bytes = overflow.reduce(0) { $0 + AgentFeed.itemBytes($1) }
+        let trimmed = AgentFeed.trim(feed: overflow, bytes: bytes)
+        XCTAssertLessThan(trimmed.feed.count, overflow.count)
+        XCTAssertFalse(trimmed.feed.isEmpty)
+        XCTAssertLessThanOrEqual(trimmed.bytes, AgentFeed.feedByteCap)
+        XCTAssertEqual(trimmed.feed.last, overflow.last)
+
+        // A single row past the budget survives on its own.
+        let huge: [AgentFeedItem] = [
+            .narration(id: 0, text: "a"),
+            .narration(id: 1, text: String(repeating: "y", count: AgentFeed.feedByteCap + 1)),
+        ]
+        let one = AgentFeed.trim(
+            feed: huge, bytes: huge.reduce(0) { $0 + AgentFeed.itemBytes($1) }
+        )
+        XCTAssertEqual(one.feed.count, 1)
+        XCTAssertEqual(one.feed.first, huge.last)
+    }
+
+    /// EXP-783: `withId` re-keys a prepended page without changing anything
+    /// else about the row.
+    func testWithIdOnlyChangesTheId() {
+        let item = AgentFeedItem.tool(id: 1, name: "Edit", detail: "a.ts", subagentId: "s1")
+        XCTAssertEqual(
+            item.withId(9),
+            .tool(id: 9, name: "Edit", detail: "a.ts", subagentId: "s1")
+        )
+    }
+
     func testARunIdStaysTheFirstToolsIdAsTheTrailingRunGrows() {
         let feed: [AgentFeedItem] = [.narration(id: 1, text: "x"), tool(2), tool(3)]
         XCTAssertEqual(AgentFeed.rows(feed)[1].id, 2)

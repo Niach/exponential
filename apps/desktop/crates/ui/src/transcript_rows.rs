@@ -251,6 +251,26 @@ mod tests {
         assert_eq!(result, expected);
     }
 
+    /// EXP-783 — a transcript window extension. The older page arrives ahead
+    /// of rows the list already holds, and it must cost exactly one front
+    /// splice and NO remeasures: a remeasure of the retained rows is what
+    /// would move the reader's anchor while they sit at the top.
+    #[test]
+    fn a_window_extension_is_one_front_splice_and_no_remeasures() {
+        let old = keys(&[500, 501, 502, 503]);
+        let new = keys(&[100, 200, 300, 400, 500, 501, 502, 503]);
+        let ops = plan_list_sync(&old, &new);
+        assert_eq!(
+            ops,
+            vec![ListOp::Splice {
+                range: 0..0,
+                count: 4
+            }]
+        );
+        assert!(!ops.iter().any(|op| matches!(op, ListOp::Remeasure(_))));
+        check(&old, &new, &ops);
+    }
+
     #[test]
     fn an_append_is_one_tail_splice() {
         let old = keys(&[1, 2, 3]);
@@ -519,6 +539,7 @@ mod tests {
                 message_id: None,
                 subagent_id: None,
             },
+            seq: None,
         }
     }
 
@@ -530,6 +551,7 @@ mod tests {
                 detail: None,
                 subagent_id: None,
             },
+            seq: None,
         }
     }
 

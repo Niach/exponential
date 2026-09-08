@@ -540,16 +540,24 @@ pub fn is_publishing(session_id: &str) -> bool {
 struct Recorder {
     journal: ActivityJournal,
     file: Option<JournalWriter>,
+    /// EXP-783: the next wire sequence. Seeded from the journal FILE's line
+    /// count, so a resumed run keeps counting where its predecessor stopped
+    /// and a viewer's `history_page` asks line up with what it already holds.
+    next_seq: u64,
 }
 
 impl Recorder {
     /// Record one already-prepared event (redacted upstream, stamped by
     /// `prepare_for_journal`): disk first, then memory, which takes it.
-    fn push(&mut self, event: ActivityEvent) {
+    /// Returns the wire sequence the event was numbered with.
+    fn push(&mut self, event: ActivityEvent) -> u64 {
+        let seq = self.next_seq;
+        self.next_seq += 1;
         if let Some(file) = self.file.as_mut() {
             file.append(&event);
         }
-        self.journal.push(event);
+        self.journal.push_seq(Some(seq), event);
+        seq
     }
 }
 
@@ -581,12 +589,18 @@ async fn run_publisher_loop(
     // with `activity_reset` + this journal, so a viewer joining a resumed room
     // (or after a relay restart) sees the session from its first event.
     // EXP-773 pairs it with the durable file the same events land in.
+    let file = spec
+        .journal_dir
+        .as_deref()
+        .and_then(|dir| JournalWriter::open(dir, &spec.session_id));
+    // EXP-783: a resumed run's journal file already holds N lines, and the
+    // viewer that reads it back numbers them 0..N — so this run's first event
+    // must be N, never 0.
+    let next_seq = file.as_ref().map_or(0, JournalWriter::lines);
     let mut recorder = Recorder {
         journal: ActivityJournal::new(),
-        file: spec
-            .journal_dir
-            .as_deref()
-            .and_then(|dir| JournalWriter::open(dir, &spec.session_id)),
+        file,
+        next_seq,
     };
     let mut backoff = Backoff::publisher();
     // §8.7: one immediate re-mint is allowed after a fresh-ticket 401; a
@@ -701,7 +715,9 @@ async fn run_publisher_loop(
         }
 
         let end =
-            pump_connection(&mut ws, &hooks, &input_tx, &cmd_rx, &mut recorder, &embeds, &running)
+            pump_connection(
+                &mut ws, &spec, &hooks, &input_tx, &cmd_rx, &mut recorder, &embeds, &running,
+            )
                 .await;
 
         match end {
@@ -888,8 +904,10 @@ async fn handle_input(
 /// `input` frames are FORWARDED to the session's input task (EXP-514), never
 /// handled here — their choreography sleeps and downloads, and this loop owns
 /// the ping tick the relay's idle detector watches.
+#[allow(clippy::too_many_arguments)]
 async fn pump_connection(
     ws: &mut WsStream,
+    spec: &PublishSpec,
     hooks: &PublisherHooks,
     input_tx: &flume::Sender<String>,
     cmd_rx: &flume::Receiver<PublisherCmd>,
@@ -930,8 +948,8 @@ async fn pump_connection(
                         // timeline after a reconnect) and put any localized
                         // image path back to the token the steerer sent.
                         prepare_for_journal(&mut event, embeds);
-                        recorder.push(event.clone());
-                        if !send_activity(ws, event).await {
+                        let seq = recorder.push(event.clone());
+                        if !send_activity(ws, Some(seq), event).await {
                             return LoopEnd::Dropped;
                         }
                     }
@@ -1003,6 +1021,31 @@ async fn pump_connection(
                             log::debug!("steer publisher: relay error {code} ({message:?})");
                             return LoopEnd::Dropped;
                         }
+                        // EXP-783: a viewer scrolled past the top of what
+                        // it holds. The page comes off the DISK journal, not
+                        // the in-memory one — the memory journal is bounded
+                        // and the file is the whole run. Answered inline:
+                        // one page is a bounded read and a bounded frame,
+                        // and the ping tick shares this loop.
+                        Some(ServerFrame::HistoryPage {
+                            request_id, before_seq, limit, ..
+                        }) => {
+                            let page = spec
+                                .journal_dir
+                                .as_deref()
+                                .and_then(|dir| {
+                                    crate::history::read_journal_page(
+                                        dir,
+                                        &spec.session_id,
+                                        before_seq,
+                                        limit.min(HISTORY_PAGE_MAX) as usize,
+                                    )
+                                })
+                                .unwrap_or_default();
+                            if !send_history_page(ws, &request_id, page).await {
+                                return LoopEnd::Dropped;
+                            }
+                        }
                         Some(ServerFrame::StartSession { .. })
                         | Some(ServerFrame::CheckIn)
                         | Some(ServerFrame::HistoryRequest { .. }) => {
@@ -1056,8 +1099,8 @@ async fn republish_history(ws: &mut WsStream, journal: &ActivityJournal) -> bool
     {
         return false;
     }
-    for event in journal.replay() {
-        if !send_activity(ws, event.clone()).await {
+    for (seq, event) in journal.replay_seq() {
+        if !send_activity(ws, seq, event.clone()).await {
             return false;
         }
     }
@@ -1068,8 +1111,43 @@ async fn republish_history(ws: &mut WsStream, journal: &ActivityJournal) -> bool
 /// JSON escaping can still inflate pathological content past the relay's frame
 /// limit — dropping the event beats letting the relay close the socket, so an
 /// oversize frame is a skip, not a failure.
-async fn send_activity(ws: &mut WsStream, event: ActivityEvent) -> bool {
-    let frame = ClientFrame::Activity { event }.to_json();
+/// EXP-783: how many events one `history_page` answer carries. Mirrors the
+/// relay's `HISTORY_PAGE_MAX` — a bigger page is rejected by its zod.
+const HISTORY_PAGE_MAX: u32 = 200;
+
+/// Answer one [`ServerFrame::HistoryPage`] as a single `history_chunk`. The
+/// page is already bounded to [`HISTORY_PAGE_MAX`] events, so it is one frame
+/// with `done: true`; an oversize frame is dropped down to an EMPTY done
+/// chunk rather than severing the socket, which leaves the asking viewer with
+/// "nothing older" instead of a dead connection.
+async fn send_history_page(
+    ws: &mut WsStream,
+    request_id: &str,
+    page: Vec<(u64, ActivityEvent)>,
+) -> bool {
+    let (seqs, events): (Vec<u64>, Vec<ActivityEvent>) = page.into_iter().unzip();
+    let mut frame = ClientFrame::HistoryChunk {
+        request_id: request_id.to_string(),
+        events,
+        seqs,
+        done: true,
+    }
+    .to_json();
+    if frame.len() >= RELAY_MAX_PAYLOAD_BYTES {
+        log::warn!("steer publisher: history page {request_id} too large — answering empty");
+        frame = ClientFrame::HistoryChunk {
+            request_id: request_id.to_string(),
+            events: Vec::new(),
+            seqs: Vec::new(),
+            done: true,
+        }
+        .to_json();
+    }
+    ws.send(Message::Text(frame)).await.is_ok()
+}
+
+async fn send_activity(ws: &mut WsStream, seq: Option<u64>, event: ActivityEvent) -> bool {
+    let frame = ClientFrame::Activity { event, seq }.to_json();
     if frame.len() >= RELAY_MAX_PAYLOAD_BYTES {
         log::warn!(
             "steer publisher: dropping oversize activity frame ({} bytes)",

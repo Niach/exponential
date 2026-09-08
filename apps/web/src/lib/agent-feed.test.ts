@@ -485,6 +485,24 @@ describe(`groupFeedRows`, () => {
     ])
   })
 
+  // EXP-783: the transcript renders a WINDOW of the run, and a window that
+  // cuts a group re-keys it onto the first item the reader can actually see.
+  it(`a window restricts the projection without changing it`, () => {
+    const feed = [
+      item(1, `narration`),
+      item(2, `tool`),
+      item(3, `tool`),
+      item(4, `tool`),
+      item(5, `tool`),
+    ]
+    expect(groupFeedRows(feed, 0)).toEqual(groupFeedRows(feed))
+    expect(groupFeedRows(feed, 3)).toEqual([
+      { kind: `toolRun`, id: 4, items: [feed[3], feed[4]] },
+    ])
+    // Past the end is an empty projection, never a crash.
+    expect(groupFeedRows(feed, 99)).toEqual([])
+  })
+
   it(`a lone tool between other kinds stays a single row`, () => {
     const feed = [item(1, `tool`), item(2, `narration`), item(3, `tool`)]
     expect(groupFeedRows(feed)).toEqual([

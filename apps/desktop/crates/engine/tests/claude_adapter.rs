@@ -1169,13 +1169,15 @@ async fn a_subagents_permission_chunks_and_edges_carry_the_parent_tool_use() {
     // The Task tool call the whole subagent hangs off: what the edge is keyed
     // on and what every row it produced names.
     let parent = "toolu_01R79m5CpGKpY22SFu6n5MSZ";
-    // Both terminal frames report the same completion, so the edge is
-    // published twice — a client keyed on the id folds them into one card.
+    // Both terminal frames (`task_updated` AND `task_notification`) report the
+    // same completion. EXP-780: the adapter remembers the status it last
+    // published per task, so the repeat is dropped and the edge goes out ONCE
+    // — a second completed subagent row is not something every client should
+    // have to fold away.
     assert_eq!(
         run.subagent_edges(),
         vec![
             (parent.to_string(), "started".to_string()),
-            (parent.to_string(), "completed".to_string()),
             (parent.to_string(), "completed".to_string()),
         ]
     );

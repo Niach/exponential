@@ -70,6 +70,10 @@ interface ActivityEntry {
   /** EXP-748: set to the subagentId when this entry is a subagent's tool
    *  headline — the class of event the caps give up FIRST. */
   subagentTool?: string
+  /** EXP-783: the publisher's own monotonic index, echoed verbatim inside
+   *  `framed`. Kept here too so `activity_synced` can name the span the log
+   *  covers without re-parsing it. */
+  seq?: number
 }
 
 interface Room {
@@ -117,6 +121,14 @@ interface Room {
    *  budget, and the join replay sends them after the log. Each schema
    *  already caps the payload (a diff at 512KB, a config at 8 options). */
   lastByKind: Map<string, ActivityEntry>
+  /** EXP-783: this log has EVICTED at least one event since it was last
+   *  cleared, so it is a tail rather than the whole run. Reported on
+   *  `activity_synced` so a client knows the pages below it must be asked
+   *  for from the device (`history_page`) and are not simply absent. */
+  activityTruncated: boolean
+  /** EXP-783: the viewer each in-flight `history_page` request belongs to, by
+   *  requestId — a chunk goes ONLY there. Dropped when the viewer leaves. */
+  historyPages: Map<string, Conn>
 }
 
 // EXP-249: full-history re-publish on reconnect means a long session's log is
@@ -179,6 +191,11 @@ const HISTORY_TIMEOUT_MS = 20_000
  *  `HISTORY_OUTCOME`) — the room answers `activity_synced` before closing,
  *  because the parked viewers have just been sent a complete transcript. */
 const HISTORY_OUTCOME = `history`
+/** EXP-783: how many `history_page` asks one room may have outstanding. A
+ *  viewer pages one screen at a time and a chunk is bounded by
+ *  `HISTORY_PAGE_MAX`, so this only exists to stop a misbehaving client from
+ *  making a device replay its journal in parallel forever. */
+const HISTORY_PAGES_IN_FLIGHT = 4
 
 function frame(msg: ServerFrame): string {
   return JSON.stringify(msg)
@@ -192,8 +209,19 @@ const KEEPALIVE_FRAME = frame({ t: `keepalive` })
  * `maxPayloadLength` (1 MiB, index.ts): the chunking keeps injected text in
  * paste-sized pieces the publisher forwards smoothly, not at a frame cap. */
 const INPUT_CHUNK_CHARS = 4096
-/** EXP-656: end-of-join-replay marker (see `ServerFrame`). */
-const ACTIVITY_SYNCED_FRAME = frame({ t: `activity_synced` })
+/** EXP-656: end-of-join-replay marker (see `ServerFrame`). EXP-783 made it
+ *  room-dependent — it names the span the replay covered — so it is built per
+ *  room by `Hub.activitySyncedFrame` rather than serialized once. */
+function activitySyncedFrame(room: Room): string {
+  const first = room.activityLog[0]?.seq
+  const last = room.activityLog[room.activityLog.length - 1]?.seq
+  return frame({
+    t: `activity_synced`,
+    firstSeq: first,
+    lastSeq: last,
+    truncated: room.activityTruncated || undefined,
+  })
+}
 
 export class Hub {
   private conns = new Map<RelaySocket, Conn>()
@@ -225,6 +253,8 @@ export class Hub {
   private historyRequests = 0
   private historyDeviceOffline = 0
   private historyTimeouts = 0
+  /** EXP-783: `history_page` asks routed to a publisher or a device. */
+  private historyPageRequests = 0
 
   constructor() {
     // REV2-X: Start the idle publisher detector — checks every 30s for
@@ -344,6 +374,10 @@ export class Hub {
     }
 
     room.activityMembers.delete(conn)
+    // EXP-783: a page this viewer asked for has nowhere to go now.
+    for (const [requestId, viewer] of room.historyPages) {
+      if (viewer === conn) room.historyPages.delete(requestId)
+    }
   }
 
   // ── Control frames ─────────────────────────────────────────────────────────
@@ -452,7 +486,7 @@ export class Hub {
         } else {
           // EXP-656: unconditional — an empty log still ends with the marker,
           // so a client never waits out its quiet fallback on a fresh room.
-          conn.sock.send(ACTIVITY_SYNCED_FRAME)
+          conn.sock.send(activitySyncedFrame(room))
         }
         this.viewerJoins += 1
         return
@@ -522,13 +556,63 @@ export class Hub {
         // Publisher-only: the desktop's scrubbed event stream.
         const room = this.roomFor(conn)
         if (!room || room.publisher !== conn) return
-        const entry = this.entryFor(msg.event)
+        const entry = this.entryFor(msg.event, msg.seq)
         if (LATEST_WINS_KINDS.has(msg.event.kind)) {
           room.lastByKind.set(msg.event.kind, entry)
         } else {
           this.appendActivity(room, entry)
         }
         this.fanoutActivity(room, entry.framed)
+        return
+      }
+
+      // EXP-783: viewer → "give me the page below `beforeSeq`". The room's
+      // replay log is a TAIL; the whole run only exists on the device, so the
+      // ask is routed to whoever can read that journal — the live publisher,
+      // or the owning device's control socket when no room is up.
+      case `history_page`: {
+        const room = this.roomFor(conn)
+        if (!room || !room.activityMembers.has(conn)) return
+        if (room.historyPages.size >= HISTORY_PAGES_IN_FLIGHT) return
+        const ask: ServerFrame = {
+          t: `history_page`,
+          sessionId: room.sessionId,
+          requestId: msg.requestId,
+          beforeSeq: msg.beforeSeq,
+          limit: msg.limit,
+        }
+        const target =
+          room.publisher ??
+          this.devices
+            .get(conn.claims.deviceOwnerId ?? conn.claims.sub)
+            ?.get(conn.claims.deviceId ?? ``)
+        if (!target) return
+        room.historyPages.set(msg.requestId, conn)
+        target.sock.send(frame(ask))
+        this.historyPageRequests += 1
+        return
+      }
+
+      // EXP-783: publisher/device → one page of older transcript, delivered
+      // to the ONE viewer that asked for it. Deliberately never appended to
+      // `activityLog`: these events are older than everything in it, and the
+      // log is the join tail, not the run.
+      case `history_chunk`: {
+        const room = this.roomFor(conn)
+        if (!room) return
+        const viewer = room.historyPages.get(msg.requestId)
+        if (!viewer) return
+        if (msg.done) room.historyPages.delete(msg.requestId)
+        if (!room.activityMembers.has(viewer)) return
+        viewer.sock.send(
+          frame({
+            t: `history_chunk`,
+            requestId: msg.requestId,
+            events: msg.events,
+            seqs: msg.seqs,
+            done: msg.done,
+          })
+        )
         return
       }
 
@@ -548,8 +632,9 @@ export class Hub {
         // parked viewers are told the picture is whole before the room goes.
         // Any other outcome is a live session ending and gets none.
         if (msg.outcome === HISTORY_OUTCOME) {
+          const synced = activitySyncedFrame(room)
           for (const member of room.activityMembers.keys()) {
-            member.sock.send(ACTIVITY_SYNCED_FRAME)
+            member.sock.send(synced)
           }
         }
         this.closeRoom(room, msg.outcome ?? `ended`)
@@ -686,6 +771,7 @@ export class Hub {
       historyRequests: this.historyRequests,
       historyDeviceOffline: this.historyDeviceOffline,
       historyTimeouts: this.historyTimeouts,
+      historyPageRequests: this.historyPageRequests,
     }
   }
 
@@ -704,6 +790,7 @@ export class Hub {
     room.subagentToolEntries = 0
     room.subagentScanFrom = 0
     room.lastByKind.clear()
+    room.activityTruncated = false
   }
 
   /** A fresh room. `publisher: null` + `pendingHistory: true` is the EXP-773
@@ -729,6 +816,8 @@ export class Hub {
       subagentToolEntries: 0,
       subagentScanFrom: 0,
       lastByKind: new Map(),
+      activityTruncated: false,
+      historyPages: new Map(),
     }
   }
 
@@ -783,11 +872,12 @@ export class Hub {
     return room
   }
 
-  private entryFor(event: ActivityEvent): ActivityEntry {
-    const framed = frame({ t: `activity`, event })
+  private entryFor(event: ActivityEvent, seq?: number): ActivityEntry {
+    const framed = frame({ t: `activity`, event, seq })
     const entry: ActivityEntry = {
       framed,
       bytes: Buffer.byteLength(framed, `utf8`),
+      seq,
     }
     // EXP-748: tag the entries the count cap is allowed to sacrifice.
     // EXP-773: prose a subagent wrote renders inside that subagent's card, so
@@ -840,6 +930,7 @@ export class Hub {
     if (i >= log.length) return false
     const [entry] = log.splice(i, 1)
     room.activityBytes -= entry!.bytes
+    room.activityTruncated = true
     this.forgetSubagentTool(room, entry!.subagentTool!)
     // Only the un-filtered scan proves nothing older survives below `i`; a
     // per-subagent hit may sit past an older entry of another subagent.
@@ -853,6 +944,7 @@ export class Hub {
     const entry = room.activityLog.shift()
     if (!entry) return
     room.activityBytes -= entry.bytes
+    room.activityTruncated = true
     if (entry.subagentTool) this.forgetSubagentTool(room, entry.subagentTool)
     if (room.subagentScanFrom > 0) room.subagentScanFrom -= 1
   }

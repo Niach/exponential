@@ -16,6 +16,7 @@ import com.exponential.app.domain.COMPACTION_TIMEOUT_MS
 import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.CompactionState
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.HISTORY_PAGE_LIMIT
 import com.exponential.app.domain.HistoryState
 import com.exponential.app.domain.INLINE_IMAGE_CONTENT_TYPES
 import com.exponential.app.domain.MAX_IMAGE_UPLOAD_BYTES
@@ -27,8 +28,11 @@ import com.exponential.app.domain.buildSteerImageMessage
 import com.exponential.app.domain.canonicalContentType
 import com.exponential.app.domain.clearCompaction
 import com.exponential.app.domain.failUnacknowledged
+import com.exponential.app.domain.feedItemBytes
 import com.exponential.app.domain.lockAnswer
 import com.exponential.app.domain.locksCard
+import com.exponential.app.domain.trimmed
+import com.exponential.app.domain.withId
 import io.ktor.http.HttpStatusCode
 import kotlin.math.pow
 import kotlin.random.Random
@@ -59,8 +63,11 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 
@@ -260,7 +267,15 @@ class SteerConnection internal constructor(
      * each `{t:'activity'}` frame's `event` payload, in arrival order; the
      * committed feed is folded from them in one go.
      */
-    private var stagedFrames: MutableList<JsonObject>? = null
+    private var stagedFrames: MutableList<Pair<JsonObject, Long?>>? = null
+    /** EXP-783: the `history_page` ask in flight — a chunk for any other id is
+     *  not ours; whether the relay said its log is a TAIL (so there IS older
+     *  transcript to ask the device for); and whether a page came back with
+     *  nothing new (stop asking). */
+    private var historyRequest: String? = null
+    private var historyRequests = 0
+    private var historyTruncated = false
+    private var historyExhausted = false
 
     /** Messages this client sent WHILE staging: the replay predates them, so
      *  they are re-appended after the fold or they'd vanish on commit. */
@@ -775,7 +790,11 @@ class SteerConnection internal constructor(
         return when ((obj["t"] as? JsonPrimitive)?.contentOrNull) {
             "activity" -> {
                 val event = obj["event"] as? JsonObject
-                if (stagedFrames != null) stageFrame(event) else handleActivityEvent(event)
+                // EXP-783: the publisher's monotonic index, echoed by the
+                // relay. Absent from a publisher older than EXP-783.
+                val seq = (obj["seq"] as? JsonPrimitive)?.longOrNull
+                if (stagedFrames != null) stageFrame(event, seq)
+                else handleActivityEvent(event, seq)
                 FrameResult(live = true)
             }
             // The relay's uniform "clear your feed now" signal (EXP-249) — sent
@@ -790,9 +809,30 @@ class SteerConnection internal constructor(
             // EXP-656: the relay's end-of-replay marker, sent right after the
             // join replay. Nothing else needs it — an old relay falls back to
             // the quiet timer.
+            // EXP-783: it also names the SPAN it replayed, so the commit
+            // keeps the pages the reader had already scrolled back to load,
+            // and `truncated` says whether older transcript exists at all.
             "activity_synced" -> {
-                commitStaging("marker")
+                historyTruncated = (obj["truncated"] as? JsonPrimitive)?.booleanOrNull == true
+                commitStaging("marker", (obj["firstSeq"] as? JsonPrimitive)?.longOrNull)
                 FrameResult(live = true)
+            }
+            // EXP-783: one page of OLDER transcript, answering this viewer's
+            // `history_page`. PREPENDED, never appended.
+            "history_chunk" -> {
+                val requestId = (obj["requestId"] as? JsonPrimitive)?.contentOrNull
+                if (requestId == null || requestId != historyRequest) return null
+                if ((obj["done"] as? JsonPrimitive)?.booleanOrNull == true) {
+                    historyRequest = null
+                }
+                val events = runCatching {
+                    obj["events"]!!.jsonArray.mapNotNull { it as? JsonObject }
+                }.getOrDefault(emptyList())
+                val seqs = runCatching {
+                    obj["seqs"]!!.jsonArray.mapNotNull { (it as? JsonPrimitive)?.longOrNull }
+                }.getOrDefault(emptyList())
+                prependPage(events, seqs)
+                null
             }
             // The relay's liveness beat to joined viewers (EXP-648). Already
             // counted: the receive loop stamped lastFrameAtMs before handing
@@ -853,10 +893,10 @@ class SteerConnection internal constructor(
         }
     }
 
-    private fun handleActivityEvent(event: JsonObject?) {
+    private fun handleActivityEvent(event: JsonObject?, seq: Long? = null) {
         if (event == null) return
         val before = _activity.value
-        val after = before.applyActivityEvent(event) { consumeEcho(it) }
+        val after = before.applyActivityEvent(event, { consumeEcho(it) }, seq)
         if (after === before) return
         // A settled lock — acknowledged, or released by its card resolving —
         // has no pending deadline left to guard.
@@ -897,9 +937,9 @@ class SteerConnection internal constructor(
     }
 
     /** Buffer one replayed event and push the quiet deadline out. */
-    private fun stageFrame(event: JsonObject?) {
+    private fun stageFrame(event: JsonObject?, seq: Long? = null) {
         val staged = stagedFrames ?: return
-        if (event != null) staged.add(event)
+        if (event != null) staged.add(event to seq)
         stageQuietJob?.cancel()
         stageQuietJob = scope.launch {
             delay(timings.replayQuietMs)
@@ -919,7 +959,7 @@ class SteerConnection internal constructor(
      * awaiting their ack, whose cards came back in the replay — the tap that
      * locked them may be only milliseconds old.
      */
-    private fun commitStaging(why: String) {
+    private fun commitStaging(why: String, firstSeq: Long? = null) {
         val staged = stagedFrames ?: return
         stageQuietJob?.cancel()
         stageQuietJob = null
@@ -930,8 +970,30 @@ class SteerConnection internal constructor(
         stagedLocalEchoes.clear()
 
         val previous = _activity.value
-        var next = staged.fold(ActivityFeedState()) { state, event ->
-            state.applyActivityEvent(event) { false }
+        // EXP-783: everything this client holds BELOW the replay's oldest
+        // sequence is a prefix the replay does not restate — pages a reader
+        // scrolled back to load, which the full swap used to throw away. Kept
+        // only when the WHOLE prefix is numbered: an unnumbered row cannot be
+        // proved older than the replay, so one of them makes this the full
+        // swap it has always been.
+        val retained = if (firstSeq == null) {
+            emptyList()
+        } else {
+            previous.feed.takeWhile { it.seq != null && it.seq!! < firstSeq }
+        }
+        val seed = if (retained.isEmpty()) {
+            ActivityFeedState()
+        } else {
+            // The retained prefix keeps its rows AND its ids; the replay
+            // continues numbering above them, so no row identity is reused.
+            ActivityFeedState(
+                feed = retained,
+                feedBytes = retained.sumOf { feedItemBytes(it) },
+                nextEventId = retained.last().id + 1,
+            )
+        }
+        var next = staged.fold(seed) { state, (event, seq) ->
+            state.applyActivityEvent(event, { false }, seq)
         }
         // The desktop may have published a message we echoed locally before the
         // burst ended, so only re-append the ones the replay does not carry.
@@ -1208,6 +1270,76 @@ class SteerConnection internal constructor(
                 socket.send(json.encodeToString(JsonObject.serializer(), frame))
             }
         }
+    }
+
+    /** EXP-783 — whether there is transcript BELOW the oldest row on screen
+     *  that this client can still ask the device for. Drives the transcript's
+     *  "Load earlier" affordance together with the rendered window. */
+    fun canLoadEarlier(): Boolean = historyTruncated && !historyExhausted
+
+    /** EXP-783 — one `history_page` ask, at most one in flight.
+     *
+     *  A viewer that joined a long-running session holds only the relay's
+     *  replay TAIL (`truncated` on `activity_synced` is how it knows), and the
+     *  pages below it exist only in the device's journal. */
+    fun loadEarlier(): Boolean {
+        if (historyRequest != null || historyExhausted || !historyTruncated) return false
+        val before = _activity.value.feed.firstNotNullOfOrNull { it.seq }
+        if (before == null || before == 0L) {
+            historyExhausted = true
+            return false
+        }
+        val socket = ws ?: return false
+        historyRequests += 1
+        val requestId = "p$historyRequests"
+        historyRequest = requestId
+        scope.launch {
+            runCatching {
+                val frame = buildJsonObject {
+                    put("t", "history_page")
+                    put("requestId", requestId)
+                    put("beforeSeq", before)
+                    put("limit", HISTORY_PAGE_LIMIT)
+                }
+                socket.send(json.encodeToString(JsonObject.serializer(), frame))
+            }
+        }
+        return true
+    }
+
+    /** EXP-783 — PREPEND one older page, oldest first.
+     *
+     *  The page is transcript from BELOW everything on screen, so it is folded
+     *  through the SAME reducer over a fresh state and its rows are spliced in
+     *  front: every visible row keeps its id (its LazyColumn key), its answer
+     *  state and its position. A page overlapping what is already held is
+     *  trimmed against the oldest sequence on screen — a re-asked page must
+     *  never double the transcript. Ignored while a replay is staging: the
+     *  replay is authoritative and is about to decide what the prefix is. */
+    private fun prependPage(events: List<JsonObject>, seqs: List<Long>) {
+        if (stagedFrames != null || events.isEmpty()) return
+        val current = _activity.value
+        val oldest = current.feed.firstNotNullOfOrNull { it.seq }
+        var page = ActivityFeedState()
+        events.forEachIndexed { index, event ->
+            val seq = seqs.getOrNull(index)
+            if (oldest != null && seq != null && seq >= oldest) return@forEachIndexed
+            page = page.applyActivityEvent(event, { false }, seq)
+        }
+        if (page.feed.isEmpty()) {
+            historyExhausted = true
+            return
+        }
+        // The prepended rows take ids BELOW every id on screen, so ordering by
+        // id stays the ordering of the transcript.
+        val base = (current.feed.firstOrNull()?.id ?: page.feed.size.toLong()) - page.feed.size
+        val renumbered = page.feed.mapIndexed { offset, item ->
+            item.withId(base + offset)
+        }
+        _activity.value = current.copy(
+            feed = renumbered + current.feed,
+            feedBytes = current.feedBytes + renumbered.sumOf { feedItemBytes(it) },
+        ).trimmed()
     }
 
     private fun lockAnswer(lockKey: String, labels: List<String> = emptyList()) {

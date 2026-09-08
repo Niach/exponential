@@ -25,6 +25,18 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-whole-transcripts`,
+    date: `2026-09-08`,
+    title: `The whole transcript, and steering that stops wedging`,
+    summary: `Sessions keep every event instead of the last 2000, scroll back through a long run, and a dropped subagent no longer leaves the agent stuck on "Working…".`,
+    body: `- **The whole transcript**: a session keeps every event it produced instead of the newest 2000, on web, desktop, iOS and Android. Each client renders a window of it and pulls the rest in as you scroll to the top, so a long run stays as smooth as a short one.
+- **Load earlier**: past what your client already holds, the transcript is fetched a page at a time from the machine that ran the session.
+- **No more stuck on Working**: a claude session whose background subagent stopped reporting back used to hold every later turn open forever. Tasks now only hold back their own turn, and one that goes quiet is retired instead of wedging the run.
+- **Subagents finish once**: a subagent that completed no longer appears twice, and a subagent that never reported back stops spinning.
+- **Images in the transcript**: an image you send an agent renders in the transcript instead of an "Image unavailable" placeholder.
+- **Interrupt markers**: cancelling a tool call no longer prints "[Request interrupted by user]" as though you had typed it.`,
+  },
+  {
     id: `2026-09-sessions-on-your-machine`,
     date: `2026-09-08`,
     title: `Sessions that stay on your machine`,

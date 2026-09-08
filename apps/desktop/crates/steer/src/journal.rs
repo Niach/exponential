@@ -57,6 +57,9 @@ pub const JOURNAL_SUBAGENT_TOOL_CAP: usize = 50;
 struct Entry {
     event: ActivityEvent,
     bytes: usize,
+    /// EXP-783: the publisher's monotonic index for this event, carried onto
+    /// the wire so a viewer can splice a replay onto a prefix it already has.
+    seq: Option<u64>,
     /// Question id while the card is still answerable (pin key).
     pinned_question: Option<String>,
     /// EXP-748: the subagent this tool call was attributed to — the
@@ -92,6 +95,8 @@ pub struct ActivityJournal {
     /// capped upstream (a diff at 512 KiB, a config at 8 options), so three
     /// slots are a bounded overhead on top of the budgets, not a hole in them.
     slots: [Option<ActivityEvent>; SLOT_COUNT],
+    /// EXP-783: the seq of whatever currently occupies each slot.
+    slot_seqs: [Option<u64>; SLOT_COUNT],
     bytes: usize,
     /// Live tool-entry count per subagent (an id with none left is removed).
     subagent_tool_counts: HashMap<String, usize>,
@@ -108,8 +113,15 @@ impl ActivityJournal {
         Self::default()
     }
 
-    /// Record one published event.
+    /// Record one published event with no wire sequence (tests, and any
+    /// caller that does not number its stream).
+    #[cfg(test)]
     pub fn push(&mut self, event: ActivityEvent) {
+        self.push_seq(None, event);
+    }
+
+    /// Record one published event under its EXP-783 wire sequence.
+    pub fn push_seq(&mut self, seq: Option<u64>, event: ActivityEvent) {
         // EXP-758: latest-wins STATE, exactly like the relay's per-kind slots
         // — the newest snapshot DROPS ITS PREDECESSOR into its own slot and
         // never enters `entries` at all. Position among the log is irrelevant
@@ -119,6 +131,7 @@ impl ActivityJournal {
         // 2000-event / 4 MiB budget nor be evicted BY it.
         if let Some(slot) = slot_of(&event) {
             self.slots[slot] = Some(event);
+            self.slot_seqs[slot] = seq;
             return;
         }
         if let ActivityEvent::QuestionResolved { id, ask_id, .. } = &event {
@@ -142,6 +155,7 @@ impl ActivityJournal {
             self.entries[pos] = Entry {
                 event,
                 bytes,
+                seq,
                 pinned_question,
                 subagent_tool: None,
             };
@@ -171,6 +185,7 @@ impl ActivityJournal {
         self.entries.push(Entry {
             event,
             bytes,
+            seq,
             pinned_question,
             subagent_tool: subagent_tool.clone(),
         });
@@ -211,10 +226,21 @@ impl ActivityJournal {
     /// publisher hands a joining viewer the same shape the relay's own join
     /// replay does.
     pub fn replay(&self) -> impl Iterator<Item = &ActivityEvent> {
+        self.replay_seq().map(|(_, event)| event)
+    }
+
+    /// EXP-783: the replay with each event's wire sequence beside it — what a
+    /// re-publish sends so a viewer can splice rather than swap.
+    pub fn replay_seq(&self) -> impl Iterator<Item = (Option<u64>, &ActivityEvent)> {
         self.entries
             .iter()
-            .map(|entry| &entry.event)
-            .chain(self.slots.iter().flatten())
+            .map(|entry| (entry.seq, &entry.event))
+            .chain(
+                self.slots
+                    .iter()
+                    .zip(self.slot_seqs.iter())
+                    .filter_map(|(event, seq)| event.as_ref().map(|event| (*seq, event))),
+            )
     }
 
     /// LOG entries only — the latest-wins slots are outside the count budget

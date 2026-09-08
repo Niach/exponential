@@ -888,11 +888,14 @@ fn the_production_viewer_watches_and_steers_a_real_room() {
             let mut feed = feed_task.lock().unwrap();
             match event {
                 ViewerEvent::Phase(next) => *phase_task.lock().unwrap() = next,
-                ViewerEvent::Activity(activity) => feed.apply(activity),
+                ViewerEvent::Activity(seq, activity) => feed.apply_seq(seq, activity),
                 ViewerEvent::Reset => feed.apply_reset(),
-                ViewerEvent::Synced => feed.apply_synced(),
+                ViewerEvent::Synced { first_seq, .. } => feed.apply_synced_from(first_seq),
                 ViewerEvent::LocalMessage(text) => {
                     feed.push_local_message(&text);
+                }
+                ViewerEvent::HistoryPage { events, .. } => {
+                    feed.prepend_page(events);
                 }
                 ViewerEvent::Keepalive | ViewerEvent::Connected(_) => {}
             }

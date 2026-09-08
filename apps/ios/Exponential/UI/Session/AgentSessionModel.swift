@@ -99,6 +99,14 @@ final class AgentSessionModel {
     /// the feed per card per frame, and the main thread pinned at 100% for
     /// as long as the replay lasted.
     private(set) var rows: [AgentFeedRow] = []
+    /// EXP-783: there is transcript ABOVE the rendered window — rows the feed
+    /// already holds, or a page only the device has. What the transcript's
+    /// "Load earlier" affordance is gated on.
+    private(set) var canLoadEarlier = false
+    /// EXP-783: the id of the oldest RENDERED feed row — nil means the newest
+    /// `AgentFeed.feedWindow` rows. An id rather than an index, so an eviction
+    /// or a replay swap cannot slide the window under the reader.
+    @ObservationIgnored private var windowFrom: Int?
     private(set) var activeQuestionIds: Set<Int> = []
     private(set) var subagents: [AgentSubagentRun] = []
     private(set) var hasActivePlanCard = false
@@ -302,8 +310,125 @@ final class AgentSessionModel {
     /// Recompute the cached projections (ids of the still-answerable question
     /// items, the collapsed render rows, the subagent runs) — the pure rules
     /// live in ExpCore's AgentFeed, mirroring Android.
+    /// EXP-783 — the index of the oldest feed row the view renders.
+    ///
+    /// The feed keeps the whole run; the window is the newest
+    /// `AgentFeed.feedWindow` rows, moved upward (never downward) by the
+    /// reader reaching the top. Anchored on a row ID rather than an index, so
+    /// a byte-budget eviction or a replay swap cannot slide it.
+    private var windowStart: Int {
+        let tail = max(0, feed.count - AgentFeed.feedWindow)
+        guard let from = windowFrom else { return tail }
+        guard let at = feed.firstIndex(where: { $0.id >= from }) else { return tail }
+        return min(at, tail)
+    }
+
+    /// EXP-783 — pull one more page of the run into the view: more of the feed
+    /// if there is any, else the page below it from the device's journal.
+    /// `false` when there is nothing left to load.
+    @discardableResult
+    func loadEarlier() -> Bool {
+        let start = windowStart
+        if start > 0 {
+            windowFrom = feed[max(0, start - AgentFeed.feedWindowStep)].id
+            reproject()
+            return true
+        }
+        return requestOlderPage()
+    }
+
+    /// EXP-783 — one `history_page` ask, at most one in flight.
+    ///
+    /// A viewer that joined a long-running session holds only the relay's
+    /// replay TAIL (`truncated` on `activity_synced` is how it knows), and the
+    /// pages below it exist only in the device's journal.
+    private func requestOlderPage() -> Bool {
+        guard historyRequest == nil, !historyExhausted, historyTruncated else { return false }
+        guard let before = oldestSeq, before > 0 else {
+            historyExhausted = true
+            canLoadEarlier = false
+            return false
+        }
+        historyRequests += 1
+        let requestId = "p\(historyRequests)"
+        guard connected else { return false }
+        send(frame: [
+            "t": "history_page",
+            "requestId": requestId,
+            "beforeSeq": before,
+            "limit": AgentFeed.historyPageLimit,
+        ])
+        historyRequest = requestId
+        return true
+    }
+
+    /// EXP-783 — PREPEND one older page, oldest first.
+    ///
+    /// The page is transcript from BELOW everything on screen, so its rows are
+    /// spliced in front: every visible row keeps its id (its SwiftUI
+    /// identity), its answer state and its position. A page overlapping what
+    /// is already held is trimmed against `oldestSeq` — a re-asked page must
+    /// never double the transcript. Ignored while a replay is staging: the
+    /// replay is authoritative and is about to decide what the prefix even is.
+    private func prependPage(_ events: [[String: Any]], seqs: [Int]) {
+        guard !isStaging, !events.isEmpty else { return }
+        let oldest = oldestSeq
+        // Fold the page through the SAME reducer the live stream uses, over a
+        // scratch feed, so merging and upserts behave identically.
+        let savedFeed = feed
+        let savedBytes = feedBytes
+        let savedNextId = nextEventId
+        // The scratch fold numbers from zero, which would collide with the
+        // sequence table's real entries — it gets its own table.
+        let savedSeqs = seqById
+        feed = []
+        feedBytes = 0
+        nextEventId = 0
+        seqById = [:]
+        let nested = applyingBatch
+        applyingBatch = true
+        for (index, event) in events.enumerated() {
+            let seq = index < seqs.count ? seqs[index] : nil
+            if let seq, let oldest, seq >= oldest { continue }
+            currentSeq = seq
+            handleActivityEvent(event)
+        }
+        currentSeq = nil
+        applyingBatch = nested
+        let page = feed
+        let pageSeqs = seqById
+        feed = savedFeed
+        feedBytes = savedBytes
+        nextEventId = savedNextId
+        seqById = savedSeqs
+        guard !page.isEmpty else {
+            historyExhausted = true
+            canLoadEarlier = false
+            return
+        }
+        // The prepended rows take ids BELOW every id on screen, so ordering by
+        // id stays the ordering of the transcript.
+        let base = (savedFeed.first?.id ?? page.count) - page.count
+        var renumbered: [AgentFeedItem] = []
+        renumbered.reserveCapacity(page.count)
+        for (offset, item) in page.enumerated() {
+            let id = base + offset
+            if let seq = pageSeqs[item.id] { seqById[id] = seq }
+            renumbered.append(item.withId(id))
+        }
+        feed = renumbered + savedFeed
+        feedBytes += renumbered.reduce(0) { $0 + AgentFeed.itemBytes($1) }
+        // The reader asked for this page, so it belongs INSIDE the window they
+        // were already at the top of.
+        if windowFrom != nil { windowFrom = renumbered.first?.id }
+        trimFeed()
+        if !applyingBatch { reproject() }
+    }
+
     private func reproject() {
-        let next = AgentFeed.rows(feed)
+        let start = windowStart
+        canLoadEarlier = start > 0 || (historyTruncated && !historyExhausted)
+        let next = AgentFeed.rows(feed, from: start)
         rows = next
         subagents = next.compactMap { row in
             if case let .subagentRun(run) = row { return run }
@@ -376,6 +501,27 @@ final class AgentSessionModel {
     private var retryStarting = false
     private var endDetail: String?
     private var nextEventId = 0
+    /// EXP-783: the running weight of `feed`, so the byte budget is an integer
+    /// compare per append rather than a walk.
+    private var feedBytes = 0
+    /// EXP-783: the publisher's wire sequence per feed row, by row id. A side
+    /// table rather than a case field on `AgentFeedItem`: nothing that renders
+    /// a row cares, and every pattern match over the enum would have had to
+    /// change. It is the only monotonic anchor on the wire — what lets a join
+    /// replay be spliced onto a prefix already on screen, and what an
+    /// older-page request is addressed relative to.
+    private var seqById: [Int: Int] = [:]
+    /// The wire sequence of the event being folded in right now, so `append`
+    /// can stamp it without threading it through every branch.
+    @ObservationIgnored private var currentSeq: Int?
+    /// EXP-783: the `history_page` request in flight — a chunk for any other
+    /// id is not ours; whether the relay said its log is a TAIL (so there IS
+    /// older transcript to ask the device for); and whether a page came back
+    /// with nothing new (stop asking).
+    @ObservationIgnored private var historyRequest: String?
+    @ObservationIgnored private var historyRequests = 0
+    private var historyTruncated = false
+    private var historyExhausted = false
     /// Locally-echoed sent messages awaiting their transcript-derived
     /// `user_message` event (EXP-78 dedupe).
     private var recentEchoes: [(text: String, at: Date)] = []
@@ -445,7 +591,7 @@ final class AgentSessionModel {
     /// EXP-656: the activity events of an in-flight join replay. nil = not
     /// staging; non-nil (even empty) = the visible feed is frozen and every
     /// `activity` frame buffers here until the replay commits in ONE pass.
-    @ObservationIgnored private var stagedFrames: [[String: Any]]?
+    @ObservationIgnored private var stagedFrames: [(event: [String: Any], seq: Int?)]?
     @ObservationIgnored private var stagingStartedAt: Date?
     @ObservationIgnored private var lastStagedFrameAt: Date?
     /// The one task that watches an in-flight staging window (quiet timeout +
@@ -1344,15 +1490,24 @@ final class AgentSessionModel {
                 beginStaging()
             case .stage:
                 markLive()
-                stageFrame(obj["event"] as? [String: Any])
+                stageFrame(obj["event"] as? [String: Any], seq: obj["seq"] as? Int)
             case .apply:
                 markLive()
+                currentSeq = obj["seq"] as? Int
                 handleActivityEvent(obj["event"] as? [String: Any])
+                currentSeq = nil
             case .commit:
                 // `activity_synced` is the relay's end-of-replay marker; a
                 // `keepalive` (its own 15s beat) proves the burst is over for
                 // a republish that carries no marker.
-                commitStaging(why: frame == .activitySynced ? "marker" : "keepalive")
+                // EXP-783: the marker also names the SPAN it replayed, so the
+                // commit keeps the pages the reader scrolled back to load.
+                if frame == .activitySynced {
+                    historyTruncated = obj["truncated"] as? Bool == true
+                    commitStaging(why: "marker", firstSeq: obj["firstSeq"] as? Int)
+                } else {
+                    commitStaging(why: "keepalive", firstSeq: nil)
+                }
             case .ignore:
                 // A keepalive outside a replay (EXP-648) — already counted:
                 // `enqueue` stamped `lastFrameAt` before this ran. Never a
@@ -1366,6 +1521,15 @@ final class AgentSessionModel {
         // the device that ran it to republish its journal. Deliberately NOT a
         // `markLive` — nothing has joined a room yet, and flashing the live
         // header over a finished run would be a lie.
+        // EXP-783: one page of OLDER transcript, answering this viewer's
+        // `history_page`. PREPENDED, never appended.
+        case "history_chunk":
+            guard let requestId = obj["requestId"] as? String,
+                  requestId == historyRequest else { return }
+            if obj["done"] as? Bool == true { historyRequest = nil }
+            let events = (obj["events"] as? [[String: Any]]) ?? []
+            let seqs = (obj["seqs"] as? [Int]) ?? []
+            prependPage(events, seqs: seqs)
         case "history_pending":
             history = .pending
         case "bye":
@@ -1413,6 +1577,10 @@ final class AgentSessionModel {
     /// blank the screen mid-read (EXP-656).
     private func resetFeed() {
         feed = []
+        feedBytes = 0
+        seqById = [:]
+        // EXP-783: a full swap re-opens the window at the newest rows.
+        windowFrom = nil
         latestDiff = nil
         recentEchoes = []
         answerTracker.reset()
@@ -1476,9 +1644,9 @@ final class AgentSessionModel {
         armStagingWatcher()
     }
 
-    private func stageFrame(_ event: [String: Any]?) {
+    private func stageFrame(_ event: [String: Any]?, seq: Int?) {
         guard let event else { return }
-        stagedFrames?.append(event)
+        stagedFrames?.append((event: event, seq: seq))
         lastStagedFrameAt = Date()
     }
 
@@ -1501,7 +1669,7 @@ final class AgentSessionModel {
                     max: Self.replayMaxSeconds
                 ) else { continue }
                 let capped = now.timeIntervalSince(startedAt) >= Self.replayMaxSeconds
-                self.commitStaging(why: capped ? "deadline" : "quiet")
+                self.commitStaging(why: capped ? "deadline" : "quiet", firstSeq: nil)
                 return
             }
         }
@@ -1511,7 +1679,7 @@ final class AgentSessionModel {
     /// replayed one never coexist and the feed is never momentarily empty, so
     /// no scroll observer ever sees the collapse that yanked the reader to the
     /// bottom.
-    private func commitStaging(why: String) {
+    private func commitStaging(why: String, firstSeq: Int?) {
         guard let staged = stagedFrames else { return }
         stagingWatcherTask?.cancel()
         stagingWatcherTask = nil
@@ -1538,9 +1706,40 @@ final class AgentSessionModel {
         // old rows on screen while the counter rewound, which is a "same row,
         // new content" identity.
         let anchorId = feed.first?.id
+        // EXP-783: everything this client holds BELOW the replay's oldest
+        // sequence is a prefix the replay does not restate — pages a reader
+        // scrolled back to load, which the full swap used to throw away. Kept
+        // only when the WHOLE prefix is numbered: an unnumbered row cannot be
+        // proved older than the replay, so one of them makes this the full
+        // swap it has always been.
+        var retained: [AgentFeedItem] = []
+        if let firstSeq {
+            var split = 0
+            while split < feed.count,
+                  let seq = seqById[feed[split].id], seq < firstSeq {
+                split += 1
+            }
+            retained = Array(feed[..<split])
+        }
+        let retainedSeqs = retained.reduce(into: [Int: Int]()) { map, item in
+            if let seq = seqById[item.id] { map[item.id] = seq }
+        }
+        let retainedNextId = retained.last.map { $0.id + 1 }
         resetFeed()
         if let anchorId { nextEventId = anchorId }
-        for event in staged { handleActivityEvent(event) }
+        // The retained prefix keeps its rows AND its ids; the replay continues
+        // numbering above them, so no row identity is reused.
+        if !retained.isEmpty {
+            feed = retained
+            feedBytes = retained.reduce(0) { $0 + AgentFeed.itemBytes($1) }
+            seqById = retainedSeqs
+            if let retainedNextId { nextEventId = retainedNextId }
+        }
+        for staging in staged {
+            currentSeq = staging.seq
+            handleActivityEvent(staging.event)
+        }
+        currentSeq = nil
         for text in echoes where !tailCarriesEcho(text) {
             // Not in the replay: re-show it, and re-arm the dedupe so its
             // transcript-derived twin doesn't render a second copy (EXP-78).
@@ -1611,17 +1810,26 @@ final class AgentSessionModel {
             let narrationAgent = Self.trimmedField(event["subagentId"])
             // EXP-483: prose from the withheld ask/plan entry flushes AFTER
             // its already-published card — splice it back above the card.
-            if let anchor = Self.trimmedField(event["beforeQuestionId"]),
-               let out = AgentFeed.spliceBeforeQuestion(
-                   feed, anchor: anchor,
-                   item: .narration(
-                       id: takeEventId(), text: text,
-                       messageId: messageId, subagentId: narrationAgent
-                   )
-               ) {
-                feed = out
-                trimFeed()
-                return
+            // The id is taken up front so the spliced row can be stamped
+            // with its wire sequence without a scan for "which one is new"
+            // (EXP-783); an anchor that matches nothing falls through with it.
+            var splicedId: Int?
+            if let anchor = Self.trimmedField(event["beforeQuestionId"]) {
+                let id = takeEventId()
+                splicedId = id
+                if let out = AgentFeed.spliceBeforeQuestion(
+                    feed, anchor: anchor,
+                    item: .narration(
+                        id: id, text: text,
+                        messageId: messageId, subagentId: narrationAgent
+                    )
+                ) {
+                    if let seq = currentSeq { seqById[id] = seq }
+                    feed = out
+                    // The insert is not at the tail, so re-derive the weight.
+                    recountFeedBytes()
+                    return
+                }
             }
             // EXP-772: consecutive flushes of ONE assistant message are one
             // bubble. A merge consumes no feed id — the row it grew already
@@ -1630,10 +1838,12 @@ final class AgentSessionModel {
                 feed, text: text, messageId: messageId, subagentId: narrationAgent
             ) {
                 feed = merged
+                feedBytes += text.utf8.count
+                trimFeed()
                 return
             }
             append(.narration(
-                id: takeEventId(), text: text,
+                id: splicedId ?? takeEventId(), text: text,
                 messageId: messageId, subagentId: narrationAgent
             ))
         case "tool":
@@ -1665,8 +1875,14 @@ final class AgentSessionModel {
             guard let question = decodeQuestion(event) else { return }
             // A re-emitted wire id REPLACES its card in place (the desktop
             // augments options it discovers later); anything else appends.
+            let before = feed.count
             feed = AgentFeed.upsertQuestion(feed, question: question)
-            trimFeed()
+            // Appended: stamp its sequence. Replaced in place: the card's
+            // options grew, so re-derive the byte accumulator.
+            if feed.count > before, let seq = currentSeq, let id = feed.last?.id {
+                seqById[id] = seq
+            }
+            recountFeedBytes()
         case "question_resolved":
             let id = Self.trimmedField(event["id"])
             let askId = Self.trimmedField(event["askId"])
@@ -1684,6 +1900,9 @@ final class AgentSessionModel {
                 feed, id: id, askId: askId, answers: answers, dismissed: dismissed
             ) {
                 feed = out
+                // A resolution writes answers into cards anywhere in the
+                // transcript; the running byte count is cheaper to re-derive.
+                recountFeedBytes()
             }
             for key in retiredKeys { answerTracker.resolve(key) }
         case "answer_ack":
@@ -1799,16 +2018,41 @@ final class AgentSessionModel {
     }
 
     private func append(_ item: AgentFeedItem) {
+        if let seq = currentSeq { seqById[item.id] = seq }
         feed.append(item)
+        feedBytes += AgentFeed.itemBytes(item)
         trimFeed()
     }
 
-    /// Old events fall off the top at the relay's own log cap, so a full replay
-    /// is never truncated client-side (EXP-249).
+    /// EXP-783: the feed keeps the WHOLE run — the view renders a WINDOW of
+    /// it. Eviction is a memory backstop only (`AgentFeed.feedByteCap`), and
+    /// the sequence side-table follows whatever the feed drops.
     private func trimFeed() {
-        if feed.count > AgentFeed.feedCap {
-            feed.removeFirst(feed.count - AgentFeed.feedCap)
+        let before = feed.count
+        let trimmed = AgentFeed.trim(feed: feed, bytes: feedBytes)
+        guard trimmed.feed.count != before else { return }
+        for dropped in feed.prefix(before - trimmed.feed.count) {
+            seqById.removeValue(forKey: dropped.id)
         }
+        feed = trimmed.feed
+        feedBytes = trimmed.bytes
+    }
+
+    /// Re-derive the byte accumulator — used after the bulk in-place edits
+    /// (a resolved question, a replaced card) whose per-item deltas are not
+    /// worth threading through.
+    private func recountFeedBytes() {
+        feedBytes = feed.reduce(0) { $0 + AgentFeed.itemBytes($1) }
+        trimFeed()
+    }
+
+    /// EXP-783: the oldest wire sequence still on screen — what the next
+    /// older-page request is asked relative to. Nil when nothing is numbered
+    /// (a publisher older than EXP-783), which is also the signal that paging
+    /// is unavailable for this run.
+    private var oldestSeq: Int? {
+        for item in feed { if let seq = seqById[item.id] { return seq } }
+        return nil
     }
 
     private func disconnectSocket() {

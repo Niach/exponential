@@ -1015,6 +1015,9 @@ impl Mapper {
         if text.trim().is_empty() {
             return;
         }
+        if is_synthetic_interrupt(text) {
+            return;
+        }
         if let Some(at) = self.pending_echoes.iter().position(|sent| sent == text.trim()) {
             // The agent replayed what the host already published.
             self.pending_echoes.remove(at);
@@ -1874,6 +1877,23 @@ impl Mapper {
             },
         }
     }
+}
+
+/// The CLI SYNTHESISES an interrupt marker into the conversation as a USER
+/// turn and `--replay-user-messages` plays it back at us. Nobody typed it, so
+/// no echo was ever armed for it and the echo FIFO ([`Mapper::arm_echo`])
+/// cannot swallow it — it surfaced as the user's own message, once per
+/// interrupt and again per replay (EXP-780). The clients already render the
+/// cancellation from the turn's stop reason.
+fn is_synthetic_interrupt(text: &str) -> bool {
+    let Some(inner) = text
+        .trim()
+        .strip_prefix('[')
+        .and_then(|inner| inner.strip_suffix(']'))
+    else {
+        return false;
+    };
+    inner.trim().to_ascii_lowercase().starts_with("request interrupted")
 }
 
 /// How many host-sent prompts wait for their echo at once (a mid-turn steer

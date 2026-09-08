@@ -89,11 +89,12 @@ pub use activity::{
     STOP_GRACE, TRUNCATION_MARKER,
 };
 pub use feed::{
-    active_question_ids, answer_key, collect_subagents, group_feed_row_specs, group_feed_rows,
-    summarize_subagent_row, AnswerState, AnswerStatus, FeedItem, FeedItemId, FeedKind, FeedRow,
+    active_question_ids, answer_key, collect_subagents, group_feed_row_specs,
+    group_feed_row_specs_from, group_feed_row_specs_into, group_feed_rows, summarize_subagent_row, AnswerState, AnswerStatus,
+    FeedItem, FeedItemId, FeedKind, FeedRow,
     FeedRowSpec, QuestionCard,
     SessionConfig, SessionUsage, SteerFeed, SubagentSummary, ANSWER_ACK_TIMEOUT, ECHO_CAP,
-    FEED_CAP, REPLAY_MAX, REPLAY_QUIET,
+    FEED_BYTE_CAP, FEED_ITEM_CAP, REPLAY_MAX, REPLAY_QUIET,
 };
 pub use frames::{
     ActivityEvent, ClientFrame, ConfigCommand, ConfigMode, ConfigOption, ConfigValue,
@@ -106,7 +107,8 @@ pub use image_message::{
     renumber_image_markers, ParsedSteerMessage, MAX_STEER_IMAGES,
 };
 pub use history::{
-    journal_dir, journal_path, prune_journals, publish_history, read_journal, remove_journal,
+    journal_dir, journal_path, prune_journals, publish_history, read_journal, read_journal_page,
+    read_journal_seq, remove_journal,
     serve_history_request, HistoryInFlight, JournalWriter, JOURNAL_FILE_CAP, JOURNAL_MAX_AGE,
 };
 pub use journal::{ActivityJournal, JOURNAL_BYTE_CAP, JOURNAL_EVENT_CAP};

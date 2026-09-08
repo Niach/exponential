@@ -316,6 +316,36 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
         }
     }
 
+    /// EXP-783: the same row under a new feed id. Used only by the older-page
+    /// prepend, which folds a page through the ordinary reducer (ids from
+    /// zero) and then renumbers it BELOW everything on screen, so no visible
+    /// row's identity changes.
+    public func withId(_ id: Int) -> AgentFeedItem {
+        switch self {
+        case let .narration(_, text, messageId, subagentId):
+            .narration(id: id, text: text, messageId: messageId, subagentId: subagentId)
+        case let .tool(_, name, detail, subagentId):
+            .tool(id: id, name: name, detail: detail, subagentId: subagentId)
+        case let .userMessage(_, text, subagentId):
+            .userMessage(id: id, text: text, subagentId: subagentId)
+        case let .question(question):
+            {
+                var next = question
+                next.id = id
+                return .question(next)
+            }()
+        case let .subagent(_, subagentId, agentType, status, detail, toolCalls):
+            .subagent(
+                id: id, subagentId: subagentId, agentType: agentType,
+                status: status, detail: detail, toolCalls: toolCalls
+            )
+        case let .permission(_, tool, detail):
+            .permission(id: id, tool: tool, detail: detail)
+        case .compaction:
+            .compaction(id: id)
+        }
+    }
+
     public var isTool: Bool {
         if case .tool = self { return true }
         return false
@@ -529,9 +559,71 @@ public struct AgentAnswerTracker: Equatable, Sendable {
 /// The feed's pure logic: which cards are still answerable, how wire events
 /// fold into the feed, and how the flat feed projects into render rows.
 public enum AgentFeed {
-    /// Client-side feed cap — old events fall off the top. Matches the relay's
-    /// ACTIVITY_LOG_CAP so a full replay never truncates.
-    public static let feedCap = 2000
+    /// EXP-783: the transcript keeps the WHOLE run — the session view paints a
+    /// WINDOW over it (`feedWindow`) and grows it upward, so keeping everything
+    /// costs nothing per frame. These are safety ceilings on the app's memory,
+    /// not a display cap, and they are sized to the device journal
+    /// (JOURNAL_FILE_CAP) because that file is exactly what a replay reads
+    /// back. The relay's ACTIVITY_LOG_CAP is deliberately NOT matched any
+    /// more: it bounds the tail a joining viewer replays, and older pages are
+    /// asked for (`history_page`) rather than pushed.
+    public static let feedByteCap = 16 * 1024 * 1024
+    /// The companion item ceiling — a run of tiny events would sit far under
+    /// the byte budget while costing an array slot each.
+    public static let feedItemCap = 200_000
+    /// How many of the run's newest rows the session view renders, and how
+    /// much older transcript one "Load earlier" pulls in (web/desktop parity).
+    public static let feedWindow = 1500
+    public static let feedWindowStep = 500
+    /// EXP-783: events per `history_page` ask — the relay's HISTORY_PAGE_MAX,
+    /// which rejects anything larger.
+    public static let historyPageLimit = 200
+
+    /// What one row weighs against `feedByteCap`: the text it carries plus a
+    /// flat per-item overhead standing in for the value itself. An estimate on
+    /// purpose — this budget bounds memory, it does not account for it.
+    public static func itemBytes(_ item: AgentFeedItem) -> Int {
+        let overhead = 96
+        switch item {
+        case let .narration(_, text, _, _): return overhead + text.utf8.count
+        case let .userMessage(_, text, _): return overhead + text.utf8.count
+        case let .tool(_, name, detail, _):
+            return overhead + name.utf8.count + (detail?.utf8.count ?? 0)
+        case let .permission(_, tool, detail):
+            return overhead + tool.utf8.count + (detail?.utf8.count ?? 0)
+        case let .subagent(_, subagentId, agentType, _, detail, _):
+            return overhead + subagentId.utf8.count + agentType.utf8.count
+                + (detail?.utf8.count ?? 0)
+        case let .question(question):
+            return overhead + question.text.utf8.count
+                + question.answers.reduce(0) { $0 + $1.utf8.count }
+                + (question.header?.utf8.count ?? 0)
+                + question.options.reduce(0) { $0 + $1.label.utf8.count + $1.key.utf8.count }
+        case .compaction: return overhead
+        }
+    }
+
+    /// Evict from the OLDEST end until the feed is inside both budgets, with
+    /// the 90% hysteresis every client shares (`steer::feed::trim`): evicting
+    /// down to the budget exactly would evict again on the very next event,
+    /// and every eviction reallocates. The newest row always survives.
+    /// Returns the surviving feed and its recomputed weight.
+    public static func trim(
+        feed: [AgentFeedItem], bytes: Int
+    ) -> (feed: [AgentFeedItem], bytes: Int) {
+        if bytes <= feedByteCap && feed.count <= feedItemCap { return (feed, bytes) }
+        let byteTarget = feedByteCap / 10 * 9
+        let itemTarget = feedItemCap / 10 * 9
+        var remaining = bytes
+        var dropTo = 0
+        while dropTo + 1 < feed.count
+            && (remaining > byteTarget || feed.count - dropTo > itemTarget) {
+            remaining -= itemBytes(feed[dropTo])
+            dropTo += 1
+        }
+        guard dropTo > 0 else { return (feed, bytes) }
+        return (Array(feed[dropTo...]), max(0, remaining))
+    }
     /// `subagent.agentType` when the desktop's hook payload carried none — old
     /// desktop builds also stamp it onto the COMPLETED edge, so it is a
     /// sentinel the label selection skips past, never a type to prefer
@@ -854,11 +946,16 @@ public enum AgentFeed {
     /// tool calls" row (EXP-97). Grouped items are pulled OUT of their in-place
     /// position into the row their group opened, so a late-arriving step (or a
     /// subagent call that lands behind an unrelated one) still joins its group.
-    public static func rows(_ feed: [AgentFeedItem]) -> [AgentFeedRow] {
+    public static func rows(_ feed: [AgentFeedItem], from start: Int = 0) -> [AgentFeedRow] {
         var builders: [RowBuilder] = []
         var askAt: [String: Int] = [:]
         var subagentAt: [String: Int] = [:]
-        var i = 0
+        // EXP-783: `start` restricts the projection to the rendered WINDOW.
+        // The grouping state begins empty there, so a window that cuts through
+        // a tool run, an ask or a subagent's calls opens a FRESH group at the
+        // boundary — keyed on the first item the reader can actually see.
+        // `start = 0` is the whole projection, item for item.
+        var i = max(0, min(start, feed.count))
         while i < feed.count {
             let item = feed[i]
 
