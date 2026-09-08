@@ -66,6 +66,26 @@ export interface DomainContract {
    * "online" (devices heartbeat ~30s; the window is three missed beats).
    */
   device: { onlineWindowSeconds: number }
+  /**
+   * EXP-783: the steering transcript's shared numbers, mirrored ×4 (web
+   * `agent-feed.ts`, desktop `steer::feed`, iOS `AgentFeed`, Android
+   * `AgentFeed.kt`) and by the relay's page schema. `byteCap`/`itemCap`
+   * bound a client's copy of a run (sized to the device journal); `trim`
+   * evicts oldest-first down to `trimTargetPercent` of a cap; each row
+   * weighs its text plus `itemOverheadBytes`; `window`/`windowStep` are how
+   * many of the newest rows a transcript renders and how many one "Load
+   * earlier" adds; `historyPageMax` is the most events one `history_page`
+   * may ask for.
+   */
+  steerFeed: {
+    byteCap: number
+    itemCap: number
+    trimTargetPercent: number
+    itemOverheadBytes: number
+    window: number
+    windowStep: number
+    historyPageMax: number
+  }
   subscriberSource: { values: readonly string[] }
   issueEventType: { values: readonly string[] }
   /**

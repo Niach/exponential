@@ -189,6 +189,15 @@
   "device": {
     "onlineWindowSeconds": 90
   },
+  "steerFeed": {
+    "byteCap": 16777216,
+    "itemCap": 200000,
+    "trimTargetPercent": 90,
+    "itemOverheadBytes": 96,
+    "window": 1500,
+    "windowStep": 500,
+    "historyPageMax": 200
+  },
   "subscriberSource": {
     "values": [
       "creator",

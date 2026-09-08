@@ -666,18 +666,36 @@ describe(`session rooms`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub)
     const live = connectMember(hub)
-    activity(hub, pub, { kind: `narration`, text: `one` }, 7)
-    activity(hub, pub, { kind: `narration`, text: `two` }, 8)
-    expect(live.framesOf(`activity`).map((f) => f.seq)).toEqual([7, 8])
+    activity(hub, pub, { kind: `narration`, text: `one` }, 0)
+    activity(hub, pub, { kind: `narration`, text: `two` }, 1)
+    expect(live.framesOf(`activity`).map((f) => f.seq)).toEqual([0, 1])
 
     const late = connectMember(hub, { sub: `member-2` })
-    expect(late.framesOf(`activity`).map((f) => f.seq)).toEqual([7, 8])
+    expect(late.framesOf(`activity`).map((f) => f.seq)).toEqual([0, 1])
     expect(late.lastFrame(`activity_synced`)).toMatchObject({
+      firstSeq: 0,
+      lastSeq: 1,
+    })
+    // Nothing was evicted and the run starts at seq 0: the replay IS the
+    // whole run.
+    expect(late.lastFrame(`activity_synced`)!.truncated).toBeUndefined()
+    hub.destroy()
+  })
+
+  // EXP-795: the publisher's in-memory journal is itself a bounded tail of
+  // its file (and a resumed run inherits its predecessor's lines), so a
+  // replay whose first seq is above zero has pages below it on the device —
+  // the room never evicted anything, but the log is still a tail.
+  test(`a replay that starts above seq 0 is reported as truncated`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    activity(hub, pub, { kind: `narration`, text: `one` }, 7)
+    activity(hub, pub, { kind: `narration`, text: `two` }, 8)
+    expect(connectMember(hub).lastFrame(`activity_synced`)).toMatchObject({
       firstSeq: 7,
       lastSeq: 8,
+      truncated: true,
     })
-    // Nothing was evicted, so the replay IS the whole run.
-    expect(late.lastFrame(`activity_synced`)!.truncated).toBeUndefined()
     hub.destroy()
   })
 
@@ -699,6 +717,22 @@ describe(`session rooms`, () => {
 
   // EXP-783: an older page is addressed to ONE viewer and must never enter
   // the room's replay log — it is older than everything the log holds.
+  /** Ask for a page as `viewer` and return the RELAY's id for it (what the
+   *  publisher answers with; EXP-795). */
+  function askPage(
+    hub: Hub,
+    viewer: FakeSocket,
+    pub: FakeSocket,
+    requestId: string,
+    beforeSeq = 100
+  ): string {
+    hub.onMessage(
+      viewer,
+      JSON.stringify({ t: `history_page`, requestId, beforeSeq, limit: 50 })
+    )
+    return pub.lastFrame(`history_page`)!.requestId as string
+  }
+
   test(`a history_page reaches only the requesting viewer and never the log`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub)
@@ -706,18 +740,11 @@ describe(`session rooms`, () => {
     const asker = connectMember(hub)
     const other = connectMember(hub, { sub: `member-2` })
 
-    hub.onMessage(
-      asker,
-      JSON.stringify({
-        t: `history_page`,
-        requestId: `r1`,
-        beforeSeq: 100,
-        limit: 50,
-      })
-    )
+    const relayId = askPage(hub, asker, pub, `r1`)
+    // Forwarded under the relay's own id, never the viewer's.
+    expect(relayId).not.toBe(`r1`)
     expect(pub.lastFrame(`history_page`)).toMatchObject({
       sessionId: `sess-1`,
-      requestId: `r1`,
       beforeSeq: 100,
       limit: 50,
     })
@@ -727,13 +754,19 @@ describe(`session rooms`, () => {
       pub,
       JSON.stringify({
         t: `history_chunk`,
-        requestId: `r1`,
+        requestId: relayId,
         events: [{ kind: `narration`, text: `older` }],
         seqs: [99],
         done: true,
       })
     )
+    // …and translated back to the id the viewer asked with.
     expect(asker.framesOf(`history_chunk`)).toHaveLength(1)
+    expect(asker.lastFrame(`history_chunk`)).toMatchObject({
+      requestId: `r1`,
+      seqs: [99],
+      done: true,
+    })
     expect(other.framesOf(`history_chunk`)).toHaveLength(0)
     // The log is untouched: a third viewer's join replays only `live`.
     const third = connectMember(hub, { sub: `member-3` })
@@ -744,12 +777,115 @@ describe(`session rooms`, () => {
       pub,
       JSON.stringify({
         t: `history_chunk`,
-        requestId: `r1`,
+        requestId: relayId,
         events: [],
         done: true,
       })
     )
     expect(asker.framesOf(`history_chunk`)).toHaveLength(1)
+    hub.destroy()
+  })
+
+  // EXP-795: every client numbers its asks from `p1`, so two viewers of one
+  // session (the web dock and a phone, say) ask under the same id. The relay
+  // keys the asks itself, so each page still lands with the viewer that
+  // asked for it.
+  test(`two viewers asking under the same requestId each get their own page`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    activity(hub, pub, { kind: `narration`, text: `live` }, 100)
+    const a = connectMember(hub)
+    const b = connectMember(hub, { sub: `member-2` })
+
+    const forA = askPage(hub, a, pub, `p1`, 100)
+    const forB = askPage(hub, b, pub, `p1`, 50)
+    expect(forA).not.toBe(forB)
+
+    hub.onMessage(
+      pub,
+      JSON.stringify({
+        t: `history_chunk`,
+        requestId: forB,
+        events: [{ kind: `narration`, text: `for b` }],
+        seqs: [49],
+        done: true,
+      })
+    )
+    hub.onMessage(
+      pub,
+      JSON.stringify({
+        t: `history_chunk`,
+        requestId: forA,
+        events: [{ kind: `narration`, text: `for a` }],
+        seqs: [99],
+        done: true,
+      })
+    )
+    expect(a.framesOf(`history_chunk`)).toHaveLength(1)
+    expect(a.lastFrame(`history_chunk`)).toMatchObject({
+      requestId: `p1`,
+      seqs: [99],
+    })
+    expect(b.framesOf(`history_chunk`)).toHaveLength(1)
+    expect(b.lastFrame(`history_chunk`)).toMatchObject({
+      requestId: `p1`,
+      seqs: [49],
+    })
+    hub.destroy()
+  })
+
+  // EXP-795: a room with no live publisher takes no page asks — nothing can
+  // read the journal from here — and an ask the publisher never answers
+  // frees its slot, so the in-flight cap cannot fill with dead asks.
+  test(`a page ask needs a live publisher and expires unanswered`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    activity(hub, pub, { kind: `narration`, text: `live` }, 100)
+    const asker = connectMember(hub)
+
+    // Capture the ask's timer instead of waiting it out.
+    const pending: { ms?: number; fn: () => void }[] = []
+    const realSetTimeout = globalThis.setTimeout
+    globalThis.setTimeout = ((fn: () => void, ms?: number) => {
+      pending.push({ fn, ms })
+      return 0 as unknown as ReturnType<typeof setTimeout>
+    }) as typeof setTimeout
+    let relayId: string
+    try {
+      relayId = askPage(hub, asker, pub, `p1`)
+    } finally {
+      globalThis.setTimeout = realSetTimeout
+    }
+    const timer = pending.find((t) => t.ms === 20_000)
+    expect(timer).toBeDefined()
+    timer!.fn()
+    expect(hub.counters().historyPageTimeouts).toBe(1)
+    // The slot is free: a late chunk for it goes nowhere…
+    hub.onMessage(
+      pub,
+      JSON.stringify({
+        t: `history_chunk`,
+        requestId: relayId!,
+        events: [{ kind: `narration`, text: `late` }],
+        seqs: [99],
+        done: true,
+      })
+    )
+    expect(asker.framesOf(`history_chunk`)).toHaveLength(0)
+    // …and the viewer may ask again.
+    expect(askPage(hub, asker, pub, `p2`)).not.toBe(relayId!)
+    expect(hub.counters().historyPageRequests).toBe(2)
+
+    // The publisher drops: its in-flight ask dies with it, and no ask goes
+    // out while the room has no publisher.
+    hub.onClose(pub)
+    const sent = pub.framesOf(`history_page`).length
+    hub.onMessage(
+      asker,
+      JSON.stringify({ t: `history_page`, requestId: `p3`, beforeSeq: 100, limit: 50 })
+    )
+    expect(pub.framesOf(`history_page`)).toHaveLength(sent)
+    expect(hub.counters().historyPageRequests).toBe(2)
     hub.destroy()
   })
 
@@ -1892,6 +2028,7 @@ describe(`stats counters (EXP-553)`, () => {
       historyDeviceOffline: 0,
       historyTimeouts: 0,
       historyPageRequests: 0,
+      historyPageTimeouts: 0,
     })
 
     const desktop = new FakeSocket()

@@ -835,6 +835,9 @@ struct AgentSessionView: View {
                 }
                 // Switching conversation tabs re-pins to the newest event
                 // (EXP-356).
+                // EXP-795: back at the bottom, the window slides with the stream
+                // again (web/Android/desktop parity).
+                .onChange(of: atBottom) { _, now in model.noteAtBottom(now) }
                 .onChange(of: agentTab) { _, _ in
                     atBottom = true
                     proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)

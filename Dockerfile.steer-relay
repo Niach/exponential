@@ -37,6 +37,8 @@ RUN bun install --frozen-lockfile --filter '@exp/steer-relay'
 
 COPY packages/tsconfig packages/tsconfig
 COPY packages/steer-ticket packages/steer-ticket
+# EXP-795: the relay's page-size schema reads contract.json.
+COPY packages/domain-contract packages/domain-contract
 COPY apps/steer-relay apps/steer-relay
 
 FROM oven/bun:1
@@ -45,6 +47,7 @@ WORKDIR /app
 COPY --from=builder /app/node_modules node_modules
 COPY --from=builder /app/apps/steer-relay apps/steer-relay
 COPY --from=builder /app/packages/steer-ticket packages/steer-ticket
+COPY --from=builder /app/packages/domain-contract packages/domain-contract
 COPY --from=builder /app/packages/tsconfig packages/tsconfig
 COPY --from=builder /app/package.json .
 COPY --from=builder /app/bunfig.toml .

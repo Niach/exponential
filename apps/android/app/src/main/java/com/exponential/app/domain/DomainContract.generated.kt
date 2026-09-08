@@ -56,6 +56,13 @@ object DomainContract {
     const val actionTriggerMaxFilterIds: Int = 20
     const val automationCooldownMs: Long = 60000L
     const val automationEventCatchupMs: Long = 86400000L
+    const val steerFeedByteCap: Long = 16777216L
+    const val steerFeedItemCap: Int = 200000
+    const val steerFeedTrimTargetPercent: Int = 90
+    const val steerFeedItemOverheadBytes: Long = 96L
+    const val steerFeedWindow: Int = 1500
+    const val steerFeedWindowStep: Int = 500
+    const val steerFeedHistoryPageMax: Int = 200
 
     const val issueStatusCategoryBacklog: String = "backlog"
     const val issueStatusCategoryUnstarted: String = "unstarted"

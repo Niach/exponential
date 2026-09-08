@@ -1404,6 +1404,12 @@ internal fun sessionStatusLine(
 
 // ── The feed ─────────────────────────────────────────────────────────────────
 
+/** EXP-795 — the window anchor that means "the feed's first row, whatever it
+ *  is": set when the reader asks for a page the feed does not hold yet, so a
+ *  prepended page is inside the window the moment it lands. Below every real
+ *  id (ids only ever count down at the front by a finite amount). */
+private const val WINDOW_FROM_START = Long.MIN_VALUE
+
 @Composable
 private fun ActivityFeed(
     feed: List<AgentFeedItem>,
@@ -1450,9 +1456,9 @@ private fun ActivityFeed(
     // render-time projections only — the flat feed stays the state.
     // EXP-783: the transcript keeps the WHOLE run, and this screen paints a
     // WINDOW over it. `windowFrom` is the id of the oldest rendered row — null
-    // means the newest FEED_WINDOW rows. An id rather than an index, so a
-    // byte-budget eviction or a replay swap cannot slide the window under the
-    // reader.
+    // means the newest FEED_WINDOW rows, WINDOW_FROM_START the feed's own
+    // first row whatever it is. An id rather than an index, so a byte-budget
+    // eviction or a replay swap cannot slide the window under the reader.
     var windowFrom by remember { mutableStateOf<Long?>(null) }
     val windowStart = remember(feed, windowFrom) {
         val tail = maxOf(0, feed.size - FEED_WINDOW)
@@ -1466,16 +1472,6 @@ private fun ActivityFeed(
     // up it stays pinned: rows vanishing above a reader is exactly the jump
     // this change exists to avoid.
     LaunchedEffect(follow) { if (follow) windowFrom = null }
-    // A page fetched from the device lands BELOW the window's anchor (ids only
-    // ever decrease at the front). The reader asked for it, so it belongs
-    // inside the window; this only ever lowers the anchor.
-    val firstFeedId = feed.firstOrNull()?.id
-    LaunchedEffect(firstFeedId) {
-        val anchor = windowFrom
-        if (anchor != null && firstFeedId != null && firstFeedId < anchor) {
-            windowFrom = firstFeedId
-        }
-    }
     val canLoadEarlier = windowStart > 0 || onCanLoadEarlier()
     // EXP-356: conversation tabs — null is the main agent; a subagent id
     // focuses that agent's stream. Falls back to Main whenever the id
@@ -1578,6 +1574,11 @@ private fun ActivityFeed(
                             if (windowStart > 0) {
                                 windowFrom = feed[maxOf(0, windowStart - FEED_WINDOW_STEP)].id
                             } else {
+                                // Past the feed's own first row: pin the
+                                // window to the FRONT before asking, so the
+                                // page the device sends is inside it the
+                                // moment it lands (EXP-795).
+                                windowFrom = WINDOW_FROM_START
                                 onLoadEarlier()
                             }
                         },

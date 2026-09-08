@@ -567,23 +567,27 @@ public enum AgentFeed {
     /// back. The relay's ACTIVITY_LOG_CAP is deliberately NOT matched any
     /// more: it bounds the tail a joining viewer replays, and older pages are
     /// asked for (`history_page`) rather than pushed.
-    public static let feedByteCap = 16 * 1024 * 1024
+    ///
+    /// Every number is the contract's `steerFeed` section (EXP-795): web,
+    /// Android and the desktop read the same generated constants, so the
+    /// budgets, the trim target and the window cannot drift per client.
+    public static let feedByteCap = DomainContract.steerFeedByteCap
     /// The companion item ceiling — a run of tiny events would sit far under
     /// the byte budget while costing an array slot each.
-    public static let feedItemCap = 200_000
+    public static let feedItemCap = DomainContract.steerFeedItemCap
     /// How many of the run's newest rows the session view renders, and how
-    /// much older transcript one "Load earlier" pulls in (web/desktop parity).
-    public static let feedWindow = 1500
-    public static let feedWindowStep = 500
-    /// EXP-783: events per `history_page` ask — the relay's HISTORY_PAGE_MAX,
-    /// which rejects anything larger.
-    public static let historyPageLimit = 200
+    /// much older transcript one "Load earlier" pulls in.
+    public static let feedWindow = DomainContract.steerFeedWindow
+    public static let feedWindowStep = DomainContract.steerFeedWindowStep
+    /// EXP-783: events per `history_page` ask — the relay's schema rejects
+    /// anything larger.
+    public static let historyPageLimit = DomainContract.steerFeedHistoryPageMax
 
     /// What one row weighs against `feedByteCap`: the text it carries plus a
     /// flat per-item overhead standing in for the value itself. An estimate on
     /// purpose — this budget bounds memory, it does not account for it.
     public static func itemBytes(_ item: AgentFeedItem) -> Int {
-        let overhead = 96
+        let overhead = DomainContract.steerFeedItemOverheadBytes
         switch item {
         case let .narration(_, text, _, _): return overhead + text.utf8.count
         case let .userMessage(_, text, _): return overhead + text.utf8.count
@@ -612,8 +616,9 @@ public enum AgentFeed {
         feed: [AgentFeedItem], bytes: Int
     ) -> (feed: [AgentFeedItem], bytes: Int) {
         if bytes <= feedByteCap && feed.count <= feedItemCap { return (feed, bytes) }
-        let byteTarget = feedByteCap / 10 * 9
-        let itemTarget = feedItemCap / 10 * 9
+        let percent = DomainContract.steerFeedTrimTargetPercent
+        let byteTarget = feedByteCap * percent / 100
+        let itemTarget = feedItemCap * percent / 100
         var remaining = bytes
         var dropTo = 0
         while dropTo + 1 < feed.count

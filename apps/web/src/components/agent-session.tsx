@@ -48,6 +48,8 @@ import {
   askStepperView,
   collectSubagents,
   groupFeedRows,
+  FEED_WINDOW,
+  FEED_WINDOW_STEP,
   isAnswerLocked,
   looksLikeMarkdown,
   modeChip,
@@ -390,8 +392,9 @@ export function AgentSessionView({
   const canAnswer = live && !sessionEnded
   // EXP-783: the transcript keeps the WHOLE run, and this view paints a
   // WINDOW over it. `windowFrom` is the id of the oldest rendered row —
-  // `null` means the newest FEED_WINDOW rows. An id rather than an index, so
-  // a byte-budget eviction or a replay swap cannot slide the window somewhere
+  // `null` means the newest FEED_WINDOW rows, WINDOW_FROM_START the feed's
+  // own first row whatever it is. An id rather than an index, so a
+  // byte-budget eviction or a replay swap cannot slide the window somewhere
   // else under the reader.
   const [windowFrom, setWindowFrom] = useState<number | null>(null)
   const windowStart = useMemo(() => {
@@ -413,7 +416,9 @@ export function AgentSessionView({
   /** Pull the next page in. Anchored by capturing the distance from the
    *  BOTTOM of the scroll content before the rows change and restoring it
    *  after: a front insertion otherwise moves the reader by exactly the
-   *  height of what was inserted. */
+   *  height of what was inserted. Past the feed's own first row the window
+   *  is pinned to the FRONT before the device is asked, so the page lands
+   *  inside it when it arrives (EXP-795). */
   const anchorRef = useRef<number | null>(null)
   const loadEarlier = useCallback(() => {
     const el = scrollRef.current
@@ -422,6 +427,7 @@ export function AgentSessionView({
       setWindowFrom(feed[Math.max(0, windowStart - FEED_WINDOW_STEP)].id)
       return
     }
+    setWindowFrom(WINDOW_FROM_START)
     store.loadEarlier()
   }, [feed, windowStart, store])
   useLayoutEffect(() => {
@@ -438,17 +444,6 @@ export function AgentSessionView({
   useEffect(() => {
     if (atBottom) setWindowFrom(null)
   }, [atBottom])
-  // A page fetched from the device lands BELOW the window's anchor (ids only
-  // ever decrease at the front). The reader asked for it, so it belongs
-  // inside the window; this only ever lowers the anchor.
-  const firstId = feed[0]?.id
-  useEffect(() => {
-    setWindowFrom((current) =>
-      current !== null && firstId !== undefined && firstId < current
-        ? firstId
-        : current
-    )
-  }, [firstId])
   /** EXP-356: the subagents seen so far — one conversation tab each. EXP-387:
    *  the strip only shows the still-running ones (plus the focused tab). */
   const agents = useMemo(() => collectSubagents(feed), [feed])
@@ -1323,13 +1318,11 @@ const NarrationBubble = memo(function NarrationBubble({
   )
 })
 
-/** EXP-783 — how many of the run's newest rows this view renders. The store
- *  keeps the WHOLE run; the window is what makes that free, because a React
- *  render of the transcript is O(rendered rows) and there is no virtualiser
- *  here. */
-const FEED_WINDOW = 1500
-/** How much older transcript one "Load earlier" pulls in. */
-const FEED_WINDOW_STEP = 500
+/** EXP-783 — the window anchor that means "the feed's first row, whatever it
+ *  is": set when the reader asks for a page the feed does not hold yet, so a
+ *  prepended page is inside the window the moment it lands. Every real id is
+ *  above it (ids only ever count down at the front by a finite amount). */
+const WINDOW_FROM_START = Number.NEGATIVE_INFINITY
 
 /** How much user/question text shows before the "Show more" fold (the initial
  *  prompt can be 16 KiB). Line-based clamp via CSS; the toggle appears on any

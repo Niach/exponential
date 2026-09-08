@@ -126,9 +126,20 @@ interface Room {
    *  `activity_synced` so a client knows the pages below it must be asked
    *  for from the device (`history_page`) and are not simply absent. */
   activityTruncated: boolean
-  /** EXP-783: the viewer each in-flight `history_page` request belongs to, by
-   *  requestId — a chunk goes ONLY there. Dropped when the viewer leaves. */
-  historyPages: Map<string, Conn>
+  /** EXP-783: the `history_page` asks in flight, by the RELAY-issued id the
+   *  publisher answers with (EXP-795: every viewer numbers its own asks from
+   *  `p1`, so two viewers in one room would otherwise share a key and one
+   *  would receive the other's page). Dropped with the viewer, with the
+   *  publisher the ask went to, with the room, and by its own timer. */
+  historyPages: Map<string, HistoryPageAsk>
+}
+
+/** One in-flight `history_page`: who gets the chunks, under which id THEY
+ *  asked, and the timer that frees the slot if no chunk ever comes. */
+interface HistoryPageAsk {
+  viewer: Conn
+  requestId: string
+  timer: ReturnType<typeof setTimeout>
 }
 
 // EXP-249: full-history re-publish on reconnect means a long session's log is
@@ -196,6 +207,11 @@ const HISTORY_OUTCOME = `history`
  *  `HISTORY_PAGE_MAX`, so this only exists to stop a misbehaving client from
  *  making a device replay its journal in parallel forever. */
 const HISTORY_PAGES_IN_FLIGHT = 4
+/** EXP-795: how long one `history_page` ask may wait for its chunk. The
+ *  publisher answers inline off a bounded file read, so a slot still open
+ *  after this belongs to a publisher that is gone — freed, or the room's
+ *  in-flight cap would fill with dead asks and refuse every viewer. */
+const HISTORY_PAGE_TIMEOUT_MS = 20_000
 
 function frame(msg: ServerFrame): string {
   return JSON.stringify(msg)
@@ -215,11 +231,18 @@ const INPUT_CHUNK_CHARS = 4096
 function activitySyncedFrame(room: Room): string {
   const first = room.activityLog[0]?.seq
   const last = room.activityLog[room.activityLog.length - 1]?.seq
+  // The log is a tail when this room evicted — and (EXP-795) when the
+  // publisher's own replay started above zero: its in-memory journal is a
+  // bounded tail of the file it wrote, and a resumed run inherits its
+  // predecessor's lines. Either way the pages below `firstSeq` exist on the
+  // device, and a client gated on this flag alone could never ask for them.
+  const truncated =
+    room.activityTruncated || (first !== undefined && first > 0)
   return frame({
     t: `activity_synced`,
     firstSeq: first,
     lastSeq: last,
-    truncated: room.activityTruncated || undefined,
+    truncated: truncated || undefined,
   })
 }
 
@@ -253,8 +276,12 @@ export class Hub {
   private historyRequests = 0
   private historyDeviceOffline = 0
   private historyTimeouts = 0
-  /** EXP-783: `history_page` asks routed to a publisher or a device. */
+  /** EXP-783: `history_page` asks routed to a publisher, and (EXP-795) how
+   *  many of them the publisher never answered. */
   private historyPageRequests = 0
+  private historyPageTimeouts = 0
+  /** EXP-795: numbers the relay-issued `history_page` ids. */
+  private historyPageSeq = 0
 
   constructor() {
     // REV2-X: Start the idle publisher detector — checks every 30s for
@@ -367,6 +394,8 @@ export class Hub {
     if (room.publisher === conn) {
       // Publisher dropped without bye → grace period for reconnect.
       room.publisher = null
+      // EXP-795: every page ask went down THIS socket; none is coming back.
+      this.dropHistoryPages(room)
       room.staleTimer ??= setTimeout(() => {
         this.closeRoom(room, `publisher_lost`)
       }, PUBLISHER_GRACE_MS)
@@ -375,9 +404,7 @@ export class Hub {
 
     room.activityMembers.delete(conn)
     // EXP-783: a page this viewer asked for has nowhere to go now.
-    for (const [requestId, viewer] of room.historyPages) {
-      if (viewer === conn) room.historyPages.delete(requestId)
-    }
+    this.dropHistoryPages(room, conn)
   }
 
   // ── Control frames ─────────────────────────────────────────────────────────
@@ -450,6 +477,8 @@ export class Hub {
           if (room.publisher && room.publisher !== conn) {
             room.publisher.sock.close(CLOSE_REPLACED, `replaced`)
           }
+          // EXP-795: a page ask addressed to the previous socket is dead.
+          this.dropHistoryPages(room)
           room.publisher = conn
           room.lastPublisherActivity = Date.now() // REV2-X: reconnect resets the timer
         }
@@ -568,46 +597,55 @@ export class Hub {
 
       // EXP-783: viewer → "give me the page below `beforeSeq`". The room's
       // replay log is a TAIL; the whole run only exists on the device, so the
-      // ask is routed to whoever can read that journal — the live publisher,
-      // or the owning device's control socket when no room is up.
+      // ask goes to the LIVE publisher, which reads its journal file. EXP-795:
+      // forwarded under a relay-issued id (viewers number their own asks, so
+      // two in one room collide), and a room with no publisher takes no asks
+      // — the control-socket route the first cut described was answered by
+      // no device and, a chunk naming no session, could not have been routed
+      // back; paging an ENDED run is follow-up work.
       case `history_page`: {
         const room = this.roomFor(conn)
         if (!room || !room.activityMembers.has(conn)) return
-        if (room.historyPages.size >= HISTORY_PAGES_IN_FLIGHT) return
-        const ask: ServerFrame = {
-          t: `history_page`,
-          sessionId: room.sessionId,
-          requestId: msg.requestId,
-          beforeSeq: msg.beforeSeq,
-          limit: msg.limit,
-        }
-        const target =
-          room.publisher ??
-          this.devices
-            .get(conn.claims.deviceOwnerId ?? conn.claims.sub)
-            ?.get(conn.claims.deviceId ?? ``)
+        const target = room.publisher
         if (!target) return
-        room.historyPages.set(msg.requestId, conn)
-        target.sock.send(frame(ask))
+        if (room.historyPages.size >= HISTORY_PAGES_IN_FLIGHT) return
+        const relayId = `h${++this.historyPageSeq}`
+        const timer = setTimeout(() => {
+          if (room.historyPages.delete(relayId)) this.historyPageTimeouts += 1
+        }, HISTORY_PAGE_TIMEOUT_MS)
+        room.historyPages.set(relayId, {
+          viewer: conn,
+          requestId: msg.requestId,
+          timer,
+        })
+        target.sock.send(
+          frame({
+            t: `history_page`,
+            sessionId: room.sessionId,
+            requestId: relayId,
+            beforeSeq: msg.beforeSeq,
+            limit: msg.limit,
+          })
+        )
         this.historyPageRequests += 1
         return
       }
 
-      // EXP-783: publisher/device → one page of older transcript, delivered
-      // to the ONE viewer that asked for it. Deliberately never appended to
-      // `activityLog`: these events are older than everything in it, and the
-      // log is the join tail, not the run.
+      // EXP-783: publisher → one page of older transcript, delivered to the
+      // ONE viewer that asked for it under the id IT used. Deliberately never
+      // appended to `activityLog`: these events are older than everything in
+      // it, and the log is the join tail, not the run.
       case `history_chunk`: {
         const room = this.roomFor(conn)
-        if (!room) return
-        const viewer = room.historyPages.get(msg.requestId)
-        if (!viewer) return
-        if (msg.done) room.historyPages.delete(msg.requestId)
-        if (!room.activityMembers.has(viewer)) return
-        viewer.sock.send(
+        if (!room || room.publisher !== conn) return
+        const ask = room.historyPages.get(msg.requestId)
+        if (!ask) return
+        if (msg.done) this.dropHistoryPage(room, msg.requestId)
+        if (!room.activityMembers.has(ask.viewer)) return
+        ask.viewer.sock.send(
           frame({
             t: `history_chunk`,
-            requestId: msg.requestId,
+            requestId: ask.requestId,
             events: msg.events,
             seqs: msg.seqs,
             done: msg.done,
@@ -772,6 +810,7 @@ export class Hub {
       historyDeviceOffline: this.historyDeviceOffline,
       historyTimeouts: this.historyTimeouts,
       historyPageRequests: this.historyPageRequests,
+      historyPageTimeouts: this.historyPageTimeouts,
     }
   }
 
@@ -779,6 +818,24 @@ export class Hub {
 
   private roomFor(conn: Conn): Room | undefined {
     return conn.sessionId ? this.rooms.get(conn.sessionId) : undefined
+  }
+
+  /** EXP-795: retire one `history_page` ask — answered, or given up on. */
+  private dropHistoryPage(room: Room, relayId: string) {
+    const ask = room.historyPages.get(relayId)
+    if (!ask) return
+    clearTimeout(ask.timer)
+    room.historyPages.delete(relayId)
+  }
+
+  /** Retire every in-flight ask (the publisher they went to is gone, or the
+   *  room is), or only `viewer`'s (it left). */
+  private dropHistoryPages(room: Room, viewer?: Conn) {
+    for (const [relayId, ask] of room.historyPages) {
+      if (viewer === undefined || ask.viewer === viewer) {
+        this.dropHistoryPage(room, relayId)
+      }
+    }
   }
 
   /** Drop the replay log and everything derived from it. The caller decides
@@ -987,6 +1044,7 @@ export class Hub {
   private closeRoom(room: Room, outcome: string) {
     if (room.staleTimer) clearTimeout(room.staleTimer)
     if (room.historyTimer) clearTimeout(room.historyTimer)
+    this.dropHistoryPages(room)
     this.rooms.delete(room.sessionId)
     const msg = frame({ t: `bye`, outcome })
     for (const member of room.activityMembers.keys()) {
