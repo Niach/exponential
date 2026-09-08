@@ -61,6 +61,7 @@ use serde_json::{json, Map, Value};
 
 use super::claude_wire::{self as wire, ClaudeArgs, ClaudeOut, McpConfig, SystemSubtype, TurnOutcome};
 use super::AdapterSpec;
+use crate::mapper::PERMISSION_OPTION_DESCRIPTION_META;
 use crate::session::{EngineError, ResumeHandle};
 use crate::transport::{spawn_lines, ChildLines, StderrPolicy};
 
@@ -3223,10 +3224,17 @@ fn permission_answer(
 /// The plan-approval menu. EXP-772: permissions are bypassed in every mode,
 /// so "manually approve edits" is no longer an answer that means anything —
 /// what is left is code it, code it in a FRESH context (only when there is a
-/// plan to carry), or keep planning.
+/// plan to carry), or keep planning. EXP-788: the plain "Yes" is FIRST (every
+/// client promotes index 0 as the primary), the fresh-context variant second,
+/// and "No, keep planning" LAST, carrying a description that says what it
+/// does — it is a deny that sends the next message back to planning.
 fn exit_plan_options(input: &Value) -> Vec<PermissionOption> {
     let plan = input.get("plan").and_then(Value::as_str).unwrap_or_default();
-    let mut options = Vec::new();
+    let mut options = vec![PermissionOption::new(
+        PermissionOptionId::new("exit-plan-bypass"),
+        "Yes",
+        PermissionOptionKind::AllowAlways,
+    )];
     if !plan.trim().is_empty() {
         options.push(PermissionOption::new(
             PermissionOptionId::new("exit-plan-clear-bypass"),
@@ -3234,17 +3242,28 @@ fn exit_plan_options(input: &Value) -> Vec<PermissionOption> {
             PermissionOptionKind::AllowAlways,
         ));
     }
-    options.push(PermissionOption::new(
-        PermissionOptionId::new("exit-plan-bypass"),
-        "Yes",
-        PermissionOptionKind::AllowAlways,
-    ));
-    options.push(PermissionOption::new(
-        PermissionOptionId::new("reject"),
-        "No, keep planning",
-        PermissionOptionKind::RejectOnce,
-    ));
+    options.push(
+        PermissionOption::new(
+            PermissionOptionId::new("reject"),
+            "No, keep planning",
+            PermissionOptionKind::RejectOnce,
+        )
+        .meta(option_description("Sends your next message back to planning")),
+    );
     options
+}
+
+/// ACP's `PermissionOption` has no description of its own; the mapper reads
+/// the option's second line from `_meta` under
+/// [`PERMISSION_OPTION_DESCRIPTION_META`] and publishes it as
+/// `QuestionOption.description`.
+fn option_description(text: &str) -> Map<String, Value> {
+    let mut meta = Map::new();
+    meta.insert(
+        PERMISSION_OPTION_DESCRIPTION_META.to_string(),
+        Value::String(text.to_string()),
+    );
+    meta
 }
 
 /// The mode a plan option approves into, or `None` when it is a clear-context
@@ -3890,20 +3909,37 @@ mod tests {
     }
 
     /// EXP-772: approving a plan means coding it, in this context or a fresh
-    /// one — every answer lands on `bypassPermissions`.
+    /// one — every answer lands on `bypassPermissions`. EXP-788: the plain
+    /// "Yes" is index 0 (the primary on every client), the reject is last and
+    /// explains itself.
     #[test]
-    fn the_plan_menu_offers_the_clear_context_option_first() {
+    fn the_plan_menu_offers_the_plain_yes_first() {
         let options = exit_plan_options(&json!({ "plan": "# Plan" }));
         let ids: Vec<String> =
             options.iter().map(|option| option.option_id.0.to_string()).collect();
         assert_eq!(
             ids,
             vec![
-                "exit-plan-clear-bypass".to_string(),
                 "exit-plan-bypass".to_string(),
+                "exit-plan-clear-bypass".to_string(),
                 "reject".to_string(),
             ]
         );
+        let labels: Vec<&str> = options.iter().map(|option| option.name.as_str()).collect();
+        assert_eq!(
+            labels,
+            vec!["Yes", "Yes, and start with a fresh context", "No, keep planning"]
+        );
+        let reject = options.last().expect("the reject option");
+        assert_eq!(
+            reject
+                .meta
+                .as_ref()
+                .and_then(|meta| meta.get(PERMISSION_OPTION_DESCRIPTION_META))
+                .and_then(Value::as_str),
+            Some("Sends your next message back to planning")
+        );
+        assert!(options[0].meta.is_none());
         // A plan-less approval has nothing to carry into a fresh context.
         let ids: Vec<String> = exit_plan_options(&json!({}))
             .iter()

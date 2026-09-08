@@ -11,11 +11,19 @@
 //!    ever did. `Tool { detail }` is a derivation (path / pattern / first
 //!    token / `input.description`), then `Redactor::redact`, then
 //!    `truncate`/`truncate_marked` at the existing caps in UTF-8 BYTES.
+//!    EXP-785/786 revised the "content stays local" half: a call's SETTLE
+//!    (`completed`/`failed`) and an `edit` call's per-file diff now ALSO ride
+//!    the wire as a `tool_update` log row — a unified diff BUILT here from
+//!    old/new text, redacted, then cut on line boundaries to the contract's
+//!    `toolDiffMaxLines`/`toolDiffMaxBytes`. Clients fold it into the tool
+//!    row by id; the local ACP content (whole patches, command output)
+//!    remains richer than the wire ever is.
 //! 2. **Chunks coalesce.** ACP streams are ~100x denser than the 1 s
 //!    transcript poll and the journal evicts at 2000 events / 4 MiB; narration
 //!    and thought chunks coalesce by `message_id` and flush on idle or turn
-//!    end, `ToolCallUpdate` status transitions never publish, and
-//!    `config_state`/`usage` are latest-wins slots.
+//!    end, `ToolCallUpdate` publishes only on a SETTLE (never the pending →
+//!    in-progress churn), and `config_state`/`usage`/`rate_limit` are
+//!    latest-wins slots.
 //! 3. **Question ids are ACP ids** (D3): `id` = the tool-call id for a
 //!    permission, `<ask>#<n>` / `<ask>#submit` for an elicitation stepper, and
 //!    `QuestionOption::key` is the ACP option id — never a keystroke.
@@ -43,7 +51,7 @@ use steer::activity::{
     OPTION_LABEL_MAX, QUESTION_HEADER_MAX, QUESTION_TEXT_MAX, TOOL_DETAIL_MAX, TOOL_NAME_MAX,
 };
 use steer::frames::CompactionPhase;
-use steer::{ActivityEvent, QuestionOption};
+use steer::{ActivityEvent, QuestionOption, ToolKind as WireToolKind, ToolUpdateStatus};
 
 use crate::local::{
     EnginePhase, LocalFeedEvent, PlanEntryPriorityView, PlanEntryStatusView, PlanEntryView,
@@ -185,6 +193,8 @@ pub struct Mapper {
     /// and the journal stored. An identical re-emit says nothing.
     last_config_state: Option<ActivityEvent>,
     last_usage: Option<ActivityEvent>,
+    /// EXP-784: the rate-limit slot's last published snapshot.
+    last_rate_limit: Option<ActivityEvent>,
     compacting_since: Option<Instant>,
     /// Disambiguates two synthetic ids whose text is identical.
     ordinal: u32,
@@ -366,6 +376,7 @@ impl Mapper {
             config_state: ConfigSnapshot::default(),
             last_config_state: None,
             last_usage: None,
+            last_rate_limit: None,
             compacting_since: None,
             ordinal: 0,
         }
@@ -1106,6 +1117,8 @@ impl Mapper {
             ActivityEvent::Tool {
                 name: self.clean(&name, TOOL_NAME_MAX),
                 detail,
+                id: Some(id.clone()),
+                tool_kind: Some(wire_tool_kind(call.kind)),
                 subagent_id,
                 at: None,
             },
@@ -1132,7 +1145,10 @@ impl Mapper {
                 kind: call.kind,
             },
         );
-        self.tool_content(&id, call.kind, &call.content, call.raw_output.as_ref(), out);
+        let diff = self.tool_content(&id, call.kind, &call.content, call.raw_output.as_ref(), out);
+        // A call that arrives already settled (an adapter that reports the
+        // whole call at once) never gets an update: settle it from here.
+        self.emit_tool_update(&id, settle_status(call.status), diff, out);
     }
 
     fn on_tool_call_update(&mut self, update: &ToolCallUpdate, out: &mut MapOut) {
@@ -1147,6 +1163,7 @@ impl Mapper {
             ..
         } = &update.fields;
         let known = self.tools.get(&id);
+        let known_before = known.is_some();
         let kind = kind.or_else(|| known.map(|state| state.kind)).unwrap_or(ToolKind::Other);
         let title = title
             .clone()
@@ -1156,7 +1173,8 @@ impl Mapper {
             state.kind = kind;
             state.title.clone_from(&title);
         }
-        // Rule 2: a status transition is a local card patch, never a wire row.
+        // Rule 2: the pending → in-progress churn is a local card patch; only
+        // a SETTLE (and an edit's diff) becomes a wire row, below.
         out.local.push(LocalFeedEvent::ToolCall {
             id: id.clone(),
             title,
@@ -1169,8 +1187,15 @@ impl Mapper {
                 .map(|location| location.path.clone())
                 .collect(),
         });
-        if let Some(content) = content {
-            self.tool_content(&id, kind, content, raw_output.as_ref(), out);
+        let diff = match content {
+            Some(content) => self.tool_content(&id, kind, content, raw_output.as_ref(), out),
+            None => None,
+        };
+        // EXP-785/786: one `tool_update` per settle/diff — only for a call
+        // this mapper announced (the clients hold exactly the rows it did,
+        // so an update for a call they never saw would only be dropped).
+        if known_before {
+            self.emit_tool_update(&id, status.and_then(settle_status), diff, out);
         }
         // A settled call still gets trailing content-only updates (codex
         // streams `outputDelta` past the completed status), and dropping the
@@ -1180,6 +1205,25 @@ impl Mapper {
         if matches!(status, Some(ToolCallStatus::Completed) | Some(ToolCallStatus::Failed)) {
             self.retire_tool(id);
         }
+    }
+
+    /// EXP-785/786: the `tool_update` row for `id`, when there is anything
+    /// to say — a settle, a diff, or both in ONE event.
+    fn emit_tool_update(
+        &mut self,
+        id: &str,
+        status: Option<ToolUpdateStatus>,
+        diff: Option<String>,
+        out: &mut MapOut,
+    ) {
+        if status.is_none() && diff.is_none() {
+            return;
+        }
+        emit(
+            out,
+            ActivityEvent::tool_update(id, status, diff),
+            Some(id.to_string()),
+        );
     }
 
     /// Queue a settled tool call for eviction. Re-settling one (a `failed`
@@ -1195,10 +1239,13 @@ impl Mapper {
         }
     }
 
-    /// Tool-call content is LOCAL only: a `Diff` carries a whole patch body
-    /// and `Content` on an `Execute` call carries command output, neither of
-    /// which the wire ever carried (rule 1). The wire `diff` stays the
-    /// debounced whole-worktree snapshot the lifecycle publishes.
+    /// Tool-call content is LOCAL first: a `Diff` carries a whole patch body
+    /// and `Content` on an `Execute` call carries command output, and the
+    /// local cards get both whole. EXP-786 sends ONE derived piece onward —
+    /// an `edit` call's diff, as a unified patch built from old/new text,
+    /// redacted, then cut to the contract's caps on line boundaries — and
+    /// returns it for the caller's `tool_update`. Command output never goes;
+    /// the wire `diff` stays the debounced whole-worktree snapshot.
     fn tool_content(
         &mut self,
         id: &str,
@@ -1206,19 +1253,27 @@ impl Mapper {
         content: &[ToolCallContent],
         raw_output: Option<&Value>,
         out: &mut MapOut,
-    ) {
+    ) -> Option<String> {
         let exit_code = raw_output
             .and_then(|raw| raw.get("exit_code").or_else(|| raw.get("exitCode")))
             .and_then(Value::as_i64)
             .map(|code| code as i32);
+        let mut wire_diff: Option<String> = None;
         for item in content {
             match item {
-                ToolCallContent::Diff(diff) => out.local.push(LocalFeedEvent::EditDiff {
-                    tool_call_id: id.to_string(),
-                    path: diff.path.clone(),
-                    old_text: diff.old_text.clone(),
-                    new_text: diff.new_text.clone(),
-                }),
+                ToolCallContent::Diff(diff) => {
+                    out.local.push(LocalFeedEvent::EditDiff {
+                        tool_call_id: id.to_string(),
+                        path: diff.path.clone(),
+                        old_text: diff.old_text.clone(),
+                        new_text: diff.new_text.clone(),
+                    });
+                    if kind == ToolKind::Edit {
+                        // The LAST diff of one update wins; an update carrying
+                        // several files is not something any adapter emits.
+                        wire_diff = self.wire_edit_diff(diff).or(wire_diff);
+                    }
+                }
                 ToolCallContent::Content(block) if kind == ToolKind::Execute => {
                     let chunk = block_text(&block.content);
                     if !chunk.is_empty() {
@@ -1246,6 +1301,29 @@ impl Mapper {
                 _ => {}
             }
         }
+        wire_diff
+    }
+
+    /// EXP-786: the per-call patch for the wire — built, redacted, cut. A
+    /// cut patch ends in a `\ N more lines truncated` marker line (a `\`
+    /// line is unified-diff metadata, so a renderer shows it as a note and
+    /// never as a hunk). `None` when the edit changed nothing.
+    fn wire_edit_diff(&self, diff: &agent_client_protocol::schema::v1::Diff) -> Option<String> {
+        let path = self.display_path(&diff.path);
+        let patch = steer::unified_diff(&path, diff.old_text.as_deref(), &diff.new_text);
+        if patch.is_empty() {
+            return None;
+        }
+        let redacted = self.config.redactor.redact(&patch);
+        let (mut kept, omitted) = steer::truncate_unified_diff(
+            &redacted,
+            steer::TOOL_DIFF_MAX_LINES,
+            steer::TOOL_DIFF_MAX_BYTES,
+        );
+        if omitted > 0 {
+            kept.push_str(&format!("\\ {omitted} more lines truncated\n"));
+        }
+        Some(kept)
     }
 
     /// The `Tool { detail }` DERIVATION (rule 1). Never `raw_input`'s command
@@ -1404,6 +1482,35 @@ impl Mapper {
             return;
         }
         self.last_usage = Some(event.clone());
+        emit(out, event, None);
+    }
+
+    /// EXP-784: the rate-limit slot, deduped like `usage` above. `status` is
+    /// the agent's own word for the window; an empty/`ok` status is the
+    /// CLEAR frame (`steer::rate_limit_clears`), published once. The claude
+    /// adapter (EXP-784, lane A) calls this off its rate-limit meta key;
+    /// nothing in this crate does yet, hence the allow.
+    #[allow(dead_code)]
+    pub(crate) fn emit_rate_limit(
+        &mut self,
+        status: &str,
+        resets_at: Option<i64>,
+        message: Option<&str>,
+        out: &mut MapOut,
+    ) {
+        let status = self.clean(status.trim(), steer::activity::CONFIG_ID_MAX);
+        let message = message
+            .map(|message| self.clean(message.trim(), RATE_LIMIT_MESSAGE_MAX))
+            .filter(|message| !message.is_empty());
+        let event = if steer::rate_limit_clears(&status) {
+            ActivityEvent::rate_limit("", None, None)
+        } else {
+            ActivityEvent::rate_limit(status, resets_at.filter(|at| *at >= 0), message)
+        };
+        if self.last_rate_limit.as_ref() == Some(&event) {
+            return;
+        }
+        self.last_rate_limit = Some(event.clone());
         emit(out, event, None);
     }
 
@@ -1956,9 +2063,33 @@ fn step_value(step: &ElicitStep, keys: &[String], typed: Option<&str>) -> Value 
     }
 }
 
+/// The `_meta` key an adapter puts a permission option's second line under
+/// (ACP's `PermissionOption` has no description field); the mapper publishes
+/// it as `QuestionOption.description`, which every client renders.
+pub const PERMISSION_OPTION_DESCRIPTION_META: &str = "description";
+
+/// EXP-788: a `session/request_permission` is a PERMISSION — an allow/reject
+/// card, ranked allow-first — when EVERY option carries an allow/reject kind.
+/// Duplicate kinds are legal (codex sends two `allow_always` options per exec
+/// approval, claude two for a plan); only an option of some OTHER kind makes
+/// the request the agent's own question, whose options keep the agent's
+/// order.
+fn is_user_question(options: &[PermissionOption]) -> bool {
+    options.iter().any(|option| {
+        !matches!(
+            option.kind,
+            PermissionOptionKind::AllowOnce
+                | PermissionOptionKind::AllowAlways
+                | PermissionOptionKind::RejectOnce
+                | PermissionOptionKind::RejectAlways
+        )
+    })
+}
+
 /// Permission options in the order the four clients read best: allow first,
 /// reject last (`PermissionOptionKind` has no relay field of its own). The
-/// sort is STABLE, so the agent's own order survives inside a rank.
+/// sort is STABLE, so the agent's own order survives inside a rank — and a
+/// user question (see [`is_user_question`]) is not ranked at all.
 fn permission_options(options: &[PermissionOption]) -> Vec<(String, String, Option<String>)> {
     let mut ranked: Vec<(usize, &PermissionOption)> = options
         .iter()
@@ -1972,11 +2103,22 @@ fn permission_options(options: &[PermissionOption]) -> Vec<(String, String, Opti
             (rank, option)
         })
         .collect();
-    ranked.sort_by_key(|(rank, _)| *rank);
+    if !is_user_question(options) {
+        ranked.sort_by_key(|(rank, _)| *rank);
+    }
     ranked
         .into_iter()
         .take(steer::QUESTION_OPTIONS_MAX)
-        .map(|(_, option)| (option.option_id.0.to_string(), option.name.clone(), None))
+        .map(|(_, option)| {
+            let description = option
+                .meta
+                .as_ref()
+                .and_then(|meta| meta.get(PERMISSION_OPTION_DESCRIPTION_META))
+                .and_then(Value::as_str)
+                .filter(|text| !text.trim().is_empty())
+                .map(str::to_string);
+            (option.option_id.0.to_string(), option.name.clone(), description)
+        })
         .collect()
 }
 
@@ -2096,6 +2238,35 @@ fn defined<T>(value: &agent_client_protocol::schema::MaybeUndefined<T>) -> Optio
 
 /// ACP's `_meta` is a `serde_json::Map`; named so the helper above reads.
 type BTreeMapLike = Map<String, Value>;
+
+/// EXP-784: the relay's cap on `rate_limit.message` (protocol.ts).
+const RATE_LIMIT_MESSAGE_MAX: usize = 1024;
+
+/// EXP-785: the wire's kind bucket for an ACP kind — every ACP value has a
+/// contract twin; a future ACP kind lands on `Other`.
+fn wire_tool_kind(kind: ToolKind) -> WireToolKind {
+    match kind {
+        ToolKind::Read => WireToolKind::Read,
+        ToolKind::Edit => WireToolKind::Edit,
+        ToolKind::Delete => WireToolKind::Delete,
+        ToolKind::Move => WireToolKind::Move,
+        ToolKind::Search => WireToolKind::Search,
+        ToolKind::Execute => WireToolKind::Execute,
+        ToolKind::Think => WireToolKind::Think,
+        ToolKind::Fetch => WireToolKind::Fetch,
+        ToolKind::SwitchMode => WireToolKind::SwitchMode,
+        _ => WireToolKind::Other,
+    }
+}
+
+/// EXP-785: the two ACP statuses that SETTLE a call; anything else is churn.
+fn settle_status(status: ToolCallStatus) -> Option<ToolUpdateStatus> {
+    match status {
+        ToolCallStatus::Completed => Some(ToolUpdateStatus::Completed),
+        ToolCallStatus::Failed => Some(ToolUpdateStatus::Failed),
+        _ => None,
+    }
+}
 
 fn card_kind(kind: ToolKind) -> ToolCardKind {
     match kind {
@@ -2459,6 +2630,108 @@ mod tests {
             AnswerDecision::ReAck
         );
         assert_eq!(again.wire.len(), 1);
+    }
+
+    /// EXP-788: codex's exec approval carries TWO `allow_always` options (the
+    /// execpolicy amendment and a network-policy one) next to its allow_once
+    /// and reject. Every option has an allow/reject kind, so it is a
+    /// permission — one answerable card, ranked allow-first with the agent's
+    /// order kept inside a rank — never re-read as the agent's own question.
+    #[test]
+    fn a_codex_approval_with_duplicate_allow_kinds_is_a_permission() {
+        let options = vec![
+            PermissionOption::new(
+                PermissionOptionId::new("reject"),
+                "No, and tell Codex what to do differently",
+                PermissionOptionKind::RejectOnce,
+            ),
+            PermissionOption::new(
+                PermissionOptionId::new("allow_once"),
+                "Yes, run it",
+                PermissionOptionKind::AllowOnce,
+            ),
+            PermissionOption::new(
+                PermissionOptionId::new("accept_execpolicy_amendment"),
+                "Yes, and don't ask again for commands that start with `cargo`",
+                PermissionOptionKind::AllowAlways,
+            ),
+            PermissionOption::new(
+                PermissionOptionId::new("apply_network_policy_amendment:0"),
+                "Yes, and allow crates.io in the future",
+                PermissionOptionKind::AllowAlways,
+            ),
+        ];
+        assert!(!is_user_question(&options));
+        assert!(!is_user_question(&[]));
+
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let request = RequestPermissionRequest::new(
+            SessionId::new("acp-1"),
+            ToolCallUpdate::new(
+                ToolCallId::new("call-7"),
+                ToolCallUpdateFields::new().title("cargo build"),
+            ),
+            options,
+        );
+        let key = mapper.on_permission(&request, &mut out);
+        assert_eq!(key.question_id, "call-7");
+        assert_eq!(out.wire.len(), 1);
+        match &out.wire[0] {
+            ActivityEvent::Question { options, plan_mode, .. } => {
+                let keys: Vec<&str> = options.iter().map(|option| option.key.as_str()).collect();
+                assert_eq!(
+                    keys,
+                    vec![
+                        "allow_once",
+                        "accept_execpolicy_amendment",
+                        "apply_network_policy_amendment:0",
+                        "reject",
+                    ]
+                );
+                assert!(options.iter().all(|option| option.description.is_none()));
+                assert_eq!(*plan_mode, None);
+            }
+            other => panic!("expected a permission card, got {other:?}"),
+        }
+        assert_eq!(out.needs_input, Some(true));
+    }
+
+    /// EXP-788: an adapter's option description rides `_meta` and lands on
+    /// the wire as `QuestionOption.description`; a blank one is dropped.
+    #[test]
+    fn an_option_description_in_meta_reaches_the_wire() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let request = RequestPermissionRequest::new(
+            SessionId::new("acp-1"),
+            ToolCallUpdate::new(ToolCallId::new("call-8"), ToolCallUpdateFields::new()),
+            vec![
+                PermissionOption::new(
+                    PermissionOptionId::new("yes"),
+                    "Yes",
+                    PermissionOptionKind::AllowAlways,
+                )
+                .meta(json!({"description": "   "}).as_object().cloned()),
+                PermissionOption::new(
+                    PermissionOptionId::new("no"),
+                    "No",
+                    PermissionOptionKind::RejectOnce,
+                )
+                .meta(json!({"description": "Sends your next message back to planning"}).as_object().cloned()),
+            ],
+        );
+        mapper.on_permission(&request, &mut out);
+        match &out.wire[0] {
+            ActivityEvent::Question { options, .. } => {
+                assert_eq!(options[0].description, None);
+                assert_eq!(
+                    options[1].description.as_deref(),
+                    Some("Sends your next message back to planning")
+                );
+            }
+            other => panic!("expected a question, got {other:?}"),
+        }
     }
 
     /// EXP-766: an unattended run answers thousands of permissions; only the
@@ -3055,5 +3328,48 @@ mod tests {
             }
             other => panic!("expected a narration, got {other:?}"),
         }
+    }
+
+    /// EXP-784: the hook lane A calls — cleaned, deduped, and an empty/`ok`
+    /// status is the one CLEAR frame.
+    #[test]
+    fn emit_rate_limit_dedupes_and_clears_on_ok() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        mapper.emit_rate_limit(
+            " allowed_warning ",
+            Some(1_700_000_000_000),
+            Some("  80% of 5h used by expu_supersecretkey  "),
+            &mut out,
+        );
+        mapper.emit_rate_limit("allowed_warning", Some(1_700_000_000_000), Some("80% of 5h used by expu_supersecretkey"), &mut out);
+        assert_eq!(out.wire.len(), 1, "an identical re-emit says nothing");
+        let first = serde_json::to_value(&out.wire[0]).unwrap();
+        assert_eq!(first["kind"], "rate_limit");
+        assert_eq!(first["status"], "allowed_warning");
+        assert_eq!(first["resetsAt"], 1_700_000_000_000i64);
+        let message = first["message"].as_str().unwrap();
+        assert!(!message.contains("expu_"), "{message}");
+        assert!(message.starts_with("80% of 5h used by"), "{message}");
+
+        mapper.emit_rate_limit("rejected", Some(-5), Some("   "), &mut out);
+        let second = serde_json::to_value(&out.wire[1]).unwrap();
+        assert_eq!(second, json!({"kind": "rate_limit", "status": "rejected"}));
+
+        mapper.emit_rate_limit("ok", Some(1), Some("fine"), &mut out);
+        mapper.emit_rate_limit("", None, None, &mut out);
+        assert_eq!(out.wire.len(), 3);
+        assert_eq!(
+            serde_json::to_value(&out.wire[2]).unwrap(),
+            json!({"kind": "rate_limit", "status": ""}),
+            "ok and empty are the same clear, sent once"
+        );
+        // The local feed saw the same three (the emit twin rule).
+        let local = out
+            .local
+            .iter()
+            .filter(|event| matches!(event, LocalFeedEvent::Activity { event: ActivityEvent::RateLimit { .. }, .. }))
+            .count();
+        assert_eq!(local, 3);
     }
 }

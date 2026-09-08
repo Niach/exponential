@@ -683,12 +683,13 @@ async fn the_plan_approval_is_a_switch_mode_card_with_the_plan_and_its_options()
     }
     let options: Vec<String> =
         request.options.iter().map(|option| option.option_id.0.to_string()).collect();
-    // EXP-772: coding the plan is the only elevated answer left.
+    // EXP-772: coding the plan is the only elevated answer left; EXP-788:
+    // the plain "Yes" is index 0, the primary on every client.
     assert_eq!(
         options,
         vec![
-            "exit-plan-clear-bypass".to_string(),
             "exit-plan-bypass".to_string(),
+            "exit-plan-clear-bypass".to_string(),
             "reject".to_string(),
         ]
     );
