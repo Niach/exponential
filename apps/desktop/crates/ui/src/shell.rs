@@ -101,10 +101,9 @@ const PANEL_MARGIN_TOP: f32 = 6.;
 /// hairline) and is a bare band on the ground now, exactly like the
 /// decoration band above — so the gap between card and band is the same
 /// tighter [`PANEL_MARGIN_TOP`] value, and the band itself ends flush at the
-/// window bottom. The bar ALWAYS renders under the panel here (Chat and `+`
-/// stay one click away even with no session, `SessionBar::render`), so the
-/// shell applies this unconditionally — the bar-less 10px case belongs to the
-/// web twin, which toggles the two margins (`app-shell.ts`
+/// window bottom. EXP-791: the bar only shows while a terminal tab is open
+/// (`session_bar::bar_visible`), so the shell toggles between this and the
+/// plain [`PANEL_MARGIN`] exactly like the web twin does (`app-shell.ts`
 /// `mainPanelClass(docked)`).
 const PANEL_MARGIN_BOTTOM_BAR: f32 = 6.;
 
@@ -797,6 +796,10 @@ impl Render for Shell {
         // updates. This wins over the session switch (login OR board): the
         // whole window becomes the blocking "Update required" surface.
         let client_chrome = crate::app_title_bar::client_chrome(window);
+        // EXP-791: the session bar band only exists while a terminal tab is
+        // open. Read once per frame: the bar observes the screens panel and
+        // this shell observes the bar, so a tab opening/closing repaints.
+        let bar_visible = crate::session_bar::bar_visible(window, cx);
         let blocked = UpdateState::global_ref(cx).is_some_and(|m| m.read(cx).is_blocked());
         if blocked {
             let sheet_layer = Root::render_sheet_layer(window, cx);
@@ -931,8 +934,13 @@ impl Render for Shell {
                                 .mx(px(PANEL_MARGIN))
                                 // EXP-771: the session bar band below takes
                                 // the rest of the margin (see
-                                // `PANEL_MARGIN_BOTTOM_BAR`).
-                                .mb(px(PANEL_MARGIN_BOTTOM_BAR))
+                                // `PANEL_MARGIN_BOTTOM_BAR`) — EXP-791: only
+                                // while it is up.
+                                .mb(px(if bar_visible {
+                                    PANEL_MARGIN_BOTTOM_BAR
+                                } else {
+                                    PANEL_MARGIN
+                                }))
                                 .overflow_hidden()
                                 .relative()
                                 // The card FACE is a backdrop child (EXP-760)
@@ -972,11 +980,21 @@ impl Render for Shell {
                             // hit area, so the band clears it
                             // (`frame_bottom_resize_inset`, zero on every
                             // other platform and on a tiled bottom edge).
+                            //
+                            // EXP-791: ZERO height without a terminal tab —
+                            // the bar entity stays mounted (its manager and
+                            // observers live on), the band just folds away.
                             div()
                                 .flex_shrink_0()
-                                .h(px(crate::session_bar::SESSION_BAR_H))
+                                .h(px(if bar_visible {
+                                    crate::session_bar::SESSION_BAR_H
+                                } else {
+                                    0.
+                                }))
                                 .mx(px(PANEL_MARGIN))
-                                .mb(crate::window_frame::frame_bottom_resize_inset(window))
+                                .when(bar_visible, |band| {
+                                    band.mb(crate::window_frame::frame_bottom_resize_inset(window))
+                                })
                                 .child(self.session_bar.clone()),
                         )
                 })
@@ -1609,8 +1627,10 @@ impl Render for CenterPanel {
         // open" detail pane must not sit beside a board that has nothing to
         // open. It is the mirror image of `full_page`: there the SCREEN takes
         // the center, here the BOARD does.
+        // EXP-791: a coding session and a terminal are full-width too
+        // (`Screen::is_full_width`) — never rendered beside a list.
         let full_page = resolved_screen(&self.nav, cx).is_some_and(|screen| {
-            matches!(screen, Screen::Settings) || screen.is_rail_full_page()
+            matches!(screen, Screen::Settings) || screen.is_full_width()
         });
         let board_empty_full = !full_page && board_empty_full(&self.nav, &self.rail_shared, cx);
         // EXP-525: a mount/unmount of the center split settles its layout on

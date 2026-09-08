@@ -71,7 +71,7 @@ pub(crate) fn screens_for_window(window: &Window, cx: &App) -> Option<Entity<Scr
 }
 
 /// [`screens_for_window`] by id — for callers that hold a `WindowId` instead
-/// of a live `&Window` (the issue header's switcher). `None` in windows
+/// of a live `&Window` (the session bar's repaint poke). `None` in windows
 /// without a panel (undocked screens).
 pub(crate) fn screens_for_window_id(
     window_id: WindowId,
@@ -94,7 +94,15 @@ pub(crate) fn session_views(
     registry
         .by_window
         .values()
-        .filter_map(|panel| panel.read(cx).session_view(session_id))
+        .flat_map(|panel| {
+            let panel = panel.read(cx);
+            // EXP-791: an issue-bound run may be up INSIDE the issue detail
+            // (slid in over the issue) rather than on a tab of its own.
+            panel
+                .session_view(session_id)
+                .into_iter()
+                .chain(panel.issue_detail.read(cx).steering_view(session_id))
+        })
         .collect()
 }
 
@@ -214,28 +222,15 @@ struct TabEntry {
     origin: TabOrigin,
 }
 
-/// EXP-769: one entry of the bottom session bar, in bar order — the web
-/// `AgentDock`'s tab list. The bar is a second VIEW of the panel's one tab
-/// list (its [`Screen::is_dock_tab`] entries) plus, web parity, every live
-/// run of the caller's that has no tab open yet: a run started remotely, by
-/// an automation, or from Devices is one click away without a hunt through
-/// the Devices page, and it opens on click like any tab.
-enum DockEntry {
-    /// An open tab (`ix` into `ScreensPanel::tabs`).
-    Open { ix: usize, screen: Screen },
-    /// A live run of the caller's with no open tab; clicking opens one.
-    Running { session_id: String },
-}
-
-impl DockEntry {
-    fn screen(&self) -> Screen {
-        match self {
-            DockEntry::Open { screen, .. } => screen.clone(),
-            DockEntry::Running { session_id } => Screen::Session {
-                session_id: session_id.clone(),
-            },
-        }
-    }
+/// EXP-769/EXP-791: one entry of the bottom session bar, in bar order — an
+/// open [`Screen::Terminal`] tab (`ix` into `ScreensPanel::tabs`). The bar
+/// used to be the web `AgentDock`'s tab list (sessions AND terminals, plus
+/// the caller's tab-less live runs); EXP-791 moved every session to the
+/// rail's Sessions section, so the bar is the terminal strip and nothing
+/// else — and takes no height at all without one.
+struct DockEntry {
+    ix: usize,
+    screen: Screen,
 }
 
 /// EXP-769: what a session-bar chip's × does (web `DockTab` semantics).
@@ -938,12 +933,12 @@ impl ScreensPanel {
     /// mid-render). MUST never call `activate_tool`/`select_*` — the rail
     /// observer + this nav observer would feed back.
     fn sync_tabs(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        // EXP-48 prev/next: an in-place `replace_screen` marks the screen it
-        // displaced — consume the marker so that tab's identity swaps instead
-        // of a new tab opening per step. EXP-288: the origin marker rides
-        // every REAL navigation (tab clicks never set it).
-        let replaced = crate::navigation::take_replaced_screen(&self.nav, cx);
+        // EXP-288: the origin marker rides every REAL navigation (tab clicks
+        // never set it). EXP-791: so does the steer marker — consumed HERE,
+        // unconditionally, so a marker left by a navigation that never
+        // reached its issue can't survive to the next one.
         let pending_origin = crate::navigation::take_pending_origin(&self.nav, cx);
+        let pending_steer = crate::navigation::take_pending_steer(&self.nav, cx);
         let team = active_team_id(&self.nav, cx);
         if team != self.tabs_team {
             // Dropping the tabs tears the issue detail down without a blur —
@@ -1006,28 +1001,21 @@ impl ScreensPanel {
                     Some(PendingOrigin::Explicit(origin)) => origin,
                     _ => captured,
                 };
-                let entry = TabEntry {
+                self.tabs.push(TabEntry {
                     screen: screen.clone(),
                     origin,
-                };
-                // EXP-48: a replace_screen swap keeps the displaced tab's
-                // slot (and, deliberately, position) instead of appending.
-                let replaced_ix = replaced
-                    .and_then(|old| self.tabs.iter().position(|tab| tab.screen == old));
-                match replaced_ix {
-                    Some(ix) => {
-                        // Identity swaps in place; the origin is preserved
-                        // (prev/next walks the SAME list the tab came from).
-                        self.tabs[ix].screen = entry.screen;
-                    }
-                    None => self.tabs.push(entry),
-                }
+                });
             }
         }
         match screen {
             Screen::IssueDetail { issue_id } => {
                 self.issue_detail.update(cx, |detail, cx| {
                     detail.set_issue(issue_id, window, cx);
+                    // EXP-791: "Watch" / a Sessions-rail row — the run slides
+                    // in over the issue it belongs to.
+                    if let Some(session_id) = pending_steer {
+                        detail.open_steering(session_id, window, cx);
+                    }
                 });
             }
             Screen::SupportThread { thread_id } => {
@@ -1151,8 +1139,39 @@ impl ScreensPanel {
         }
     }
 
-    /// The row ids of this panel's open session tabs, in strip order.
-    fn open_session_ids(&self) -> Vec<String> {
+    /// EXP-791: the run slid in over the issue detail, if any — the rail's
+    /// Sessions row for it highlights like an active tab's would.
+    pub(crate) fn steering_session_id(&self, cx: &App) -> Option<String> {
+        self.issue_detail.read(cx).steering_session_id()
+    }
+
+    /// EXP-791: whether the bottom session bar has anything to show — it
+    /// takes no height without a terminal tab (`session_bar::bar_visible`).
+    pub(crate) fn has_terminal_tabs(&self) -> bool {
+        self.tabs
+            .iter()
+            .any(|tab| matches!(tab.screen, Screen::Terminal { .. }))
+    }
+
+    /// EXP-791: what a Sessions-rail row's × does — the retired bar chip's
+    /// semantics (`dock_close_action`): a live run of the caller's is KILLED
+    /// (confirmed), an ended one's transcript tab closes.
+    pub(crate) fn close_session_row(
+        &mut self,
+        session_id: &str,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let screen = Screen::Session {
+            session_id: session_id.to_string(),
+        };
+        let close = self.dock_close_action(&screen, cx);
+        self.run_dock_close(&close, window, cx);
+    }
+
+    /// The row ids of this panel's open session tabs, in tab order — EXP-791:
+    /// the rail's Sessions rows lead with them (`sidebar::rail_session_rows`).
+    pub(crate) fn open_session_ids(&self) -> Vec<String> {
         self.tabs
             .iter()
             .filter_map(|tab| match &tab.screen {
@@ -1182,17 +1201,20 @@ impl ScreensPanel {
         let new = Screen::Session {
             session_id: session_id.to_string(),
         };
-        if resolved_screen(&self.nav, cx).as_ref() == Some(&old) {
-            // EXP-48's in-place swap: `sync_tabs` consumes the marker,
-            // keeps the tab's slot and origin, and builds the new view.
-            crate::navigation::replace_screen(window, cx, new);
-        } else if let Some(ix) = self.tabs.iter().position(|tab| tab.screen == old) {
-            // A background tab: nothing is navigating, so swap its
-            // identity directly (its view, if it has one, is dropped
-            // below and rebuilt when the tab is next activated).
-            self.tabs[ix].screen = new;
+        if let Some(ix) = self.tabs.iter().position(|tab| tab.screen == old) {
+            // The tab keeps its slot and origin; only its identity changes
+            // (its view, if it has one, is dropped below and rebuilt by
+            // `sync_tabs` when the tab is next activated). EXP-791: the
+            // in-place navigation marker that used to do this for the ACTIVE
+            // tab is gone with the prev/next switcher — a plain `set_screen`
+            // onto the already-renamed tab is the same swap without it.
+            self.tabs[ix].screen = new.clone();
         }
+        let active = resolved_screen(&self.nav, cx).as_ref() == Some(&old);
         self.shutdown_session_view(&old, cx);
+        if active {
+            set_screen(window, cx, Some(new));
+        }
         true
     }
 
@@ -1276,18 +1298,6 @@ impl ScreensPanel {
         set_screen(window, cx, Some(entry.screen));
     }
 
-    /// The ACTIVE tab's remembered origin (EXP-426): the issue header's
-    /// prev/next switcher steps the list the tab was opened from, not
-    /// whatever the rail happens to show now. `None` when the active screen
-    /// has no tab (or no screen is active).
-    pub(crate) fn active_tab_origin(&self, cx: &App) -> Option<TabOrigin> {
-        let active = resolved_screen(&self.nav, cx)?;
-        self.tabs
-            .iter()
-            .find(|tab| tab.screen == active)
-            .map(|tab| tab.origin.clone())
-    }
-
     /// Close the tab at `ix`. Closing the active tab activates its right
     /// neighbor (else the new last); closing the last clears the center.
     /// Direct tab management never touches the back stack.
@@ -1316,12 +1326,16 @@ impl ScreensPanel {
         // Closing (or undocking) the active issue tab unmounts the detail's
         // description editor without a blur — flush the pending edit so it
         // is written before teardown (EXP-68).
-        if matches!(self.tabs[ix].screen, Screen::IssueDetail { .. }) {
+        if let Screen::IssueDetail { issue_id } = &self.tabs[ix].screen {
+            let issue_id = issue_id.clone();
             self.issue_detail.update(cx, |detail, cx| {
                 // EXP-781: the title saves on blur too, so closing straight
                 // from a half-typed title dropped it.
                 detail.flush_title(cx);
                 detail.flush_description(cx);
+                // EXP-791: the run slid in over this issue goes with the tab
+                // (its feed, never the run).
+                detail.drop_steering_for(&issue_id, cx);
             });
         }
         let closed = self.tabs.remove(ix);
@@ -1368,29 +1382,19 @@ impl ScreensPanel {
         }
     }
 
-    /// EXP-769: the session bar's entries, in bar order — the open
-    /// session/terminal tabs first (tab order), then the caller's live runs
-    /// that have no tab yet (newest start first, the web `running` order).
-    /// A run hosted on THIS process's PTY path is its terminal tab, never a
-    /// second entry.
-    fn dock_entries(&self, cx: &mut App) -> Vec<DockEntry> {
-        let mut entries: Vec<DockEntry> = self
-            .tabs
+    /// EXP-769/EXP-791: the session bar's entries, in bar order — the open
+    /// TERMINAL tabs. Sessions live in the rail's Sessions section now
+    /// ([`Self::rail_session_ids`]).
+    fn dock_entries(&self) -> Vec<DockEntry> {
+        self.tabs
             .iter()
             .enumerate()
-            .filter(|(_, tab)| tab.screen.is_dock_tab())
-            .map(|(ix, tab)| DockEntry::Open {
+            .filter(|(_, tab)| matches!(tab.screen, Screen::Terminal { .. }))
+            .map(|(ix, tab)| DockEntry {
                 ix,
                 screen: tab.screen.clone(),
             })
-            .collect();
-        let open: std::collections::HashSet<String> = self.open_session_ids().into_iter().collect();
-        for session_id in crate::session_bar::running_session_ids(cx) {
-            if !open.contains(&session_id) {
-                entries.push(DockEntry::Running { session_id });
-            }
-        }
-        entries
+            .collect()
     }
 
     /// Close every TOP-strip tab except `ix` (EXP-235 context menu). The kept
@@ -1582,20 +1586,6 @@ impl ScreensPanel {
 
         let gaps = rich_tab_child_gap(window) * children.len().saturating_sub(1) as f32;
         CHIP_PADDING_REMS * rem + gaps + children.into_iter().sum::<f32>()
-    }
-
-    /// EXP-769: [`Self::measure_chip_width`] for a session-bar entry that is
-    /// not an open tab yet — same chip, same close slot.
-    fn measure_screen_chip_width(&self, screen: &Screen, window: &Window, cx: &App) -> f32 {
-        let entry = TabEntry {
-            screen: screen.clone(),
-            origin: TabOrigin {
-                tool: ToolWindow::Inbox,
-                board_id: None,
-                inbox_tab: None,
-            },
-        };
-        self.measure_chip_width(&entry, window, cx)
     }
 
     /// EXP-277: the hand-rolled rounded tab strip. Hosted INSIDE the titlebar
@@ -1852,19 +1842,18 @@ impl ScreensPanel {
         }
     }
 
-    /// EXP-769: the bottom session bar's TABS — the web `AgentDock`'s
-    /// `tablist`: one rich tab per [`DockEntry`], the ACTIVE one following the
-    /// screen the center shows, the rest folding into "+N" past `available`
-    /// (the same measured partition as the top strip). Hosted by the
-    /// [`crate::session_bar::SessionBar`], which wraps it with the Chat and
-    /// `+` buttons and records `available` off its own painted slot.
+    /// EXP-769: the bottom session bar's TABS — one rich tab per
+    /// [`DockEntry`], the ACTIVE one following the screen the center shows,
+    /// the rest folding into "+N" past `available` (the same measured
+    /// partition as the top strip). Hosted by the
+    /// [`crate::session_bar::SessionBar`], which appends the `+` button and
+    /// records `available` off its own painted slot. EXP-791: terminal chips
+    /// only — sessions are rail rows now.
     ///
-    /// The trailing ×, web semantics: a LIVE session's × kills it (confirmed,
-    /// `useKillSession`) — its tab would only come straight back as a running
-    /// entry otherwise; an ENDED session's × closes the transcript tab; a
-    /// terminal's × closes the terminal (kills the child). Middle-click is
-    /// the same. A terminal chip's context menu adds "Open in new window"
-    /// (EXP-65's terminal undock) — the only place that affordance is left.
+    /// The trailing ×: a terminal's × closes the terminal (kills the child).
+    /// Middle-click is the same. The chip's context menu adds "Open in new
+    /// window" (EXP-65's terminal undock) — the only place that affordance is
+    /// left.
     pub(crate) fn render_session_bar_tabs(
         &mut self,
         available: f32,
@@ -1872,20 +1861,15 @@ impl ScreensPanel {
         window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
-        let entries = self.dock_entries(cx);
+        let entries = self.dock_entries();
         let active = resolved_screen(&self.nav, cx);
         let active_pos = active
             .as_ref()
-            .and_then(|screen| entries.iter().position(|entry| &entry.screen() == screen));
+            .and_then(|screen| entries.iter().position(|entry| &entry.screen == screen));
         let count = entries.len();
         let widths: Vec<f32> = entries
             .iter()
-            .map(|entry| match entry {
-                DockEntry::Open { ix, .. } => self.measure_chip_width(&self.tabs[*ix], window, cx),
-                DockEntry::Running { .. } => {
-                    self.measure_screen_chip_width(&entry.screen(), window, cx)
-                }
-            })
+            .map(|entry| self.measure_chip_width(&self.tabs[entry.ix], window, cx))
             .collect();
         let visible = partition_tabs(
             &widths,
@@ -1896,7 +1880,7 @@ impl ScreensPanel {
         );
         let hidden: Vec<Screen> = (0..count)
             .filter(|pos| !visible.contains(pos))
-            .map(|pos| entries[pos].screen())
+            .map(|pos| entries[pos].screen.clone())
             .collect();
 
         let panel = cx.entity().downgrade();
@@ -1904,7 +1888,7 @@ impl ScreensPanel {
             .into_iter()
             .map(|pos| {
                 let entry = &entries[pos];
-                let screen = entry.screen();
+                let screen = entry.screen.clone();
                 let content = chip_content(&screen, cx);
                 let mut tab = crate::surface::RichTab::new(
                     ("session-bar-tab", pos),
@@ -1983,10 +1967,9 @@ impl ScreensPanel {
             })
             .collect();
 
-        // The Chat and `+` buttons ride right AFTER the last tab (the
-        // JetBrains placement the retired dock used, and what the issue asked
-        // for), inside the same slot — the partition above reserved their
-        // width.
+        // The `+` button rides right AFTER the last tab (the JetBrains
+        // placement the retired dock used), inside the same slot — the
+        // partition above reserved its width.
         h_flex()
             .id("session-bar-tabs")
             .min_w_0()

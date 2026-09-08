@@ -9,15 +9,19 @@
 //!   toggle, no logo). Top: the team switcher + Search + New issue header
 //!   ([`RailView::render_header`]). Middle (scrolling): the tool-window
 //!   selectors — **Inbox / Support / Devices / Actions / Automations /
-//!   Reviews**, the team's boards, then **Files / Source Control** (Source
-//!   Control carries an amber badge while the trunk needs attention — a
-//!   paused conflict, local commits, or a dirty tree, EXP-346 — and opens the
-//!   changes screen immediately). Tool glyphs stay WHITE selected or not
-//!   (EXP-635); the row fill IS the selection. One tool is ALWAYS active —
-//!   re-clicking never unselects. Bottom: the "What's new" card, the muted
-//!   Getting-started row, the sync spinner, then the account button with the
-//!   settings gear on its right. The account dropdown is the web's exactly:
-//!   What's new, About, Sign out (team switching lives in the header).
+//!   Reviews / Agent**, the team's boards, the **Sessions** section (EXP-791:
+//!   one row per open session tab or live run of the caller's — the rail is
+//!   the ONE navigation for coding sessions; hidden while empty), then
+//!   **This device**: **Files / Source Control** (Source Control carries an
+//!   amber badge while the trunk needs attention — a paused conflict, local
+//!   commits, or a dirty tree, EXP-346 — and opens the changes screen
+//!   immediately). Tool glyphs stay WHITE selected or not (EXP-635); the row
+//!   fill IS the selection. One tool is ALWAYS active — re-clicking never
+//!   unselects. Bottom: the "What's new" card, the muted Getting-started row,
+//!   the sync spinner, then the account button with the new-terminal button
+//!   and the settings gear on its right. The account dropdown is the web's
+//!   exactly: What's new, About, Sign out (team switching lives in the
+//!   header).
 //! - [`SidebarPanel`] — the tool-window column right of the rail (a resizable
 //!   pane INSIDE the dock-area center, so the bottom session bar runs
 //!   beneath it): the active tool window's content. Issue tools are mini
@@ -569,6 +573,9 @@ pub(crate) enum RailBadge {
     Dot(Hsla),
     Icon(ExpIcon, Hsla),
     Syncing,
+    /// EXP-791: a Sessions row whose agent is working — the plain spinner
+    /// (not the Source Control refresh glyph: nothing is being pulled).
+    Working,
 }
 
 /// One badge element at `glyph_px` (dots keep their fixed 6px regardless).
@@ -594,6 +601,70 @@ fn rail_badge_element(badge: RailBadge, glyph_px: f32, cx: &App) -> gpui::AnyEle
                     .color(cx.theme().muted_foreground),
             )
             .into_any_element(),
+        RailBadge::Working => div()
+            .flex_shrink_0()
+            .child(
+                Spinner::new()
+                    .with_size(px(glyph_px))
+                    .color(cx.theme().muted_foreground),
+            )
+            .into_any_element(),
+    }
+}
+
+/// EXP-791: the rail's Sessions rows, in order — this window's OPEN session
+/// tabs first (tab order, so a row never jumps when its run ends), then the
+/// caller's live runs that have no tab yet (`session_bar::running_session_ids`
+/// order: newest start first). The exact order the retired session-bar
+/// entries had. Pure, so the rule is unit-tested.
+pub(crate) fn rail_session_rows(open_tabs: &[String], running: &[String]) -> Vec<String> {
+    let mut rows: Vec<String> = open_tabs.to_vec();
+    for session_id in running {
+        if !rows.iter().any(|open| open == session_id) {
+            rows.push(session_id.clone());
+        }
+    }
+    rows
+}
+
+/// EXP-791: what a Sessions row's badge says about its run. Derived from the
+/// synced row (`ended`), the host's presence (`paused`, EXP-696) and the
+/// `needs_input` attention flag — in that precedence: an ended run has no
+/// badge at all, a paused host shows nothing either (its row dims), and only
+/// a run that is actually working spins or asks for input.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SessionRowState {
+    /// The transcript of a finished run (an open tab).
+    Ended,
+    /// Live, but its host is offline — nothing is happening.
+    Paused,
+    /// The agent is working.
+    Working,
+    /// The agent waits on a plan approval / question.
+    NeedsInput,
+}
+
+pub(crate) fn session_row_state(ended: bool, paused: bool, needs_input: bool) -> SessionRowState {
+    if ended {
+        SessionRowState::Ended
+    } else if paused {
+        SessionRowState::Paused
+    } else if needs_input {
+        SessionRowState::NeedsInput
+    } else {
+        SessionRowState::Working
+    }
+}
+
+impl SessionRowState {
+    /// The row's trailing badge: a spinner while working, the amber dot
+    /// while the agent waits (the Devices entry's palette), nothing else.
+    fn badge(self) -> Option<RailBadge> {
+        match self {
+            SessionRowState::Working => Some(RailBadge::Working),
+            SessionRowState::NeedsInput => Some(RailBadge::Dot(theme::tokens::YELLOW.to_hsla())),
+            SessionRowState::Ended | SessionRowState::Paused => None,
+        }
     }
 }
 
@@ -650,6 +721,11 @@ pub struct RailView {
     /// EXP-285: the rail spans the titlebar strip now — its top 34px are a
     /// window-drag region (the vendored `TitleBar` `should_move` pattern).
     should_move: bool,
+    /// EXP-791: the Sessions section lists this window's open session tabs,
+    /// so the rail repaints when the screens panel's tabs change. Resolved
+    /// lazily on the first render (the panel is built after the rail), the
+    /// `session_bar` recipe.
+    observe_screens: Option<Subscription>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -662,6 +738,7 @@ impl RailView {
         let avatar_cache = crate::user_avatar::AvatarCache::global(cx);
         let getting_started = crate::getting_started::GettingStartedProgress::global(cx);
         let coding_hub = coding_flow::CodingHub::global(cx);
+        let local_sessions = coding_flow::LocalSessions::global(cx);
         let subscriptions = vec![
             cx.observe(&shared, |_, _, cx| cx.notify()),
             cx.observe(&nav, |_, _, cx| cx.notify()),
@@ -677,6 +754,10 @@ impl RailView {
             cx.observe(&collections.notifications, |_, _, cx| cx.notify()),
             // The Devices dot is a live read over my coding_sessions rows.
             cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()),
+            // EXP-791: the Sessions rows include the runs THIS process hosts
+            // (and their paused edge reads the devices rows below).
+            cx.observe(&local_sessions, |_, _, cx| cx.notify()),
+            cx.observe(&collections.devices, |_, _, cx| cx.notify()),
             // EXP-311: the account button's avatar rides the users shape
             // (profile image URL) plus the async avatar-byte cache.
             cx.observe(&collections.users, |_, _, cx| cx.notify()),
@@ -700,8 +781,140 @@ impl RailView {
             last_branch: None,
             rail_scroll: ScrollHandle::new(),
             should_move: false,
+            observe_screens: None,
             _subscriptions: subscriptions,
         }
+    }
+
+    /// EXP-791: a muted section label ("Boards", "Sessions", "This device").
+    fn section_label(&self, text: &'static str, cx: &App) -> gpui::Div {
+        h_flex()
+            .w_full()
+            .h(px(24.))
+            .pl_1p5()
+            .pr_0p5()
+            .items_center()
+            .child(
+                div()
+                    .flex_1()
+                    .text_xs()
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(cx.theme().sidebar_foreground.opacity(0.5))
+                    .child(text),
+            )
+    }
+
+    /// EXP-791: the Sessions section's rows — one per open session tab or
+    /// live run of the caller's ([`rail_session_rows`]), labelled like the
+    /// run's screen title, a spinner while the agent works and an amber dot
+    /// while it waits; the row highlights when its run is what the center
+    /// shows, on its own screen OR slid in over its issue. Clicking opens the
+    /// run the way every entry point does (`session_screen::open_session`);
+    /// an ended run's row carries the × that closes its transcript tab (a
+    /// live run is stopped from its own header). Empty when nothing is up —
+    /// the caller hides the section.
+    fn render_session_rows(
+        &mut self,
+        window: &Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Vec<gpui::AnyElement> {
+        let Some(screens) = crate::screens::screens_for_window(window, cx) else {
+            return Vec::new();
+        };
+        if self.observe_screens.is_none() {
+            self.observe_screens = Some(cx.observe(&screens, |_, _, cx| cx.notify()));
+        }
+        let open = screens.read(cx).open_session_ids();
+        let ids = rail_session_rows(&open, &crate::session_bar::running_session_ids(cx));
+        if ids.is_empty() {
+            return Vec::new();
+        }
+        let steering = screens.read(cx).steering_session_id(cx);
+        let active_screen = resolved_screen(&self.nav, cx);
+        let store = Store::global(cx);
+        let collections = store.collections().clone();
+        let now = chrono::Utc::now().timestamp();
+        ids.into_iter()
+            .enumerate()
+            .map(|(index, session_id)| {
+                let screen = Screen::Session {
+                    session_id: session_id.clone(),
+                };
+                let title = crate::navigation::screen_title(&screen, cx);
+                let state = {
+                    let sessions = collections.coding_sessions.read(cx);
+                    match sessions.get(&session_id) {
+                        Some(row) => {
+                            let ended = row.status.as_deref()
+                                == Some(domain::contract::CODING_SESSION_STATUS_ENDED);
+                            let pr_state = row
+                                .issue_id
+                                .as_deref()
+                                .and_then(|issue_id| {
+                                    collections.issues.read(cx).get(issue_id).cloned()
+                                })
+                                .and_then(|issue| issue.pr_state)
+                                .or_else(|| row.pr_state.clone());
+                            let display =
+                                queries::coding_session_display(row, pr_state.as_deref());
+                            let presentation = queries::session_device_presentation(
+                                row,
+                                collections.devices.read(cx).iter(),
+                                now * 1_000,
+                            );
+                            session_row_state(
+                                ended,
+                                queries::session_is_paused(display, &presentation),
+                                display == queries::CodingSessionDisplay::NeedsInput,
+                            )
+                        }
+                        // No row yet (a local start ahead of its echo): it is
+                        // live by definition.
+                        None => SessionRowState::Working,
+                    }
+                };
+                let active = active_screen.as_ref() == Some(&screen)
+                    || steering.as_deref() == Some(session_id.as_str());
+                let icon = Icon::new(match state {
+                    SessionRowState::Ended => registry::CODING_ENDED,
+                    SessionRowState::NeedsInput => registry::CODING_NEEDS_INPUT,
+                    SessionRowState::Paused | SessionRowState::Working => registry::CODING_RUNNING,
+                });
+                let open_id = session_id.clone();
+                let mut row = rail_row(
+                    ("rail-session", index),
+                    icon,
+                    title,
+                    active,
+                    state.badge(),
+                    cx,
+                )
+                .when(state == SessionRowState::Paused, |row| row.opacity(0.6))
+                .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                    crate::session_screen::open_session(&open_id, window, cx);
+                }));
+                if state == SessionRowState::Ended {
+                    let screens = screens.clone();
+                    let close_id = session_id.clone();
+                    row = row.child(
+                        Button::new(("rail-session-close", index))
+                            .ghost()
+                            .cursor_pointer()
+                            .xsmall()
+                            .icon(registry::UI_CLOSE)
+                            .tooltip("Close transcript")
+                            .on_click(move |_, window, cx| {
+                                cx.stop_propagation();
+                                let close_id = close_id.clone();
+                                screens.update(cx, |screens, cx| {
+                                    screens.close_session_row(&close_id, window, cx);
+                                });
+                            }),
+                    );
+                }
+                row.into_any_element()
+            })
+            .collect()
     }
 
     /// EXP-533: the rail footer's "still catching up" spinner. It answers
@@ -780,12 +993,14 @@ impl RailView {
             .into_any_element()
     }
 
-    /// EXP-480: whether a tab-less FULL-PAGE screen (Devices / Actions /
-    /// Automations / Reviews / Getting started) owns the center. While one is
-    /// up the tool column is unmounted, so no tool or board entry may read as
-    /// selected — exactly one rail entry highlights, like a tool switch.
+    /// EXP-480: whether a FULL-WIDTH screen (Devices / Actions / Automations
+    /// / Reviews / Agent / Getting started — and, EXP-791, a session or a
+    /// terminal) owns the center. While one is up the tool column is
+    /// unmounted, so no tool or board entry may read as selected — exactly
+    /// one rail entry highlights (a page's own row, or a Sessions row), like
+    /// a tool switch.
     fn full_page_screen_up(&self, cx: &mut gpui::Context<Self>) -> bool {
-        resolved_screen(&self.nav, cx).is_some_and(|screen| screen.is_rail_full_page())
+        resolved_screen(&self.nav, cx).is_some_and(|screen| screen.is_full_width())
     }
 
     /// A rail entry that navigates STRAIGHT to a tab-less full-page screen
@@ -1324,20 +1539,7 @@ impl Render for RailView {
         // label with a trailing `+`.
         let boards_header: Option<gpui::AnyElement> =
             active_team.clone().map(|team_id| {
-                h_flex()
-                    .w_full()
-                    .h(px(24.))
-                    .pl_1p5()
-                    .pr_0p5()
-                    .items_center()
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_xs()
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_color(cx.theme().sidebar_foreground.opacity(0.5))
-                            .child("Boards"),
-                    )
+                self.section_label("Boards", cx)
                     .child(
                         Button::new("rail-new-board")
                             .ghost().cursor_pointer()
@@ -1352,6 +1554,17 @@ impl Render for RailView {
                     )
                     .into_any_element()
             });
+        // EXP-791: the Sessions section — hidden while nothing is up.
+        let session_rows = self.render_session_rows(window, cx);
+        let sessions_section: Option<gpui::AnyElement> = (!session_rows.is_empty()).then(|| {
+            v_flex()
+                .w_full()
+                .gap_1()
+                .child(self.divider(cx))
+                .child(self.section_label("Sessions", cx))
+                .children(session_rows)
+                .into_any_element()
+        });
 
         // Source Control badge (EXP-253 — the git bar is headless now, this
         // badge is its whole rail presence): attention (conflict / local
@@ -1465,6 +1678,17 @@ impl Render for RailView {
             .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
                 navigate(window, cx, Screen::Settings)
             }));
+        // EXP-791: a new terminal, from the footer — the session bar's `+`
+        // moved here, since the bar is gone while no terminal is open. A
+        // direct call (EXP-17), the same shell tab cmd-t opens.
+        let terminal_entry = Button::new("rail-new-terminal")
+            .ghost().cursor_pointer()
+            .small()
+            .icon(registry::NAV_TERMINAL)
+            .tooltip("New terminal")
+            .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
+                crate::session_bar::open_new_shell(window, cx);
+            }));
 
         v_flex()
             .w(px(RAIL_W))
@@ -1494,8 +1718,9 @@ impl Render for RailView {
             .child(self.divider(cx))
             // Middle zone — scrollable so many boards never push the pinned
             // Settings/Account off small windows. Rail order (EXP-699, the
-            // mobile tab-bar order): [Inbox, Support, Devices, Actions,
-            // Automations, Reviews] / boards + "+" / [Files, Source Control].
+            // mobile tab-bar order; EXP-791 added Agent and Sessions):
+            // [Inbox, Support, Devices, Actions, Automations, Reviews, Agent]
+            // / boards + "+" / Sessions / This device: [Files, Source Control].
             .child(crate::scroll_pane::v_scroll_pane(
                 "rail-scroll",
                 &self.rail_scroll,
@@ -1550,11 +1775,23 @@ impl Render for RailView {
                         has_reviews.then(|| RailBadge::Dot(theme::tokens::GREEN.to_hsla())),
                         cx,
                     ))
+                    // EXP-791: the Chat page (EXP-772) is a rail destination
+                    // — "Agent", the web sidebar's word for it.
+                    .child(self.rail_screen_entry(
+                        "rail-agent",
+                        Icon::from(registry::ACTION_CHAT),
+                        "Agent",
+                        Screen::Chat,
+                        None,
+                        cx,
+                    ))
                     .child(self.divider(cx))
                     .children(boards_header)
                     .children(board_icons)
+                    .children(sessions_section)
                     .child(self.divider(cx))
-                    // Repo tool windows.
+                    // Repo tool windows — this machine's trunk clone.
+                    .child(self.section_label("This device", cx))
                     .child(self.rail_tool_icon(
                         "rail-files",
                         Icon::new(registry::NAV_FILES),
@@ -1581,7 +1818,7 @@ impl Render for RailView {
             .children(getting_started_icon)
             .children(self.render_sync_indicator(cx))
             // EXP-340: one bottom row — the account button fills the width,
-            // the gear rides its right edge.
+            // the terminal button and the gear ride its right edge.
             .child(
                 h_flex()
                     .w_full()
@@ -1593,6 +1830,7 @@ impl Render for RailView {
                             .min_w_0()
                             .child(self.render_account_button(cx)),
                     )
+                    .child(terminal_entry)
                     .child(settings_entry),
             )
     }
@@ -2706,5 +2944,50 @@ impl Render for SidebarPanel {
                 ToolWindow::SourceControl => self.render_source_control_tool(cx),
             })
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{rail_session_rows, session_row_state, SessionRowState};
+
+    fn ids(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+
+    /// EXP-791: open tabs keep their tab order and come first; live runs
+    /// without a tab follow in their own (newest-first) order; a run that is
+    /// both open and live is listed once, in its tab slot.
+    #[test]
+    fn session_rows_are_open_tabs_then_tabless_live_runs() {
+        assert_eq!(
+            rail_session_rows(&ids(&["s2", "s1"]), &ids(&["s3", "s1", "s4"])),
+            ids(&["s2", "s1", "s3", "s4"])
+        );
+        assert_eq!(rail_session_rows(&[], &ids(&["s3"])), ids(&["s3"]));
+        assert_eq!(rail_session_rows(&ids(&["s1"]), &[]), ids(&["s1"]));
+        assert!(rail_session_rows(&[], &[]).is_empty());
+    }
+
+    /// EXP-791: ended beats paused beats needs-input — a finished run never
+    /// spins or asks, an offline host never claims to be working, and only a
+    /// live run on a present host gets the amber dot or the spinner.
+    #[test]
+    fn session_row_state_precedence() {
+        assert_eq!(session_row_state(true, true, true), SessionRowState::Ended);
+        assert_eq!(session_row_state(false, true, true), SessionRowState::Paused);
+        assert_eq!(session_row_state(false, false, true), SessionRowState::NeedsInput);
+        assert_eq!(session_row_state(false, false, false), SessionRowState::Working);
+        // Only working and needs-input carry a badge.
+        assert!(SessionRowState::Ended.badge().is_none());
+        assert!(SessionRowState::Paused.badge().is_none());
+        assert!(matches!(
+            SessionRowState::Working.badge(),
+            Some(super::RailBadge::Working)
+        ));
+        assert!(matches!(
+            SessionRowState::NeedsInput.badge(),
+            Some(super::RailBadge::Dot(_))
+        ));
     }
 }
