@@ -23,6 +23,7 @@ object DomainContract {
     val prStateValues: List<String> = listOf("open", "closed", "merged", "draft")
     val codingSessionStatusValues: List<String> = listOf("running", "in_review", "ended")
     val codingSessionEndedByValues: List<String> = listOf("agent", "user", "client", "merge", "system")
+    val toolKindValues: List<String> = listOf("read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "other")
     val subscriberSourceValues: List<String> = listOf("creator", "assignee", "commenter", "manual", "mention", "widget_reporter")
     val issueEventTypeValues: List<String> = listOf("status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved", "created", "priority_changed", "relation_added", "relation_removed")
     val issueRelationTypeValues: List<String> = listOf("blocks", "parent", "duplicate", "related")
@@ -63,6 +64,8 @@ object DomainContract {
     const val steerFeedWindow: Int = 1500
     const val steerFeedWindowStep: Int = 500
     const val steerFeedHistoryPageMax: Int = 200
+    const val steerFeedToolDiffMaxLines: Int = 200
+    const val steerFeedToolDiffMaxBytes: Int = 16384
 
     const val issueStatusCategoryBacklog: String = "backlog"
     const val issueStatusCategoryUnstarted: String = "unstarted"

@@ -21,6 +21,7 @@ pub const NOTIFICATION_TYPE_VALUES: &[&str] = &["issue_assigned", "issue_comment
 pub const PR_STATE_VALUES: &[&str] = &["open", "closed", "merged", "draft"];
 pub const CODING_SESSION_STATUS_VALUES: &[&str] = &["running", "in_review", "ended"];
 pub const CODING_SESSION_ENDED_BY_VALUES: &[&str] = &["agent", "user", "client", "merge", "system"];
+pub const TOOL_KIND_VALUES: &[&str] = &["read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "other"];
 pub const SUBSCRIBER_SOURCE_VALUES: &[&str] = &["creator", "assignee", "commenter", "manual", "mention", "widget_reporter"];
 pub const ISSUE_EVENT_TYPE_VALUES: &[&str] = &["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved", "created", "priority_changed", "relation_added", "relation_removed"];
 pub const ISSUE_RELATION_TYPE_VALUES: &[&str] = &["blocks", "parent", "duplicate", "related"];
@@ -61,6 +62,8 @@ pub const STEER_FEED_ITEM_OVERHEAD_BYTES: usize = 96;
 pub const STEER_FEED_WINDOW: usize = 1500;
 pub const STEER_FEED_WINDOW_STEP: usize = 500;
 pub const STEER_FEED_HISTORY_PAGE_MAX: u32 = 200;
+pub const STEER_FEED_TOOL_DIFF_MAX_LINES: usize = 200;
+pub const STEER_FEED_TOOL_DIFF_MAX_BYTES: usize = 16384;
 
 pub const ISSUE_STATUS_CATEGORY_BACKLOG: &str = "backlog";
 pub const ISSUE_STATUS_CATEGORY_UNSTARTED: &str = "unstarted";
