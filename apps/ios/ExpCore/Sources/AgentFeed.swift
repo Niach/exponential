@@ -288,6 +288,32 @@ public struct AgentModeChip: Equatable, Sendable {
 
 /// One rendered feed entry. Diffs never enter the feed — the latest one lives
 /// behind the pinned "Latest changes" chip.
+/// EXP-788: where the composer's typed text goes while a card is pending.
+public enum ComposerAnswerRoute: Equatable, Sendable {
+    /// A plan card: the text is feedback. The card is DENIED with `rejectKey`
+    /// ("No, keep planning" — the engine's deny interrupts the turn) and the
+    /// text follows as the next message, which is what the option's own
+    /// description promises.
+    case plan(question: AgentQuestion, rejectKey: String)
+    /// A question card with a free-text row: the text IS the answer, riding
+    /// the `answer` frame's `text` under that row's key (EXP-513).
+    case freeText(question: AgentQuestion, key: String)
+
+    public var question: AgentQuestion {
+        switch self {
+        case let .plan(question, _), let .freeText(question, _): return question
+        }
+    }
+
+    /// The composer placeholder for this route.
+    public var placeholder: String {
+        switch self {
+        case .plan: return AgentFeed.planPendingPlaceholder
+        case .freeText: return AgentFeed.questionPendingPlaceholder
+        }
+    }
+}
+
 public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     /// `messageId` (EXP-772) is the ACP id of the assistant message this prose
     /// came out of — the engine flushes a message in several events, and
@@ -898,6 +924,52 @@ public enum AgentFeed {
             resetsAt: (resetsAt ?? -1) >= 0 ? resetsAt : nil,
             message: string(event["message"])?.trimmingCharacters(in: .whitespacesAndNewlines)
         )
+    }
+
+    // MARK: - Composer answer routing (EXP-788)
+
+    /// The composer's placeholder while nothing is pending.
+    public static let composerPlaceholder = "Message the agent…"
+    /// EXP-788: the composer IS the free answer of a pending card, and the
+    /// placeholder says which. Byte-identical ×4 (web `agent-session.tsx`).
+    public static let planPendingPlaceholder = "Tell the agent what to change, or pick an option above"
+    public static let questionPendingPlaceholder = "Answer directly, or pick an option above"
+    /// The multi-select submit label, byte-identical ×4.
+    public static let submitLabel = "Submit"
+
+    /// The card the composer answers (EXP-788): the FIRST still-active,
+    /// unlocked question in feed order — an ask's current step, or the lone
+    /// plan/question card the run is blocked on. Feed order rather than the
+    /// newest card because a stepper's steps all stay active until the ask
+    /// resolves and only the earliest unanswered one is the current step.
+    public static func pendingCard(
+        _ feed: [AgentFeedItem], active: Set<Int>, isLocked: (String) -> Bool
+    ) -> AgentQuestion? {
+        for item in feed {
+            guard let question = item.question, active.contains(question.id) else { continue }
+            if isLocked(question.lockKey) { continue }
+            return question
+        }
+        return nil
+    }
+
+    /// How the composer's typed text answers `question` (EXP-788), or nil when
+    /// the card takes no free answer (a plain permission card with fixed
+    /// options): the text then goes out as an ordinary message.
+    public static func composerAnswerRoute(for question: AgentQuestion) -> ComposerAnswerRoute? {
+        guard !question.resolved, !question.options.isEmpty else { return nil }
+        if question.planMode {
+            // "No, keep planning" is last by contract ("Sends your next
+            // message back to planning"); `reject` is its wire id whenever
+            // the engine named one.
+            let reject = question.options.first(where: { $0.key == "reject" })
+                ?? question.options[question.options.count - 1]
+            return .plan(question: question, rejectKey: reject.key)
+        }
+        if let free = question.options.first(where: { $0.freeText }) {
+            return .freeText(question: question, key: free.key)
+        }
+        return nil
     }
 
     /// Fold a `usage` activity event. Nil CLEARS the slot — a run whose engine

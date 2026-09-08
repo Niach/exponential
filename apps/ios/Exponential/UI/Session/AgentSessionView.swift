@@ -1521,11 +1521,10 @@ struct AgentSessionView: View {
         let attachDisabled = attachFull || model.steerSending
         return GlassComposer(isOpaque: true) {
             GlassTextField(
-                // A pending plan approval routes free text into the plan
-                // feedback flow (the desktop Esc's the picker and types the
-                // message) — say so instead of the generic prompt (EXP-529).
-                model.awaitingPlanApproval
-                    ? "Tell Claude what to change…" : "Message the agent…",
+                // EXP-788: the composer IS the free answer of a pending card
+                // — a plan's feedback or a question's typed reply — and the
+                // placeholder says which.
+                model.composerPlaceholder,
                 text: $model.draftText,
                 lines: 1...4,
                 bordered: false
@@ -2215,19 +2214,13 @@ private struct QuestionCard: View {
     @State private var expanded = false
     /// Tap order is the submit order of the semantic answer frame.
     @State private var picked: [String] = []
-    /// EXP-513: the freeText option whose inline input is open (its key).
-    @State private var freeTextKey: String?
-    @State private var freeTextValue = ""
-    @FocusState private var freeTextFocused: Bool
 
     private static let clampChars = 600
     private static let clampLines = 6
     private static let clampHeight: CGFloat = 160
-    /// The relay's answer frame rejects `text` past 4000 UTF-16 units WHOLE
-    /// (steer-relay protocol.ts — dropped, not truncated), so an oversize
-    /// reply would silently fail at the 8s lock and retry could never
-    /// succeed. Web caps via maxLength=4000, Android via .take(4000).
-    private static let freeTextMaxUtf16 = 4000
+    /// EXP-788: how many rows get a numbered chip — the desktop's keystrokes
+    /// are single digits.
+    private static let numberedRows = 9
 
     /// Plans are always fully rendered — never folded (EXP-197).
     private var clampable: Bool {
@@ -2254,7 +2247,13 @@ private struct QuestionCard: View {
     /// the option tap.
     private var needsExplicitSubmit: Bool { question.multiSelect }
 
-    private var submitTitle: String { "Submit" }
+    private var submitTitle: String { AgentFeed.submitLabel }
+
+    /// EXP-788: the rows drawn — a free-text row is gone (the composer IS the
+    /// free answer now, and its placeholder says so).
+    private var visibleOptions: [AgentQuestionOption] {
+        question.options.filter { !$0.freeText }
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -2377,46 +2376,36 @@ private struct QuestionCard: View {
         }
     }
 
+    /// EXP-788: every option is a real full-width button — a numbered chip
+    /// (1..9, the desktop's keystroke) or, on a multi-select, its checkbox,
+    /// then the label with the option's description under it. The wire's
+    /// first option of a plan is the primary action ("Yes" — the contract
+    /// puts it first) and wears the accent.
     @ViewBuilder
     private var optionList: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(question.options.enumerated()), id: \.element.key) { index, option in
+            ForEach(Array(visibleOptions.enumerated()), id: \.element.key) { index, option in
+                let primary = question.planMode && index == 0
                 if answerable {
-                    // The wire's first option of a plan is the primary approve
-                    // action ("Approve — auto-accept edits").
-                    let primary = question.planMode && index == 0
                     Button {
                         pick(option)
                     } label: {
-                        optionLabel(
+                        optionRow(
                             option,
-                            showKey: showsKeyBadge(option),
-                            checked: question.multiSelect
-                                ? picked.contains(option.key) : nil
+                            number: index + 1,
+                            primary: primary,
+                            checked: question.multiSelect ? picked.contains(option.key) : nil
                         )
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        // A plain-style button only hit-tests its drawn
-                        // content — the row's empty trailing space (most of
-                        // a short "Submit answers" option) ignored taps
-                        // (EXP-588). The shape makes the whole row the target.
-                        .contentShape(Rectangle())
                     }
-                    // glassRow, not glassButton: the capsule's height-derived
-                    // radius clipped multi-line option descriptions into an
-                    // ellipse (EXP-274).
-                    .glassRow(
-                        isActive: primary || picked.contains(option.key)
-                            || freeTextKey == option.key
-                    )
                     .buttonStyle(.plain)
                     .disabled(locked)
                     .opacity(locked ? 0.5 : 1)
+                    .accessibilityIdentifier("agent-question-option-\(index + 1)")
                 } else {
-                    optionLabel(
+                    optionRow(
                         option,
-                        showKey: showsKeyBadge(option),
+                        number: index + 1,
+                        primary: primary,
                         checked: question.multiSelect ? false : nil
                     )
                 }
@@ -2424,35 +2413,11 @@ private struct QuestionCard: View {
         }
     }
 
+    /// EXP-788: no in-card text field — the composer under the transcript is
+    /// the free answer (a plan's feedback, a question's typed reply). What is
+    /// left here is the multi-select Submit and the lock/retry captions.
     @ViewBuilder
     private var trailingActions: some View {
-        if answerable, freeTextKey != nil {
-            // EXP-513: the inline reply for the selected freeText row.
-            HStack(spacing: 6) {
-                TextField("Type your answer…", text: $freeTextValue)
-                    .textFieldStyle(.plain)
-                    .font(.caption)
-                    .foregroundStyle(.white)
-                    .focused($freeTextFocused)
-                    .onChange(of: freeTextValue) { _, newValue in
-                        freeTextValue = Self.capFreeText(newValue)
-                    }
-                    .onSubmit { submitFreeText() }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .glassRow(isActive: true)
-                let disabled = freeTextValue
-                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                GlassPill(
-                    "",
-                    mode: .select(isSelected: !disabled) { submitFreeText() },
-                    enabled: !disabled
-                ) {
-                    AppIcon(AppIcons.uiSend, size: GlassPillTokens.glyphSm)
-                }
-                .accessibilityLabel("Send")
-            }
-        }
         if answerable, needsExplicitSubmit {
             // Multi-select submits every picked key at once.
             let disabled = locked || picked.isEmpty
@@ -2485,14 +2450,6 @@ private struct QuestionCard: View {
         }
     }
 
-    /// The wire key doubles as the TUI hint badge — but only when it reads as
-    /// one: an ask's submit step carries `\r`, and a plan's approve action is
-    /// the primary button, not a keystroke.
-    private func showsKeyBadge(_ option: AgentQuestionOption) -> Bool {
-        guard !question.planMode else { return false }
-        return option.key.allSatisfy { $0.isLetter || $0.isNumber }
-    }
-
     private func pick(_ option: AgentQuestionOption) {
         guard !locked else { return }
         if question.multiSelect {
@@ -2504,38 +2461,8 @@ private struct QuestionCard: View {
             // The keys batch into the submit frame.
             return
         }
-        if option.freeText {
-            // EXP-513: collect the reply first — nothing is sent until it
-            // submits (the desktop types it into the TUI row).
-            freeTextKey = freeTextKey == option.key ? nil : option.key
-            freeTextFocused = freeTextKey != nil
-            return
-        }
         picked = [option.key]
         onAnswer([option.key], nil)
-    }
-
-    /// Truncate to the relay's 4000-UTF-16-unit answer cap, backing off one
-    /// unit rather than splitting a surrogate pair (4001 units would still
-    /// be dropped whole — same convention as `sendMessage`'s chunker).
-    private static func capFreeText(_ text: String) -> String {
-        let units = Array(text.utf16)
-        guard units.count > freeTextMaxUtf16 else { return text }
-        var end = freeTextMaxUtf16
-        if UTF16.isLeadSurrogate(units[end - 1]) { end -= 1 }
-        return String(decoding: units[0..<end], as: UTF16.self)
-    }
-
-    private func submitFreeText() {
-        guard !locked, let key = freeTextKey else { return }
-        let text = Self.capFreeText(
-            freeTextValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        )
-        guard !text.isEmpty else { return }
-        picked = [key]
-        onAnswer([key], text)
-        freeTextKey = nil
-        freeTextValue = ""
     }
 
     private func submit() {
@@ -2543,12 +2470,18 @@ private struct QuestionCard: View {
         onAnswer(picked, nil)
     }
 
-    private func optionLabel(
+    /// One option row (EXP-788): the whole width is the hit target (a
+    /// plain-style button only hit-tests what it draws, EXP-588), glassRow
+    /// rather than the capsule button whose height-derived radius clipped a
+    /// two-line description into an ellipse (EXP-274). The primary row is
+    /// stroked in the design-tokens blue.
+    private func optionRow(
         _ option: AgentQuestionOption,
-        showKey: Bool = true,
-        checked: Bool? = nil
+        number: Int,
+        primary: Bool,
+        checked: Bool?
     ) -> some View {
-        HStack(alignment: .top, spacing: 6) {
+        HStack(alignment: .top, spacing: 8) {
             if let checked {
                 // Multi-select rows carry an explicit checkbox (EXP-529) —
                 // the glassRow tint alone was too subtle to read the picked
@@ -2557,25 +2490,49 @@ private struct QuestionCard: View {
                     .foregroundStyle(
                         .white.opacity(checked ? TextOpacity.primary : TextOpacity.tertiary)
                     )
-                    .padding(.top, 1)
-            } else if showKey {
-                Text(option.key)
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .padding(.top, 2)
+            } else if number <= Self.numberedRows {
+                numberChip(number, primary: primary)
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(option.label)
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.leading)
-                if let description = option.description {
+                if let description = option.description, !description.isEmpty {
                     Text(description)
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .multilineTextAlignment(.leading)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
+        .glassRow(isActive: primary || checked == true)
+        .overlay(
+            RoundedRectangle(cornerRadius: GlassTokens.rowRadius)
+                .stroke(
+                    primary ? DesignTokens.Semantic.blue.opacity(0.6) : Color.clear,
+                    lineWidth: GlassTokens.hairline
+                )
+        )
+    }
+
+    /// The 1..9 chip — the keystroke the desktop would take. Filled with the
+    /// accent on the primary row, a quiet glass square elsewhere.
+    private func numberChip(_ number: Int, primary: Bool) -> some View {
+        Text("\(number)")
+            .font(.caption2.weight(.semibold).monospacedDigit())
+            .foregroundStyle(primary ? Color.white : .white.opacity(TextOpacity.secondary))
+            .frame(width: 18, height: 18)
+            .background(
+                primary ? DesignTokens.Semantic.blue : GlassTokens.fillActive,
+                in: RoundedRectangle(cornerRadius: 5)
+            )
+            .accessibilityHidden(true)
     }
 }
 

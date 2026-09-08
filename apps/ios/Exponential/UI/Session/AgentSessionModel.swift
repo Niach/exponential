@@ -114,8 +114,10 @@ final class AgentSessionModel {
     /// ever count down at the front by a finite amount).
     private static let windowFromStart = Int.min
     private(set) var activeQuestionIds: Set<Int> = []
+    /// EXP-788: the still-active question cards in feed order — what the
+    /// composer's answer routing walks (a handful at most) instead of the feed.
+    private var activeCards: [AgentQuestion] = []
     private(set) var subagents: [AgentSubagentRun] = []
-    private(set) var hasActivePlanCard = false
     /// Per-card answer lock (EXP-249): a tap locks its card immediately, the
     /// desktop's `answer_ack` makes that permanent (and advances a stepper),
     /// and an unanswered optimistic lock expires so the card stays retryable.
@@ -453,10 +455,27 @@ final class AgentSessionModel {
         }
         let active = AgentFeed.activeQuestionIds(feed)
         activeQuestionIds = active
-        hasActivePlanCard = feed.contains { item in
-            guard let question = item.question else { return false }
-            return question.planMode && active.contains(question.id)
+        activeCards = feed.compactMap { item in
+            guard let question = item.question, active.contains(question.id) else { return nil }
+            return question
         }
+    }
+
+    /// EXP-788: the pending card the composer answers, and how. Read at render
+    /// time over the cached active cards because the answer LOCK moves without
+    /// the feed changing (a tap, an ack, an expiry).
+    var composerRoute: ComposerAnswerRoute? {
+        guard phase == .live, !sessionEnded else { return nil }
+        guard let card = AgentFeed.pendingCard(
+            feed, active: activeQuestionIds, isLocked: { answerTracker.isLocked($0) }
+        ) else { return nil }
+        return AgentFeed.composerAnswerRoute(for: card)
+    }
+
+    /// The composer's placeholder: which card the text answers, else the
+    /// generic prompt.
+    var composerPlaceholder: String {
+        composerRoute?.placeholder ?? AgentFeed.composerPlaceholder
     }
 
     /// Questions whose answer is out — sent (optimistic lock) or confirmed
@@ -485,11 +504,6 @@ final class AgentSessionModel {
     /// Live but blocked on a trailing question/plan — the session is waiting
     /// for a human answer, not stuck (EXP-97).
     var awaitingInput: Bool { phase == .live && !activeQuestionIds.isEmpty }
-
-    /// A plan-approval card is up (EXP-529) — the composer IS the "tell
-    /// Claude what to change" path (the desktop Esc's the picker and types
-    /// the message), so the input row advertises it via its placeholder.
-    var awaitingPlanApproval: Bool { phase == .live && hasActivePlanCard }
 
     /// FEED-26: whole minutes this LIVE run's feed has said nothing, once past
     /// `AgentFeed.staleActivityAfter` — what the header prints as `No activity
@@ -872,9 +886,37 @@ final class AgentSessionModel {
     /// Returns whether the message actually went out (EXP-621): the composer
     /// stays usable while the socket is down, and a caller that cleared the
     /// draft on this no-op wiped it with nothing sent.
+    ///
+    /// EXP-788: while a card is pending, the text IS its free answer. A
+    /// question card with a free-text row takes it on the `answer` frame's
+    /// `text` (no message goes out); a plan card is denied first ("No, keep
+    /// planning" — the engine interrupts the turn) and the text follows as
+    /// the next message, which is what that option's description promises. A
+    /// slash command is never an answer, and a message carrying images
+    /// (`withImages`) never rides an answer frame — the desktop would type
+    /// the embed markup into the agent's answer row instead of fetching it.
     @discardableResult
-    func sendMessage(_ text: String) -> Bool {
+    func sendMessage(_ text: String, withImages: Bool = false) -> Bool {
         guard !text.isEmpty, connected else { return false }
+        if let route = composerRoute, pendingSlashCommand == nil {
+            switch route {
+            case let .freeText(question, key):
+                guard !withImages else { break }
+                let answer = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !answer.isEmpty else { return false }
+                sendAnswer(
+                    questionId: question.wireId, askId: question.askId,
+                    keys: [key], text: answer, labels: [answer]
+                )
+                return true
+            case let .plan(question, rejectKey):
+                let label = question.options.first(where: { $0.key == rejectKey })?.label ?? rejectKey
+                sendAnswer(
+                    questionId: question.wireId, askId: question.askId,
+                    keys: [rejectKey], labels: [label]
+                )
+            }
+        }
         // Chunk by UTF-16 code units, never splitting a surrogate pair —
         // web parity (agent-session.tsx extends the boundary by one unit
         // when it would land mid-pair; 4097 units still sit well under the
@@ -953,7 +995,7 @@ final class AgentSessionModel {
         }
         guard sendMessage(SteerImageMessage.build(
             text: text, attachmentIds: pending.compactMap(\.uploadedId)
-        )) else {
+        ), withImages: true) else {
             steerImageError = "Not connected. Wait for the session to reconnect."
             return pending
         }
