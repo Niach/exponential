@@ -1076,6 +1076,13 @@ fn dial_control(
             history_in_flight.clone(),
         );
     });
+    // EXP-796: "Load earlier" on a run this machine already replayed — the
+    // page comes off the same journal, back down the control socket.
+    let page_runtime = Arc::clone(runtime);
+    let page_dir = ctx.data_dir.clone();
+    let on_history_page: steer::HistoryPageFn = Arc::new(move |ask, reply| {
+        steer::serve_history_page(&page_runtime, page_dir.clone(), ask, reply);
+    });
     let control_api: Arc<dyn ControlApi> = Arc::new(TrpcControlApi(Arc::clone(&ctx.trpc)));
     Some(steer::spawn_control_channel(
         runtime,
@@ -1084,6 +1091,7 @@ fn dial_control(
         on_start,
         on_check_in,
         on_history_request,
+        on_history_page,
     ))
 }
 

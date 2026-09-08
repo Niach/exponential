@@ -133,6 +133,20 @@ interface Room {
    *  would receive the other's page). Dropped with the viewer, with the
    *  publisher the ask went to, with the room, and by its own timer. */
   historyPages: Map<string, HistoryPageAsk>
+  /** EXP-796: the machine this history room was opened AGAINST — the ticket's
+   *  device, under the account it is registered to. Set by `requestHistory`
+   *  and looked up LIVE on every page ask, so a device that re-dialed its
+   *  control socket in between still answers. Absent on a room a publisher
+   *  opened itself. */
+  historyDevice: { userId: string; deviceId: string } | null
+  /** EXP-796: the device replayed its journal and said `bye {outcome:
+   *  'history'}`; the room now LINGERS with no publisher so the parked
+   *  viewers can page ("Load earlier") down the device's control socket.
+   *  Closed by `lingerTimer`, by the last viewer leaving, or by the device
+   *  going away with a page in flight. */
+  historyServed: boolean
+  /** EXP-796: fires HISTORY_ROOM_LINGER_MS after the replay's `bye`. */
+  lingerTimer: ReturnType<typeof setTimeout> | null
 }
 
 /** One in-flight `history_page`: who gets the chunks, under which id THEY
@@ -214,6 +228,12 @@ const HISTORY_PAGES_IN_FLIGHT = 4
  *  after this belongs to a publisher that is gone — freed, or the room's
  *  in-flight cap would fill with dead asks and refuse every viewer. */
 const HISTORY_PAGE_TIMEOUT_MS = 20_000
+/** EXP-796: how long a history room stays up after the device's replay said
+ *  `bye {outcome:'history'}`. The parked viewers keep their sockets and page
+ *  older transcript through the device's control socket; the room goes when
+ *  this expires or the last viewer leaves, whichever is first, and viewers
+ *  never re-dial to page. */
+export const HISTORY_ROOM_LINGER_MS = 5 * 60_000
 
 function frame(msg: ServerFrame): string {
   return JSON.stringify(msg)
@@ -284,6 +304,13 @@ export class Hub {
   private historyPageTimeouts = 0
   /** EXP-795: numbers the relay-issued `history_page` ids. */
   private historyPageSeq = 0
+  /** EXP-796: `history_page` asks routed down a device's CONTROL socket (a
+   *  lingering history room has no publisher), and the two ways a lingering
+   *  room ends without its viewers leaving — the linger timer, and the device
+   *  going offline with a page in flight. */
+  private historyPagesViaDevice = 0
+  private historyRoomLingerExpiries = 0
+  private historyRoomDeviceLost = 0
 
   constructor() {
     // REV2-X: Start the idle publisher detector — checks every 30s for
@@ -386,6 +413,9 @@ export class Hub {
       if (byDevice?.get(conn.deviceId) === conn) {
         byDevice!.delete(conn.deviceId)
         if (byDevice!.size === 0) this.devices.delete(conn.claims.sub)
+        // EXP-796: a page ask went down THIS socket and nothing will answer
+        // it — the device is off the table, not merely replaced.
+        this.deviceLeftHistoryRooms(conn.claims.sub, conn.deviceId)
       }
     }
 
@@ -407,6 +437,11 @@ export class Hub {
     room.activityMembers.delete(conn)
     // EXP-783: a page this viewer asked for has nowhere to go now.
     this.dropHistoryPages(room, conn)
+    // EXP-796: a lingering history room exists for its viewers alone — the
+    // last one leaving takes it down (nobody is left to tell).
+    if (room.historyServed && room.activityMembers.size === 0) {
+      this.closeRoom(room, HISTORY_OUTCOME)
+    }
   }
 
   // ── Control frames ─────────────────────────────────────────────────────────
@@ -458,8 +493,16 @@ export class Hub {
             clearTimeout(room.historyTimer)
             room.historyTimer = null
           }
-          const servingHistory = room.pendingHistory
+          // EXP-796: a publisher into a LINGERING room (a second replay from
+          // a redial) takes it back: the linger is off and the log is a
+          // replay's again, so the flow below starts it empty.
+          if (room.lingerTimer) {
+            clearTimeout(room.lingerTimer)
+            room.lingerTimer = null
+          }
+          const servingHistory = room.pendingHistory || room.historyServed
           room.pendingHistory = false
+          room.historyServed = false
           // A previous replay already filled this log: a second one would
           // append the same transcript again, so start it empty. The
           // publisher's own `activity_reset` does this too, but only devices
@@ -601,14 +644,30 @@ export class Hub {
       // replay log is a TAIL; the whole run only exists on the device, so the
       // ask goes to the LIVE publisher, which reads its journal file. EXP-795:
       // forwarded under a relay-issued id (viewers number their own asks, so
-      // two in one room collide), and a room with no publisher takes no asks
-      // — the control-socket route the first cut described was answered by
-      // no device and, a chunk naming no session, could not have been routed
-      // back; paging an ENDED run is follow-up work.
+      // two in one room collide). EXP-796: a LINGERING history room (the
+      // device replayed and left) routes the ask down that device's control
+      // socket instead, and the chunk comes back naming the session; a room
+      // with neither takes no asks. A lingering room whose device has gone
+      // offline is answered the way a join finds an offline device:
+      // `error device_offline`, then a terminal `bye` — for every viewer,
+      // since no page can ever come.
       case `history_page`: {
         const room = this.roomFor(conn)
         if (!room || !room.activityMembers.has(conn)) return
-        const target = room.publisher
+        let target = room.publisher
+        let viaDevice = false
+        if (!target && room.historyServed && room.historyDevice) {
+          target =
+            this.devices
+              .get(room.historyDevice.userId)
+              ?.get(room.historyDevice.deviceId) ?? null
+          if (!target) {
+            this.historyRoomDeviceLost += 1
+            this.closeHistoryRoom(room, `device_offline`)
+            return
+          }
+          viaDevice = true
+        }
         if (!target) return
         if (room.historyPages.size >= HISTORY_PAGES_IN_FLIGHT) return
         const relayId = `h${++this.historyPageSeq}`
@@ -630,6 +689,7 @@ export class Hub {
           })
         )
         this.historyPageRequests += 1
+        if (viaDevice) this.historyPagesViaDevice += 1
         return
       }
 
@@ -637,9 +697,18 @@ export class Hub {
       // ONE viewer that asked for it under the id IT used. Deliberately never
       // appended to `activityLog`: these events are older than everything in
       // it, and the log is the join tail, not the run.
+      //
+      // EXP-796: a device's CONTROL socket answers too — a lingering history
+      // room has no publisher — and then `sessionId` names the room. Only the
+      // device the room was opened against may answer it (same owner, same
+      // deviceId), and only a room that is actually lingering.
       case `history_chunk`: {
-        const room = this.roomFor(conn)
-        if (!room || room.publisher !== conn) return
+        const room =
+          conn.claims.role === `control`
+            ? this.historyRoomServedBy(conn, msg.sessionId)
+            : this.roomFor(conn)
+        if (!room) return
+        if (conn.claims.role !== `control` && room.publisher !== conn) return
         const ask = room.historyPages.get(msg.requestId)
         if (!ask) return
         if (msg.done) this.dropHistoryPage(room, msg.requestId)
@@ -675,6 +744,14 @@ export class Hub {
           const synced = activitySyncedFrame(room)
           for (const member of room.activityMembers.keys()) {
             member.sock.send(synced)
+          }
+          // EXP-796: the room LINGERS without its publisher so the viewers
+          // can page older transcript ("Load earlier") through the device's
+          // control socket — nobody re-dials. A room a publisher opened
+          // itself (no device to page through) still closes as before.
+          if (room.historyDevice) {
+            this.lingerHistoryRoom(room, conn)
+            return
           }
         }
         this.closeRoom(room, msg.outcome ?? `ended`)
@@ -813,6 +890,9 @@ export class Hub {
       historyTimeouts: this.historyTimeouts,
       historyPageRequests: this.historyPageRequests,
       historyPageTimeouts: this.historyPageTimeouts,
+      historyPagesViaDevice: this.historyPagesViaDevice,
+      historyRoomLingerExpiries: this.historyRoomLingerExpiries,
+      historyRoomDeviceLost: this.historyRoomDeviceLost,
     }
   }
 
@@ -837,6 +917,84 @@ export class Hub {
       if (viewer === undefined || ask.viewer === viewer) {
         this.dropHistoryPage(room, relayId)
       }
+    }
+  }
+
+  /** EXP-796: the device's replay is complete — detach it and keep the room
+   *  up for its viewers, for HISTORY_ROOM_LINGER_MS at most. The publisher
+   *  socket is the device's short-lived replay connection; it closes itself
+   *  right after the `bye`, and `onClose` then finds it is no member. */
+  private lingerHistoryRoom(room: Room, publisher: Conn) {
+    room.publisher = null
+    publisher.sessionId = undefined
+    // Asks addressed to the replay socket are dead with it.
+    this.dropHistoryPages(room)
+    if (room.staleTimer) {
+      clearTimeout(room.staleTimer)
+      room.staleTimer = null
+    }
+    room.historyServed = true
+    if (room.lingerTimer) clearTimeout(room.lingerTimer)
+    room.lingerTimer = setTimeout(() => {
+      room.lingerTimer = null
+      // A publisher took the room back (a second replay), or it closed and
+      // reopened under the same id: this linger is not its linger.
+      if (!room.historyServed || room.publisher) return
+      if (this.rooms.get(room.sessionId) !== room) return
+      this.historyRoomLingerExpiries += 1
+      this.closeRoom(room, HISTORY_OUTCOME)
+    }, HISTORY_ROOM_LINGER_MS)
+    // Nobody stayed for the replay: nothing to linger for.
+    if (room.activityMembers.size === 0) this.closeRoom(room, HISTORY_OUTCOME)
+  }
+
+  /** EXP-796: end a lingering history room with a TERMINAL answer — `error
+   *  code` to every viewer, then the `bye` + close `closeRoom` sends. The
+   *  same shape `requestHistory` and the 20s timer use, so every client
+   *  lands in Ended instead of reading a plain drop and redialing. */
+  private closeHistoryRoom(room: Room, code: string) {
+    const err = frame({ t: `error`, code })
+    for (const member of room.activityMembers.keys()) {
+      member.sock.send(err)
+    }
+    this.closeRoom(room, code)
+  }
+
+  /** EXP-796: the lingering history room a control socket may answer a
+   *  `history_chunk` for: `sessionId` names it, it has no publisher, and it
+   *  was opened against THIS device under THIS account. */
+  private historyRoomServedBy(
+    conn: Conn,
+    sessionId: string | undefined
+  ): Room | undefined {
+    if (!sessionId || !conn.deviceId) return undefined
+    const room = this.rooms.get(sessionId)
+    if (!room || room.publisher || !room.historyServed) return undefined
+    const device = room.historyDevice
+    if (
+      !device ||
+      device.userId !== conn.claims.sub ||
+      device.deviceId !== conn.deviceId
+    ) {
+      return undefined
+    }
+    return room
+  }
+
+  /** EXP-796: a device left the presence table. Every lingering history room
+   *  opened against it that has a page IN FLIGHT is answered `device_offline`
+   *  (terminal — the ask went down the socket that just died); a lingering
+   *  room with nothing pending stays up, and its next ask finds the device
+   *  missing and answers the same way. */
+  private deviceLeftHistoryRooms(userId: string, deviceId: string) {
+    for (const room of [...this.rooms.values()]) {
+      if (!room.historyServed || room.historyPages.size === 0) continue
+      const device = room.historyDevice
+      if (!device || device.userId !== userId || device.deviceId !== deviceId) {
+        continue
+      }
+      this.historyRoomDeviceLost += 1
+      this.closeHistoryRoom(room, `device_offline`)
     }
   }
 
@@ -877,6 +1035,9 @@ export class Hub {
       lastByKind: new Map(),
       activityTruncated: false,
       historyPages: new Map(),
+      historyDevice: null,
+      historyServed: false,
+      lingerTimer: null,
     }
   }
 
@@ -900,9 +1061,8 @@ export class Hub {
     // for — so the mint names the account to look the device up under. Both
     // ids come from the signed ticket, so this still reaches only the machine
     // the web app decided ran this session.
-    const control = this.devices
-      .get(conn.claims.deviceOwnerId ?? conn.claims.sub)
-      ?.get(deviceId)
+    const deviceOwnerId = conn.claims.deviceOwnerId ?? conn.claims.sub
+    const control = this.devices.get(deviceOwnerId)?.get(deviceId)
     if (!control) {
       conn.sock.send(frame({ t: `error`, code: `device_offline` }))
       // The `bye` is not decoration: a viewer that sees a close with no `bye`
@@ -917,6 +1077,9 @@ export class Hub {
       return undefined
     }
     const room = this.newRoom(sessionId, null)
+    // EXP-796: remembered so the room can page through the device once the
+    // replay is over and the publisher socket is gone.
+    room.historyDevice = { userId: deviceOwnerId, deviceId }
     room.historyTimer = setTimeout(() => {
       room.historyTimer = null
       for (const member of room.activityMembers.keys()) {
@@ -1046,6 +1209,7 @@ export class Hub {
   private closeRoom(room: Room, outcome: string) {
     if (room.staleTimer) clearTimeout(room.staleTimer)
     if (room.historyTimer) clearTimeout(room.historyTimer)
+    if (room.lingerTimer) clearTimeout(room.lingerTimer)
     this.dropHistoryPages(room)
     this.rooms.delete(room.sessionId)
     const msg = frame({ t: `bye`, outcome })

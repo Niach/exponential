@@ -175,6 +175,10 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
     let history_trpc = Arc::clone(&trpc);
     let history_runtime = Arc::clone(&runtime);
     let history_in_flight = steer::HistoryInFlight::new();
+    // EXP-796: the same store answers "Load earlier" pages of a run this
+    // machine already replayed, back down the control socket.
+    let page_dir = auth.data_dir.clone();
+    let page_runtime = Arc::clone(&runtime);
     // Boot pass: drop journals nobody can ask for anymore (60 days).
     {
         let prune_dir = history_dir.clone();
@@ -269,6 +273,9 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
                     history_in_flight.clone(),
                 );
             });
+            let on_history_page: steer::HistoryPageFn = Arc::new(move |ask, reply| {
+                steer::serve_history_page(&page_runtime, page_dir.clone(), ask, reply);
+            });
             let control_api: Arc<dyn ControlApi> = Arc::new(TrpcControlApi(trpc));
             let handle = spawn_control_channel(
                 &runtime,
@@ -277,6 +284,7 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
                 on_start,
                 on_check_in,
                 on_history_request,
+                on_history_page,
             );
 
             let channels = ControlChannels::global(cx);

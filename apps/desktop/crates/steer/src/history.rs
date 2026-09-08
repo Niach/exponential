@@ -275,6 +275,60 @@ pub fn read_journal_page(
     Some(page)
 }
 
+/// EXP-783: how many events one `history_page` answer carries — the
+/// contract's `steerFeed.historyPageMax`, which the relay's zod enforces.
+pub const HISTORY_PAGE_MAX: u32 = domain::contract::STEER_FEED_HISTORY_PAGE_MAX;
+
+/// ONE `history_chunk` answering a page ask, serialized — the shape BOTH
+/// routes send: the live publisher (`session_id: None`, its socket already
+/// belongs to the room) and, EXP-796, the control socket (`Some`, one socket
+/// serves every session this machine ran). The page is already bounded to
+/// [`HISTORY_PAGE_MAX`] events, so it is one frame with `done: true`; an
+/// oversize frame is dropped down to an EMPTY done chunk rather than severing
+/// the socket, which leaves the asking viewer with "nothing older" instead of
+/// a dead connection.
+pub fn history_chunk_frame(
+    session_id: Option<&str>,
+    request_id: &str,
+    page: Vec<(u64, ActivityEvent)>,
+) -> String {
+    let (seqs, events): (Vec<u64>, Vec<ActivityEvent>) = page.into_iter().unzip();
+    let frame = ClientFrame::HistoryChunk {
+        session_id: session_id.map(str::to_string),
+        request_id: request_id.to_string(),
+        events,
+        seqs,
+        done: true,
+    }
+    .to_json();
+    if frame.len() < RELAY_MAX_PAYLOAD_BYTES {
+        return frame;
+    }
+    log::warn!("steer history: page {request_id} too large — answering empty");
+    ClientFrame::HistoryChunk {
+        session_id: session_id.map(str::to_string),
+        request_id: request_id.to_string(),
+        events: Vec::new(),
+        seqs: Vec::new(),
+        done: true,
+    }
+    .to_json()
+}
+
+/// EXP-796: the page a control-socket ask gets — [`read_journal_page`]
+/// bounded to [`HISTORY_PAGE_MAX`], or an EMPTY page when this machine has no
+/// journal for the session (the live publisher answers the same: `nothing
+/// older`, never silence, so the viewer's spinner ends).
+pub fn history_page_for(data_dir: &Path, ask: &crate::control_channel::HistoryPageAsk) -> Vec<(u64, ActivityEvent)> {
+    read_journal_page(
+        data_dir,
+        &ask.session_id,
+        ask.before_seq,
+        ask.limit.min(HISTORY_PAGE_MAX) as usize,
+    )
+    .unwrap_or_default()
+}
+
 /// EXP-764: drop ONE session's journal — the hosts call it when a repo-less
 /// run is purged whole. Returns whether a file went; a missing file is not
 /// an error, anything else is logged. The writer keeps one open append
@@ -451,6 +505,46 @@ pub fn serve_history_request(
     runtime.handle().spawn(async move {
         serve_history_task(tickets, data_dir, &session_id).await;
         in_flight.release(&session_id);
+    });
+}
+
+/// EXP-796, the other half for both hosts: answer a control-socket
+/// `history_page` with ONE `history_chunk` naming the session. The journal
+/// read runs on a blocking task of the steer runtime; `reply` queues the
+/// frame on the control socket the ask arrived on. No ticket, no publisher —
+/// the relay routes by session id, and the room that asked is a lingering
+/// one this device already replayed into.
+pub fn serve_history_page(
+    runtime: &crate::SteerRuntime,
+    data_dir: PathBuf,
+    ask: crate::control_channel::HistoryPageAsk,
+    reply: crate::control_channel::HistoryPageReply,
+) {
+    runtime.handle().spawn(async move {
+        let read_ask = ask.clone();
+        let page =
+            match tokio::task::spawn_blocking(move || history_page_for(&data_dir, &read_ask)).await
+        {
+            Ok(page) => page,
+            Err(err) => {
+                log::warn!("steer history: page read panicked: {err}");
+                Vec::new()
+            }
+        };
+        log::info!(
+            "steer history: page of {} event(s) for {} below {}",
+            page.len(),
+            ask.session_id,
+            ask.before_seq
+        );
+        let (seqs, events): (Vec<u64>, Vec<ActivityEvent>) = page.into_iter().unzip();
+        reply(ClientFrame::HistoryChunk {
+            session_id: Some(ask.session_id),
+            request_id: ask.request_id,
+            events,
+            seqs,
+            done: true,
+        });
     });
 }
 
@@ -634,6 +728,73 @@ mod tests {
                 &ActivityEvent::narration("prose"),
                 &ActivityEvent::tool_update("tc-1", None, None)
             ]
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-796: a control-socket page ask is answered from the same file the
+    /// publisher route reads, bounded, oldest first, naming the session —
+    /// and a session this machine never ran gets an EMPTY done chunk.
+    #[test]
+    fn a_control_page_ask_is_answered_with_one_named_chunk() {
+        use crate::control_channel::HistoryPageAsk;
+        let dir = temp_dir("control-page");
+        let mut writer = JournalWriter::open(&dir, "sess-1").unwrap();
+        for i in 0..6 {
+            writer.append(&ActivityEvent::narration(&format!("row {i}")));
+        }
+        writer.append(&ActivityEvent::diff("state, never a page row"));
+        drop(writer);
+
+        let ask = HistoryPageAsk {
+            session_id: "sess-1".to_string(),
+            request_id: "h7".to_string(),
+            before_seq: 5,
+            limit: 2,
+        };
+        let page = history_page_for(&dir, &ask);
+        assert_eq!(
+            page,
+            vec![
+                (3, ActivityEvent::narration("row 3")),
+                (4, ActivityEvent::narration("row 4")),
+            ]
+        );
+        assert_eq!(
+            history_chunk_frame(Some("sess-1"), "h7", page),
+            r#"{"t":"history_chunk","sessionId":"sess-1","requestId":"h7","events":[{"kind":"narration","text":"row 3"},{"kind":"narration","text":"row 4"}],"seqs":[3,4],"done":true}"#
+        );
+        // The limit is capped at the contract's page max.
+        let wide = HistoryPageAsk { limit: u32::MAX, before_seq: u64::MAX, ..ask.clone() };
+        assert_eq!(history_page_for(&dir, &wide).len(), 6.min(HISTORY_PAGE_MAX as usize));
+        // No journal here: an empty done page, never silence.
+        let missing = HistoryPageAsk { session_id: "sess-elsewhere".to_string(), ..ask };
+        assert_eq!(history_page_for(&dir, &missing), Vec::new());
+        assert_eq!(
+            history_chunk_frame(Some("sess-elsewhere"), "h8", Vec::new()),
+            r#"{"t":"history_chunk","sessionId":"sess-elsewhere","requestId":"h8","events":[],"seqs":[],"done":true}"#
+        );
+
+        // The whole seam: the reply lands ONE frame, off the runtime.
+        let runtime = crate::SteerRuntime::new().unwrap();
+        let (tx, rx) = flume::bounded::<String>(1);
+        serve_history_page(
+            &runtime,
+            dir.clone(),
+            HistoryPageAsk {
+                session_id: "sess-1".to_string(),
+                request_id: "h9".to_string(),
+                before_seq: 1,
+                limit: 10,
+            },
+            Box::new(move |frame| {
+                let _ = tx.send(frame.to_json());
+            }),
+        );
+        let frame = rx.recv_timeout(Duration::from_secs(10)).expect("one chunk");
+        assert_eq!(
+            frame,
+            r#"{"t":"history_chunk","sessionId":"sess-1","requestId":"h9","events":[{"kind":"narration","text":"row 0"}],"seqs":[0],"done":true}"#
         );
         let _ = fs::remove_dir_all(&dir);
     }

@@ -158,9 +158,11 @@ pub enum ClientFrame<'a> {
         seq: Option<u64>,
     },
     /// EXP-783 (viewer role): ask for the page of transcript BELOW `before_seq`.
-    /// The relay routes it to the room's LIVE publisher (a room without one
-    /// takes no asks — EXP-795) under an id of its own, and translates the
-    /// answering [`ClientFrame::HistoryChunk`]s back to this `request_id`.
+    /// The relay routes it to the room's LIVE publisher — or, in a history
+    /// room the device already replayed and left (EXP-796, the room lingers
+    /// five minutes), down that device's CONTROL socket — under an id of its
+    /// own, and translates the answering [`ClientFrame::HistoryChunk`]s back
+    /// to this `request_id`.
     #[serde(rename_all = "camelCase")]
     HistoryPage {
         request_id: String,
@@ -170,8 +172,15 @@ pub enum ClientFrame<'a> {
     /// EXP-783 (publisher/device role): one page of older transcript, answering
     /// a [`ServerFrame::HistoryPage`]. The relay delivers it to the ONE viewer
     /// that asked and never adds it to the room's replay log.
+    ///
+    /// EXP-796: `session_id` is REQUIRED when the answer goes down the
+    /// device's CONTROL socket (one socket serves every session the machine
+    /// ran, so the chunk has to say which room it answers) and stays `None`
+    /// from a publisher socket, whose wire form is unchanged.
     #[serde(rename_all = "camelCase")]
     HistoryChunk {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
         request_id: String,
         events: Vec<ActivityEvent>,
         seqs: Vec<u64>,
@@ -984,10 +993,13 @@ pub enum ServerFrame {
     HistoryRequest { session_id: String },
     /// EXP-783: a viewer scrolled past the top of what it holds and asked for
     /// the page of transcript BELOW `before_seq`. Reaches the room's live
-    /// publisher only (EXP-795), which reads the page off its journal file
-    /// and answers with [`ClientFrame::HistoryChunk`]s under the same
-    /// (relay-issued) `request_id`. Silence is a legal answer (no journal);
-    /// the relay frees the ask after its own timeout.
+    /// publisher, which reads the page off its journal file and answers with
+    /// [`ClientFrame::HistoryChunk`]s under the same (relay-issued)
+    /// `request_id` — or (EXP-796) this device's CONTROL socket, once the
+    /// device replayed the finished run and the room lingers without a
+    /// publisher; the control-socket answer names `session_id` back. Silence
+    /// is a legal answer (no journal); the relay frees the ask after its own
+    /// timeout.
     #[serde(rename_all = "camelCase")]
     HistoryPage {
         session_id: String,
@@ -2078,8 +2090,49 @@ mod tests {
             }
         );
         assert_eq!(ServerFrame::parse(r#"{"t":"history_request"}"#), None);
+        // EXP-783/796: a page ask, on a publisher OR a control socket.
+        assert_eq!(
+            ServerFrame::parse(
+                r#"{"t":"history_page","sessionId":"sess-1","requestId":"h7","beforeSeq":40,"limit":20}"#
+            )
+            .unwrap(),
+            ServerFrame::HistoryPage {
+                session_id: "sess-1".to_string(),
+                request_id: "h7".to_string(),
+                before_seq: 40,
+                limit: 20,
+            }
+        );
         // Unknown future frames still drop silently, never kill the socket.
         assert_eq!(ServerFrame::parse(r#"{"t":"telepathy"}"#), None);
+    }
+
+    /// EXP-796: the chunk's wire form is unchanged for a publisher (no
+    /// `sessionId` key at all), and names the session from a control socket.
+    #[test]
+    fn history_chunk_serializes_session_id_only_when_set() {
+        let chunk = ClientFrame::HistoryChunk {
+            session_id: None,
+            request_id: "h7".to_string(),
+            events: vec![ActivityEvent::narration("older")],
+            seqs: vec![39],
+            done: true,
+        };
+        assert_eq!(
+            chunk.to_json(),
+            r#"{"t":"history_chunk","requestId":"h7","events":[{"kind":"narration","text":"older"}],"seqs":[39],"done":true}"#
+        );
+        let chunk = ClientFrame::HistoryChunk {
+            session_id: Some("sess-1".to_string()),
+            request_id: "h7".to_string(),
+            events: Vec::new(),
+            seqs: Vec::new(),
+            done: true,
+        };
+        assert_eq!(
+            chunk.to_json(),
+            r#"{"t":"history_chunk","sessionId":"sess-1","requestId":"h7","events":[],"seqs":[],"done":true}"#
+        );
     }
 
     /// EXP-637: the resume frame — camelCase on the wire like every other

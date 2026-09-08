@@ -78,8 +78,9 @@ use serde::Deserialize;
 
 pub use api::steer::{MintTicketResult, MintedTicket, SteerConfig};
 pub use control_channel::{
-    spawn_control_channel, ControlApi, ControlChannelHandle, DeviceIdentity, HistoryRequestFn,
-    RemoteStart, RemoteStartSubject, TrpcControlApi,
+    spawn_control_channel, ControlApi, ControlChannelHandle, DeviceIdentity, HistoryPageAsk,
+    HistoryPageFn, HistoryPageReply, HistoryRequestFn, RemoteStart, RemoteStartSubject,
+    TrpcControlApi,
 };
 pub use activity::{
     clamp_config_state, normalize_compaction_trigger, stop_now, synthetic_question_id, truncate,
@@ -110,9 +111,10 @@ pub use image_message::{
     renumber_image_markers, ParsedSteerMessage, MAX_STEER_IMAGES,
 };
 pub use history::{
-    journal_dir, journal_path, prune_journals, publish_history, read_journal, read_journal_page,
-    read_journal_seq, remove_journal,
-    serve_history_request, HistoryInFlight, JournalWriter, JOURNAL_FILE_CAP, JOURNAL_MAX_AGE,
+    history_chunk_frame, history_page_for, journal_dir, journal_path, prune_journals,
+    publish_history, read_journal, read_journal_page, read_journal_seq, remove_journal,
+    serve_history_page, serve_history_request, HistoryInFlight, JournalWriter,
+    HISTORY_PAGE_MAX, JOURNAL_FILE_CAP, JOURNAL_MAX_AGE,
 };
 pub use journal::{ActivityJournal, JOURNAL_BYTE_CAP, JOURNAL_EVENT_CAP};
 pub use tool_group_summary::{tool_group_summary, ToolCallSummary, TOOL_GROUP_SUMMARY_SEPARATOR};

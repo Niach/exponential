@@ -376,14 +376,14 @@ export const activityFrame = z.object({
 })
 
 // EXP-783, viewer → relay: "send me the page of this run's transcript BELOW
-// `beforeSeq`". Routed to the room's LIVE publisher only (EXP-795: the
-// control-socket route for a room without one was never answered by a device,
-// and a chunk names no session, so nothing could have routed it back; paging
-// an ended run is follow-up work). The relay forwards it under an id of its
-// own — viewers number their asks independently, so two in one room collide —
-// and the answer is `history_chunk`s translated back to the viewer's
-// `requestId`, delivered ONLY to the viewer that asked and never appended to
-// the room's replay log.
+// `beforeSeq`". Routed to the room's LIVE publisher, or (EXP-796) — in a
+// history room the device already replayed and left, which LINGERS for
+// `HISTORY_ROOM_LINGER_MS` — down the owning device's CONTROL socket, which
+// answers with a `history_chunk` that names the session. The relay forwards
+// it under an id of its own — viewers number their asks independently, so
+// two in one room collide — and the answer is `history_chunk`s translated
+// back to the viewer's `requestId`, delivered ONLY to the viewer that asked
+// and never appended to the room's replay log.
 export const historyPageFrame = z.object({
   t: z.literal(`history_page`),
   requestId: z.string().min(1).max(64),
@@ -396,8 +396,14 @@ export const historyPageFrame = z.object({
 // chunk of a request (including a request with nothing to give). Never enters
 // the room's log: these events are OLDER than everything the log holds, and
 // the log is a join tail.
+//
+// EXP-796: `sessionId` is REQUIRED when the chunk comes down a device's
+// CONTROL socket (one socket serves every session the machine ran, so the
+// chunk has to say which room it answers); a publisher socket already
+// belongs to its room and leaves it absent — its wire form is unchanged.
 export const historyChunkFrame = z.object({
   t: z.literal(`history_chunk`),
+  sessionId: z.string().min(1).max(128).optional(),
   requestId: z.string().min(1).max(64),
   events: z.array(activityEventSchema).max(HISTORY_PAGE_MAX),
   seqs: z.array(z.number().int().min(0)).max(HISTORY_PAGE_MAX).optional(),
@@ -539,10 +545,13 @@ export type ServerFrame =
   // frame: a device with no journal stays silent and the room's own 20s timer
   // answers the viewer with `history_unavailable`.
   | { t: `history_request`; sessionId: string }
-  // EXP-783: relay → the room's PUBLISHER. "Read your journal and send back
+  // EXP-783: relay → the room's PUBLISHER, or (EXP-796) → the owning
+  // DEVICE's control socket once the device has replayed a finished run and
+  // the room lingers without a publisher. "Read your journal and send back
   // the page below `beforeSeq`." Answered with `history_chunk` frames carrying
-  // the same (relay-issued) `requestId`; a publisher with no journal simply
-  // stays silent and the relay frees the ask after HISTORY_PAGE_TIMEOUT_MS.
+  // the same (relay-issued) `requestId` (+ `sessionId` on the control
+  // route); a publisher with no journal simply stays silent and the relay
+  // frees the ask after HISTORY_PAGE_TIMEOUT_MS.
   | {
       t: `history_page`
       sessionId: string
