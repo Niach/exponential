@@ -1034,13 +1034,23 @@ fn a_terminal_round_trip_streams_into_the_local_feed_and_settles_the_exit() {
         Some(3)
     );
 
-    // The local feed: the bind first, then the output chunks of that call,
-    // the last one carrying the exit code that closes the card.
+    // The local feed: the bind edge and the output chunks of that call, the
+    // last one carrying the exit code that closes the card.
+    //
+    // The ORDER of the first row is a race with the command, not a contract:
+    // `Terminals::bind` flushes whatever the child already wrote as ONE row
+    // BEFORE `dispatch` emits the bind edge (`session_extras` reads the pair
+    // in exactly that order), while a child that writes after the tool call
+    // was published streams its rows behind the edge. So what holds either
+    // way — and what this asserts — is that AT MOST ONE row precedes the
+    // bind: the flush. A second one would mean chunks forwarded under an id
+    // no renderer knows.
     let mut bound: Option<String> = None;
     let mut chunks = String::new();
     let mut closed = false;
+    let mut before_bind = 0usize;
     let deadline = Instant::now() + BUDGET;
-    while Instant::now() < deadline && !closed {
+    while Instant::now() < deadline && !(closed && bound.is_some()) {
         match feed.recv_timeout(Duration::from_millis(100)) {
             Ok(LocalFeedEvent::TerminalBound {
                 tool_call_id,
@@ -1055,7 +1065,13 @@ fn a_terminal_round_trip_streams_into_the_local_feed_and_settles_the_exit() {
                 exit_code,
             }) => {
                 assert_eq!(tool_call_id, "tc-term");
-                assert!(bound.is_some(), "no output before the terminal is bound");
+                if bound.is_none() {
+                    before_bind += 1;
+                    assert_eq!(
+                        before_bind, 1,
+                        "only the bind flush may precede the bind edge"
+                    );
+                }
                 chunks.push_str(&chunk);
                 closed |= exit_code == Some(3);
             }
@@ -1063,6 +1079,7 @@ fn a_terminal_round_trip_streams_into_the_local_feed_and_settles_the_exit() {
             Err(_) => {}
         }
     }
+    assert!(bound.is_some(), "the terminal is bound to its tool call");
     assert_eq!(
         bound.as_deref(),
         harness

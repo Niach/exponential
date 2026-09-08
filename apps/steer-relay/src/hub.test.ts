@@ -1994,11 +1994,35 @@ describe(`session history on demand (EXP-773)`, () => {
     hub.destroy()
   })
 
+  test(`device_offline closes with a bye, like the timeout path`, () => {
+    const hub = new Hub()
+    const member = joinWithDevice(hub)
+    // A close with no `bye` reads as a transport drop to every viewer, so an
+    // ended run whose device is away would be redialed with backoff forever.
+    // The order matters: the error carries the human caption, the `bye` makes
+    // it terminal.
+    expect(member.frames().map((f) => f.t)).toEqual([`error`, `bye`])
+    expect(member.lastFrame(`bye`)).toMatchObject({ outcome: `device_offline` })
+    expect(member.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    hub.destroy()
+  })
+
+  test(`no_such_session stays bye-less: it is not terminal`, () => {
+    const hub = new Hub()
+    connectDevice(hub)
+    // A ticket with no device only means the publisher has not hello'd yet —
+    // viewers park in `starting` and retry until the synced row ends the run.
+    const member = connectMember(hub, { sessionId: `sess-past` })
+    expect(member.framesOf(`bye`)).toHaveLength(0)
+    hub.destroy()
+  })
+
   test(`a device is only reachable under its OWN owner`, () => {
     const hub = new Hub()
     connectDevice(hub, `someone-else`)
     const member = joinWithDevice(hub, { sub: `user-1` })
     expect(member.lastFrame(`error`)).toMatchObject({ code: `device_offline` })
+    expect(member.lastFrame(`bye`)).toMatchObject({ outcome: `device_offline` })
     hub.destroy()
   })
 

@@ -1325,6 +1325,15 @@ impl ScreensPanel {
                 host.update(cx, |host, cx| host.close_terminal(tab, cx));
             }
         }
+        // EXP-769: a terminal that left this strip — closed (the PTY is gone)
+        // or undocked (it paints in its own window now) — must not come back
+        // through go-back: `sync_tabs` would see a screen with no tab and push
+        // a ghost chip over "This terminal was closed". Same rule as the stale
+        // PR diff ([`Self::dismiss_stale_pr_diff`]); an issue tab is different
+        // — its screen is still openable, so its history stays.
+        if matches!(closed.screen, Screen::Terminal { .. }) {
+            crate::navigation::purge_from_back_stack(window, cx, |screen| *screen == closed.screen);
+        }
         cx.notify();
     }
 

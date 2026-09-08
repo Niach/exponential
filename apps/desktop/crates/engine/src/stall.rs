@@ -22,12 +22,15 @@
 //!    session tab / CLI show the reason instead of an empty "ended", and the
 //!    user resumes it (`resumed_from_id`) rather than hunting a zombie.
 //!
-//! Silence is measured on the mapper's output (see `SessionCtx::dispatch`):
+//! Silence is measured on the mapper's output (see `SessionCtx::dispatch`)
+//! and on the bytes an agent's `terminal/*` command writes (which never reach
+//! the mapper at all, so a long PTY command would otherwise read as a wedge):
 //! the worktree `diff` ticker does not count (a wedged run has no new diff,
 //! and a busy one has events anyway), nor does the interrupt's own
-//! bookkeeping — only what the AGENT says (or a turn-end edge) resets the
-//! clock. `needs_input` gates it because a permission or question card can
-//! legitimately sit for a day. The thresholds are deliberately generous:
+//! bookkeeping — nor the watchdog's OWN notice, or the interrupt it announces
+//! could never escalate. Only what the AGENT says or does (or a turn-end
+//! edge) resets the clock. `needs_input` gates it because a permission or
+//! question card can legitimately sit for a day. The thresholds are deliberately generous:
 //! a foreground Bash call caps at 10 minutes, a Task subagent streams its
 //! tool events, API retry storms settle within minutes, compaction has its
 //! own 5-minute bound — twenty silent minutes mid-turn is not any of those.
@@ -107,6 +110,17 @@ impl StallWatchdog {
                 }
             }
         }
+    }
+
+    /// The transcript notice for a turn this watchdog interrupted. Without it
+    /// the cancel is a `log::warn!` nobody reads and the feed just stops
+    /// mid-turn — an unattended run loses that work with no trace at all.
+    pub fn interrupt_notice(silent_for: Duration) -> String {
+        let minutes = silent_for.as_secs() / 60;
+        format!(
+            "Interrupted after {minutes} minutes without progress: the turn produced nothing, so \
+             the engine cancelled it. Send a message to pick it back up."
+        )
     }
 
     /// The banner text for a run this watchdog ended.
@@ -216,10 +230,40 @@ mod tests {
         assert_eq!(dog.tick(input(next + STALL_AFTER, next)), StallAction::Interrupt);
     }
 
+    /// A `terminal/*` command's output is activity like anything else the
+    /// mapper emits (`SessionCtx::touch_activity_throttled`): a `bun test`
+    /// behind a raised `BASH_MAX_TIMEOUT_MS` streams for half an hour without
+    /// one ACP notification, and it must not be interrupted for it.
+    #[test]
+    fn streaming_terminal_output_keeps_the_turn_alive() {
+        let start = Instant::now();
+        let mut dog = StallWatchdog::new();
+        // One chunk every five minutes for an hour: the clock never gets
+        // STALL_AFTER of silence, so nothing is ever sent.
+        let step = Duration::from_secs(5 * 60);
+        let mut last_activity = start;
+        for tick in 1..=12u32 {
+            let now = start + step * tick;
+            assert_eq!(dog.tick(input(now, last_activity)), StallAction::None);
+            last_activity = now;
+        }
+        // The command finishes and the agent goes quiet for real.
+        assert_eq!(
+            dog.tick(input(last_activity + STALL_AFTER, last_activity)),
+            StallAction::Interrupt
+        );
+    }
+
     #[test]
     fn the_reason_names_the_silence() {
         let reason = StallWatchdog::end_reason(Duration::from_secs(25 * 60 + 30));
         assert!(reason.starts_with("The agent stopped responding: no activity for 25 minutes"));
         assert!(reason.contains("Resume it"));
+    }
+
+    #[test]
+    fn the_interrupt_notice_names_the_silence() {
+        let notice = StallWatchdog::interrupt_notice(STALL_AFTER + Duration::from_secs(42));
+        assert!(notice.starts_with("Interrupted after 20 minutes without progress"));
     }
 }

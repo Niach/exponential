@@ -785,10 +785,14 @@ export const devicesRouter = router({
             message: `pi has no remote sign-in`,
           })
         }
-        if (/[\r\n]/.test(input.code)) {
+        // The device types this verbatim into a waiting PTY, so ANY control
+        // byte is refused, not just newlines: `\x03`/`\x1b[A` would kill or
+        // confuse the login while the command still reports CODE_ENTERED, and
+        // a NUL additionally breaks the jsonb dedupe query below.
+        if (/[\x00-\x1f\x7f]/.test(input.code)) {
           throw new TRPCError({
             code: `BAD_REQUEST`,
-            message: `The code must be a single line`,
+            message: `The code must be a single line of printable characters`,
           })
         }
         // Typing into the waiting login is a newer executor than the login

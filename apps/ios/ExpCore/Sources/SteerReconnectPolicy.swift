@@ -45,6 +45,31 @@ public enum SteerReconnectPolicy {
     }
 }
 
+/// The relay's protocol words that must never be shown to a human.
+public enum SteerOutcome {
+    /// EXP-773: `bye` outcomes (and the error codes that precede two of them)
+    /// that carry NO caption of their own. `ended` is the ordinary close;
+    /// `history` is the journal republish of an ENDED run closing itself out
+    /// once the transcript has been delivered, so the feed simply stays with
+    /// the plain ended caption; `history_unavailable` and `device_offline`
+    /// already wrote a human line via `AgentSessionModel.HistoryState`, and
+    /// the raw code would only overwrite it. Anything else the relay coins is
+    /// better shown than swallowed. Byte-equal on Android
+    /// (`SILENT_END_OUTCOMES`) and the web (`steer-session-store.ts`).
+    public static let silentEndOutcomes: Set<String> = [
+        "ended", "history", "history_unavailable", "device_offline",
+    ]
+
+    /// The end banner's caption for a relay outcome or error code — nil means
+    /// the plain "Session ended".
+    public static func endDetail(_ outcome: String?) -> String? {
+        guard let outcome, !outcome.isEmpty, !silentEndOutcomes.contains(outcome) else {
+            return nil
+        }
+        return outcome
+    }
+}
+
 /// EXP-625: the phase a viewer model is in, flattened to what a revival
 /// decision actually cares about. The app target's own `AgentSessionModel.Phase`
 /// carries detail strings and a reconnecting flag; this is the shape the pure

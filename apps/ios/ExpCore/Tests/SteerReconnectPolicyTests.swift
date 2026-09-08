@@ -156,4 +156,29 @@ final class SteerReconnectPolicyTests: XCTestCase {
         XCTAssertEqual(SteerCloseCode.unauthorized, 4003)
         XCTAssertEqual(SteerCloseCode.slowConsumer, 4008)
     }
+
+    // EXP-773: viewing an ended run ends with the relay's journal republish
+    // saying `bye {outcome:"history"}` — which the banner used to print
+    // verbatim, so it read "history".
+    func testProtocolOutcomesCarryNoCaption() {
+        for outcome in ["ended", "history", "history_unavailable", "device_offline"] {
+            XCTAssertNil(SteerOutcome.endDetail(outcome), outcome)
+        }
+        XCTAssertNil(SteerOutcome.endDetail(nil))
+        XCTAssertNil(SteerOutcome.endDetail(""))
+    }
+
+    func testUnknownOutcomesStillSurface() {
+        XCTAssertEqual(SteerOutcome.endDetail("publisher_lost"), "publisher_lost")
+        XCTAssertEqual(SteerOutcome.endDetail("killed"), "killed")
+    }
+
+    // The set is a cross-client contract (Android `SILENT_END_OUTCOMES`, web
+    // `steer-session-store.ts`) — a rename on one side is a mismatch.
+    func testSilentOutcomeSetMatchesTheOtherClients() {
+        XCTAssertEqual(
+            SteerOutcome.silentEndOutcomes,
+            ["ended", "history", "history_unavailable", "device_offline"]
+        )
+    }
 }

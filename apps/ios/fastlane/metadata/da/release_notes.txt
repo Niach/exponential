@@ -1,7 +1,7 @@
-- Styring v2: skift agentens model, indsats og tilstand fra den kørende session med chips over skrivefeltet; kontekst- og forbrugstal opdateres, efterhånden som kørslen melder dem
+- Styring: skift mellem "Plan" og "Build" fra den kørende session; model og indsats vælges én gang ved start, og kontekst- og forbrugstal opdateres, efterhånden som kørslen melder dem
 - Tidligere kørsler: afsluttede sessioner vises pr. enhed med "Resume", så en afsluttet kørsel kan tages op igen
 - Chat uden repository: en chat, der startes fra "Start coding"-arket, kræver ikke længere et repository og kører i en midlertidig mappe med kun Exponential-værktøjerne
-- Agentvælger: når en enhed kan køre en agent, men ikke styre den på sessionssiden, siger vælgeren, at den starter i en terminal, i stedet for stille at falde tilbage
+- Agentvælger: når en agent ikke er klar på en enhed, siger vælgeren det og blokerer starten, indtil du kører doctor der
 - Styringsfeed: issue-identifikatorer som #EXP-12 bliver til chips, du kan trykke på, og agentkommandoer vises som kommandomærker
 - Relationer mellem issues: knyt issues sammen som overordnet, underissue, blokerer, blokeret af, dublet eller relateret fra egenskabsarket; skriver du #EXP-12 i en beskrivelse eller kommentar, knyttes de to issues sammen af sig selv
 - Kommentartråde: svar under en kommentar fra det fastgjorte skrivefelt; tråde går kun ét niveau ned, og en kommentar, som en agent har sendt via MCP, siger det i sin header
@@ -12,3 +12,8 @@
 - Et roligere aktivitetsfeed: hændelser står som én dæmpet linje med et tidspunkt, kommentarer ligger i ét kort
 - "Subscribe"-knappen er væk: du følger et issue automatisk, når du opretter det, kommenterer, bliver tildelt eller bliver nævnt
 - Styring: kontekstlinjen dækker ikke længere udskriften
+- Sessioner bliver på din enhed: udskrifter gemmes på den enhed, der kørte dem, aldrig på serveren; tidligere kørsler åbnes fra Devices, Chat og Automations og hentes fra den enhed, når den er online
+- Subagent-samtaler: en subagents ture vises i deres egen visning, og agentens tekst deles ikke længere midt i en sætning op i flere linjer
+- En kørsel, der bliver stille, siger det: sessionen viser, når agenten er holdt op med at melde fremdrift
+- Fjernlogin for agenter: indsæt koden fra agentens login-link i enhedens indstillinger for at gøre login færdigt fra telefonen
+- "Start coding": ét ark til issues, handlinger og chat med de samme muligheder overalt

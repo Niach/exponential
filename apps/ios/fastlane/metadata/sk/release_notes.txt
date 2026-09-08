@@ -1,7 +1,7 @@
-- Riadenie v2: model, úsilie aj režim agenta prepnete priamo v bežiacej relácii čipmi nad editorom; údaje o kontexte a spotrebe sa obnovujú, ako ich beh hlási
+- Riadenie: v bežiacej relácii prepínate medzi „Plan“ a „Build“; model a úsilie volíte raz pri štarte a údaje o kontexte a spotrebe sa obnovujú, ako ich beh hlási
 - Minulé behy: dokončené relácie sa vypisujú pri každom zariadení s tlačidlom „Resume“, takže ukončený beh môžete znova rozbehnúť
 - Chat bez repozitára: chat spustený z panela „Start coding“ už repozitár nepotrebuje a beží v pracovnom priečinku len s nástrojmi Exponential
-- Výber agenta: keď zariadenie agenta vie spustiť, ale nie riadiť na stránke relácie, výber uvedie, že sa spustí v termináli, namiesto toho, aby ticho prepol inam
+- Výber agenta: keď agent na zariadení nie je pripravený, výber to uvedie a zablokuje štart, kým tam nespustíte doctor
 - Prehľad riadenia: identifikátory úloh ako #EXP-12 sa menia na klepnuteľné čipy a príkazy agenta sa vykresľujú ako štítky príkazov
 - Väzby medzi úlohami: prepojte úlohy ako nadradenú, podúlohu, blokuje, blokovaná, duplikát alebo súvisiaca priamo v paneli vlastností; napísanie #EXP-12 do popisu alebo komentára prepojí obe úlohy samo
 - Vlákna komentárov: odpovedzte pod komentárom priamo v ukotvenom editore; vlákna zostávajú len o úroveň hlbšie a komentár, ktorý agent poslal cez MCP, to uvádza vo svojej hlavičke
@@ -12,3 +12,8 @@
 - Pokojnejší prehľad aktivity: udalosti sú jeden tlmený riadok s časom, komentáre držia v jednej karte
 - Tlačidlo „Subscribe“ zmizlo: úlohu sledujete automaticky, keď ju vytvoríte, okomentujete, dostanete pridelenú alebo ste v nej spomenutí
 - Riadenie: kontextová lišta už neprekrýva prepis
+- Relácie zostávajú na vašom zariadení: prepisy sa ukladajú na zariadenie, ktoré ich spustilo, nikdy na server; minulé behy otvoríte v sekciách Devices, Chat a Automations a načítajú sa z daného zariadenia, keď je online
+- Konverzácie subagentov: ťahy subagenta sa zobrazujú vo vlastnom pohľade a text agenta sa už nedelí uprostred vety do samostatných riadkov
+- Beh, ktorý stíchne, to povie: relácia ukáže, kedy agent prestal hlásiť postup
+- Vzdialené prihlásenie agenta: vložte kód z prihlasovacieho odkazu agenta do nastavení zariadenia a prihlásenie dokončíte z telefónu
+- „Start coding“: jeden panel pre úlohy, akcie aj chat s rovnakými voľbami všade

@@ -757,6 +757,13 @@ export class Hub {
       ?.get(deviceId)
     if (!control) {
       conn.sock.send(frame({ t: `error`, code: `device_offline` }))
+      // The `bye` is not decoration: a viewer that sees a close with no `bye`
+      // reads it as a transport drop and redials forever (the desktop's
+      // `ConnEnd::Dropped`). This is terminal — the transcript is a file on a
+      // machine that is not here — so answer it exactly like the timeout path
+      // does through `closeRoom`: error, then `bye` naming the outcome, then
+      // the close. Every viewer lands in Ended.
+      conn.sock.send(frame({ t: `bye`, outcome: `device_offline` }))
       conn.sock.close(CLOSE_SESSION_ENDED, `device_offline`)
       this.historyDeviceOffline += 1
       return undefined

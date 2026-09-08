@@ -1,7 +1,7 @@
-- Irányítás v2: az agent modelljét, ráfordítását és módját az élő munkamenetből váltod a szerkesztő fölötti chipekkel; a kontextus- és használati értékek frissülnek, ahogy a futtatás jelenti őket
+- Irányítás: az élő munkamenetben válts a „Plan” és a „Build” között; a modellt és a ráfordítást induláskor választod ki egyszer, a kontextus- és használati értékek pedig frissülnek, ahogy a futtatás jelenti őket
 - Korábbi futtatások: a befejezett munkamenetek eszközönként, „Resume” gombbal jelennek meg, így egy lezárt futtatás újra folytatható
 - Chat repository nélkül: a „Start coding” lapról indított chathez már nem kell repository, és ideiglenes mappában fut, csak az Exponential eszközeivel
-- Agentválasztó: ha egy eszköz el tudja indítani az agentet, de a munkamenet oldalán nem tudja irányítani, a választó jelzi, hogy terminálban indul, ahelyett hogy csendben visszaváltana
+- Agentválasztó: ha egy agent nem áll készen az eszközön, a választó ezt jelzi, és blokkolja az indítást, amíg ott le nem futtatod a doctort
 - Irányítási folyam: a feladatazonosítók, például a #EXP-12, koppintható chipekké válnak, az agent parancsai pedig parancscímkeként jelennek meg
 - Feladatkapcsolatok: kösd össze a feladatokat szülőként, részfeladatként, blokkolóként, blokkoltként, duplikátumként vagy kapcsolódóként a tulajdonságlapon; ha #EXP-12 szerepel egy leírásban vagy kommentben, a két feladat magától összekapcsolódik
 - Kommentszálak: válaszolj egy komment alatt a dokkolt szerkesztőből; a szálak egy szint mélyek maradnak, és az a komment, amelyet egy agent MCP-n át írt, ezt jelzi a fejlécében
@@ -12,3 +12,8 @@
 - Csendesebb tevékenységfolyam: az események egy halvány sorban állnak időponttal, a kommentek egyetlen kártyán ülnek
 - A „Subscribe” gomb megszűnt: a feladatot automatikusan követed, ha létrehozod, kommenteled, hozzád rendelik vagy megemlítenek benne
 - Irányítás: a kontextussáv már nem takarja az átiratot
+- A munkamenetek az eszközödön maradnak: az átiratok azon az eszközön tárolódnak, amelyik lefuttatta őket, soha nem a szerveren; a korábbi futtatások a Devices, a Chat és az Automations felől nyílnak meg, és arról az eszközről töltődnek be, ha online
+- Subagent-beszélgetések: egy subagent körei saját nézetben látszanak, az agent szövege pedig már nem szakad külön sorokba a mondat közepén
+- Az elcsendesedő futtatás szól: a munkamenet mutatja, mikor hagyta abba az agent a haladás jelentését
+- Távoli agentbejelentkezés: illeszd be az agent bejelentkezési linkjéből a kódot az eszköz beállításaiba, és fejezd be a bejelentkezést a telefonodról
+- „Start coding”: egyetlen lap a feladatokhoz, műveletekhez és chathez, mindenhol ugyanazokkal a beállításokkal

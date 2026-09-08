@@ -109,6 +109,24 @@ pub(crate) fn reveal_screen(screen: &Screen, cx: &mut App) -> bool {
     let Some(handle) = screen_window(screen, cx) else {
         return false;
     };
+    // The entry can OUTLIVE its window: the window is gone the moment it is
+    // removed, while the view's `on_release` (which unregisters) only runs on
+    // the next effect flush — and [`activate_window`] is deferred and swallows
+    // every failure, so a stale entry would keep answering `true` and leave
+    // that issue permanently un-openable from lists, search and the inbox.
+    // So probe liveness SYNCHRONOUSLY and heal the registry instead. The probe
+    // is `cx.windows()` rather than an `update` of the handle: a window in the
+    // middle of its own update is temporarily un-updatable (that is how
+    // `close_windows`'s re-entrancy trap reads), and a screen navigating to
+    // itself inside its undocked window must not unregister a live entry.
+    let alive = cx
+        .windows()
+        .iter()
+        .any(|open| open.window_id() == handle.window_id());
+    if !alive {
+        unregister_screen(screen, cx);
+        return false;
+    }
     activate_window(handle, cx);
     true
 }
@@ -713,6 +731,38 @@ mod tests {
             // The window's `on_release` unregisters again.
             unregister_screen(&screen, cx);
             assert!(!reveal_screen(&screen, cx));
+        });
+    }
+
+    /// A registry entry whose window is already GONE (the OS-close →
+    /// `on_release` gap) must not answer `true`: the deferred activate would
+    /// silently fail and the screen could never be opened again. The reveal
+    /// probes the window and heals the registry instead.
+    #[gpui::test]
+    fn a_dead_window_does_not_reveal_and_is_dropped(cx: &mut gpui::TestAppContext) {
+        let window = cx.add_window(|_, _| Stub);
+        cx.update(|cx| {
+            init(cx);
+            let screen = Screen::IssueDetail {
+                issue_id: "i1".into(),
+            };
+            let state = state(cx).expect("init installed the registry");
+            state.update(cx, |state, cx| {
+                state.screens.insert(screen.clone(), window.into());
+                cx.notify();
+            });
+
+            // Close the window WITHOUT the release hook having run — exactly
+            // the gap the stale entry lives in.
+            let _ = window.update(cx, |_, window, _| window.remove_window());
+            assert!(
+                !reveal_screen(&screen, cx),
+                "a dead window must fall through to opening a tab"
+            );
+            assert!(
+                screen_window(&screen, cx).is_none(),
+                "the stale entry is dropped, not left to poison every later click"
+            );
         });
     }
 }

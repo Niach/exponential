@@ -1377,7 +1377,11 @@ final class AgentSessionModel {
                 endDetail = "The desktop's connection to the relay dropped. Waiting for it to come back."
             } else {
                 sawEnd = true
-                endDetail = (outcome != nil && outcome != "ended") ? outcome : nil
+                // EXP-773: a protocol word is never a caption — `history` (the
+                // journal republish closing itself out) and the two history
+                // failures leave the banner on its plain "Session ended", and
+                // the failures already said their piece through `history`.
+                endDetail = SteerOutcome.endDetail(outcome)
             }
         case "error":
             let code = (obj["code"] as? String) ?? "error"
@@ -1396,7 +1400,7 @@ final class AgentSessionModel {
                 disconnectSocket()
                 onSocketClosed()
             } else {
-                endDetail = (obj["message"] as? String) ?? code
+                endDetail = (obj["message"] as? String) ?? SteerOutcome.endDetail(code)
             }
         default:
             break // input/kill/legacy presence — not activity-viewer-relevant

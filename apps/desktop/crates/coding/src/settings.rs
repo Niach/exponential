@@ -58,11 +58,13 @@ pub const DEFAULT_CLAUDE_EFFORT: &str = "";
 /// so there is nothing left to pin), and the EXP-690 per-agent skip toggles
 /// (every run bypasses permissions now, so there is nothing to persist), and
 /// the EXP-282 rail state (EXP-723 removed the collapsible rail — the sidebar
-/// is always expanded, so there is no preference left to hold).
+/// is always expanded, so there is no preference left to hold), and the
+/// EXP-742 collapsed-dock bubble (EXP-769 replaced the sliding dock with the
+/// session bar, which has no collapsed form to pick).
 /// Foreign top-level keys other subsystems own (`launchDefaultsSync`,
 /// `actionAutomations`) ride the merge-save untouched and must never enter
 /// this list.
-const DEAD_KEYS: [&str; 16] = [
+const DEAD_KEYS: [&str; 17] = [
     "usageWindow",
     "subagentModel",
     "subagentEffort",
@@ -79,6 +81,7 @@ const DEAD_KEYS: [&str; 16] = [
     "codexSkipPermissions",
     "railExpanded",
     "startInTerminal",
+    "terminalDockBubble",
 ];
 
 /// The resolved coding settings. `repos_root` is stored in its raw
@@ -890,16 +893,18 @@ mod tests {
     }
 
     /// EXP-688: the EXP-484 per-agent pinned usage window is gone (every
-    /// window renders as its own card). An old settings.json carrying the
-    /// key still loads — unknown keys are ignored — and the merge-save
-    /// scrubs it out via [`DEAD_KEYS`] instead of carrying it forever.
+    /// window renders as its own card), and EXP-769 took the EXP-742
+    /// collapsed-dock bubble with the whole sliding dock. An old
+    /// settings.json carrying either key still loads — unknown keys are
+    /// ignored — and the merge-save scrubs them out via [`DEAD_KEYS`]
+    /// instead of carrying them forever.
     #[test]
     fn the_retired_usage_window_pick_is_scrubbed_on_save() {
         let dir = TempDir::new("usage-window");
         let path = dir.0.join("settings.json");
         fs::write(
             &path,
-            r#"{"claudeModel":"opus","usageWindow":{"claude":"model:fable"}}"#,
+            r#"{"claudeModel":"opus","usageWindow":{"claude":"model:fable"},"terminalDockBubble":true}"#,
         )
         .unwrap();
         let settings = Settings::load(&path);
@@ -907,6 +912,7 @@ mod tests {
         settings.save(&path).unwrap();
         let raw = fs::read_to_string(&path).unwrap();
         assert!(!raw.contains("usageWindow"), "{raw}");
+        assert!(!raw.contains("terminalDockBubble"), "{raw}");
     }
 
     /// EXP-723: the EXP-282 rail-expanded preference is gone (the sidebar is

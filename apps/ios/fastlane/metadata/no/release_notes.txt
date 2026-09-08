@@ -1,7 +1,7 @@
-- Styring v2: bytt agentens modell, innsats og modus fra den pågående økten med chips over skrivefeltet; kontekst- og forbrukstall oppdateres etter hvert som kjøringen melder dem
+- Styring: bytt mellom «Plan» og «Build» fra den pågående økten; modell og innsats velges én gang ved start, og kontekst- og forbrukstall oppdateres etter hvert som kjøringen melder dem
 - Tidligere kjøringer: avsluttede økter listes per enhet med «Resume», slik at en avsluttet kjøring kan tas opp igjen
 - Chat uten repository: en chat som startes fra «Start coding»-arket trenger ikke lenger et repository og kjører i en midlertidig mappe med bare Exponential-verktøyene
-- Agentvelger: når en enhet kan kjøre en agent, men ikke styre den på øktsiden, sier velgeren at den starter i en terminal i stedet for å falle tilbake i stillhet
+- Agentvelger: når en agent ikke er klar på en enhet, sier velgeren det og blokkerer starten til du kjører doctor der
 - Styringsstrøm: saksidentifikatorer som #EXP-12 blir til chips du kan trykke på, og agentkommandoer vises som kommandomerker
 - Relasjoner mellom saker: knytt saker som overordnet, undersak, blokkerer, blokkert av, duplikat eller relatert fra egenskapsarket; skriver du #EXP-12 i en beskrivelse eller kommentar, knyttes de to sakene sammen av seg selv
 - Kommentartråder: svar under en kommentar fra det forankrede skrivefeltet; tråder går bare ett nivå ned, og en kommentar en agent har lagt inn via MCP sier det i toppteksten sin
@@ -12,3 +12,8 @@
 - En roligere aktivitetsstrøm: hendelser står som én dempet linje med klokkeslett, kommentarer ligger i ett kort
 - «Subscribe»-knappen er borte: du følger en sak automatisk når du oppretter den, kommenterer, blir tildelt eller blir nevnt
 - Styring: kontekstlinjen dekker ikke lenger utskriften
+- Øktene blir på maskinen din: utskrifter lagres på enheten som kjørte dem, aldri på serveren; tidligere kjøringer åpnes fra Devices, Chat og Automations og hentes fra den enheten når den er på nett
+- Subagent-samtaler: turene til en subagent vises i sin egen visning, og teksten fra agenten deles ikke lenger midt i en setning over flere rader
+- En kjøring som blir stille, sier fra: økten viser når agenten har sluttet å melde fremdrift
+- Fjerninnlogging for agenter: lim koden fra agentens innloggingslenke inn i innstillingene på enheten for å fullføre innloggingen fra telefonen
+- «Start coding»: ett ark for saker, handlinger og chat med de samme valgene overalt

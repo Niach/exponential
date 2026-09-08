@@ -1,7 +1,7 @@
-- Orientação v2: mude o modelo, o esforço e o modo do agente a partir da sessão em curso com chips por cima do editor; as leituras de contexto e de utilização atualizam-se à medida que a execução as reporta
+- Orientação: alterne entre «Plan» e «Build» a partir da sessão em curso; o modelo e o esforço escolhem-se uma vez no arranque, e as leituras de contexto e de utilização atualizam-se à medida que a execução as reporta
 - Execuções anteriores: as sessões terminadas são listadas por dispositivo com «Resume», para retomar uma execução que já acabou
 - Chat sem repositório: um chat aberto a partir da folha «Start coding» já não precisa de repositório e corre numa pasta temporária apenas com as ferramentas do Exponential
-- Escolha do agente: quando um dispositivo consegue executar um agente mas não orientá-lo na página da sessão, a escolha avisa que arranca num terminal em vez de mudar em silêncio
+- Escolha do agente: quando um agente não está pronto num dispositivo, a escolha di-lo e bloqueia o arranque até correr aí o doctor
 - Fluxo de orientação: os identificadores de issues como #EXP-12 passam a chips em que pode tocar, e os comandos do agente aparecem como etiquetas de comando
 - Relações entre issues: ligue issues como pai, subissue, bloqueia, bloqueada por, duplicado ou relacionada a partir da folha de propriedades; escrever #EXP-12 numa descrição ou num comentário liga as duas issues sozinho
 - Comentários em fio: responda por baixo de um comentário a partir do editor fixo; os fios ficam por um nível, e um comentário publicado por um agente via MCP di-lo no seu cabeçalho
@@ -12,3 +12,8 @@
 - Um fluxo de atividade mais calmo: os eventos ficam numa linha discreta com a hora, os comentários vivem num só cartão
 - O botão «Subscribe» foi retirado: segue uma issue automaticamente quando a cria, comenta, lhe é atribuída ou é mencionado
 - Orientação: a barra de contexto já não sobrepõe a transcrição
+- As sessões ficam no seu dispositivo: as transcrições são guardadas no dispositivo que as executou, nunca no servidor; as execuções anteriores abrem a partir de Devices, Chat e Automations e são obtidas desse dispositivo quando está online
+- Conversas de subagentes: os turnos de um subagente aparecem numa vista própria, e o texto do agente já não se parte a meio da frase em linhas separadas
+- Uma execução que fica calada di-lo: a sessão mostra quando o agente deixou de reportar progresso
+- Início de sessão remoto do agente: cole o código da ligação de login do agente nas definições do dispositivo para terminar o início de sessão a partir do telemóvel
+- «Start coding»: uma folha para issues, ações e chat com as mesmas opções em todo o lado

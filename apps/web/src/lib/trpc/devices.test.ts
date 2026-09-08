@@ -1226,8 +1226,39 @@ describe(`devices.createCommand — agent_login_code`, () => {
       })
     ).rejects.toMatchObject({
       code: `BAD_REQUEST`,
-      message: `The code must be a single line`,
+      message: `The code must be a single line of printable characters`,
     })
+    expect(h.state.inserted).toHaveLength(0)
+  })
+
+  // A cursor-up would confuse the waiting login while the command still
+  // completed as CODE_ENTERED, so escapes are refused like newlines are.
+  it(`refuses a code carrying an escape sequence`, async () => {
+    h.state.selectQueue = codeCapableProbe()
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_login_code`,
+        agent: `claude`,
+        code: `abc\x1b[A`,
+      })
+    ).rejects.toMatchObject({
+      code: `BAD_REQUEST`,
+      message: `The code must be a single line of printable characters`,
+    })
+    expect(h.state.inserted).toHaveLength(0)
+  })
+
+  it(`refuses a code past the cap`, async () => {
+    h.state.selectQueue = codeCapableProbe()
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_login_code`,
+        agent: `claude`,
+        code: `a`.repeat(513),
+      })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
     expect(h.state.inserted).toHaveLength(0)
   })
 

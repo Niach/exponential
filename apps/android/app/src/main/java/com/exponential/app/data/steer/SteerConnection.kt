@@ -119,6 +119,27 @@ private const val NO_ANSWER_DETAIL = "The live relay didn't answer."
 private const val ECHO_CAP = 8
 private const val ECHO_TTL_MS = 300_000L
 
+/** EXP-773: the relay `bye` outcomes (and the error codes that precede two of
+ *  them) that carry NO caption of their own. `ended` is the ordinary close;
+ *  `history` is the journal republish of an ENDED run closing itself out once
+ *  the transcript has been delivered, so the feed simply keeps the plain ended
+ *  caption; `history_unavailable` and `device_offline` already wrote a human
+ *  line through [HistoryState], and the raw code would only overwrite it.
+ *  Byte-equal on iOS (`SteerOutcome.silentEndOutcomes`) and the web
+ *  (`steer-session-store.ts`). */
+internal val SILENT_END_OUTCOMES = setOf(
+    "ended",
+    "history",
+    "history_unavailable",
+    "device_offline",
+)
+
+/** The end banner's caption for a relay outcome or error code — null means the
+ *  plain "Session ended". A protocol word is never shown to a human; anything
+ *  else the relay coins is better shown than swallowed. */
+internal fun steerEndDetail(outcome: String?): String? =
+    outcome?.takeIf { it.isNotEmpty() && it !in SILENT_END_OUTCOMES }
+
 /**
  * Every wait the dial loop takes (EXP-625). All of them are bounded: an
  * unbounded one is how a viewer ends up parked on "Connecting…" forever.
@@ -799,7 +820,7 @@ class SteerConnection internal constructor(
                         detail = "The desktop's connection to the relay dropped. Waiting for it to come back.",
                     )
                 } else {
-                    FrameResult(sawEnd = true, detail = outcome?.takeIf { it != "ended" })
+                    FrameResult(sawEnd = true, detail = steerEndDetail(outcome))
                 }
             }
             "error" -> {
@@ -823,7 +844,8 @@ class SteerConnection internal constructor(
                     FrameResult(historyTerminal = true)
                 } else {
                     FrameResult(
-                        detail = (obj["message"] as? JsonPrimitive)?.contentOrNull ?: code,
+                        detail = (obj["message"] as? JsonPrimitive)?.contentOrNull
+                            ?: steerEndDetail(code),
                     )
                 }
             }

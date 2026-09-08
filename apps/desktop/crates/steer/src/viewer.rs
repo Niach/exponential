@@ -732,8 +732,12 @@ async fn run_viewer_loop(
 }
 
 fn stop(running: &Arc<AtomicBool>, phases: &mut Phases, phase: ViewerPhase) {
-    phases.set(phase);
+    // The flag goes down FIRST: the phase event is what a view learns the
+    // ending from, and it must never read `is_active()` as `true` off the
+    // back of a terminal phase (the loop is already returning). Emitting
+    // first left a window in which the composer stayed lit.
     running.store(false, Ordering::SeqCst);
+    phases.set(phase);
 }
 
 /// One connection's select loop.

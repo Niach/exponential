@@ -1,7 +1,7 @@
-- Ghidare v2: schimbă modelul, efortul și modul agentului direct din sesiunea în curs, cu marcaje deasupra editorului; valorile de context și de consum se actualizează pe măsură ce execuția le raportează
+- Ghidare: comută între „Plan” și „Build” direct din sesiunea în curs; modelul și efortul se aleg o singură dată la pornire, iar valorile de context și de consum se actualizează pe măsură ce execuția le raportează
 - Execuții anterioare: sesiunile încheiate sunt listate pe fiecare dispozitiv, cu „Resume”, așa că o execuție terminată poate fi reluată
 - Chat fără repository: un chat pornit din foaia „Start coding” nu mai are nevoie de repository și rulează într-un folder temporar, doar cu uneltele Exponential
-- Alegerea agentului: când un dispozitiv poate porni un agent, dar nu îl poate ghida în pagina sesiunii, selecția spune că pornește într-un terminal, în loc să treacă în tăcere pe altceva
+- Alegerea agentului: când un agent nu este pregătit pe un dispozitiv, selecția o spune și blochează pornirea până rulezi acolo doctor
 - Flux de ghidare: identificatorii de taskuri precum #EXP-12 devin marcaje pe care le poți atinge, iar comenzile agentului sunt redate ca etichete de comandă
 - Relații între taskuri: leagă taskurile ca părinte, subtask, blochează, blocat de, duplicat sau înrudit din foaia de proprietăți; scrierea lui #EXP-12 într-o descriere sau într-un comentariu leagă singură cele două taskuri
 - Comentarii pe fire: răspunde sub un comentariu din editorul ancorat; firele rămân pe un singur nivel, iar un comentariu publicat de un agent prin MCP o spune în antetul lui
@@ -12,3 +12,8 @@
 - Un flux de activitate mai liniștit: evenimentele stau pe o singură linie estompată, cu ora, iar comentariile stau într-un singur card
 - Butonul „Subscribe” a dispărut: urmărești automat un task când îl creezi, îl comentezi, ți se atribuie sau ești menționat
 - Ghidare: bara de context nu mai acoperă transcrierea
+- Sesiunile rămân pe dispozitivul tău: transcrierile sunt păstrate pe dispozitivul care le-a rulat, niciodată pe server; execuțiile anterioare se deschid din Devices, Chat și Automations și sunt aduse de pe acel dispozitiv când este online
+- Conversațiile subagenților: turele unui subagent apar într-o vizualizare proprie, iar textul agentului nu se mai rupe la mijlocul frazei pe rânduri separate
+- O execuție care amuțește o spune: sesiunea arată când agentul a încetat să raporteze progresul
+- Autentificare de la distanță a agentului: lipește codul din linkul de autentificare al agentului în setările dispozitivului și încheie autentificarea de pe telefon
+- „Start coding”: o singură foaie pentru taskuri, acțiuni și chat, cu aceleași opțiuni peste tot

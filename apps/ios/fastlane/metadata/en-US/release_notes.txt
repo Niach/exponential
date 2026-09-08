@@ -1,7 +1,7 @@
-- Steering v2: switch the agent's model, effort and mode from the live session with chips above the composer; context and usage readouts update as the run reports them
+- Steering: switch between Plan and Build from the live session; model and effort are chosen once when you start, and context and usage readouts update as the run reports them
 - Past runs: finished sessions are listed per machine with Resume, so an ended run can be picked up again
 - Chat without a repository: a chat started from the Start coding sheet no longer needs a repository and runs in a scratch folder with only the Exponential tools
-- Agent picker: when a machine can run an agent but not drive it on the session page, the picker says it starts in a terminal instead of falling back silently
+- Agent picker: when an agent is not ready on a machine, the picker says so and blocks the start until you run the doctor there
 - Steering feed: issue identifiers like #EXP-12 become tappable chips, and agent commands render as command pills
 - Issue relations: link issues as parent, sub-issue, blocking, blocked by, duplicate or related from the properties sheet; typing #EXP-12 in a description or comment links the two issues on its own
 - Threaded comments: reply under a comment from the docked composer; threads stay one level deep, and a comment an agent posted over MCP says so in its header
@@ -12,3 +12,8 @@
 - A quieter activity feed: events read as one muted line with a time, comments sit in a single card
 - Subscribe button retired: you follow an issue automatically when you create it, comment, get assigned or are mentioned
 - Steering: the context bar no longer overlaps the transcript
+- Sessions stay on your machine: transcripts are stored on the device that ran them, never on the server; past runs open from Devices, Chat and Automations and are fetched from that machine when it is online
+- Subagent conversations: a subagent's turns show in their own view, and agent prose no longer splits mid-sentence into separate rows
+- A run that goes quiet says so: the session shows when the agent has stopped reporting progress
+- Remote agent sign-in: paste the code from an agent's login link into the machine's settings to finish signing it in from your phone
+- Start coding: one sheet for issues, actions and chat with the same options everywhere
