@@ -3281,6 +3281,9 @@ mod tests {
         )
         .unwrap();
         fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+        // EXP-781: same ETXTBSY fork race as `test_support::acp_ready_stub` —
+        // see the note there.
+        crate::test_support::wait_until_executable(&stub);
         stub
     }
 

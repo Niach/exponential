@@ -651,6 +651,25 @@ fn resume_swaps(open: &[String], rows: &[(String, Option<String>)]) -> Vec<(Stri
     swaps
 }
 
+/// Which tab the center falls back to when the ACTIVE tab at `ix` closes.
+///
+/// `strip[i]` is tab `i`'s [`Screen::is_dock_tab`], and `dock` is the closing
+/// tab's own — the search stays strictly inside that ONE strip: the next tab
+/// to the right, else back to the left. Closing a bottom-bar session tab
+/// lands on the next session, closing a top tab on the next top tab.
+///
+/// EXP-781: `None` when the strip is now empty, which [`set_screen`] reads as
+/// "clear the center". This used to fall back to any remaining tab, so
+/// closing the LAST session tab activated an unrelated issue.
+///
+/// `ix` is the index the closed tab occupied, i.e. `strip` is already the
+/// post-removal list and `strip[ix]` is the tab that shifted into its place.
+fn neighbor_in_strip(strip: &[bool], ix: usize, dock: bool) -> Option<usize> {
+    (ix..strip.len())
+        .chain((0..ix).rev())
+        .find(|&candidate| strip[candidate] == dock)
+}
+
 pub struct ScreensPanel {
     focus_handle: FocusHandle,
     nav: Entity<Navigation>,
@@ -1298,8 +1317,12 @@ impl ScreensPanel {
         // description editor without a blur — flush the pending edit so it
         // is written before teardown (EXP-68).
         if matches!(self.tabs[ix].screen, Screen::IssueDetail { .. }) {
-            self.issue_detail
-                .update(cx, |detail, cx| detail.flush_description(cx));
+            self.issue_detail.update(cx, |detail, cx| {
+                // EXP-781: the title saves on blur too, so closing straight
+                // from a half-typed title dropped it.
+                detail.flush_title(cx);
+                detail.flush_description(cx);
+            });
         }
         let closed = self.tabs.remove(ix);
         self.shutdown_session_view(&closed.screen, cx);
@@ -1308,15 +1331,9 @@ impl ScreensPanel {
             // The neighbor within the SAME strip: closing a bottom-bar tab
             // lands on the next bottom-bar tab (the web's dock never jumps to
             // an issue), closing a top tab on the next top tab.
-            let dock = closed.screen.is_dock_tab();
-            let next = self
-                .tabs
-                .iter()
-                .skip(ix)
-                .chain(self.tabs.iter().take(ix).rev())
-                .find(|tab| tab.screen.is_dock_tab() == dock)
-                .or_else(|| self.tabs.get(ix).or_else(|| self.tabs.last()))
-                .map(|tab| tab.screen.clone());
+            let strip: Vec<bool> = self.tabs.iter().map(|tab| tab.screen.is_dock_tab()).collect();
+            let next = neighbor_in_strip(&strip, ix, closed.screen.is_dock_tab())
+                .map(|ix| self.tabs[ix].screen.clone());
             set_screen(window, cx, next);
         }
         if let (true, Screen::Terminal { tab }) = (kill_terminal, &closed.screen) {
@@ -2685,7 +2702,29 @@ fn pinned_panel_root(
 
 #[cfg(test)]
 mod tests {
-    use super::{lead_reserve_rems, partition_tabs, resume_swaps, takes_over_tab, ChipLead};
+    use super::{
+        lead_reserve_rems, neighbor_in_strip, partition_tabs, resume_swaps, takes_over_tab,
+        ChipLead,
+    };
+
+    /// EXP-781: closing a tab activates its own strip's neighbour and NOTHING
+    /// else. The last session tab closing leaves the center empty rather than
+    /// pulling an issue tab into view.
+    #[test]
+    fn a_close_never_activates_the_other_strip() {
+        // [issue, issue, session] — the session closes, no session is left.
+        assert_eq!(neighbor_in_strip(&[false, false], 2, true), None);
+        // [issue] — the last issue closes with a session still open.
+        assert_eq!(neighbor_in_strip(&[true], 0, false), None);
+
+        // Within the strip: the tab that shifted into the closed slot wins.
+        // [issue, session, session] after closing the middle session.
+        assert_eq!(neighbor_in_strip(&[false, true, true], 1, true), Some(1));
+        // Closing the LAST session falls back leftwards, skipping the issue.
+        assert_eq!(neighbor_in_strip(&[false, true], 2, true), Some(1));
+        // The same for the top strip, skipping the session between them.
+        assert_eq!(neighbor_in_strip(&[false, true], 1, false), Some(0));
+    }
 
     fn ids(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()

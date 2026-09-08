@@ -53,6 +53,13 @@ fn read_root(path: &Path) -> Root {
 
 fn stable_id(data_dir: &Path, key: &str) -> String {
     let path = data_dir.join("settings.json");
+    // EXP-781: read, mint and write under ONE machine-wide section. The
+    // desktop app and the CLI daemon share a data dir (REV-20), so on a first
+    // run they could both read a file with no id, both mint, and both write —
+    // one machine minting two identities, which the relay keys presence by.
+    // Held for the whole function: dropped before the read completes, the
+    // lock would guard nothing.
+    let _guard = crate::settings_lock::locked(data_dir);
     let mut root = match read_root(&path) {
         Root::Fresh => serde_json::Value::Object(Default::default()),
         Root::Object(root) => root,

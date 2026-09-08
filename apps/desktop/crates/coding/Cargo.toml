@@ -12,9 +12,11 @@ publish = false
 api = { path = "../api" }
 # Typed issue-status snapshots for the launcher's in_progress flip (EXP-194).
 domain = { path = "../domain" }
-# default-features = false: the core only needs the gpui-free terminal surface
-# (SpawnSpec, login_path, the TabId/TabKind data types); the `gpui` feature
-# below re-enables the UI half for the desktop's spawn_prepared* tail.
+# default-features = false: this crate only needs the gpui-free terminal
+# surface (SpawnSpec, login_path, the TabId/TabKind data types). EXP-773
+# retired the PTY coding path, so nothing here reaches the UI half any more;
+# `app`/`ui` depend on `terminal` with defaults directly, which is what keeps
+# `terminal/gpui` on for the desktop.
 terminal = { path = "../terminal", default-features = false }
 
 serde = { workspace = true }
@@ -43,13 +45,7 @@ libc = { workspace = true }
 # EXP-300: the reaper logs what it kills — the one record that explains a
 # "why did my agent process disappear" report after a quit.
 log = "0.4"
-# Only the thin gpui-facing driver (launcher::spawn_prepared) touches gpui —
-# the core (git/mcp/prompt/doctor/settings + prepare_launch) is gpui-free and
-# headless-testable (§7.1 "gpui-free-at-its-core state machine"). Optional
-# behind the default-on `gpui` feature (EXP-403) so the headless CLI links
-# the core without gpui.
-gpui = { workspace = true, optional = true }
-
-[features]
-default = ["gpui"]
-gpui = ["dep:gpui", "terminal/gpui"]
+# EXP-781: no gpui dep and no `gpui` feature. This crate is gpui-free
+# THROUGHOUT (§7.1 "gpui-free-at-its-core state machine") — the thin
+# gpui-facing driver the optional dep once carried went with the PTY path
+# (EXP-773), and nothing under `src/` has referenced it since.

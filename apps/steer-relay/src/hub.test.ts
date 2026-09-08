@@ -2174,6 +2174,75 @@ describe(`session history on demand (EXP-773)`, () => {
     hub.destroy()
   })
 
+  test(`the last viewer leaving a pending room still fires the timer cleanly`, () => {
+    const hub = new Hub()
+    connectDevice(hub)
+    // Capture the room's 20s timer instead of waiting for it.
+    const pending: { ms?: number; fn: () => void }[] = []
+    const realSetTimeout = globalThis.setTimeout
+    globalThis.setTimeout = ((fn: () => void, ms?: number) => {
+      pending.push({ fn, ms })
+      return 0 as unknown as ReturnType<typeof setTimeout>
+    }) as typeof setTimeout
+    let member: ReturnType<typeof joinWithDevice>
+    try {
+      member = joinWithDevice(hub)
+    } finally {
+      globalThis.setTimeout = realSetTimeout
+    }
+    const timer = pending.find((t) => t.ms === 20_000)
+    expect(timer).toBeDefined()
+
+    // The viewer gives up before the device answers. `onClose` only drops it
+    // from `activityMembers` — the room and its live timer stay, so the timer
+    // has to survive finding nobody to tell.
+    hub.onClose(member!)
+    expect(() => timer!.fn()).not.toThrow()
+    expect(hub.counters().historyTimeouts).toBe(1)
+
+    // And the empty room was closed, not leaked: a fresh join asks the device
+    // again instead of parking on a room that will never be filled.
+    const again = joinWithDevice(hub)
+    expect(again.frames().map((f) => f.t)).toContain(`history_pending`)
+    expect(hub.counters().historyRequests).toBe(2)
+    hub.destroy()
+  })
+
+  test(`a publisher hello after the timeout builds a fresh, non-pending room`, () => {
+    const hub = new Hub()
+    connectDevice(hub)
+    const pending: { ms?: number; fn: () => void }[] = []
+    const realSetTimeout = globalThis.setTimeout
+    globalThis.setTimeout = ((fn: () => void, ms?: number) => {
+      pending.push({ fn, ms })
+      return 0 as unknown as ReturnType<typeof setTimeout>
+    }) as typeof setTimeout
+    let member: ReturnType<typeof joinWithDevice>
+    try {
+      member = joinWithDevice(hub)
+    } finally {
+      globalThis.setTimeout = realSetTimeout
+    }
+    pending.find((t) => t.ms === 20_000)!.fn()
+    expect(member!.closed?.code).toBe(CLOSE_SESSION_ENDED)
+
+    // The device was slow, not absent: its replay arrives after `closeRoom`
+    // already dropped the room, so `hello` takes the `!room` branch and
+    // builds a brand-new one. Nothing about it is pending.
+    const pub = connectPublisher(hub, `sess-past`)
+    activity(hub, pub, { kind: `narration`, text: `late but complete` })
+
+    const late = joinWithDevice(hub)
+    expect(late.framesOf(`history_pending`)).toHaveLength(0)
+    expect(late.events()).toEqual([
+      { kind: `narration`, text: `late but complete` },
+    ])
+    expect(late.frames().at(-1)).toMatchObject({ t: `activity_synced` })
+    // No second ask went out: the room the join found was already live.
+    expect(hub.counters().historyRequests).toBe(1)
+    hub.destroy()
+  })
+
   test(`a publisher hello clears the pending flag, so a rejoin syncs normally`, () => {
     const hub = new Hub()
     connectDevice(hub)

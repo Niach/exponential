@@ -27,6 +27,11 @@ sha2 = { workspace = true }
 # EXP-766: the one line that explains an unreadable settings.json (the device
 # identity refuses to re-mint over one). Same pin as `crates/coding`.
 log = "0.4"
+# EXP-781: the advisory `flock` behind `settings_lock` — settings.json is a
+# merge-preserving store the desktop app and the CLI daemon share (REV-20).
+# Same use as `crates/coding`'s run-registry lock (unix only, `cfg`-gated in
+# the source rather than here, exactly as `coding` declares it).
+libc = { workspace = true }
 
 # NOTE (locked decision 2026-07-03): secrets are ALWAYS file-based (0600/0700,
 # see token_store.rs) — never the OS keyring. The keyring crate was removed:

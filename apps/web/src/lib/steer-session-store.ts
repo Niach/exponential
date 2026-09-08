@@ -1268,7 +1268,18 @@ export function createSteerSessionStore(
         // loses its footing; the commit still surfaces `connected: false` so
         // the send button dims honestly for the gap); the shared backoff
         // bounds a pathological evict-redial loop.
-        if (event.code === CLOSE_SLOW_CONSUMER && sessionStatus !== `ended`) {
+        //
+        // EXP-781: an ENDED row gets the same treatment once we have seen
+        // `history_pending`. That replay is the device pushing a whole
+        // journal in a burst, which is exactly what trips the eviction, and
+        // the staging was just discarded above — without a redial the phase
+        // lands in `closed`, where `kick()` refuses to recover it and the
+        // reader is stranded on an empty transcript. Retrying is safe: the
+        // next join replays from scratch.
+        if (
+          event.code === CLOSE_SLOW_CONSUMER &&
+          (sessionStatus !== `ended` || sawHistoryPending)
+        ) {
           commit()
           scheduleRedial()
           return

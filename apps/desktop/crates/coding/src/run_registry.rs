@@ -529,6 +529,43 @@ pub fn record(data_dir: &Path, record: RunRecord) {
     save(data_dir, &registry);
 }
 
+/// Mutate ONE record in place, under a single take of the section.
+///
+/// EXP-781: the read-modify-write a caller would otherwise spell as
+/// [`get`] + [`record`] takes the lock TWICE, and anything can happen in the
+/// gap — a concurrent [`remove_many`] (the scratch sweep's purge) drops the
+/// record, and the `record` that follows puts it straight back, resurrecting
+/// a run whose worktree is already gone.
+///
+/// `mutate` returns whether it changed anything; `false` writes nothing, and
+/// so does a `session_id` with no record. Returns whether the file was
+/// rewritten.
+///
+/// The TTL sweep [`record`] performs deliberately does NOT run here: this is
+/// an update of an existing entry, not a new run arriving, and expiring
+/// neighbours under a caller that asked to touch one record would make the
+/// purge race worse rather than better.
+pub fn update(
+    data_dir: &Path,
+    session_id: &str,
+    mutate: impl FnOnce(&mut RunRecord) -> bool,
+) -> bool {
+    let _guard = locked(data_dir);
+    let mut registry = load_registry(data_dir);
+    let Some(record) = registry
+        .records
+        .iter_mut()
+        .find(|record| record.session_id == session_id)
+    else {
+        return false;
+    };
+    if !mutate(record) {
+        return false;
+    }
+    save(data_dir, &registry);
+    true
+}
+
 /// EXP-758: every record this build can read, oldest first. The orphan reaper
 /// ([`crate::reaper::reap_recorded`]) is the caller — it has to look at ALL of
 /// them, not one by one, and unknown entries are none of its business (a
@@ -740,11 +777,61 @@ mod tests {
     #[test]
     fn round_trips_a_record() {
         let dir = temp_dir("round-trip");
-        record(&dir, sample("sess-1"));
-        assert_eq!(get(&dir, "sess-1").unwrap(), sample("sess-1"));
+        // EXP-781: ONE sample, compared against itself. `sample_record`
+        // stamps `recorded_at: now_secs()`, so two calls that straddle a
+        // second boundary are not equal — and a loaded workspace run puts
+        // exactly that gap between the write and the assertion.
+        let written = sample("sess-1");
+        record(&dir, written.clone());
+        assert_eq!(get(&dir, "sess-1").unwrap(), written);
         assert_eq!(get(&dir, "sess-nope"), None);
         remove(&dir, "sess-1");
         assert_eq!(get(&dir, "sess-1"), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-781: `update` is the whole read-modify-write under ONE take of the
+    /// section. A record that is gone is not recreated (which `get` + `record`
+    /// would do, resurrecting a run a concurrent purge just removed), and a
+    /// mutation that changed nothing writes nothing.
+    #[test]
+    fn update_mutates_in_place_and_never_resurrects() {
+        let dir = temp_dir("update");
+        record(&dir, sample("sess-1"));
+
+        assert!(update(&dir, "sess-1", |record| {
+            record.acp_session_id = Some("acp-42".to_string());
+            true
+        }));
+        assert_eq!(
+            get(&dir, "sess-1").unwrap().acp_session_id.as_deref(),
+            Some("acp-42")
+        );
+        // The rest of the record is untouched.
+        assert_eq!(get(&dir, "sess-1").unwrap().account_id, "acc-1");
+
+        // A mutation that reports no change is a no-op.
+        assert!(!update(&dir, "sess-1", |_| false));
+
+        // The purge race: the record is gone by the time the update runs, and
+        // the update must leave it gone.
+        remove(&dir, "sess-1");
+        assert!(!update(&dir, "sess-1", |record| {
+            record.host_pid = Some(1);
+            true
+        }));
+        assert_eq!(get(&dir, "sess-1"), None);
+
+        // A sibling record is never touched by another's update.
+        record(&dir, sample("sess-a"));
+        let sibling = sample("sess-b");
+        record(&dir, sibling.clone());
+        assert!(update(&dir, "sess-a", |record| {
+            record.host_pid = Some(7);
+            true
+        }));
+        assert_eq!(get(&dir, "sess-b").unwrap(), sibling);
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 

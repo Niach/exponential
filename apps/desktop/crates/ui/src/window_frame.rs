@@ -97,6 +97,23 @@ pub(crate) fn frame_vertical_chrome(window: &Window) -> Pixels {
     side(tiling.top) + side(tiling.bottom)
 }
 
+/// EXP-781: how far a bottom-flush control must sit ABOVE the content box's
+/// bottom edge to stay clickable.
+///
+/// Under Linux CSD the frame draws a 1px border there and
+/// [`resize_hit_zones`] lays an absolute cursor/drag overlay `RESIZE_HIT_SIZE`
+/// deep INSIDE it, so the last few pixels of the content box belong to the
+/// window resize, not to whatever is painted under them — the session bar
+/// mounts flush with that edge and lost its bottom row of hit area. Zero
+/// everywhere else (server decorations have no such overlay; macOS reports
+/// `Decorations::Server`) and on a tiled bottom edge, which drops both.
+pub(crate) fn frame_bottom_resize_inset(window: &Window) -> Pixels {
+    match window.window_decorations() {
+        Decorations::Client { tiling } if !tiling.bottom => BORDER_SIZE + RESIZE_HIT_SIZE,
+        _ => px(0.0),
+    }
+}
+
 /// [`frame_vertical_chrome`] for a window that does not exist yet: the
 /// untiled Linux CSD frame (shadow + border, top and bottom), zero elsewhere.
 pub(crate) fn untiled_frame_vertical_chrome() -> Pixels {

@@ -42,6 +42,7 @@ use gpui_component::{
 };
 
 use domain::rows::Issue;
+use sync::Store;
 
 use crate::attachments_row;
 use crate::controls::{glass_input, WebControl as _};
@@ -97,7 +98,9 @@ pub(crate) struct IssueComposer {
     /// The board the issue is filed onto. The dialog's titlebar select writes
     /// it live ([`IssueComposer::set_board_id`]); inline it is the parent's
     /// and never moves — a sub-issue on another board would be a move, not a
-    /// create (web parity).
+    /// create (web parity). Inline, this is only the FALLBACK: the parent's
+    /// board is re-read at create time ([`Self::target_board_id`]), since the
+    /// composer can outlive a board move made anywhere.
     board_id: String,
     /// Inline only: the parent this files a child under. EXP-760 — the
     /// relation is inserted in the create's OWN transaction, so the row
@@ -275,6 +278,25 @@ impl IssueComposer {
         &self.board_id
     }
 
+    /// The board the create actually targets. Inline, that is the PARENT's
+    /// board as of now: the card is captured once when it opens, and a parent
+    /// moved to another board in between (by a teammate, or from this very
+    /// window) would otherwise file its child onto the old one — the one place
+    /// where "the parent's board" and the captured `board_id` can disagree.
+    /// The captured value stays the fallback for a parent that is not synced.
+    fn target_board_id(&self, cx: &App) -> String {
+        let Some(parent_id) = self.parent_id.as_deref() else {
+            return self.board_id.clone();
+        };
+        Store::global(cx)
+            .collections()
+            .issues
+            .read(cx)
+            .get(parent_id)
+            .map(|parent| parent.board_id.clone())
+            .unwrap_or_else(|| self.board_id.clone())
+    }
+
     /// EXP-449: the dialog's titlebar board select writes the target live.
     /// Nothing else resets on a pick — status/assignee/label options are
     /// team-scoped and the menu only offers same-team boards.
@@ -384,7 +406,8 @@ impl IssueComposer {
         // handleSubmit): create with the staged `draft://` images STRIPPED,
         // upload them post-create, then update the description with the
         // canonical attachment URLs — all of it `issue_draft::spawn_create`.
-        let mut input = api::issues::IssuesCreateInput::new(self.board_id.clone(), title);
+        let board_id = self.target_board_id(cx);
+        let mut input = api::issues::IssuesCreateInput::new(board_id, title);
         self.draft.read(cx).apply_to_create(&mut input);
         input.parent_id = self.parent_id.clone();
         let markdown = self.description.read(cx).markdown(cx);
@@ -477,6 +500,10 @@ impl IssueComposer {
         self.error = None;
     }
 
+    /// Dismiss the composer. The host tears the view down on
+    /// [`IssueComposerEvent::Cancelled`] and puts focus back on itself there
+    /// (EXP-781) — focus is the host's to place, since it owns the handle the
+    /// J/K bindings are scoped to.
     fn cancel(&mut self, cx: &mut gpui::Context<Self>) {
         cx.emit(IssueComposerEvent::Cancelled);
     }

@@ -1,7 +1,8 @@
 # The headless `exponential` CLI (EXP-403): login, doctor, one-shot coding
 # sessions/action runs, and the registered-device daemon — sharing the
-# desktop's crates with terminal/coding built WITHOUT their gpui halves
-# (the default-on `gpui` feature stays off here). Ships as its own
+# desktop's crates with `terminal` built WITHOUT its gpui half (its
+# default-on `gpui` feature stays off here; EXP-781 retired coding's, which
+# had nothing left behind it). Ships as its own
 # `cli-v*` release asset; NEVER bundled inside desktop artifacts.
 [package]
 name = "exp-cli"
@@ -17,7 +18,7 @@ path = "src/main.rs"
 [dependencies]
 api = { path = "../api" }
 domain = { path = "../domain" }
-coding = { path = "../coding", default-features = false }
+coding = { path = "../coding" }
 steer = { path = "../steer" }
 # EXP-746: the ACP session engine — the daemon runs an Acp-transport session
 # through it instead of the PTY host, sharing one lifecycle with the IDE.

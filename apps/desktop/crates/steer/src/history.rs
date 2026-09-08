@@ -55,6 +55,17 @@ pub const JOURNAL_MAX_AGE: Duration = Duration::from_secs(60 * 24 * 60 * 60);
 /// `activity_synced` before closing the room.
 pub const HISTORY_OUTCOME: &str = "history";
 
+/// Frames [`publish_history`] sends between yields, and how long it yields.
+///
+/// EXP-781: a replay pushes a whole journal as fast as the socket accepts it,
+/// while the relay fans every frame out into a per-viewer buffer it caps at
+/// 512 KiB (`hub.ts` `VIEWER_HIGH_WATER`) and evicts the viewer over. A tight
+/// send loop is the burst that trips that cap; a short yield every batch gives
+/// the fan-out room to drain. Cheap either way — a replay is a background
+/// task and nothing waits on it.
+const HISTORY_BATCH_FRAMES: usize = 64;
+const HISTORY_BATCH_PAUSE: Duration = Duration::from_millis(20);
+
 /// Where every session's journal file lives.
 pub fn journal_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("journal")
@@ -280,7 +291,10 @@ pub async fn publish_history(
     ws.send(Message::Text(ClientFrame::ActivityReset.to_json()))
         .await
         .map_err(|err| format!("activity_reset failed: {err}"))?;
-    for event in events {
+    for (sent, event) in events.iter().enumerate() {
+        if sent > 0 && sent % HISTORY_BATCH_FRAMES == 0 {
+            tokio::time::sleep(HISTORY_BATCH_PAUSE).await;
+        }
         let framed = ClientFrame::Activity {
             event: event.clone(),
         }

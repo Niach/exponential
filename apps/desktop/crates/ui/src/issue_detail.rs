@@ -670,6 +670,15 @@ impl IssueDetailView {
 
     /// Web `handleTitleBlur`: trimmed, non-empty, changed → `issues.update`.
     fn save_title(&mut self, cx: &mut gpui::Context<Self>) {
+        self.flush_title(cx);
+    }
+
+    /// Flush a pending (un-blurred) TITLE edit — the title's
+    /// [`Self::flush_description`], and taken by the same `&mut App` so the
+    /// paths that tear this view out without a blur (center-tab close, an
+    /// undocked window closing) can call both. Trimmed, non-empty and changed
+    /// → `issues.update`, so a clean input is a no-op.
+    pub(crate) fn flush_title(&mut self, cx: &mut App) {
         let Some(issue) = self.issue(cx) else {
             return;
         };
@@ -1733,16 +1742,25 @@ impl IssueDetailView {
                                     &issue, team_id, window, cx,
                                 )
                             });
-                            let subscription = cx.subscribe(
+                            let subscription = cx.subscribe_in(
                                 &composer,
+                                window,
                                 |this,
                                  _,
                                  event: &crate::issue_composer::IssueComposerEvent,
+                                 window,
                                  cx| {
                                     use crate::issue_composer::IssueComposerEvent as Event;
                                     match event {
                                         Event::Cancelled => {
                                             this.sub_issue_composer = None;
+                                            // EXP-781: the composer held
+                                            // focus; dropping it would leave
+                                            // the window focused on an input
+                                            // that no longer renders and the
+                                            // scoped J/K switcher dead until
+                                            // the next click.
+                                            window.focus(&this.focus_handle, cx);
                                             cx.notify();
                                         }
                                         // The child is already synced (the

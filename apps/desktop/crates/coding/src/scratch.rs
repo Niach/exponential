@@ -88,8 +88,14 @@ enum DirOutcome {
     ReEntered,
     /// Removed by this call.
     Removed,
-    /// Already gone (or unremovable — logged).
+    /// Already gone: nothing to reclaim, and nothing to retry.
     Gone,
+    /// EXP-781: still there — `remove_dir_all` refused (logged). The dir is
+    /// NOT gone, so the caller must keep whatever would make it retry; this
+    /// used to be folded into [`Self::Gone`], which let [`purge`] delete the
+    /// run record and orphan the directory for the next startup sweep, where
+    /// nothing named it any more.
+    Failed,
 }
 
 /// Reclaim ONE ended run's scratch dir and its agent trust entries. Returns
@@ -114,7 +120,11 @@ pub fn reclaim(data_dir: &Path, cwd: &Path, requested_at: SystemTime) -> bool {
 /// be deleted under its fresh `.exp-mcp.json`.
 pub fn purge(data_dir: &Path, session_id: &str, cwd: &Path, requested_at: SystemTime) -> bool {
     match reclaim_dir(data_dir, cwd, requested_at) {
-        DirOutcome::NotScratch | DirOutcome::ReEntered => return false,
+        // EXP-781: `Failed` sits with `ReEntered`, not with `Gone` — the
+        // directory is still on disk, so the record has to stay too. It is
+        // what names this run's cwd, and the sweep keying off it is the only
+        // thing that will come back and try again.
+        DirOutcome::NotScratch | DirOutcome::ReEntered | DirOutcome::Failed => return false,
         DirOutcome::Removed | DirOutcome::Gone => {}
     }
     if let Some(record) = crate::run_registry::get(data_dir, session_id) {
@@ -167,7 +177,7 @@ fn reclaim_dir(data_dir: &Path, cwd: &Path, requested_at: SystemTime) -> DirOutc
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => DirOutcome::Gone,
         Err(err) => {
             log::warn!("scratch reclaim: remove {}: {err}", cwd.display());
-            DirOutcome::Gone
+            DirOutcome::Failed
         }
     };
     if let Some(action_dir) = &action_dir {
@@ -478,6 +488,39 @@ mod tests {
         std::fs::create_dir_all(&foreign).unwrap();
         assert!(!purge(&dir.0, "sess-1", &foreign, SystemTime::now()));
         assert!(crate::run_registry::get(&dir.0, "sess-1").is_some());
+    }
+
+    /// EXP-781: a directory that REFUSED to go keeps the record. Folded into
+    /// `Gone` it dropped the record and orphaned the dir — nothing named it
+    /// any more, so the startup sweep (which keys on records) never came back
+    /// for it.
+    #[cfg(unix)]
+    #[test]
+    fn purge_keeps_the_record_when_the_dir_refuses_to_go() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let dir = temp_dir("scratch-purge-unremovable");
+        let run = scratch(&dir.0, "builtin_chat", "1a2b3c4d");
+        scratch_record(&dir.0, "sess-1", &run);
+        // A read-only PARENT is what makes the unlink fail: the run dir's own
+        // contents can go, the run dir itself cannot.
+        let action_dir = run.parent().unwrap().to_path_buf();
+        std::fs::set_permissions(&action_dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+
+        let purged = purge(&dir.0, "sess-1", &run, SystemTime::now());
+
+        std::fs::set_permissions(&action_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(!purged, "an unremovable dir is not a purged run");
+        assert!(run.exists(), "the dir is still there, which is the point");
+        assert!(
+            crate::run_registry::get(&dir.0, "sess-1").is_some(),
+            "the record has to survive, or nothing ever retries this purge"
+        );
+        // And `reclaim` says the same thing to its own callers.
+        std::fs::set_permissions(&action_dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let reclaimed = reclaim(&dir.0, &run, SystemTime::now());
+        std::fs::set_permissions(&action_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(!reclaimed);
     }
 
     /// The resume race: the run ended, the reclaim was queued, and a resume

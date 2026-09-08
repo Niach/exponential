@@ -57,6 +57,13 @@ pub struct LabelsPane {
     /// label id → its name input (created lazily with the window in scope).
     name_inputs: HashMap<String, Entity<InputState>>,
     input_subs: HashMap<String, Subscription>,
+    /// label id → the synced name last pushed into its input. The per-row twin
+    /// of `team_general`'s `Snapshot`: it tells an untouched input (which we
+    /// may refresh from a teammate's rename) apart from a half-typed one
+    /// (which we must leave alone), and it is what `persist_name` compares the
+    /// typed text against — comparing against the LIVE row would let a stale
+    /// input write a remote rename back.
+    synced_names: HashMap<String, String>,
     confirming_delete: Option<String>,
     creating: bool,
     new_name: Entity<InputState>,
@@ -115,6 +122,7 @@ impl LabelsPane {
             nav,
             name_inputs: HashMap::new(),
             input_subs: HashMap::new(),
+            synced_names: HashMap::new(),
             confirming_delete: None,
             creating: false,
             new_name,
@@ -160,16 +168,29 @@ impl LabelsPane {
     }
 
     /// Ensure one `InputState` per visible label; drop stale ones. Runs in
-    /// window-aware observers (InputState construction needs the window).
+    /// window-aware observers (InputState construction needs the window). An
+    /// existing input tracks a teammate's rename as long as it still holds the
+    /// last synced name; once the user has typed something else it is theirs
+    /// until blur.
     fn sync_inputs(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let labels = self.scoped_labels(cx);
         let live: std::collections::HashSet<&str> =
             labels.iter().map(|label| label.id.as_str()).collect();
         self.name_inputs.retain(|id, _| live.contains(id.as_str()));
         self.input_subs.retain(|id, _| live.contains(id.as_str()));
+        self.synced_names.retain(|id, _| live.contains(id.as_str()));
 
         for label in &labels {
-            if self.name_inputs.contains_key(&label.id) {
+            if let Some(input) = self.name_inputs.get(&label.id).cloned() {
+                let untouched = self
+                    .synced_names
+                    .get(&label.id)
+                    .is_some_and(|synced| input.read(cx).value().as_ref() == synced);
+                if untouched && self.synced_names.get(&label.id) != Some(&label.name) {
+                    let name = label.name.clone();
+                    input.update(cx, |state, cx| state.set_value(name, window, cx));
+                }
+                self.synced_names.insert(label.id.clone(), label.name.clone());
                 continue;
             }
             let input = cx.new(|cx| {
@@ -201,11 +222,14 @@ impl LabelsPane {
             );
             self.name_inputs.insert(label.id.clone(), input);
             self.input_subs.insert(label.id.clone(), sub);
+            self.synced_names.insert(label.id.clone(), label.name.clone());
         }
     }
 
     /// Web `persistName`: trim; empty or unchanged resets to the synced name,
-    /// otherwise `labels.update`.
+    /// otherwise `labels.update`. "Unchanged" means unchanged against the name
+    /// we last put IN the input, not against the live row: a teammate's rename
+    /// must not be undone by a click in and out.
     fn persist_name(
         &mut self,
         label_id: &str,
@@ -223,8 +247,14 @@ impl LabelsPane {
             .cloned();
         let Some(label) = synced else { return };
         let typed = input.read(cx).value().trim().to_string();
-        if typed.is_empty() || typed == label.name {
+        let synced_name = self
+            .synced_names
+            .get(label_id)
+            .cloned()
+            .unwrap_or_else(|| label.name.clone());
+        if typed.is_empty() || typed == synced_name {
             let name = label.name.clone();
+            self.synced_names.insert(label_id.to_string(), name.clone());
             input.update(cx, |state, cx| state.set_value(name, window, cx));
             self.row_error = None;
             cx.notify();

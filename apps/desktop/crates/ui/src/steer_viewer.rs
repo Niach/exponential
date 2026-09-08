@@ -295,6 +295,12 @@ pub(crate) struct SteerSessionView {
     /// The extras cards expanded on a row (their own set: a folded tool BODY
     /// and a folded diff are different questions about the same row).
     expanded_extras: HashSet<FeedItemId>,
+    /// The oldest feed item id this view has already pruned its per-row state
+    /// against. `steer::feed::trim` drains items past `FEED_CAP`, and the maps
+    /// keyed off a feed row (`expanded_*`, `picked`, `extras`) have no other
+    /// signal that a row is gone; without this a long run accumulates them for
+    /// its whole life. Seeded at 0, which is below every real id.
+    pruned_before: FeedItemId,
     /// EXP-776: the virtualised transcript. `gpui::list` renders and
     /// measures only the rows in and around the viewport, and its
     /// [`FollowMode::Tail`] IS the auto-scroll: it snaps to the end on every
@@ -464,6 +470,7 @@ impl SteerSessionView {
                 diff
             }),
             expanded_extras: HashSet::new(),
+            pruned_before: 0,
             list: {
                 // A session tab opens on its newest rows (the question
                 // waiting for an answer, the composer's context) and every
@@ -752,6 +759,38 @@ impl SteerSessionView {
             .then(|| self.free_text_input.focus_handle(cx))
     }
 
+    /// Drop the per-row state of feed items the feed has trimmed away.
+    ///
+    /// The feed drains its oldest items past `FEED_CAP`, but every map keyed
+    /// off a feed row lives here and hears nothing about it. Cheap in the
+    /// common case: the oldest surviving id only moves once the cap is full,
+    /// so this is a single integer compare per frame until then.
+    fn prune_dropped_rows(&mut self) {
+        let Some(first) = self.feed.items().first().map(|item| item.id) else {
+            return;
+        };
+        if first <= self.pruned_before {
+            return;
+        }
+        self.pruned_before = first;
+        self.expanded_groups.retain(|id| *id >= first);
+        self.expanded_bodies.retain(|id| *id >= first);
+        self.expanded_extras.retain(|id| *id >= first);
+        // `picked` is keyed by `answer_key`, not by row id, so it has to be
+        // retained against the question ids still in the feed. Read them
+        // borrow-free (`items()` and `picked` are disjoint fields) and without
+        // allocating a set: a transcript holds a handful of question cards.
+        let items = self.feed.items();
+        self.picked.retain(|key, _| {
+            items.iter().any(|item| {
+                item.question()
+                    .and_then(|card| card.question_id.as_deref())
+                    == Some(key.as_str())
+            })
+        });
+        self.extras.prune_before(first);
+    }
+
     /// Refresh the cached projection and tell the list what changed.
     ///
     /// Runs at the top of EVERY frame: an O(n) pass over at most `FEED_CAP`
@@ -765,6 +804,7 @@ impl SteerSessionView {
     fn sync_list(&mut self, cx: &mut gpui::Context<Self>) {
         self.refresh_active();
         self.rows = self.feed.row_specs();
+        self.prune_dropped_rows();
         self.working = self.working_now();
         self.chips = self.ref_resolver(cx);
         let items = self.feed.items();
