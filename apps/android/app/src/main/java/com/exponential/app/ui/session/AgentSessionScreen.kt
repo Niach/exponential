@@ -52,7 +52,6 @@ import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -93,6 +92,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
@@ -121,6 +121,7 @@ import com.exponential.app.domain.PLAN_TOGGLE_LABEL
 import com.exponential.app.domain.modeChip
 import com.exponential.app.domain.ToolCallSummary
 import com.exponential.app.domain.ToolGroupSummary
+import com.exponential.app.domain.composerAnswerTarget
 import com.exponential.app.domain.AnswerState
 import com.exponential.app.domain.COMPACTED_LABEL
 import com.exponential.app.domain.COMPACTING_LABEL
@@ -406,19 +407,16 @@ fun AgentSessionScreen(
     // header flips to "Needs your input" so it never looks silently stuck.
     val awaitingInput = phase == AgentPhase.Live &&
         remember(feed) { activeQuestionIds(feed) }.isNotEmpty()
-    // EXP-529 batch: while a plan-approval card awaits the human, the composer
-    // IS the "tell Claude what to change" path (the desktop Escs the picker
-    // and types the message) — its placeholder says so instead of offering a
-    // dead picker row.
-    val planAwaitingApproval = phase == AgentPhase.Live &&
-        remember(feed, answerStates) {
-            val active = activeQuestionIds(feed)
-            feed.any { item ->
-                item is AgentFeedItem.Question && item.planMode && !item.resolved &&
-                    item.id in active &&
-                    item.wireId?.let { answerStates[it] }?.locksCard() != true
-            }
-        }
+    // EXP-788: while a plan approval or a question waits on the human, the
+    // composer IS its free-text path — the typed message answers THAT card
+    // (one `answer` frame on its free-text / reject key) instead of starting
+    // a new turn, and the placeholder says so. ONE derivation with the send
+    // path (`SteerConnection.sendDraft`): `composerAnswerTarget`.
+    val pendingAnswer = if (phase == AgentPhase.Live) {
+        remember(feed, answerStates) { composerAnswerTarget(feed, answerStates) }
+    } else {
+        null
+    }
 
     // FEED-26: a live run whose feed has gone quiet for a long time must not
     // read as a healthy "Live". Wire events carry no dependable `at`, so the
@@ -1139,7 +1137,7 @@ fun AgentSessionScreen(
                     // dropped without a word. Gate on the socket too, so the
                     // button dims and the placeholder says "reconnecting…".
                     live = phase == AgentPhase.Live && connected,
-                    planPending = planAwaitingApproval,
+                    pendingPlaceholder = pendingAnswer?.placeholder,
                     commandsAvailable = slashCatalogAvailable,
                     // EXP-772: the run's mode, the one steering chip left.
                     modeChip = modeChip,
@@ -2359,9 +2357,6 @@ private fun QuestionCard(
     // step onto the next one (EXP-274).
     var expanded by remember(item.id) { mutableStateOf(false) }
     var picked by remember(item.id) { mutableStateOf(emptySet<String>()) }
-    // EXP-513: the freeText option whose inline input is open (its key).
-    var freeTextKey by remember(item.id) { mutableStateOf<String?>(null) }
-    var freeTextValue by remember(item.id) { mutableStateOf("") }
     // A Failed state does NOT lock (EXP-334) — the card is answerable again
     // and renders the retry hint below instead of the sent row.
     val locked = state.locksCard()
@@ -2425,117 +2420,37 @@ private fun QuestionCard(
                 // Resolved (EXP-197/EXP-249): the answer replaces the options.
                 AnsweredRow(item.answer?.takeIf { it.isNotBlank() } ?: localAnswer)
             } else {
-                item.options.forEachIndexed { index, option ->
-                    // The wire's first option of a plan is the primary approve
-                    // action ("Approve — auto-accept edits") — promote it.
-                    val primary = item.planMode && index == 0
-                    val selected = option.key in picked || freeTextKey == option.key
-                    val interactive = answerable || locked
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .then(
-                                if (interactive) {
-                                    Modifier
-                                        .alpha(if (locked) 0.5f else 1f)
-                                        // glassRow, not glassButton: the
-                                        // capsule's percent radius clipped
-                                        // multi-line option descriptions into
-                                        // an ellipse (EXP-274).
-                                        .glassRow(active = primary || selected)
-                                } else {
-                                    Modifier
-                                },
-                            )
-                            .then(
-                                if (answerable) {
-                                    Modifier.clickable {
-                                        if (item.multiSelect) {
-                                            // Every picked key goes out at once
-                                            // when the card submits.
-                                            picked = if (selected) picked - option.key
-                                            else picked + option.key
-                                        } else if (option.freeText) {
-                                            // EXP-513: collect the reply first —
-                                            // nothing is sent until it submits.
-                                            freeTextKey =
-                                                if (freeTextKey == option.key) null else option.key
-                                        } else {
-                                            picked = setOf(option.key)
-                                            onAnswer(listOf(option.key), null)
-                                        }
-                                    }
-                                } else {
-                                    Modifier
-                                },
-                            )
-                            .padding(
-                                horizontal = if (interactive) 10.dp else 0.dp,
-                                vertical = 6.dp,
-                            ),
-                        verticalAlignment = Alignment.Top,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        QuestionOptionLabel(
-                            option = option,
-                            checked = if (item.multiSelect) selected else null,
-                            // EXP-698: the "1" / "2" chips web and iOS draw, so
-                            // a card's options read as ONE keyed list instead
-                            // of a stack of unrelated rows. It is the option's
-                            // own WIRE KEY, never its position: the desktop
-                            // rewrites option lists, so `index + 1` can name a
-                            // different row than the digit the agent's TUI
-                            // maps. A multi-select card keeps its checkboxes
-                            // (the leading slot says how the row answers), a
-                            // plan card has none, and a non-alphanumeric key is
-                            // an internal token no one should be asked to type.
-                            ordinal = option.key.takeIf {
-                                !item.multiSelect && !item.planMode &&
-                                    it.isNotEmpty() && it.all(Char::isLetterOrDigit)
-                            },
-                        )
-                    }
-                }
-                if (answerable && freeTextKey != null) {
-                    // EXP-513: the inline reply for the selected freeText row.
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        GlassTextField(
-                            value = freeTextValue,
-                            onValueChange = { freeTextValue = it.take(4000) },
-                            modifier = Modifier.weight(1f),
-                            placeholder = "Type your answer…",
-                            maxLines = 3,
-                        )
-                        val canSend = freeTextValue.isNotBlank()
-                        IconButton(
-                            onClick = {
-                                val key = freeTextKey
-                                val text = freeTextValue.trim()
-                                if (key != null && text.isNotEmpty()) {
-                                    picked = setOf(key)
-                                    onAnswer(listOf(key), text)
-                                    freeTextKey = null
-                                    freeTextValue = ""
-                                }
-                            },
-                            enabled = canSend,
-                        ) {
-                            Icon(
-                                ExpIcons.uiSend,
-                                contentDescription = "Send answer",
-                                tint = if (canSend) {
-                                    MaterialTheme.colorScheme.onSurface
-                                } else {
-                                    MaterialTheme.colorScheme.onSurface
-                                        .copy(alpha = TextEmphasis.Quaternary)
-                                },
-                            )
-                        }
-                    }
+                // EXP-788: ONE option list on every client — full-width
+                // buttons with a numbered chip (1..9, the row's POSITION, the
+                // digit a keyboard client presses), the description under the
+                // label, and the plan's plain "Yes" (index 0 since EXP-788)
+                // promoted in the shared blue. The free-text row and the
+                // in-card field are gone: the composer below answers the
+                // card directly (`composerAnswerTarget`), so the row that
+                // only opened an input has nothing left to do.
+                val options = remember(item.options) { item.options.filter { !it.freeText } }
+                options.forEachIndexed { index, option ->
+                    val selected = option.key in picked
+                    QuestionOptionButton(
+                        option = option,
+                        ordinal = index + 1,
+                        primary = item.planMode && index == 0,
+                        selected = selected,
+                        checked = if (item.multiSelect) selected else null,
+                        enabled = answerable,
+                        dimmed = locked,
+                        onClick = {
+                            if (item.multiSelect) {
+                                // Every picked key goes out at once when the
+                                // card submits.
+                                picked = if (selected) picked - option.key
+                                else picked + option.key
+                            } else {
+                                picked = setOf(option.key)
+                                onAnswer(listOf(option.key), null)
+                            }
+                        },
+                    )
                 }
                 if (item.multiSelect && (answerable || locked)) {
                     // One frame carrying every picked key.
@@ -2635,58 +2550,106 @@ private fun AnsweredRow(answer: String?) {
     }
 }
 
+/**
+ * EXP-788: one option of a question or plan card as a REAL button — the same
+ * row web, iOS and the IDE draw. [ordinal] is the row's 1-based position; it
+ * is chipped for 1..9 only (the digits a keyboard client can press), a longer
+ * list keeps its rows bare. [primary] (the plan's plain "Yes") and a
+ * [selected] row paint in the design-tokens blue — the ONE accent every
+ * client uses for this card. A multi-select row leads with its checkbox
+ * ([checked]); a plan or single-select row leads with the chip.
+ */
 @Composable
-private fun RowScope.QuestionOptionLabel(
+private fun QuestionOptionButton(
     option: QuestionOption,
-    /** Non-null on a multi-select option — renders its checkbox state. */
-    checked: Boolean? = null,
-    /** EXP-698: the option's WIRE KEY — the character the agent's TUI maps
-     *  this row to — drawn as the leading chip on a single-select card (web /
-     *  iOS parity). Null on a multi-select row, whose leading slot belongs to
-     *  the checkbox, and on anything whose key is not worth showing. */
-    ordinal: String? = null,
+    ordinal: Int,
+    primary: Boolean,
+    selected: Boolean,
+    checked: Boolean?,
+    enabled: Boolean,
+    /** Locked: the answer is out and the row waits on the ack. */
+    dimmed: Boolean,
+    onClick: () -> Unit,
 ) {
-    if (ordinal != null) {
-        GlassPill(
-            ordinal,
-            size = PillSize.Sm,
-            mode = PillMode.Readonly,
-            // Keys are what the viewer would TYPE into the TUI — monospace,
-            // like every other key/identifier in the app (web `font-mono`).
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier.padding(top = 1.dp),
-        )
-    }
-    if (checked != null) {
-        Icon(
-            if (checked) ExpIcons.uiSelected else ExpIcons.uiUnselected,
-            contentDescription = null,
-            modifier = Modifier.size(14.dp).padding(top = 1.dp),
-            tint = if (checked) {
-                MaterialTheme.colorScheme.onSurface
-            } else {
-                MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-            },
-        )
-    }
-    Column(
-        modifier = Modifier.weight(1f),
-        verticalArrangement = Arrangement.spacedBy(1.dp),
-    ) {
-        Text(
-            option.label,
-            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        option.description?.takeIf { it.isNotBlank() }?.let {
-            Text(
-                it,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+    val accent = PlanAccent
+    val emphasized = primary || selected
+    val shape = RoundedCornerShape(GlassTokens.RowRadius)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .alpha(if (dimmed) 0.5f else 1f)
+            .clip(shape)
+            .background(
+                if (emphasized) accent.copy(alpha = OptionFillAlpha) else GlassTokens.RowFill,
+                shape,
             )
+            .border(
+                GlassTokens.Hairline,
+                if (emphasized) accent.copy(alpha = OptionStrokeAlpha) else GlassTokens.StrokeRow,
+                shape,
+            )
+            .then(
+                if (enabled) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier,
+            )
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (checked != null) {
+            Icon(
+                if (checked) ExpIcons.uiSelected else ExpIcons.uiUnselected,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp).padding(top = 2.dp),
+                tint = if (checked) accent else {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+                },
+            )
+        } else if (ordinal in 1..9) {
+            Box(
+                modifier = Modifier
+                    .size(18.dp)
+                    .clip(RoundedCornerShape(5.dp))
+                    .background(
+                        if (emphasized) accent.copy(alpha = OptionChipAlpha) else GlassTokens.RowFillActive,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "$ordinal",
+                    // The digit a keyboard client presses — monospace, like
+                    // every other key in the app (web `font-mono`).
+                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                    color = if (emphasized) accent else {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+                    },
+                )
+            }
+        }
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(1.dp),
+        ) {
+            Text(
+                option.label,
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            option.description?.takeIf { it.isNotBlank() }?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                )
+            }
         }
     }
 }
+
+/** The option accent's three strengths: the row fill, its hairline and the
+ *  numbered chip behind the digit. */
+private const val OptionFillAlpha = 0.16f
+private const val OptionStrokeAlpha = 0.55f
+private const val OptionChipAlpha = 0.28f
 
 // A permission prompt the agent hit (EXP-249) — the card itself has nothing to
 // press (the desktop TUI owns the decision), but a reply typed below reaches

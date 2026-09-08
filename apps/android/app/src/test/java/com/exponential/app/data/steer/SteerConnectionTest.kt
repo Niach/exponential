@@ -790,6 +790,81 @@ class SteerConnectionTest {
             connection.close()
         }
     }
+
+    // ── EXP-788: the composer answers a pending card ─────────────────────
+
+    @Test
+    fun aDraftAnswersThePendingPlanCardInsteadOfStartingATurn() = runBlocking {
+        val transport = FakeTransport()
+        val connection = connection(transport, stagingTimings)
+        try {
+            connection.connect()
+            val socket = transport.awaitOpen()
+            socket.emit("""{"t":"activity_reset"}""")
+            socket.emit(PLAN_FRAME)
+            socket.emit("""{"t":"activity_synced"}""")
+            waitUntil("the plan card") { connection.activity.value.feed.size == 1 }
+
+            connection.setDraft("Make the migration reversible")
+            connection.sendDraft()
+            waitUntil("the answer frame") { socket.sent.any { it.contains(""""t":"answer"""") } }
+            val answer = socket.sent.single { it.contains(""""t":"answer"""") }
+            // The reject option (the LAST one since EXP-788) carries the text.
+            assertTrue(answer, answer.contains(""""questionId":"plan1""""))
+            assertTrue(answer, answer.contains(""""keys":["3"]"""))
+            assertTrue(answer, answer.contains(""""text":"Make the migration reversible""""))
+            // No `input` frame: it was an answer, not a new turn.
+            assertFalse(socket.sent.any { it.contains(""""t":"input"""") })
+            // The card locked and the draft went with the frame.
+            assertEquals(
+                com.exponential.app.domain.AnswerState.Sending,
+                connection.activity.value.answerLocks["plan1"],
+            )
+            assertEquals("", connection.draft.value)
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
+    fun aDraftWithNoPendingCardIsAPlainSteerMessage() = runBlocking {
+        val transport = FakeTransport()
+        val connection = connection(transport, stagingTimings)
+        try {
+            val socket = liveWithFeed(transport, connection)
+            connection.setDraft("carry on")
+            connection.sendDraft()
+            waitUntil("the input frame") { socket.sent.any { it.contains(""""t":"input"""") } }
+            assertFalse(socket.sent.any { it.contains(""""t":"answer"""") })
+            assertEquals("", connection.draft.value)
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
+    fun aDraftOverALockedCardStaysPutUntilTheCardReopens() = runBlocking {
+        val transport = FakeTransport()
+        val connection = connection(transport, stagingTimings)
+        try {
+            connection.connect()
+            val socket = transport.awaitOpen()
+            socket.emit("""{"t":"activity_reset"}""")
+            socket.emit(PLAN_FRAME)
+            socket.emit("""{"t":"activity_synced"}""")
+            waitUntil("the plan card") { connection.activity.value.feed.size == 1 }
+            connection.sendQuestionAnswer("plan1", askId = null, keys = listOf("1"))
+            // Locked: the typed text is a plain message now (the card is
+            // answered as far as this client knows), never a second answer.
+            connection.setDraft("and also this")
+            connection.sendDraft()
+            waitUntil("the input frame") { socket.sent.any { it.contains(""""t":"input"""") } }
+            assertEquals(1, socket.sent.count { it.contains(""""t":"answer"""") })
+        } finally {
+            connection.close()
+        }
+    }
+
     // ── EXP-796: earlier pages need an open socket ───────────────────────
 
     @Test
@@ -852,3 +927,11 @@ private const val USAGE_FRAME =
 private const val QUESTION_FRAME =
     """{"t":"activity","event":{"kind":"question","id":"q1","text":"Approve?",""" +
         """"options":[{"label":"Yes","key":"1"},{"label":"No","key":"2"}]}}"""
+
+/** EXP-788: a plan-approval card as the desktop publishes it since EXP-788 —
+ *  the plain "Yes" first, the reject LAST with its description. */
+private const val PLAN_FRAME =
+    """{"t":"activity","event":{"kind":"question","id":"plan1","planMode":true,"text":"## Plan",""" +
+        """"options":[{"label":"Yes","key":"1"},""" +
+        """{"label":"Yes, and start with a fresh context","key":"2"},""" +
+        """{"label":"No, keep planning","key":"3","description":"Sends your next message back to planning"}]}}"""

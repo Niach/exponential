@@ -23,6 +23,7 @@ import com.exponential.app.domain.MAX_IMAGE_UPLOAD_BYTES
 import com.exponential.app.domain.MAX_STEER_IMAGES
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.appendUserMessage
+import com.exponential.app.domain.composerAnswerTarget
 import com.exponential.app.domain.applyActivityEvent
 import com.exponential.app.domain.buildSteerImageMessage
 import com.exponential.app.domain.canonicalContentType
@@ -1146,6 +1147,21 @@ class SteerConnection internal constructor(
         if (text.isBlank() && images.isEmpty()) return
         if (_steerSending.value) return
         if (images.isEmpty()) {
+            // EXP-788: while a plan or a question waits on the human, the
+            // typed text is that card's free answer — ONE `answer` frame on
+            // the card's free-text (or reject) key — not a new turn. Images
+            // cannot ride an answer frame, so a message carrying any stays a
+            // plain steer.
+            val state = _activity.value
+            val target = composerAnswerTarget(state.feed, state.answerLocks, text)
+            if (target != null) {
+                val wireId = target.question.wireId ?: return
+                val reply = text.trim()
+                if (sendQuestionAnswer(wireId, target.question.askId, target.keys, reply, listOf(reply))) {
+                    _draft.value = ""
+                }
+                return
+            }
             if (sendMessage(text)) _draft.value = ""
             return
         }
@@ -1204,7 +1220,8 @@ class SteerConnection internal constructor(
      * `answer` frame — the desktop owns the mapping onto its TUI and confirms
      * the injection with `answer_ack`. The card locks the moment the frame
      * goes out (no double-tap) and unlocks only if nothing comes back within
-     * [ANSWER_ACK_TIMEOUT_MS].
+     * [ANSWER_ACK_TIMEOUT_MS]. Returns whether the frame went out (a locked
+     * card or a dead socket sends nothing).
      */
     fun sendQuestionAnswer(
         questionId: String,
@@ -1215,10 +1232,10 @@ class SteerConnection internal constructor(
         /** EXP-588: the picked labels, shown for the step until the desktop
          *  resolves the ask. */
         labels: List<String> = emptyList(),
-    ) {
-        if (keys.isEmpty()) return
-        if (_activity.value.answerLocks[questionId].locksCard()) return
-        val socket = ws ?: return
+    ): Boolean {
+        if (keys.isEmpty()) return false
+        if (_activity.value.answerLocks[questionId].locksCard()) return false
+        val socket = ws ?: return false
         lockAnswer(questionId, labels)
         scope.launch {
             runCatching {
@@ -1232,6 +1249,7 @@ class SteerConnection internal constructor(
                 socket.send(json.encodeToString(JsonObject.serializer(), frame))
             }
         }
+        return true
     }
 
     /**
