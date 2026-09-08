@@ -144,8 +144,38 @@ pub enum ClientFrame<'a> {
     /// `{"t":"activity","event":{...}}`; the relay fans it to authenticated
     /// activity members only (EXP-90 removed the anonymous public audience).
     /// The event text is ALREADY redacted by the emitter.
+    #[serde(rename_all = "camelCase")]
     Activity {
         event: ActivityEvent,
+        /// EXP-783: this event's monotonic index within the run, assigned by
+        /// the publisher's `Recorder` and seeded from the journal file's line
+        /// count so a resumed run keeps counting. The relay echoes it
+        /// untouched; it is the ONLY monotonic anchor on the wire, and it is
+        /// what lets a viewer splice a join replay onto a transcript prefix it
+        /// already holds. `None` on a replayed journal line older than
+        /// EXP-783.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        seq: Option<u64>,
+    },
+    /// EXP-783 (viewer role): ask for the page of transcript BELOW `before_seq`.
+    /// The relay routes it to the room's publisher, or — for a room that is
+    /// not up — down the owning device's control socket. Answered with
+    /// [`ClientFrame::HistoryChunk`] frames carrying the same `request_id`.
+    #[serde(rename_all = "camelCase")]
+    HistoryPage {
+        request_id: String,
+        before_seq: u64,
+        limit: u32,
+    },
+    /// EXP-783 (publisher/device role): one page of older transcript, answering
+    /// a [`ServerFrame::HistoryPage`]. The relay delivers it to the ONE viewer
+    /// that asked and never adds it to the room's replay log.
+    #[serde(rename_all = "camelCase")]
+    HistoryChunk {
+        request_id: String,
+        events: Vec<ActivityEvent>,
+        seqs: Vec<u64>,
+        done: bool,
     },
     /// PUBLISHER-only (EXP-249): drop the room's replay log + last diff and
     /// tell the activity audience to clear its feed. Sent right before a
@@ -805,6 +835,19 @@ pub enum ServerFrame {
     /// (the relay's own 20s timer answers the viewer).
     #[serde(rename_all = "camelCase")]
     HistoryRequest { session_id: String },
+    /// EXP-783: a viewer scrolled past the top of what it holds and asked for
+    /// the page of transcript BELOW `before_seq`. Routed to the room's live
+    /// publisher, or to a device's control socket for a room that is not up —
+    /// either way the answer is read from the same journal file and sent as
+    /// [`ClientFrame::HistoryChunk`]s. Silence is a legal answer (no journal),
+    /// and the asking client's own timeout covers it.
+    #[serde(rename_all = "camelCase")]
+    HistoryPage {
+        session_id: String,
+        request_id: String,
+        before_seq: u64,
+        limit: u32,
+    },
     /// EXP-481: fire-and-forget check-in nudge — the web server persisted
     /// new work for this device (a queued command, edited launch defaults);
     /// heartbeat NOW instead of on the next cadence. No reply frame exists;
@@ -877,7 +920,14 @@ impl ServerFrame {
 #[serde(tag = "t", rename_all = "snake_case")]
 pub enum ViewerFrame {
     /// One already-scrubbed activity event, fanned out from the publisher.
-    Activity { event: ActivityEvent },
+    /// EXP-783: `seq` is the publisher's own monotonic index, echoed by the
+    /// relay; absent from a publisher older than EXP-783.
+    #[serde(rename_all = "camelCase")]
+    Activity {
+        event: ActivityEvent,
+        #[serde(default)]
+        seq: Option<u64>,
+    },
     /// "Drop everything rendered so far" — sent immediately BEFORE the join
     /// replay and before any publisher-driven full re-publish. EXP-656: a
     /// client stages what follows rather than blanking the feed on the spot.
@@ -887,7 +937,32 @@ pub enum ViewerFrame {
     /// publisher-driven republish (old desktops give the relay no
     /// end-of-republish signal), which is why clients also keep a quiet-timer
     /// fallback.
-    ActivitySynced,
+    ///
+    /// EXP-783: it now names the SPAN the replay covered. A client that
+    /// already holds this run's transcript keeps everything BELOW `first_seq`
+    /// and splices the replay on top; `truncated` says the relay's log is a
+    /// TAIL, so the pages below it must be asked for from the device
+    /// ([`ClientFrame::HistoryPage`]) rather than assumed gone.
+    #[serde(rename_all = "camelCase")]
+    ActivitySynced {
+        #[serde(default)]
+        first_seq: Option<u64>,
+        #[serde(default)]
+        last_seq: Option<u64>,
+        #[serde(default)]
+        truncated: Option<bool>,
+    },
+    /// EXP-783: one page of older transcript, answering this viewer's
+    /// [`ClientFrame::HistoryPage`]. Never part of the live feed — the client
+    /// PREPENDS these events instead of appending them.
+    #[serde(rename_all = "camelCase")]
+    HistoryChunk {
+        request_id: String,
+        events: Vec<ActivityEvent>,
+        #[serde(default)]
+        seqs: Vec<u64>,
+        done: bool,
+    },
     /// EXP-648: the relay's 15s beat to joined viewers. Carries nothing and
     /// never changes a phase — its only job is to prove the socket is alive,
     /// because an agent parked on a question sends nothing for minutes.
@@ -1019,14 +1094,16 @@ mod tests {
     fn activity_frame_serializes_to_the_relay_schema() {
         assert_eq!(
             ClientFrame::Activity {
-                event: ActivityEvent::narration("Reading the file")
+                event: ActivityEvent::narration("Reading the file"),
+                seq: None,
             }
             .to_json(),
             r#"{"t":"activity","event":{"kind":"narration","text":"Reading the file"}}"#
         );
         assert_eq!(
             ClientFrame::Activity {
-                event: ActivityEvent::tool("Edit", Some("src/main.rs".into()))
+                event: ActivityEvent::tool("Edit", Some("src/main.rs".into())),
+                seq: None,
             }
             .to_json(),
             r#"{"t":"activity","event":{"kind":"tool","name":"Edit","detail":"src/main.rs"}}"#
@@ -1034,14 +1111,16 @@ mod tests {
         // detail is omitted when absent.
         assert_eq!(
             ClientFrame::Activity {
-                event: ActivityEvent::tool("TodoWrite", None)
+                event: ActivityEvent::tool("TodoWrite", None),
+                seq: None,
             }
             .to_json(),
             r#"{"t":"activity","event":{"kind":"tool","name":"TodoWrite"}}"#
         );
         assert_eq!(
             ClientFrame::Activity {
-                event: ActivityEvent::diff("--- a\n+++ b\n")
+                event: ActivityEvent::diff("--- a\n+++ b\n"),
+                seq: None,
             }
             .to_json(),
             r#"{"t":"activity","event":{"kind":"diff","diff":"--- a\n+++ b\n"}}"#
@@ -1053,7 +1132,8 @@ mod tests {
         // EXP-78 kinds — tag snake_case, fields camelCase (`multiSelect`).
         assert_eq!(
             ClientFrame::Activity {
-                event: ActivityEvent::user_message("fix the login bug")
+                event: ActivityEvent::user_message("fix the login bug"),
+                seq: None,
             }
             .to_json(),
             r#"{"t":"activity","event":{"kind":"user_message","text":"fix the login bug"}}"#
@@ -1074,7 +1154,8 @@ mod tests {
                     total: None,
                     header: None,
                     at: None,
-                }
+                },
+                seq: None,
             }
             .to_json(),
             r#"{"t":"activity","event":{"kind":"question","text":"Which color?","options":[{"label":"Red","key":"1"},{"label":"Blue","key":"2"}],"multiSelect":true}}"#
@@ -1093,7 +1174,8 @@ mod tests {
                     total: None,
                     header: None,
                     at: None,
-                }
+                },
+                seq: None,
             }
             .to_json(),
             r#"{"t":"activity","event":{"kind":"question","text":"Approve?","options":[{"label":"Approve","key":"1"}]}}"#
@@ -1112,7 +1194,8 @@ mod tests {
                     total: None,
                     header: None,
                     at: None,
-                }
+                },
+                seq: None,
             }
             .to_json(),
             r#"{"t":"activity","event":{"kind":"question","text":"The plan","options":[{"label":"Approve — auto-accept edits","key":"1"}],"planMode":true}}"#
@@ -1146,7 +1229,8 @@ mod tests {
                     total: Some(3),
                     header: Some("Color".into()),
                     at: Some(1_751_500_000_000),
-                }
+                },
+                seq: None,
             }
             .to_json(),
             r#"{"t":"activity","event":{"kind":"question","text":"Which color?","options":[{"label":"Red","key":"1","description":"warm"},{"label":"Blue","key":"2"}],"multiSelect":false,"id":"toolu_01#1","askId":"toolu_01","index":2,"total":3,"header":"Color","at":1751500000000}}"#
@@ -1165,7 +1249,8 @@ mod tests {
                     total: None,
                     header: None,
                     at: None,
-                }
+                },
+                seq: None,
             }
             .to_json(),
             r#"{"t":"activity","event":{"kind":"question","text":"Submit answers?","options":[{"label":"Submit","key":"\r"}],"id":"toolu_01#submit","askId":"toolu_01"}}"#
@@ -1182,7 +1267,8 @@ mod tests {
                     answers: Some(vec!["Red".into()]),
                     dismissed: None,
                     at: None,
-                }
+                },
+                seq: None,
             }
             .to_json(),
             r#"{"t":"activity","event":{"kind":"question_resolved","id":"toolu_01#0","askId":"toolu_01","answers":["Red"]}}"#
@@ -1196,7 +1282,8 @@ mod tests {
                     answers: None,
                     dismissed: Some(true),
                     at: Some(1_751_500_000_000),
-                }
+                },
+                seq: None,
             }
             .to_json(),
             r#"{"t":"activity","event":{"kind":"question_resolved","askId":"toolu_01","dismissed":true,"at":1751500000000}}"#
@@ -1207,7 +1294,8 @@ mod tests {
                     id: "toolu_01#0".into(),
                     ask_id: Some("toolu_01".into()),
                     at: None,
-                }
+                },
+                seq: None,
             }
             .to_json(),
             r#"{"t":"activity","event":{"kind":"answer_ack","id":"toolu_01#0","askId":"toolu_01"}}"#
@@ -1218,7 +1306,8 @@ mod tests {
                     id: "plan-1".into(),
                     ask_id: None,
                     at: None,
-                }
+                },
+                seq: None,
             }
             .to_json(),
             r#"{"t":"activity","event":{"kind":"answer_ack","id":"plan-1"}}"#
@@ -1236,7 +1325,8 @@ mod tests {
                     detail: Some("Map the steer crate".into()),
                     at: None,
                     tool_calls: None,
-                }
+                },
+                seq: None,
             }
             .to_json(),
             r#"{"t":"activity","event":{"kind":"subagent","id":"agent_01","agentType":"explore","status":"started","detail":"Map the steer crate"}}"#
@@ -1250,7 +1340,8 @@ mod tests {
                     detail: None,
                     at: None,
                     tool_calls: None,
-                }
+                },
+                seq: None,
             }
             .to_json(),
             r#"{"t":"activity","event":{"kind":"subagent","id":"agent_01","agentType":"explore","status":"completed"}}"#
@@ -1262,7 +1353,8 @@ mod tests {
                     detail: Some("fn main".into()),
                     subagent_id: Some("agent_01".into()),
                     at: None,
-                }
+                },
+                seq: None,
             }
             .to_json(),
             r#"{"t":"activity","event":{"kind":"tool","name":"Grep","detail":"fn main","subagentId":"agent_01"}}"#
@@ -1273,7 +1365,8 @@ mod tests {
                     tool: "Bash".into(),
                     detail: Some("needs your permission".into()),
                     at: None,
-                }
+                },
+                seq: None,
             }
             .to_json(),
             r#"{"t":"activity","event":{"kind":"permission","tool":"Bash","detail":"needs your permission"}}"#
@@ -1286,12 +1379,12 @@ mod tests {
         // unknown (codex), present verbatim when claude/pi report it.
         let started = ActivityEvent::compaction(CompactionPhase::Started, Some("manual"));
         assert_eq!(
-            ClientFrame::Activity { event: started.clone() }.to_json(),
+            ClientFrame::Activity { event: started.clone(), seq: None }.to_json(),
             r#"{"t":"activity","event":{"kind":"compaction","phase":"started","trigger":"manual"}}"#
         );
         let ended = ActivityEvent::compaction(CompactionPhase::Ended, None);
         assert_eq!(
-            ClientFrame::Activity { event: ended.clone() }.to_json(),
+            ClientFrame::Activity { event: ended.clone(), seq: None }.to_json(),
             r#"{"t":"activity","event":{"kind":"compaction","phase":"ended"}}"#
         );
         // The viewer role reads them back (EXP-696) — a future trigger value
@@ -1350,12 +1443,12 @@ mod tests {
             at: Some(9),
         };
         assert_eq!(
-            ClientFrame::Activity { event: event.clone() }.to_json(),
+            ClientFrame::Activity { event: event.clone(), seq: None }.to_json(),
             r#"{"t":"activity","event":{"kind":"config_state","options":[{"id":"model","label":"Model","category":"model","value":"opus","values":[{"id":"opus","label":"Opus"},{"id":"sonnet","label":"Sonnet"}]}],"currentMode":"plan","modes":[{"id":"plan","label":"Plan","description":"Read-only until approved"},{"id":"default","label":"Default"}],"commands":[{"name":"compact","description":"Compact the context","hint":"instructions"},{"name":"new","description":"Start a fresh context"}],"at":9}}"#
         );
         assert_eq!(
-            ViewerFrame::parse(&ClientFrame::Activity { event: event.clone() }.to_json()).unwrap(),
-            ViewerFrame::Activity { event }
+            ViewerFrame::parse(&ClientFrame::Activity { event: event.clone(), seq: None }.to_json()).unwrap(),
+            ViewerFrame::Activity { event, seq: None }
         );
     }
 
@@ -1431,7 +1524,7 @@ mod tests {
             at: Some(5),
         };
         assert_eq!(
-            ClientFrame::Activity { event: metered.clone() }.to_json(),
+            ClientFrame::Activity { event: metered.clone(), seq: None }.to_json(),
             r#"{"t":"activity","event":{"kind":"usage","contextUsed":124000,"contextSize":200000,"costUsd":1.25,"at":5}}"#
         );
         // A plan run reports no spend: the key is absent, never `null`.
@@ -1440,8 +1533,8 @@ mod tests {
             r#"{"kind":"usage","contextUsed":0,"contextSize":200000}"#
         );
         assert_eq!(
-            ViewerFrame::parse(&ClientFrame::Activity { event: metered.clone() }.to_json()).unwrap(),
-            ViewerFrame::Activity { event: metered }
+            ViewerFrame::parse(&ClientFrame::Activity { event: metered.clone(), seq: None }.to_json()).unwrap(),
+            ViewerFrame::Activity { event: metered, seq: None }
         );
     }
 
@@ -2211,6 +2304,7 @@ mod tests {
             .unwrap(),
             ViewerFrame::Activity {
                 event: ActivityEvent::narration("Reading the file"),
+                seq: None,
             }
         );
         assert_eq!(
@@ -2220,7 +2314,23 @@ mod tests {
         // EXP-656 / EXP-648: the two bare markers.
         assert_eq!(
             ViewerFrame::parse(r#"{"t":"activity_synced"}"#).unwrap(),
-            ViewerFrame::ActivitySynced
+            ViewerFrame::ActivitySynced {
+                first_seq: None,
+                last_seq: None,
+                truncated: None,
+            }
+        );
+        // EXP-783: the span-carrying form.
+        assert_eq!(
+            ViewerFrame::parse(
+                r#"{"t":"activity_synced","firstSeq":12,"lastSeq":40,"truncated":true}"#
+            )
+            .unwrap(),
+            ViewerFrame::ActivitySynced {
+                first_seq: Some(12),
+                last_seq: Some(40),
+                truncated: Some(true),
+            }
         );
         assert_eq!(
             ViewerFrame::parse(r#"{"t":"keepalive"}"#).unwrap(),
@@ -2361,11 +2471,12 @@ mod tests {
         for event in events {
             let frame = ClientFrame::Activity {
                 event: event.clone(),
+                seq: None,
             }
             .to_json();
             assert_eq!(
                 ViewerFrame::parse(&frame).unwrap(),
-                ViewerFrame::Activity { event: event.clone() },
+                ViewerFrame::Activity { event: event.clone(), seq: None },
                 "round trip {event:?}"
             );
         }

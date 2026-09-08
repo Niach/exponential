@@ -199,13 +199,26 @@ pub enum ViewerEvent {
     /// `input` only from a joined connection, so a socket that is open but
     /// unanswered can send nothing and must not look otherwise.
     Connected(bool),
-    /// One activity event → `SteerFeed::apply`.
-    Activity(ActivityEvent),
+    /// One activity event → `SteerFeed::apply`. EXP-783: with the
+    /// publisher's wire sequence, when it sent one.
+    Activity(Option<u64>, ActivityEvent),
     /// `activity_reset` → `SteerFeed::apply_reset` (which STAGES; it does not
     /// blank the feed — EXP-656).
     Reset,
-    /// `activity_synced` → `SteerFeed::apply_synced`.
-    Synced,
+    /// `activity_synced` → `SteerFeed::apply_synced`. EXP-783: it names the
+    /// span the replay covered, so the feed can keep the pages BELOW
+    /// `first_seq` instead of swapping the whole transcript away.
+    Synced {
+        first_seq: Option<u64>,
+        truncated: bool,
+    },
+    /// EXP-783: one page of OLDER transcript, answering
+    /// [`ViewerHandle::request_history_page`]. Prepended, never appended.
+    HistoryPage {
+        request_id: String,
+        events: Vec<(Option<u64>, ActivityEvent)>,
+        done: bool,
+    },
     /// The relay's 15s liveness beat. Carries nothing; the loop has already
     /// counted it. Forwarded because EXP-656 also treats it as an
     /// end-of-replay signal for a markerless republish.
@@ -276,6 +289,20 @@ impl ViewerHandle {
             ask_id: ask_id.map(str::to_string),
             keys: keys.to_vec(),
             text: text.map(str::to_string),
+        }
+        .to_json()])
+    }
+
+    /// EXP-783: ask for the page of transcript BELOW `before_seq`. The relay
+    /// routes it to whoever can read the run's journal (the live publisher,
+    /// or the owning device for an ended run); the answer arrives as
+    /// [`ViewerEvent::HistoryPage`]. `false` when the socket is not joined —
+    /// the caller retries on its next scroll to the top.
+    pub fn request_history_page(&self, request_id: &str, before_seq: u64, limit: u32) -> bool {
+        self.send_frames(vec![ClientFrame::HistoryPage {
+            request_id: request_id.to_string(),
+            before_seq,
+            limit,
         }
         .to_json()])
     }
@@ -805,7 +832,7 @@ async fn pump_connection(
                 }
                 match msg {
                     Some(Ok(Message::Text(text))) => match ViewerFrame::parse(&text) {
-                        Some(ViewerFrame::Activity { event }) => {
+                        Some(ViewerFrame::Activity { event, seq }) => {
                             // The join was answered ⇒ the room is live. A
                             // long-lived connection also earns a fresh
                             // backoff for whatever comes next.
@@ -814,7 +841,7 @@ async fn pump_connection(
                                 phases.set(ViewerPhase::Live);
                                 backoff.reset();
                             }
-                            let _ = events_tx.send(ViewerEvent::Activity(event));
+                            let _ = events_tx.send(ViewerEvent::Activity(seq, event));
                         }
                         Some(ViewerFrame::ActivityReset) => {
                             mark_joined();
@@ -824,9 +851,31 @@ async fn pump_connection(
                             }
                             let _ = events_tx.send(ViewerEvent::Reset);
                         }
-                        Some(ViewerFrame::ActivitySynced) => {
+                        Some(ViewerFrame::ActivitySynced {
+                            first_seq, truncated, ..
+                        }) => {
                             mark_joined();
-                            let _ = events_tx.send(ViewerEvent::Synced);
+                            let _ = events_tx.send(ViewerEvent::Synced {
+                                first_seq,
+                                truncated: truncated.unwrap_or(false),
+                            });
+                        }
+                        Some(ViewerFrame::HistoryChunk { request_id, events, seqs, done }) => {
+                            mark_joined();
+                            // The relay guarantees `seqs` lines up with
+                            // `events` when it is sent at all; a chunk from an
+                            // older publisher carries none and the page is
+                            // prepended unnumbered.
+                            let events = events
+                                .into_iter()
+                                .enumerate()
+                                .map(|(ix, event)| (seqs.get(ix).copied(), event))
+                                .collect();
+                            let _ = events_tx.send(ViewerEvent::HistoryPage {
+                                request_id,
+                                events,
+                                done,
+                            });
                         }
                         Some(ViewerFrame::Keepalive) => {
                             mark_joined();
@@ -1200,13 +1249,32 @@ mod tests {
         assert_eq!(harness.next_event(), ViewerEvent::Phase(ViewerPhase::Live));
         assert_eq!(harness.next_event(), ViewerEvent::Reset);
 
-        conn.send(r#"{"t":"activity","event":{"kind":"narration","text":"working"}}"#);
+        conn.send(r#"{"t":"activity","event":{"kind":"narration","text":"working"},"seq":4}"#);
         assert_eq!(
             harness.next_event(),
-            ViewerEvent::Activity(ActivityEvent::narration("working"))
+            ViewerEvent::Activity(Some(4), ActivityEvent::narration("working"))
         );
-        conn.send(r#"{"t":"activity_synced"}"#);
-        assert_eq!(harness.next_event(), ViewerEvent::Synced);
+        conn.send(r#"{"t":"activity_synced","firstSeq":0,"lastSeq":4}"#);
+        assert_eq!(
+            harness.next_event(),
+            ViewerEvent::Synced {
+                first_seq: Some(0),
+                truncated: false
+            }
+        );
+        // EXP-783: an older page arrives addressed to its request, with the
+        // sequences that let the client prepend it in order.
+        conn.send(
+            r#"{"t":"history_chunk","requestId":"p1","events":[{"kind":"narration","text":"older"}],"seqs":[1],"done":true}"#,
+        );
+        assert_eq!(
+            harness.next_event(),
+            ViewerEvent::HistoryPage {
+                request_id: "p1".to_string(),
+                events: vec![(Some(1), ActivityEvent::narration("older"))],
+                done: true,
+            }
+        );
         // EXP-648: a keepalive is forwarded but never a phase change.
         conn.send(r#"{"t":"keepalive"}"#);
         assert_eq!(harness.next_event(), ViewerEvent::Keepalive);

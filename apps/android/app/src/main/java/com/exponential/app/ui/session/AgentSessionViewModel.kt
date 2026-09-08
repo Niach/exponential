@@ -506,6 +506,14 @@ class AgentSessionViewModel @Inject constructor(
      *  pickers beside it: model and effort are launch decisions now. */
     fun setMode(id: String) = connection.setMode(id)
 
+    /** EXP-783: whether the DEVICE still holds transcript below the oldest row
+     *  this client has, and the ask that fetches the next page of it. */
+    fun canLoadEarlier(): Boolean = connection.canLoadEarlier()
+
+    fun loadEarlier() {
+        connection.loadEarlier()
+    }
+
     /**
      * Kill the session (EXP-268): tRPC `steer.killSession` flips the synced
      * row to `ended` (which this screen already reacts to) and best-effort

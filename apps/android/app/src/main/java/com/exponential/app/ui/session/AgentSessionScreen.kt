@@ -138,6 +138,8 @@ import com.exponential.app.domain.activeQuestionIds
 import com.exponential.app.domain.canOfferFixConflicts
 import com.exponential.app.domain.collectSubagents
 import com.exponential.app.domain.currentStepperStep
+import com.exponential.app.domain.FEED_WINDOW
+import com.exponential.app.domain.FEED_WINDOW_STEP
 import com.exponential.app.domain.groupFeedRows
 import com.exponential.app.domain.localAnswerSummary
 import com.exponential.app.domain.locksCard
@@ -681,6 +683,10 @@ fun AgentSessionScreen(
                             onFollowChange = { follow = it },
                             agentTab = agentTab,
                             onAgentTabChange = { agentTab = it },
+                            // EXP-783: past the feed's own first row, the next
+                            // page comes off the device's journal.
+                            onCanLoadEarlier = { viewModel.canLoadEarlier() },
+                            onLoadEarlier = { viewModel.loadEarlier() },
                             // EXP-389: the agent is actively working — live and
                             // nothing waiting on the user (no active question
                             // card, synced needs_input clear; all three agents
@@ -1410,6 +1416,10 @@ private fun ActivityFeed(
     onFollowChange: (Boolean) -> Unit,
     agentTab: String?,
     onAgentTabChange: (String?) -> Unit,
+    /** EXP-783: whether the DEVICE still holds transcript below this feed's
+     *  first row, and the ask that fetches it. */
+    onCanLoadEarlier: () -> Boolean = { false },
+    onLoadEarlier: () -> Unit = {},
     /** EXP-389: show the trailing "Working…" indicator — the session is live
      *  and nothing waits on the user. */
     working: Boolean,
@@ -1438,7 +1448,35 @@ private fun ActivityFeed(
     val activeQuestionIds = remember(feed) { activeQuestionIds(feed) }
     // Subagent groups, askId steppers and consecutive tool runs are all
     // render-time projections only — the flat feed stays the state.
-    val rows = remember(feed) { groupFeedRows(feed) }
+    // EXP-783: the transcript keeps the WHOLE run, and this screen paints a
+    // WINDOW over it. `windowFrom` is the id of the oldest rendered row — null
+    // means the newest FEED_WINDOW rows. An id rather than an index, so a
+    // byte-budget eviction or a replay swap cannot slide the window under the
+    // reader.
+    var windowFrom by remember { mutableStateOf<Long?>(null) }
+    val windowStart = remember(feed, windowFrom) {
+        val tail = maxOf(0, feed.size - FEED_WINDOW)
+        val from = windowFrom ?: return@remember tail
+        val at = feed.indexOfFirst { it.id >= from }
+        minOf(if (at == -1) tail else at, tail)
+    }
+    val rows = remember(feed, windowStart) { groupFeedRows(feed, windowStart) }
+    // While the reader follows the tail the window may SLIDE with the stream
+    // (invisible, and it keeps the projection bounded). The moment they scroll
+    // up it stays pinned: rows vanishing above a reader is exactly the jump
+    // this change exists to avoid.
+    LaunchedEffect(follow) { if (follow) windowFrom = null }
+    // A page fetched from the device lands BELOW the window's anchor (ids only
+    // ever decrease at the front). The reader asked for it, so it belongs
+    // inside the window; this only ever lowers the anchor.
+    val firstFeedId = feed.firstOrNull()?.id
+    LaunchedEffect(firstFeedId) {
+        val anchor = windowFrom
+        if (anchor != null && firstFeedId != null && firstFeedId < anchor) {
+            windowFrom = firstFeedId
+        }
+    }
+    val canLoadEarlier = windowStart > 0 || onCanLoadEarlier()
     // EXP-356: conversation tabs — null is the main agent; a subagent id
     // focuses that agent's stream. Falls back to Main whenever the id
     // vanishes from the feed (an activity_reset replay). EXP-387: the strip
@@ -1533,6 +1571,20 @@ private fun ActivityFeed(
                     }
                 }
             } else {
+            if (canLoadEarlier) {
+                item(key = "load-earlier") {
+                    TextButton(
+                        onClick = {
+                            if (windowStart > 0) {
+                                windowFrom = feed[maxOf(0, windowStart - FEED_WINDOW_STEP)].id
+                            } else {
+                                onLoadEarlier()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Load earlier") }
+                }
+            }
             items(rows, key = { it.id }) { row ->
                 when (row) {
                     is AgentFeedRow.ToolRun -> ToolGroupRow(

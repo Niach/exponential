@@ -7,7 +7,7 @@ import {
   REPLAY_QUIET_MS,
   type SteerSessionStore,
 } from "@/lib/steer-session-store"
-import { COMPACTION_TIMEOUT_MS, FEED_CAP } from "@/lib/agent-feed"
+import { COMPACTION_TIMEOUT_MS, FEED_BYTE_CAP } from "@/lib/agent-feed"
 import { MAX_STEER_IMAGES } from "@/lib/steer-image-message"
 import { TRPCClientError } from "@trpc/client"
 
@@ -126,10 +126,12 @@ describe(`connection lifecycle`, () => {
     store.dispose()
   })
 
-  it(`applies activity frames to the feed and caps it`, async () => {
+  // EXP-783: a run far past the OLD 2000-event cap keeps every event — the
+  // renderer windows, the store does not truncate.
+  it(`applies activity frames and keeps the whole run`, async () => {
     const { store, sockets } = makeStore()
     const socket = await goLive(store, sockets)
-    for (let i = 0; i < FEED_CAP + 10; i++) {
+    for (let i = 0; i < 5_000; i++) {
       socket.frame({
         t: `activity`,
         event: { kind: `narration`, text: `line ${i}` },
@@ -137,8 +139,128 @@ describe(`connection lifecycle`, () => {
     }
     await vi.advanceTimersByTimeAsync(1_000)
     const { feed } = store.getSnapshot()
-    expect(feed).toHaveLength(FEED_CAP)
-    expect(feed[feed.length - 1]).toMatchObject({ text: `line ${FEED_CAP + 9}` })
+    expect(feed).toHaveLength(5_000)
+    expect(feed[0]).toMatchObject({ text: `line 0` })
+    expect(feed[feed.length - 1]).toMatchObject({ text: `line 4999` })
+    store.dispose()
+  })
+
+  // …bounded by BYTES instead: the oldest go, the newest always survives.
+  it(`evicts the oldest rows once the byte budget is passed`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    const chunk = `x`.repeat(64 * 1024)
+    for (let i = 0; i < 400; i++) {
+      socket.frame({
+        t: `activity`,
+        event: { kind: `narration`, text: `${i}${chunk}` },
+      })
+    }
+    await vi.advanceTimersByTimeAsync(1_000)
+    const { feed } = store.getSnapshot()
+    // 400 × 64 KiB is 25 MiB, past the 16 MiB budget.
+    expect(feed.length).toBeLessThan(400)
+    expect(feed.length).toBeGreaterThan(0)
+    const bytes = feed.reduce(
+      (sum, item) => sum + ((item as { text?: string }).text?.length ?? 0),
+      0
+    )
+    expect(bytes).toBeLessThanOrEqual(FEED_BYTE_CAP)
+    expect(feed[feed.length - 1]).toMatchObject({ text: `399${chunk}` })
+    store.dispose()
+  })
+
+  // EXP-783: a replay that names its span keeps the pages the reader had
+  // already scrolled back to load.
+  it(`a replay that names its span keeps the prefix below it`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    for (let seq = 0; seq < 6; seq++) {
+      socket.frame({
+        t: `activity`,
+        event: { kind: `narration`, text: `line ${seq}` },
+        seq,
+      })
+    }
+    await vi.advanceTimersByTimeAsync(1_000)
+    const firstIds = store.getSnapshot().feed.slice(0, 3).map((item) => item.id)
+
+    // The relay's log only reaches back to seq 3.
+    socket.frame({ t: `activity_reset` })
+    for (let seq = 3; seq < 8; seq++) {
+      socket.frame({
+        t: `activity`,
+        event: { kind: `narration`, text: `line ${seq}` },
+        seq,
+      })
+    }
+    socket.frame({ t: `activity_synced`, firstSeq: 3, lastSeq: 7, truncated: true })
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    const { feed, canLoadEarlier } = store.getSnapshot()
+    expect(feed.map((item) => (item as { text: string }).text)).toEqual([
+      `line 0`,
+      `line 1`,
+      `line 2`,
+      `line 3`,
+      `line 4`,
+      `line 5`,
+      `line 6`,
+      `line 7`,
+    ])
+    // The retained rows kept their React keys, so nothing the reader had open
+    // moved, and the ids stay strictly increasing across the seam.
+    expect(feed.slice(0, 3).map((item) => item.id)).toEqual(firstIds)
+    expect(feed.every((item, ix) => ix === 0 || feed[ix - 1].id < item.id)).toBe(true)
+    // The relay said its log is a tail, so there is older transcript to ask
+    // the device for.
+    expect(canLoadEarlier).toBe(true)
+    store.dispose()
+  })
+
+  // EXP-783: an older page lands in FRONT, and a re-asked page cannot double
+  // the transcript.
+  it(`loadEarlier prepends a history page exactly once`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    for (let seq = 5; seq < 8; seq++) {
+      socket.frame({
+        t: `activity`,
+        event: { kind: `narration`, text: `line ${seq}` },
+        seq,
+      })
+    }
+    socket.frame({ t: `activity_synced`, firstSeq: 5, lastSeq: 7, truncated: true })
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(store.loadEarlier()).toBe(true)
+    const ask = socket.sent
+      .map((raw) => JSON.parse(raw))
+      .find((frame) => frame.t === `history_page`)
+    expect(ask).toMatchObject({ beforeSeq: 5, limit: 200 })
+
+    const page = {
+      t: `history_chunk` as const,
+      requestId: ask.requestId,
+      events: [2, 3, 4].map((seq) => ({
+        kind: `narration` as const,
+        text: `line ${seq}`,
+      })),
+      seqs: [2, 3, 4],
+      done: true,
+    }
+    socket.frame(page)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(
+      store.getSnapshot().feed.map((item) => (item as { text: string }).text)
+    ).toEqual([`line 2`, `line 3`, `line 4`, `line 5`, `line 6`, `line 7`])
+    const feed = store.getSnapshot().feed
+    expect(feed.every((item, ix) => ix === 0 || feed[ix - 1].id < item.id)).toBe(true)
+
+    // The request is retired — a duplicate chunk for it changes nothing.
+    socket.frame(page)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(store.getSnapshot().feed).toHaveLength(6)
     store.dispose()
   })
 

@@ -759,6 +759,17 @@ struct AgentSessionView: View {
                             // calls" rows (EXP-97) — a render projection; the
                             // flat feed (and the trailing-question rule) stays
                             // the state.
+                            // EXP-783: the run's transcript is kept WHOLE and
+                            // rendered as a window; "Load earlier" grows it
+                            // upward (and, past the feed's own first row, asks
+                            // the device for the page below it).
+                            if model.canLoadEarlier {
+                                Button("Load earlier") { model.loadEarlier() }
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.bottom, 4)
+                            }
                             let rows = model.rows
                             ForEach(rows) { row in
                                 feedRow(row, isLast: row.id == rows.last?.id)

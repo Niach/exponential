@@ -86,8 +86,10 @@ struct AgentMarkdownText: View {
 
     /// Parsed display models keyed by text + base URL + parse options. The
     /// models are read-only (no focus, no edits), so sharing one between two
-    /// bubbles showing the same text is harmless. Bounded: a feed holds at
-    /// most `AgentFeed.feedCap` items, and NSCache evicts under pressure.
+    /// bubbles showing the same text is harmless. Bounded by `countLimit`
+    /// below and by NSCache's own eviction under pressure — EXP-783 uncapped
+    /// the feed itself, so the count limit here is the only bound that
+    /// matters (and the session view renders a window of it anyway).
     private static let cache: NSCache<NSString, IssueEditorModel> = {
         let cache = NSCache<NSString, IssueEditorModel>()
         cache.countLimit = 600

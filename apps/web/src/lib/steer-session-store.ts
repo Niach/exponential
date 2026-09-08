@@ -19,7 +19,8 @@ import {
   upsertQuestion,
   ANSWER_ACK_TIMEOUT_MS,
   COMPACTION_TIMEOUT_MS,
-  FEED_CAP,
+  feedItemBytes,
+  trimFeed,
   type AnswerStates,
   type EchoEntry,
   type SessionConfigState,
@@ -76,6 +77,10 @@ const ENDED_GRACE_MS = 5_000
  *  A request issued as the tab suspended can hang forever, and the store
  *  would sit on "Connecting…" with nothing to click. Bound it. */
 const MINT_TIMEOUT_MS = 20_000
+/** EXP-783: events per `history_page` ask. Mirrors the relay's
+ *  HISTORY_PAGE_MAX, which rejects anything larger. */
+const HISTORY_PAGE_LIMIT = 200
+
 /** EXP-625: the relay ALWAYS answers a join (`activity_reset` + replay, or
  *  `error no_such_session` then close 4001), so silence after the join means
  *  a dead socket: one that opened but never delivers a frame. Close it so
@@ -227,13 +232,33 @@ export type ActivityEvent =
     }
 
 type ServerFrame =
-  | { t: `activity`; event: ActivityEvent }
+  // EXP-783: `seq` is the publisher's own monotonic index, echoed by the
+  // relay; absent from a publisher older than EXP-783.
+  | { t: `activity`; event: ActivityEvent; seq?: number }
   // Protocol v2: "clear your feed now" — sent before every join replay and
   // whenever the desktop re-publishes its full history.
   | { t: `activity_reset` }
   // EXP-656: the relay's end-of-replay marker, sent to the joining viewer
   // right after its join replay (never after a publisher-driven reset).
-  | { t: `activity_synced` }
+  // EXP-783: it now names the SPAN it replayed. Everything this client holds
+  // BELOW `firstSeq` is a prefix the replay does not restate, so it is KEPT;
+  // `truncated` says the relay's log is a TAIL, so the pages under it have to
+  // be asked for from the device (`history_page`).
+  | {
+      t: `activity_synced`
+      firstSeq?: number
+      lastSeq?: number
+      truncated?: boolean
+    }
+  // EXP-783: one page of OLDER transcript, answering this viewer's
+  // `history_page`. PREPENDED, never appended.
+  | {
+      t: `history_chunk`
+      requestId: string
+      events: ActivityEvent[]
+      seqs?: number[]
+      done: boolean
+    }
   // EXP-773: no live room, but the session's device is online — the relay
   // parked this viewer and asked the machine to republish the run's journal.
   // The transcript arrives as an ordinary replay, then a `bye`.
@@ -280,7 +305,16 @@ export type ViewerPhase =
   // button still tries.
   | { kind: `closed`; detail?: string; terminal?: boolean }
 
-export type FeedItem =
+/** EXP-783: the publisher's monotonic index for the event behind a row, when
+ *  it sent one. The only monotonic anchor on the wire — it is what lets a join
+ *  replay be spliced onto a transcript prefix already on screen, and what an
+ *  older-page request is addressed relative to. */
+interface FeedSeq {
+  seq?: number
+}
+
+export type FeedItem = FeedSeq &
+  (
   | {
       id: number
       kind: `narration`
@@ -329,6 +363,7 @@ export type FeedItem =
       answer?: string
       dismissed?: boolean
     }
+  )
 
 export type QuestionItem = Extract<FeedItem, { kind: `question` }>
 
@@ -377,6 +412,10 @@ export interface SteerSessionSnapshot {
    *  slow-consumer redial keeps `phase: live` while the socket is briefly
    *  down, and send affordances should dim honestly for that gap. */
   connected: boolean
+  /** EXP-783: there is transcript BELOW the oldest row on screen, and this
+   *  client can ask the device for it — what the transcript's "Load earlier"
+   *  affordance is gated on. */
+  canLoadEarlier: boolean
 }
 
 export interface SteerDraftSnapshot {
@@ -427,6 +466,10 @@ export interface SteerSessionStore {
    *  short a `starting` backoff, and is a cheap no-op everywhere else, so
    *  callers may fire it freely. */
   kick(reason: string): void
+  /** EXP-783: pull in the page of transcript BELOW the oldest row on screen.
+   *  Called when the reader reaches the top of the rendered window. `false`
+   *  when there is nothing to ask for (or an ask is already in flight). */
+  loadEarlier(): boolean
   /** The synced row is the truth for "still running" inside the redial
    *  loops — the OWNING view feeds it; an unwatched store falls back to the
    *  relay's own signals plus the dock reaper. */
@@ -485,6 +528,12 @@ export function createSteerSessionStore(
 
   let phase: ViewerPhase = { kind: `idle` }
   let feed: FeedItem[] = []
+  /** EXP-783: the running weight of `feed`, so the byte budget is an integer
+   *  compare per append rather than a walk. */
+  let feedBytes = 0
+  /** EXP-783: the wire sequence of the event being folded in right now, so
+   *  `append` can stamp it without threading it through every case. */
+  let currentSeq: number | undefined
   let latestDiff: string | null = null
   let compacting: CompactionState | null = null
   let config: SessionConfigState | null = null
@@ -500,10 +549,21 @@ export function createSteerSessionStore(
   /** EXP-751: the replay being staged, or null when nothing is staging. Holds
    *  every `activity` event since the last `activity_reset`, in arrival
    *  order; the visible feed is folded from them in one go at commit. */
-  let staged: ActivityEvent[] | null = null
+  let staged: { event: ActivityEvent; seq?: number }[] | null = null
   /** Messages this client sent WHILE staging: the replay predates them, so
    *  the commit re-appends whatever it did not carry back. */
   let stagedEchoes: string[] = []
+  /** EXP-783: the `history_page` request in flight, if any — a chunk for any
+   *  other id is not ours. */
+  let historyRequest: string | null = null
+  /** The relay said its replay log is a TAIL: there IS older transcript to
+   *  ask the device for. */
+  let historyTruncated = false
+  /** A page came back with nothing new — stop asking. */
+  let historyExhausted = false
+  /** Numbers the request ids, so a late chunk from a superseded ask is
+   *  dropped rather than prepended twice. */
+  let historyRequests = 0
   /** Commit deadlines: REPLAY_QUIET_MS since the last staged frame, and
    *  REPLAY_MAX_MS since the reset. */
   let stageQuietTimer: ReturnType<typeof setTimeout> | null = null
@@ -532,6 +592,7 @@ export function createSteerSessionStore(
     usage,
     answerStates,
     connected,
+    canLoadEarlier: false,
   }
   let draftSnapshot: SteerDraftSnapshot = { text: draftText, images: draftImages }
 
@@ -548,6 +609,7 @@ export function createSteerSessionStore(
       usage,
       answerStates,
       connected,
+      canLoadEarlier: historyTruncated && !historyExhausted,
     }
     notify()
   }
@@ -626,8 +688,22 @@ export function createSteerSessionStore(
     return true
   }
 
+  /** EXP-783: the feed keeps the WHOLE run — see FEED_BYTE_CAP. Everything
+   *  that grows it goes through here, so the budget has one seam. */
+  const setFeed = (next: FeedItem[], added?: FeedItem[]) => {
+    if (added) {
+      for (const item of added) feedBytes += feedItemBytes(item)
+    } else {
+      feedBytes = next.reduce((sum, item) => sum + feedItemBytes(item), 0)
+    }
+    const trimmed = trimFeed(next, feedBytes)
+    feed = trimmed.feed
+    feedBytes = trimmed.bytes
+  }
+
   const append = (item: NewFeedItem) => {
-    feed = [...feed, { ...item, id: nextId++ } as FeedItem].slice(-FEED_CAP)
+    const row = { ...item, id: nextId++, seq: currentSeq } as FeedItem
+    setFeed([...feed, row], [row])
   }
 
   const handleActivity = (event: ActivityEvent) => {
@@ -649,10 +725,9 @@ export function createSteerSessionStore(
             text: event.text,
             messageId: event.messageId,
             subagentId: event.subagentId,
+            seq: currentSeq,
           }
-          feed = (spliceBeforeQuestion(feed, anchor, item) ?? [...feed, item]).slice(
-            -FEED_CAP
-          )
+          setFeed(spliceBeforeQuestion(feed, anchor, item) ?? [...feed, item], [item])
           return
         }
         // EXP-772: the engine flushes ONE assistant message in several
@@ -665,7 +740,8 @@ export function createSteerSessionStore(
           subagentId: event.subagentId,
         })
         if (merged) {
-          feed = merged
+          feedBytes += event.text.length
+          setFeed(merged, [])
           return
         }
         append({
@@ -717,12 +793,21 @@ export function createSteerSessionStore(
         // A re-emission of a known id replaces the card in place (the
         // desktop augments options as it learns them).
         const replaced = event.id ? upsertQuestion(feed, event.id, item) : null
-        feed =
-          replaced ?? [...feed, { ...item, id: nextId++ }].slice(-FEED_CAP)
+        if (replaced) {
+          // A card replaced IN PLACE: its options grew, so re-derive rather
+          // than accumulate.
+          setFeed(replaced)
+        } else {
+          const row = { ...item, id: nextId++, seq: currentSeq } as FeedItem
+          setFeed([...feed, row], [row])
+        }
         return
       }
       case `question_resolved`: {
-        feed = applyQuestionResolved(feed, event) ?? feed
+        const resolved = applyQuestionResolved(feed, event)
+        // A resolution writes answers into cards anywhere in the transcript;
+        // the running byte count is cheaper to re-derive than to track.
+        if (resolved) setFeed(resolved)
         return
       }
       case `answer_ack`: {
@@ -862,9 +947,9 @@ export function createSteerSessionStore(
   }
 
   /** Buffer one replayed event and push the quiet deadline out. */
-  const stageEvent = (event: ActivityEvent) => {
+  const stageEvent = (event: ActivityEvent, seq?: number) => {
     if (staged === null) return
-    staged.push(event)
+    staged.push({ event, seq })
     if (stageQuietTimer) clearTimeout(stageQuietTimer)
     stageQuietTimer = setTimeout(
       () => commitStagingFromTimer(`quiet`),
@@ -894,7 +979,7 @@ export function createSteerSessionStore(
    * brought back — the tap that locked them may be milliseconds old, and a
    * card that came back unlocked would fire twice.
    */
-  const commitStaging = (_why: string) => {
+  const commitStaging = (_why: string, firstSeq?: number) => {
     const events = staged
     if (events === null) return
     clearStagingTimers()
@@ -912,7 +997,28 @@ export function createSteerSessionStore(
     // BECAUSE the swap is one commit — the old rows and the rewound counter
     // never coexist in a render.
     const anchorId = feed[0]?.id
+    // EXP-783: everything this client holds BELOW the replay's oldest
+    // sequence is a prefix the replay does not restate — pages a reader
+    // scrolled back to load, which the full swap used to throw away. Kept
+    // only when the WHOLE prefix is numbered: an unnumbered row cannot be
+    // proved older than the replay, so one of them makes this the full swap
+    // it has always been.
+    let retained: FeedItem[] = []
+    if (firstSeq !== undefined) {
+      let split = 0
+      while (
+        split < feed.length &&
+        feed[split].seq !== undefined &&
+        (feed[split].seq as number) < firstSeq
+      ) {
+        split++
+      }
+      retained = feed.slice(0, split)
+    }
+    const retainedNextId =
+      retained.length > 0 ? retained[retained.length - 1].id + 1 : undefined
     feed = []
+    feedBytes = 0
     latestDiff = null
     config = null
     usage = null
@@ -922,10 +1028,20 @@ export function createSteerSessionStore(
     // bring back are dropped right after.
     answerStates = carried
     if (anchorId !== undefined) nextId = anchorId
+    // The retained prefix keeps its rows AND its ids; the replay continues
+    // numbering above them, so no row identity is reused.
+    if (retained.length > 0) {
+      setFeed(retained)
+      if (retainedNextId !== undefined) nextId = retainedNextId
+    }
     foldingReplay = true
     try {
-      for (const event of events) handleActivity(event)
+      for (const { event, seq } of events) {
+        currentSeq = seq
+        handleActivity(event)
+      }
     } finally {
+      currentSeq = undefined
       foldingReplay = false
     }
     for (const text of echoes) {
@@ -948,6 +1064,89 @@ export function createSteerSessionStore(
     }
   }
 
+  /** EXP-783 — the oldest wire sequence on screen: what the next older-page
+   *  request is asked relative to. `undefined` when nothing is numbered
+   *  (every publisher older than EXP-783), which is also the signal that
+   *  paging is unavailable for this run. */
+  const oldestSeq = (): number | undefined => {
+    for (const item of feed) if (item.seq !== undefined) return item.seq
+    return undefined
+  }
+
+  /** EXP-783 — PREPEND one older page, oldest first.
+   *
+   *  The page is transcript from BELOW everything on screen, so it is folded
+   *  into a scratch reducer and spliced in front: every visible row keeps its
+   *  id (its React key), its answer state and its position. A page
+   *  overlapping what is already held is trimmed against `oldestSeq` — a
+   *  re-asked page must never double the transcript. Ignored while a replay
+   *  is staging: the replay is authoritative and is about to decide what the
+   *  prefix even is. */
+  const prependPage = (events: ActivityEvent[], seqs: number[]) => {
+    if (staged !== null || events.length === 0) return
+    const oldest = oldestSeq()
+    // Fold the page through the SAME reducer the live stream uses, over a
+    // scratch feed, so grouping/merging behave identically.
+    const savedFeed = feed
+    const savedBytes = feedBytes
+    const savedNextId = nextId
+    const savedFolding = foldingReplay
+    feed = []
+    feedBytes = 0
+    nextId = 0
+    foldingReplay = true
+    try {
+      events.forEach((event, ix) => {
+        const seq = seqs[ix]
+        if (oldest !== undefined && seq !== undefined && seq >= oldest) return
+        currentSeq = seq
+        handleActivity(event)
+      })
+    } finally {
+      currentSeq = undefined
+      foldingReplay = savedFolding
+    }
+    const page = feed
+    feed = savedFeed
+    feedBytes = savedBytes
+    nextId = savedNextId
+    if (page.length === 0) {
+      historyExhausted = true
+      return
+    }
+    // The prepended rows take ids BELOW every id on screen, so ordering by id
+    // stays the ordering of the transcript.
+    const base = (savedFeed[0]?.id ?? page.length) - page.length
+    const renumbered = page.map((item, offset) => ({ ...item, id: base + offset }))
+    setFeed([...renumbered, ...savedFeed], renumbered)
+  }
+
+  /** EXP-783 — one `history_page` ask, at most one in flight.
+   *
+   *  A viewer that joined a long-running session holds only the relay's
+   *  replay TAIL (`truncated` on `activity_synced` is how it knows), and the
+   *  pages below it exist only in the device's journal. */
+  const requestOlderPage = (): boolean => {
+    if (historyRequest !== null || historyExhausted || !historyTruncated) return false
+    const before = oldestSeq()
+    if (before === undefined || before === 0) {
+      historyExhausted = true
+      return false
+    }
+    const requestId = `p${++historyRequests}`
+    if (ws?.readyState !== WebSocket.OPEN) return false
+    ws.send(
+      JSON.stringify({
+        t: `history_page`,
+        requestId,
+        beforeSeq: before,
+        limit: HISTORY_PAGE_LIMIT,
+      })
+    )
+    historyRequest = requestId
+    return true
+  }
+
   /** Drop a staged replay and KEEP the visible feed: the socket went away
    *  mid-burst, so the buffer is a partial history of a room this client is
    *  no longer joined to. The next join replays from scratch. */
@@ -968,8 +1167,9 @@ export function createSteerSessionStore(
   // them) and only dispose cancels it.
   const activityQueue = createActivityCoalescer<
     | { t: `reset` }
-    | { t: `event`; event: ActivityEvent }
-    | { t: `synced` }
+    | { t: `event`; event: ActivityEvent; seq?: number }
+    | { t: `synced`; firstSeq?: number }
+    | { t: `page`; events: ActivityEvent[]; seqs: number[] }
     | { t: `keepalive` }
   >((batch) => {
     if (disposed) return
@@ -980,18 +1180,25 @@ export function createSteerSessionStore(
           beginStaging()
           break
         case `event`:
-          if (staged !== null) stageEvent(op.event)
-          else handleActivity(op.event)
+          if (staged !== null) stageEvent(op.event, op.seq)
+          else {
+            currentSeq = op.seq
+            handleActivity(op.event)
+            currentSeq = undefined
+          }
           break
         case `synced`:
           // Outside a replay (a relay we joined before the window opened)
           // there is nothing to commit — never a feed change.
-          commitStaging(`marker`)
+          commitStaging(`marker`, op.firstSeq)
+          break
+        case `page`:
+          prependPage(op.events, op.seqs)
           break
         case `keepalive`:
           // The relay's own 15s beat: if it got a turn, the replay burst is
           // over. This is what ends a publisher-driven republish, which
-          // carries no marker.
+          // carries no marker — and therefore no span either.
           commitStaging(`keepalive`)
           break
       }
@@ -1128,7 +1335,7 @@ export function createSteerSessionStore(
         switch (frame.t) {
           case `activity`: {
             const f = frame as Extract<ServerFrame, { t: `activity` }>
-            activityQueue.enqueue({ t: `event`, event: f.event })
+            activityQueue.enqueue({ t: `event`, event: f.event, seq: f.seq })
             if (markLive()) commit()
             return
           }
@@ -1151,9 +1358,27 @@ export function createSteerSessionStore(
           }
           case `activity_synced`: {
             // EXP-656: the relay's end-of-replay marker — the join succeeded
-            // and the staged replay commits as one swap.
-            activityQueue.enqueue({ t: `synced` })
+            // and the staged replay commits.
+            // EXP-783: it names the span, so the commit keeps the pages this
+            // client had already scrolled back to load.
+            const f = frame as Extract<ServerFrame, { t: `activity_synced` }>
+            historyTruncated = f.truncated === true
+            activityQueue.enqueue({ t: `synced`, firstSeq: f.firstSeq })
             if (markLive()) commit()
+            return
+          }
+          // EXP-783: one page of older transcript. It goes in FRONT of
+          // everything on screen, so it rides the same queue (order with the
+          // live tail matters) and never touches the staging buffer.
+          case `history_chunk`: {
+            const f = frame as Extract<ServerFrame, { t: `history_chunk` }>
+            if (f.requestId !== historyRequest) return
+            if (f.done) historyRequest = null
+            activityQueue.enqueue({
+              t: `page`,
+              events: f.events,
+              seqs: f.seqs ?? [],
+            })
             return
           }
           case `history_pending`: {
@@ -1402,6 +1627,10 @@ export function createSteerSessionStore(
       connected = false
       void dial(false)
     },
+    loadEarlier() {
+      if (disposed) return false
+      return requestOlderPage()
+    },
     kick(_reason) {
       if (disposed) return
       const current = phase
@@ -1474,10 +1703,8 @@ export function createSteerSessionStore(
       // Sent mid-replay: the staged history predates it, so the commit has
       // to put it back (unless the replay turns out to carry it).
       if (staged !== null) stagedEchoes.push(text)
-      feed = [
-        ...feed,
-        { id: nextId++, kind: `user_message` as const, text },
-      ].slice(-FEED_CAP)
+      const row = { id: nextId++, kind: `user_message` as const, text }
+      setFeed([...feed, row], [row])
       commit()
       return true
     },

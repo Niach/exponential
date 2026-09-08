@@ -46,19 +46,16 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-sessions-on-your-machine",
+    id: "2026-09-whole-transcripts",
     date: "2026-09-08",
-    title: "Sessions that stay on your machine",
-    summary: "Transcripts live on the device that ran them, plan mode always builds, and the chat page is one prompt box with your defaults underneath.",
-    body: r#"- **Transcripts on your machine**: every session's transcript is written to the device that runs it, never to the server. Past runs in Devices, Chat and Automations open on their own page; when that machine is online the transcript is fetched from it on demand, and when it is offline the page says so.
-- **Plan mode always builds**: a claude session started in plan mode no longer stops to ask for tool permissions, and leaving plan mode into Build works. The composer keeps one Plan switch; model and effort are chosen once, in the start dialog.
-- **Chat page**: the Chat page is a single prompt box with machine, agent, model, effort and plan as small pickers underneath, prefilled from your defaults.
-- **Subagent conversations**: a subagent's prompt no longer lands in the main transcript, and its own view shows its full conversation, not only its tool calls.
-- **Whole messages**: agent prose no longer splits mid-sentence into separate rows.
-- **Remote agent sign-in**: paste the code from an agent's login link into the machine's settings on web, desktop or mobile to finish signing that agent in from anywhere.
-- **Quiet runs say so**: a session whose agent has stopped reporting progress shows it, instead of looking alive while nothing happens.
-- **Desktop changes list**: the session page's changes sit under the transcript as a collapsible per-file list with Merge, like the web.
-- **Terminal-mode coding retired**: every coding session runs on the session page. The Start in terminal switch and the terminal-tab fallback are gone; plain terminal tabs and agent sign-in tabs stay. Where a picker used to say a start would open in a terminal, it now says the agent is not ready on that machine and blocks the start until you run the doctor there."#,
+    title: "The whole transcript, and steering that stops wedging",
+    summary: "Sessions keep every event instead of the last 2000, scroll back through a long run, and a dropped subagent no longer leaves the agent stuck on \"Working…\".",
+    body: r#"- **The whole transcript**: a session keeps every event it produced instead of the newest 2000, on web, desktop, iOS and Android. Each client renders a window of it and pulls the rest in as you scroll to the top, so a long run stays as smooth as a short one.
+- **Load earlier**: past what your client already holds, the transcript is fetched a page at a time from the machine that ran the session.
+- **No more stuck on Working**: a claude session whose background subagent stopped reporting back used to hold every later turn open forever. Tasks now only hold back their own turn, and one that goes quiet is retired instead of wedging the run.
+- **Subagents finish once**: a subagent that completed no longer appears twice, and a subagent that never reported back stops spinning.
+- **Images in the transcript**: an image you send an agent renders in the transcript instead of an "Image unavailable" placeholder.
+- **Interrupt markers**: cancelling a tool call no longer prints "[Request interrupted by user]" as though you had typed it."#,
 };
 
 /// Whether the rail's "What's new" card renders, given the stored

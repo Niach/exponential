@@ -16,7 +16,6 @@ import com.exponential.app.domain.ConfigCommand
 import com.exponential.app.domain.ConfigMode
 import com.exponential.app.domain.ConfigOption
 import com.exponential.app.domain.ConfigValue
-import com.exponential.app.domain.FEED_CAP
 import com.exponential.app.domain.SessionConfigState
 import com.exponential.app.domain.SessionUsageState
 import com.exponential.app.domain.modeChip
@@ -25,7 +24,9 @@ import com.exponential.app.domain.SUBAGENT_FALLBACK_TYPE
 import com.exponential.app.domain.activeQuestionIds
 import com.exponential.app.domain.appendUserMessage
 import com.exponential.app.domain.applyActivityEvent
-import com.exponential.app.domain.capFeed
+import com.exponential.app.domain.FEED_BYTE_CAP
+import com.exponential.app.domain.feedItemBytes
+import com.exponential.app.domain.trimmed
 import com.exponential.app.domain.clearCompaction
 import com.exponential.app.domain.collectSubagents
 import com.exponential.app.domain.completeSubagent
@@ -678,7 +679,8 @@ class AgentFeedTest {
         val echoed = ActivityFeedState().appendUserMessage("ship it")
         val once = echoed.applyActivityEvent(
             event("""{"kind":"user_message","text":"ship it"}"""),
-        ) { it.trim() == "ship it" }
+            { it.trim() == "ship it" },
+        )
         assertEquals(1, once.feed.size)
         val twice = once.applying(event("""{"kind":"user_message","text":"ship it"}"""))
         assertEquals(2, twice.feed.size)
@@ -693,13 +695,53 @@ class AgentFeedTest {
         assertTrue(state.feed.isEmpty())
     }
 
+    // EXP-783: a run far past the OLD 2000-event cap keeps every event — the
+    // screen windows, the reducer does not truncate.
     @Test
-    fun `the feed is capped at two thousand events, oldest first`() {
-        val overflow = (1L..(FEED_CAP + 5L)).map { AgentFeedItem.Narration(it, "n$it") }
-        val capped = capFeed(overflow)
-        assertEquals(FEED_CAP, capped.size)
-        assertEquals(6L, capped.first().id)
-        assertEquals(overflow.last(), capped.last())
+    fun `the feed keeps the whole run`() {
+        var state = ActivityFeedState()
+        repeat(5_000) { i -> state = state.applying(narration("line $i")) }
+        assertEquals(5_000, state.feed.size)
+        assertEquals("line 0", (state.feed.first() as AgentFeedItem.Narration).text)
+        assertEquals("line 4999", (state.feed.last() as AgentFeedItem.Narration).text)
+    }
+
+    // …bounded by BYTES instead: the oldest go, the newest always survives.
+    @Test
+    fun `the byte budget evicts the oldest and always keeps one`() {
+        val chunk = "x".repeat(64 * 1024)
+        val overflow = (0L until 400L).map { AgentFeedItem.Narration(it, "$it$chunk") }
+        val state = ActivityFeedState(
+            feed = overflow,
+            feedBytes = overflow.sumOf { feedItemBytes(it) },
+        ).trimmed()
+        assertTrue(state.feed.size < overflow.size)
+        assertTrue(state.feed.isNotEmpty())
+        assertTrue(state.feedBytes <= FEED_BYTE_CAP)
+        assertEquals(overflow.last(), state.feed.last())
+    }
+
+    // EXP-783: a window that cuts a tool run re-keys the boundary row onto the
+    // first item the reader can actually see, and `from = 0` is the whole
+    // projection.
+    @Test
+    fun `a window restricts the projection without changing it`() {
+        val feed = listOf<AgentFeedItem>(narrationItem(0, "hello")) +
+            (1L..6L).map { tool(it) }
+        assertEquals(groupFeedRows(feed), groupFeedRows(feed, 0))
+        val windowed = groupFeedRows(feed, 4)
+        assertEquals(1, windowed.size)
+        assertEquals(4L, windowed.single().id)
+    }
+
+    // EXP-783: the wire sequence rides onto the row it produced, which is what
+    // a replay splice and an older-page request are addressed by.
+    @Test
+    fun `the wire sequence lands on the row`() {
+        val state = ActivityFeedState()
+            .applying(narration("one"), seq = 7L)
+            .applying(narration("two"), seq = 8L)
+        assertEquals(listOf(7L, 8L), state.feed.map { it.seq })
     }
 
     @Test
@@ -1020,7 +1062,8 @@ class AgentFeedTest {
 
     // ── fixtures ────────────────────────────────────────────────────────────
 
-    private fun ActivityFeedState.applying(event: JsonObject) = applyActivityEvent(event)
+    private fun ActivityFeedState.applying(event: JsonObject, seq: Long? = null) =
+        applyActivityEvent(event, { false }, seq)
 
     private fun event(raw: String): JsonObject =
         Json.parseToJsonElement(raw.trimIndent()) as JsonObject
@@ -1070,6 +1113,8 @@ class AgentFeedTest {
     )
 
     private fun tool(id: Long) = AgentFeedItem.Tool(id, "Edit", "src/a.ts")
+
+    private fun narrationItem(id: Long, text: String) = AgentFeedItem.Narration(id, text)
 
     private fun subagent(id: Long, subagentId: String, completed: Boolean) =
         AgentFeedItem.Subagent(id, subagentId, "explore", completed)

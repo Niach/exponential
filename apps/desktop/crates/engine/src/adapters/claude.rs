@@ -32,7 +32,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use agent_client_protocol::schema::v1::{
     AgentCapabilities, AvailableCommand, AvailableCommandInput, AvailableCommandsUpdate,
@@ -107,6 +107,15 @@ const CONFIG_DEFAULT_VALUE: &str = "default";
 /// before answering — so the budget is generous on purpose: a slow init is
 /// not a dead CLI.
 const CONTROL_TIMEOUT: Duration = Duration::from_secs(90);
+
+/// How long a live background task may hold back the settlement of the turn
+/// that spawned it. The CLI drops `task_notification`s — 14 of 24 background
+/// agents in one measured run never reported a terminal status — and before
+/// EXP-780 a single dropped one deferred EVERY later turn forever, so
+/// `session/prompt` never answered and the run wedged on "Working…". The
+/// stall watchdog cannot rescue that: other work keeps resetting its
+/// `last_activity`.
+const TASK_MAX_LIFETIME: Duration = Duration::from_secs(600);
 
 /// The re-prompt that carries a plan into a fresh context after the user
 /// picked one of the "clear context" plan options.
@@ -446,6 +455,11 @@ struct State {
     context_window: ContextWindow,
     compaction: Option<String>,
     tasks: HashMap<String, TaskEntry>,
+    /// Bumped by every `session/prompt`. Tags the tasks a turn spawns so a
+    /// stale one cannot defer a later turn (EXP-780).
+    turn_seq: u64,
+    /// Set while a defer timer is in flight, so one deferral arms one timer.
+    defer_timer_armed: bool,
     plan_tasks: BTreeMap<String, PlanTask>,
     delivered_text: bool,
     local_only_command: bool,
@@ -484,6 +498,10 @@ struct DeferredSettle {
 /// and leave every later turn settling the channel in front of it (EXP-746).
 /// A CLI that reports no count folds nothing in: each turn waits.
 fn settle_turns(state: &mut State, settle: DeferredSettle) {
+    // A settled turn's dead tasks can never matter again: drop them, or a
+    // long run's `tasks` map grows for the life of the process.
+    let turn_seq = state.turn_seq;
+    state.tasks.retain(|_, task| task.live || task.turn_seq == turn_seq);
     if let Some(turn) = state.turns.pop_front() {
         let _ = turn.send(settle.outcome);
     }
@@ -496,6 +514,17 @@ fn settle_turns(state: &mut State, settle: DeferredSettle) {
             None => break,
         }
     }
+}
+
+/// The tasks that may still hold back a settlement: LIVE, spawned by the turn
+/// now running, and younger than [`TASK_MAX_LIFETIME`]. Everything else is a
+/// task the CLI stopped talking about, and waiting on one of those is the
+/// "Working…" wedge (EXP-780).
+fn blocking_tasks(state: &State) -> impl Iterator<Item = (&String, &TaskEntry)> {
+    let turn_seq = state.turn_seq;
+    state.tasks.iter().filter(move |(_, task)| {
+        task.live && task.turn_seq == turn_seq && task.started_at.elapsed() < TASK_MAX_LIFETIME
+    })
 }
 
 struct ToolEntry {
@@ -516,6 +545,18 @@ struct TaskEntry {
     /// `task_started.is_backgrounded`: the model did NOT stop for this one, so
     /// the main thread keeps running (and asking) beside it.
     backgrounded: bool,
+    /// The turn that spawned it ([`State::turn_seq`]). A task only ever
+    /// defers ITS OWN turn: without this, one task the CLI forgot about
+    /// blocked every turn the session would ever run.
+    turn_seq: u64,
+    /// When `task_started` arrived; a task past [`TASK_MAX_LIFETIME`] stops
+    /// blocking and is published as `failed` so its card stops spinning.
+    started_at: Instant,
+    /// The status last PUBLISHED for this task. `task_notification` and
+    /// `task_updated` share an arm and the CLI often sends both for one edge
+    /// (7 duplicate `completed`s in 54 edges, measured), which surfaced as a
+    /// second completed subagent row.
+    last_status: Option<String>,
 }
 
 struct PlanTask {
@@ -903,6 +944,8 @@ impl ClaudeSession {
             state.local_only_command = wire::LOCAL_ONLY_COMMANDS
                 .iter()
                 .any(|command| text.trim() == *command);
+            // EXP-780: from here on, a `task_started` belongs to THIS turn.
+            state.turn_seq = state.turn_seq.wrapping_add(1);
             state.turns.push_back(tx);
         }
         self.send(claude_user_message(&request.prompt, &text))?;
@@ -924,23 +967,88 @@ impl ClaudeSession {
         }
     }
 
-    /// Settle, unless a background subagent this turn spawned is still live
+    /// Settle, unless a background subagent THIS turn spawned is still live
     /// (issues #864/#866: settling early strands its permission request).
-    fn settle_or_defer(&self, state: &mut State, settle: DeferredSettle) {
-        if state.tasks.values().any(|task| task.live) {
+    fn settle_or_defer(
+        self: &Arc<Self>,
+        cx: &ConnectionTo<Client>,
+        state: &mut State,
+        settle: DeferredSettle,
+    ) {
+        self.expire_tasks(cx, state);
+        if blocking_tasks(state).next().is_some() {
             state.deferred = Some(settle);
+            self.arm_defer_timer(cx, state);
         } else {
             settle_turns(state, settle);
         }
     }
 
-    fn settle_deferred(&self, state: &mut State) {
-        if state.tasks.values().any(|task| task.live) {
+    fn settle_deferred(self: &Arc<Self>, cx: &ConnectionTo<Client>, state: &mut State) {
+        self.expire_tasks(cx, state);
+        if blocking_tasks(state).next().is_some() {
             return;
         }
         if let Some(settle) = state.deferred.take() {
             settle_turns(state, settle);
         }
+    }
+
+    /// Retire every live task past [`TASK_MAX_LIFETIME`], publishing a
+    /// `failed` edge for each: the client's subagent card stops spinning and
+    /// the mapper drops its per-subagent bookkeeping, which otherwise only
+    /// ever clears on a terminal edge the CLI may never send.
+    fn expire_tasks(&self, cx: &ConnectionTo<Client>, state: &mut State) {
+        let expired: Vec<String> = state
+            .tasks
+            .iter()
+            .filter(|(_, task)| task.live && task.started_at.elapsed() >= TASK_MAX_LIFETIME)
+            .map(|(task_id, _)| task_id.clone())
+            .collect();
+        for task_id in expired {
+            let Some(task) = state.tasks.get_mut(&task_id) else { continue };
+            task.live = false;
+            if task.last_status.as_deref() == Some("failed") {
+                continue;
+            }
+            task.last_status = Some("failed".to_string());
+            let tool_use_id = task.tool_use_id.clone();
+            let subagent_type = task.subagent_type.clone();
+            log::warn!("engine: claude task {task_id} never reported back; retiring it");
+            self.publish_subagent(
+                cx,
+                &task_id,
+                tool_use_id.as_deref(),
+                subagent_type.as_deref(),
+                "failed",
+            );
+        }
+    }
+
+    /// A deferral must not be able to outlive [`TASK_MAX_LIFETIME`] in total
+    /// silence: nothing else wakes `settle_deferred` when the CLI simply stops
+    /// sending frames for the task it is waiting on.
+    fn arm_defer_timer(self: &Arc<Self>, cx: &ConnectionTo<Client>, state: &mut State) {
+        if state.defer_timer_armed {
+            return;
+        }
+        state.defer_timer_armed = true;
+        // The oldest blocking task bounds the wait; +1 s so the sleep lands
+        // strictly past the expiry it is meant to observe.
+        let wait = blocking_tasks(state)
+            .map(|(_, task)| TASK_MAX_LIFETIME.saturating_sub(task.started_at.elapsed()))
+            .max()
+            .unwrap_or(TASK_MAX_LIFETIME)
+            + Duration::from_secs(1);
+        let session = self.clone();
+        let out = cx.clone();
+        let _ = cx.spawn(async move {
+            tokio::time::sleep(wait).await;
+            let mut state = session.lock();
+            state.defer_timer_armed = false;
+            session.settle_deferred(&out, &mut state);
+            Ok(())
+        });
     }
 
     // -----------------------------------------------------------------------
@@ -1314,7 +1422,7 @@ impl ClaudeSession {
                 let state_name = system.extra.get("state").and_then(Value::as_str).unwrap_or("");
                 if state_name == "idle" {
                     let mut state = self.lock();
-                    self.settle_deferred(&mut state);
+                    self.settle_deferred(cx, &mut state);
                 }
             }
             SystemSubtype::TaskStarted => {
@@ -1334,15 +1442,21 @@ impl ClaudeSession {
                     .get("is_backgrounded")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
-                self.lock().tasks.insert(
+                let mut state = self.lock();
+                let turn_seq = state.turn_seq;
+                state.tasks.insert(
                     task_id.clone(),
                     TaskEntry {
                         tool_use_id: tool_use_id.clone(),
                         subagent_type: subagent_type.clone(),
                         live: true,
                         backgrounded,
+                        turn_seq,
+                        started_at: Instant::now(),
+                        last_status: Some("started".to_string()),
                     },
                 );
+                drop(state);
                 self.publish_subagent(
                     cx,
                     &task_id,
@@ -1374,28 +1488,36 @@ impl ClaudeSession {
                     .unwrap_or_else(|| "running".to_string());
                 let terminal = matches!(status.as_str(), "completed" | "failed" | "cancelled");
                 let mut state = self.lock();
-                let (tool_use_id, subagent_type) = match state.tasks.get_mut(&task_id) {
+                // `task_notification` and `task_updated` share this arm and
+                // the CLI sends both for one edge often enough to matter
+                // (7 duplicate `completed`s in 54, measured), which drew the
+                // subagent twice. Only a CHANGE is republished.
+                let (tool_use_id, subagent_type, repeat) = match state.tasks.get_mut(&task_id) {
                     Some(task) => {
+                        let repeat = task.last_status.as_deref() == Some(status.as_str());
                         task.live = !terminal;
-                        (task.tool_use_id.clone(), task.subagent_type.clone())
+                        task.last_status = Some(status.clone());
+                        (task.tool_use_id.clone(), task.subagent_type.clone(), repeat)
                     }
-                    None => (None, None),
+                    None => (None, None, false),
                 };
                 drop(state);
                 // The edge goes out BEFORE the settle it unblocks: settling
                 // first ends the `session/prompt`, and a client that renders
                 // the subagent card off the edge would see the run finish
                 // with that card still spinning (EXP-753).
-                self.publish_subagent(
-                    cx,
-                    &task_id,
-                    tool_use_id.as_deref(),
-                    subagent_type.as_deref(),
-                    &status,
-                );
+                if !repeat {
+                    self.publish_subagent(
+                        cx,
+                        &task_id,
+                        tool_use_id.as_deref(),
+                        subagent_type.as_deref(),
+                        &status,
+                    );
+                }
                 if terminal {
                     let mut state = self.lock();
-                    self.settle_deferred(&mut state);
+                    self.settle_deferred(cx, &mut state);
                 }
             }
             SystemSubtype::CommandsChanged => {
@@ -1867,6 +1989,7 @@ impl ClaudeSession {
         state.delivered_text = false;
         state.local_only_command = false;
         self.settle_or_defer(
+            cx,
             &mut state,
             DeferredSettle {
                 outcome,
@@ -3436,6 +3559,74 @@ mod tests {
 
     fn cwd() -> PathBuf {
         PathBuf::from("/work/tree")
+    }
+
+    fn task(turn_seq: u64, live: bool, age: Duration) -> TaskEntry {
+        TaskEntry {
+            tool_use_id: Some("toolu_1".to_string()),
+            subagent_type: Some("explore".to_string()),
+            live,
+            backgrounded: true,
+            turn_seq,
+            started_at: Instant::now() - age,
+            last_status: None,
+        }
+    }
+
+    /// EXP-780 — the "Working…" wedge. A task the CLI never reported back on
+    /// used to defer EVERY later turn forever, because the deferral gate
+    /// asked "is ANY task live" over a map nothing ever pruned.
+    #[test]
+    fn a_stale_task_blocks_only_its_own_turn_and_only_for_a_while() {
+        let mut state = State { turn_seq: 4, ..State::default() };
+
+        // Live, this turn, fresh: the deliberate #864/#866 deferral.
+        state.tasks.insert("t-now".to_string(), task(4, true, Duration::ZERO));
+        assert_eq!(blocking_tasks(&state).count(), 1);
+
+        // An EARLIER turn's live task is not this turn's problem.
+        state.tasks.clear();
+        state.tasks.insert("t-old".to_string(), task(3, true, Duration::ZERO));
+        assert_eq!(blocking_tasks(&state).count(), 0);
+
+        // Neither is one this turn started and then went silent about.
+        state.tasks.clear();
+        state.tasks.insert(
+            "t-lost".to_string(),
+            task(4, true, TASK_MAX_LIFETIME + Duration::from_secs(1)),
+        );
+        assert_eq!(blocking_tasks(&state).count(), 0);
+
+        // A task that reported terminal never blocks at all.
+        state.tasks.clear();
+        state.tasks.insert("t-done".to_string(), task(4, false, Duration::ZERO));
+        assert_eq!(blocking_tasks(&state).count(), 0);
+    }
+
+    /// A settled turn drops the dead tasks of every EARLIER turn, so `tasks`
+    /// cannot grow for the life of the process.
+    #[test]
+    fn settling_a_turn_prunes_the_tasks_of_the_ones_before_it() {
+        let mut state = State { turn_seq: 7, ..State::default() };
+        state.tasks.insert("old-done".to_string(), task(2, false, Duration::ZERO));
+        state.tasks.insert("old-live".to_string(), task(2, true, Duration::ZERO));
+        state.tasks.insert("now-done".to_string(), task(7, false, Duration::ZERO));
+        let (tx, _rx) = flume::bounded(1);
+        state.turns.push_back(tx);
+
+        settle_turns(
+            &mut state,
+            DeferredSettle {
+                outcome: TurnOutcome::EndTurn,
+                queued: None,
+            },
+        );
+
+        // The finished task of an old turn goes; a still-live one and this
+        // turn's own bookkeeping (the duplicate-edge memo) stay.
+        assert!(!state.tasks.contains_key("old-done"));
+        assert!(state.tasks.contains_key("old-live"));
+        assert!(state.tasks.contains_key("now-done"));
     }
 
     /// Two in-flight prompts, one `result`: `queued_turn_count` is the only

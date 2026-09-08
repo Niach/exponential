@@ -4,6 +4,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -264,6 +265,7 @@ export function AgentSessionView({
     usage: sessionUsage,
     answerStates,
     connected,
+    canLoadEarlier: snapshotCanLoadEarlier,
   } = useSyncExternalStore(store.subscribe, store.getSnapshot)
   /** EXP-724: the agent is folding its context — the strip above the composer
    *  says so, and the generic "Working…" footer stands down while it does. */
@@ -386,10 +388,67 @@ export function AgentSessionView({
    *  read-only (EXP-672). */
   const questionIds = useMemo(() => activeQuestionIds(feed), [feed])
   const canAnswer = live && !sessionEnded
+  // EXP-783: the transcript keeps the WHOLE run, and this view paints a
+  // WINDOW over it. `windowFrom` is the id of the oldest rendered row —
+  // `null` means the newest FEED_WINDOW rows. An id rather than an index, so
+  // a byte-budget eviction or a replay swap cannot slide the window somewhere
+  // else under the reader.
+  const [windowFrom, setWindowFrom] = useState<number | null>(null)
+  const windowStart = useMemo(() => {
+    const tail = Math.max(0, feed.length - FEED_WINDOW)
+    if (windowFrom === null) return tail
+    const at = feed.findIndex((item) => item.id >= windowFrom)
+    return Math.min(at === -1 ? tail : at, tail)
+  }, [feed, windowFrom])
   /** Render rows: consecutive tool calls collapse into "N tool calls" runs
    *  (EXP-97), one ask's questions into a stepper and a subagent's work into
    *  its own group — a projection only, the flat feed stays the state. */
-  const rows = useMemo(() => groupFeedRows(feed), [feed])
+  const rows = useMemo(
+    () => groupFeedRows(feed, windowStart),
+    [feed, windowStart]
+  )
+  /** There is more of this run above the window: either rows the feed already
+   *  holds, or (EXP-783) a page only the device has. */
+  const canLoadEarlier = windowStart > 0 || snapshotCanLoadEarlier
+  /** Pull the next page in. Anchored by capturing the distance from the
+   *  BOTTOM of the scroll content before the rows change and restoring it
+   *  after: a front insertion otherwise moves the reader by exactly the
+   *  height of what was inserted. */
+  const anchorRef = useRef<number | null>(null)
+  const loadEarlier = useCallback(() => {
+    const el = scrollRef.current
+    anchorRef.current = el ? el.scrollHeight - el.scrollTop : null
+    if (windowStart > 0) {
+      setWindowFrom(feed[Math.max(0, windowStart - FEED_WINDOW_STEP)].id)
+      return
+    }
+    store.loadEarlier()
+  }, [feed, windowStart, store])
+  useLayoutEffect(() => {
+    const anchor = anchorRef.current
+    if (anchor === null) return
+    anchorRef.current = null
+    const el = scrollRef.current
+    if (el) el.scrollTop = el.scrollHeight - anchor
+  }, [rows])
+  // While the reader is at the newest rows the window may SLIDE with the
+  // stream (invisible, and it keeps the projection bounded). The moment they
+  // scroll up it is PINNED: rows vanishing above a reader is exactly the jump
+  // this change exists to avoid.
+  useEffect(() => {
+    if (atBottom) setWindowFrom(null)
+  }, [atBottom])
+  // A page fetched from the device lands BELOW the window's anchor (ids only
+  // ever decrease at the front). The reader asked for it, so it belongs
+  // inside the window; this only ever lowers the anchor.
+  const firstId = feed[0]?.id
+  useEffect(() => {
+    setWindowFrom((current) =>
+      current !== null && firstId !== undefined && firstId < current
+        ? firstId
+        : current
+    )
+  }, [firstId])
   /** EXP-356: the subagents seen so far — one conversation tab each. EXP-387:
    *  the strip only shows the still-running ones (plus the focused tab). */
   const agents = useMemo(() => collectSubagents(feed), [feed])
@@ -798,6 +857,18 @@ export function AgentSessionView({
                     floatingBar && `pb-14`
                   )}
                 >
+                  {canLoadEarlier ? (
+                    <div className="flex justify-center pb-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs text-muted-foreground"
+                        onClick={loadEarlier}
+                      >
+                        Load earlier
+                      </Button>
+                    </div>
+                  ) : null}
                   {rows.map((row, index) => {
                     if (row.kind === `toolRun`) {
                       return (
@@ -1251,6 +1322,14 @@ const NarrationBubble = memo(function NarrationBubble({
     </div>
   )
 })
+
+/** EXP-783 — how many of the run's newest rows this view renders. The store
+ *  keeps the WHOLE run; the window is what makes that free, because a React
+ *  render of the transcript is O(rendered rows) and there is no virtualiser
+ *  here. */
+const FEED_WINDOW = 1500
+/** How much older transcript one "Load earlier" pulls in. */
+const FEED_WINDOW_STEP = 500
 
 /** How much user/question text shows before the "Show more" fold (the initial
  *  prompt can be 16 KiB). Line-based clamp via CSS; the toggle appears on any

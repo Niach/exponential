@@ -97,8 +97,12 @@ function connectStalePublicViewer(hub: Hub, sessionId = `sess-1`) {
   return sock
 }
 
-const activity = (hub: Hub, pub: FakeSocket, event: unknown) =>
-  hub.onMessage(pub, JSON.stringify({ t: `activity`, event }))
+const activity = (
+  hub: Hub,
+  pub: FakeSocket,
+  event: unknown,
+  seq?: number
+) => hub.onMessage(pub, JSON.stringify({ t: `activity`, event, seq }))
 
 interface RoomInternals {
   activityLog: { framed: string; bytes: number; subagentTool?: string }[]
@@ -652,6 +656,100 @@ describe(`session rooms`, () => {
     // The earlier member only ever saw its own join's marker.
     expect(early.framesOf(`activity_synced`)).toHaveLength(1)
     expect(pub.framesOf(`activity_synced`)).toHaveLength(0)
+    hub.destroy()
+  })
+
+  // EXP-783: the publisher's `seq` rides the frame untouched through the live
+  // fan-out AND the join replay — it is the only monotonic anchor a client
+  // has for splicing a replay onto a prefix it already holds.
+  test(`seq survives the fan-out and the join replay`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const live = connectMember(hub)
+    activity(hub, pub, { kind: `narration`, text: `one` }, 7)
+    activity(hub, pub, { kind: `narration`, text: `two` }, 8)
+    expect(live.framesOf(`activity`).map((f) => f.seq)).toEqual([7, 8])
+
+    const late = connectMember(hub, { sub: `member-2` })
+    expect(late.framesOf(`activity`).map((f) => f.seq)).toEqual([7, 8])
+    expect(late.lastFrame(`activity_synced`)).toMatchObject({
+      firstSeq: 7,
+      lastSeq: 8,
+    })
+    // Nothing was evicted, so the replay IS the whole run.
+    expect(late.lastFrame(`activity_synced`)!.truncated).toBeUndefined()
+    hub.destroy()
+  })
+
+  test(`activity_synced reports truncated only after an eviction`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    expect(connectMember(hub).lastFrame(`activity_synced`)!.truncated).toBeUndefined()
+    // Overrun the count cap: the head is dropped, so the log is a tail.
+    for (let i = 0; i < 2010; i++) {
+      activity(hub, pub, { kind: `narration`, text: `n${i}` }, i)
+    }
+    const late = connectMember(hub, { sub: `member-2` })
+    const synced = late.lastFrame(`activity_synced`)!
+    expect(synced.truncated).toBe(true)
+    expect(synced.lastSeq).toBe(2009)
+    expect(synced.firstSeq).toBeGreaterThan(0)
+    hub.destroy()
+  })
+
+  // EXP-783: an older page is addressed to ONE viewer and must never enter
+  // the room's replay log — it is older than everything the log holds.
+  test(`a history_page reaches only the requesting viewer and never the log`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    activity(hub, pub, { kind: `narration`, text: `live` }, 100)
+    const asker = connectMember(hub)
+    const other = connectMember(hub, { sub: `member-2` })
+
+    hub.onMessage(
+      asker,
+      JSON.stringify({
+        t: `history_page`,
+        requestId: `r1`,
+        beforeSeq: 100,
+        limit: 50,
+      })
+    )
+    expect(pub.lastFrame(`history_page`)).toMatchObject({
+      sessionId: `sess-1`,
+      requestId: `r1`,
+      beforeSeq: 100,
+      limit: 50,
+    })
+    expect(hub.counters().historyPageRequests).toBe(1)
+
+    hub.onMessage(
+      pub,
+      JSON.stringify({
+        t: `history_chunk`,
+        requestId: `r1`,
+        events: [{ kind: `narration`, text: `older` }],
+        seqs: [99],
+        done: true,
+      })
+    )
+    expect(asker.framesOf(`history_chunk`)).toHaveLength(1)
+    expect(other.framesOf(`history_chunk`)).toHaveLength(0)
+    // The log is untouched: a third viewer's join replays only `live`.
+    const third = connectMember(hub, { sub: `member-3` })
+    expect(third.events().map((e) => e.text)).toEqual([`live`])
+
+    // The request is retired — a late duplicate chunk goes nowhere.
+    hub.onMessage(
+      pub,
+      JSON.stringify({
+        t: `history_chunk`,
+        requestId: `r1`,
+        events: [],
+        done: true,
+      })
+    )
+    expect(asker.framesOf(`history_chunk`)).toHaveLength(1)
     hub.destroy()
   })
 
@@ -1793,6 +1891,7 @@ describe(`stats counters (EXP-553)`, () => {
       historyRequests: 0,
       historyDeviceOffline: 0,
       historyTimeouts: 0,
+      historyPageRequests: 0,
     })
 
     const desktop = new FakeSocket()

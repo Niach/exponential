@@ -97,6 +97,8 @@ pub struct JournalWriter {
     file: BufWriter<File>,
     /// Bytes on disk, including whatever a resumed run's file already held.
     written: u64,
+    /// EXP-783: lines on disk — the wire sequence the next event gets.
+    lines: u64,
     /// Past the cap (or after a write error): every further append is a no-op.
     stopped: bool,
 }
@@ -120,10 +122,15 @@ impl JournalWriter {
             }
         };
         let written = file.metadata().map(|meta| meta.len()).unwrap_or(0);
+        // EXP-783: a resumed run continues the wire sequence its predecessor
+        // stopped at, which is this file's line count. Counting newlines over
+        // a capped-at-16 MiB file is a millisecond, once per publisher start.
+        let lines = if written == 0 { 0 } else { count_lines(&path) };
         Some(Self {
             path,
             file: BufWriter::new(file),
             written,
+            lines,
             stopped: false,
         })
     }
@@ -159,12 +166,25 @@ impl JournalWriter {
             return;
         }
         self.written += line.len() as u64;
+        self.lines += 1;
     }
 
     /// Test/observability surface: bytes recorded so far.
     pub fn bytes(&self) -> u64 {
         self.written
     }
+
+    /// EXP-783: lines recorded so far, INCLUDING a resumed run's inherited
+    /// ones — the wire sequence the publisher seeds its counter from.
+    pub fn lines(&self) -> u64 {
+        self.lines
+    }
+}
+
+/// Newlines in `path`, or 0 when it cannot be read.
+fn count_lines(path: &Path) -> u64 {
+    let Ok(file) = File::open(path) else { return 0 };
+    BufReader::new(file).lines().map_while(Result::ok).count() as u64
 }
 
 /// Which latest-wins slot an event owns, if any — the file's mirror of
@@ -187,11 +207,31 @@ fn slot_of(event: &ActivityEvent) -> Option<usize> {
 /// or an event kind a newer build wrote and this one does not know, costs one
 /// row instead of the whole transcript.
 pub fn read_journal(data_dir: &Path, session_id: &str) -> Option<Vec<ActivityEvent>> {
+    Some(
+        read_journal_seq(data_dir, session_id)?
+            .into_iter()
+            .map(|(_, event)| event)
+            .collect(),
+    )
+}
+
+/// EXP-783 — [`read_journal`] with each event's wire sequence beside it.
+///
+/// The sequence IS the file's line index: the publisher numbers its stream
+/// from the line count it inherited ([`JournalWriter::lines`]), so a line's
+/// position and its wire `seq` are the same number for the life of the run.
+/// The folded latest-wins slots keep the seq of the line they last occupied,
+/// which is out of order — deliberately: all three are state slots on every
+/// client, never transcript rows, and nothing sorts by their seq.
+pub fn read_journal_seq(
+    data_dir: &Path,
+    session_id: &str,
+) -> Option<Vec<(u64, ActivityEvent)>> {
     let path = journal_path(data_dir, session_id)?;
     let file = File::open(&path).ok()?;
-    let mut events = Vec::new();
-    let mut slots: [Option<ActivityEvent>; 3] = [None, None, None];
-    for line in BufReader::new(file).lines() {
+    let mut events: Vec<(u64, ActivityEvent)> = Vec::new();
+    let mut slots: [Option<(u64, ActivityEvent)>; 3] = [None, None, None];
+    for (seq, line) in BufReader::new(file).lines().enumerate() {
         let Ok(line) = line else { break };
         if line.trim().is_empty() {
             continue;
@@ -199,13 +239,37 @@ pub fn read_journal(data_dir: &Path, session_id: &str) -> Option<Vec<ActivityEve
         let Ok(event) = serde_json::from_str::<ActivityEvent>(&line) else {
             continue;
         };
+        let seq = seq as u64;
         match slot_of(&event) {
-            Some(slot) => slots[slot] = Some(event),
-            None => events.push(event),
+            Some(slot) => slots[slot] = Some((seq, event)),
+            None => events.push((seq, event)),
         }
     }
     events.extend(slots.into_iter().flatten());
     Some(events)
+}
+
+/// EXP-783 — the page of a session's transcript BELOW `before_seq`.
+///
+/// Answers one [`crate::frames::ServerFrame::HistoryPage`]: the LAST `limit`
+/// events whose sequence is under `before_seq`, oldest first, so a client
+/// prepends them as one block. The latest-wins slots are excluded — they are
+/// state, and the client already holds the newest of each. `None` = no
+/// journal on this machine; an empty vec = nothing older exists.
+pub fn read_journal_page(
+    data_dir: &Path,
+    session_id: &str,
+    before_seq: u64,
+    limit: usize,
+) -> Option<Vec<(u64, ActivityEvent)>> {
+    let mut page: Vec<(u64, ActivityEvent)> = read_journal_seq(data_dir, session_id)?
+        .into_iter()
+        .filter(|(seq, event)| *seq < before_seq && slot_of(event).is_none())
+        .collect();
+    if page.len() > limit {
+        page.drain(..page.len() - limit);
+    }
+    Some(page)
 }
 
 /// EXP-764: drop ONE session's journal — the hosts call it when a repo-less
@@ -267,7 +331,7 @@ pub fn prune_journals(data_dir: &Path, max_age: Duration) -> usize {
 pub async fn publish_history(
     dial_url: &str,
     session_id: &str,
-    events: &[ActivityEvent],
+    events: &[(u64, ActivityEvent)],
 ) -> Result<(), String> {
     let mut ws = match dial(dial_url).await {
         Ok(stream) => stream,
@@ -291,12 +355,15 @@ pub async fn publish_history(
     ws.send(Message::Text(ClientFrame::ActivityReset.to_json()))
         .await
         .map_err(|err| format!("activity_reset failed: {err}"))?;
-    for (sent, event) in events.iter().enumerate() {
+    for (sent, (seq, event)) in events.iter().enumerate() {
         if sent > 0 && sent % HISTORY_BATCH_FRAMES == 0 {
             tokio::time::sleep(HISTORY_BATCH_PAUSE).await;
         }
         let framed = ClientFrame::Activity {
             event: event.clone(),
+            // EXP-783: the replay carries the ORIGINAL sequence, so a viewer
+            // that already holds part of this run splices instead of losing it.
+            seq: Some(*seq),
         }
         .to_json();
         if framed.len() >= RELAY_MAX_PAYLOAD_BYTES {
@@ -391,7 +458,8 @@ async fn serve_history_task(
 ) {
     let read_dir = data_dir.clone();
     let read_id = session_id.to_string();
-    let events = match tokio::task::spawn_blocking(move || read_journal(&read_dir, &read_id)).await
+    let events =
+        match tokio::task::spawn_blocking(move || read_journal_seq(&read_dir, &read_id)).await
     {
         Ok(Some(events)) if !events.is_empty() => events,
         Ok(_) => {
