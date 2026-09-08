@@ -116,6 +116,11 @@ struct AgentSessionView: View {
     /// A confirm-gated command waiting on its dialog (`/clear`).
     @State private var slashConfirm: SlashCommand?
     @FocusState private var inputFocused: Bool
+    /// EXP-790: the composer is a folded capsule until it is tapped, and
+    /// folds again on blur when nothing would be lost (IssueDetailBottomBar's
+    /// rule). A non-empty draft or a pending image keeps it open regardless.
+    @State private var composerExpanded = false
+    @Environment(\.motion) private var motion
 
     private static let bottomAnchor = "feed-bottom"
     private static let feedCoordSpace = "feed-scroll"
@@ -274,6 +279,16 @@ struct AgentSessionView: View {
         .onChange(of: photoItems) { _, newItems in
             guard !newItems.isEmpty else { return }
             Task { await ingestPhotos(newItems) }
+        }
+        // EXP-790: blur collapses the composer ONLY when nothing would be
+        // lost — empty draft, no pending images, no picker mid-flight
+        // (presenting one resigns first responder). Copied from
+        // IssueDetailBottomBar.
+        .onChange(of: inputFocused) { _, focused in
+            guard composerExpanded, !focused, let model else { return }
+            guard !showPhotoPicker, photoItems.isEmpty else { return }
+            guard model.trimmedDraft.isEmpty, model.pendingImages.isEmpty else { return }
+            withAnimation(motion.standard) { composerExpanded = false }
         }
         // EXP-696: leave the screen when the run finishes under the viewer
         // (kill, merge, the agent's own exit — the synced row edge covers every
@@ -1226,10 +1241,85 @@ struct AgentSessionView: View {
                         applySlashCommand(command, model)
                     }
                 }
-                composerCard(model)
+                if composerOpen(model) {
+                    composerCard(model)
+                } else {
+                    collapsedComposerBar(model)
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
+            .animation(motion.standard, value: composerExpanded)
+        }
+    }
+
+    /// EXP-790: open while tapped open, and whenever folding would hide a
+    /// draft or a pending image (the model outlives this screen, so a draft
+    /// typed before navigating away reopens the field on return).
+    private func composerOpen(_ model: AgentSessionModel) -> Bool {
+        composerExpanded || !model.trimmedDraft.isEmpty || !model.pendingImages.isEmpty
+    }
+
+    /// EXP-790: the folded composer — the capsule IssueDetailBottomBar folds
+    /// its comment box into, wearing the placeholder the open field would
+    /// (so a pending card's "pick an option above" still reads folded), plus
+    /// a Stop circle while the agent works, so an interrupt never needs the
+    /// keyboard first.
+    private func collapsedComposerBar(_ model: AgentSessionModel) -> some View {
+        HStack(spacing: 12) {
+            Button {
+                expandComposer()
+            } label: {
+                HStack(spacing: 6) {
+                    Text(model.composerPlaceholder)
+                        .font(.subheadline)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .padding(.horizontal, 14)
+                .frame(height: 42)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(5)
+                .background(GlassTokens.opaqueCardFill, in: Capsule())
+                .overlay(
+                    Capsule().stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
+                )
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Message the agent")
+            .accessibilityIdentifier("agent-composer-collapsed")
+
+            if model.agentWorking {
+                Button {
+                    model.sendInterrupt()
+                } label: {
+                    AppIcon(AppIcons.uiStop, size: AppIcon.Size.medium, weight: .medium)
+                        .foregroundStyle(
+                            model.canSteer ? .white : .white.opacity(TextOpacity.quaternary)
+                        )
+                        .frame(width: 52, height: 52)
+                        .background(GlassTokens.opaqueCardFill, in: Circle())
+                        .overlay(
+                            Circle().stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
+                        )
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!model.canSteer)
+                .accessibilityLabel("Stop")
+            }
+        }
+    }
+
+    private func expandComposer() {
+        withAnimation(motion.standard) { composerExpanded = true }
+        // Programmatic focus needs the field mounted — one runloop hop, with
+        // a 150ms retry in case the first lands before layout.
+        DispatchQueue.main.async { inputFocused = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            if composerExpanded, !inputFocused { inputFocused = true }
         }
     }
 
@@ -1519,6 +1609,10 @@ struct AgentSessionView: View {
         // reconnect lands.
         let sendDisabled = !canSend || model.steerSending || !model.canSteer
         let attachDisabled = attachFull || model.steerSending
+        // EXP-790: an EMPTY field while the agent works offers Stop (the
+        // interrupt) in the send slot; the first typed character brings Send
+        // back.
+        let showsStop = model.agentWorking && !canSend
         return GlassComposer(isOpaque: true) {
             GlassTextField(
                 // EXP-788: the composer IS the free answer of a pending card
@@ -1563,12 +1657,9 @@ struct AgentSessionView: View {
             .padding(.top, 12)
             .padding(.bottom, 4)
         } strip: {
-            // EXP-746: the live config chips ride the STRIP, above the pending
-            // images — three chips plus the `[+]` button do not fit on a
-            // phone's tool row, and the strip is already the composer's
-            // "extra state" band.
-            configChipRow(model)
-
+            // EXP-790 retired the mode chip that used to ride this strip:
+            // Plan/Build is the plan card's own business now, and a live
+            // toggle beside the field only ever raced the card.
             if !model.pendingImages.isEmpty {
                 PendingAttachmentStrip(items: model.pendingImages) { id in
                     removePendingImage(model, id: id)
@@ -1595,75 +1686,15 @@ struct AgentSessionView: View {
             }
         } submit: {
             GlassComposerSubmitButton(
-                AppIcons.uiSend,
-                accessibilityLabel: "Send",
-                enabled: !sendDisabled
+                showsStop ? AppIcons.uiStop : AppIcons.uiSubmit,
+                accessibilityLabel: showsStop ? "Stop" : "Send",
+                enabled: showsStop ? model.canSteer : !sendDisabled
             ) {
-                sendMessage(model)
-            }
-        }
-    }
-
-    // MARK: - Mode chip (EXP-746, narrowed by EXP-772)
-
-    /// The run's MODE, and nothing else. Model and effort pickers are gone
-    /// from a live session — they are launch decisions, and a mid-run swap
-    /// only ever muddied the transcript — so the strip carries one control.
-    ///
-    /// Picks are FIRE-AND-FORGET: the publisher re-emits `config_state` once
-    /// it applied and that repaint is the confirmation, so nothing here holds
-    /// a pending state. An agent that refuses simply re-emits the old mode and
-    /// the chip snaps back.
-    @ViewBuilder
-    private func configChipRow(_ model: AgentSessionModel) -> some View {
-        if let chip = model.modeChip {
-            HStack(spacing: 6) {
-                modeChipControl(chip, model)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 2)
-            .padding(.bottom, 4)
-        }
-    }
-
-    @ViewBuilder
-    private func modeChipControl(_ chip: AgentModeChip, _ model: AgentSessionModel) -> some View {
-        if let toggle = chip.planToggle {
-            // `plan` plus exactly one other mode is a yes/no question, so it
-            // draws as one — a two-entry dropdown for "Plan or Build" is a
-            // menu that can only ever say the thing the pill already shows.
-            GlassPill(
-                AgentFeed.planToggleLabel,
-                mode: .select(isSelected: toggle.on) {
-                    model.sendMode(id: toggle.on ? toggle.otherId : toggle.planId)
-                },
-                enabled: model.canSteer
-            )
-            .accessibilityIdentifier("agent-mode-chip")
-        } else {
-            let label = "\(AgentFeed.configModeLabel): \(chip.valueLabel)"
-            // A run that advertises modes it won't switch between is read-only,
-            // and so is every chip while the run can't be steered — the pill
-            // dims exactly like the send button rather than offering a tap
-            // that would no-op (EXP-621).
-            if chip.isReadOnly || !model.canSteer {
-                GlassPill(label, mode: .readonly, enabled: model.canSteer)
-                    .accessibilityIdentifier("agent-mode-chip")
-            } else {
-                GlassMenu {
-                    ForEach(chip.values) { value in
-                        GlassMenuItem(value.label) { model.sendMode(id: value.id) }
-                    }
-                } label: {
-                    GlassPill(label, mode: .readonly) {
-                        EmptyView()
-                    } trailing: {
-                        AppIcon(AppIcons.uiChevronDown, size: GlassPillSize.sm.glyphSize)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    }
+                if showsStop {
+                    model.sendInterrupt()
+                } else {
+                    sendMessage(model)
                 }
-                .accessibilityIdentifier("agent-mode-chip")
             }
         }
     }

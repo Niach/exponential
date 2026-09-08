@@ -478,6 +478,15 @@ final class AgentSessionModel {
         composerRoute?.placeholder ?? AgentFeed.composerPlaceholder
     }
 
+    /// EXP-790: the agent is actively working — live and nothing waiting on
+    /// the user (no active card, synced `needs_input` clear, no compaction
+    /// running). Web `working` parity: what swaps the empty composer's send
+    /// glyph for Stop.
+    var agentWorking: Bool {
+        phase == .live && !sessionEnded && activeQuestionIds.isEmpty
+            && session?.needsInput != true && compacting == nil
+    }
+
     /// Questions whose answer is out — sent (optimistic lock) or confirmed
     /// (`answer_ack`). What a stepper card advances on (web parity: advance on
     /// send; the 5s no-ack expiry rolls the step back).
@@ -1039,6 +1048,15 @@ final class AgentSessionModel {
     func sendMode(id: String) {
         guard !id.isEmpty, canSteer else { return }
         send(frame: ["t": "set_mode", "id": id])
+    }
+
+    /// EXP-790: stop the agent's current turn — the composer's Stop glyph
+    /// while the agent works and the field is empty. Fire-and-forget like
+    /// `sendMode`: the turn's own `idle` edge is the confirmation. Same
+    /// `canSteer` gate, so a paused or ended run offers no dead tap.
+    func sendInterrupt() {
+        guard canSteer else { return }
+        send(frame: ["t": "interrupt"])
     }
 
     private func send(frame: [String: Any]) {
