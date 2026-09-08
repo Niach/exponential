@@ -97,6 +97,14 @@ pub fn render_action_prompt_with_trigger(
 /// automation's run is unattended by definition), and the launcher passes it
 /// for the other unattended reason (`agent`: another coding session started
 /// this one).
+/// EXP-764: what a repo-less run (chat or team action without a repo) is
+/// told about its cwd — the scratch dir is purged whole with the run
+/// (`crate::scratch::purge`), so nothing written there survives it.
+pub const SCRATCH_CWD_NOTE: &str = "You have no repository checked out: your working directory \
+is a scratch folder that is deleted, with everything in it, the moment this run ends. Leave \
+nothing there you want to keep; put results into issue comments or attachments \
+(`exponential_attachments_upload`).";
+
 pub fn render_action_prompt_full(
     name: &str,
     body: &str,
@@ -152,7 +160,7 @@ changed:\n\n",
         }
     };
     let workspace_section = match workspace {
-        None => String::new(),
+        None => format!("## Workspace\n\n{SCRATCH_CWD_NOTE}\n\n"),
         Some(note) => format!(
             "## Workspace\n\nYou work on branch `{branch}` in a dedicated worktree cut from \
 `origin/{default}`. If you change files: commit, `git push -u origin {branch}`, then open a pull \
@@ -187,6 +195,10 @@ pub fn chat_prompt(
     unattended: bool,
 ) -> String {
     let mut preamble = String::new();
+    if workspace.is_none() {
+        preamble.push_str(SCRATCH_CWD_NOTE);
+        preamble.push('\n');
+    }
     if let Some(note) = workspace {
         preamble.push_str(&format!(
             "You work on branch `{branch}` in a dedicated worktree cut from `origin/{default}`. \
@@ -498,8 +510,9 @@ mod tests {
         // EXP-679: without the tool a person-started run never gets.
         assert!(prompt.contains("leave the worktree clean"));
         assert!(!prompt.contains("exponential_sessions_end"));
-        // No workspace note without a repo-backed run.
-        assert!(!prompt.contains("## Workspace"));
+        // EXP-764: no repo means the scratch note, never a branch.
+        assert!(prompt.contains(SCRATCH_CWD_NOTE), "{prompt}");
+        assert!(!prompt.contains("You work on branch"));
     }
 
     #[test]
@@ -512,7 +525,8 @@ mod tests {
             format!(
                 "You are running the team action \"Code review\" for this user. Follow the \
 instructions below exactly. The exponential MCP tools are available for issue, \
-board, label, and comment operations. {}\n\n---\n\n# Review\nScan the repo.",
+board, label, and comment operations. {}\n\n## Workspace\n\n{SCRATCH_CWD_NOTE}\n\n---\n\n\
+# Review\nScan the repo.",
                 crate::prompt::close_out(false)
             )
         );
@@ -604,12 +618,14 @@ board, label, and comment operations. {}\n\n---\n\n# Review\nScan the repo.",
         assert!(!prompt.contains("exponential_sessions_end"));
         assert!(prompt.contains("the session stays open afterwards"));
         assert!(prompt.ends_with("---\n\nwhat does trunk_sync do?"));
-        // No workspace = just the close-out line.
+        // No workspace = the scratch note (EXP-764) + the close-out line.
         let bare = chat_prompt("hi", None, false);
         assert_eq!(
             bare,
-            "When you are done, summarize what you did here; the session stays open afterwards, so \
-keep answering follow-ups.\n\n---\n\nhi"
+            format!(
+                "{SCRATCH_CWD_NOTE}\nWhen you are done, summarize what you did here; the session \
+stays open afterwards, so keep answering follow-ups.\n\n---\n\nhi"
+            )
         );
         // An unattended chat (another coding session started it) reports
         // through the tool that ends it.
@@ -626,9 +642,10 @@ keep answering follow-ups.\n\n---\n\nhi"
             },
         };
         let prompt = render_action_prompt_with_trigger("Groom", "do it", &[], Some(&note));
+        // EXP-764: the repo-less workspace note follows the trigger section.
         assert!(prompt.contains(
             "## Trigger\n\nThis run was started automatically by the action's schedule \
-(daily at 07:00, device time).\n\n---"
+(daily at 07:00, device time).\n\n## Workspace"
         ));
         assert!(prompt.ends_with("---\n\ndo it"));
         assert_eq!(note.started_reason(), "schedule");
@@ -651,8 +668,8 @@ keep answering follow-ups.\n\n---\n\nhi"
 changed:\n\n"));
         assert!(prompt.contains("- EXP-142 \"Fix the flaky test\" status In Progress → In Review\n"));
         // The host capped the lines — the overflow renders as ONE closing
-        // list entry, then the divider.
-        assert!(prompt.contains("- EXP-150 \"New signup issue\" created\n- …and 3 more.\n\n---"));
+        // list entry, then the next section (EXP-764: the scratch note).
+        assert!(prompt.contains("- EXP-150 \"New signup issue\" created\n- …and 3 more.\n\n## Workspace"));
         assert_eq!(note.started_reason(), "event");
 
         // No overflow → no "…and more" line.

@@ -28,8 +28,8 @@ use crate::agent::CodingAgent;
 
 /// Records past this age are dropped on the next write — a resume that far
 /// out would find a pruned worktree and a garbage-collected transcript
-/// anyway.
-const TTL_SECS: u64 = 30 * 24 * 60 * 60;
+/// anyway. EXP-764: ten days — a run older than that is history, not work.
+const TTL_SECS: u64 = 10 * 24 * 60 * 60;
 
 /// Serializes every load-modify-save, exactly like the session registry:
 /// the automation host records on its own threads while the cleanup path
@@ -285,7 +285,7 @@ pub struct RunRecord {
     /// Its `env` is the ONE field that never reaches this file: an external
     /// agent's declared env is where a user puts that agent's TOKEN, and
     /// settings.json is the single place it may live. Copied here it would
-    /// stay readable for the 30-day TTL after the user rotated it and deleted
+    /// stay readable for the 10-day TTL after the user rotated it and deleted
     /// the agent, and a replay would respawn the binary with the stale value.
     /// So the spec is written env-less, a record that predates that rule
     /// loses its env on load (see [`load_registry`]), and
@@ -364,12 +364,13 @@ impl RunRecord {
 
     /// Whether the recorded workspace can still be resumed INTO. A
     /// repo-backed run needs its worktree, `.git` link included (a removed
-    /// worktree leaves the dir gone, or gutted). EXP-757: a repo-less run's
-    /// scratch dir is disposable — reclaimed when the run ends and re-created
-    /// by the resume ([`crate::scratch`]) — so the record alone resumes it.
+    /// worktree leaves the dir gone, or gutted). EXP-764: a repo-less run's
+    /// scratch dir is purged with the whole run the moment it ends
+    /// ([`crate::scratch::purge`]), so it is resumable only while that dir
+    /// still stands — in practice, while the run is live.
     pub fn resumable(&self) -> bool {
         if self.clone.is_none() {
-            return true;
+            return self.cwd.is_dir();
         }
         self.cwd.is_dir() && self.cwd.join(".git").exists()
     }
@@ -625,15 +626,24 @@ pub fn live_host_cwds(data_dir: &Path) -> Vec<PathBuf> {
 }
 
 pub fn remove(data_dir: &Path, session_id: &str) {
+    remove_many(data_dir, std::slice::from_ref(&session_id.to_string()));
+}
+
+/// [`remove`] for a batch of ids in ONE rewrite — the scratch sweep's
+/// purge list (EXP-764). Known and unknown entries alike.
+pub fn remove_many(data_dir: &Path, session_ids: &[String]) {
+    if session_ids.is_empty() {
+        return;
+    }
     let _guard = locked(data_dir);
     let mut registry = load_registry(data_dir);
     let before = registry.records.len() + registry.unknown.len();
     registry
         .records
-        .retain(|record| record.session_id != session_id);
-    registry
-        .unknown
-        .retain(|entry| entry_session_id(entry) != Some(session_id));
+        .retain(|record| !session_ids.iter().any(|id| *id == record.session_id));
+    registry.unknown.retain(|entry| {
+        !entry_session_id(entry).is_some_and(|id| session_ids.iter().any(|wanted| wanted == id))
+    });
     if registry.records.len() + registry.unknown.len() != before {
         save(data_dir, &registry);
     }
@@ -1247,11 +1257,15 @@ mod tests {
         std::fs::write(worktree.join(".git"), "gitdir: /elsewhere").unwrap();
         assert!(record.resumable());
 
-        // EXP-757: a repo-less scratch run is resumable WITHOUT its
-        // directory — the sweep reclaims it and the resume re-creates it.
+        // EXP-764: a repo-less scratch run is resumable only while its
+        // directory stands — the purge takes it with the run.
         record.clone = None;
         record.cwd = dir.join("scratch-gone");
-        assert!(record.resumable());
+        assert!(!record.resumable(), "a purged scratch dir is not resumable");
+        let scratch = dir.join("scratch");
+        std::fs::create_dir_all(&scratch).unwrap();
+        record.cwd = scratch;
+        assert!(record.resumable(), "a standing scratch dir (a live run) is");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

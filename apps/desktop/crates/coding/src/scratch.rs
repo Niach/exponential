@@ -1,27 +1,31 @@
-//! EXP-757 — reclaim the scratch dirs of repo-less runs.
+//! EXP-757 / EXP-764 — the scratch dirs of repo-less runs, and the runs
+//! themselves.
 //!
 //! A repo-less run (the "Create action" creator, a repo-less chat or team
-//! action) spawns in `<data_dir>/actions/<action>/<run>/`, a directory
-//! holding nothing but launcher sidecars: the MCP config, the `.exp-agents`
-//! marker, a pi bridge extension. Every agent keeps its transcript
-//! ELSEWHERE — claude under `~/.claude/projects/<munged cwd>/` keyed by the
-//! path STRING, codex in its own rollouts, pi in `<data_dir>/pi-sessions/` —
-//! so the directory is disposable: it goes when the run ends and a resume
-//! simply re-creates it at the recorded path (`launcher::prepare_resume_run`).
-//! The run RECORD (`run_registry`) is what keeps a run resumable, for its
-//! own TTL.
+//! action) spawns in `<data_dir>/actions/<action>/<run>/`, a directory meant
+//! to hold nothing but launcher sidecars: the MCP config, the `.exp-agents`
+//! marker, a pi bridge extension, steered images. Nothing enforces that — an
+//! agent may well write a `report.md` there — which is why EXP-764 settled
+//! the question the blunt way: **scratch means scratch.** When a repo-less
+//! run ends, EVERYTHING local about it goes at once — the directory, its run
+//! record (`run_registry`), its pi session file and its agent trust entries;
+//! the hosts drop the steer journal beside it. Such a run is never resumed
+//! (`RunRecord::resumable` needs the dir to stand), so no resume can land in
+//! an emptied dir whose transcript names files that are gone, and the prompts
+//! tell the agent to put deliverables on the issue or in a PR, never in cwd.
 //!
 //! Two entry points, shared by the desktop app and the CLI daemon:
 //!
-//! - [`reclaim`] — one run that just ended (the host knows its cwd).
+//! - [`purge`] — one run that just ended (the host knows its cwd).
 //! - [`sweep`] — the startup pass over everything under the root: crashes,
 //!   launches that failed after the dir was created, dirs an older build
-//!   left behind, one-shot `exponential run`s. Live runs are protected by
-//!   the ids the host passes (its own in-process set plus the pid-owned
-//!   entries of the shared session registry, mapped to cwds through the run
-//!   registry — REV-20: desktop and daemon share one data dir, and neither
-//!   may delete the other's live chat) and by a [`GRACE`] age floor covering
-//!   the prepare→register window.
+//!   left behind, one-shot `exponential run`s — plus the records of repo-less
+//!   runs whose dir is already gone. Live runs are protected by the ids the
+//!   host passes (its own in-process set plus the pid-owned entries of the
+//!   shared session registry, mapped to cwds through the run registry —
+//!   REV-20: desktop and daemon share one data dir, and neither may delete
+//!   the other's live chat) and by a [`GRACE`] age floor covering the
+//!   prepare→register window.
 //!
 //! Both also drop the claude trust entries the launcher seeded for the dir
 //! (`claude_trust`), which is the other half of the leak: `~/.claude.json`
@@ -75,30 +79,80 @@ fn is_plain_segment(name: Option<&std::ffi::OsStr>) -> bool {
     name.is_some_and(|name| !name.is_empty() && name != "." && name != "..")
 }
 
+/// What [`reclaim_dir`] found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DirOutcome {
+    /// Not `<root>/<action>/<run>` — never ours to touch.
+    NotScratch,
+    /// Written to after `requested_at`: a resume re-entered it; kept.
+    ReEntered,
+    /// Removed by this call.
+    Removed,
+    /// Already gone (or unremovable — logged).
+    Gone,
+}
+
 /// Reclaim ONE ended run's scratch dir and its agent trust entries. Returns
 /// whether the directory was removed (`false` when it was already gone, when
 /// `cwd` is not a scratch dir at all, or when a resume re-entered it — logged,
-/// never fatal). The run record is deliberately left alone: it is what keeps
-/// the run resumable.
+/// never fatal). The dir only; [`purge`] is what the hosts call.
+pub fn reclaim(data_dir: &Path, cwd: &Path, requested_at: SystemTime) -> bool {
+    reclaim_dir(data_dir, cwd, requested_at) == DirOutcome::Removed
+}
+
+/// EXP-764: purge ONE ended repo-less run — its scratch dir and trust entries
+/// ([`reclaim`]), then its pi session file and its run record. Returns whether
+/// the run's local state went; `false` (nothing touched, record included) when
+/// `cwd` is not a scratch dir or a resume re-entered it. The hosts drop the
+/// steer journal on `true`; it lives in the steer crate, above this one.
 ///
 /// `requested_at` is the moment the run was seen to END, not the moment this
-/// runs: both hosts queue the reclaim (the desktop onto its background
-/// executor, the daemon behind the git work of its 1Hz tick), and a resume of
-/// the just-ended run lands in that window — `prepare_resume_run` re-creates
-/// the SAME recorded cwd and [`touch`]es it, so anything newer than the
-/// request means the dir is live again and must not be deleted under its
-/// fresh `.exp-mcp.json`.
-pub fn reclaim(data_dir: &Path, cwd: &Path, requested_at: SystemTime) -> bool {
+/// runs: both hosts queue the purge (the desktop onto its background
+/// executor, the daemon behind the git work of its 1Hz tick), and a resume
+/// racing that window re-enters the SAME recorded cwd and [`touch`]es it, so
+/// anything newer than the request means the dir is live again and must not
+/// be deleted under its fresh `.exp-mcp.json`.
+pub fn purge(data_dir: &Path, session_id: &str, cwd: &Path, requested_at: SystemTime) -> bool {
+    match reclaim_dir(data_dir, cwd, requested_at) {
+        DirOutcome::NotScratch | DirOutcome::ReEntered => return false,
+        DirOutcome::Removed | DirOutcome::Gone => {}
+    }
+    if let Some(record) = crate::run_registry::get(data_dir, session_id) {
+        remove_pi_session_file(data_dir, &record);
+    }
+    crate::run_registry::remove(data_dir, session_id);
+    true
+}
+
+/// The pi session file a record names (`launcher::pi_session_file`) — only
+/// ever under `<data_dir>/pi-sessions/`, and checked to be, since the record
+/// is a file another build wrote.
+fn remove_pi_session_file(data_dir: &Path, record: &crate::run_registry::RunRecord) {
+    let Some(file) = &record.pi_session_file else {
+        return;
+    };
+    if !file.starts_with(data_dir.join(crate::launcher::PI_SESSIONS_DIR)) {
+        log::warn!("scratch purge: {} is not a pi session file; kept", file.display());
+        return;
+    }
+    match std::fs::remove_file(file) {
+        Ok(()) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => log::warn!("scratch purge: remove {}: {err}", file.display()),
+    }
+}
+
+fn reclaim_dir(data_dir: &Path, cwd: &Path, requested_at: SystemTime) -> DirOutcome {
     if !is_scratch_dir(data_dir, cwd) {
         log::warn!("scratch reclaim: {} is not a scratch dir; kept", cwd.display());
-        return false;
+        return DirOutcome::NotScratch;
     }
     if newest_mtime(cwd).is_some_and(|newest| newest > requested_at) {
         log::info!(
             "scratch reclaim: {} was re-entered after the run ended; kept",
             cwd.display()
         );
-        return false;
+        return DirOutcome::ReEntered;
     }
     // The trust keys, raw AND canonical, resolved BEFORE the dirs go —
     // canonicalize needs the path to exist. EXP-758: claude keys trust by the
@@ -109,11 +163,11 @@ pub fn reclaim(data_dir: &Path, cwd: &Path, requested_at: SystemTime) -> bool {
     let action_dir = cwd.parent().map(Path::to_path_buf);
     let codex_trust_keys = action_dir.as_deref().map(trust_keys_for).unwrap_or_default();
     let removed = match std::fs::remove_dir_all(cwd) {
-        Ok(()) => true,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => false,
+        Ok(()) => DirOutcome::Removed,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => DirOutcome::Gone,
         Err(err) => {
             log::warn!("scratch reclaim: remove {}: {err}", cwd.display());
-            false
+            DirOutcome::Gone
         }
     };
     if let Some(action_dir) = &action_dir {
@@ -148,29 +202,38 @@ pub struct SweepReport {
     pub kept_young: usize,
     /// Claude `projects` entries dropped for dirs that no longer exist.
     pub trust_dropped: usize,
+    /// EXP-764: the session ids of repo-less runs whose record (and pi
+    /// session file) went because their scratch dir is gone — removed by
+    /// this pass, or earlier. The host drops their steer journals.
+    pub purged: Vec<String>,
 }
 
 impl SweepReport {
     pub fn is_noop(&self) -> bool {
-        self.removed.is_empty() && self.trust_dropped == 0
+        self.removed.is_empty() && self.trust_dropped == 0 && self.purged.is_empty()
     }
 }
 
 /// The startup pass: every run dir under the root that no live session owns
 /// and that is older than [`GRACE`] is removed, emptied action dirs go with
 /// them, and every claude trust entry under the root whose dir is gone is
-/// dropped. `live_session_ids` are the sessions the host knows to be running
-/// — its own, plus the ones the shared session registry attributes to a live
-/// sibling process; their recorded cwds are the keep set.
+/// dropped. EXP-764: then every run record that names a scratch cwd which no
+/// longer stands (and is not live) goes too — a repo-less run without its dir
+/// is a purged run, whichever build or crash took the dir. `live_session_ids`
+/// are the sessions the host knows to be running — its own, plus the ones
+/// the shared session registry attributes to a live sibling process; their
+/// recorded cwds are the keep set.
 pub fn sweep(data_dir: &Path, live_session_ids: &[String]) -> SweepReport {
     let root = scratch_root(data_dir);
     let mut report = SweepReport::default();
     let live = live_cwds(data_dir, live_session_ids);
     let now = SystemTime::now();
-    let Ok(actions) = std::fs::read_dir(&root) else {
-        return report;
-    };
-    for action in actions.flatten() {
+    // No root yet (a fresh data dir) still leaves the record pass below: a
+    // record can outlive a root an older build removed whole.
+    let actions: Vec<_> = std::fs::read_dir(&root)
+        .map(|actions| actions.flatten().collect())
+        .unwrap_or_default();
+    for action in actions {
         let action_dir = action.path();
         if !action_dir.is_dir() {
             continue;
@@ -201,7 +264,29 @@ pub fn sweep(data_dir: &Path, live_session_ids: &[String]) -> SweepReport {
         let _ = std::fs::remove_dir(&action_dir);
     }
     report.trust_dropped = crate::claude_trust::forget_missing_under(&root);
+    report.purged = purge_dirless_records(data_dir, live_session_ids);
     report
+}
+
+/// The records of repo-less runs whose scratch dir is gone: their pi session
+/// files go, then the records in one rewrite. Unknown (newer-build) entries
+/// are not ours to judge and stay.
+fn purge_dirless_records(data_dir: &Path, live_session_ids: &[String]) -> Vec<String> {
+    let purged: Vec<String> = crate::run_registry::all(data_dir)
+        .into_iter()
+        .filter(|record| {
+            record.clone.is_none()
+                && is_scratch_dir(data_dir, &record.cwd)
+                && !record.cwd.is_dir()
+                && !live_session_ids.contains(&record.session_id)
+        })
+        .map(|record| {
+            remove_pi_session_file(data_dir, &record);
+            record.session_id
+        })
+        .collect();
+    crate::run_registry::remove_many(data_dir, &purged);
+    purged
 }
 
 /// The recorded cwds of the live sessions, raw and canonical, so a keep
@@ -326,6 +411,75 @@ mod tests {
         assert!(sibling.join(crate::mcp_json::MCP_JSON_FILE).exists());
     }
 
+    fn scratch_record(data_dir: &Path, session_id: &str, cwd: &Path) {
+        let mut record = crate::run_registry::sample_record(session_id);
+        record.cwd = cwd.to_path_buf();
+        record.clone = None;
+        crate::run_registry::record(data_dir, record);
+    }
+
+    /// EXP-764: the whole run goes — dir, pi session file, record — and the
+    /// action dir with it once empty.
+    #[test]
+    fn purge_removes_dir_record_and_pi_file() {
+        let dir = temp_dir("scratch-purge");
+        let run = scratch(&dir.0, "builtin_chat", "1a2b3c4d");
+        let pi_dir = dir.0.join(crate::launcher::PI_SESSIONS_DIR);
+        std::fs::create_dir_all(&pi_dir).unwrap();
+        let pi_file = pi_dir.join("sess-1.jsonl");
+        std::fs::write(&pi_file, "{}").unwrap();
+        let mut record = crate::run_registry::sample_record("sess-1");
+        record.cwd = run.clone();
+        record.clone = None;
+        record.pi_session_file = Some(pi_file.clone());
+        crate::run_registry::record(&dir.0, record);
+
+        assert!(purge(&dir.0, "sess-1", &run, SystemTime::now()));
+        assert!(!run.exists());
+        assert!(!run.parent().unwrap().exists());
+        assert!(!pi_file.exists());
+        assert!(crate::run_registry::get(&dir.0, "sess-1").is_none());
+        // A second pass (the dir already gone) still settles the record.
+        scratch_record(&dir.0, "sess-1", &run);
+        assert!(purge(&dir.0, "sess-1", &run, SystemTime::now()));
+        assert!(crate::run_registry::get(&dir.0, "sess-1").is_none());
+    }
+
+    /// A pi session file outside `<data_dir>/pi-sessions/` is not ours,
+    /// whatever the record claims.
+    #[test]
+    fn purge_never_follows_a_pi_file_outside_its_dir() {
+        let dir = temp_dir("scratch-purge-pi-foreign");
+        let run = scratch(&dir.0, "builtin_chat", "1a2b3c4d");
+        let foreign = dir.0.join("mine.jsonl");
+        std::fs::write(&foreign, "{}").unwrap();
+        let mut record = crate::run_registry::sample_record("sess-1");
+        record.cwd = run.clone();
+        record.clone = None;
+        record.pi_session_file = Some(foreign.clone());
+        crate::run_registry::record(&dir.0, record);
+        assert!(purge(&dir.0, "sess-1", &run, SystemTime::now()));
+        assert!(foreign.exists());
+    }
+
+    /// The resume race on the purge path: a re-entered dir keeps EVERYTHING,
+    /// the record included — the relaunch is reading it.
+    #[test]
+    fn purge_keeps_everything_when_a_resume_re_entered() {
+        let dir = temp_dir("scratch-purge-resumed");
+        let run = scratch(&dir.0, "builtin_chat", "1a2b3c4d");
+        scratch_record(&dir.0, "sess-1", &run);
+        let requested_at = SystemTime::now() - Duration::from_secs(5);
+        assert!(!purge(&dir.0, "sess-1", &run, requested_at));
+        assert!(run.join(crate::mcp_json::MCP_JSON_FILE).exists());
+        assert!(crate::run_registry::get(&dir.0, "sess-1").is_some());
+        // And a foreign cwd never costs a record either.
+        let foreign = dir.0.join("worktree");
+        std::fs::create_dir_all(&foreign).unwrap();
+        assert!(!purge(&dir.0, "sess-1", &foreign, SystemTime::now()));
+        assert!(crate::run_registry::get(&dir.0, "sess-1").is_some());
+    }
+
     /// The resume race: the run ended, the reclaim was queued, and a resume
     /// re-created the recorded cwd (and its fresh `.exp-mcp.json`) before the
     /// queued reclaim ran. The dir is live again — deleting it would pull the
@@ -409,8 +563,34 @@ mod tests {
         assert_eq!(report.kept_live, 1);
         assert!(live.exists());
         assert!(!ended.exists());
-        // The ended run's RECORD survives: it is what keeps the run resumable.
-        assert!(crate::run_registry::get(&dir.0, "sess-ended").is_some());
+        // EXP-764: the ended run's RECORD goes with its dir; the live one stays.
+        assert_eq!(report.purged, vec!["sess-ended".to_string()]);
+        assert!(crate::run_registry::get(&dir.0, "sess-ended").is_none());
+        assert!(crate::run_registry::get(&dir.0, "sess-live").is_some());
+    }
+
+    /// EXP-764: a record whose scratch dir is ALREADY gone (an older build's
+    /// sweep, a crash) is a purged run too — unless it is live, or names a
+    /// worktree rather than a scratch dir.
+    #[test]
+    fn sweep_purges_records_of_already_gone_scratch_dirs() {
+        let dir = temp_dir("scratch-sweep-dirless");
+        let gone = scratch_root(&dir.0).join("builtin_chat").join("aaaaaaaa");
+        scratch_record(&dir.0, "sess-gone", &gone);
+        let gone_live = scratch_root(&dir.0).join("builtin_chat").join("bbbbbbbb");
+        scratch_record(&dir.0, "sess-live", &gone_live);
+        let mut worktree = crate::run_registry::sample_record("sess-wt");
+        worktree.cwd = dir.0.join("repo.worktrees").join("exp-EXP-1");
+        worktree.clone = Some(dir.0.join("repo"));
+        crate::run_registry::record(&dir.0, worktree);
+
+        let report = sweep(&dir.0, &["sess-live".to_string()]);
+        assert!(report.removed.is_empty());
+        assert_eq!(report.purged, vec!["sess-gone".to_string()]);
+        assert!(!report.is_noop());
+        assert!(crate::run_registry::get(&dir.0, "sess-gone").is_none());
+        assert!(crate::run_registry::get(&dir.0, "sess-live").is_some());
+        assert!(crate::run_registry::get(&dir.0, "sess-wt").is_some());
     }
 
     /// A record a NEWER build wrote, which this one cannot parse, still names

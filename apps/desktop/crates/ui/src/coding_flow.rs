@@ -520,9 +520,9 @@ impl LocalSessions {
                 })
                 .detach();
             } else if coding::scratch::is_scratch_dir(&data_dir, &entry.worktree) {
-                // EXP-757: a repo-less run's scratch dir (and its claude
-                // trust entries) go with the run. The RECORD stays — it is
-                // what keeps the run resumable; the resume re-creates the dir.
+                // EXP-764: a repo-less run is purged WHOLE with the run —
+                // scratch dir, claude trust entries, pi session file, run
+                // record, steer journal. Nothing of it is resumable.
                 let session_id = entry.session_id.clone();
                 let worktree = entry.worktree.clone();
                 // Stamped HERE, not in the spawned task: a resume that
@@ -530,10 +530,17 @@ impl LocalSessions {
                 let requested_at = std::time::SystemTime::now();
                 cx.background_executor()
                     .spawn(async move {
-                        let removed =
-                            coding::scratch::reclaim(&data_dir, &worktree, requested_at);
+                        let purged = coding::scratch::purge(
+                            &data_dir,
+                            &session_id,
+                            &worktree,
+                            requested_at,
+                        );
+                        if purged {
+                            steer::remove_journal(&data_dir, &session_id);
+                        }
                         log::info!(
-                            "scratch reclaim [{session_id}] {}: removed={removed}",
+                            "scratch purge [{session_id}] {}: purged={purged}",
                             worktree.display()
                         );
                     })
