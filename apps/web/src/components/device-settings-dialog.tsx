@@ -631,7 +631,7 @@ export function DeviceSettingsDialog({
           pointing at a description that no longer exists. */}
       <DialogContent
         mobile="sheet-full"
-        className="gap-4 sm:max-h-[85dvh] sm:max-w-lg"
+        className="gap-4 sm:h-[min(85dvh,36rem)] sm:max-h-[85dvh] sm:max-w-3xl"
         aria-describedby={undefined}
         // EXP-698: Radix autofocuses the first field and SELECTS its text, so
         // the Name row opened as a white selection block filling the row (and
@@ -644,283 +644,294 @@ export function DeviceSettingsDialog({
           <DialogTitle>Device settings</DialogTitle>
         </DialogHeader>
         {/* EXP-694: one inset-grouped card stack — the same rows, in the same
-            order, as the iOS/Android device sheets. 8px between groups. */}
-        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
-          {/* ── Name ─────────────────────────────────────────────────── */}
-          <GlassGroup>
-            <GlassInputRow
-              id="device-settings-name"
-              label="Name"
-              value={nameDraft}
-              maxLength={255}
-              trailing={
-                savingName ? (
-                  <LoaderCircle className="size-3 shrink-0 animate-spin text-muted-foreground" />
-                ) : null
-              }
-              onChange={(event) => {
-                setNameDraft(event.target.value)
-                scheduleName()
-              }}
-              onFocus={() => {
-                nameFocusedRef.current = true
-              }}
-              onBlur={() => {
-                nameFocusedRef.current = false
-                // A rename that arrived while the field was focused was
-                // deliberately skipped — catch up unless an edit is owed.
-                const hadPending = latest.current.namePending
-                flushName()
-                if (!hadPending && row) setNameDraft(row.label)
-              }}
-              onKeyDown={(event) => {
-                if (event.key === `Enter`) flushName()
-              }}
-            />
-          </GlassGroup>
-          {sectionErrors.name && (
-            <p className="px-1 text-xs text-destructive">
-              {sectionErrors.name}
-            </p>
-          )}
-
-          {/* ── Default machine (EXP-622) ────────────────────────────── */}
-          <GlassGroup>
-            <GlassToggleRow
-              id="device-settings-default"
-              label="Default device"
-              checked={row?.isDefault ?? false}
-              onCheckedChange={(checked) => void setDefault(checked)}
-              disabled={busySection !== null}
-            />
-          </GlassGroup>
-          {sectionErrors.default && (
-            <p className="px-1 text-xs text-destructive">
-              {sectionErrors.default}
-            </p>
-          )}
-
-          {/* ── Sharing (server machines only, EXP-432) ───────────────── */}
-          {kind === `server` && (
-            <>
-              <GlassGroup>
-                <GlassPickerRow
-                  label="Shared with"
-                  value={row?.sharedTeamId ?? NOT_SHARED}
-                  onValueChange={(value) =>
-                    void setShared(value === NOT_SHARED ? null : value)
-                  }
-                  disabled={busySection !== null}
-                  options={[
-                    { value: NOT_SHARED, label: `Not shared` },
-                    ...teams.map((team) => ({
-                      value: team.id,
-                      label: team.name,
-                    })),
-                  ]}
-                />
-              </GlassGroup>
-              <p className="px-1 text-xs text-muted-foreground">
-                Teammates of the shared team can start coding sessions on this
-                machine.
-              </p>
-              {sectionErrors.sharing && (
-                <p className="px-1 text-xs text-destructive">
-                  {sectionErrors.sharing}
-                </p>
-              )}
-            </>
-          )}
-
-          {/* ── Agent defaults (server-authoritative, EXP-481) ────────── */}
-          {(!online || savingDefaults) && (
-            <div className="flex items-center justify-between px-1">
-              {!online ? (
-                <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <OfflineIcon className="size-3" />
-                  Applies when the device comes online.
-                </span>
-              ) : (
-                <span />
-              )}
-              {savingDefaults && (
-                <LoaderCircle className="size-3 animate-spin text-muted-foreground" />
-              )}
-            </div>
-          )}
-          <GlassGroup>
-            <GlassPickerRow
-              label="Default agent"
-              value={defaultAgentDraft}
-              onValueChange={(value) => {
-                setDefaultAgentDraft(value)
-                scheduleDefaults()
-              }}
-              options={editorAgents.map((agent) => ({
-                value: agent,
-                label: AGENT_LABELS[agent] ?? agent,
-              }))}
-            />
-          </GlassGroup>
-          <AgentOptionsFields
-            idPrefix="device-settings"
-            agent={agentTab}
-            availableAgents={editorAgents}
-            onAgentChange={setAgentTab}
-            model={draft.model}
-            onModelChange={(value) => patchDraft({ model: value })}
-            effortValue={
-              draft.effort === `` ? CLI_DEFAULT_EFFORT : draft.effort
-            }
-            onEffortChange={(value) =>
-              patchDraft({
-                effort: value === CLI_DEFAULT_EFFORT ? `` : value,
-              })
-            }
-            ultracode={draft.ultracode}
-            onUltracodeChange={(value) => patchDraft({ ultracode: value })}
-            planMode={draft.planMode}
-            onPlanModeChange={(value) => patchDraft({ planMode: value })}
-            /* EXP-688: who this agent is signed in as on this machine, and
-               what it has spent — under its OWN tab, not a section apart.
-               EXP-694: rendered as that card's closing rows. */
-            renderAgentFooter={(agent) => (
-              <AgentAccountBlock
-                agent={agent}
-                row={row}
-                online={online}
-                canAgentLogin={deviceCanAgentLogin({ caps: row?.caps ?? [] })}
-                now={now}
-                error={sectionErrors[agentLoginKey(agent)] ?? ``}
-                pending={pendingKey(agentLoginKey(agent))}
-                result={commandResults[agentLoginKey(agent)] ?? null}
-                onLogin={startAgentLogin}
-                canEnterCode={deviceCanAgentLoginCode({
-                  caps: row?.caps ?? [],
-                })}
-                codeError={sectionErrors[agentLoginCodeKey(agent)] ?? ``}
-                codePending={pendingKey(agentLoginCodeKey(agent))}
-                codeResult={commandResults[agentLoginCodeKey(agent)] ?? null}
-                onEnterCode={queueAgentLoginCode}
+            order, as the iOS/Android device sheets. 8px between groups.
+            EXP-798: from `sm` up the stack splits LANDSCAPE like the IDE's
+            dialog (EXP-762): settings column left, worktrees column right,
+            each scrolling on its own — one portrait column overflowed the
+            viewport and clipped the agent card mid-row. The worktrees column
+            is a FIXED 20rem (the IDE's 320px) rather than a flex share, so a
+            wider panel widens the settings column (its pickers and account
+            line are what need the room); a mono `repo branch` path truncates.
+            Below `sm` the grid collapses back to the stacked phone sheet. */}
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto sm:grid sm:grid-cols-[minmax(0,1fr)_20rem] sm:gap-5 sm:overflow-y-visible">
+          <div className="flex shrink-0 flex-col gap-2 sm:min-h-0 sm:shrink sm:overflow-y-auto">
+            {/* ── Name ─────────────────────────────────────────────────── */}
+            <GlassGroup>
+              <GlassInputRow
+                id="device-settings-name"
+                label="Name"
+                value={nameDraft}
+                maxLength={255}
+                trailing={
+                  savingName ? (
+                    <LoaderCircle className="size-3 shrink-0 animate-spin text-muted-foreground" />
+                  ) : null
+                }
+                onChange={(event) => {
+                  setNameDraft(event.target.value)
+                  scheduleName()
+                }}
+                onFocus={() => {
+                  nameFocusedRef.current = true
+                }}
+                onBlur={() => {
+                  nameFocusedRef.current = false
+                  // A rename that arrived while the field was focused was
+                  // deliberately skipped — catch up unless an edit is owed.
+                  const hadPending = latest.current.namePending
+                  flushName()
+                  if (!hadPending && row) setNameDraft(row.label)
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === `Enter`) flushName()
+                }}
               />
+            </GlassGroup>
+            {sectionErrors.name && (
+              <p className="px-1 text-xs text-destructive">
+                {sectionErrors.name}
+              </p>
             )}
-          />
-          {sectionErrors.defaults && (
-            <p className="px-1 text-xs text-destructive">
-              {sectionErrors.defaults}
-            </p>
-          )}
+
+            {/* ── Default machine (EXP-622) ────────────────────────────── */}
+            <GlassGroup>
+              <GlassToggleRow
+                id="device-settings-default"
+                label="Default device"
+                checked={row?.isDefault ?? false}
+                onCheckedChange={(checked) => void setDefault(checked)}
+                disabled={busySection !== null}
+              />
+            </GlassGroup>
+            {sectionErrors.default && (
+              <p className="px-1 text-xs text-destructive">
+                {sectionErrors.default}
+              </p>
+            )}
+
+            {/* ── Sharing (server machines only, EXP-432) ───────────────── */}
+            {kind === `server` && (
+              <>
+                <GlassGroup>
+                  <GlassPickerRow
+                    label="Shared with"
+                    value={row?.sharedTeamId ?? NOT_SHARED}
+                    onValueChange={(value) =>
+                      void setShared(value === NOT_SHARED ? null : value)
+                    }
+                    disabled={busySection !== null}
+                    options={[
+                      { value: NOT_SHARED, label: `Not shared` },
+                      ...teams.map((team) => ({
+                        value: team.id,
+                        label: team.name,
+                      })),
+                    ]}
+                  />
+                </GlassGroup>
+                <p className="px-1 text-xs text-muted-foreground">
+                  Teammates of the shared team can start coding sessions on this
+                  machine.
+                </p>
+                {sectionErrors.sharing && (
+                  <p className="px-1 text-xs text-destructive">
+                    {sectionErrors.sharing}
+                  </p>
+                )}
+              </>
+            )}
+
+            {/* ── Agent defaults (server-authoritative, EXP-481) ────────── */}
+            {(!online || savingDefaults) && (
+              <div className="flex items-center justify-between px-1">
+                {!online ? (
+                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <OfflineIcon className="size-3" />
+                    Applies when the device comes online.
+                  </span>
+                ) : (
+                  <span />
+                )}
+                {savingDefaults && (
+                  <LoaderCircle className="size-3 animate-spin text-muted-foreground" />
+                )}
+              </div>
+            )}
+            <GlassGroup>
+              <GlassPickerRow
+                label="Default agent"
+                value={defaultAgentDraft}
+                onValueChange={(value) => {
+                  setDefaultAgentDraft(value)
+                  scheduleDefaults()
+                }}
+                options={editorAgents.map((agent) => ({
+                  value: agent,
+                  label: AGENT_LABELS[agent] ?? agent,
+                }))}
+              />
+            </GlassGroup>
+            <AgentOptionsFields
+              idPrefix="device-settings"
+              agent={agentTab}
+              availableAgents={editorAgents}
+              onAgentChange={setAgentTab}
+              model={draft.model}
+              onModelChange={(value) => patchDraft({ model: value })}
+              effortValue={
+                draft.effort === `` ? CLI_DEFAULT_EFFORT : draft.effort
+              }
+              onEffortChange={(value) =>
+                patchDraft({
+                  effort: value === CLI_DEFAULT_EFFORT ? `` : value,
+                })
+              }
+              ultracode={draft.ultracode}
+              onUltracodeChange={(value) => patchDraft({ ultracode: value })}
+              planMode={draft.planMode}
+              onPlanModeChange={(value) => patchDraft({ planMode: value })}
+              /* EXP-688: who this agent is signed in as on this machine, and
+                 what it has spent — under its OWN tab, not a section apart.
+                 EXP-694: rendered as that card's closing rows. */
+              renderAgentFooter={(agent) => (
+                <AgentAccountBlock
+                  agent={agent}
+                  row={row}
+                  online={online}
+                  canAgentLogin={deviceCanAgentLogin({ caps: row?.caps ?? [] })}
+                  now={now}
+                  error={sectionErrors[agentLoginKey(agent)] ?? ``}
+                  pending={pendingKey(agentLoginKey(agent))}
+                  result={commandResults[agentLoginKey(agent)] ?? null}
+                  onLogin={startAgentLogin}
+                  canEnterCode={deviceCanAgentLoginCode({
+                    caps: row?.caps ?? [],
+                  })}
+                  codeError={sectionErrors[agentLoginCodeKey(agent)] ?? ``}
+                  codePending={pendingKey(agentLoginCodeKey(agent))}
+                  codeResult={commandResults[agentLoginCodeKey(agent)] ?? null}
+                  onEnterCode={queueAgentLoginCode}
+                />
+              )}
+            />
+            {sectionErrors.defaults && (
+              <p className="px-1 text-xs text-destructive">
+                {sectionErrors.defaults}
+              </p>
+            )}
+          </div>
 
           {/* ── Worktrees (reported inventory + durable commands) ─────── */}
-          <GlassSectionHeader
-            label="Worktrees"
-            className="pt-2"
-            trailing={
-              /* EXP-688: icon only — the label repeated the section it sits
-                 in, and the row reads as a heading with an action again. */
-              <Button
-                variant="ghost"
-                className="h-5 w-5 p-0 text-muted-foreground"
-                aria-label="Prune merged worktrees"
-                title="Prune merged worktrees"
-                disabled={pendingKey(`prune`) || worktrees.length === 0}
-                onClick={() =>
-                  void queueCommand(`prune`, { kind: `worktree_prune` })
-                }
-              >
-                {pendingKey(`prune`) ? (
-                  <LoaderCircle className="size-3 animate-spin" />
-                ) : (
-                  <PruneIcon className="size-3" />
-                )}
-              </Button>
-            }
-          />
-          {!online && (worktrees.length > 0 || pendingKey(`prune`)) && (
-            <p className="px-1 pb-1 text-xs text-muted-foreground">
-              This machine is offline — queued changes run when it comes
-              online.
-            </p>
-          )}
-          {sectionErrors.prune && (
-            <p className="px-1 pb-1 text-xs text-destructive">
-              {sectionErrors.prune}
-            </p>
-          )}
-          <GlassGroup>
-            {worktrees.length === 0 ? (
-              <p className="px-4 py-3 text-xs text-muted-foreground">
-                No worktrees reported by this machine.
+          <div className="flex shrink-0 flex-col gap-2 sm:min-h-0 sm:shrink sm:overflow-y-auto">
+            <GlassSectionHeader
+              label="Worktrees"
+              trailing={
+                /* EXP-688: icon only — the label repeated the section it sits
+                   in, and the row reads as a heading with an action again. */
+                <Button
+                  variant="ghost"
+                  className="h-5 w-5 p-0 text-muted-foreground"
+                  aria-label="Prune merged worktrees"
+                  title="Prune merged worktrees"
+                  disabled={pendingKey(`prune`) || worktrees.length === 0}
+                  onClick={() =>
+                    void queueCommand(`prune`, { kind: `worktree_prune` })
+                  }
+                >
+                  {pendingKey(`prune`) ? (
+                    <LoaderCircle className="size-3 animate-spin" />
+                  ) : (
+                    <PruneIcon className="size-3" />
+                  )}
+                </Button>
+              }
+            />
+            {!online && (worktrees.length > 0 || pendingKey(`prune`)) && (
+              <p className="px-1 pb-1 text-xs text-muted-foreground">
+                This machine is offline — queued changes run when it comes
+                online.
               </p>
-            ) : (
-              worktrees.map((worktree) => {
-                const key = commandKey(worktree)
-                const removing = pendingKey(key)
-                const dirty = dirtyLabel(worktree.dirty)
-                return (
-                  <div
-                    key={worktree.id}
-                    className="flex flex-col gap-0.5 px-4 py-3"
-                  >
-                    <div className="flex items-center gap-2">
-                      <BranchIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                      <span className="min-w-0 flex-1 truncate font-mono text-xs">
-                        <span className="text-muted-foreground">
-                          {worktree.repoFullName}
-                        </span>
-                        {` `}
-                        {worktree.branch}
-                      </span>
-                      {worktree.issueIdentifier && (
-                        <span className="shrink-0 rounded-sm border border-glass-stroke-card px-1 text-[10px] text-muted-foreground">
-                          {worktree.issueIdentifier}
-                        </span>
-                      )}
-                      {dirty && (
-                        <span
-                          className="flex shrink-0 items-center gap-0.5 text-[10px] text-amber-500"
-                          title={`This worktree has ${dirty}.`}
-                        >
-                          <WarningIcon className="size-3" />
-                          {dirty}
-                        </span>
-                      )}
-                      {worktree.busy && (
-                        <span
-                          className="shrink-0 text-[10px] text-emerald-500"
-                          title="A live coding session is using this worktree."
-                        >
-                          in use
-                        </span>
-                      )}
-                      <Button
-                        variant="ghost"
-                        className="h-5 w-5 shrink-0 p-0 text-muted-foreground"
-                        title={
-                          worktree.busy
-                            ? `A live session is using this worktree.`
-                            : `Remove this worktree on the machine`
-                        }
-                        disabled={worktree.busy || removing}
-                        onClick={() => setRemoveTarget(worktree)}
-                      >
-                        {removing ? (
-                          <LoaderCircle className="size-3.5 animate-spin" />
-                        ) : (
-                          <RemoveIcon className="size-3.5" />
-                        )}
-                      </Button>
-                    </div>
-                    {sectionErrors[key] && (
-                      <p className="pl-5 text-xs text-destructive">
-                        {sectionErrors[key]}
-                      </p>
-                    )}
-                  </div>
-                )
-              })
             )}
-          </GlassGroup>
+            {sectionErrors.prune && (
+              <p className="px-1 pb-1 text-xs text-destructive">
+                {sectionErrors.prune}
+              </p>
+            )}
+            <GlassGroup>
+              {worktrees.length === 0 ? (
+                <p className="px-4 py-3 text-xs text-muted-foreground">
+                  No worktrees reported by this machine.
+                </p>
+              ) : (
+                worktrees.map((worktree) => {
+                  const key = commandKey(worktree)
+                  const removing = pendingKey(key)
+                  const dirty = dirtyLabel(worktree.dirty)
+                  return (
+                    <div
+                      key={worktree.id}
+                      className="flex flex-col gap-0.5 px-4 py-3"
+                    >
+                      <div className="flex items-center gap-2">
+                        <BranchIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                        <span className="min-w-0 flex-1 truncate font-mono text-xs">
+                          <span className="text-muted-foreground">
+                            {worktree.repoFullName}
+                          </span>
+                          {` `}
+                          {worktree.branch}
+                        </span>
+                        {worktree.issueIdentifier && (
+                          <span className="shrink-0 rounded-sm border border-glass-stroke-card px-1 text-[10px] text-muted-foreground">
+                            {worktree.issueIdentifier}
+                          </span>
+                        )}
+                        {dirty && (
+                          <span
+                            className="flex shrink-0 items-center gap-0.5 text-[10px] text-amber-500"
+                            title={`This worktree has ${dirty}.`}
+                          >
+                            <WarningIcon className="size-3" />
+                            {dirty}
+                          </span>
+                        )}
+                        {worktree.busy && (
+                          <span
+                            className="shrink-0 text-[10px] text-emerald-500"
+                            title="A live coding session is using this worktree."
+                          >
+                            in use
+                          </span>
+                        )}
+                        <Button
+                          variant="ghost"
+                          className="h-5 w-5 shrink-0 p-0 text-muted-foreground"
+                          title={
+                            worktree.busy
+                              ? `A live session is using this worktree.`
+                              : `Remove this worktree on the machine`
+                          }
+                          disabled={worktree.busy || removing}
+                          onClick={() => setRemoveTarget(worktree)}
+                        >
+                          {removing ? (
+                            <LoaderCircle className="size-3.5 animate-spin" />
+                          ) : (
+                            <RemoveIcon className="size-3.5" />
+                          )}
+                        </Button>
+                      </div>
+                      {sectionErrors[key] && (
+                        <p className="pl-5 text-xs text-destructive">
+                          {sectionErrors[key]}
+                        </p>
+                      )}
+                    </div>
+                  )
+                })
+              )}
+            </GlassGroup>
+          </div>
         </div>
 
         <AlertDialog
