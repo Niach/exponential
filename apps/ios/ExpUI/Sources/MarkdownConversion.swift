@@ -260,6 +260,16 @@ public enum MarkdownConversion {
 
         let collector = BlockCollector(baseURL: baseURL)
         var context = RenderContext(baseURL: baseURL, options: options, overrides: overrides)
+        // EXP-787: the transcript reads at its own measure. The ROOT style
+        // frame carries it, so every run inherits the size and the leading —
+        // and a nil override leaves the interchange look byte-identical.
+        context.styleStack = [StyleFrame(
+            font: MarkdownStyle.resolvedBodyFont(overrides.bodySize),
+            foregroundColor: MarkdownStyle.textColor,
+            extraAttributes: overrides.resolvedLineSpacing.map {
+                [.paragraphStyle: MarkdownStyle.paragraphStyle(lineSpacing: $0)]
+            } ?? [:]
+        )]
         renderNodeToBlocks(doc, collector: collector, context: &context)
         return collector.finalize()
     }
@@ -479,7 +489,9 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
                 .markdownBlockquote: true,
                 // Indent clears the gutter for the quote bar drawn by
                 // MarkdownLayoutManager (EXP-246).
-                .paragraphStyle: MarkdownStyle.blockquoteParagraphStyle,
+                .paragraphStyle: MarkdownStyle.blockquoteParagraphStyle(
+                    lineSpacing: context.overrides.resolvedLineSpacing
+                ),
             ])
         }
         let paragraphStart = collector.currentText.length
@@ -505,7 +517,10 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
         appendBlockSeparatorToCollector(collector: collector, context: &context)
         let level = Int(cmark_node_get_heading_level(node))
         context.headingLevel = level
-        context.pushStyle(font: MarkdownStyle.headingFont(level: level), extra: [.markdownHeadingLevel: level])
+        context.pushStyle(
+            font: MarkdownStyle.headingFont(level: level, bodySize: context.overrides.bodySize),
+            extra: [.markdownHeadingLevel: level]
+        )
         renderChildrenToBlocks(node, collector: collector, context: &context)
         context.popStyle()
         context.headingLevel = 0
@@ -541,7 +556,7 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
     case CMARK_NODE_CODE:
         let literal = String(cString: cmark_node_get_literal(node))
         var attrs = context.makeAttributes()
-        attrs[.font] = MarkdownStyle.monospaceFont
+        attrs[.font] = MarkdownStyle.monospaceFont(bodySize: context.overrides.bodySize)
         // EXP-698: the chat feeds tint inline code (`Semantic.codeText` on a
         // `codeFill` wash); everywhere else keeps the neutral white@8 %.
         attrs[.backgroundColor] = context.overrides.inlineCodeBackground
@@ -557,7 +572,7 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
         let literal = String(cString: cmark_node_get_literal(node))
         let lang = cmark_node_get_fence_info(node).flatMap { String(cString: $0) }
         var attrs = context.makeAttributes()
-        attrs[.font] = MarkdownStyle.monospaceFont
+        attrs[.font] = MarkdownStyle.monospaceFont(bodySize: context.overrides.bodySize)
         // No `.backgroundColor` here: UITextView paints it per line fragment
         // (a stripe per line). MarkdownLayoutManager draws the whole fence as
         // ONE rounded box off `.markdownCodeBlock` instead (EXP-246).
@@ -640,7 +655,7 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
             context.listStack[context.listStack.count - 1] = last
         }
         let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = 4
+        paragraphStyle.lineSpacing = context.overrides.resolvedLineSpacing ?? 4
         let indent: CGFloat = CGFloat(depth) * 20 + 24
         paragraphStyle.headIndent = indent
         paragraphStyle.firstLineHeadIndent = CGFloat(depth) * 20
@@ -834,7 +849,12 @@ private func appendBlockSeparatorToCollector(collector: BlockCollector, context:
         context.needsBlockSeparator = false
         return
     }
-    collector.currentText.append(NSAttributedString(string: "\n", attributes: MarkdownStyle.baseAttributes))
+    var separator = MarkdownStyle.baseAttributes
+    separator[.font] = MarkdownStyle.resolvedBodyFont(context.overrides.bodySize)
+    if let lineSpacing = context.overrides.resolvedLineSpacing {
+        separator[.paragraphStyle] = MarkdownStyle.paragraphStyle(lineSpacing: lineSpacing)
+    }
+    collector.currentText.append(NSAttributedString(string: "\n", attributes: separator))
     context.needsBlockSeparator = false
 }
 

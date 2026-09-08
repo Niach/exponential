@@ -583,6 +583,56 @@ sealed interface AgentFeedRow {
     ) : AgentFeedRow
 }
 
+// ── EXP-787: the transcript's rhythm ────────────────────────────────────────
+//
+// Every row gets space ABOVE it, chosen from the row BEFORE it — ONE
+// derivation, mirrored ×4 (web `lib/agent-feed.ts`, desktop `steer::feed`,
+// ExpCore `AgentFeed`) and lock-tested on each. This file is compose-free, so
+// it names the STEP and the screen maps it to `DesignTokens.Transcript.Gap*`.
+
+/** What a row counts as when spacing it: a human turn, agent prose, or the
+ *  machinery around them (tool calls, subagent runs, permission prompts). */
+enum class AgentRowClass { Turn, Prose, Tool }
+
+/** One step of the gap ladder — `DesignTokens.Transcript` holds the dp. */
+enum class TranscriptGap { Turn, Block, Tool, Default, None }
+
+/** Which class a rendered row belongs to. */
+val AgentFeedRow.rowClass: AgentRowClass
+    get() = when (this) {
+        // A run of tool calls, and a subagent's whole run, are machinery.
+        is AgentFeedRow.ToolRun -> AgentRowClass.Tool
+        is AgentFeedRow.SubagentRun -> AgentRowClass.Tool
+        is AgentFeedRow.QuestionStepper -> AgentRowClass.Prose
+        is AgentFeedRow.Single -> when (item) {
+            // Both shapes a human turn takes — the prose bubble and the
+            // slash-command pill — are the same beat.
+            is AgentFeedItem.UserMessage -> AgentRowClass.Turn
+            is AgentFeedItem.Narration,
+            is AgentFeedItem.Question,
+            is AgentFeedItem.Compaction,
+            -> AgentRowClass.Prose
+            is AgentFeedItem.Tool,
+            is AgentFeedItem.Subagent,
+            is AgentFeedItem.Permission,
+            -> AgentRowClass.Tool
+        }
+    }
+
+/**
+ * The space above [cur] given the row before it — a null [prev] is the first
+ * row, which gets none. In order: a turn on either side breathes widest, two
+ * tool rows sit tightest, prose meeting a tool row takes the middle step, and
+ * two prose rows take a paragraph's worth.
+ */
+fun transcriptGap(prev: AgentRowClass?, cur: AgentRowClass): TranscriptGap = when {
+    prev == null -> TranscriptGap.None
+    prev == AgentRowClass.Turn || cur == AgentRowClass.Turn -> TranscriptGap.Turn
+    prev == AgentRowClass.Tool && cur == AgentRowClass.Tool -> TranscriptGap.Default
+    prev == AgentRowClass.Tool || cur == AgentRowClass.Tool -> TranscriptGap.Tool
+    else -> TranscriptGap.Block
+}
+
 /** Render-time projection of the flat feed — a pure function: the feed itself
  *  (and [activeQuestionIds] over it) is never restructured.
  *  - a subagent's markers and its tagged tool calls collapse into ONE row by

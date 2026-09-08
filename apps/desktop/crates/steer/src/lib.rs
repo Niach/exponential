@@ -90,9 +90,9 @@ pub use activity::{
 };
 pub use feed::{
     active_question_ids, answer_key, collect_subagents, group_feed_row_specs,
-    group_feed_row_specs_from, group_feed_row_specs_into, group_feed_rows, summarize_subagent_row, AnswerState, AnswerStatus,
+    group_feed_row_specs_from, group_feed_row_specs_into, group_feed_rows, summarize_subagent_row, transcript_gap, AnswerState, AnswerStatus,
     FeedItem, FeedItemId, FeedKind, FeedRow,
-    FeedRowSpec, QuestionCard,
+    FeedRowSpec, Gap, QuestionCard, RowClass,
     SessionConfig, SessionUsage, SteerFeed, SubagentSummary, ANSWER_ACK_TIMEOUT, ECHO_CAP,
     FEED_BYTE_CAP, FEED_ITEM_CAP, REPLAY_MAX, REPLAY_QUIET,
 };

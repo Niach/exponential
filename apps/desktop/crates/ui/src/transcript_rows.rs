@@ -121,6 +121,20 @@ pub(crate) fn row_fingerprint(
     hasher.finish()
 }
 
+/// EXP-787 — fold the GAP a row wears above it into its fingerprint.
+///
+/// The ladder picks that gap from the row BEFORE this one, so it is part of
+/// the height the list measured for this row and it can change without the
+/// row's own content moving (a narration spliced above a tool row turns an
+/// 8px gap into a 12px one). Folding it in makes that a re-measure like any
+/// other content change.
+pub(crate) fn fold_gap(fingerprint: u64, gap: f32) -> u64 {
+    let mut hasher = std::hash::DefaultHasher::new();
+    fingerprint.hash(&mut hasher);
+    gap.to_bits().hash(&mut hasher);
+    hasher.finish()
+}
+
 /// What the list must be told to match a new key set (see [`plan_list_sync`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ListOp {
@@ -243,6 +257,23 @@ mod tests {
             .enumerate()
             .map(|(ix, id)| id.or(Some(new[ix].id)))
             .collect()
+    }
+
+    /// EXP-787: a row whose LADDER GAP changed must re-measure even though
+    /// its own content did not — the gap is part of the height the list
+    /// cached for it.
+    #[test]
+    fn a_changed_gap_remeasures_the_row() {
+        let content = 0xfeed_u64;
+        let tight = key(7, fold_gap(content, 8.0));
+        let loose = key(7, fold_gap(content, 16.0));
+        assert_ne!(tight.fingerprint, loose.fingerprint);
+        assert_eq!(
+            plan_list_sync(&[tight], &[loose]),
+            vec![ListOp::Remeasure(0..1)]
+        );
+        // …and an unchanged gap is not a change.
+        assert!(plan_list_sync(&[tight], &[tight]).is_empty());
     }
 
     fn check(old: &[RowKey], new: &[RowKey], ops: &[ListOp]) {

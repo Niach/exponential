@@ -180,6 +180,20 @@ html {
   --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --motion-ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
   --motion-ease-accelerate: cubic-bezier(0.3, 0, 1, 1);
+  /* EXP-787 transcript measure + rhythm. THEME-INVARIANT like the motion
+     tokens, so :root only. Values mirror packages/design-tokens/tokens.json
+     `transcript`; design-tokens.test.ts guards the parity, and the gap ladder
+     itself (which gap goes above which row) lives in lib/agent-feed.ts. */
+  --transcript-max-width: 736px;
+  --transcript-gutter: 48px;
+  --transcript-gap-turn: 16px;
+  --transcript-gap-block: 12px;
+  --transcript-gap-tool: 12px;
+  --transcript-gap-default: 8px;
+  --transcript-body-size: 14px;
+  --transcript-body-line-height: 22px;
+  --transcript-tool-size: 12px;
+  --transcript-tool-line-height: 18px;
 }
 
 .dark {
@@ -589,6 +603,16 @@ html {
   padding: 0.1rem 0.35rem;
   border-radius: 3px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* EXP-787: transcript prose rides the shared body scale (tokens.json
+   `transcript.bodySize`/`bodyLineHeight`). Narration renders through the
+   markdown pipeline, whose `.tiptap-content` carries the editor's own size and
+   a unitless 1.625 line height, so the transcript restates both — the ONE
+   place agent prose gets its measure, bubbles included. */
+.agent-feed .tiptap-content {
+  font-size: var(--transcript-body-size);
+  line-height: var(--transcript-body-line-height);
 }
 
 /* EXP-698: inline code is TINTED in the agent CHAT feed and nowhere else —

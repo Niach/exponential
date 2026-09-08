@@ -989,6 +989,69 @@ final class AgentFeedTests: XCTestCase {
         )
     }
 
+    // MARK: - Transcript gap ladder (EXP-787)
+
+    func testTranscriptGapLadder() {
+        // The first row has nothing above it.
+        for cur in [AgentRowClass.turn, .prose, .tool] {
+            XCTAssertEqual(AgentFeed.transcriptGap(prev: nil, cur: cur), .none)
+        }
+        // All nine ordered pairs, in the ladder's own order: a turn on EITHER
+        // side wins first, then tool↔tool, then the mixed step, then prose.
+        let expected: [(AgentRowClass, AgentRowClass, AgentTranscriptGap)] = [
+            (.turn, .turn, .turn),
+            (.turn, .prose, .turn),
+            (.turn, .tool, .turn),
+            (.prose, .turn, .turn),
+            (.tool, .turn, .turn),
+            (.tool, .tool, .default),
+            (.prose, .tool, .tool),
+            (.tool, .prose, .tool),
+            (.prose, .prose, .block),
+        ]
+        for (prev, cur, gap) in expected {
+            XCTAssertEqual(
+                AgentFeed.transcriptGap(prev: prev, cur: cur), gap,
+                "gap above \(cur) after \(prev)"
+            )
+        }
+    }
+
+    func testRowClassSortsEveryRowKind() {
+        XCTAssertEqual(AgentFeedRow.single(.userMessage(id: 1, text: "go")).rowClass, .turn)
+        XCTAssertEqual(AgentFeedRow.single(.narration(id: 2, text: "hi")).rowClass, .prose)
+        XCTAssertEqual(AgentFeedRow.single(.question(question(3))).rowClass, .prose)
+        XCTAssertEqual(AgentFeedRow.single(.compaction(id: 4)).rowClass, .prose)
+        XCTAssertEqual(
+            AgentFeedRow.ask(AgentAskGroup(askId: "a", questions: [question(5)])).rowClass,
+            .prose
+        )
+        XCTAssertEqual(AgentFeedRow.single(tool(6)).rowClass, .tool)
+        XCTAssertEqual(AgentFeedRow.toolRun([tool(7), tool(8)]).rowClass, .tool)
+        XCTAssertEqual(
+            AgentFeedRow.single(
+                .subagent(
+                    id: 9, subagentId: "s1", agentType: "explore",
+                    status: .started, detail: nil
+                )
+            ).rowClass,
+            .tool
+        )
+        XCTAssertEqual(
+            AgentFeedRow.single(.permission(id: 10, tool: "Bash", detail: nil)).rowClass,
+            .tool
+        )
+        XCTAssertEqual(
+            AgentFeedRow.subagentRun(
+                AgentSubagentRun(
+                    anchorId: 11, subagentId: "s2", agentType: "explore",
+                    detail: nil, done: false, items: [tool(12)]
+                )
+            ).rowClass,
+            .tool
+        )
+    }
+
     // MARK: - Fixtures
 
     private func tool(_ id: Int, subagentId: String? = nil) -> AgentFeedItem {

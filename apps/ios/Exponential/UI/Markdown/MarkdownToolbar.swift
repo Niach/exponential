@@ -678,11 +678,11 @@ final class MarkdownToolbar: UIInputView {
             if paraRange.length > 0 {
                 textView.textStorage.addAttributes([
                     .markdownCodeBlock: true,
-                    .font: MarkdownStyle.monospaceFont,
+                    .font: MarkdownStyle.monospaceFont(),
                 ], range: paraRange)
             }
             textView.typingAttributes[.markdownCodeBlock] = true
-            textView.typingAttributes[.font] = MarkdownStyle.monospaceFont
+            textView.typingAttributes[.font] = MarkdownStyle.monospaceFont()
         }
         refresh(textView)
     }
@@ -720,12 +720,12 @@ final class MarkdownToolbar: UIInputView {
                 textView.textStorage.addAttributes([
                     .markdownBlockquote: true,
                     .foregroundColor: MarkdownStyle.blockquoteTextColor,
-                    .paragraphStyle: MarkdownStyle.blockquoteParagraphStyle,
+                    .paragraphStyle: MarkdownStyle.blockquoteParagraphStyle(),
                 ], range: paraRange)
             }
             textView.typingAttributes[.markdownBlockquote] = true
             textView.typingAttributes[.foregroundColor] = MarkdownStyle.blockquoteTextColor
-            textView.typingAttributes[.paragraphStyle] = MarkdownStyle.blockquoteParagraphStyle
+            textView.typingAttributes[.paragraphStyle] = MarkdownStyle.blockquoteParagraphStyle()
         }
         refresh(textView)
     }

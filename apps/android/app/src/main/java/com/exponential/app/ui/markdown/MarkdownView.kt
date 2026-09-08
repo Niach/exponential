@@ -174,6 +174,7 @@ private fun QuoteBlockView(
     val autolink = LocalMarkdownAutolink.current
     val inlineCode = LocalInlineCodeStyle.current
     val bare = LocalIssueRefBare.current
+    val body = LocalMarkdownBodyStyle.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -192,7 +193,7 @@ private fun QuoteBlockView(
                 key(index) {
                     ChipText(
                         line = annotateLine(text, marks[index], issueRefs, mentions, autolink, inlineCode, bare),
-                        style = MdStyle.body.copy(color = MdStyle.Blockquote),
+                        style = body.copy(color = MdStyle.Blockquote),
                         modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
                     )
                 }
@@ -203,9 +204,12 @@ private fun QuoteBlockView(
 
 @Composable
 private fun CodeBlockView(codeLines: List<String>) {
+    val body = LocalMarkdownBodyStyle.current
     Text(
         text = codeLines.joinToString("\n"),
-        style = MdStyle.mono,
+        // The mono step rides whatever body is in force (EXP-787), so a
+        // transcript's fences shrink with its prose instead of towering over it.
+        style = body.copy(fontFamily = FontFamily.Monospace, fontSize = body.fontSize * 0.9f),
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
@@ -226,6 +230,7 @@ private fun LineView(
     val autolink = LocalMarkdownAutolink.current
     val inlineCode = LocalInlineCodeStyle.current
     val bare = LocalIssueRefBare.current
+    val body = LocalMarkdownBodyStyle.current
     when (a.kind) {
         BlockKind.Heading -> ChipText(
             line = annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare),
@@ -239,7 +244,7 @@ private fun LineView(
 
         BlockKind.ThematicBreak -> Text(
             text = MarkdownParser.THEMATIC_BREAK_GLYPH,
-            style = MdStyle.body.copy(color = MdStyle.Dim),
+            style = body.copy(color = MdStyle.Dim),
             modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
         )
 
@@ -251,7 +256,7 @@ private fun LineView(
             } else {
                 ChipText(
                     line = annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare),
-                    style = MdStyle.body,
+                    style = body,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                 )
             }
@@ -270,6 +275,7 @@ private fun ListItemView(
     val autolink = LocalMarkdownAutolink.current
     val inlineCode = LocalInlineCodeStyle.current
     val bare = LocalIssueRefBare.current
+    val body = LocalMarkdownBodyStyle.current
     val indent = MdStyle.listIndentBase + MdStyle.listIndentPerDepth * a.listDepth
     Row(
         modifier = Modifier
@@ -280,23 +286,23 @@ private fun ListItemView(
         when (a.listType) {
             ListType.Checklist -> Text(
                 if (a.checked) "☑" else "☐",
-                style = MdStyle.body,
+                style = body,
                 modifier = Modifier.width(22.dp),
             )
             ListType.Ordered -> Text(
                 "${a.orderedIndex}.",
-                style = MdStyle.body,
+                style = body,
                 modifier = Modifier.width(22.dp),
             )
             ListType.Bullet, null -> Text(
                 "•",
-                style = MdStyle.body,
+                style = body,
                 modifier = Modifier.width(22.dp),
             )
         }
         ChipText(
             line = annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare),
-            style = MdStyle.body,
+            style = body,
             modifier = Modifier.fillMaxWidth(),
         )
     }
@@ -337,6 +343,16 @@ val LocalMarkdownAutolink = compositionLocalOf { false }
  * narration reads as code, exactly like web and the desktop tint theirs.
  */
 val LocalInlineCodeStyle = compositionLocalOf { MdStyle.Default }
+
+/**
+ * The BODY style this subtree renders prose at (EXP-787). Default is
+ * [MdStyle.body] — the 17 sp document measure issue descriptions and comments
+ * have always used. The agent transcript provides the shared
+ * `DesignTokens.Transcript` step (14 sp on a 22 sp line, ×4 parity), which is
+ * a reading measure for a wall of narration rather than a document body.
+ * Headings keep their own scale; code derives from whatever is in force.
+ */
+val LocalMarkdownBodyStyle = compositionLocalOf { MdStyle.body }
 
 /**
  * One rendered line: its styled text plus the chip geometry the painter needs

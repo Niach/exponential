@@ -750,8 +750,19 @@ struct AgentSessionView: View {
                                 // EXP-773: the run's prose and the turns
                                 // addressed to it interleave with its tool
                                 // calls, in publish order.
-                                ForEach(focused.items) { item in
-                                    SubagentItemRow(item: item, context: markdownContext)
+                                let items = focused.items
+                                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                                    SubagentItemRow(
+                                        item: item, context: markdownContext, nested: false
+                                    )
+                                    .padding(.top, Self.gapPoints(AgentFeed.transcriptGap(
+                                        // The SubagentRow header above the
+                                        // list is the first "previous row".
+                                        prev: index == 0
+                                            ? .tool
+                                            : AgentFeedRow.single(items[index - 1]).rowClass,
+                                        cur: AgentFeedRow.single(item).rowClass
+                                    )))
                                 }
                             }
                         } else {
@@ -771,13 +782,25 @@ struct AgentSessionView: View {
                                     .padding(.bottom, 4)
                             }
                             let rows = model.rows
-                            ForEach(rows) { row in
+                            // EXP-787: every row's space above it comes from
+                            // the shared gap ladder, keyed on the row BEFORE
+                            // it — the rows themselves carry no outer margin
+                            // any more, so the rhythm is one derivation
+                            // instead of a padding per row kind.
+                            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                                 feedRow(row, isLast: row.id == rows.last?.id)
+                                    .padding(.top, Self.gapPoints(AgentFeed.transcriptGap(
+                                        prev: index == 0 ? nil : rows[index - 1].rowClass,
+                                        cur: row.rowClass
+                                    )))
                             }
                             // EXP-389: the agent-is-busy footer — live and
                             // nothing waiting on the user (Android parity).
                             if isWorking(model) {
                                 WorkingIndicatorRow()
+                                    .padding(.top, Self.gapPoints(AgentFeed.transcriptGap(
+                                        prev: rows.last?.rowClass, cur: .tool
+                                    )))
                             }
                         }
                         Color.clear
@@ -786,7 +809,13 @@ struct AgentSessionView: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    // EXP-787: a transcript is a reading measure. The 16pt
+                    // screen inset stays, but the column caps at the shared
+                    // `maxWidth` and centres inside whatever is wider — a
+                    // landscape phone or an iPad must not stretch prose edge
+                    // to edge.
+                    .frame(maxWidth: DesignTokens.Transcript.maxWidth, alignment: .leading)
+                    .frame(maxWidth: .infinity)
                     .frame(
                         minHeight: max(0, geo.size.height - (changesBarVisible ? changesBarHeight : 0)),
                         alignment: .bottom
@@ -886,6 +915,19 @@ struct AgentSessionView: View {
     private func isWorking(_ model: AgentSessionModel) -> Bool {
         model.phase == .live && !model.sessionEnded && !model.awaitingInput
             && model.session?.needsInput != true
+    }
+
+    /// EXP-787: the ladder's token name resolved to points. ExpCore cannot see
+    /// ExpUI, so `AgentFeed.transcriptGap` names the gap and the view measures
+    /// it off the shared `DesignTokens.Transcript` group.
+    private static func gapPoints(_ gap: AgentTranscriptGap) -> CGFloat {
+        switch gap {
+        case .none: 0
+        case .turn: DesignTokens.Transcript.gapTurn
+        case .block: DesignTokens.Transcript.gapBlock
+        case .tool: DesignTokens.Transcript.gapTool
+        case .default: DesignTokens.Transcript.gapDefault
+        }
     }
 
     @ViewBuilder
@@ -1720,6 +1762,86 @@ struct AgentSessionView: View {
 
 // MARK: - Feed rows
 
+/// EXP-787 — the transcript's own type scale, straight off the shared tokens:
+/// prose at `bodySize` on a `bodyLineHeight` line, every tool row and caption
+/// at `toolSize`/`toolLineHeight`.
+///
+/// Those numbers are the DEFAULT-size values, not fixed points: each one goes
+/// through `UIFontMetrics` for the text style it stands in for (prose `.body`,
+/// tool rows `.caption1`), so the transcript keeps Dynamic Type exactly as the
+/// `.subheadline`/`.caption` semantics it replaced did. `lineSpacing` is
+/// LEADING and SwiftUI has no line-height modifier, so it is the difference
+/// between the SCALED line box and the SCALED font — resolved per render,
+/// never precomputed. `AgentMarkdownText.chatCodePalette` carries the same two
+/// tokens into the markdown renderer, which resolves them the same way.
+private enum TranscriptType {
+    static func bodyFont() -> Font { Font(bodyUIFont()) }
+
+    static func bodyLineSpacing() -> CGFloat {
+        leading(
+            lineHeight: DesignTokens.Transcript.bodyLineHeight,
+            font: bodyUIFont(),
+            textStyle: .body
+        )
+    }
+
+    static func toolFont(_ weight: PlatformFont.Weight = .regular) -> Font {
+        Font(toolUIFont(weight))
+    }
+
+    static func toolLineSpacing() -> CGFloat {
+        leading(
+            lineHeight: DesignTokens.Transcript.toolLineHeight,
+            font: toolUIFont(.regular),
+            textStyle: .caption1
+        )
+    }
+
+    private static func bodyUIFont() -> PlatformFont {
+        scaled(size: DesignTokens.Transcript.bodySize, weight: .regular, textStyle: .body)
+    }
+
+    private static func toolUIFont(_ weight: PlatformFont.Weight) -> PlatformFont {
+        scaled(size: DesignTokens.Transcript.toolSize, weight: weight, textStyle: .caption1)
+    }
+
+    private static func scaled(
+        size: CGFloat, weight: PlatformFont.Weight, textStyle: PlatformFont.TextStyle
+    ) -> PlatformFont {
+        UIFontMetrics(forTextStyle: textStyle)
+            .scaledFont(for: .systemFont(ofSize: size, weight: weight))
+    }
+
+    private static func leading(
+        lineHeight: CGFloat, font: PlatformFont, textStyle: PlatformFont.TextStyle
+    ) -> CGFloat {
+        max(0, UIFontMetrics(forTextStyle: textStyle).scaledValue(for: lineHeight) - font.lineHeight)
+    }
+}
+
+/// A tool row / transcript caption: 12pt on an 18pt line at the default text
+/// size, scaled from there.
+private struct TranscriptToolText: ViewModifier {
+    let weight: PlatformFont.Weight
+    /// `UIFontMetrics` resolves off the CURRENT trait collection, which SwiftUI
+    /// cannot see into — reading the size category is what makes this view
+    /// re-evaluate (and re-bake the font) when the reader changes it.
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    func body(content: Content) -> some View {
+        let _ = dynamicTypeSize
+        content
+            .font(TranscriptType.toolFont(weight))
+            .lineSpacing(TranscriptType.toolLineSpacing())
+    }
+}
+
+extension View {
+    fileprivate func transcriptToolText(_ weight: PlatformFont.Weight = .regular) -> some View {
+        modifier(TranscriptToolText(weight: weight))
+    }
+}
+
 /// Assistant prose — a small glyph + a full-width selectable markdown render
 /// (EXP-440: claude narrates in markdown, so lists, code and images have to
 /// come out as themselves). EXP-274 dropped the glass speech bubble: agent
@@ -1744,7 +1866,6 @@ private struct NarrationBubble: View {
                 options: [.autolinkBareURLs, .hardLineBreaks]
             )
         }
-        .padding(.vertical, 5)
     }
 }
 
@@ -1761,10 +1882,9 @@ private struct WorkingIndicatorRow: View {
             AppIcon(AppIcons.codingAssistant, size: 11)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             Text("Working…")
-                .font(.caption)
+                .transcriptToolText()
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
         }
-        .padding(.vertical, 5)
         .opacity(pulsing ? 0.4 : 1)
         .onAppear {
             // EXP-523: ambient loops keep their own periods — a different
@@ -1879,7 +1999,6 @@ private struct UserMessageBubble: View {
                     .stroke(Color.white.opacity(0.16), lineWidth: 0.5)
             )
         }
-        .padding(.vertical, 5)
     }
 }
 
@@ -1898,6 +2017,9 @@ private struct MarkedUpUserText: View {
     /// `1...imageCount` — hand-typed, or left behind by an edit — is prose,
     /// not a chip: chipping it would promise a picture that is not there.
     let imageCount: Int
+    /// EXP-787: this row bakes its own `UIFont` off `UIFontMetrics`, so it has
+    /// to re-evaluate when the reader's text size changes.
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     /// One flowed item. Words are split out so the flow layout can wrap
     /// between them — a whole paragraph as one subview would simply overflow
@@ -1974,13 +2096,17 @@ private struct MarkedUpUserText: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        let _ = dynamicTypeSize
+        // EXP-787: the flow rows ARE the message's lines, so their spacing is
+        // the transcript's leading — a `lineSpacing` on the per-word `Text`s
+        // could never reach them.
+        VStack(alignment: .leading, spacing: TranscriptType.bodyLineSpacing()) {
             ForEach(lines) { line in
                 if line.pieces.isEmpty {
                     // A blank line keeps its height — the paragraph break the
                     // sender typed is part of the message.
                     Text(verbatim: " ")
-                        .font(.body)
+                        .font(TranscriptType.bodyFont())
                         .foregroundStyle(.clear)
                 } else {
                     FlowLayout(spacing: 4) {
@@ -1994,19 +2120,19 @@ private struct MarkedUpUserText: View {
                                     HStack(spacing: 0) {
                                         Link(destination: url) {
                                             Text(word)
-                                                .font(.body)
+                                                .font(TranscriptType.bodyFont())
                                                 .underline()
                                                 .foregroundStyle(Color(MarkdownStyle.linkColor))
                                         }
                                         if !suffix.isEmpty {
                                             Text(suffix)
-                                                .font(.body)
+                                                .font(TranscriptType.bodyFont())
                                                 .foregroundStyle(.white.opacity(0.9))
                                         }
                                     }
                                 } else {
                                     Text(word)
-                                        .font(.body)
+                                        .font(TranscriptType.bodyFont())
                                         .foregroundStyle(.white.opacity(0.9))
                                 }
                             case .marker(_, let index):
@@ -2170,7 +2296,6 @@ private struct QuestionCard: View {
         // A bordered card, not a group container: the ask is one free-content
         // block that has to stand off the transcript behind it.
         .glassCard()
-        .padding(.vertical, 5)
     }
 
     /// The answered steps of this ask, so the stepper still shows what was
@@ -2458,13 +2583,17 @@ private struct QuestionCard: View {
 private struct ToolRow: View {
     let name: String
     let detail: String?
+    /// EXP-787: a row INSIDE an expanded group keeps the compact inner rhythm
+    /// this used to give every tool row; an outermost one is spaced by the
+    /// transcript's gap ladder instead.
+    var nested: Bool = false
 
     var body: some View {
         HStack(spacing: 8) {
             AppIcon(AppIcons.codingTool, size: 11)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             Text(name)
-                .font(.caption.weight(.medium))
+                .transcriptToolText(.medium)
                 .foregroundStyle(.white)
             if let detail {
                 Text(Self.middleTruncate(detail))
@@ -2476,7 +2605,7 @@ private struct ToolRow: View {
                 Spacer(minLength: 0)
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, nested ? 2 : 0)
     }
 
     /// Middle-truncate a tool detail (paths etc.) so head AND tail stay
@@ -2510,11 +2639,10 @@ private struct ToolGroupRow: View {
                     AppIcon(AppIcons.codingTool, size: 11)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     Text("\(items.count) tool calls")
-                        .font(.caption.weight(.medium))
+                        .transcriptToolText(.medium)
                         .foregroundStyle(.white)
                     Spacer(minLength: 0)
                 }
-                .padding(.vertical, 2)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -2523,14 +2651,14 @@ private struct ToolGroupRow: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(items) { item in
                         if case let .tool(_, name, detail, _) = item {
-                            ToolRow(name: name, detail: detail)
+                            ToolRow(name: name, detail: detail, nested: true)
                         }
                     }
                 }
                 .padding(.leading, 20)
             } else if liveTail, let last = items.last,
                       case let .tool(_, name, detail, _) = last {
-                ToolRow(name: name, detail: detail)
+                ToolRow(name: name, detail: detail, nested: true)
                     .padding(.leading, 20)
             }
         }
@@ -2568,7 +2696,7 @@ private struct SubagentGroupRow: View {
             AppIcon(AppIcons.codingSubagent, size: 11)
                 .foregroundStyle(DesignTokens.Semantic.blue)
             Text(title)
-                .font(.caption.weight(.medium))
+                .transcriptToolText(.medium)
                 .foregroundStyle(.white)
                 .lineLimit(1)
             Text(run.done ? "done" : "running…")
@@ -2576,7 +2704,6 @@ private struct SubagentGroupRow: View {
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 2)
     }
 
     var body: some View {
@@ -2622,8 +2749,17 @@ private struct SubagentGroupRow: View {
 private struct SubagentItemRow: View {
     let item: AgentFeedItem
     let context: AgentMarkdownContext
+    /// EXP-787: inside an expanded group the conversation keeps its own
+    /// compact rhythm; the focused-subagent list spaces its rows with the
+    /// transcript's gap ladder instead.
+    var nested: Bool = true
 
     var body: some View {
+        content.padding(.vertical, nested ? 2 : 0)
+    }
+
+    @ViewBuilder
+    private var content: some View {
         switch item {
         case let .tool(_, name, detail, _):
             ToolRow(name: name, detail: detail)
@@ -2649,7 +2785,7 @@ private struct SubagentRow: View {
             AppIcon(AppIcons.codingSubagent, size: 11)
                 .foregroundStyle(DesignTokens.Semantic.blue)
             Text(status == .completed ? "\(agentType) finished" : "\(agentType) started")
-                .font(.caption.weight(.medium))
+                .transcriptToolText(.medium)
                 .foregroundStyle(.white)
             if let detail {
                 Text(detail)
@@ -2661,7 +2797,6 @@ private struct SubagentRow: View {
                 Spacer(minLength: 0)
             }
         }
-        .padding(.vertical, 2)
     }
 }
 
@@ -2678,7 +2813,7 @@ private struct PermissionRow: View {
                 .padding(.top, 2)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Permission requested · \(tool)")
-                    .font(.caption.weight(.medium))
+                    .transcriptToolText(.medium)
                     .foregroundStyle(.white)
                 if let detail {
                     Text(detail)
@@ -2692,7 +2827,6 @@ private struct PermissionRow: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 4)
     }
 }
 
@@ -2707,11 +2841,10 @@ private struct CompactionMarkerRow: View {
             AppIcon(AppIcons.codingCompact, size: 11)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             Text(AgentFeed.compactedLabel)
-                .font(.caption2)
+                .transcriptToolText()
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
     }
 }
@@ -2754,7 +2887,6 @@ private struct CommandPill: View {
             .padding(.vertical, 6)
             .glassRow()
         }
-        .padding(.vertical, 2)
     }
 }
 

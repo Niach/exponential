@@ -26,10 +26,34 @@ public enum MarkdownStyle {
     public struct Overrides: Equatable, Hashable, Sendable {
         public var inlineCodeForeground: Color?
         public var inlineCodeBackground: Color?
+        /// EXP-787: the point size prose renders at. The agent transcript
+        /// reads at its own measure (`DesignTokens.Transcript.bodySize`) —
+        /// every editable surface keeps the interchange body font, so `nil`
+        /// resolves back to `MarkdownStyle.bodyFont`.
+        public var bodySize: CGFloat?
+        /// EXP-787: the LINE BOX the render targets — `nil` keeps the
+        /// editors' 4pt leading. Stored as the token (22), never as leading:
+        /// both it and the font scale with Dynamic Type, so the leading
+        /// between them can only be computed at resolve time
+        /// (`resolvedLineSpacing`).
+        public var lineHeight: CGFloat?
 
-        public init(inlineCodeForeground: Color? = nil, inlineCodeBackground: Color? = nil) {
+        public init(
+            inlineCodeForeground: Color? = nil,
+            inlineCodeBackground: Color? = nil,
+            bodySize: CGFloat? = nil,
+            lineHeight: CGFloat? = nil
+        ) {
             self.inlineCodeForeground = inlineCodeForeground
             self.inlineCodeBackground = inlineCodeBackground
+            self.bodySize = bodySize
+            self.lineHeight = lineHeight
+        }
+
+        /// The leading this render needs RIGHT NOW, at the reader's current
+        /// text size. `nil` = no deviation (the editors' 4pt).
+        public var resolvedLineSpacing: CGFloat? {
+            MarkdownStyle.resolvedLineSpacing(bodySize: bodySize, lineHeight: lineHeight)
         }
 
         /// No deviation — the contract look.
@@ -45,7 +69,12 @@ public enum MarkdownStyle {
                 guard let color else { return "-" }
                 return String(describing: color.resolve(in: EnvironmentValues()))
             }
+            // The metrics go in RESOLVED (EXP-787): the tokens are constants,
+            // but what they render as moves with Dynamic Type — keying on the
+            // tokens would hand back a render baked at the previous text size.
             return "fg:\(describe(inlineCodeForeground))|bg:\(describe(inlineCodeBackground))"
+                + "|size:\(bodySize.map { "\(resolvedBodyFont($0).pointSize)" } ?? "-")"
+                + "|lead:\(resolvedLineSpacing.map { "\($0)" } ?? "-")"
         }
     }
 
@@ -87,23 +116,90 @@ public enum MarkdownStyle {
     public nonisolated(unsafe) static let blockquoteBarColor = PlatformColor.white.withAlphaComponent(0.25)
     public nonisolated(unsafe) static let placeholderColor = PlatformColor.white.withAlphaComponent(0.3)
 
-    public static func headingFont(level: Int) -> PlatformFont {
-        let sizes: [CGFloat] = [0, 24, 20, 18, 16, 15, 14]
-        let size = level >= 1 && level <= 6 ? sizes[level] : bodyFont.pointSize
-        return PlatformFont.systemFont(ofSize: size, weight: .semibold)
+    /// The body font one render uses (EXP-787): the interchange default, or
+    /// the point size a display-only render asked for — SCALED by the reader's
+    /// Dynamic Type setting, exactly like `bodyFont` (a `preferredFont`) is.
+    /// The token is the default-size value, never a fixed point.
+    public static func resolvedBodyFont(_ bodySize: CGFloat?) -> PlatformFont {
+        guard let bodySize else { return bodyFont }
+        #if canImport(UIKit)
+        return UIFontMetrics(forTextStyle: .body)
+            .scaledFont(for: PlatformFont.systemFont(ofSize: bodySize))
+        #else
+        return PlatformFont.systemFont(ofSize: bodySize)
+        #endif
     }
 
-    public static var monospaceFont: PlatformFont {
-        PlatformFont.monospacedSystemFont(ofSize: bodyFont.pointSize * 0.9, weight: .regular)
+    /// EXP-787: `lineSpacing` is LEADING, but the tokens describe a LINE BOX —
+    /// and both the box and the font grow with Dynamic Type, at rates that are
+    /// not identical. So the leading is the difference of the two SCALED
+    /// values, resolved per render, and never precomputed. `nil` line height =
+    /// no deviation from the editors' 4pt.
+    public static func resolvedLineSpacing(bodySize: CGFloat?, lineHeight: CGFloat?) -> CGFloat? {
+        guard let lineHeight else { return nil }
+        #if canImport(UIKit)
+        let box = UIFontMetrics(forTextStyle: .body).scaledValue(for: lineHeight)
+        #else
+        let box = lineHeight
+        #endif
+        return max(0, box - resolvedBodyFont(bodySize).lineHeight)
+    }
+
+    /// The body style at the DEFAULT content size (17pt). The denominator for
+    /// display-only scales: `bodyFont.pointSize` moves with Dynamic Type, so a
+    /// ratio taken against it would silently change with the reader's setting.
+    private static var defaultBodyPointSize: CGFloat {
+        #if canImport(UIKit)
+        return PlatformFont.preferredFont(
+            forTextStyle: .body,
+            compatibleWith: UITraitCollection(preferredContentSizeCategory: .large)
+        ).pointSize
+        #else
+        return bodyFont.pointSize
+        #endif
+    }
+
+    /// EXP-787: `bodySize` scales the whole ladder with the body, so a
+    /// transcript heading stays proportional instead of towering over 14pt
+    /// prose — and the result then goes through `UIFontMetrics` like the body
+    /// does, so headings keep Dynamic Type too.
+    public static func headingFont(level: Int, bodySize: CGFloat? = nil) -> PlatformFont {
+        let sizes: [CGFloat] = [0, 24, 20, 18, 16, 15, 14]
+        guard let bodySize else {
+            let size = level >= 1 && level <= 6 ? sizes[level] : bodyFont.pointSize
+            return PlatformFont.systemFont(ofSize: size, weight: .semibold)
+        }
+        let scale = bodySize / defaultBodyPointSize
+        let size = level >= 1 && level <= 6 ? sizes[level] * scale : bodySize
+        let font = PlatformFont.systemFont(ofSize: size, weight: .semibold)
+        #if canImport(UIKit)
+        return UIFontMetrics(forTextStyle: .body).scaledFont(for: font)
+        #else
+        return font
+        #endif
+    }
+
+    public static func monospaceFont(bodySize: CGFloat? = nil) -> PlatformFont {
+        PlatformFont.monospacedSystemFont(
+            ofSize: resolvedBodyFont(bodySize).pointSize * 0.9, weight: .regular
+        )
+    }
+
+    /// The paragraph style a plain run gets. `lineSpacing` nil is the editors'
+    /// 4pt leading; the transcript passes what its line-height token needs.
+    public static func paragraphStyle(lineSpacing: CGFloat? = nil) -> NSParagraphStyle {
+        let style = NSMutableParagraphStyle()
+        style.lineSpacing = lineSpacing ?? 4
+        return style
     }
 
     /// Paragraph style for blockquote paragraphs (EXP-246, Linear-style): the
     /// head indents clear the gutter where MarkdownLayoutManager draws the
     /// vertical quote bar. Serialization is untouched — the serializer keys
     /// off `.markdownBlockquote` only.
-    public static var blockquoteParagraphStyle: NSParagraphStyle {
+    public static func blockquoteParagraphStyle(lineSpacing: CGFloat? = nil) -> NSParagraphStyle {
         let style = NSMutableParagraphStyle()
-        style.lineSpacing = 4
+        style.lineSpacing = lineSpacing ?? 4
         style.headIndent = 14
         style.firstLineHeadIndent = 14
         return style

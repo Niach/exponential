@@ -40,6 +40,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -94,6 +95,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -102,6 +104,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.CodingSessionEntity
@@ -109,6 +112,7 @@ import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.domain.AgentFeedItem
 import com.exponential.app.domain.AgentFeedRow
 import com.exponential.app.domain.AgentPhase
+import com.exponential.app.domain.AgentRowClass
 import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.domain.CONFIG_MODE_LABEL
 import com.exponential.app.domain.ConfigCommand
@@ -134,6 +138,7 @@ import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.QuestionOption
 import com.exponential.app.domain.SlashCommand
 import com.exponential.app.domain.SlashCommands
+import com.exponential.app.domain.TranscriptGap
 import com.exponential.app.domain.activeQuestionIds
 import com.exponential.app.domain.canOfferFixConflicts
 import com.exponential.app.domain.collectSubagents
@@ -142,6 +147,8 @@ import com.exponential.app.domain.FEED_WINDOW
 import com.exponential.app.domain.FEED_WINDOW_STEP
 import com.exponential.app.domain.groupFeedRows
 import com.exponential.app.domain.localAnswerSummary
+import com.exponential.app.domain.rowClass
+import com.exponential.app.domain.transcriptGap
 import com.exponential.app.domain.locksCard
 import com.exponential.app.domain.visibleSubagentTabs
 import com.exponential.app.ui.components.agentLabel
@@ -181,6 +188,7 @@ import com.exponential.app.ui.markdown.MentionResolver
 import com.exponential.app.ui.markdown.annotate
 import com.exponential.app.ui.markdown.LocalInlineCodeStyle
 import com.exponential.app.ui.markdown.LocalMarkdownAutolink
+import com.exponential.app.ui.markdown.LocalMarkdownBodyStyle
 import com.exponential.app.ui.markdown.MarkdownMediaUtils
 import com.exponential.app.ui.markdown.MarkdownView
 import com.exponential.app.ui.markdown.MdStyle
@@ -673,6 +681,12 @@ fun AgentSessionScreen(
                         // cards, everything under this provider. Issue
                         // descriptions and comments keep the flat wash.
                         LocalInlineCodeStyle provides MdStyle.Chat,
+                        // EXP-787: every markdown surface in the transcript —
+                        // narration, the user's own bubbles, a plan card —
+                        // reads at the shared body step (14 sp on a 22 sp
+                        // line), not the 17 sp document measure an issue
+                        // description uses.
+                        LocalMarkdownBodyStyle provides TranscriptBodyStyle,
                     ) {
                         ActivityFeed(
                             feed = feed,
@@ -1410,6 +1424,62 @@ internal fun sessionStatusLine(
  *  id (ids only ever count down at the front by a finite amount). */
 private const val WINDOW_FROM_START = Long.MIN_VALUE
 
+// ── EXP-787: the transcript's measure, rhythm and type steps ────────────────
+//
+// The ladder itself is `transcriptGap` in domain/AgentFeed.kt — ONE derivation,
+// mirrored ×4. These are its Compose end: the dp per step, the reading measure
+// a row is capped at, and the two type steps the transcript reads at. All five
+// numbers come from the shared `DesignTokens.Transcript` group; none of them is
+// spelled out at a call site.
+
+/** The space a ladder step is worth. */
+private val TranscriptGap.dp: Dp
+    get() = when (this) {
+        TranscriptGap.Turn -> DesignTokens.Transcript.GapTurn.dp
+        TranscriptGap.Block -> DesignTokens.Transcript.GapBlock.dp
+        TranscriptGap.Tool -> DesignTokens.Transcript.GapTool.dp
+        TranscriptGap.Default -> DesignTokens.Transcript.GapDefault.dp
+        TranscriptGap.None -> 0.dp
+    }
+
+/** The transcript's reading measure — prose stops widening here however wide
+ *  the window gets (landscape, a tablet, an unfolded foldable), instead of
+ *  running a paragraph across the whole screen. */
+private val TranscriptMaxWidth = DesignTokens.Transcript.MaxWidth.dp
+
+/**
+ * One row of the transcript: the gap ABOVE it, and its content held to
+ * [TranscriptMaxWidth] and centred in whatever width is left. The screen's own
+ * horizontal inset is outside this — the cap only bounds how wide a row may
+ * get, never how narrow.
+ */
+@Composable
+private fun TranscriptRow(gap: TranscriptGap, content: @Composable () -> Unit) {
+    Box(
+        modifier = Modifier.fillMaxWidth().padding(top = gap.dp),
+        contentAlignment = Alignment.TopCenter,
+    ) {
+        Box(modifier = Modifier.widthIn(max = TranscriptMaxWidth).fillMaxWidth()) { content() }
+    }
+}
+
+/** Prose in the transcript — narration, a sent message, a card's markdown.
+ *  DERIVED from the markdown body style, so the family, the colour and every
+ *  other document affordance stay exactly as they are and only the measure
+ *  changes: this is a wall of agent prose, not an issue description. */
+private val TranscriptBodyStyle: TextStyle = MdStyle.body.copy(
+    fontSize = DesignTokens.Transcript.BodySize.sp,
+    lineHeight = DesignTokens.Transcript.BodyLineHeight.sp,
+)
+
+/** Everything the transcript says ABOUT the run — tool rows, group captions,
+ *  the permission headline, "Working…". One step down from prose. */
+@Composable
+private fun transcriptToolStyle(): TextStyle = MaterialTheme.typography.labelMedium.copy(
+    fontSize = DesignTokens.Transcript.ToolSize.sp,
+    lineHeight = DesignTokens.Transcript.ToolLineHeight.sp,
+)
+
 @Composable
 private fun ActivityFeed(
     feed: List<AgentFeedItem>,
@@ -1548,7 +1618,9 @@ private fun ActivityFeed(
                 // delegation summary, then (EXP-773) its prose, the turns
                 // addressed to it and its tool calls, in publish order.
                 item(key = "agent-summary") {
-                    SubagentGroupRow(run = focused.copy(items = emptyList()), liveTail = false)
+                    TranscriptRow(TranscriptGap.None) {
+                        SubagentGroupRow(run = focused.copy(items = emptyList()), liveTail = false)
+                    }
                 }
                 if (focused.items.isEmpty()) {
                     item(key = "agent-empty") {
@@ -1562,8 +1634,16 @@ private fun ActivityFeed(
                         )
                     }
                 } else {
-                    items(focused.items, key = { it.id }) { item ->
-                        SubagentItemRow(item)
+                    itemsIndexed(focused.items, key = { _, item -> item.id }) { index, item ->
+                        // The same ladder as the main feed, over the rows a
+                        // subagent's conversation is made of.
+                        val prev = focused.items.getOrNull(index - 1)
+                            ?.let { AgentFeedRow.Single(it).rowClass }
+                        TranscriptRow(
+                            transcriptGap(prev, AgentFeedRow.Single(item).rowClass),
+                        ) {
+                            SubagentItemRow(item)
+                        }
                     }
                 }
             } else {
@@ -1586,68 +1666,75 @@ private fun ActivityFeed(
                     ) { Text("Load earlier") }
                 }
             }
-            items(rows, key = { it.id }) { row ->
-                when (row) {
-                    is AgentFeedRow.ToolRun -> ToolGroupRow(
-                        items = row.items,
-                        liveTail = live && row.id == rows.last().id,
-                    )
-                    is AgentFeedRow.SubagentRun -> SubagentGroupRow(
-                        run = row,
-                        liveTail = live && row.id == rows.last().id,
-                    )
-                    is AgentFeedRow.QuestionStepper -> QuestionStepperCard(
-                        steps = row.steps,
-                        answered = answered,
-                        activeQuestionIds = activeQuestionIds,
-                        answerEnabled = answerEnabled,
-                        answerStates = answerStates,
-                        answerLabels = answerLabels,
-                        onAnswer = onAnswer,
-                    )
-                    is AgentFeedRow.Single -> when (val item = row.item) {
-                        is AgentFeedItem.Narration -> NarrationBubble(item.text)
-                        is AgentFeedItem.Tool -> ToolRow(item.name, item.detail)
-                        is AgentFeedItem.UserMessage -> {
-                            // EXP-724: a steered catalog command reads as one.
-                            val command =
-                                SlashCommands.commandFor(item.text, agent, agentCommands)
-                            if (command != null) {
-                                CommandRow(command, item.text)
-                            } else {
-                                UserMessageBubble(item.text)
-                            }
-                        }
-                        is AgentFeedItem.Compaction -> CompactionMarkerRow()
-                        is AgentFeedItem.Permission -> PermissionRow(
-                            tool = item.tool,
-                            detail = item.detail,
-                            // The reply-to-continue hint only while the prompt
-                            // is plausibly still up: live session, trailing row.
-                            showHint = live && row.id == rows.last().id,
+            // EXP-787: the row's space comes from the row BEFORE it — the one
+            // gap ladder, shared with web, iOS and the desktop. Keys stay the
+            // row ids: the follow/scroll logic is anchored on them.
+            itemsIndexed(rows, key = { _, row -> row.id }) { index, row ->
+                TranscriptRow(
+                    transcriptGap(rows.getOrNull(index - 1)?.rowClass, row.rowClass),
+                ) {
+                    when (row) {
+                        is AgentFeedRow.ToolRun -> ToolGroupRow(
+                            items = row.items,
+                            liveTail = live && row.id == rows.last().id,
                         )
-                        // Unreachable in practice — groupFeedRows folds every
-                        // subagent marker into a SubagentRun — kept for `when`
-                        // exhaustiveness.
-                        is AgentFeedItem.Subagent -> SubagentGroupRow(
-                            run = AgentFeedRow.SubagentRun(
-                                id = item.id,
-                                subagentId = item.subagentId,
-                                agentType = item.agentType,
-                                completed = item.completed,
-                                detail = item.detail,
-                                items = emptyList(),
-                            ),
-                            liveTail = false,
+                        is AgentFeedRow.SubagentRun -> SubagentGroupRow(
+                            run = row,
+                            liveTail = live && row.id == rows.last().id,
                         )
-                        is AgentFeedItem.Question -> QuestionCard(
-                            item = item,
-                            active = item.id in activeQuestionIds,
+                        is AgentFeedRow.QuestionStepper -> QuestionStepperCard(
+                            steps = row.steps,
+                            answered = answered,
+                            activeQuestionIds = activeQuestionIds,
                             answerEnabled = answerEnabled,
-                            state = item.wireId?.let { answerStates[it] },
-                            stepLabel = null,
-                            onAnswer = { keys, text -> onAnswer(item, keys, text) },
+                            answerStates = answerStates,
+                            answerLabels = answerLabels,
+                            onAnswer = onAnswer,
                         )
+                        is AgentFeedRow.Single -> when (val item = row.item) {
+                            is AgentFeedItem.Narration -> NarrationBubble(item.text)
+                            is AgentFeedItem.Tool -> ToolRow(item.name, item.detail)
+                            is AgentFeedItem.UserMessage -> {
+                                // EXP-724: a steered catalog command reads as one.
+                                val command =
+                                    SlashCommands.commandFor(item.text, agent, agentCommands)
+                                if (command != null) {
+                                    CommandRow(command, item.text)
+                                } else {
+                                    UserMessageBubble(item.text)
+                                }
+                            }
+                            is AgentFeedItem.Compaction -> CompactionMarkerRow()
+                            is AgentFeedItem.Permission -> PermissionRow(
+                                tool = item.tool,
+                                detail = item.detail,
+                                // The reply-to-continue hint only while the prompt
+                                // is plausibly still up: live session, trailing row.
+                                showHint = live && row.id == rows.last().id,
+                            )
+                            // Unreachable in practice — groupFeedRows folds every
+                            // subagent marker into a SubagentRun — kept for `when`
+                            // exhaustiveness.
+                            is AgentFeedItem.Subagent -> SubagentGroupRow(
+                                run = AgentFeedRow.SubagentRun(
+                                    id = item.id,
+                                    subagentId = item.subagentId,
+                                    agentType = item.agentType,
+                                    completed = item.completed,
+                                    detail = item.detail,
+                                    items = emptyList(),
+                                ),
+                                liveTail = false,
+                            )
+                            is AgentFeedItem.Question -> QuestionCard(
+                                item = item,
+                                active = item.id in activeQuestionIds,
+                                answerEnabled = answerEnabled,
+                                state = item.wireId?.let { answerStates[it] },
+                                stepLabel = null,
+                                onAnswer = { keys, text -> onAnswer(item, keys, text) },
+                            )
+                        }
                     }
                 }
             }
@@ -1655,7 +1742,13 @@ private fun ActivityFeed(
             // parity) — main conversation only, subagent chips carry their
             // own spinner.
             if (working) {
-                item(key = "working-indicator") { WorkingIndicatorRow() }
+                item(key = "working-indicator") {
+                    TranscriptRow(
+                        transcriptGap(rows.lastOrNull()?.rowClass, AgentRowClass.Tool),
+                    ) {
+                        WorkingIndicatorRow()
+                    }
+                }
             }
             }
         }
@@ -1772,14 +1865,20 @@ private fun AgentTabChip(
 // dropped the glass speech bubble: agent output is the feed's bulk, and the
 // bubble insets cost real width on a phone.
 @Composable
-private fun NarrationBubble(text: String) {
+private fun NarrationBubble(
+    text: String,
+    /** Inside a subagent group, where the surrounding rows keep their own
+     *  compact rhythm — the feed's rows get theirs from the gap ladder
+     *  (EXP-787), so a top-level bubble carries no outer padding. */
+    nested: Boolean = false,
+) {
     // MarkdownView renders nothing for blank input — without this the icon
     // would be left behind as an orphan row.
     if (text.isBlank()) return
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 5.dp),
+            .then(if (nested) Modifier.padding(vertical = 5.dp) else Modifier),
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -1813,7 +1912,6 @@ private fun WorkingIndicatorRow() {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 5.dp)
             .alpha(pulse),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1826,7 +1924,7 @@ private fun WorkingIndicatorRow() {
         )
         Text(
             "Working…",
-            style = MaterialTheme.typography.labelMedium,
+            style = transcriptToolStyle(),
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )
     }
@@ -1910,7 +2008,7 @@ private fun Modifier.foldedTo(clampHeight: Dp): Modifier =
 // are the point of the message, and a long prose clamp must never be what
 // hides them.
 @Composable
-private fun UserMessageBubble(text: String) {
+private fun UserMessageBubble(text: String, nested: Boolean = false) {
     var expanded by remember { mutableStateOf(false) }
     val parsed = remember(text) { parseSteerMessage(text) }
     val hasImages = parsed.attachmentIds.isNotEmpty()
@@ -1919,7 +2017,9 @@ private fun UserMessageBubble(text: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 5.dp),
+            // EXP-787: the gap above a turn is the ladder's, except inside a
+            // subagent group, which keeps its own rhythm.
+            .then(if (nested) Modifier.padding(vertical = 5.dp) else Modifier),
         horizontalArrangement = Arrangement.End,
     ) {
         Spacer(Modifier.width(32.dp))
@@ -2044,7 +2144,7 @@ private fun FlowRowScope.ProseText(
                 autolink = true, inlineCode = inlineCode, bare = bare,
             )
         },
-        style = MdStyle.body,
+        style = LocalMarkdownBodyStyle.current,
         modifier = Modifier.align(Alignment.CenterVertically),
     )
 }
@@ -2139,9 +2239,7 @@ private fun AnsweredAskCard(
     answerLabels: Map<String, String>,
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 5.dp),
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -2238,8 +2336,7 @@ private fun QuestionCard(
             .fillMaxWidth()
             // EXP-627: the store slide's pop-out rect is measured off the
             // question card (`PopRects`), iOS parity.
-            .testTag("agent-feed-question")
-            .padding(vertical = 5.dp),
+            .testTag("agent-feed-question"),
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -2562,9 +2659,7 @@ private fun RowScope.QuestionOptionLabel(
 @Composable
 private fun PermissionRow(tool: String, detail: String?, showHint: Boolean) {
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp),
+        modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Row(
@@ -2580,7 +2675,7 @@ private fun PermissionRow(tool: String, detail: String?, showHint: Boolean) {
             )
             Text(
                 "Permission · $tool",
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+                style = transcriptToolStyle(),
                 color = MaterialTheme.colorScheme.onSurface,
             )
             if (!detail.isNullOrBlank()) {
@@ -2622,8 +2717,7 @@ private fun SubagentGroupRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .let { if (expandable) it.clickable { expanded = !expanded } else it }
-                .padding(vertical = 2.dp),
+                .let { if (expandable) it.clickable { expanded = !expanded } else it },
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -2643,7 +2737,7 @@ private fun SubagentGroupRow(
             )
             Text(
                 run.agentType,
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+                style = transcriptToolStyle(),
                 color = MaterialTheme.colorScheme.onSurface,
             )
             if (run.completed) {
@@ -2684,11 +2778,13 @@ private fun SubagentGroupRow(
         when {
             // EXP-773: the run's whole conversation in order, not just its
             // tool calls.
+            // Inside the group the rows keep their own compact rhythm — the
+            // gap ladder spaces the GROUP, not its contents (EXP-787).
             expanded -> Column(modifier = Modifier.padding(start = 22.dp)) {
-                run.items.forEach { SubagentItemRow(it) }
+                run.items.forEach { SubagentItemRow(it, nested = true) }
             }
             liveTail && run.items.isNotEmpty() -> Column(modifier = Modifier.padding(start = 22.dp)) {
-                SubagentItemRow(run.items.last())
+                SubagentItemRow(run.items.last(), nested = true)
             }
         }
     }
@@ -2698,22 +2794,29 @@ private fun SubagentGroupRow(
 // to it, or one of its tool calls. Anything else a group somehow collected
 // renders nothing rather than breaking the feed.
 @Composable
-private fun SubagentItemRow(item: AgentFeedItem) {
+private fun SubagentItemRow(item: AgentFeedItem, nested: Boolean = false) {
     when (item) {
-        is AgentFeedItem.Tool -> ToolRow(item.name, item.detail)
-        is AgentFeedItem.Narration -> NarrationBubble(item.text)
-        is AgentFeedItem.UserMessage -> UserMessageBubble(item.text)
+        is AgentFeedItem.Tool -> ToolRow(item.name, item.detail, nested = nested)
+        is AgentFeedItem.Narration -> NarrationBubble(item.text, nested = nested)
+        is AgentFeedItem.UserMessage -> UserMessageBubble(item.text, nested = nested)
         else -> Unit
     }
 }
 
 // Tool-call headline — compact single line, consecutive rows visually tight.
 @Composable
-private fun ToolRow(name: String, detail: String?) {
+private fun ToolRow(
+    name: String,
+    detail: String?,
+    /** Inside an expanded group or a subagent conversation, where the rows
+     *  keep their own tight rhythm; a top-level row is spaced by the ladder
+     *  instead (EXP-787). */
+    nested: Boolean = false,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 2.dp),
+            .then(if (nested) Modifier.padding(vertical = 2.dp) else Modifier),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -2725,7 +2828,7 @@ private fun ToolRow(name: String, detail: String?) {
         )
         Text(
             name,
-            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+            style = transcriptToolStyle(),
             color = MaterialTheme.colorScheme.onSurface,
         )
         if (!detail.isNullOrBlank()) {
@@ -2752,8 +2855,7 @@ private fun ToolGroupRow(items: List<AgentFeedItem.Tool>, liveTail: Boolean) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { expanded = !expanded }
-                .padding(vertical = 2.dp),
+                .clickable { expanded = !expanded },
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -2771,17 +2873,17 @@ private fun ToolGroupRow(items: List<AgentFeedItem.Tool>, liveTail: Boolean) {
             )
             Text(
                 "${items.size} tool calls",
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+                style = transcriptToolStyle(),
                 color = MaterialTheme.colorScheme.onSurface,
             )
         }
         when {
             expanded -> Column(modifier = Modifier.padding(start = 22.dp)) {
-                items.forEach { ToolRow(it.name, it.detail) }
+                items.forEach { ToolRow(it.name, it.detail, nested = true) }
             }
             liveTail -> Column(modifier = Modifier.padding(start = 22.dp)) {
                 val latest = items.last()
-                ToolRow(latest.name, latest.detail)
+                ToolRow(latest.name, latest.detail, nested = true)
             }
         }
     }
@@ -3224,7 +3326,7 @@ private fun SlashCommandMenu(
 @Composable
 private fun CompactionMarkerRow() {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
     ) {
@@ -3236,7 +3338,7 @@ private fun CompactionMarkerRow() {
         )
         Text(
             COMPACTED_LABEL,
-            style = MaterialTheme.typography.labelSmall,
+            style = transcriptToolStyle(),
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )
     }
@@ -3248,7 +3350,7 @@ private fun CompactionMarkerRow() {
 private fun CommandRow(command: SlashCommand, text: String) {
     val args = text.trim().drop(1 + command.name.length).trim()
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.End,
     ) {
         Row(
