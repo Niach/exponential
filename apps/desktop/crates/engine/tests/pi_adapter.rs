@@ -303,22 +303,12 @@ fn a_pi_turn_maps_onto_acp_updates_and_answers_a_confirm() {
         session_meta["_meta"],
         json!({ "exponentialNativeSessionId": FIXTURE_SESSION_FILE })
     );
-    let option_ids: Vec<&Value> = session_meta["configOptions"]
+    // EXP-772: option chips are gone from every client, so the session
+    // advertises none.
+    assert!(session_meta["configOptions"]
         .as_array()
-        .expect("the new session carries config options")
-        .iter()
-        .map(|option| &option["id"])
-        .collect();
-    assert_eq!(
-        option_ids,
-        vec![
-            &json!("model"),
-            &json!("thinking_level"),
-            &json!("steering_mode"),
-            &json!("follow_up_mode"),
-            &json!("auto_compaction"),
-        ]
-    );
+        .expect("the new session carries a config option list")
+        .is_empty());
     assert_eq!(stop, StopReason::EndTurn);
 
     let updates = recorder.updates();
@@ -478,46 +468,20 @@ fn setting_a_config_option_re_reports_the_whole_snapshot() {
         }
     });
 
-    // The re-emitted snapshot IS the confirmation (D4): it is whole, never a
-    // delta.
-    let ids: Vec<&Value> = response["configOptions"]
+    // EXP-772: the setter still reaches pi (the wire frame stays accepted for
+    // an older publisher), and the snapshot it answers with is EMPTY.
+    assert!(response["configOptions"]
         .as_array()
-        .expect("the response carries the options")
-        .iter()
-        .map(|option| &option["id"])
-        .collect();
-    assert_eq!(
-        ids,
-        vec![
-            &json!("model"),
-            &json!("thinking_level"),
-            &json!("steering_mode"),
-            &json!("follow_up_mode"),
-            &json!("auto_compaction"),
-        ]
-    );
-    // pi answers a level change with an EVENT as well, and that lands as a
-    // config update of its own — carrying the NEW level, whole. (The fixture
-    // `get_state` keeps answering `medium`, so the refresh that follows the
-    // setter republishes that; a real pi reports the level it just took.)
+        .expect("the response carries a config option list")
+        .is_empty());
+    // The `thinking_level` call did go out: pi answers it with an event of its
+    // own, which republishes the (empty) snapshot rather than a chip.
     let updates = recorder.updates();
-    let levels: Vec<Value> = updates
-        .iter()
-        .filter_map(|update| match update {
-            SessionUpdate::ConfigOptionUpdate(update) => update
-                .config_options
-                .iter()
-                .find(|option| option.id.0.as_ref() == "thinking_level")
-                .map(|option| {
-                    serde_json::to_value(option).expect("the option serializes")["currentValue"]
-                        .clone()
-                }),
-            _ => None,
-        })
-        .collect();
     assert!(
-        levels.contains(&json!("high")),
-        "the thinking_level_changed event republishes the snapshot: {levels:?}"
+        updates
+            .iter()
+            .any(|update| matches!(update, SessionUpdate::ConfigOptionUpdate(_))),
+        "the setter republishes the snapshot"
     );
     let _ = std::fs::remove_dir_all(&cwd);
 }

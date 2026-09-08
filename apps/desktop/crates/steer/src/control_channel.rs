@@ -253,6 +253,13 @@ pub type StartSessionFn = Arc<dyn Fn(RemoteStart) + Send + Sync>;
 /// on a channel and return.
 pub type CheckInFn = Arc<dyn Fn() + Send + Sync>;
 
+/// EXP-773: an inbound `history_request` — "a viewer wants the transcript of
+/// session `<id>`, which ran here". Same non-blocking contract as
+/// [`CheckInFn`]: read the journal and republish it on a task, never on the
+/// socket loop. A device that has no journal for the id does nothing (the
+/// relay's own timer answers the viewer).
+pub type HistoryRequestFn = Arc<dyn Fn(String) + Send + Sync>;
+
 /// Stop handle for the channel task. Dropping it does NOT stop the task —
 /// call [`ControlChannelHandle::stop`] (sign-out / account switch).
 pub struct ControlChannelHandle {
@@ -279,6 +286,7 @@ pub fn spawn_control_channel(
     control_api: Arc<dyn ControlApi>,
     on_start_session: StartSessionFn,
     on_check_in: CheckInFn,
+    on_history_request: HistoryRequestFn,
 ) -> ControlChannelHandle {
     let stopped = Arc::new(AtomicBool::new(false));
     let (stop_tx, stop_rx) = flume::bounded::<()>(1);
@@ -291,6 +299,7 @@ pub fn spawn_control_channel(
         control_api,
         on_start_session,
         on_check_in,
+        on_history_request,
         stopped,
         stop_rx,
     ));
@@ -351,6 +360,7 @@ async fn run_control_loop(
     control_api: Arc<dyn ControlApi>,
     on_start_session: StartSessionFn,
     on_check_in: CheckInFn,
+    on_history_request: HistoryRequestFn,
     stopped: Arc<AtomicBool>,
     stop_rx: flume::Receiver<()>,
 ) {
@@ -432,7 +442,15 @@ async fn run_control_loop(
         };
 
         let event =
-            match connect_and_listen(&url, &device, &on_start_session, &on_check_in, &stop_rx).await
+            match connect_and_listen(
+                &url,
+                &device,
+                &on_start_session,
+                &on_check_in,
+                &on_history_request,
+                &stop_rx,
+            )
+            .await
         {
             ConnectionOutcome::Stopped => return,
             ConnectionOutcome::ConnectFailed(reason) => {
@@ -462,6 +480,7 @@ async fn connect_and_listen(
     device: &DeviceIdentity,
     on_start_session: &StartSessionFn,
     on_check_in: &CheckInFn,
+    on_history_request: &HistoryRequestFn,
     stop_rx: &flume::Receiver<()>,
 ) -> ConnectionOutcome {
     let mut ws = match dial(url).await {
@@ -559,6 +578,12 @@ async fn connect_and_listen(
                         // EXP-481: the server persisted new work — pull now.
                         // Non-blocking by contract (see [`CheckInFn`]).
                         Some(ServerFrame::CheckIn) => on_check_in(),
+                        // EXP-773: serve this device's stored transcript.
+                        // Non-blocking by contract (see [`HistoryRequestFn`]).
+                        Some(ServerFrame::HistoryRequest { session_id }) => {
+                            log::info!("steer control: history_request for {session_id}");
+                            on_history_request(session_id);
+                        }
                         Some(other) => {
                             // bye/error/kill here: logged; kill is not
                             // session-scoped on the control socket → no-op.

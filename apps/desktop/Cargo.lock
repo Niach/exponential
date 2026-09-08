@@ -255,6 +255,7 @@ dependencies = [
  "dirs",
  "domain",
  "flume 0.11.1",
+ "log",
  "open",
  "reqwest",
  "serde",

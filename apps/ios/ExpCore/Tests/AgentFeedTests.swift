@@ -759,7 +759,9 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertEqual(AgentFeed.applyUsage(usage, event: ["contextUsed": 10]), usage)
     }
 
-    func testConfigChipsPutsTheModeChipFirst() {
+    /// EXP-772: the mode is the ONLY steering chip left. Advertised options
+    /// (the engine now publishes none) never reach the composer again.
+    func testOnlyTheModeReachesTheComposer() {
         let config = AgentSessionConfig(
             options: [
                 AgentConfigOption(
@@ -769,31 +771,125 @@ final class AgentFeedTests: XCTestCase {
                 AgentConfigOption(id: "effort", label: "Effort"),
             ],
             currentMode: "plan",
-            modes: [AgentConfigMode(id: "plan", label: "Plan")]
+            modes: [
+                AgentConfigMode(id: "plan", label: "Plan"),
+                AgentConfigMode(id: "auto", label: "Auto"),
+                AgentConfigMode(id: "ask", label: "Ask"),
+            ]
         )
-        let chips = AgentFeed.configChips(config)
-        XCTAssertEqual(chips.map(\.id), ["mode", "model", "effort"])
-        XCTAssertEqual(chips[0].kind, .mode)
-        XCTAssertEqual(chips[0].label, "Mode")
-        XCTAssertEqual(chips[0].valueLabel, "Plan")
-        XCTAssertEqual(chips[1].valueLabel, "Opus")
-        XCTAssertTrue(AgentFeed.configChips(nil).isEmpty)
+        let chip = try? XCTUnwrap(AgentFeed.modeChip(config))
+        XCTAssertEqual(chip?.valueLabel, "Plan")
+        XCTAssertEqual(chip?.values.map(\.id), ["plan", "auto", "ask"])
+        // Three modes are a picker, not a switch.
+        XCTAssertNil(chip?.planToggle)
+        XCTAssertNil(AgentFeed.modeChip(nil))
     }
 
-    func testAValuesLessOptionIsReadOnly() {
-        let chips = AgentFeed.configChips(AgentSessionConfig(
+    /// A run that advertises NO modes (codex) draws nothing at all — an inert
+    /// badge would be a control that cannot be operated.
+    func testAModelessRunDrawsNoChip() {
+        XCTAssertNil(AgentFeed.modeChip(AgentSessionConfig(
             options: [AgentConfigOption(id: "effort", label: "Effort")]
-        ))
-        XCTAssertEqual(chips.count, 1)
-        XCTAssertTrue(chips[0].isReadOnly)
-        // No value at all reads as the CLI's own default, not as blank.
-        XCTAssertEqual(chips[0].valueLabel, "CLI default")
+        )))
     }
 
-    /// The two labels every client draws (EXP-746), byte-for-byte.
+    /// EXP-772: `plan` plus exactly one other mode is a yes/no question, so it
+    /// collapses into the compact Plan switch whose off position is the other
+    /// mode — claude's `plan` / `bypassPermissions` pair.
+    func testPlanPlusOneOtherModeCollapsesIntoTheSwitch() {
+        let claude = AgentSessionConfig(
+            currentMode: "bypassPermissions",
+            modes: [
+                AgentConfigMode(id: "plan", label: "Plan"),
+                AgentConfigMode(id: "bypassPermissions", label: "Build"),
+            ]
+        )
+        let off = try? XCTUnwrap(AgentFeed.modeChip(claude)?.planToggle)
+        XCTAssertEqual(off?.on, false)
+        XCTAssertEqual(off?.planId, "plan")
+        XCTAssertEqual(off?.otherId, "bypassPermissions")
+
+        let planning = AgentSessionConfig(
+            currentMode: "plan",
+            modes: claude.modes
+        )
+        XCTAssertEqual(AgentFeed.modeChip(planning)?.planToggle?.on, true)
+
+        // A PAIR without a plan mode stays an ordinary picker.
+        let pair = AgentSessionConfig(
+            currentMode: "a",
+            modes: [AgentConfigMode(id: "a", label: "A"), AgentConfigMode(id: "b", label: "B")]
+        )
+        XCTAssertNil(AgentFeed.modeChip(pair)?.planToggle)
+    }
+
+    /// A mode in force that the publisher never advertised still reads as
+    /// itself, never as the CLI default.
+    func testAnUnadvertisedCurrentModeReadsAsItself() {
+        let chip = AgentFeed.modeChip(AgentSessionConfig(
+            currentMode: "sneaky",
+            modes: [AgentConfigMode(id: "plan", label: "Plan")]
+        ))
+        XCTAssertEqual(chip?.valueLabel, "sneaky")
+    }
+
+    /// The labels every client draws (EXP-746/EXP-772), byte-for-byte.
     func testTheConfigDefaultLabelIsTheOneEveryClientShows() {
         XCTAssertEqual(AgentFeed.configDefaultValueLabel, "CLI default")
         XCTAssertEqual(AgentFeed.configModeLabel, "Mode")
+        XCTAssertEqual(AgentFeed.planToggleLabel, "Plan")
+        XCTAssertEqual(AgentFeed.planModeId, "plan")
+    }
+
+    // MARK: - Narration merging + subagent scoping (EXP-772/EXP-773)
+
+    /// EXP-772: the engine flushes one assistant message in several narration
+    /// events. Consecutive flushes of the SAME message id grow one bubble;
+    /// anything in between opens a new one.
+    func testConsecutiveFlushesOfOneMessageMergeIntoOneBubble() {
+        let first: [AgentFeedItem] = [.narration(id: 1, text: "Reading ", messageId: "m1")]
+        let merged = try? XCTUnwrap(
+            AgentFeed.mergeNarration(first, text: "the file.", messageId: "m1", subagentId: nil)
+        )
+        XCTAssertEqual(merged?.count, 1)
+        XCTAssertEqual(merged?.first, .narration(id: 1, text: "Reading the file.", messageId: "m1"))
+
+        // A different message never merges, and neither does a tool call in
+        // between — the prose resumed after something happened.
+        XCTAssertNil(AgentFeed.mergeNarration(first, text: "x", messageId: "m2", subagentId: nil))
+        XCTAssertNil(AgentFeed.mergeNarration(
+            first + [tool(2)], text: "x", messageId: "m1", subagentId: nil
+        ))
+        // An id-less event (an older publisher) always opens its own bubble.
+        XCTAssertNil(AgentFeed.mergeNarration(first, text: "x", messageId: nil, subagentId: nil))
+        XCTAssertNil(AgentFeed.mergeNarration([], text: "x", messageId: "m1", subagentId: nil))
+        // Same message id from a different scope is a different bubble.
+        XCTAssertNil(AgentFeed.mergeNarration(first, text: "x", messageId: "m1", subagentId: "s1"))
+    }
+
+    /// EXP-773: a subagent's prose and the turns addressed to it leave the
+    /// main feed and render inside that subagent's run, in publish order.
+    func testSubagentProseAndTurnsGroupUnderTheirRun() {
+        let feed: [AgentFeedItem] = [
+            .narration(id: 1, text: "Delegating."),
+            .subagent(id: 2, subagentId: "s1", agentType: "explore", status: .started, detail: nil),
+            .userMessage(id: 3, text: "map the repo", subagentId: "s1"),
+            .narration(id: 4, text: "Looking.", subagentId: "s1"),
+            tool(5, subagentId: "s1"),
+            .narration(id: 6, text: "Back on the main thread."),
+        ]
+        let rows = AgentFeed.rows(feed)
+        // Main feed: the two unscoped narrations plus the group row.
+        XCTAssertEqual(rows.count, 3)
+        XCTAssertEqual(rows[0], .single(feed[0]))
+        XCTAssertEqual(rows[2], .single(feed[5]))
+        guard case let .subagentRun(run) = rows[1] else {
+            return XCTFail("expected a subagent run")
+        }
+        XCTAssertEqual(run.items.map(\.id), [3, 4, 5])
+        // The caption still counts TOOL calls, not conversation rows.
+        XCTAssertEqual(run.toolCount, 1)
+        XCTAssertTrue(run.expandable)
     }
 
     // MARK: - Quiet live runs (FEED-26)

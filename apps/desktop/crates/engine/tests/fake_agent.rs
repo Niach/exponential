@@ -760,6 +760,26 @@ fn a_permission_is_answerable_and_resolves_the_agents_request() {
     harness.session.kill("killed");
 }
 
+/// EXP-766: a run that ENDS with a card still open dismisses it, exactly like
+/// a cancel does. Without it the last thing on the feed is a question nobody
+/// can answer any more, and `needs_input` stays true on the ended row.
+#[test]
+fn a_run_that_ends_with_an_open_card_dismisses_it() {
+    let harness = start_fake("open-card");
+    harness.session.send_prompt("permission".to_string());
+    until("the question card", || {
+        !events_of(&harness.sink, "question").is_empty()
+    });
+    assert!(events_of(&harness.sink, "question_resolved").is_empty());
+
+    harness.session.kill("killed");
+    until("the dismissal", || {
+        events_of(&harness.sink, "question_resolved")
+            .iter()
+            .any(|event| event["dismissed"] == serde_json::json!(true))
+    });
+}
+
 /// D3: an `elicitation/create` card is named by the tool call its SESSION
 /// scope carries — `<toolCallId>#<n>` steps, `#submit` at the end — never a
 /// synthetic hash, so the ask stays correlatable with the tool event it
@@ -871,15 +891,23 @@ fn set_config_and_set_mode_re_emit_the_config_state() {
         !events_of(&harness.sink, "config_state").is_empty()
     });
 
+    // EXP-772: `set_config` still reaches the agent (the wire frame stays
+    // accepted for an older publisher), but the snapshot carries NO options —
+    // option chips left the steering UI on every client.
     harness
         .session
         .set_config("model", engine::ConfigValue::ValueId("sonnet".to_string()));
-    until("the re-emitted option", || {
-        events_of(&harness.sink, "config_state")
-            .last()
-            .map(|state| state["options"][0]["value"] == "sonnet")
-            .unwrap_or(false)
+    until("the agent to take the config option", || {
+        harness
+            .state
+            .config_set
+            .lock()
+            .expect("the config slot is not poisoned")
+            .is_some()
     });
+    assert!(events_of(&harness.sink, "config_state")
+        .iter()
+        .all(|state| state["options"].as_array().is_some_and(|options| options.is_empty())));
     assert_eq!(
         harness
             .state

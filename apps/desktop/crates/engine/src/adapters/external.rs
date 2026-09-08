@@ -27,6 +27,20 @@ pub struct ExternalAgent {
 }
 
 impl ExternalAgent {
+    /// EXP-766: `spec.exit` is deliberately unused here, so the child's pid
+    /// never reaches `coding::reaper::reap_recorded`. The SDK owns the
+    /// subprocess: `AcpAgent::connect_to` spawns it internally and hands back
+    /// nothing but the connection future — `spawn_process` is public, but a
+    /// caller that uses it also has to reimplement the SDK's whole transport
+    /// (stderr drain, stdin sink, EOF signalling, the shutdown grace and the
+    /// process-group `ChildGuard`), which is 150 lines of copied internals to
+    /// re-verify on every SDK bump.
+    ///
+    /// What that costs: nothing while the engine exits normally or is
+    /// cancelled, because the SDK's own guard kills the whole process group on
+    /// drop. The gap is only a HARD engine death (SIGKILL, a panic that skips
+    /// unwinding), after which the reaper cannot find this child. Revisit when
+    /// the SDK exposes the child or a stream-pair transport.
     pub fn new(spec: AdapterSpec) -> Result<ExternalAgent, EngineError> {
         let coding::AgentKind::External(external) = &spec.agent else {
             return Err(EngineError::Unsupported(

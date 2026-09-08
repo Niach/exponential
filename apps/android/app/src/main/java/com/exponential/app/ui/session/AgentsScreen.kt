@@ -116,7 +116,6 @@ fun AgentsScreen(
     val mergeErrors by viewModel.mergeErrors.collectAsStateWithLifecycle()
     // EXP-746: the caller's own finished, person-started runs.
     val pastRuns by viewModel.pastRuns.collectAsStateWithLifecycle()
-    val resuming by viewModel.resuming.collectAsStateWithLifecycle()
     // EXP-694 (S6): the rows behind a session's trailing action/automation
     // button, plus the automation form's own plumbing.
     val actionsState by actionsViewModel.state.collectAsStateWithLifecycle()
@@ -355,10 +354,11 @@ fun AgentsScreen(
                     }
 
                     // EXP-746: the runs that finished — the caller's own
-                    // person-started ones, expandable to their summary and a
-                    // Resume. An automated run belongs to the Automations
-                    // tab's "Recent automated runs" and never lists here.
-                    // Nothing renders while there are none.
+                    // person-started ones. EXP-773: a plain link; the
+                    // transcript, the close-out summary and Resume live in
+                    // the session view it opens. An automated run belongs to
+                    // the Automations tab's "Recent automated runs" and never
+                    // lists here. Nothing renders while there are none.
                     if (pastRuns.isNotEmpty()) {
                         item(key = "__past_header__") { SectionHeader("Past") }
                         items(pastRuns, key = { "past_${it.session.id}" }) { row ->
@@ -369,7 +369,6 @@ fun AgentsScreen(
                                 // chat run's reads "Chat"), else the batch.
                                 title = pastRunTitle(row.session, row.issue),
                                 identifier = row.issue?.identifier,
-                                summary = row.session.summary,
                                 // Unused while `byline` carries the whole
                                 // caption; kept so the row's own fallback
                                 // stays correct.
@@ -386,9 +385,7 @@ fun AgentsScreen(
                                         row.session.endedAt ?: row.session.updatedAt,
                                     ),
                                 ),
-                                resumeTarget = row.resume,
-                                resuming = row.session.id in resuming,
-                                onResume = viewModel::resumeRun,
+                                onOpen = { onOpenSteer(row.session.id) },
                             )
                         }
                     }

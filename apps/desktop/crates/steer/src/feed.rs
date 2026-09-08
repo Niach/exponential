@@ -1633,6 +1633,8 @@ mod tests {
         feed.apply(ActivityEvent::Narration {
             text: "the prose that was withheld".into(),
             before_question_id: Some("toolu_01".into()),
+            message_id: None,
+            subagent_id: None,
             at: None,
         });
         assert_eq!(
@@ -1648,6 +1650,8 @@ mod tests {
         feed.apply(ActivityEvent::Narration {
             text: "orphan".into(),
             before_question_id: Some("evicted".into()),
+            message_id: None,
+            subagent_id: None,
             at: None,
         });
         assert_eq!(texts(&feed), vec!["before", "orphan"]);

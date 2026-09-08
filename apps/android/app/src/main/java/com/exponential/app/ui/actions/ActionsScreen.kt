@@ -48,7 +48,6 @@ import com.exponential.app.data.db.AutomationEntity
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.domain.AutomationTrigger
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.RunResumeTarget
 import com.exponential.app.domain.nextScheduleRun
 import com.exponential.app.domain.triggerSummary
 import com.exponential.app.ui.components.BottomBarInset
@@ -133,9 +132,6 @@ fun ActionsScreen(
     val lastRunByAutomation by viewModel.lastRunByAutomation.collectAsStateWithLifecycle()
     val automationBusy by viewModel.automationBusy.collectAsStateWithLifecycle()
     val automationError by viewModel.automationError.collectAsStateWithLifecycle()
-    // EXP-637: which listed runs can be resumed, and which resume is in flight.
-    val runResumeTargets by viewModel.runResumeTargets.collectAsStateWithLifecycle()
-    val resuming by viewModel.resuming.collectAsStateWithLifecycle()
 
     var segment by rememberSaveable { mutableStateOf(SEGMENT_ACTIONS) }
 
@@ -216,13 +212,10 @@ fun ActionsScreen(
                         isOwner = isTeamOwner,
                         busy = automationBusy,
                         error = automationError,
-                        // EXP-637: a run's close-out and its Resume live on
-                        // the row; the send caption rides this column too, so
-                        // a resume started here reports back here.
+                        // EXP-773: a run's close-out and its Resume live in
+                        // the session view a row opens; the send caption for
+                        // a manual run still rides this column.
                         runState = runState,
-                        resumeTargets = runResumeTargets,
-                        resuming = resuming,
-                        onResume = viewModel::resumeRun,
                         onSetEnabled = viewModel::setAutomationEnabled,
                         onDelete = viewModel::deleteAutomation,
                         onEdit = { automation ->
@@ -511,9 +504,6 @@ private fun AutomationsContent(
     busy: Boolean,
     error: String?,
     runState: ActionRunState,
-    resumeTargets: Map<String, RunResumeTarget>,
-    resuming: Set<String>,
-    onResume: (RunResumeTarget) -> Unit,
     onSetEnabled: (String, Boolean) -> Unit,
     onDelete: (String) -> Unit,
     onEdit: (AutomationEntity) -> Unit,
@@ -593,22 +583,18 @@ private fun AutomationsContent(
                 )
             }
             items(runs, key = { it.id }) { session ->
-                // One row shape for both (EXP-686): a FINISHED run expands to
-                // its close-out summary and offers Resume when its machine can
-                // take it; one still going reads "Running" and opens its live
-                // session on tap.
+                // One row shape for both (EXP-686/EXP-773): a plain link.
+                // A finished run's close-out summary and its Resume live at
+                // the top of the session view it opens, so live and finished
+                // rows behave identically.
                 val ended = session.status == DomainContract.codingSessionStatusEnded
                 EndedRunRow(
                     title = session.actionName ?: "Action run",
-                    summary = session.summary,
                     timeLabel = relativeTime(
                         if (ended) session.endedAt ?: session.startedAt else session.startedAt,
                     ),
                     isLive = !ended,
-                    onOpen = if (ended) null else ({ onOpenSteer(session.id) }),
-                    resumeTarget = resumeTargets[session.id],
-                    resuming = session.id in resuming,
-                    onResume = onResume,
+                    onOpen = { onOpenSteer(session.id) },
                 )
             }
         }

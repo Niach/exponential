@@ -16,6 +16,7 @@ import com.exponential.app.domain.COMPACTION_TIMEOUT_MS
 import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.CompactionState
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.HistoryState
 import com.exponential.app.domain.INLINE_IMAGE_CONTENT_TYPES
 import com.exponential.app.domain.MAX_IMAGE_UPLOAD_BYTES
 import com.exponential.app.domain.MAX_STEER_IMAGES
@@ -215,6 +216,15 @@ class SteerConnection internal constructor(
      */
     private val _connected = MutableStateFlow(false)
     val connected: StateFlow<Boolean> = _connected
+
+    /**
+     * EXP-773: where an ENDED run's transcript is coming from. The relay has
+     * no live room for a finished session, so it asks the device that ran it
+     * to republish its on-disk journal; [HistoryState] is the three answers.
+     * Null on a live session and once the transcript starts arriving.
+     */
+    private val _history = MutableStateFlow<HistoryState?>(null)
+    val history: StateFlow<HistoryState?> = _history
 
     // The feed survives reconnects, navigation and the session end. Since
     // EXP-656 an `activity_reset` no longer empties it either: the replay that
@@ -547,6 +557,8 @@ class SteerConnection internal constructor(
         // `bye` / no_such_session must win over the generic close handler.
         var sawEnd = false
         var retryStarting = false
+        // EXP-773: the journal fetch got a final "no" — stop dialing.
+        var historyTerminal = false
         var detail: String? = null
         // A server "no" that can never turn into a yes — wins over everything.
         var terminal: DialOutcome? = null
@@ -624,12 +636,22 @@ class SteerConnection internal constructor(
                 val text = received.getOrNull() ?: break
                 lastFrameAtMs = nowMs()
                 val result = handleControlFrame(text) ?: continue
-                if (result.live && _phase.value != AgentPhase.Live) {
-                    setPhase(AgentPhase.Live, "joined")
-                    reconnectAttempts = 0
+                if (result.live) {
+                    // EXP-773: a room answered, so the journal fetch (if
+                    // there was one) is over — what arrives next IS the
+                    // transcript.
+                    _history.value = null
+                    if (_phase.value != AgentPhase.Live) {
+                        setPhase(AgentPhase.Live, "joined")
+                        reconnectAttempts = 0
+                    }
                 }
                 sawEnd = sawEnd || result.sawEnd
                 result.detail?.let { detail = it }
+                if (result.historyTerminal) {
+                    historyTerminal = true
+                    break
+                }
                 if (result.retryStarting) {
                     retryStarting = true
                     break
@@ -638,7 +660,7 @@ class SteerConnection internal constructor(
             // The incoming channel drained: the relay closed us and its close
             // code says why (EXP-621). A `break` above left the socket open —
             // there is no reason to wait on it.
-            if (!retryStarting) {
+            if (!retryStarting && !historyTerminal) {
                 closeCode = opened.closeCode()
                 // EXP-656: the reason names WHO hung up on a close code that
                 // otherwise reads as a generic drop.
@@ -698,6 +720,10 @@ class SteerConnection internal constructor(
         terminal?.let { return it }
         return when {
             sawEnd -> DialOutcome.Ended(detail)
+            // EXP-773: the machine holding the journal answered for good. The
+            // synced row may still read running (a run whose device dropped),
+            // so this wins over the liveness retry below.
+            historyTerminal -> DialOutcome.Ended(null)
             // Heartbeat-stale rows don't warrant a redial (EXP-153) — the row
             // is a phantom, not a session that's still starting.
             retryStarting && session.value?.let { CodingSessionLiveness.isLive(it) } == true ->
@@ -718,6 +744,9 @@ class SteerConnection internal constructor(
         val retryStarting: Boolean = false,
         /** The frame proves the join succeeded — the room is live on the relay. */
         val live: Boolean = false,
+        /** EXP-773: the device that holds the journal said no, or is away.
+         *  Final on its own terms — a redial only re-asks. */
+        val historyTerminal: Boolean = false,
     )
 
     private fun handleControlFrame(raw: String): FrameResult? {
@@ -752,6 +781,14 @@ class SteerConnection internal constructor(
                 if (stagedFrames != null) commitStaging("keepalive")
                 null
             }
+            // EXP-773: the relay has no live room for this session and is
+            // asking the device that ran it to republish its journal.
+            // Deliberately NOT `live = true` — nothing has joined a room yet,
+            // and flashing the live header over a finished run would be a lie.
+            "history_pending" -> {
+                _history.value = HistoryState.Pending
+                FrameResult()
+            }
             "bye" -> {
                 val outcome = (obj["outcome"] as? JsonPrimitive)?.contentOrNull
                 if (outcome == "publisher_lost") {
@@ -774,6 +811,16 @@ class SteerConnection internal constructor(
                         detail = "The live stream isn't up yet. The desktop may still be connecting.",
                         retryStarting = true,
                     )
+                } else if (code == "device_offline" || code == "history_unavailable") {
+                    // EXP-773: the transcript lives on the machine that ran
+                    // the session, and it either can't be reached or has
+                    // nothing. Both are final.
+                    _history.value = if (code == "device_offline") {
+                        HistoryState.DeviceOffline
+                    } else {
+                        HistoryState.Unavailable
+                    }
+                    FrameResult(historyTerminal = true)
                 } else {
                     FrameResult(
                         detail = (obj["message"] as? JsonPrimitive)?.contentOrNull ?: code,
@@ -1104,6 +1151,11 @@ class SteerConnection internal constructor(
      * re-emits `config_state` once it applied, and that repaint IS the
      * confirmation. An agent that REFUSES simply re-emits the old value and
      * the chip snaps back, which is the intended behaviour, not an error.
+     *
+     * EXP-772 retired the option chips that drove this: model and effort are
+     * launch decisions now and the engine publishes an empty
+     * `config_state.options`. The sender stays because the relay still accepts
+     * the frame from older publishers.
      */
     fun setConfig(id: String, value: String) {
         if (id.isBlank()) return

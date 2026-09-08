@@ -8,7 +8,6 @@ import {
   triggerSummary,
 } from "@/lib/action-triggers"
 import {
-  deviceCanResumeRun,
   deviceIsOnline,
   type SteerDevice,
 } from "@/lib/steer-devices"
@@ -317,21 +316,6 @@ export function AutomationsTab({
     [actions]
   )
 
-  // EXP-637: Resume relaunches the run on the machine that still holds its
-  // worktree — hide the button when that machine is offline or too old to
-  // resume, rather than failing after the click.
-  const resumableDeviceIds = useMemo(
-    () =>
-      new Set(
-        devices
-          .filter(
-            (device) => deviceIsOnline(device) && deviceCanResumeRun(device)
-          )
-          .map((device) => device.deviceId)
-      ),
-    [devices]
-  )
-
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Automation | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Automation | null>(null)
@@ -446,13 +430,7 @@ export function AutomationsTab({
                 session.status === `ended` ? (
                   <EndedSessionRow
                     key={session.id}
-                    row={{
-                      session,
-                      canResume: Boolean(
-                        session.deviceId &&
-                          resumableDeviceIds.has(session.deviceId)
-                      ),
-                    }}
+                    row={{ session }}
                     title={
                       session.actionName ??
                       (session.actionId

@@ -227,32 +227,42 @@ public struct AgentSessionUsage: Equatable, Sendable {
     }
 }
 
-/// One composer chip: the mode chip (when the agent offers modes) followed by
-/// the advertised options, in publisher order.
-public struct AgentConfigChip: Equatable, Sendable, Identifiable {
-    public enum Kind: Sendable, Equatable {
-        case mode
-        case option
+/// EXP-772: the composer's ONE steering control — the agent's mode. Model,
+/// effort and every other option picker is gone from a running session: those
+/// are launch decisions, and a mid-run swap only ever confused a transcript.
+/// The engine publishes an empty `config_state.options` to match.
+public struct AgentModeChip: Equatable, Sendable {
+    /// The mode in force, as the publisher labels it.
+    public let valueLabel: String
+    /// Every advertised mode, in publisher order.
+    public let values: [AgentConfigValue]
+    /// Set when the run advertises exactly `plan` plus one other mode — the
+    /// pair claude offers. The chip then draws as a compact "Plan" switch
+    /// rather than a two-entry dropdown, because that is the only thing it
+    /// could ever say.
+    public let planToggle: PlanToggle?
+
+    /// The plan switch's two sides.
+    public struct PlanToggle: Equatable, Sendable {
+        /// The run is in plan mode right now.
+        public let on: Bool
+        public let planId: String
+        /// Where flipping the switch OFF goes.
+        public let otherId: String
+
+        public init(on: Bool, planId: String, otherId: String) {
+            self.on = on
+            self.planId = planId
+            self.otherId = otherId
+        }
     }
 
-    public let kind: Kind
-    /// What a pick addresses: the OPTION id (`set_config`), or the `mode`
-    /// sentinel for the mode chip (whose picks carry the MODE id to
-    /// `set_mode`).
-    public let id: String
-    public let label: String
-    public let valueLabel: String
-    public let values: [AgentConfigValue]
-
     public init(
-        kind: Kind, id: String, label: String, valueLabel: String,
-        values: [AgentConfigValue] = []
+        valueLabel: String, values: [AgentConfigValue] = [], planToggle: PlanToggle? = nil
     ) {
-        self.kind = kind
-        self.id = id
-        self.label = label
         self.valueLabel = valueLabel
         self.values = values
+        self.planToggle = planToggle
     }
 
     /// A chip with nothing to pick from is a read-only badge.
@@ -262,12 +272,19 @@ public struct AgentConfigChip: Equatable, Sendable, Identifiable {
 /// One rendered feed entry. Diffs never enter the feed — the latest one lives
 /// behind the pinned "Latest changes" chip.
 public enum AgentFeedItem: Equatable, Sendable, Identifiable {
-    case narration(id: Int, text: String)
+    /// `messageId` (EXP-772) is the ACP id of the assistant message this prose
+    /// came out of — the engine flushes a message in several events, and
+    /// consecutive flushes of the SAME message merge into one bubble
+    /// (`mergeNarration`). `subagentId` (EXP-773) tags prose a subagent wrote:
+    /// it renders inside that subagent's run, never in the main feed.
+    case narration(id: Int, text: String, messageId: String? = nil, subagentId: String? = nil)
     /// `subagentId` (protocol v2) tags the tool as a subagent's work — such
     /// runs collapse under their subagent row.
     case tool(id: Int, name: String, detail: String?, subagentId: String?)
-    /// A human turn: the initial prompt or a steered message.
-    case userMessage(id: Int, text: String)
+    /// A human turn: the initial prompt or a steered message. `subagentId`
+    /// (EXP-773) tags a turn addressed to a subagent — same scoping rule as
+    /// narration.
+    case userMessage(id: Int, text: String, subagentId: String? = nil)
     case question(AgentQuestion)
     /// A subagent started or finished (protocol v2).
     ///
@@ -289,9 +306,9 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
 
     public var id: Int {
         switch self {
-        case let .narration(id, _): id
+        case let .narration(id, _, _, _): id
         case let .tool(id, _, _, _): id
-        case let .userMessage(id, _): id
+        case let .userMessage(id, _, _): id
         case let .question(value): value.id
         case let .subagent(id, _, _, _, _, _): id
         case let .permission(id, _, _): id
@@ -315,11 +332,15 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     }
 
     /// The subagent this item belongs to, if any — the grouping key of a
-    /// subagent run.
+    /// subagent run. EXP-773: prose and human turns carry it too, so a
+    /// subagent's whole conversation groups under its own row instead of
+    /// interleaving into the main thread.
     public var subagentKey: String? {
         switch self {
         case let .tool(_, _, _, subagentId): return subagentId
         case let .subagent(_, subagentId, _, _, _, _): return subagentId
+        case let .narration(_, _, _, subagentId): return subagentId
+        case let .userMessage(_, _, subagentId): return subagentId
         default: return nil
         }
     }
@@ -335,7 +356,10 @@ public struct AgentSubagentRun: Equatable, Sendable, Identifiable {
     public let detail: String?
     /// A `completed` marker arrived.
     public let done: Bool
-    /// The tool calls published under this subagent.
+    /// Everything published under this subagent, in feed order — its tool
+    /// calls plus (EXP-773) the prose it wrote and the turns addressed to it,
+    /// so the run reads as a conversation instead of a list of calls. The
+    /// lifecycle markers themselves stay out: they ARE the row.
     public let items: [AgentFeedItem]
     /// EXP-748: the highest count the subagent's own markers reported, if any.
     /// Replay evicts subagent tool events first, so `items` can undercount.
@@ -343,7 +367,9 @@ public struct AgentSubagentRun: Equatable, Sendable, Identifiable {
 
     public var id: Int { anchorId }
     /// The reported count wins whenever it is higher than what is visible.
-    public var toolCount: Int { max(items.count, reportedToolCalls ?? 0) }
+    public var toolCount: Int {
+        max(items.filter(\.isTool).count, reportedToolCalls ?? 0)
+    }
     /// Whether the row has anything behind its chevron — the detail is always
     /// visible collapsed, so only tool calls justify an expand affordance
     /// (EXP-350: a chevron on an empty group expanded to nothing).
@@ -581,9 +607,14 @@ public enum AgentFeed {
     /// Byte-identical ×4 (web `steer-commands.ts` `CONFIG_DEFAULT_VALUE_LABEL`,
     /// Android `AgentFeed.kt`, desktop `ui/src/slash_commands.rs`).
     public static let configDefaultValueLabel = "CLI default"
-    /// The mode chip's leading label. Every OTHER chip label arrives live on
-    /// `config_state.options[].label`, so only this one has to be mirrored.
+    /// The mode chip's leading label, mirrored ×4 — the only chip label left,
+    /// so the only one the clients have to agree on by hand.
     public static let configModeLabel = "Mode"
+    /// EXP-772: the contract id of plan mode, and the label the compact
+    /// switch that replaces a `plan` + one other pair carries. Byte-identical
+    /// ×4.
+    public static let planModeId = "plan"
+    public static let planToggleLabel = "Plan"
 
     /// Fold a `config_state` activity event. Nil = an unusable payload, and
     /// the caller then KEEPS `current`: a malformed frame must never blank the
@@ -648,34 +679,29 @@ public enum AgentFeed {
         )
     }
 
-    /// The composer's chips: the mode chip FIRST (only when the agent offers
-    /// modes), then every advertised option in publisher order. Locked ×4 by
-    /// the test `configChips puts the mode chip first`.
-    public static func configChips(_ config: AgentSessionConfig?) -> [AgentConfigChip] {
-        guard let config else { return [] }
-        var chips: [AgentConfigChip] = []
-        if !config.modes.isEmpty {
-            let current = config.modes.first { $0.id == config.currentMode }
-            chips.append(AgentConfigChip(
-                kind: .mode,
-                id: "mode",
-                label: configModeLabel,
-                valueLabel: current?.label ?? config.currentMode ?? configDefaultValueLabel,
-                values: config.modes.map { AgentConfigValue(id: $0.id, label: $0.label) }
-            ))
+    /// The composer's ONE chip (EXP-772): the agent's mode, or nil when the
+    /// run advertises none — codex advertises an empty list, and that draws
+    /// nothing at all rather than an inert badge.
+    ///
+    /// Exactly `plan` + one other mode collapses into the compact Plan switch;
+    /// anything else stays a labelled picker over every advertised mode.
+    /// Mirrored ×4.
+    public static func modeChip(_ config: AgentSessionConfig?) -> AgentModeChip? {
+        guard let config, !config.modes.isEmpty else { return nil }
+        let current = config.modes.first { $0.id == config.currentMode }
+        var toggle: AgentModeChip.PlanToggle?
+        if config.modes.count == 2,
+           let plan = config.modes.first(where: { $0.id == planModeId }),
+           let other = config.modes.first(where: { $0.id != planModeId }) {
+            toggle = AgentModeChip.PlanToggle(
+                on: config.currentMode == plan.id, planId: plan.id, otherId: other.id
+            )
         }
-        for option in config.options {
-            let picked = option.values.first { $0.id == option.value }
-            let value = option.value ?? ""
-            chips.append(AgentConfigChip(
-                kind: .option,
-                id: option.id,
-                label: option.label,
-                valueLabel: picked?.label ?? (value.isEmpty ? configDefaultValueLabel : value),
-                values: option.values
-            ))
-        }
-        return chips
+        return AgentModeChip(
+            valueLabel: current?.label ?? config.currentMode ?? configDefaultValueLabel,
+            values: config.modes.map { AgentConfigValue(id: $0.id, label: $0.label) },
+            planToggle: toggle
+        )
     }
 
     private static func configValues(_ raw: Any?) -> [AgentConfigValue] {
@@ -693,6 +719,35 @@ public enum AgentFeed {
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else { return nil }
         return text
+    }
+
+    /// EXP-772: fold a narration event into the row above it when both came
+    /// out of the SAME assistant message.
+    ///
+    /// The engine's coalescer flushes one message in several `narration`
+    /// events, which used to draw one bubble per flush and shred a paragraph
+    /// into a column of fragments. Every event now carries the ACP `messageId`
+    /// of its message, so a flush whose message is the one directly above
+    /// APPENDS to that row (raw concatenation — the flushes are chunks of one
+    /// string, not sentences). Anything in between (a tool call, a question,
+    /// another subagent's prose) ends the run: the message really did resume
+    /// after something happened, and that is worth its own bubble.
+    ///
+    /// nil = nothing to merge into, and the caller appends a fresh row.
+    /// Mirrored ×4 (web `agent-feed.ts`, Android `AgentFeed.kt`, desktop
+    /// `feed.rs`).
+    public static func mergeNarration(
+        _ feed: [AgentFeedItem], text: String, messageId: String?, subagentId: String?
+    ) -> [AgentFeedItem]? {
+        guard let messageId, !messageId.isEmpty else { return nil }
+        guard case let .narration(id, existing, previousMessage, previousSubagent) = feed.last,
+              previousMessage == messageId, previousSubagent == subagentId
+        else { return nil }
+        var out = feed
+        out[out.count - 1] = .narration(
+            id: id, text: existing + text, messageId: messageId, subagentId: subagentId
+        )
+        return out
     }
 
     /// Ids of the question items still answerable: every card the desktop has
@@ -936,7 +991,8 @@ public enum AgentFeed {
                 agentType: agentType,
                 detail: detail,
                 done: done,
-                items: builder.items.filter(\.isTool),
+                // EXP-773: everything but the lifecycle markers, in order.
+                items: builder.items.filter { if case .subagent = $0 { false } else { true } },
                 reportedToolCalls: reported
             ))
         }

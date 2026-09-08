@@ -1,97 +1,45 @@
 import SwiftUI
 
 /// EXP-637: the ONE row a runs list draws — the Actions tab's "Recent
-/// automated runs" and, since EXP-746, the Devices tab's "Past" (EXP-676 had
-/// dropped that list; sessions are screens now, so a finished run is where its
-/// transcript and its Resume live).
+/// automated runs" and the Devices tab's "Past".
 ///
-/// Ended rows are EXPANDABLE, and the summary is deliberately NOT shown
-/// inline: a close-out is a paragraph, and a list of paragraphs is unreadable.
-/// Collapsed it is title · state · byline; tapping reveals the agent's full
-/// summary — rendered by the caller's `summary` builder, so the app can hand
-/// it real markdown (EXP-686) — and the Resume pill when the run is resumable.
-/// LIVE rows carry no outcome, no chevron and no expansion: the whole header
-/// opens the session instead (`isLive` + `onOpen`). The same rule holds on
-/// web, desktop and Android.
-public struct EndedRunRow<Summary: View>: View {
+/// EXP-773 made it a plain LINK. A row used to expand to the agent's close-out
+/// summary and a Resume pill; both now live at the top of the fullscreen
+/// session view, where the transcript they belong to is. So a row is title ·
+/// state · byline and a tap opens that session — live or finished, the same
+/// gesture, the same destination. The same rule holds on web, desktop and
+/// Android.
+public struct EndedRunRow: View {
     private let title: String
     private let identifier: String?
     private let byline: String
-    private let summaryText: String?
-    private let expanded: Bool
-    private let canResume: Bool
-    private let resuming: Bool
     private let isLive: Bool
-    private let onToggle: () -> Void
-    private let onResume: () -> Void
     private let onOpen: () -> Void
-    private let summary: (String) -> Summary
 
-    /// - Parameters:
-    ///   - isLive: the run is still going — the header opens the session
-    ///     (`onOpen`) instead of expanding, and no chevron is drawn.
-    ///   - summary: renders the agent's close-out text. The app passes a
-    ///     markdown view; the fallback renders plain text.
+    /// - Parameter isLive: the run is still going — the row says so; the tap
+    ///   target is the same either way.
     public init(
         title: String,
         identifier: String? = nil,
         byline: String,
-        summary summaryText: String?,
-        expanded: Bool,
-        canResume: Bool,
-        resuming: Bool = false,
         isLive: Bool = false,
-        onToggle: @escaping () -> Void,
-        onResume: @escaping () -> Void = {},
-        onOpen: @escaping () -> Void = {},
-        @ViewBuilder summary: @escaping (String) -> Summary
+        onOpen: @escaping () -> Void
     ) {
         self.title = title
         self.identifier = identifier
         self.byline = byline
-        self.summaryText = summaryText
-        self.expanded = expanded
-        self.canResume = canResume
-        self.resuming = resuming
         self.isLive = isLive
-        self.onToggle = onToggle
-        self.onResume = onResume
         self.onOpen = onOpen
-        self.summary = summary
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Button(action: isLive ? onOpen : onToggle) {
-                header
-            }
-            .buttonStyle(.plain)
-            // The collapsed row is what the styleguide capture taps to reach
-            // the summary + Resume state (EXP-663); same tag as Android's.
-            .accessibilityIdentifier("ended-run-row")
-
-            if expanded, !isLive {
-                if let summaryText, !summaryText.isEmpty {
-                    summary(summaryText)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .accessibilityIdentifier("run-summary")
-                } else {
-                    Text("This run left no summary.")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                if canResume {
-                    GlassPill(
-                        "Resume",
-                        icon: AppIcons.runResume,
-                        mode: .action(onResume),
-                        enabled: !resuming
-                    )
-                    .accessibilityIdentifier("resume-run")
-                }
-            }
+        Button(action: onOpen) {
+            header
         }
+        .buttonStyle(.plain)
+        // The styleguide capture taps this to reach the session view
+        // (EXP-663); same tag as Android's.
+        .accessibilityIdentifier("ended-run-row")
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .glassRow()
@@ -132,58 +80,9 @@ public struct EndedRunRow<Summary: View>: View {
 
             Spacer(minLength: 0)
 
-            if resuming {
-                ProgressView().controlSize(.mini).tint(.white)
-            }
-
-            if !isLive {
-                AppIcon(
-                    expanded ? AppIcons.uiChevronUp : AppIcons.uiChevronDown,
-                    size: AppIcon.Size.small
-                )
+            AppIcon(AppIcons.uiChevronRight, size: AppIcon.Size.small)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
         }
         .contentShape(Rectangle())
-    }
-}
-
-extension EndedRunRow where Summary == AnyView {
-    /// The plain-text fallback: callers that have no markdown stack (or don't
-    /// want one) get the same caption the row drew before EXP-686.
-    public init(
-        title: String,
-        identifier: String? = nil,
-        byline: String,
-        summary summaryText: String?,
-        expanded: Bool,
-        canResume: Bool,
-        resuming: Bool = false,
-        isLive: Bool = false,
-        onToggle: @escaping () -> Void,
-        onResume: @escaping () -> Void = {},
-        onOpen: @escaping () -> Void = {}
-    ) {
-        self.init(
-            title: title,
-            identifier: identifier,
-            byline: byline,
-            summary: summaryText,
-            expanded: expanded,
-            canResume: canResume,
-            resuming: resuming,
-            isLive: isLive,
-            onToggle: onToggle,
-            onResume: onResume,
-            onOpen: onOpen,
-            summary: { text in
-                AnyView(
-                    Text(text)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .fixedSize(horizontal: false, vertical: true)
-                )
-            }
-        )
     }
 }

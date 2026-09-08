@@ -154,7 +154,8 @@ impl LineWriter {
 /// may belong to somebody else by now and must NOT be signalled.
 ///
 /// EXP-758: the sequence is stdin EOF → SIGTERM → up to [`CHILD_TERM_GRACE`]
-/// → SIGKILL, never the bare SIGKILL it used to be.
+/// → SIGKILL, never the bare SIGKILL it used to be. On Windows (EXP-766) the
+/// same shape without signals: stdin EOF → the grace → `taskkill /T /F`.
 struct ChildGuard {
     pid: u32,
     exited: Arc<AtomicBool>,
@@ -211,6 +212,19 @@ impl Drop for ChildGuard {
         unsafe {
             libc::killpg(self.pid as i32, libc::SIGKILL);
             libc::kill(self.pid as i32, libc::SIGKILL);
+        }
+        // EXP-766: Windows has no signals, so before this the escalation ended
+        // at stdin EOF and an agent CLI that ignores it (or a tool subprocess
+        // holding the pipes) simply stayed. `/T` takes the whole tree, which
+        // is what `killpg` does everywhere else.
+        #[cfg(windows)]
+        {
+            let _ = background_command("taskkill")
+                .args(["/PID", &self.pid.to_string(), "/T", "/F"])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
         }
         // The wait thread owns the `Child` and reaps it; nothing to do here.
     }

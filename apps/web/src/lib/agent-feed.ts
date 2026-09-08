@@ -471,6 +471,56 @@ export type FeedRow<T extends { id: number; kind: string }> =
   | { kind: `ask`; id: number; askId: string; items: T[] }
   | { kind: `subagent`; id: number; subagentId: string; items: T[] }
 
+/** EXP-773: the subagent a row belongs to, or `null` for a main-feed row —
+ *  the accessor every caller uses, so a `FeedItem` member without the field
+ *  never has to be narrowed at the call site. */
+export function subagentIdOf(item: {
+  kind: string
+  subagentId?: string
+}): string | null {
+  return isSubagentScoped(item) ? (item.subagentId as string) : null
+}
+
+/** EXP-773: a row that belongs to a subagent rather than to the main feed.
+ *  `subagent`/`tool` carried the id from the start; `narration` and
+ *  `user_message` carry it since the ACP mapper stamps the parent tool call. */
+export function isSubagentScoped(item: {
+  kind: string
+  subagentId?: string
+}): boolean {
+  if (item.subagentId === undefined) return false
+  return (
+    item.kind === `subagent` ||
+    item.kind === `tool` ||
+    item.kind === `narration` ||
+    item.kind === `user_message`
+  )
+}
+
+/** EXP-772: append a narration fragment onto the feed's LAST row when both
+ *  carry the same `messageId` — the ACP coalescer flushes one assistant
+ *  message in several events, and a row per flush shredded a paragraph into
+ *  bubbles. Returns the new feed, or `null` when there is nothing to merge
+ *  into (a different message, a row in between, no id at all). */
+export function mergeNarrationFragment<
+  T extends { kind: string; messageId?: string; text?: string; subagentId?: string },
+>(
+  feed: readonly T[],
+  fragment: { messageId?: string; text: string; subagentId?: string }
+): T[] | null {
+  const id = fragment.messageId
+  if (id === undefined || id === ``) return null
+  const last = feed[feed.length - 1]
+  if (!last || last.kind !== `narration`) return null
+  if (last.messageId !== id) return null
+  // A fragment that landed in a different scope is a different bubble.
+  if (last.subagentId !== fragment.subagentId) return null
+  return [
+    ...feed.slice(0, -1),
+    { ...last, text: `${last.text ?? ``}${fragment.text}` },
+  ]
+}
+
 /** Group the flat feed into render rows — a pure projection: the feed (and
  *  `activeQuestionIds` over it) is never restructured, so answerability logic
  *  is unaffected. Grouped items are pulled out of their in-place position into
@@ -507,11 +557,12 @@ export function groupFeedRows<
       rows.push(row)
       continue
     }
-    if (
-      (item.kind === `subagent` || item.kind === `tool`) &&
-      item.subagentId !== undefined
-    ) {
-      const open = subagentRows.get(item.subagentId)
+    // EXP-773: everything a subagent produced — its lifecycle markers, its
+    // tool calls AND the prose/user turns the mapper stamped with its id —
+    // belongs to that subagent's row, never to the main feed.
+    const scopedTo = isSubagentScoped(item) ? subagentIdOf(item) : null
+    if (scopedTo !== null) {
+      const open = subagentRows.get(scopedTo)
       if (open) {
         open.items.push(item)
         continue
@@ -519,10 +570,10 @@ export function groupFeedRows<
       const row = {
         kind: `subagent` as const,
         id: item.id,
-        subagentId: item.subagentId,
+        subagentId: scopedTo,
         items: [item],
       }
-      subagentRows.set(item.subagentId, row)
+      subagentRows.set(scopedTo, row)
       rows.push(row)
       continue
     }
@@ -574,16 +625,13 @@ export function collectSubagents<
   const order: string[] = []
   const byId = new Map<string, T[]>()
   for (const item of feed) {
-    if (
-      (item.kind !== `subagent` && item.kind !== `tool`) ||
-      item.subagentId === undefined
-    )
-      continue
-    let bucket = byId.get(item.subagentId)
+    const subagentId = subagentIdOf(item)
+    if (subagentId === null) continue
+    let bucket = byId.get(subagentId)
     if (!bucket) {
       bucket = []
-      byId.set(item.subagentId, bucket)
-      order.push(item.subagentId)
+      byId.set(subagentId, bucket)
+      order.push(subagentId)
     }
     bucket.push(item)
   }
@@ -658,19 +706,6 @@ export interface SessionConfigValue {
   label: string
 }
 
-/** One live option chip: what it is called, what it reads right now and what
- *  it can be switched to. `values` absent = read-only on this run. */
-export interface SessionConfigOption {
-  id: string
-  label: string
-  /** Grouping hint from the wire (`model`, `effort`, …); unknown values just
-   *  render as their own chip. */
-  category?: string
-  /** In force right now; blank/absent = the CLI's own default. */
-  value?: string
-  values?: SessionConfigValue[]
-}
-
 /** One selectable session mode (`plan`, `acceptEdits`, …). */
 export interface SessionConfigMode {
   id: string
@@ -686,12 +721,17 @@ export interface SessionConfigCommand {
   hint?: string
 }
 
-/** EXP-746: the agent's live configuration — the chip vocabulary AND the
- *  values in force. Latest-wins STATE, never a feed row (the `latestDiff`
- *  precedent). Mirrored ×4: iOS AgentSessionConfig, Android
- *  SessionConfigState, desktop feed.rs SessionConfig. */
+/** EXP-746: the agent's live configuration — the modes it can switch to, the
+ *  one in force and the commands it advertises. Latest-wins STATE, never a
+ *  feed row (the `latestDiff` precedent). Mirrored ×4: iOS
+ *  AgentSessionConfig, Android SessionConfigState, desktop feed.rs
+ *  SessionConfig.
+ *
+ *  EXP-772: `options` is gone. Model, effort and every other picker left the
+ *  mid-session UI — the engine publishes an empty option list and no client
+ *  renders one, so the fold drops the member rather than carrying a value
+ *  nothing reads. The MODE is the composer's one live control. */
 export interface SessionConfigState {
-  options: SessionConfigOption[]
   currentMode?: string
   modes: SessionConfigMode[]
   commands: SessionConfigCommand[]
@@ -711,7 +751,7 @@ function isEventRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** A wire id: present, a string, non-blank. Machine fields are never
- *  trimmed — the publisher's id is what `set_config` has to send back. */
+ *  trimmed — the publisher's id is what `set_mode` has to send back. */
 function wireId(value: unknown): string | null {
   return typeof value === `string` && value.length > 0 ? value : null
 }
@@ -720,40 +760,21 @@ function wireText(value: unknown): string {
   return typeof value === `string` ? value : ``
 }
 
-function parseConfigValues(value: unknown): SessionConfigValue[] | undefined {
-  if (!Array.isArray(value)) return undefined
-  const values: SessionConfigValue[] = []
-  for (const entry of value) {
-    if (!isEventRecord(entry)) continue
-    const id = wireId(entry.id)
-    if (id === null) continue
-    values.push({ id, label: wireText(entry.label) || id })
-  }
-  return values
-}
-
 /** Tolerant fold of a `config_state` event; `null` for an unusable payload —
- *  the caller then KEEPS the previous snapshot rather than blanking the
- *  chips. Mirrors AgentFeed.applyConfigState / applyActivityEvent's arm. */
+ *  the caller then KEEPS the previous snapshot rather than blanking the mode
+ *  chip. Mirrors AgentFeed.applyConfigState / applyActivityEvent's arm.
+ *
+ *  EXP-772: a payload has to carry at least ONE of the arrays to be a config
+ *  state at all. Older publishers send `options` (ignored now), the engine
+ *  sends `modes`/`commands`; an object with none of them is noise. */
 export function parseConfigState(event: unknown): SessionConfigState | null {
   if (!isEventRecord(event)) return null
-  // `options` is the one required member on the wire — a payload without it
-  // is not a config state at all (a truly option-less run still sends []).
-  if (!Array.isArray(event.options)) return null
-  const options: SessionConfigOption[] = []
-  for (const entry of event.options) {
-    if (!isEventRecord(entry)) continue
-    const id = wireId(entry.id)
-    if (id === null) continue
-    const option: SessionConfigOption = {
-      id,
-      label: wireText(entry.label) || id,
-    }
-    if (typeof entry.category === `string`) option.category = entry.category
-    if (typeof entry.value === `string`) option.value = entry.value
-    const values = parseConfigValues(entry.values)
-    if (values) option.values = values
-    options.push(option)
+  if (
+    !Array.isArray(event.modes) &&
+    !Array.isArray(event.commands) &&
+    !Array.isArray(event.options)
+  ) {
+    return null
   }
   const modes: SessionConfigMode[] = []
   if (Array.isArray(event.modes)) {
@@ -782,7 +803,7 @@ export function parseConfigState(event: unknown): SessionConfigState | null {
       commands.push(command)
     }
   }
-  const state: SessionConfigState = { options, modes, commands }
+  const state: SessionConfigState = { modes, commands }
   const currentMode = wireId(event.currentMode)
   if (currentMode !== null) state.currentMode = currentMode
   return state
@@ -809,53 +830,63 @@ export function parseSessionUsage(event: unknown): SessionUsageState | null {
   return usage
 }
 
-/** One composer chip. */
+/** The composer's ONE chip (EXP-772): the session mode. */
 export interface ConfigChip {
-  kind: `mode` | `option`
-  /** The option id for `option`; the literal `mode` for the mode chip. */
+  /** The literal `mode` — the chip row has a single member now. */
   id: string
-  /** The chip's leading label ("Model", "Mode") — from the wire, never a
-   *  local constant, so all four clients agree by construction. */
+  /** Its leading label ("Mode"). */
   label: string
-  /** The raw value in force (`` = the CLI's own default), so a renderer can
-   *  run a CONTRACT value through its own vocabulary (`modelLabel`). */
+  /** The mode id in force. */
   value: string
-  /** What it currently reads ("Opus", CONFIG_DEFAULT_VALUE_LABEL). */
+  /** What it currently reads ("Plan", CONFIG_DEFAULT_VALUE_LABEL). */
   valueLabel: string
-  /** Empty = read-only (render the value, offer no menu). */
+  /** Every mode the run advertised; one entry = read-only. */
   values: SessionConfigValue[]
 }
 
-/** The chip row in the order every client draws it: the MODE chip first when
- *  the run has modes, then the options in publisher order. */
-export function configChips(
+/** EXP-772: the mode chip, or `null` when the run advertises no modes (codex
+ *  advertises none, so its composer draws nothing). Model, effort and the
+ *  other option pickers left the mid-session UI entirely. */
+export function modeChip(
   config: SessionConfigState | null | undefined
-): ConfigChip[] {
-  if (!config) return []
-  const chips: ConfigChip[] = []
-  if (config.modes.length > 0) {
-    const current = config.currentMode ?? ``
-    const mode = config.modes.find((m) => m.id === current)
-    chips.push({
-      kind: `mode`,
-      id: `mode`,
-      label: CONFIG_MODE_LABEL,
-      value: current,
-      valueLabel: mode?.label ?? (current || CONFIG_DEFAULT_VALUE_LABEL),
-      values: config.modes.map((m) => ({ id: m.id, label: m.label })),
-    })
+): ConfigChip | null {
+  if (!config || config.modes.length === 0) return null
+  const current = config.currentMode ?? ``
+  const mode = config.modes.find((m) => m.id === current)
+  return {
+    id: `mode`,
+    label: CONFIG_MODE_LABEL,
+    value: current,
+    valueLabel: mode?.label ?? (current || CONFIG_DEFAULT_VALUE_LABEL),
+    values: config.modes.map((m) => ({ id: m.id, label: m.label })),
   }
-  for (const option of config.options) {
-    const value = option.value ?? ``
-    const known = option.values?.find((v) => v.id === value)
-    chips.push({
-      kind: `option`,
-      id: option.id,
-      label: option.label,
-      value,
-      valueLabel: known?.label ?? (value || CONFIG_DEFAULT_VALUE_LABEL),
-      values: option.values ?? [],
-    })
+}
+
+/** EXP-772: the plan/build PAIR — exactly two modes, one of them `plan`.
+ *  That shape (claude, and pi when it launched with the plan extension) draws
+ *  a "Plan" switch instead of a two-value chip; anything else falls back to
+ *  the chip. `null` when the run is not that shape. */
+export interface PlanModeToggle {
+  /** The mode to switch to when turning plan ON. */
+  planId: string
+  /** The mode to switch back to when turning it OFF. */
+  buildId: string
+  /** Plan mode is in force right now. */
+  active: boolean
+}
+
+export const PLAN_MODE_ID = `plan`
+
+export function planModeToggle(
+  config: SessionConfigState | null | undefined
+): PlanModeToggle | null {
+  if (!config || config.modes.length !== 2) return null
+  const plan = config.modes.find((m) => m.id === PLAN_MODE_ID)
+  const build = config.modes.find((m) => m.id !== PLAN_MODE_ID)
+  if (!plan || !build) return null
+  return {
+    planId: plan.id,
+    buildId: build.id,
+    active: config.currentMode === plan.id,
   }
-  return chips
 }

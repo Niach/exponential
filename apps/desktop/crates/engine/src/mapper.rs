@@ -33,7 +33,7 @@ use std::time::{Duration, Instant};
 use agent_client_protocol::schema::v1::{
     AvailableCommand, ContentBlock, ContentChunk, CreateElicitationRequest, ElicitationMode,
     ElicitationPropertySchema, PermissionOption, PermissionOptionKind, RequestPermissionRequest,
-    SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectOptions,
+    SessionConfigOption,
     SessionModeState, SessionNotification, SessionUpdate, StopReason, ToolCall, ToolCallContent,
     ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, ToolKind,
 };
@@ -61,9 +61,16 @@ pub const FLUSH_IDLE: Duration = Duration::from_millis(250);
 /// an agent that dies mid-compaction must not strand it.
 pub const COMPACTION_MAX: Duration = Duration::from_secs(300);
 
+/// How many ANSWERED asks the mapper keeps for re-ack (EXP-766). A long
+/// unattended run answers thousands of permissions; each one held its options
+/// and, for a form, its whole field map for the rest of the session.
+pub const ANSWERED_ASKS_MAX: usize = 64;
+
 /// The `_meta` key an adapter stamps a subagent edge under (see
 /// [`SubagentEdge`]).
-pub use crate::local::{COMPACTION_TRIGGER_META_KEY, SUBAGENT_ID_META_KEY, SUBAGENT_META_KEY};
+pub use crate::local::{
+    COMPACTION_TRIGGER_META_KEY, INJECTED_PROMPT_META_KEY, SUBAGENT_ID_META_KEY, SUBAGENT_META_KEY,
+};
 
 /// Everything the mapper needs that is constant for a session.
 pub struct MapperConfig {
@@ -149,10 +156,18 @@ pub struct Mapper {
     /// reports the total, so a viewer whose replay lost the individual rows
     /// (the journal drops them first) still captions "N tool calls".
     subagent_tool_calls: HashMap<String, u32>,
+    /// EXP-773: subagents whose STARTING prompt has already been seen. A
+    /// subagent's first user turn IS the prompt the Task tool call already
+    /// says, so it is dropped instead of published twice.
+    subagent_prompts_seen: std::collections::HashSet<String>,
     permissions: HashMap<String, PermissionAsk>,
     elicitations: HashMap<String, ElicitationAsk>,
     /// question id → which ask owns it (a stepper registers one per step).
     questions: HashMap<String, AskRef>,
+    /// EXP-766: answered asks in answer order. An answered ask is kept only
+    /// so a re-tap can re-ack it (EXP-374), so the oldest are evicted past
+    /// [`ANSWERED_ASKS_MAX`]; unanswered asks are NEVER evicted.
+    answered_asks: std::collections::VecDeque<RetiredAsk>,
     /// The live `config_state` snapshot — always published WHOLE (D4).
     config_state: ConfigSnapshot,
     /// EXP-758: the last snapshot of each latest-wins slot that actually went
@@ -169,7 +184,6 @@ pub struct Mapper {
 
 #[derive(Default)]
 struct ConfigSnapshot {
-    options: Vec<steer::ConfigOption>,
     current_mode: Option<String>,
     modes: Option<Vec<steer::ConfigMode>>,
     commands: Option<Vec<steer::ConfigCommand>>,
@@ -225,13 +239,31 @@ enum AskRef {
     Elicitation(String),
 }
 
+/// An ask that has been answered (or cancelled), queued for eviction.
+enum RetiredAsk {
+    Permission(String),
+    Elicitation(String),
+}
+
 /// The chunk coalescer of rule 2: one buffer per `message_id`, flushed when
 /// the id changes, when the turn ends, or after [`FLUSH_IDLE`].
 #[derive(Default)]
 struct Coalescer {
     message_id: Option<String>,
+    /// EXP-773: the subagent every chunk of the buffered message belongs to.
+    /// A change of owner is a message boundary like a new id.
+    subagent_id: Option<String>,
     buf: String,
     since: Option<Instant>,
+}
+
+/// One coalesced message, with the identity every event it produces carries:
+/// the agent's `messageId` (EXP-772, the clients' merge key) and the subagent
+/// it belongs to (EXP-773).
+struct Flushed {
+    text: String,
+    message_id: Option<String>,
+    subagent_id: Option<String>,
 }
 
 impl Coalescer {
@@ -247,15 +279,26 @@ impl Coalescer {
     /// newline instead. Deliberately not a hard boundary: an external ACP
     /// agent that streams id-less deltas would then publish one feed row per
     /// delta, which is the far worse failure.
-    fn push(&mut self, message_id: Option<String>, text: &str) -> Option<String> {
-        let boundary = self.message_id != message_id && !self.buf.is_empty();
-        let flushed = boundary.then(|| std::mem::take(&mut self.buf));
+    fn push(
+        &mut self,
+        message_id: Option<String>,
+        subagent_id: Option<String>,
+        text: &str,
+    ) -> Option<Flushed> {
+        let boundary = (self.message_id != message_id || self.subagent_id != subagent_id)
+            && !self.buf.is_empty();
+        let flushed = boundary.then(|| Flushed {
+            text: std::mem::take(&mut self.buf),
+            message_id: self.message_id.clone(),
+            subagent_id: self.subagent_id.clone(),
+        });
         let separate = message_id.is_none()
             && self.message_id.is_none()
             && !self.buf.is_empty()
             && !self.buf.ends_with('\n')
             && !text.starts_with('\n');
         self.message_id = message_id;
+        self.subagent_id = subagent_id;
         if separate {
             self.buf.push('\n');
         }
@@ -264,14 +307,19 @@ impl Coalescer {
         flushed
     }
 
-    fn take(&mut self) -> Option<String> {
+    fn take(&mut self) -> Option<Flushed> {
         self.since = None;
-        self.message_id = None;
-        (!self.buf.is_empty()).then(|| std::mem::take(&mut self.buf))
+        let message_id = self.message_id.take();
+        let subagent_id = self.subagent_id.take();
+        (!self.buf.is_empty()).then(|| Flushed {
+            text: std::mem::take(&mut self.buf),
+            message_id,
+            subagent_id,
+        })
     }
 
     /// Take only if the buffer has been quiet for [`FLUSH_IDLE`].
-    fn take_if_idle(&mut self) -> Option<String> {
+    fn take_if_idle(&mut self) -> Option<Flushed> {
         match self.since {
             Some(since) if since.elapsed() >= FLUSH_IDLE => self.take(),
             _ => None,
@@ -301,9 +349,11 @@ impl Mapper {
             tools: HashMap::new(),
             subagents: HashMap::new(),
             subagent_tool_calls: HashMap::new(),
+            subagent_prompts_seen: std::collections::HashSet::new(),
             permissions: HashMap::new(),
             elicitations: HashMap::new(),
             questions: HashMap::new(),
+            answered_asks: std::collections::VecDeque::new(),
             config_state: ConfigSnapshot::default(),
             last_config_state: None,
             last_usage: None,
@@ -343,6 +393,30 @@ impl Mapper {
         {
             self.on_subagent(&edge, out);
         }
+        // EXP-773: prose and human turns are scoped to their subagent the same
+        // way tool calls are — off the chunk's own `_meta`, else the carrying
+        // notification's.
+        let chunk_subagent = notification
+            .meta
+            .as_ref()
+            .and_then(subagent_id_from_meta)
+            .or_else(|| update_meta(&notification.update).and_then(subagent_id_from_meta))
+            .map(|id| steer::truncate(&id, ID_MAX));
+        // EXP-772: a prompt the ADAPTER typed for the user (`/clear`, the plan
+        // hand-off). It is not a human turn, so it publishes nothing — it only
+        // arms the echo dedupe the CLI's replay of it will hit.
+        if let SessionUpdate::UserMessageChunk(chunk) = &notification.update {
+            if notification
+                .meta
+                .as_ref()
+                .and_then(|meta| meta.get(INJECTED_PROMPT_META_KEY))
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                self.arm_echo(&chunk_text(chunk));
+                return;
+            }
+        }
         // The three coalescers join chunks of ONE message each; a chunk of
         // another kind ends whatever the other two hold, so a replay (or any
         // burst inside one flush window) keeps its user → thought → message
@@ -351,15 +425,19 @@ impl Mapper {
             SessionUpdate::UserMessageChunk(chunk) => {
                 self.flush_message(out);
                 self.flush_thought(out);
-                if let Some(text) = self.user.push(message_id(chunk), &chunk_text(chunk)) {
-                    self.emit_user(&text, out);
+                if let Some(flushed) =
+                    self.user.push(message_id(chunk), chunk_subagent, &chunk_text(chunk))
+                {
+                    self.emit_user(&flushed, out);
                 }
             }
             SessionUpdate::AgentMessageChunk(chunk) => {
                 self.flush_user(out);
                 self.flush_thought(out);
-                if let Some(text) = self.message.push(message_id(chunk), &chunk_text(chunk)) {
-                    self.emit_narration(&text, out);
+                if let Some(flushed) =
+                    self.message.push(message_id(chunk), chunk_subagent, &chunk_text(chunk))
+                {
+                    self.emit_narration(&flushed, out);
                 }
             }
             SessionUpdate::AgentThoughtChunk(chunk) => {
@@ -371,7 +449,7 @@ impl Mapper {
                 }
                 self.flush_user(out);
                 self.flush_message(out);
-                if let Some(flushed) = self.thought.push(message_id(chunk), &text) {
+                if let Some(flushed) = self.thought.push(message_id(chunk), chunk_subagent, &text) {
                     self.emit_thought(&flushed, out);
                 }
             }
@@ -417,10 +495,9 @@ impl Mapper {
                     Some(steer::truncate(&update.current_mode_id.0, ID_MAX));
                 self.emit_config_state(out);
             }
-            SessionUpdate::ConfigOptionUpdate(update) => {
-                self.config_state.options = self.map_options(&update.config_options);
-                self.emit_config_state(out);
-            }
+            // EXP-772: option chips are gone from every client, so an agent's
+            // option vocabulary is no longer news the wire carries.
+            SessionUpdate::ConfigOptionUpdate(_) => {}
             // A session-row fact, not a feed row.
             SessionUpdate::SessionInfoUpdate(_) => {}
             SessionUpdate::UsageUpdate(usage) => {
@@ -598,10 +675,12 @@ impl Mapper {
     /// permission with `Cancelled`, and every open card is dismissed.
     pub fn on_cancel(&mut self, out: &mut MapOut) {
         let mut dismissed: Vec<(String, Option<String>)> = Vec::new();
+        let mut retired: Vec<RetiredAsk> = Vec::new();
         for (id, ask) in self.permissions.iter_mut() {
             if !ask.answered {
                 ask.answered = true;
                 dismissed.push((id.clone(), None));
+                retired.push(RetiredAsk::Permission(id.clone()));
             }
         }
         for (ask_id, ask) in self.elicitations.iter_mut() {
@@ -609,7 +688,11 @@ impl Mapper {
                 ask.answered = true;
                 let id = elicit_step_id(ask_id, ask.current, ask.steps.len());
                 dismissed.push((id, Some(ask_id.clone())));
+                retired.push(RetiredAsk::Elicitation(ask_id.clone()));
             }
+        }
+        for ask in retired {
+            self.retire_ask(ask);
         }
         for (id, ask_id) in dismissed {
             emit(
@@ -650,10 +733,15 @@ impl Mapper {
     /// `session/set_config_option` or a `ConfigOptionUpdate` — always emitted
     /// WHOLE and clamped (`steer::clamp_config_state`), because
     /// `config_state` is latest-wins state, not a delta.
+    ///
+    /// EXP-772: `_options` is IGNORED. Model/effort/fast pickers left the
+    /// steering UI on every client, so the snapshot carries modes and
+    /// commands only; the parameter stays so an agent may keep answering with
+    /// its own vocabulary.
     pub fn on_session_state(
         &mut self,
         modes: Option<&SessionModeState>,
-        options: &[SessionConfigOption],
+        _options: &[SessionConfigOption],
         commands: &[AvailableCommand],
         out: &mut MapOut,
     ) {
@@ -675,9 +763,6 @@ impl Mapper {
                     .collect(),
             );
         }
-        if !options.is_empty() {
-            self.config_state.options = self.map_options(options);
-        }
         if !commands.is_empty() {
             let mapped = self.map_commands(commands);
             self.config_state.commands = Some(mapped);
@@ -697,14 +782,14 @@ impl Mapper {
 
     /// Debounce tick: emits whatever the coalescers have been holding.
     pub fn flush(&mut self, out: &mut MapOut) {
-        if let Some(text) = self.message.take_if_idle() {
-            self.emit_narration(&text, out);
+        if let Some(flushed) = self.message.take_if_idle() {
+            self.emit_narration(&flushed, out);
         }
-        if let Some(text) = self.thought.take_if_idle() {
-            self.emit_thought(&text, out);
+        if let Some(flushed) = self.thought.take_if_idle() {
+            self.emit_thought(&flushed, out);
         }
-        if let Some(text) = self.user.take_if_idle() {
-            self.emit_user(&text, out);
+        if let Some(flushed) = self.user.take_if_idle() {
+            self.emit_user(&flushed, out);
         }
         self.close_stale_compaction(out);
     }
@@ -729,6 +814,7 @@ impl Mapper {
         let tool_calls = match edge.status {
             SubagentEdgeStatus::Started => None,
             SubagentEdgeStatus::Completed => {
+                self.subagent_prompts_seen.remove(&id);
                 let counted = self.subagent_tool_calls.remove(&id).unwrap_or(0);
                 Some(counted.max(edge.tool_calls.unwrap_or(0))).filter(|total| *total > 0)
             }
@@ -792,6 +878,31 @@ impl Mapper {
             + self.elicitations.values().filter(|ask| !ask.answered).count()
     }
 
+    /// Queue an answered ask for eviction and drop everything past
+    /// [`ANSWERED_ASKS_MAX`] (EXP-766). An evicted card answers as
+    /// `AnswerDecision::Unknown` on a re-tap instead of re-acking, which is
+    /// the same thing a client that reconnected past the journal sees.
+    fn retire_ask(&mut self, retired: RetiredAsk) {
+        self.answered_asks.push_back(retired);
+        while self.answered_asks.len() > ANSWERED_ASKS_MAX {
+            match self.answered_asks.pop_front() {
+                Some(RetiredAsk::Permission(id)) => {
+                    self.permissions.remove(&id);
+                    self.questions.remove(&id);
+                }
+                Some(RetiredAsk::Elicitation(ask_id)) => {
+                    if let Some(ask) = self.elicitations.remove(&ask_id) {
+                        let total = ask.steps.len();
+                        for step in 0..=total {
+                            self.questions.remove(&elicit_step_id(&ask_id, step, total));
+                        }
+                    }
+                }
+                None => break,
+            }
+        }
+    }
+
     /// The live `config_state`, for a caller that has to re-publish it (a
     /// reconnect replays the journal, so this is only the local mirror).
     pub fn config_state(&self) -> ActivityEvent {
@@ -807,29 +918,42 @@ impl Mapper {
     }
 
     fn flush_message(&mut self, out: &mut MapOut) {
-        if let Some(text) = self.message.take() {
-            self.emit_narration(&text, out);
+        if let Some(flushed) = self.message.take() {
+            self.emit_narration(&flushed, out);
         }
     }
 
     fn flush_thought(&mut self, out: &mut MapOut) {
-        if let Some(text) = self.thought.take() {
-            self.emit_thought(&text, out);
+        if let Some(flushed) = self.thought.take() {
+            self.emit_thought(&flushed, out);
         }
     }
 
     fn flush_user(&mut self, out: &mut MapOut) {
-        if let Some(text) = self.user.take() {
-            self.emit_user(&text, out);
+        if let Some(flushed) = self.user.take() {
+            self.emit_user(&flushed, out);
         }
     }
 
-    fn emit_narration(&mut self, text: &str, out: &mut MapOut) {
-        if text.trim().is_empty() {
+    /// EXP-772: every piece of ONE message carries the agent's own message id,
+    /// so a client merges the pieces back into a single row instead of
+    /// painting one bubble per flush.
+    fn emit_narration(&mut self, flushed: &Flushed, out: &mut MapOut) {
+        if flushed.text.trim().is_empty() {
             return;
         }
-        let text = self.clean(text, NARRATION_MAX);
-        emit(out, ActivityEvent::narration(text), None);
+        let text = self.clean(&flushed.text, NARRATION_MAX);
+        emit(
+            out,
+            ActivityEvent::Narration {
+                text,
+                before_question_id: None,
+                message_id: flushed.message_id.clone(),
+                subagent_id: flushed.subagent_id.clone(),
+                at: None,
+            },
+            None,
+        );
     }
 
     /// The host is about to send `text` as a prompt (a seed, a steer, a
@@ -842,15 +966,25 @@ impl Mapper {
             return;
         }
         self.flush_all(out);
-        self.pending_echoes.push_back(text.trim().to_string());
-        if self.pending_echoes.len() > PENDING_ECHOES_MAX {
-            self.pending_echoes.pop_front();
-        }
+        self.arm_echo(text);
         let text = self.clean(text, NARRATION_MAX);
         emit(out, ActivityEvent::user_message(text), None);
     }
 
-    fn emit_user(&mut self, text: &str, out: &mut MapOut) {
+    /// Remember `text` so the agent's own replay of it is swallowed. Used by
+    /// [`Mapper::on_prompt`] and by the adapters' injected prompts (EXP-772).
+    fn arm_echo(&mut self, text: &str) {
+        if text.trim().is_empty() {
+            return;
+        }
+        self.pending_echoes.push_back(text.trim().to_string());
+        if self.pending_echoes.len() > PENDING_ECHOES_MAX {
+            self.pending_echoes.pop_front();
+        }
+    }
+
+    fn emit_user(&mut self, flushed: &Flushed, out: &mut MapOut) {
+        let text = flushed.text.as_str();
         if text.trim().is_empty() {
             return;
         }
@@ -859,20 +993,45 @@ impl Mapper {
             self.pending_echoes.remove(at);
             return;
         }
+        // EXP-773: a subagent's FIRST turn is the prompt its Task tool call
+        // already names — publishing it would print the whole prompt twice.
+        if let Some(subagent_id) = &flushed.subagent_id {
+            if self.subagent_prompts_seen.insert(subagent_id.clone()) {
+                return;
+            }
+        }
         let text = self.clean(text, NARRATION_MAX);
-        emit(out, ActivityEvent::user_message(text), None);
+        emit(
+            out,
+            ActivityEvent::UserMessage {
+                text,
+                subagent_id: flushed.subagent_id.clone(),
+                at: None,
+            },
+            None,
+        );
     }
 
     /// A thought is BOTH a capped narration on the wire (viewers have always
     /// seen the agent think) and a richer local item the desktop styles.
-    fn emit_thought(&mut self, text: &str, out: &mut MapOut) {
-        if text.trim().is_empty() {
+    fn emit_thought(&mut self, flushed: &Flushed, out: &mut MapOut) {
+        if flushed.text.trim().is_empty() {
             return;
         }
-        let clean = self.clean(text, NARRATION_MAX);
-        emit(out, ActivityEvent::narration(clean.clone()), None);
+        let clean = self.clean(&flushed.text, NARRATION_MAX);
+        emit(
+            out,
+            ActivityEvent::Narration {
+                text: clean.clone(),
+                before_question_id: None,
+                message_id: flushed.message_id.clone(),
+                subagent_id: flushed.subagent_id.clone(),
+                at: None,
+            },
+            None,
+        );
         out.local.push(LocalFeedEvent::Thought {
-            message_id: self.thought.message_id.clone(),
+            message_id: flushed.message_id.clone(),
             text: clean,
         });
     }
@@ -972,6 +1131,11 @@ impl Mapper {
         });
         if let Some(content) = content {
             self.tool_content(&id, kind, content, raw_output.as_ref(), out);
+        }
+        // A settled call has no later update to inherit title/kind from, so
+        // its row is dead weight for the rest of the run (EXP-766).
+        if matches!(status, Some(ToolCallStatus::Completed) | Some(ToolCallStatus::Failed)) {
+            self.tools.remove(&id);
         }
     }
 
@@ -1116,63 +1280,6 @@ impl Mapper {
             .to_string()
     }
 
-    fn map_options(&self, options: &[SessionConfigOption]) -> Vec<steer::ConfigOption> {
-        options
-            .iter()
-            .map(|option| {
-                let (value, values) = match &option.kind {
-                    SessionConfigKind::Select(select) => {
-                        let values = match &select.options {
-                            SessionConfigSelectOptions::Ungrouped(list) => list
-                                .iter()
-                                .map(|value| steer::ConfigValue {
-                                    id: steer::truncate(&value.value.0, ID_MAX),
-                                    label: self.clean(&value.name, OPTION_LABEL_MAX),
-                                })
-                                .collect(),
-                            SessionConfigSelectOptions::Grouped(groups) => groups
-                                .iter()
-                                .flat_map(|group| group.options.iter())
-                                .map(|value| steer::ConfigValue {
-                                    id: steer::truncate(&value.value.0, ID_MAX),
-                                    label: self.clean(&value.name, OPTION_LABEL_MAX),
-                                })
-                                .collect(),
-                            // `#[non_exhaustive]`: an unknown grouping still
-                            // renders as a read-only chip.
-                            _ => Vec::new(),
-                        };
-                        (
-                            Some(steer::truncate(&select.current_value.0, ID_MAX)),
-                            Some(values),
-                        )
-                    }
-                    SessionConfigKind::Boolean(boolean) => (
-                        Some(boolean.current_value.to_string()),
-                        Some(vec![
-                            steer::ConfigValue {
-                                id: "true".to_string(),
-                                label: "On".to_string(),
-                            },
-                            steer::ConfigValue {
-                                id: "false".to_string(),
-                                label: "Off".to_string(),
-                            },
-                        ]),
-                    ),
-                    _ => (None, None),
-                };
-                steer::ConfigOption {
-                    id: steer::truncate(&option.id.0, ID_MAX),
-                    label: self.clean(&option.name, OPTION_LABEL_MAX),
-                    category: option.category.as_ref().map(category_id),
-                    value,
-                    values,
-                }
-            })
-            .collect()
-    }
-
     /// The agent's own `/` commands. EXP-758: their three labels go through
     /// [`Mapper::clean`] like every other published string: an agent's
     /// command catalog is built from files in the REPO (claude's
@@ -1199,7 +1306,9 @@ impl Mapper {
 
     fn build_config_state(&self) -> ActivityEvent {
         let mut event = ActivityEvent::ConfigState {
-            options: self.config_state.options.clone(),
+            // EXP-772: ALWAYS empty. Modes (plan on/off) and the `/` catalog
+            // are the whole mid-session steering vocabulary now.
+            options: Vec::new(),
             current_mode: self.config_state.current_mode.clone(),
             modes: self.config_state.modes.clone(),
             commands: self.config_state.commands.clone(),
@@ -1343,6 +1452,7 @@ impl Mapper {
         if self.pending_asks() == 0 {
             out.needs_input = Some(false);
         }
+        self.retire_ask(RetiredAsk::Permission(id.to_string()));
         AnswerDecision::Permission { option_id }
     }
 
@@ -1460,6 +1570,7 @@ impl Mapper {
             if self.pending_asks() == 0 {
                 out.needs_input = Some(false);
             }
+            self.retire_ask(RetiredAsk::Elicitation(ask_id.to_string()));
             return AnswerDecision::Elicitation {
                 fields,
                 submit: true,
@@ -1827,20 +1938,6 @@ pub fn clamp_usage(event: &mut ActivityEvent) {
         .map(|cost| cost.clamp(0.0, USAGE_COST_MAX));
 }
 
-
-/// The relay's `option.category` grouping hint. Deliberately the four names
-/// the clients already know (`model`, `effort`, `mode`), never the ACP enum's
-/// Rust spelling.
-fn category_id(category: &SessionConfigOptionCategory) -> String {
-    match category {
-        SessionConfigOptionCategory::Model => "model".to_string(),
-        SessionConfigOptionCategory::ThoughtLevel => "effort".to_string(),
-        SessionConfigOptionCategory::ModelConfig => "model_config".to_string(),
-        SessionConfigOptionCategory::Mode => "mode".to_string(),
-        SessionConfigOptionCategory::Other(other) => other.clone(),
-        _ => "other".to_string(),
-    }
-}
 
 fn message_id(chunk: &ContentChunk) -> Option<String> {
     chunk.message_id.as_ref().map(|id| id.0.to_string())
@@ -2280,6 +2377,69 @@ mod tests {
         assert_eq!(again.wire.len(), 1);
     }
 
+    /// EXP-766: an unattended run answers thousands of permissions; only the
+    /// last [`ANSWERED_ASKS_MAX`] stay around for a re-ack, and an OPEN card
+    /// is never evicted.
+    #[test]
+    fn answered_permissions_are_bounded_and_open_ones_are_kept() {
+        let mut mapper = mapper();
+        for n in 0..200 {
+            let id = format!("tc-{n}");
+            let mut out = MapOut::default();
+            let request = RequestPermissionRequest::new(
+                SessionId::new("acp-1"),
+                ToolCallUpdate::new(
+                    ToolCallId::new(id.clone()),
+                    ToolCallUpdateFields::new().title("Write src/main.rs"),
+                ),
+                vec![PermissionOption::new(
+                    PermissionOptionId::new("allow"),
+                    "Yes",
+                    PermissionOptionKind::AllowOnce,
+                )],
+            );
+            mapper.on_permission(&request, &mut out);
+            let answer = steer::RemoteAnswer {
+                question_id: id,
+                ask_id: None,
+                keys: vec!["allow".to_string()],
+                text: None,
+            };
+            let mut answered = MapOut::default();
+            mapper.on_answer(&mapper.ask_key(&answer), &answer, &mut answered);
+        }
+        // One card left OPEN at the end.
+        let mut out = MapOut::default();
+        let request = RequestPermissionRequest::new(
+            SessionId::new("acp-1"),
+            ToolCallUpdate::new(
+                ToolCallId::new("tc-open"),
+                ToolCallUpdateFields::new().title("Write src/main.rs"),
+            ),
+            vec![PermissionOption::new(
+                PermissionOptionId::new("allow"),
+                "Yes",
+                PermissionOptionKind::AllowOnce,
+            )],
+        );
+        mapper.on_permission(&request, &mut out);
+
+        let answered = mapper
+            .permissions
+            .values()
+            .filter(|ask| ask.answered)
+            .count();
+        assert!(answered <= ANSWERED_ASKS_MAX, "{answered} answered kept");
+        assert_eq!(mapper.pending_asks(), 1);
+        assert!(mapper.permissions.contains_key("tc-open"));
+        assert!(mapper.questions.contains_key("tc-open"));
+        // The oldest answered card is gone with its question registration.
+        assert!(!mapper.permissions.contains_key("tc-0"));
+        assert!(!mapper.questions.contains_key("tc-0"));
+        // The newest answered ones still re-ack.
+        assert!(mapper.permissions.contains_key("tc-199"));
+    }
+
     #[test]
     fn an_exit_plan_mode_permission_is_a_plan_card() {
         let mut mapper = mapper();
@@ -2360,7 +2520,9 @@ mod tests {
     }
 
     #[test]
-    fn config_state_is_one_clamped_whole_snapshot() {
+    fn config_state_is_one_clamped_whole_snapshot_without_options() {
+        // EXP-772: the agent may advertise a whole option vocabulary; the
+        // snapshot carries modes and commands ONLY, and `options` is empty.
         use agent_client_protocol::schema::v1::{
             SessionConfigSelectOption, SessionMode, SessionModeId,
         };
@@ -2370,7 +2532,7 @@ mod tests {
             SessionModeId::new("plan"),
             vec![
                 SessionMode::new(SessionModeId::new("plan"), "Plan"),
-                SessionMode::new(SessionModeId::new("default"), "Default"),
+                SessionMode::new(SessionModeId::new("bypassPermissions"), "Build"),
             ],
         );
         let options = vec![SessionConfigOption::select(
@@ -2381,28 +2543,18 @@ mod tests {
                 SessionConfigSelectOption::new("opus", "Opus"),
                 SessionConfigSelectOption::new("sonnet", "Sonnet"),
             ],
-        )
-        .category(SessionConfigOptionCategory::Model)];
+        )];
         let commands = vec![AvailableCommand::new("compact", "Compact the context")];
         mapper.on_session_state(Some(&modes), &options, &commands, &mut out);
         assert_eq!(
             serde_json::to_value(&out.wire[0]).expect("config_state serializes"),
             json!({
                 "kind": "config_state",
-                "options": [{
-                    "id": "model",
-                    "label": "Model",
-                    "category": "model",
-                    "value": "opus",
-                    "values": [
-                        {"id": "opus", "label": "Opus"},
-                        {"id": "sonnet", "label": "Sonnet"}
-                    ]
-                }],
+                "options": [],
                 "currentMode": "plan",
                 "modes": [
                     {"id": "plan", "label": "Plan"},
-                    {"id": "default", "label": "Default"}
+                    {"id": "bypassPermissions", "label": "Build"}
                 ],
                 "commands": [{"name": "compact", "description": "Compact the context"}]
             })
@@ -2521,6 +2673,110 @@ mod tests {
             serde_json::to_value(&out.wire[0]).expect("subagent serializes"),
             json!({"kind": "subagent", "id": "task-2", "agentType": "plan", "status": "completed"})
         );
+    }
+
+    /// EXP-772: two flushes of ONE message carry the SAME `messageId`, so a
+    /// client merges them back into one row.
+    #[test]
+    fn every_flush_of_one_message_carries_the_same_message_id() {
+        let mut mapper = mapper();
+        let mut first = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::AgentMessageChunk(chunk("Looking", Some("msg-1")))),
+            &mut first,
+        );
+        // A turn end flushes the first half.
+        mapper.on_stop(StopReason::EndTurn, &mut first);
+        let mut second = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::AgentMessageChunk(chunk(" at it.", Some("msg-1")))),
+            &mut second,
+        );
+        mapper.on_stop(StopReason::EndTurn, &mut second);
+        let ids: Vec<Option<String>> = first
+            .wire
+            .iter()
+            .chain(second.wire.iter())
+            .filter_map(|event| match event {
+                ActivityEvent::Narration { message_id, .. } => Some(message_id.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(ids, vec![Some("msg-1".to_string()), Some("msg-1".to_string())]);
+        // An id-less agent still publishes, without the merge key.
+        let mut plain = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::AgentMessageChunk(chunk("done", None))),
+            &mut plain,
+        );
+        mapper.on_stop(StopReason::EndTurn, &mut plain);
+        assert!(matches!(
+            &plain.wire[0],
+            ActivityEvent::Narration { message_id: None, .. }
+        ));
+    }
+
+    /// EXP-773: prose and turns inside a subagent are scoped to it, and the
+    /// subagent's FIRST user turn (its starting prompt) is dropped.
+    #[test]
+    fn subagent_prose_is_scoped_and_its_first_prompt_is_dropped() {
+        let mut mapper = mapper();
+        let mut meta = serde_json::Map::new();
+        meta.insert(SUBAGENT_ID_META_KEY.to_string(), json!("task-1"));
+
+        let mut out = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::UserMessageChunk(chunk("Explore the repo", Some("u-1"))))
+                .meta(meta.clone()),
+            &mut out,
+        );
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        assert!(
+            !out.wire.iter().any(|event| matches!(event, ActivityEvent::UserMessage { .. })),
+            "the starting prompt is the Task card's own title: {:?}",
+            out.wire
+        );
+
+        let mut out = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::AgentMessageChunk(chunk("Found it.", Some("m-1"))))
+                .meta(meta.clone()),
+            &mut out,
+        );
+        mapper.on_update(
+            &notify(SessionUpdate::UserMessageChunk(chunk("keep going", Some("u-2"))))
+                .meta(meta.clone()),
+            &mut out,
+        );
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        assert!(
+            matches!(
+                &out.wire[0],
+                ActivityEvent::Narration { subagent_id: Some(id), .. } if id == "task-1"
+            ),
+            "{:?}",
+            out.wire
+        );
+        assert!(
+            matches!(
+                &out.wire[1],
+                ActivityEvent::UserMessage { subagent_id: Some(id), .. } if id == "task-1"
+            ),
+            "{:?}",
+            out.wire
+        );
+
+        // The main line stays unscoped.
+        let mut out = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::AgentMessageChunk(chunk("Back on the main thread.", Some("m-2")))),
+            &mut out,
+        );
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        assert!(matches!(
+            &out.wire[0],
+            ActivityEvent::Narration { subagent_id: None, .. }
+        ));
     }
 
     #[test]

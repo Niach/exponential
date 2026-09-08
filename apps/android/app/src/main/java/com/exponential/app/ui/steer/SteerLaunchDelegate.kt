@@ -12,6 +12,7 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.RunResumeTarget
 import com.exponential.app.domain.StartedRunKey
 import com.exponential.app.domain.StartedRunMatch
 import com.exponential.app.ui.issue.StartIssueOption
@@ -232,6 +233,32 @@ class SteerLaunchDelegate @Inject constructor(
     }
 
     /**
+     * EXP-773: pick an ENDED run up again on the machine that ran it. Same
+     * command the list rows used to send, moved here with the affordance: the
+     * desktop relaunches the pinned agent in the run's own worktree and
+     * inserts a NEW session row, which this then hands to the host screen.
+     */
+    fun resumeRun(target: RunResumeTarget) {
+        val scope = scope ?: return
+        scope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            _runState.value = ActionRunState.Sending
+            try {
+                steerApi.resumeSession(accountId, target.sessionId, target.deviceId)
+                awaitStartedRun(
+                    StartedRunKey.Resumed(target.sessionId),
+                    target.deviceLabel,
+                )
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _runState.value = ActionRunState.Failed(
+                    trpcErrorMessage(t, "The run could not be resumed"),
+                )
+            }
+        }
+    }
+
+    /**
      * Hold the "waiting for the desktop" caption until the run's synced
      * coding_sessions row appears (then hand it to the host screen's
      * navigation), or until the deadline passes. The deadline is NOT a silent
@@ -240,8 +267,10 @@ class SteerLaunchDelegate @Inject constructor(
      * the caption would just vanish and nothing would ever appear (EXP-357).
      * The desktop holds the reason (it notifies there); say so.
      */
-    private suspend fun awaitStartedRun(key: StartedRunKey, device: SteerDevice) {
-        val label = device.deviceLabel.ifBlank { device.deviceId }
+    private suspend fun awaitStartedRun(key: StartedRunKey, device: SteerDevice) =
+        awaitStartedRun(key, device.deviceLabel.ifBlank { device.deviceId })
+
+    private suspend fun awaitStartedRun(key: StartedRunKey, label: String) {
         _runState.value = ActionRunState.Sent(label)
         val userId = auth.userId.value
         val sessionId = if (userId == null) {

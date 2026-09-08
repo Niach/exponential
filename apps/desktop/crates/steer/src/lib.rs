@@ -69,6 +69,7 @@ pub mod commands;
 pub mod control_channel;
 pub mod feed;
 pub mod frames;
+pub mod history;
 pub mod hooks;
 pub mod image_message;
 pub mod journal;
@@ -88,8 +89,8 @@ use serde::Deserialize;
 
 pub use api::steer::{MintTicketResult, MintedTicket, SteerConfig};
 pub use control_channel::{
-    spawn_control_channel, ControlApi, ControlChannelHandle, DeviceIdentity, RemoteStart,
-    RemoteStartSubject, TrpcControlApi,
+    spawn_control_channel, ControlApi, ControlChannelHandle, DeviceIdentity, HistoryRequestFn,
+    RemoteStart, RemoteStartSubject, TrpcControlApi,
 };
 pub use activity::{
     clamp_config_state, launch_narration, normalize_compaction_trigger, pump_commands,
@@ -120,6 +121,10 @@ pub use image_message::{
 pub use hooks::{
     hook_settings_json, write_hook_curl_config, HookContext, HookEvent, HookEventKind,
     HookQuestion, HookQuestionOption, HookServer, HOOK_CONFIG_ENV, HOOK_PORT_ENV,
+};
+pub use history::{
+    journal_dir, journal_path, prune_journals, publish_history, read_journal,
+    serve_history_request, HistoryInFlight, JournalWriter, JOURNAL_FILE_CAP, JOURNAL_MAX_AGE,
 };
 pub use journal::{ActivityJournal, JOURNAL_BYTE_CAP, JOURNAL_EVENT_CAP};
 pub use publisher::{
@@ -188,6 +193,11 @@ pub struct SteerTicketClaims {
     pub device_label: Option<String>,
     #[serde(default)]
     pub session_id: Option<String>,
+    /// EXP-773: the deviceId a VIEWER ticket names — the machine that holds
+    /// the session's stored transcript. The desktop never reads it (the relay
+    /// routes on it); the mirror carries it so the claim set stays honest.
+    #[serde(default)]
+    pub device_id: Option<String>,
     pub role: SteerRole,
     /// Unix seconds.
     pub iat: i64,

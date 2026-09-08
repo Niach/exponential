@@ -390,16 +390,15 @@ async fn a_turn_becomes_tool_calls_narration_a_plan_and_usage() {
                 .send_request(NewSessionRequest::new(PathBuf::from("/work/tree")))
                 .block_task()
                 .await?;
-            // The three approval x sandbox presets are ACP MODES, and the
-            // model/effort/fast chips are config options.
-            let modes = session.modes.clone().expect("the presets are modes");
-            assert_eq!(modes.available_modes.len(), 3);
-            assert_eq!(modes.current_mode_id.0.as_ref(), "agent-full-access");
+            // EXP-772: plan on / plan off is the ONE steerable mode (it rides
+            // codex's collaboration setting), and there are no option chips.
+            let modes = session.modes.clone().expect("the modes are advertised");
+            let ids: Vec<String> =
+                modes.available_modes.iter().map(|mode| mode.id.0.to_string()).collect();
+            assert_eq!(ids, vec!["plan".to_string(), "bypassPermissions".to_string()]);
+            assert_eq!(modes.current_mode_id.0.as_ref(), "bypassPermissions");
             let options = session.config_options.clone().expect("config options");
-            let ids: Vec<String> = options.iter().map(|option| option.id.0.to_string()).collect();
-            assert!(ids.contains(&"model".to_string()), "{ids:?}");
-            assert!(ids.contains(&"reasoning_effort".to_string()), "{ids:?}");
-            assert!(ids.contains(&"fast-mode".to_string()), "{ids:?}");
+            assert!(options.is_empty(), "{options:?}");
 
             let response = cx
                 .send_request(PromptRequest::new(
@@ -499,11 +498,10 @@ async fn a_loaded_thread_resumes_and_its_next_turn_runs() {
                 ))
                 .block_task()
                 .await?;
-            // The chips come back too: the resume seeds them off its own
-            // thread response, like a fresh one does.
+            // EXP-772: a resume advertises the same empty option vocabulary a
+            // fresh session does.
             let options = loaded.config_options.clone().expect("config options");
-            let ids: Vec<String> = options.iter().map(|option| option.id.0.to_string()).collect();
-            assert!(ids.contains(&"model".to_string()), "{ids:?}");
+            assert!(options.is_empty(), "{options:?}");
 
             let response = cx
                 .send_request(PromptRequest::new(

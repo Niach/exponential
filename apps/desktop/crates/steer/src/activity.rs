@@ -7400,6 +7400,8 @@ mod tests {
             vec![ActivityEvent::Narration {
                 text: "Here is the summary of my findings.".to_string(),
                 before_question_id: Some("toolu_ask1".to_string()),
+                message_id: None,
+                subagent_id: None,
                 at: None,
             }]
         );
@@ -7430,6 +7432,8 @@ mod tests {
             vec![ActivityEvent::Narration {
                 text: "Here is the summary of my findings.".to_string(),
                 before_question_id: Some("toolu_ask1".to_string()),
+                message_id: None,
+                subagent_id: None,
                 at: None,
             }]
         );
@@ -7457,6 +7461,8 @@ mod tests {
             vec![ActivityEvent::Narration {
                 text: "The plan is ready — summary first.".to_string(),
                 before_question_id: Some("toolu_plan1".to_string()),
+                message_id: None,
+                subagent_id: None,
                 at: None,
             }]
         );
@@ -9318,6 +9324,7 @@ mod tests {
         steer.observe_published(
             &ActivityEvent::UserMessage {
                 text: "and now the migration".to_string(),
+                subagent_id: None,
                 at: None,
             },
             &sender,

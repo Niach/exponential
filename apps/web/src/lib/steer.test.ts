@@ -180,6 +180,43 @@ describe(`ticket claim composition`, () => {
       exp: NOW + STEER_TICKET_TTL_SECONDS,
     })
   })
+
+  it(`viewer: carries the session's deviceId when the row named one (EXP-773)`, () => {
+    expect(
+      buildSteerTicketClaims(
+        {
+          kind: `viewer`,
+          userId: `user-1`,
+          teamId: `ws-1`,
+          sessionId: `session-1`,
+          deviceId: `dev-1`,
+        },
+        NOW
+      )
+    ).toEqual({
+      sub: `user-1`,
+      team: `ws-1`,
+      sessionId: `session-1`,
+      role: `viewer`,
+      deviceId: `dev-1`,
+      iat: NOW,
+      exp: NOW + STEER_TICKET_TTL_SECONDS,
+    })
+    // No device on the row: the key stays OFF the wire (an absent claim is
+    // the relay's "no history to ask for" signal).
+    expect(
+      buildSteerTicketClaims(
+        {
+          kind: `viewer`,
+          userId: `user-1`,
+          teamId: `ws-1`,
+          sessionId: `session-1`,
+          deviceId: undefined,
+        },
+        NOW
+      )
+    ).not.toHaveProperty(`deviceId`)
+  })
 })
 
 describe(`mintSteerTicket`, () => {

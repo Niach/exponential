@@ -8,10 +8,10 @@ import com.exponential.app.domain.COMPACTED_LABEL
 import com.exponential.app.domain.COMPACTING_LABEL
 import com.exponential.app.domain.COMPACTION_TIMEOUT_MS
 import com.exponential.app.domain.CONFIG_DEFAULT_VALUE_LABEL
-import com.exponential.app.domain.CONFIG_MODE_CHIP_ID
+import com.exponential.app.domain.PLAN_MODE_ID
+import com.exponential.app.domain.PLAN_TOGGLE_LABEL
 import com.exponential.app.domain.CONFIG_MODE_LABEL
 import com.exponential.app.domain.CompactionState
-import com.exponential.app.domain.ConfigChip
 import com.exponential.app.domain.ConfigCommand
 import com.exponential.app.domain.ConfigMode
 import com.exponential.app.domain.ConfigOption
@@ -19,7 +19,7 @@ import com.exponential.app.domain.ConfigValue
 import com.exponential.app.domain.FEED_CAP
 import com.exponential.app.domain.SessionConfigState
 import com.exponential.app.domain.SessionUsageState
-import com.exponential.app.domain.configChips
+import com.exponential.app.domain.modeChip
 import com.exponential.app.domain.QuestionOption
 import com.exponential.app.domain.SUBAGENT_FALLBACK_TYPE
 import com.exponential.app.domain.activeQuestionIds
@@ -384,7 +384,7 @@ class AgentFeedTest {
         val rows = groupFeedRows(feed)
         assertEquals(3, rows.size)
         val run = rows[1] as AgentFeedRow.SubagentRun
-        assertEquals(listOf(3L, 4L), run.tools.map { it.id })
+        assertEquals(listOf(3L, 4L), run.items.map { it.id })
         assertEquals(2L, run.id)
         // A main-thread tool after the group is its own row.
         assertEquals(AgentFeedRow.Single(feed[4]), rows[2])
@@ -397,13 +397,13 @@ class AgentFeedTest {
             tool(2).copy(subagentId = "s2"),
         )
         val rows = groupFeedRows(feed)
-        assertTrue((rows[0] as AgentFeedRow.SubagentRun).tools.isEmpty())
+        assertTrue((rows[0] as AgentFeedRow.SubagentRun).items.isEmpty())
         assertEquals(2, rows.size)
         // The orphan (its marker fell off the top) still forms its own group.
         val orphan = rows[1] as AgentFeedRow.SubagentRun
         assertEquals("s2", orphan.subagentId)
         assertEquals(SUBAGENT_FALLBACK_TYPE, orphan.agentType)
-        assertEquals(listOf(2L), orphan.tools.map { it.id })
+        assertEquals(listOf(2L), orphan.items.map { it.id })
     }
 
     @Test
@@ -422,10 +422,10 @@ class AgentFeedTest {
         assertEquals(3, rows.size)
         val first = rows[0] as AgentFeedRow.SubagentRun
         assertEquals("s1", first.subagentId)
-        assertEquals(listOf(3L, 6L), first.tools.map { it.id })
+        assertEquals(listOf(3L, 6L), first.items.map { it.id })
         val second = rows[1] as AgentFeedRow.SubagentRun
         assertEquals("s2", second.subagentId)
-        assertEquals(listOf(5L), second.tools.map { it.id })
+        assertEquals(listOf(5L), second.items.map { it.id })
         assertEquals(AgentFeedRow.Single(feed[3]), rows[2])
     }
 
@@ -463,7 +463,7 @@ class AgentFeedTest {
         val run = groupFeedRows(feed)[0] as AgentFeedRow.SubagentRun
         assertEquals("explore", run.agentType)
         assertTrue(run.completed)
-        assertTrue(run.tools.isEmpty())
+        assertTrue(run.items.isEmpty())
     }
 
     @Test
@@ -557,7 +557,7 @@ class AgentFeedTest {
         val run = rows[0] as AgentFeedRow.SubagentRun
         assertTrue(run.completed)
         assertEquals("done", run.detail)
-        assertEquals(1, run.tools.size)
+        assertEquals(1, run.items.size)
         assertEquals(
             AgentFeedItem.Permission(2, "Bash", "rm -rf"),
             (rows[1] as AgentFeedRow.Single).item,
@@ -734,10 +734,10 @@ class AgentFeedTest {
         assertEquals("Explore", agents[0].agentType)
         assertTrue(agents[0].completed)
         assertEquals("map", agents[0].detail)
-        assertEquals(2, agents[0].tools.size)
+        assertEquals(2, agents[0].items.size)
         assertEquals("review", agents[1].agentType)
         assertFalse(agents[1].completed)
-        assertTrue(agents[1].tools.isEmpty())
+        assertTrue(agents[1].items.isEmpty())
         assertTrue(collectSubagents(listOf(tool(1))).isEmpty())
     }
 
@@ -888,9 +888,11 @@ class AgentFeedTest {
         assertNull(state.usage)
     }
 
+    /** EXP-772: the mode is the ONLY steering chip left. Advertised options
+     *  (the engine now publishes none) never reach the composer again. */
     @Test
-    fun `configChips puts the mode chip first`() {
-        val chips = configChips(
+    fun `only the mode reaches the composer`() {
+        val chip = modeChip(
             SessionConfigState(
                 options = listOf(
                     ConfigOption(
@@ -899,25 +901,50 @@ class AgentFeedTest {
                         value = "opus",
                         values = listOf(ConfigValue("opus", "Opus")),
                     ),
-                    // A blank value is the CLI's own default.
                     ConfigOption(id = "effort", label = "Effort", value = ""),
                 ),
                 currentMode = "plan",
-                modes = listOf(ConfigMode("plan", "Plan"), ConfigMode("auto", "Auto")),
+                modes = listOf(
+                    ConfigMode("plan", "Plan"),
+                    ConfigMode("auto", "Auto"),
+                    ConfigMode("ask", "Ask"),
+                ),
             ),
-        )
-        assertEquals(
-            listOf(CONFIG_MODE_CHIP_ID, "model", "effort"),
-            chips.map { it.id },
-        )
-        assertEquals(ConfigChip.Kind.Mode, chips.first().kind)
-        assertEquals(CONFIG_MODE_LABEL, chips.first().label)
-        assertEquals("Plan", chips.first().valueLabel)
-        assertEquals(listOf("plan", "auto"), chips.first().values.map { it.id })
-        assertEquals("Opus", chips[1].valueLabel)
-        // No modes, no mode chip.
-        assertTrue(configChips(SessionConfigState()).isEmpty())
-        assertTrue(configChips(null).isEmpty())
+        )!!
+        assertEquals("Plan", chip.valueLabel)
+        assertEquals(listOf("plan", "auto", "ask"), chip.values.map { it.id })
+        // Three modes are a picker, not a switch.
+        assertNull(chip.planToggle)
+        // A run that advertises NO modes (codex) draws nothing at all — an
+        // inert badge would be a control that cannot be operated.
+        assertNull(modeChip(SessionConfigState()))
+        assertNull(modeChip(null))
+    }
+
+    /** EXP-772: `plan` plus exactly one other mode is a yes/no question, so it
+     *  collapses into the compact Plan switch whose off position is the other
+     *  mode — claude's `plan` / `bypassPermissions` pair. */
+    @Test
+    fun `plan plus one other mode collapses into the switch`() {
+        val modes = listOf(ConfigMode(PLAN_MODE_ID, "Plan"), ConfigMode("bypassPermissions", "Build"))
+        val off = modeChip(
+            SessionConfigState(currentMode = "bypassPermissions", modes = modes),
+        )!!.planToggle!!
+        assertEquals(false, off.on)
+        assertEquals(PLAN_MODE_ID, off.planId)
+        assertEquals("bypassPermissions", off.otherId)
+
+        val on = modeChip(SessionConfigState(currentMode = PLAN_MODE_ID, modes = modes))!!
+        assertEquals(true, on.planToggle!!.on)
+
+        // A PAIR without a plan mode stays an ordinary picker.
+        val pair = modeChip(
+            SessionConfigState(
+                currentMode = "a",
+                modes = listOf(ConfigMode("a", "A"), ConfigMode("b", "B")),
+            ),
+        )!!
+        assertNull(pair.planToggle)
     }
 
     @Test
@@ -925,18 +952,70 @@ class AgentFeedTest {
         // Byte-identical to web, iOS and the desktop.
         assertEquals("CLI default", CONFIG_DEFAULT_VALUE_LABEL)
         assertEquals("Mode", CONFIG_MODE_LABEL)
-        val chips = configChips(
-            SessionConfigState(options = listOf(ConfigOption(id = "effort", label = "Effort"))),
-        )
-        assertEquals(CONFIG_DEFAULT_VALUE_LABEL, chips.single().valueLabel)
-        // A value the option never advertised still reads as itself.
-        val unknown = configChips(
-            SessionConfigState(
-                options = listOf(ConfigOption(id = "model", label = "Model", value = "haiku")),
-            ),
-        )
-        assertEquals("haiku", unknown.single().valueLabel)
-        assertEquals(emptyList<ConfigValue>(), unknown.single().values)
+        assertEquals("Plan", PLAN_TOGGLE_LABEL)
+        assertEquals("plan", PLAN_MODE_ID)
+        // A mode in force the publisher never advertised still reads as
+        // itself, never as the CLI default.
+        val unknown = modeChip(
+            SessionConfigState(currentMode = "sneaky", modes = listOf(ConfigMode("plan", "Plan"))),
+        )!!
+        assertEquals("sneaky", unknown.valueLabel)
+    }
+
+    // ── Narration merging + subagent scoping (EXP-772/EXP-773) ───────────────
+
+    /** EXP-772: the engine flushes one assistant message in several narration
+     *  events. Consecutive flushes of the SAME message id grow one bubble;
+     *  anything in between opens a new one. */
+    @Test
+    fun `consecutive flushes of one message merge into one bubble`() {
+        val state = ActivityFeedState()
+            .applying(narration("Reading ", messageId = "m1"))
+            .applying(narration("the file.", messageId = "m1"))
+        val row = state.feed.single() as AgentFeedItem.Narration
+        assertEquals("Reading the file.", row.text)
+        // The merge consumed NO feed id — the row it grew already had one.
+        assertEquals(1L, state.nextEventId)
+
+        // A different message opens its own bubble, and so does prose that
+        // resumed after a tool call.
+        val split = state
+            .applying(narration("Next thought.", messageId = "m2"))
+            .applying(toolEvent("Edit"))
+            .applying(narration("After.", messageId = "m2"))
+        assertEquals(4, split.feed.size)
+
+        // An id-less event (an older publisher) always opens its own bubble.
+        val legacy = ActivityFeedState()
+            .applying(narration("a"))
+            .applying(narration("b"))
+        assertEquals(2, legacy.feed.size)
+
+        // Same message id from a different scope is a different bubble.
+        val scoped = ActivityFeedState()
+            .applying(narration("main", messageId = "m1"))
+            .applying(narration("sub", messageId = "m1", subagentId = "s1"))
+        assertEquals(2, scoped.feed.size)
+    }
+
+    /** EXP-773: a subagent's prose and the turns addressed to it leave the
+     *  main feed and render inside that subagent's run, in publish order. */
+    @Test
+    fun `subagent prose and turns group under their run`() {
+        val state = ActivityFeedState()
+            .applying(narration("Delegating."))
+            .applying(subagentStartedEvent("s1"))
+            .applying(userMessageEvent("map the repo", subagentId = "s1"))
+            .applying(narration("Looking.", subagentId = "s1"))
+            .applying(toolEvent("Read", subagentId = "s1"))
+            .applying(narration("Back on the main thread."))
+        val rows = groupFeedRows(state.feed)
+        // Main feed: the two unscoped narrations plus the group row.
+        assertEquals(3, rows.size)
+        val run = rows[1] as AgentFeedRow.SubagentRun
+        assertEquals(listOf(2L, 3L, 4L), run.items.map { it.id })
+        // The caption still counts TOOL calls, not conversation rows.
+        assertEquals(1, run.toolCount)
     }
 
     // ── fixtures ────────────────────────────────────────────────────────────
@@ -946,7 +1025,28 @@ class AgentFeedTest {
     private fun event(raw: String): JsonObject =
         Json.parseToJsonElement(raw.trimIndent()) as JsonObject
 
-    private fun narration(text: String) = event("""{"kind":"narration","text":"$text"}""")
+    private fun narration(
+        text: String,
+        messageId: String? = null,
+        subagentId: String? = null,
+    ) = event(
+        """{"kind":"narration","text":"$text"""" +
+            (messageId?.let { ""","messageId":"$it"""" } ?: "") +
+            (subagentId?.let { ""","subagentId":"$it"""" } ?: "") + "}",
+    )
+
+    private fun toolEvent(name: String, subagentId: String? = null) = event(
+        """{"kind":"tool","name":"$name","detail":"src/a.ts"""" +
+            (subagentId?.let { ""","subagentId":"$it"""" } ?: "") + "}",
+    )
+
+    private fun userMessageEvent(text: String, subagentId: String? = null) = event(
+        """{"kind":"user_message","text":"$text"""" +
+            (subagentId?.let { ""","subagentId":"$it"""" } ?: "") + "}",
+    )
+
+    private fun subagentStartedEvent(subagentId: String) =
+        event("""{"kind":"subagent","id":"$subagentId","status":"started","agentType":"explore"}""")
 
     /** A full `config_state` snapshot — options, modes and agent commands. */
     private fun configState() = event(

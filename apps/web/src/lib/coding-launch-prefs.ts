@@ -25,11 +25,7 @@ export interface CodingLaunchPrefs {
 
 /** EXP-437: one agent's launch defaults as a device advertises them. Blank
  * `model`/`effort` = "CLI default / omit the flag"; absent booleans = false
- * (the desktop skip-serializes false).
- *
- * EXP-746: "Start in terminal" is deliberately NOT here — it is device-global
- * and lives one level up, on `DeviceLaunchDefaults.startInTerminal`
- * (lib/steer-devices.ts `deviceStartsInTerminal`). */
+ * (the desktop skip-serializes false). */
 export interface AgentLaunchDefaults {
   model?: string
   effort?: string

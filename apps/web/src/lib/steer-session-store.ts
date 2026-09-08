@@ -10,6 +10,7 @@ import {
   clearAnswer,
   consumeEcho,
   createActivityCoalescer,
+  mergeNarrationFragment,
   failAnswer,
   isAnswerLocked,
   pushEcho,
@@ -128,12 +129,25 @@ export interface QuestionOption {
 export type ActivityEvent =
   // `beforeQuestionId` (EXP-483) anchors late-flushed prose above the
   // already-published question card it was written before.
-  | { kind: `narration`; text: string; beforeQuestionId?: string; at?: number }
+  // `messageId` (EXP-772) is the ACP coalescer's flush key: consecutive
+  // narration events that share one are FRAGMENTS of a single assistant
+  // message and merge into one bubble. `subagentId` (EXP-773) scopes the
+  // prose to a subagent, which hides it from the main feed.
+  | {
+      kind: `narration`
+      text: string
+      beforeQuestionId?: string
+      messageId?: string
+      subagentId?: string
+      at?: number
+    }
   // `subagentId` (protocol v2) nests the call under its subagent group.
   | { kind: `tool`; name: string; detail?: string; subagentId?: string; at?: number }
   | { kind: `diff`; diff: string; at?: number }
   // EXP-78 (member-only on the relay): a human turn from the transcript…
-  | { kind: `user_message`; text: string; at?: number }
+  // `subagentId` (EXP-773): a turn addressed to a subagent, shown in that
+  // subagent's view only.
+  | { kind: `user_message`; text: string; subagentId?: string; at?: number }
   // …and an interactive question (AskUserQuestion / plan approval).
   // `planMode` marks an ExitPlanMode plan-approval picker (EXP-97) — absent
   // on generic questions and on events from older desktops/relays.
@@ -195,9 +209,10 @@ export type ActivityEvent =
   // meter. Both are LATEST-WINS STATE — the newest event replaces the
   // previous one in a snapshot SLOT and never appends a feed row (the `diff`
   // precedent). The relay replays its latest of each right after the log.
+  // EXP-772: `options` still rides the wire from older publishers; the fold
+  // ignores it, so it is not declared here.
   | {
       kind: `config_state`
-      options: SessionConfigState[`options`]
       currentMode?: string
       modes?: SessionConfigState[`modes`]
       commands?: SessionConfigState[`commands`]
@@ -219,6 +234,10 @@ type ServerFrame =
   // EXP-656: the relay's end-of-replay marker, sent to the joining viewer
   // right after its join replay (never after a publisher-driven reset).
   | { t: `activity_synced` }
+  // EXP-773: no live room, but the session's device is online — the relay
+  // parked this viewer and asked the machine to republish the run's journal.
+  // The transcript arrives as an ordinary replay, then a `bye`.
+  | { t: `history_pending` }
   // EXP-648: the relay's liveness beat to joined viewers. Carries nothing;
   // its only effect is the `lastFrameAt` stamp taken above the switch.
   | { t: `keepalive` }
@@ -247,6 +266,10 @@ export type ViewerPhase =
   // backoff (3s → 30s).
   | { kind: `starting` }
   | { kind: `live` }
+  // EXP-773: the run is over and its transcript lives on the device — the
+  // relay is fetching it. Rows stream in under this phase and the `bye`
+  // that follows turns it into `ended`.
+  | { kind: `history_pending`; detail?: string }
   // The session ended (relay `bye`, or the room was never live).
   | { kind: `ended`; detail?: string }
   // Unexpected socket loss — offer a manual Reconnect (fresh ticket).
@@ -258,12 +281,21 @@ export type ViewerPhase =
   | { kind: `closed`; detail?: string; terminal?: boolean }
 
 export type FeedItem =
-  | { id: number; kind: `narration`; text: string }
+  | {
+      id: number
+      kind: `narration`
+      text: string
+      /** EXP-772: the ACP message this bubble belongs to — later fragments
+       *  with the same id append to it instead of opening a row. */
+      messageId?: string
+      /** EXP-773: rendered inside that subagent's view, not in Main. */
+      subagentId?: string
+    }
   // EXP-724: the quiet "Context compacted" hairline a finished compaction
   // leaves in the transcript. Carries nothing — the copy is a constant.
   | { id: number; kind: `compaction` }
   | { id: number; kind: `tool`; name: string; detail?: string; subagentId?: string }
-  | { id: number; kind: `user_message`; text: string }
+  | { id: number; kind: `user_message`; text: string; subagentId?: string }
   | { id: number; kind: `permission`; tool: string; detail?: string }
   | {
       id: number
@@ -399,6 +431,8 @@ export interface SteerSessionStore {
    *  loops — the OWNING view feeds it; an unwatched store falls back to the
    *  relay's own signals plus the dock reaper. */
   noteSessionStatus(status: CodingSession[`status`]): void
+  /** EXP-773: the host machine's label, for the history phases' copy. */
+  noteDeviceLabel(label: string | null): void
   sendMessage(text: string): boolean
   answerQuestion(
     item: QuestionItem,
@@ -406,10 +440,8 @@ export interface SteerSessionStore {
     labels: string[],
     text?: string
   ): void
-  /** EXP-746: switch one live config option (a composer chip). False = the
-   *  socket is down and nothing went out. */
-  setConfig(id: string, value: string): boolean
-  /** EXP-746: switch the session mode (the mode chip). */
+  /** EXP-746: switch the session mode — the composer's ONE live control
+   *  since EXP-772. False = the socket is down and nothing went out. */
   setMode(id: string): boolean
   setDraftText(text: string): void
   addDraftImages(files: File[]): AddDraftImagesResult
@@ -441,6 +473,9 @@ export function createSteerSessionStore(
   // the backoff; a live connection resets it so the next stall starts fast.
   let retries = 0
   let sessionStatus: CodingSession[`status`] | null = null
+  /** EXP-773: the host machine's label, for the history phases' copy. The
+   *  owning view feeds it off the synced devices row. */
+  let deviceLabel: string | null = null
   // EXP-625: dial liveness, so a wakeup can tell a dial that is merely young
   // from one that is stuck. Both timers are generation-scoped.
   let mintTimer: ReturnType<typeof setTimeout> | null = null
@@ -584,6 +619,9 @@ export function createSteerSessionStore(
   const markLive = (): boolean => {
     retries = 0
     if (phase.kind === `live`) return false
+    // EXP-773: a history republish streams the same frames a live room does,
+    // but the run is over — the caption keeps saying so until the `bye`.
+    if (phase.kind === `history_pending`) return false
     phase = { kind: `live` }
     return true
   }
@@ -609,13 +647,33 @@ export function createSteerSessionStore(
             id: nextId++,
             kind: `narration`,
             text: event.text,
+            messageId: event.messageId,
+            subagentId: event.subagentId,
           }
           feed = (spliceBeforeQuestion(feed, anchor, item) ?? [...feed, item]).slice(
             -FEED_CAP
           )
           return
         }
-        append({ kind: `narration`, text: event.text })
+        // EXP-772: the engine flushes ONE assistant message in several
+        // narration events keyed by `messageId` — a fragment landing right
+        // behind its own message appends to that bubble instead of shredding
+        // the paragraph into rows.
+        const merged = mergeNarrationFragment(feed, {
+          messageId: event.messageId,
+          text: event.text,
+          subagentId: event.subagentId,
+        })
+        if (merged) {
+          feed = merged
+          return
+        }
+        append({
+          kind: `narration`,
+          text: event.text,
+          messageId: event.messageId,
+          subagentId: event.subagentId,
+        })
         return
       }
       case `tool`: {
@@ -635,7 +693,11 @@ export function createSteerSessionStore(
         // is authoritative and the echo FIFO was emptied when it began.
         if (!foldingReplay && consumeEcho(recentEchoes, event.text, Date.now()))
           return
-        append({ kind: `user_message`, text: event.text })
+        append({
+          kind: `user_message`,
+          text: event.text,
+          subagentId: event.subagentId,
+        })
         return
       }
       case `question`: {
@@ -979,6 +1041,9 @@ export function createSteerSessionStore(
     // `bye` / no_such_session must win over the generic close handler.
     let sawEnd = false
     let retryStarting = false
+    // EXP-773: a history error a redial can only repeat — the close it
+    // precedes is terminal, so the wakeup kicks leave it alone.
+    let terminalError = false
     let detail: string | null = null
 
     try {
@@ -1087,6 +1152,17 @@ export function createSteerSessionStore(
             if (markLive()) commit()
             return
           }
+          case `history_pending`: {
+            // EXP-773: the relay parked this viewer and asked the device for
+            // the run's journal. Never a redial state — the relay answers
+            // with the transcript, `history_unavailable` or `device_offline`.
+            phase = {
+              kind: `history_pending`,
+              detail: `Fetching the transcript from ${deviceLabel ?? `the device`}…`,
+            }
+            commit()
+            return
+          }
           case `bye`: {
             const f = frame as Extract<ServerFrame, { t: `bye` }>
             if (f.outcome === `publisher_lost`) {
@@ -1095,7 +1171,12 @@ export function createSteerSessionStore(
               detail = `The desktop's connection to the relay dropped. Retry once it reconnects.`
             } else {
               sawEnd = true
-              detail = f.outcome && f.outcome !== `ended` ? f.outcome : null
+              // EXP-773: `history` is the journal republish closing itself
+              // out — the feed stays, with the plain ended caption.
+              detail =
+                f.outcome && f.outcome !== `ended` && f.outcome !== `history`
+                  ? f.outcome
+                  : null
             }
             return
           }
@@ -1107,6 +1188,14 @@ export function createSteerSessionStore(
               detail = `The live stream isn't up yet. The desktop may still be connecting.`
               retryStarting = true
               sock.close()
+            } else if (f.code === `device_offline`) {
+              // EXP-773: the transcript is a FILE on that machine — no
+              // retry here can conjure it up, so this close is terminal.
+              detail = `${deviceLabel ?? `The device`} is offline. The transcript lives on that machine.`
+              terminalError = true
+            } else if (f.code === `history_unavailable`) {
+              detail = `No transcript on ${deviceLabel ?? `the device`}.`
+              terminalError = true
             } else {
               detail = f.message ?? f.code
             }
@@ -1161,7 +1250,7 @@ export function createSteerSessionStore(
         phase = {
           kind: `closed`,
           detail: detail ?? undefined,
-          terminal: event.code === CLOSE_UNAUTHORIZED,
+          terminal: terminalError || event.code === CLOSE_UNAUTHORIZED,
         }
         commit()
       }
@@ -1212,18 +1301,11 @@ export function createSteerSessionStore(
     return true
   }
 
-  /** EXP-746: change one live agent option. Fire-and-forget — the publisher
-   *  re-emits `config_state` once it applied and that repaint IS the
-   *  confirmation, so there is no optimistic write and no ack timer. A blank
-   *  `value` is the "CLI default" choice and rides verbatim. */
-  const sendConfigFrame = (id: string, value: string): boolean => {
-    if (ws?.readyState !== WebSocket.OPEN) return false
-    ws.send(JSON.stringify({ t: `set_config`, id, value }))
-    return true
-  }
-
   /** EXP-746: switch to one of the modes `config_state.modes[]` advertised.
-   *  Same fire-and-forget rule as `sendConfigFrame`. */
+   *  Fire-and-forget — the publisher re-emits `config_state` once it applied
+   *  and that repaint IS the confirmation, so there is no optimistic write
+   *  and no ack timer. EXP-772 retired the option sender beside it: nothing
+   *  sends `set_config` any more. */
   const sendModeFrame = (id: string): boolean => {
     if (ws?.readyState !== WebSocket.OPEN) return false
     ws.send(JSON.stringify({ t: `set_mode`, id }))
@@ -1338,6 +1420,9 @@ export function createSteerSessionStore(
     noteSessionStatus(status) {
       sessionStatus = status
     },
+    noteDeviceLabel(label) {
+      deviceLabel = label
+    },
     /**
      * Send one message to the agent: the text, then a SEPARATE `\r` frame —
      * bundled into one write TUI apps treat the trailing return as a paste,
@@ -1381,13 +1466,10 @@ export function createSteerSessionStore(
       )
       commit()
     },
-    /** EXP-746: fire-and-forget config switches. No optimistic slot write —
+    /** EXP-746: a fire-and-forget mode switch. No optimistic slot write —
      *  the publisher's re-emitted `config_state` is the confirmation, and a
      *  refused switch simply repaints the OLD value (which is honest: the
      *  agent kept it). */
-    setConfig(id, value) {
-      return sendConfigFrame(id, value)
-    },
     setMode(id) {
       return sendModeFrame(id)
     },

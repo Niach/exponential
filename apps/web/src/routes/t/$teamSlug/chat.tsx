@@ -6,26 +6,40 @@ import {
   useNavigate,
   useRouter,
 } from "@tanstack/react-router"
-import { LoaderCircle } from "lucide-react"
+import { ChevronDown, LoaderCircle } from "lucide-react"
 import { MAX_ACTION_INPUT_TEXT } from "@exp/db-schema/domain"
 import { AgentSessionView, useSteerConfig } from "@/components/agent-session"
 import {
   EndedSessionRow,
   pastRunRowByline,
 } from "@/components/agent-session-row"
+import { Composer, ComposerSubmit } from "@/components/composer"
 import { SessionStatusBadge } from "@/components/issue-coding-rows"
-import { LaunchOptionsPane } from "@/components/launch-dialog/launch-options-pane"
+import {
+  AGENT_LABELS,
+  CLI_DEFAULT_EFFORT,
+  effortLabel,
+  modelLabel,
+} from "@/components/launch-dialog/launch-options-pane"
 import { useLaunchOptions } from "@/components/launch-dialog/use-launch-options"
 import { Button } from "@/components/ui/button"
-import { GlassGroup, GlassSectionHeader } from "@/components/ui/glass-rows"
-import { Label } from "@/components/ui/label"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { GlassSectionHeader } from "@/components/ui/glass-rows"
+import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { conceptIcon } from "@/lib/icons.generated"
 import {
-  BUILTIN_CHAT_ID,
-  BUILTIN_CHAT_NAME,
-  builtinChatAction,
-} from "@/lib/builtin-actions"
+  agentAllowsBlankModel,
+  agentEffortValues,
+  agentModelValues,
+  agentSupportsPlanMode,
+} from "@/lib/coding-launch-prefs"
+import { BUILTIN_CHAT_ID, BUILTIN_CHAT_NAME } from "@/lib/builtin-actions"
 import { isChatSession, sessionIdentity } from "@/lib/session-identity"
 import { deviceHasRunnableAgent, deviceIsOnline } from "@/lib/steer-devices"
 import {
@@ -204,13 +218,14 @@ function ChatPage() {
     <div className="flex h-full min-h-0 flex-col">
       <ChatHeader title={BUILTIN_CHAT_NAME} onBack={goBack} />
 
-      {/* The mobile tab bar hides on this route (its own back header takes
-          over), so there is no floating pill to reserve clearance for. */}
+      {/* EXP-772: an essentially empty page — one centred prompt box with a
+          subtle picker row under it. The mobile tab bar hides on this route
+          (its own back header takes over), so there is no floating pill to
+          reserve clearance for. */}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-4">
+        <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col gap-10 px-4 py-6">
           {steerEnabled ? (
-            <ChatStartCard
-              teamId={team.id}
+            <ChatPrompt
               devices={remote.devices}
               starting={remote.starting}
               sentTo={remote.sentTo}
@@ -230,7 +245,7 @@ function ChatPage() {
               }}
             />
           ) : (
-            <p className="text-sm text-muted-foreground">
+            <p className="my-auto text-center text-sm text-muted-foreground">
               Live steering is unavailable on this instance.
             </p>
           )}
@@ -242,7 +257,7 @@ function ChatPage() {
                 {past.map((row) => (
                   <EndedSessionRow
                     key={row.session.id}
-                    row={{ session: row.session, canResume: row.canResume }}
+                    row={{ session: row.session }}
                     title={row.title}
                     byline={pastRunRowByline(row)}
                   />
@@ -289,14 +304,19 @@ function ChatHeader({
   )
 }
 
-function ChatStartCard({
-  teamId,
+const UiSendIcon = conceptIcon(`ui-send`)
+
+/** EXP-772: the chat launcher — one wide prompt box, and under it a single
+ * muted row of inline pickers (machine → agent → model → effort → plan) seeded
+ * from the selected machine's launch defaults. Enter sends, Shift+Enter breaks
+ * the line. Plan mode starts OFF here: a chat is a conversation, not a change
+ * proposal. */
+function ChatPrompt({
   devices,
   starting,
   sentTo,
   onStart,
 }: {
-  teamId: string
   /** null while the first device lookup is in flight. */
   devices: ReturnType<typeof useRemoteStart>[`devices`]
   starting: boolean
@@ -314,78 +334,167 @@ function ChatStartCard({
     () => (devices ?? []).filter(deviceIsOnline).filter(deviceHasRunnableAgent),
     [devices]
   )
-  // `open: true` — this card IS the launcher, there is no dialog to settle on.
-  const launch = useLaunchOptions({ open: true, devices: candidateDevices })
-  const promptDef = useMemo(
-    () => builtinChatAction(teamId).inputs.find((def) => def.key === `prompt`),
-    [teamId]
-  )
-
+  // `open: true` — this page IS the launcher, there is no dialog to settle on.
+  const launch = useLaunchOptions({
+    open: true,
+    devices: candidateDevices,
+    planModeOff: true,
+  })
   const blocked = starting || !launch.device || prompt.trim().length === 0
+  const send = () => {
+    if (!launch.device || blocked) return
+    onStart(launch.device, launch.buildOptions(), { prompt })
+  }
+
+  const modelOptions = [
+    ...(agentAllowsBlankModel(launch.agent)
+      ? [{ value: ``, label: `CLI default` }]
+      : []),
+    ...agentModelValues(launch.agent).map((value) => ({
+      value,
+      label: modelLabel(value),
+    })),
+  ]
+  const effortOptions = [
+    { value: CLI_DEFAULT_EFFORT, label: `CLI default` },
+    ...agentEffortValues(launch.agent).map((value) => ({
+      value,
+      label: effortLabel(value),
+    })),
+  ]
 
   return (
-    <div className="flex flex-col gap-2">
-      <GlassSectionHeader label="Start a chat" />
-      <GlassGroup>
-        <div className="flex flex-col gap-1 p-3">
-          <Label
-            htmlFor="chat-page-prompt"
-            className="text-xs text-foreground/50"
-          >
-            Prompt
-          </Label>
-          <Textarea
-            id="chat-page-prompt"
-            value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
-            placeholder={promptDef?.placeholder}
-            className="min-h-24 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
-            // Client parity with the server's per-value cap, so a long paste
-            // is refused at the field instead of at submit.
-            maxLength={MAX_ACTION_INPUT_TEXT}
-          />
-        </div>
-      </GlassGroup>
-      <LaunchOptionsPane
-        devices={candidateDevices}
-        device={launch.device}
-        onDeviceChange={launch.setDeviceId}
-        noDeviceNote="No desktop online. Open the Exponential desktop app to start a chat."
-        agent={launch.agent}
-        availableAgents={launch.availableAgents}
-        onAgentChange={launch.switchAgent}
-        model={launch.model}
-        onModelChange={launch.setModel}
-        effortValue={launch.effortValue}
-        onEffortChange={launch.setEffortValue}
-        ultracode={launch.ultracode}
-        onUltracodeChange={launch.setUltracode}
-        planMode={launch.planMode}
-        onPlanModeChange={launch.setPlanMode}
-        // A chat is a conversation, not a change proposal — nothing to plan.
-        planModeHidden
-      />
-      {candidateDevices.length > 0 && (
-        <div className="flex items-center gap-3">
-          <Button
+    <div className="my-auto flex flex-col gap-2">
+      <Composer
+        submit={
+          <ComposerSubmit
+            aria-label="Start chat"
+            title="Start chat"
             disabled={blocked}
-            onClick={() => {
-              if (!launch.device || blocked) return
-              onStart(launch.device, launch.buildOptions(), { prompt })
-            }}
+            onClick={send}
           >
-            {starting && <LoaderCircle className="animate-spin" />}
-            Start chat
-          </Button>
+            {starting ? (
+              <LoaderCircle className="animate-spin" />
+            ) : (
+              <UiSendIcon className="!size-6" />
+            )}
+          </ComposerSubmit>
+        }
+      >
+        <Textarea
+          id="chat-page-prompt"
+          value={prompt}
+          onChange={(event) => setPrompt(event.target.value)}
+          onKeyDown={(event) => {
+            // Shift+Enter breaks the line; an IME's own Enter is never a send.
+            if (event.key !== `Enter` || event.shiftKey) return
+            if (event.nativeEvent.isComposing) return
+            event.preventDefault()
+            send()
+          }}
+          placeholder="Ask the agent…"
+          className="min-h-20 resize-none border-0 bg-transparent px-3 pt-3 shadow-none focus-visible:ring-0"
+          // Client parity with the server's per-value cap, so a long paste is
+          // refused at the field instead of at submit.
+          maxLength={MAX_ACTION_INPUT_TEXT}
+        />
+      </Composer>
+      {candidateDevices.length === 0 ? (
+        <p className="px-1 text-xs text-muted-foreground">
+          No desktop online. Open the Exponential desktop app to start a chat.
+        </p>
+      ) : (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-xs text-muted-foreground">
+          <InlinePicker
+            label="Machine"
+            value={launch.device?.deviceId ?? ``}
+            options={candidateDevices.map((device) => ({
+              value: device.deviceId,
+              label: `${device.deviceLabel || device.deviceId}${
+                device.owner ? ` — ${device.owner.name}` : ``
+              }`,
+            }))}
+            onChange={launch.setDeviceId}
+          />
+          <InlinePicker
+            label="Agent"
+            value={launch.agent}
+            options={launch.availableAgents.map((agent) => ({
+              value: agent,
+              label: AGENT_LABELS[agent] ?? agent,
+            }))}
+            onChange={launch.switchAgent}
+          />
+          <InlinePicker
+            label="Model"
+            value={launch.model}
+            options={modelOptions}
+            onChange={launch.setModel}
+          />
+          <InlinePicker
+            label="Effort"
+            value={launch.effortValue}
+            options={effortOptions}
+            onChange={launch.setEffortValue}
+          />
+          {agentSupportsPlanMode(launch.agent) && (
+            <label className="flex items-center gap-1.5">
+              <span>Plan</span>
+              <Switch
+                size="sm"
+                checked={launch.planMode}
+                onCheckedChange={launch.setPlanMode}
+                aria-label="Plan mode"
+              />
+            </label>
+          )}
           {/* The desktop inserts the row when the launcher spins up; the page
               flips to the live view the moment it syncs. */}
-          {sentTo && (
-            <span className="text-sm text-muted-foreground">
-              {`Waiting for ${sentTo}…`}
-            </span>
-          )}
+          {sentTo && <span>{`Waiting for ${sentTo}…`}</span>}
         </div>
       )}
     </div>
+  )
+}
+
+/** A picker as one word of the muted line under the prompt box: the current
+ * value plus a chevron, no chrome. */
+function InlinePicker({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string
+  value: string
+  options: { value: string; label: string }[]
+  onChange: (value: string) => void
+}) {
+  if (options.length === 0) return null
+  const current = options.find((option) => option.value === value)
+  if (options.length === 1) {
+    return <span title={label}>{current?.label ?? options[0].label}</span>
+  }
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className="flex items-center gap-0.5 outline-none hover:text-foreground focus-visible:text-foreground"
+        title={label}
+        aria-label={label}
+      >
+        {current?.label ?? label}
+        <ChevronDown className="size-3" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        {options.map((option) => (
+          <DropdownMenuItem
+            key={option.value}
+            onSelect={() => onChange(option.value)}
+          >
+            {option.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }

@@ -108,6 +108,29 @@ final class AgentSessionModel {
     private(set) var answerTracker = AgentAnswerTracker()
     /// The most recent worktree diff — each one replaces the previous.
     private(set) var latestDiff: String?
+    /// EXP-773: where an ENDED run's transcript is coming from. The relay has
+    /// no room for a finished session, so it asks the device that ran it to
+    /// republish its on-disk journal; these are the three answers. Nil on a
+    /// live session and once the transcript has arrived.
+    enum HistoryState: Equatable {
+        /// The relay woke the device and is waiting for it to publish.
+        case pending
+        /// The machine that holds the journal is not reachable. Terminal:
+        /// nothing to redial for, the file is on that disk.
+        case deviceOffline
+        /// The device answered and has no journal for this run. Terminal.
+        case unavailable
+
+        /// Nothing is going to change on its own — stop dialing.
+        var isTerminal: Bool { self != .pending }
+    }
+
+    private(set) var history: HistoryState?
+    /// EXP-773: the machine a Resume of this ENDED run would go to, or nil
+    /// when there is none (a live run, someone else's, a machine that is away
+    /// or too old to advertise `resume-run`). Display gating only — the
+    /// server re-decides the same rule.
+    private(set) var resumeDevice: SteerDevice?
     /// EXP-724: a context compaction is running on the host agent — the
     /// composer grows an indeterminate strip for as long as this is non-nil,
     /// so the 10–170s of silence reads as work instead of a hang. Set by the
@@ -194,10 +217,10 @@ final class AgentSessionModel {
         )
     }
 
-    /// EXP-746: the composer's config chips — the mode chip first, then every
-    /// option the agent advertised. Empty until the first `config_state`.
-    var configChips: [AgentConfigChip] {
-        AgentFeed.configChips(sessionConfig)
+    /// EXP-772: the composer's ONE chip — the agent's mode. Nil until the
+    /// first `config_state`, and on every run whose agent advertises no modes.
+    var modeChip: AgentModeChip? {
+        AgentFeed.modeChip(sessionConfig)
     }
 
     /// EXP-746: the id the catalog is keyed on — this run's agent, or, for an
@@ -795,21 +818,19 @@ final class AgentSessionModel {
         lockAnswer(questionId, labels: labels)
     }
 
-    /// EXP-746: change one live agent option (model, effort, thinking level).
+    /// EXP-746: switch to one of the modes `config_state.modes[]` advertised.
+    ///
     /// Fire-and-forget — the publisher re-emits `config_state` once it
     /// applied, and THAT repaint is the confirmation, so there is no lock and
-    /// no expiry task (unlike `sendAnswer`). A blank value is a real choice:
-    /// "the CLI's own default, omit the flag".
+    /// no expiry task (unlike `sendAnswer`). An agent that refuses simply
+    /// re-emits the old mode and the chip snaps back.
     ///
-    /// Gated on `canSteer`, not merely `connected`, so the chips dim as
+    /// Gated on `canSteer`, not merely `connected`, so the chip dims as
     /// honestly as the send button on a paused or ended run.
-    func sendConfig(id: String, value: String) {
-        guard !id.isEmpty, canSteer else { return }
-        send(frame: ["t": "set_config", "id": id, "value": value])
-    }
-
-    /// EXP-746: switch to one of the modes `config_state.modes[]` advertised.
-    /// Fire-and-forget on the same terms as `sendConfig`.
+    ///
+    /// EXP-772 retired the `set_config` sender with the option chips: model
+    /// and effort are launch decisions now, and the engine publishes an empty
+    /// `config_state.options` to say so.
     func sendMode(id: String) {
         guard !id.isEmpty, canSteer else { return }
         send(frame: ["t": "set_mode", "id": id])
@@ -987,6 +1008,17 @@ final class AgentSessionModel {
             let row = byId.first { $0.userId == session.userId } ?? byId.first
             return AgentUsagePresentation.parseAccounts(row?.agentAccounts)?[usage.agent]
         }
+        // EXP-773: Resume moved from the list row into this screen's header,
+        // so the machine a Resume would go to is resolved here — the same ×4
+        // rule the lists used (own ended run, its own machine, online and
+        // `resume-run`-capable), re-decided on every heartbeat.
+        resumeDevice = RunResume.target(
+            for: session,
+            devices: deviceRows.map {
+                SteerDevice(entity: $0, now: now, currentUserId: currentUserId)
+            },
+            currentUserId: currentUserId
+        )
     }
 
     // MARK: - Merge target (EXP-678)
@@ -1248,6 +1280,9 @@ final class AgentSessionModel {
     /// attempt and redial at ~3s forever instead of walking up to the 30s cap.
     /// Mirrors the Android `FrameResult.live` handling.
     private func markLive() {
+        // EXP-773: a room answered, so the journal fetch (if there was one) is
+        // over — whatever arrives next IS the transcript.
+        history = nil
         guard phase != .live else { return }
         phase = .live
         reconnectAttempts = 0
@@ -1327,6 +1362,12 @@ final class AgentSessionModel {
             return
         }
         switch t {
+        // EXP-773: the relay has no live room for this session and is asking
+        // the device that ran it to republish its journal. Deliberately NOT a
+        // `markLive` — nothing has joined a room yet, and flashing the live
+        // header over a finished run would be a lie.
+        case "history_pending":
+            history = .pending
         case "bye":
             let outcome = obj["outcome"] as? String
             if outcome == "publisher_lost" {
@@ -1345,6 +1386,13 @@ final class AgentSessionModel {
                 // running this flips into the auto-retrying starting phase.
                 retryStarting = true
                 endDetail = "The live stream isn't up yet. The desktop may still be connecting."
+                disconnectSocket()
+                onSocketClosed()
+            } else if code == "device_offline" || code == "history_unavailable" {
+                // EXP-773: the transcript lives on the machine that ran the
+                // session, and it either can't be reached or has nothing. Both
+                // are final — a redial would ask the same question again.
+                history = code == "device_offline" ? .deviceOffline : .unavailable
                 disconnectSocket()
                 onSocketClosed()
             } else {
@@ -1524,7 +1572,7 @@ final class AgentSessionModel {
     private func tailCarriesEcho(_ text: String) -> Bool {
         let needle = text.trimmingCharacters(in: .whitespacesAndNewlines)
         for item in feed.suffix(Self.echoCap).reversed() {
-            guard case let .userMessage(_, existing) = item else { continue }
+            guard case let .userMessage(_, existing, _) = item else { continue }
             if existing.trimmingCharacters(in: .whitespacesAndNewlines) == needle { return true }
         }
         return false
@@ -1555,17 +1603,35 @@ final class AgentSessionModel {
             guard let text = event["text"] as? String,
                   !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             else { return }
+            let messageId = Self.trimmedField(event["messageId"])
+            let narrationAgent = Self.trimmedField(event["subagentId"])
             // EXP-483: prose from the withheld ask/plan entry flushes AFTER
             // its already-published card — splice it back above the card.
             if let anchor = Self.trimmedField(event["beforeQuestionId"]),
                let out = AgentFeed.spliceBeforeQuestion(
-                   feed, anchor: anchor, item: .narration(id: takeEventId(), text: text)
+                   feed, anchor: anchor,
+                   item: .narration(
+                       id: takeEventId(), text: text,
+                       messageId: messageId, subagentId: narrationAgent
+                   )
                ) {
                 feed = out
                 trimFeed()
                 return
             }
-            append(.narration(id: takeEventId(), text: text))
+            // EXP-772: consecutive flushes of ONE assistant message are one
+            // bubble. A merge consumes no feed id — the row it grew already
+            // has one.
+            if let merged = AgentFeed.mergeNarration(
+                feed, text: text, messageId: messageId, subagentId: narrationAgent
+            ) {
+                feed = merged
+                return
+            }
+            append(.narration(
+                id: takeEventId(), text: text,
+                messageId: messageId, subagentId: narrationAgent
+            ))
         case "tool":
             guard let name = event["name"] as? String else { return }
             append(.tool(
@@ -1585,7 +1651,12 @@ final class AgentSessionModel {
             // A message this client just sent was already echoed locally —
             // skip its transcript-derived twin (EXP-78).
             if consumeEcho(text) { return }
-            append(.userMessage(id: takeEventId(), text: text))
+            // EXP-773: a turn addressed to a subagent renders inside that
+            // subagent's run, never in the main thread.
+            append(.userMessage(
+                id: takeEventId(), text: text,
+                subagentId: Self.trimmedField(event["subagentId"])
+            ))
         case "question":
             guard let question = decodeQuestion(event) else { return }
             // A re-emitted wire id REPLACES its card in place (the desktop
@@ -1770,6 +1841,13 @@ final class AgentSessionModel {
         task = nil
         if sawEnd {
             phase = .ended(detail: endDetail)
+            return
+        }
+        // EXP-773: the device that holds the journal said no (or is away).
+        // Terminal on its own terms — the synced row may still read running
+        // (a run whose device dropped), and backing off would only re-ask.
+        if history?.isTerminal == true {
+            phase = .ended(detail: nil)
             return
         }
         if retryStarting, session.map({ CodingSessionLiveness.isLive($0) }) == true {

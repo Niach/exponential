@@ -313,7 +313,11 @@ impl Settings {
         }
         let mut rendered = serde_json::to_string_pretty(&root).expect("render settings json");
         rendered.push('\n');
-        fs::write(path, rendered)
+        // EXP-766: settings.json has four writers across two processes (this
+        // one, the launch-defaults marker, the CLI's prefs, the device
+        // identity). A truncating `fs::write` let one of them read a HALF
+        // file; the replacement is a rename.
+        api::atomic_file::write_atomic(path, &rendered)
     }
 
     /// The claude program to spawn / doctor-check. An explicit path (anything

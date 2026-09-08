@@ -82,10 +82,6 @@ export interface SteerDevice {
  * contract `codingAgent` id, covering only the machine's RUNNABLE agents. */
 export interface DeviceLaunchDefaults {
   defaultAgent?: string
-  /** EXP-746: device-GLOBAL and agent-independent — the machine runs every
-   * agent in a terminal tab instead of the ACP session screen. Sits beside
-   * `agents`, never inside it. */
-  startInTerminal?: boolean
   agents?: Record<string, AgentLaunchDefaults>
 }
 
@@ -98,16 +94,6 @@ export function deviceDefaultAgent(
   const candidate = device?.launchDefaults?.defaultAgent
   if (!candidate) return null
   return deviceAgentIds(device).includes(candidate) ? candidate : null
-}
-
-/** EXP-746: the machine starts coding sessions in a TERMINAL tab rather than
- * on the session screen. Absent (older build, never toggled) = false, the ACP
- * path. Device-global on purpose — it is a property of the machine's setup,
- * not of one agent. */
-export function deviceStartsInTerminal(
-  device: SteerDevice | undefined
-): boolean {
-  return device?.launchDefaults?.startInTerminal === true
 }
 
 /** EXP-746: the machine can host ACP sessions at all (the desktop app and the

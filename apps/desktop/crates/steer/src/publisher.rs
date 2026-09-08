@@ -39,13 +39,14 @@ use crate::commands::parse_command;
 use crate::frames::{
     ActivityEvent, ClientFrame, ServerFrame, CLOSE_REPLACED, CLOSE_UNAUTHORIZED,
 };
+use crate::history::JournalWriter;
 use crate::journal::ActivityJournal;
 use crate::{dial, Backoff, DialError, SteerRuntime, WsStream, BACKOFF_RESET_AFTER};
 
 /// The relay's WebSocket `maxPayloadLength` (bytes). A text frame at or past
 /// this makes the relay sever the connection — killing the whole activity
 /// stream — so oversize activity frames are dropped client-side instead.
-const RELAY_MAX_PAYLOAD_BYTES: usize = 1024 * 1024;
+pub(crate) const RELAY_MAX_PAYLOAD_BYTES: usize = 1024 * 1024;
 
 /// §8.7: surfaced after two consecutive fresh-ticket 401s (never silently
 /// retry a skewed clock — the native failure mode this fixes).
@@ -58,10 +59,16 @@ const CLOCK_SKEW_ERROR: &str = "Steer relay rejected the connection (ticket expi
 
 /// What to publish (§8.4 handshake): the `coding_sessions` row id keys the
 /// relay room; the issue id rides along for the phone's session list.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct PublishSpec {
     pub session_id: String,
     pub issue_id: Option<String>,
+    /// EXP-773: the app/daemon data dir whose `journal/` subdirectory keeps
+    /// this session's DURABLE transcript ([`crate::history`]). Every event
+    /// this publisher sends is appended there, so the run can be replayed
+    /// from disk long after the process is gone. `None` = don't record (the
+    /// examples and the relay integration tests).
+    pub journal_dir: Option<PathBuf>,
 }
 
 /// Publisher-ticket source, injectable for tests. Blocking (reqwest) — the loop
@@ -528,6 +535,27 @@ pub fn publish(
 // The task
 // ---------------------------------------------------------------------------
 
+/// The session's transcript in BOTH places it lives: the in-memory replay
+/// journal (EXP-249, rebuilt on the wire after every reconnect) and the
+/// durable per-session file (EXP-773, read back long after the process is
+/// gone). One `push` keeps them in step, and the file is optional — a
+/// publisher without a `journal_dir` behaves exactly as it did before.
+struct Recorder {
+    journal: ActivityJournal,
+    file: Option<JournalWriter>,
+}
+
+impl Recorder {
+    /// Record one already-prepared event (redacted upstream, stamped by
+    /// `prepare_for_journal`): disk first, then memory, which takes it.
+    fn push(&mut self, event: ActivityEvent) {
+        if let Some(file) = self.file.as_mut() {
+            file.append(&event);
+        }
+        self.journal.push(event);
+    }
+}
+
 /// How one connection ended.
 enum LoopEnd {
     /// `bye` sent, socket closed — the task is done.
@@ -555,7 +583,14 @@ async fn run_publisher_loop(
     // EXP-249: the session's full published history. Every connection starts
     // with `activity_reset` + this journal, so a viewer joining a resumed room
     // (or after a relay restart) sees the session from its first event.
-    let mut journal = ActivityJournal::new();
+    // EXP-773 pairs it with the durable file the same events land in.
+    let mut recorder = Recorder {
+        journal: ActivityJournal::new(),
+        file: spec
+            .journal_dir
+            .as_deref()
+            .and_then(|dir| JournalWriter::open(dir, &spec.session_id)),
+    };
     let mut backoff = Backoff::publisher();
     // §8.7: one immediate re-mint is allowed after a fresh-ticket 401; a
     // second consecutive 401 surfaces the clock-skew error and stops.
@@ -593,7 +628,7 @@ async fn run_publisher_loop(
             }
             Err(err) => {
                 log::debug!("steer publisher: mint failed: {err}");
-                if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &mut journal, &embeds, &running)
+                if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &mut recorder, &embeds, &running)
                     .await
                     .is_break()
                 {
@@ -618,7 +653,7 @@ async fn run_publisher_loop(
             }
             Err(DialError::Other(reason)) => {
                 log::debug!("steer publisher: connect failed: {reason}");
-                if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &mut journal, &embeds, &running)
+                if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &mut recorder, &embeds, &running)
                     .await
                     .is_break()
                 {
@@ -642,7 +677,7 @@ async fn run_publisher_loop(
         .to_json();
         if let Err(err) = ws.send(Message::Text(hello)).await {
             log::debug!("steer publisher: hello failed: {err}");
-            if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &mut journal, &embeds, &running)
+            if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &mut recorder, &embeds, &running)
                 .await
                 .is_break()
             {
@@ -657,9 +692,9 @@ async fn run_publisher_loop(
         // viewers) still hold, then replay the journal in order. A resumed
         // `--continue` transcript seeds the journal from byte 0, so this is
         // the ONE deliberate place a feed is rebuilt.
-        if !republish_history(&mut ws, &journal).await {
+        if !republish_history(&mut ws, &recorder.journal).await {
             log::debug!("steer publisher: history replay failed; reconnecting");
-            if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &mut journal, &embeds, &running)
+            if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &mut recorder, &embeds, &running)
                 .await
                 .is_break()
             {
@@ -669,7 +704,7 @@ async fn run_publisher_loop(
         }
 
         let end =
-            pump_connection(&mut ws, &hooks, &input_tx, &cmd_rx, &mut journal, &embeds, &running)
+            pump_connection(&mut ws, &hooks, &input_tx, &cmd_rx, &mut recorder, &embeds, &running)
                 .await;
 
         match end {
@@ -711,7 +746,7 @@ async fn run_publisher_loop(
                     return;
                 }
                 log::debug!("steer publisher: dropped; reconnecting");
-                if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &mut journal, &embeds, &running)
+                if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &mut recorder, &embeds, &running)
                     .await
                     .is_break()
                 {
@@ -1004,7 +1039,7 @@ async fn pump_connection(
     hooks: &PublisherHooks,
     input_tx: &flume::Sender<String>,
     cmd_rx: &flume::Receiver<PublisherCmd>,
-    journal: &mut ActivityJournal,
+    recorder: &mut Recorder,
     embeds: &ImageEmbedMap,
     running: &Arc<AtomicBool>,
 ) -> LoopEnd {
@@ -1041,7 +1076,7 @@ async fn pump_connection(
                         // timeline after a reconnect) and put any localized
                         // image path back to the token the steerer sent.
                         prepare_for_journal(&mut event, embeds);
-                        journal.push(event.clone());
+                        recorder.push(event.clone());
                         if !send_activity(ws, event).await {
                             return LoopEnd::Dropped;
                         }
@@ -1114,7 +1149,9 @@ async fn pump_connection(
                             log::debug!("steer publisher: relay error {code} ({message:?})");
                             return LoopEnd::Dropped;
                         }
-                        Some(ServerFrame::StartSession { .. }) | Some(ServerFrame::CheckIn) => {
+                        Some(ServerFrame::StartSession { .. })
+                        | Some(ServerFrame::CheckIn)
+                        | Some(ServerFrame::HistoryRequest { .. }) => {
                             // Control-socket frames; never valid here. Ignore.
                         }
                         None => log::debug!("steer publisher: unparseable frame ignored"),
@@ -1217,7 +1254,7 @@ fn close_code(frame: &Option<CloseFrame<'_>>) -> Option<u16> {
 async fn sleep_or_shutdown(
     delay: Duration,
     cmd_rx: &flume::Receiver<PublisherCmd>,
-    journal: &mut ActivityJournal,
+    recorder: &mut Recorder,
     embeds: &ImageEmbedMap,
     running: &Arc<AtomicBool>,
 ) -> std::ops::ControlFlow<()> {
@@ -1235,7 +1272,7 @@ async fn sleep_or_shutdown(
                 }
                 Ok(PublisherCmd::Activity(mut event)) => {
                     prepare_for_journal(&mut event, embeds);
-                    journal.push(event);
+                    recorder.push(event);
                 }
             }
         }
@@ -1452,6 +1489,51 @@ mod tests {
         (port, seen_rx, inject_tx)
     }
 
+    /// EXP-773: every published event also lands in the durable per-session
+    /// journal file, so the run has a transcript after the process is gone.
+    #[test]
+    fn published_events_are_appended_to_the_session_journal_file() {
+        let runtime = SteerRuntime::new().unwrap();
+        let (port, seen_rx, _inject_tx) = fake_relay(&runtime);
+        let data_dir = std::env::temp_dir().join(format!(
+            "exp-publisher-journal-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+
+        let recorded = Arc::new(Recorded::default());
+        let handle = publish(
+            &runtime,
+            PublishSpec {
+                session_id: "sess-j".to_string(),
+                issue_id: None,
+                journal_dir: Some(data_dir.clone()),
+            },
+            Arc::new(FakeTickets {
+                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
+            }),
+            recording_hooks(recorded),
+        );
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
+
+        handle
+            .activity_sender()
+            .send(ActivityEvent::narration("on disk"));
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // the wire copy
+        wait_for(|| {
+            crate::history::read_journal(&data_dir, "sess-j")
+                .is_some_and(|events| !events.is_empty())
+        });
+        let events = crate::history::read_journal(&data_dir, "sess-j").unwrap();
+        assert!(
+            matches!(&events[0], ActivityEvent::Narration { text, .. } if text == "on disk"),
+            "{events:?}"
+        );
+        handle.shutdown(None);
+        let _ = std::fs::remove_dir_all(&data_dir);
+    }
+
     #[test]
     fn publisher_hellos_publishes_activity_steers_and_kills_against_a_fake_relay() {
         let runtime = SteerRuntime::new().unwrap();
@@ -1464,6 +1546,7 @@ mod tests {
             PublishSpec {
                 session_id: "sess-t".to_string(),
                 issue_id: Some("issue-t".to_string()),
+                journal_dir: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -1548,6 +1631,7 @@ mod tests {
             PublishSpec {
                 session_id: "sess-e".to_string(),
                 issue_id: None,
+                journal_dir: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -1600,6 +1684,7 @@ mod tests {
             PublishSpec {
                 session_id: "sess-cx".to_string(),
                 issue_id: None,
+                journal_dir: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -1673,6 +1758,7 @@ mod tests {
             PublishSpec {
                 session_id: "sess-pi".to_string(),
                 issue_id: None,
+                journal_dir: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -1729,6 +1815,7 @@ mod tests {
             PublishSpec {
                 session_id: "sess-cfg-none".to_string(),
                 issue_id: None,
+                journal_dir: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -1778,6 +1865,7 @@ mod tests {
             PublishSpec {
                 session_id: "sess-cfg".to_string(),
                 issue_id: None,
+                journal_dir: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -1838,6 +1926,7 @@ mod tests {
             PublishSpec {
                 session_id: "sess-cmd".to_string(),
                 issue_id: None,
+                journal_dir: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -1911,6 +2000,7 @@ mod tests {
             PublishSpec {
                 session_id: "sess-cmd-cx".to_string(),
                 issue_id: None,
+                journal_dir: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -1973,6 +2063,7 @@ mod tests {
             PublishSpec {
                 session_id: "sess-cmd-pi".to_string(),
                 issue_id: None,
+                journal_dir: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -2041,6 +2132,7 @@ mod tests {
             PublishSpec {
                 session_id: "sess-img".to_string(),
                 issue_id: None,
+                journal_dir: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -2097,6 +2189,7 @@ mod tests {
             PublishSpec {
                 session_id: "sess-img-err".to_string(),
                 issue_id: None,
+                journal_dir: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -2148,6 +2241,7 @@ mod tests {
             PublishSpec {
                 session_id: "sess-img-slow".to_string(),
                 issue_id: None,
+                journal_dir: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -2211,6 +2305,7 @@ mod tests {
             PublishSpec {
                 session_id: "sess-img-pi".to_string(),
                 issue_id: None,
+                journal_dir: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -2438,6 +2533,7 @@ mod tests {
             PublishSpec {
                 session_id: "sess-p".to_string(),
                 issue_id: None,
+                journal_dir: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -2497,6 +2593,7 @@ mod tests {
             PublishSpec {
                 session_id: "sess-lr".to_string(),
                 issue_id: None,
+                journal_dir: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -2547,6 +2644,7 @@ mod tests {
             PublishSpec {
                 session_id: "sess-r".to_string(),
                 issue_id: None,
+                journal_dir: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -2613,6 +2711,7 @@ mod tests {
             PublishSpec {
                 session_id: "sess-j".to_string(),
                 issue_id: None,
+                journal_dir: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -2673,6 +2772,7 @@ mod tests {
             PublishSpec {
                 session_id: "sess-x".to_string(),
                 issue_id: None,
+                journal_dir: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -2710,6 +2810,7 @@ mod tests {
             PublishSpec {
                 session_id: "sess-d".to_string(),
                 issue_id: None,
+                journal_dir: None,
             },
             Arc::new(DisabledTickets),
             recording_hooks(recorded.clone()),

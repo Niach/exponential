@@ -135,7 +135,9 @@ export const steerRouter = router({
       // Only the session owner's own desktop may publish its PTY — or, for a
       // shared-device run (EXP-432), the hosting daemon's account: the row is
       // requester-owned while the device owner's daemon runs the agent and
-      // publishes its activity.
+      // publishes its activity. EXP-773: an ENDED session mints too — the
+      // device republishes its stored transcript through the same role, and
+      // ownership is the whole gate either way.
       if (input.kind === `publisher`) {
         if (session.userId !== userId && session.hostUserId !== userId) {
           throw new TRPCError({
@@ -177,6 +179,10 @@ export const steerRouter = router({
         userId,
         teamId: session.teamId,
         sessionId: session.id,
+        // EXP-773: name the machine that ran it, so a join on an ENDED
+        // session can ask that device for the transcript instead of getting
+        // `no_such_session`.
+        deviceId: session.deviceId ?? undefined,
       })
     }),
 

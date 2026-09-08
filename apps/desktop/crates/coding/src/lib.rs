@@ -60,6 +60,7 @@ pub mod launch_gate;
 pub mod launcher;
 pub mod mcp_json;
 pub mod pi_bridge;
+pub mod process;
 pub mod prompt;
 pub mod prune;
 pub mod remote_admin;

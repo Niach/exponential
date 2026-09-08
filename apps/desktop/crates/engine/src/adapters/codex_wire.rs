@@ -127,6 +127,28 @@ pub struct AppServer {
 /// up, per queue. See [`AppServer::route`].
 const ROUTER_QUEUE_MAX: usize = 4096;
 
+/// EXP-766: how long the router blocks on a full queue for a frame that must
+/// not be lost. Long enough that a busy consumer catches up, short enough that
+/// a truly wedged one cannot park the router (the thread that also resolves
+/// responses) for the rest of the run.
+#[cfg(not(test))]
+const ROUTER_SEND_TIMEOUT: Duration = Duration::from_secs(30);
+/// The same lever, shortened so the wedged-consumer tests stay fast.
+#[cfg(test)]
+const ROUTER_SEND_TIMEOUT: Duration = Duration::from_millis(200);
+
+/// Notifications the router MAY drop when its queue is full: the per-token
+/// streams whose loss costs a rendering detail and nothing else. Every other
+/// frame is a lifecycle edge some await depends on (`turn/*`, `thread/*`,
+/// `item/started`, `item/completed`), so it applies backpressure instead.
+fn droppable_notification(method: &str) -> bool {
+    method.ends_with("Delta")
+        || method.ends_with("/delta")
+        || method.ends_with("/progress")
+        // No reader at all: the engine keys on `item/started` / `item/completed`.
+        || method == "item/updated"
+}
+
 impl AppServer {
     /// Spawn `codex app-server --listen stdio://` and start routing its lines.
     /// Returns the connection plus the notification stream, the server-request
@@ -191,10 +213,15 @@ impl AppServer {
         // draining (a wedged handler, a paused pump) into unbounded memory
         // growth fed by the app-server's stdout, with no symptom until the
         // machine notices. The cap is deliberately far above any real backlog
-        // (a session that is 4096 frames behind is already broken), and a
-        // full queue drops the frame with a line in the log rather than
-        // blocking the router thread, which is the one thread that also
-        // resolves responses.
+        // (a session that is 4096 frames behind is already broken).
+        //
+        // EXP-766: WHAT a full queue does depends on the frame. Dropping a
+        // token delta costs a rendering detail; dropping a `turn/completed`
+        // parks `wait_for_turn` forever and dropping a server request leaves
+        // codex waiting for an answer that can never come. So only
+        // delta-class notifications drop; everything else applies
+        // backpressure for [`ROUTER_SEND_TIMEOUT`], and a request that STILL
+        // cannot be queued is answered on the wire with an error.
         let (notification_tx, notifications) = flume::bounded(ROUTER_QUEUE_MAX);
         let (request_tx, requests) = flume::bounded(ROUTER_QUEUE_MAX);
         // WEAK on purpose: a strong reference here would keep the child alive
@@ -210,19 +237,39 @@ impl AppServer {
                         Incoming::Response { id, result } => router.resolve(id, result),
                         Incoming::ServerRequest { id, method, params } => {
                             let method_name = method.clone();
+                            let request_id = id.clone();
                             if request_tx
-                                .try_send(ServerRequest { id, method, params })
+                                .send_timeout(
+                                    ServerRequest { id, method, params },
+                                    ROUTER_SEND_TIMEOUT,
+                                )
                                 .is_err()
                             {
+                                // Never leave codex waiting: an unanswered
+                                // approval hangs the turn (EXP-766).
                                 log::warn!(
-                                    "engine: codex request queue full, dropped {method_name}"
+                                    "engine: codex request queue wedged, refusing {method_name}"
+                                );
+                                let _ = router.respond_error(
+                                    request_id,
+                                    -32000,
+                                    "exponential could not handle the request in time",
                                 );
                             }
                         }
                         Incoming::Notification { method, params } => {
-                            if notification_tx.try_send((method.clone(), params)).is_err() {
+                            if droppable_notification(&method) {
+                                if notification_tx.try_send((method.clone(), params)).is_err() {
+                                    log::warn!(
+                                        "engine: codex notification queue full, dropped {method}"
+                                    );
+                                }
+                            } else if notification_tx
+                                .send_timeout((method.clone(), params), ROUTER_SEND_TIMEOUT)
+                                .is_err()
+                            {
                                 log::warn!(
-                                    "engine: codex notification queue full, dropped {method}"
+                                    "engine: codex notification queue wedged, lost {method}"
                                 );
                             }
                         }
@@ -308,6 +355,14 @@ impl AppServer {
     /// Answer a server-initiated request (an approval decision).
     pub fn respond(&self, id: Value, result: Value) -> std::io::Result<()> {
         let line = json!({ "jsonrpc": "2.0", "id": id, "result": result });
+        self.writer.write_line(&line.to_string())
+    }
+
+    /// Refuse a server-initiated request. The app-server treats an error like
+    /// any other answer and moves on; leaving it unanswered hangs the turn.
+    pub fn respond_error(&self, id: Value, code: i64, message: &str) -> std::io::Result<()> {
+        let line =
+            json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } });
         self.writer.write_line(&line.to_string())
     }
 }
@@ -1068,19 +1123,38 @@ fn parse_range_start(range: &str) -> Option<usize> {
 mod tests {
     use super::*;
 
+    struct Discard;
+    impl LineSink for Discard {
+        fn write_line(&self, _line: &str) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// Every line the router wrote back to the app-server.
+    #[derive(Default)]
+    struct Recorder(Mutex<Vec<Value>>);
+    impl LineSink for Recorder {
+        fn write_line(&self, line: &str) -> std::io::Result<()> {
+            if let Ok(mut lines) = self.0.lock() {
+                lines.push(serde_json::from_str(line).unwrap_or(Value::Null));
+            }
+            Ok(())
+        }
+    }
+
+    fn drain_within(lines: &flume::Sender<String>, seconds: u64) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(seconds);
+        while !lines.is_empty() && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
     /// EXP-758: the router's queues are BOUNDED, so an app-server that talks
     /// faster than the adapter reads cannot grow the process without bound.
-    /// A full queue drops the frame with a log line rather than blocking the
-    /// router thread, which is also the thread that resolves responses.
+    /// EXP-766: a DELTA is what a full queue drops — its loss costs a
+    /// rendering detail and nothing else.
     #[test]
-    fn the_router_queues_are_bounded_and_drop_rather_than_grow() {
-        struct Discard;
-        impl LineSink for Discard {
-            fn write_line(&self, _line: &str) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
-
+    fn the_router_drops_deltas_rather_than_growing() {
         let (lines, incoming) = flume::unbounded();
         let overflow = ROUTER_QUEUE_MAX + 64;
         for index in 0..overflow {
@@ -1088,7 +1162,7 @@ mod tests {
                 .send(
                     json!({
                         "jsonrpc": "2.0",
-                        "method": "item/updated",
+                        "method": "item/agentMessage/delta",
                         "params": { "n": index },
                     })
                     .to_string(),
@@ -1098,16 +1172,102 @@ mod tests {
         // Nobody ever reads `notifications`: that is the wedged consumer.
         let (server, notifications, _requests) =
             AppServer::attach(incoming, Arc::new(Discard)).expect("the router starts");
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        while !lines.is_empty() && std::time::Instant::now() < deadline {
-            std::thread::sleep(std::time::Duration::from_millis(5));
-        }
+        drain_within(&lines, 5);
         assert_eq!(lines.len(), 0, "the router drained the whole stream");
         assert_eq!(
             notifications.len(),
             ROUTER_QUEUE_MAX,
             "the queue held its cap and dropped the rest"
         );
+        drop(server);
+    }
+
+    /// EXP-766: a lifecycle frame is never dropped for a consumer that is
+    /// merely slow. Dropping `turn/completed` parks `wait_for_turn` forever.
+    #[test]
+    fn a_lifecycle_frame_waits_for_a_slow_consumer() {
+        let (lines, incoming) = flume::unbounded();
+        for index in 0..ROUTER_QUEUE_MAX {
+            lines
+                .send(
+                    json!({
+                        "jsonrpc": "2.0",
+                        "method": "item/agentMessage/delta",
+                        "params": { "n": index },
+                    })
+                    .to_string(),
+                )
+                .expect("the fake stdout accepts the frame");
+        }
+        for turn in 0..8 {
+            lines
+                .send(
+                    json!({
+                        "jsonrpc": "2.0",
+                        "method": "turn/completed",
+                        "params": { "turnId": format!("turn_{turn}") },
+                    })
+                    .to_string(),
+                )
+                .expect("the fake stdout accepts the frame");
+        }
+        let (server, notifications, _requests) =
+            AppServer::attach(incoming, Arc::new(Discard)).expect("the router starts");
+        // A consumer that starts late but then keeps up.
+        let reader = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(20));
+            let mut turns = 0;
+            while let Ok((method, _)) = notifications.recv_timeout(Duration::from_secs(2)) {
+                if method == "turn/completed" {
+                    turns += 1;
+                }
+            }
+            turns
+        });
+        drain_within(&lines, 10);
+        drop(server);
+        assert_eq!(reader.join().expect("the reader thread"), 8);
+    }
+
+    /// EXP-766: a server request the adapter never picks up is REFUSED on the
+    /// wire. Silently dropping it leaves codex waiting for an approval that
+    /// can never arrive.
+    #[test]
+    fn a_request_the_adapter_cannot_take_is_answered_with_an_error() {
+        let (lines, incoming) = flume::unbounded();
+        let overflow = 3;
+        for index in 0..ROUTER_QUEUE_MAX + overflow {
+            lines
+                .send(
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": format!("srv-{index}"),
+                        "method": "item/commandExecution/requestApproval",
+                        "params": {},
+                    })
+                    .to_string(),
+                )
+                .expect("the fake stdout accepts the frame");
+        }
+        let recorder = Arc::new(Recorder::default());
+        // Nobody ever reads `requests`: that is the wedged consumer.
+        let (server, _notifications, requests) =
+            AppServer::attach(incoming, Arc::clone(&recorder) as Arc<dyn LineSink>)
+                .expect("the router starts");
+        drain_within(&lines, 30);
+        assert_eq!(requests.len(), ROUTER_QUEUE_MAX);
+        // The LAST refusal is still inside its send timeout when the router
+        // takes the line off the stream.
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while recorder.0.lock().expect("the recorder").len() < overflow
+            && std::time::Instant::now() < deadline
+        {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let written = recorder.0.lock().expect("the recorder").clone();
+        assert_eq!(written.len(), overflow, "one error per refused request");
+        assert_eq!(written[0]["id"], json!(format!("srv-{ROUTER_QUEUE_MAX}")));
+        assert!(written[0]["error"]["message"].is_string());
         drop(server);
     }
 

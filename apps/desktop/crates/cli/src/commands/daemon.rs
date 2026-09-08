@@ -333,6 +333,13 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // nothing runs any more; a live sibling's (the desktop app on this
     // machine) are the keep set. Nothing is live in THIS process yet.
     sweep_scratch_dirs(&ctx);
+    // EXP-773: drop stored transcripts nobody can ask for anymore (60 days).
+    {
+        let data_dir = ctx.data_dir.clone();
+        std::thread::spawn(move || {
+            steer::prune_journals(&data_dir, steer::JOURNAL_MAX_AGE);
+        });
+    }
     // EXP-758: an ACP child outlives a host that died without its quit sweep
     // (a crash, SIGKILL, a hard reboot of the service), and nothing else ever
     // kills it, since the PTY reaper's `claude-hooks` anchor only finds
@@ -1049,6 +1056,26 @@ fn dial_control(
     let on_check_in: steer::control_channel::CheckInFn = Arc::new(move || {
         check_in.store(true, Ordering::SeqCst);
     });
+    // EXP-773: serve this machine's stored transcript back to the relay. The
+    // guard is per SOCKET, which is all it has to be: a redial is rare and a
+    // relay only asks once per viewer join.
+    let history_runtime = Arc::clone(runtime);
+    let history_trpc = Arc::clone(&ctx.trpc);
+    let history_dir = ctx.data_dir.clone();
+    let history_in_flight = steer::HistoryInFlight::new();
+    let on_history_request: steer::HistoryRequestFn = Arc::new(move |session_id: String| {
+        let tickets: Arc<dyn steer::PublisherTickets> = Arc::new(steer::TrpcPublisherTickets {
+            trpc: Arc::clone(&history_trpc),
+            coding_session_id: session_id.clone(),
+        });
+        steer::serve_history_request(
+            &history_runtime,
+            tickets,
+            history_dir.clone(),
+            session_id,
+            history_in_flight.clone(),
+        );
+    });
     let control_api: Arc<dyn ControlApi> = Arc::new(TrpcControlApi(Arc::clone(&ctx.trpc)));
     Some(steer::spawn_control_channel(
         runtime,
@@ -1056,6 +1083,7 @@ fn dial_control(
         control_api,
         on_start,
         on_check_in,
+        on_history_request,
     ))
 }
 

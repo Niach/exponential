@@ -502,6 +502,9 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
     let mut secrets = steer::activity::secrets_from_worktree(&spec.run.worktree);
     secrets.extend(spec.personal_key);
     let redactor = Arc::new(steer::Redactor::new(secrets));
+    // EXP-766: only a host with a local sink (the desktop) reattaches a view
+    // mid-run, so only it needs the row backlog kept.
+    let keep_backlog = spec.local_sink.is_some();
     let mapper = Mapper::new(MapperConfig {
         redactor: Arc::clone(&redactor),
         cwd: spec.run.worktree.clone(),
@@ -528,7 +531,7 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
         prompt: spec.prompt,
         mapper: Mutex::new(mapper),
         sink: OnceLock::new(),
-        feed: LocalFeed::default(),
+        feed: LocalFeed::new(keep_backlog),
         asks: PendingAsks::default(),
         terminals: Default::default(),
         ids: Mutex::new(SessionIds::default()),

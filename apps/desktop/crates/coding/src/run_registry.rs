@@ -36,10 +36,80 @@ const TTL_SECS: u64 = 30 * 24 * 60 * 60;
 /// removes concurrently.
 static LOCK: Mutex<()> = Mutex::new(());
 
-fn locked() -> std::sync::MutexGuard<'static, ()> {
-    match LOCK.lock() {
+/// The registry's read-modify-write section, held for one whole operation.
+///
+/// EXP-766: the process mutex alone was never enough. The desktop app and the
+/// CLI daemon share ONE data dir (REV-20), so two hosts could load the same
+/// file, each append their own record and each write it back — the second
+/// rename silently dropping the first's run. The advisory `flock` on a
+/// sibling `runs.json.lock` makes the section machine-wide. It is a separate
+/// file on purpose: `runs.json` itself is replaced by rename, so a lock taken
+/// on it would guard an unlinked inode.
+///
+/// Non-unix keeps the in-process mutex only — there is no flock without a new
+/// dependency, and the shared-data-dir deployment is unix.
+struct RegistryGuard {
+    _process: std::sync::MutexGuard<'static, ()>,
+    #[cfg(unix)]
+    file: Option<std::fs::File>,
+}
+
+#[cfg(unix)]
+impl Drop for RegistryGuard {
+    fn drop(&mut self) {
+        use std::os::unix::io::AsRawFd;
+        if let Some(file) = self.file.as_ref() {
+            // SAFETY: our own open fd; LOCK_UN cannot fail meaningfully here
+            // (closing the file would release it anyway).
+            unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+        }
+    }
+}
+
+fn locked(data_dir: &Path) -> RegistryGuard {
+    let process = match LOCK.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
+    };
+    #[cfg(unix)]
+    {
+        let file = open_lock_file(data_dir);
+        RegistryGuard {
+            _process: process,
+            file,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = data_dir;
+        RegistryGuard { _process: process }
+    }
+}
+
+/// Open `runs.json.lock` and take it exclusively, blocking until it is ours.
+/// Every failure degrades to the in-process mutex (`None`): a read-only data
+/// dir must not make recording impossible.
+#[cfg(unix)]
+fn open_lock_file(data_dir: &Path) -> Option<std::fs::File> {
+    use std::os::unix::io::AsRawFd;
+    let _ = std::fs::create_dir_all(data_dir);
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(data_dir.join("runs.json.lock"))
+        .ok()?;
+    loop {
+        // SAFETY: our own open fd.
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
+            return Some(file);
+        }
+        // A signal interrupted the wait — keep waiting; anything else means
+        // the filesystem cannot lock (some network mounts), so carry on
+        // without it.
+        if std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
+            return None;
+        }
     }
 }
 
@@ -425,7 +495,6 @@ fn entry_cwd(entry: &serde_json::Value) -> Option<&str> {
 
 fn save(data_dir: &Path, registry: &Registry) {
     let path = registry_path(data_dir);
-    let tmp = path.with_extension("json.tmp");
     let mut entries: Vec<serde_json::Value> = Vec::with_capacity(registry.records.len());
     for record in &registry.records {
         let Ok(value) = serde_json::to_value(record) else {
@@ -437,16 +506,16 @@ fn save(data_dir: &Path, registry: &Registry) {
     let Ok(json) = serde_json::to_string_pretty(&entries) else {
         return;
     };
-    let _ = std::fs::create_dir_all(data_dir);
-    if std::fs::write(&tmp, json).is_ok() {
-        let _ = std::fs::rename(&tmp, &path);
-    }
+    // EXP-766: a UNIQUE temp per write (pid + nanos, inside `write_atomic`).
+    // The old fixed `runs.json.tmp` was one file two hosts wrote at once, so
+    // one could rename the other's half-written bytes into place.
+    let _ = api::atomic_file::write_atomic(&path, &json);
 }
 
 /// Upsert by `session_id` (a re-record of the same run replaces it) and
 /// drop everything past the TTL in the same pass.
 pub fn record(data_dir: &Path, record: RunRecord) {
-    let _guard = locked();
+    let _guard = locked(data_dir);
     let mut registry = load_registry(data_dir);
     let cutoff = now_secs().saturating_sub(TTL_SECS);
     registry
@@ -467,12 +536,12 @@ pub fn record(data_dir: &Path, record: RunRecord) {
 /// them, not one by one, and unknown entries are none of its business (a
 /// newer build's record names pids only that build knows how to judge).
 pub fn all(data_dir: &Path) -> Vec<RunRecord> {
-    let _guard = locked();
+    let _guard = locked(data_dir);
     load(data_dir)
 }
 
 pub fn get(data_dir: &Path, session_id: &str) -> Option<RunRecord> {
-    let _guard = locked();
+    let _guard = locked(data_dir);
     load(data_dir)
         .into_iter()
         .find(|record| record.session_id == session_id)
@@ -489,7 +558,7 @@ pub fn latest_for_issue(
     account_id: &str,
     issue_id: &str,
 ) -> Option<RunRecord> {
-    let _guard = locked();
+    let _guard = locked(data_dir);
     load(data_dir)
         .into_iter()
         .filter(|record| {
@@ -505,7 +574,7 @@ pub fn latest_for_issue(
 /// set. Reads unknown entries too: an older host must never sweep the live
 /// scratch dir of a run a newer build recorded.
 pub fn cwds_for(data_dir: &Path, session_ids: &[String]) -> Vec<PathBuf> {
-    let _guard = locked();
+    let _guard = locked(data_dir);
     let registry = load_registry(data_dir);
     let wanted = |id: &str| session_ids.iter().any(|wanted| wanted == id);
     let mut cwds: Vec<PathBuf> = registry
@@ -524,8 +593,42 @@ pub fn cwds_for(data_dir: &Path, session_ids: &[String]) -> Vec<PathBuf> {
     cwds
 }
 
+/// EXP-766: the cwds of runs whose HOST process is still alive — the prune's
+/// cross-process busy set. `busy_paths` only ever knew this process's tabs,
+/// so a worktree driven by the sibling on the shared data dir (the CLI
+/// daemon, a second desktop; REV-20) looked idle and could be removed under
+/// a running agent. Unknown entries count too: a newer build's live run is
+/// still live work.
+///
+/// A recycled pid can only make this set too BIG, which parks a worktree for
+/// one pass — the safe direction, and [`crate::reaper`] clears the pids of
+/// dead hosts at every start.
+pub fn live_host_cwds(data_dir: &Path) -> Vec<PathBuf> {
+    let _guard = locked(data_dir);
+    let registry = load_registry(data_dir);
+    let mut cwds: Vec<PathBuf> = registry
+        .records
+        .iter()
+        .filter(|record| record.host_pid.is_some_and(crate::process::is_alive))
+        .map(|record| record.cwd.clone())
+        .collect();
+    cwds.extend(
+        registry
+            .unknown
+            .iter()
+            .filter(|entry| {
+                entry
+                    .get("hostPid")
+                    .and_then(serde_json::Value::as_u64)
+                    .is_some_and(|pid| u32::try_from(pid).is_ok_and(crate::process::is_alive))
+            })
+            .filter_map(|entry| entry_cwd(entry).map(PathBuf::from)),
+    );
+    cwds
+}
+
 pub fn remove(data_dir: &Path, session_id: &str) {
-    let _guard = locked();
+    let _guard = locked(data_dir);
     let mut registry = load_registry(data_dir);
     let before = registry.records.len() + registry.unknown.len();
     registry
@@ -545,7 +648,7 @@ pub fn remove(data_dir: &Path, session_id: &str) {
 /// — issue and batch worktrees stay governed by the prune's own prefix/keep
 /// policy, which a nomination would bypass.
 pub fn branches_for_clone(data_dir: &Path, clone: &Path) -> Vec<String> {
-    let _guard = locked();
+    let _guard = locked(data_dir);
     let mut branches: Vec<String> = load(data_dir)
         .into_iter()
         .filter(|record| record.clone.as_deref() == Some(clone))
@@ -1196,5 +1299,125 @@ mod tests {
         );
         assert!(cwds_for(&dir, &[]).is_empty());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-766: only records whose host process is alive, unknown entries
+    /// included (a newer build's live run is still live work).
+    #[test]
+    fn live_host_cwds_reads_known_and_unknown_entries() {
+        let dir = temp_dir("live-hosts");
+        let mut live = sample("sess-live");
+        live.cwd = PathBuf::from("/repos/acme/web.worktrees/live");
+        live.host_pid = Some(std::process::id());
+        record(&dir, live);
+        let mut dead = sample("sess-dead");
+        dead.cwd = PathBuf::from("/repos/acme/web.worktrees/dead");
+        dead.host_pid = Some(u32::MAX - 1);
+        record(&dir, dead);
+        // No pid at all (a pre-EXP-758 record) never parks anything.
+        record(&dir, sample("sess-pidless"));
+
+        let mut entries: Vec<serde_json::Value> =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("runs.json")).unwrap())
+                .unwrap();
+        entries.push(serde_json::json!({
+            "sessionId": "sess-future",
+            "kind": "hologram",
+            "cwd": "/repos/acme/web.worktrees/future",
+            "hostPid": std::process::id(),
+            "recordedAt": now_secs()
+        }));
+        std::fs::write(dir.join("runs.json"), serde_json::to_string(&entries).unwrap()).unwrap();
+
+        let mut cwds = live_host_cwds(&dir);
+        cwds.sort();
+        assert_eq!(
+            cwds,
+            vec![
+                PathBuf::from("/repos/acme/web.worktrees/future"),
+                PathBuf::from("/repos/acme/web.worktrees/live"),
+            ]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-766: concurrent recorders never drop each other's runs. Threads
+    /// first (the automation host records while a cleanup removes) …
+    #[test]
+    fn concurrent_threads_lose_no_record() {
+        let dir = temp_dir("concurrent-threads");
+        let writers: Vec<_> = (0..6)
+            .map(|writer| {
+                let dir = dir.clone();
+                std::thread::spawn(move || {
+                    for index in 0..8 {
+                        record(&dir, sample(&format!("sess-{writer}-{index}")));
+                    }
+                })
+            })
+            .collect();
+        for writer in writers {
+            writer.join().unwrap();
+        }
+        let ids: Vec<String> = all(&dir).into_iter().map(|r| r.session_id).collect();
+        assert_eq!(ids.len(), 48, "{ids:?}");
+        for writer in 0..6 {
+            for index in 0..8 {
+                let wanted = format!("sess-{writer}-{index}");
+                assert!(ids.contains(&wanted), "{wanted} was dropped");
+            }
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// … and PROCESSES: the desktop app and the CLI daemon share one data dir
+    /// (REV-20), which the in-process mutex could never cover. The child is
+    /// this same test binary, re-invoked on the ignored writer below.
+    #[cfg(unix)]
+    #[test]
+    fn a_second_process_loses_no_record() {
+        let dir = temp_dir("concurrent-procs");
+        let Ok(exe) = std::env::current_exe() else {
+            return;
+        };
+        let Ok(mut child) = std::process::Command::new(exe)
+            .args([
+                "--exact",
+                "--ignored",
+                "--nocapture",
+                "run_registry::tests::cross_process_child_writer",
+            ])
+            .env("EXP_RUN_REGISTRY_CHILD_DIR", &dir)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        else {
+            return; // no way to fork a helper here; the thread test stands
+        };
+        for index in 0..30 {
+            record(&dir, sample(&format!("parent-{index}")));
+        }
+        assert!(child.wait().unwrap().success(), "the child writer failed");
+
+        let ids: Vec<String> = all(&dir).into_iter().map(|r| r.session_id).collect();
+        for index in 0..30 {
+            assert!(ids.contains(&format!("parent-{index}")), "parent record lost");
+            assert!(ids.contains(&format!("child-{index}")), "child record lost");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The child half of [`a_second_process_loses_no_record`] — ignored, so
+    /// it only runs when that test names it explicitly.
+    #[test]
+    #[ignore]
+    fn cross_process_child_writer() {
+        let Ok(dir) = std::env::var("EXP_RUN_REGISTRY_CHILD_DIR") else {
+            return;
+        };
+        let dir = PathBuf::from(dir);
+        for index in 0..30 {
+            record(&dir, sample(&format!("child-{index}")));
+        }
     }
 }

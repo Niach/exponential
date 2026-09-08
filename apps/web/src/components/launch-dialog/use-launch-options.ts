@@ -49,12 +49,18 @@ export function useLaunchOptions({
   open,
   devices,
   initialDeviceId,
+  planModeOff = false,
 }: {
   open: boolean
   /** The caller's CANDIDATE devices, already capability-filtered. */
   devices: SteerDevice[]
   /** Device to pre-select on open — wins over the first candidate. */
   initialDeviceId?: string
+  /** EXP-772: never seed plan mode from the device's defaults — the chat page
+   * starts every conversation in build mode unless the user flips the switch,
+   * and a surface that HIDES the switch must send `planMode: false` rather
+   * than a value nobody could see. */
+  planModeOff?: boolean
 }): LaunchOptions {
   const [agent, setAgent] = useState<string>(DEFAULT_LAUNCH_AGENT)
   const [model, setModel] = useState(``)
@@ -80,7 +86,7 @@ export function useLaunchOptions({
     setModel(seed.model)
     setEffortValue(CLI_DEFAULT_EFFORT)
     setUltracode(seed.ultracode)
-    setPlanMode(seed.planMode)
+    setPlanMode(planModeOff ? false : seed.planMode)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
@@ -114,7 +120,7 @@ export function useLaunchOptions({
     setModel(seed.model)
     setEffortValue(seed.effort === `` ? CLI_DEFAULT_EFFORT : seed.effort)
     setUltracode(seed.ultracode)
-    setPlanMode(seed.planMode)
+    setPlanMode(planModeOff ? false : seed.planMode)
   }
 
   // EXP-437: seed the launch options from the selected device's advertised
@@ -135,7 +141,7 @@ export function useLaunchOptions({
     setModel(seed.model)
     setEffortValue(seed.effort === `` ? CLI_DEFAULT_EFFORT : seed.effort)
     setUltracode(seed.ultracode)
-    setPlanMode(seed.planMode)
+    setPlanMode(planModeOff ? false : seed.planMode)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, device?.deviceId])
 

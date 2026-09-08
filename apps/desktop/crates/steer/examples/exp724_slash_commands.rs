@@ -300,6 +300,7 @@ fn main() {
         PublishSpec {
             session_id: SESSION_ID.to_string(),
             issue_id: None,
+            journal_dir: None,
         },
         Arc::new(HarnessTickets { relay_port: port }),
         hooks,

@@ -58,20 +58,15 @@ data class AgentLaunchDefaults(
  * default and must be clamped to what it can actually run. The whole field is
  * absent on an older desktop — readers fall back to the static contract
  * defaults.
+ *
+ * EXP-773 dropped `startInTerminal` with the PTY coding path. An older server
+ * still stamps that key; both decoders here are `ignoreUnknownKeys`, so it is
+ * simply skipped instead of failing the whole object.
  */
 @Serializable
 data class DeviceLaunchDefaults(
     @SerialName("defaultAgent") val defaultAgent: String? = null,
     @SerialName("agents") val agents: Map<String, AgentLaunchDefaults> = emptyMap(),
-    /**
-     * EXP-746: run coding sessions in a terminal tab instead of the desktop's
-     * session screen — DEVICE-GLOBAL, not per agent, so it lives beside
-     * [agents] rather than inside one. Nullable like every sibling: the decode
-     * has no `coerceInputValues`, so an explicit `null` on the wire would
-     * otherwise throw and drop the whole launch-defaults object. Read it as
-     * `== true`.
-     */
-    @SerialName("startInTerminal") val startInTerminal: Boolean? = null,
 )
 
 /**

@@ -100,6 +100,12 @@ export type SteerTicketSeed =
       userId: string
       teamId: string
       sessionId: string
+      /** EXP-773: the machine that ran the session
+       * (`coding_sessions.device_id`). Riding the ticket is what lets the
+       * relay ask that device for the transcript when the room is not up —
+       * the transcript never leaves the device. Absent on rows that named no
+       * device. */
+      deviceId?: string
     }
 
 export function buildSteerTicketClaims(
@@ -133,6 +139,9 @@ export function buildSteerTicketClaims(
         team: seed.teamId,
         sessionId: seed.sessionId,
         role: `viewer`,
+        // EXP-773: only when the row named a device — an undefined key would
+        // widen the ticket's JSON for nothing.
+        ...(seed.deviceId ? { deviceId: seed.deviceId } : {}),
       }
   }
 }

@@ -560,6 +560,7 @@ fn launch_pty(
         let spec = PublishSpec {
             session_id: session_id.clone(),
             issue_id: issue_id.clone(),
+            journal_dir: None,
         };
         let handle = steer::publish(runtime, spec, tickets, hooks);
 

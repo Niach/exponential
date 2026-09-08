@@ -120,6 +120,7 @@ fn idle_close_4001_reconnects_and_never_fires_the_kill_hook() {
         PublishSpec {
             session_id: "sess-exp-283".to_string(),
             issue_id: None,
+            journal_dir: None,
         },
         Arc::new(CountingTickets {
             url: format!("ws://127.0.0.1:{port}/session"),

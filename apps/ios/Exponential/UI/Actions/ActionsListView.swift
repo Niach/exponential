@@ -42,11 +42,6 @@ struct ActionsListView: View {
     @State private var formTarget: AutomationFormTarget?
     /// Owner-only delete, confirmed first (destructive native actions do).
     @State private var pendingDelete: AutomationDto?
-    /// EXP-637: which finished runs are expanded (the close-out summary and
-    /// the Resume pill live behind a tap, never inline) and the pending
-    /// Resume confirm.
-    @State private var expandedRunIds: Set<String> = []
-    @State private var resumeTarget: ResumeTarget?
     /// EXP-530: Actions · Automations · Suggestions (the MyWorkView segment
     /// pattern — the choice survives relaunch via AppStorage).
     @AppStorage("actionsSegment") private var segmentRaw = Segment.actions.rawValue
@@ -66,14 +61,6 @@ struct ActionsListView: View {
         var description = ""
         var icon = ""
         var automation: AutomationTrigger?
-    }
-
-    /// The finished run a Resume confirm is pending for (EXP-637) — ids only,
-    /// so a row re-syncing underneath the alert can't stale it.
-    private struct ResumeTarget: Identifiable {
-        let sessionId: String
-        let deviceId: String
-        var id: String { sessionId }
     }
 
     private enum Segment: String, CaseIterable {
@@ -467,19 +454,6 @@ struct ActionsListView: View {
             }
             ForEach(vm.automationRuns) { automatedRunRow($0, vm: vm) }
         }
-        .alert(
-            "Resume this run?",
-            isPresented: Binding(
-                get: { resumeTarget != nil },
-                set: { if !$0 { resumeTarget = nil } }
-            ),
-            presenting: resumeTarget
-        ) { target in
-            Button("Resume") { resume(target, vm: vm) }
-            Button("Cancel", role: .cancel) { resumeTarget = nil }
-        } message: { _ in
-            Text("Reopens the run on the machine that ran it, in the same worktree, and continues where the agent stopped.")
-        }
     }
 
     private func emptyAutomationsState(_ vm: ActionsViewModel) -> some View {
@@ -639,45 +613,19 @@ struct ActionsListView: View {
     /// One automation-started coding_sessions row (started_reason non-null):
     /// action-name snapshot, state, relative time. No "Automated" badge
     /// (EXP-643) — the section header already says so.
-    /// EXP-637: the SHARED expandable run row — a tap reveals the agent's
-    /// close-out summary (rendered as real markdown since EXP-686) and, on the
-    /// machine that ran it, Resume. The summary is never inline (decision 5),
-    /// here or anywhere else. A LIVE row expands nothing: the only state it
-    /// shows is "Running", and tapping it opens that session.
+    ///
+    /// EXP-773: a plain link. The close-out summary and Resume moved to the
+    /// top of the run's own session view, so live and finished rows behave
+    /// identically: a tap opens that session.
     private func automatedRunRow(_ session: CodingSessionEntity, vm: ActionsViewModel) -> some View {
         let ended = session.status == DomainContract.codingSessionStatusEnded
-        let device = ended ? vm.resumeDevice(for: session) : nil
         return EndedRunRow(
             title: session.actionName ?? "Action run",
             byline: runByline(session, ended: ended),
-            summary: session.summary,
-            expanded: expandedRunIds.contains(session.id),
-            canResume: steerEnabled && device != nil,
             isLive: !ended,
-            onToggle: { toggleRun(session.id) },
-            onResume: {
-                guard let device else { return }
-                resumeTarget = ResumeTarget(sessionId: session.id, deviceId: device.deviceId)
-            },
-            // A live run is steerable — the whole row IS the entry, exactly
-            // like the Devices tab's session rows. It pushes the SAME
-            // destination the start watcher does (a NavigationLink label can't
-            // hold the row's own header button).
-            onOpen: { sessionTarget = .init(sessionId: session.id) },
-            summary: { AgentMarkdownText(text: $0, context: markdownContext) }
+            onOpen: { sessionTarget = .init(sessionId: session.id) }
         )
         .accessibilityIdentifier("automated-run-row")
-    }
-
-    /// Everything an `AgentMarkdownText` needs to render the embedded images
-    /// a close-out summary can carry — the same context the steer screen
-    /// hands its markdown (EXP-698: passing nil here silently dropped them).
-    private var markdownContext: AgentMarkdownContext {
-        AgentMarkdownContext(
-            baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
-            accountId: accountId,
-            httpClient: deps.httpClient
-        )
     }
 
     /// "ended 5m ago" once the run finished, "started 5m ago" while it is
@@ -689,25 +637,6 @@ struct ActionsListView: View {
         }
         let time = relativeDate(session.startedAt)
         return time.isEmpty ? "" : "started \(time)"
-    }
-
-    private func toggleRun(_ id: String) {
-        if expandedRunIds.contains(id) {
-            expandedRunIds.remove(id)
-        } else {
-            expandedRunIds.insert(id)
-        }
-    }
-
-    /// Resume the run on its own machine (EXP-637). No local spinner: the
-    /// shared watcher's "waiting for the desktop" caption (rendered above the
-    /// list) already owns the wait, and it pushes the live screen on pickup.
-    private func resume(_ target: ResumeTarget, vm: ActionsViewModel) {
-        resumeTarget = nil
-        guard let session = vm.automationRuns.first(where: { $0.id == target.sessionId }),
-              let device = vm.allDevices.first(where: { $0.deviceId == target.deviceId })
-        else { return }
-        vm.resume(session: session, device: device, userId: deps.auth.userId)
     }
 
     private func relativeDate(_ s: String) -> String {

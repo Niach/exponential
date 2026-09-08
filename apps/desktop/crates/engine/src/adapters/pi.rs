@@ -48,8 +48,7 @@ use agent_client_protocol::schema::v1::{
     InitializeResponse, LoadSessionRequest, LoadSessionResponse, NewSessionRequest,
     NewSessionResponse, PermissionOption, PermissionOptionKind, PromptCapabilities, PromptRequest,
     PromptResponse, RequestPermissionOutcome, RequestPermissionRequest,
-    SessionConfigBoolean, SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory,
-    SessionConfigSelect, SessionConfigSelectOption, SessionId, SessionInfoUpdate, SessionMode,
+    SessionConfigOption, SessionId, SessionInfoUpdate, SessionMode,
     SessionModeId, SessionModeState, SessionNotification, SessionUpdate,
     SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, SetSessionModeRequest,
     SetSessionModeResponse, StopReason, StringPropertySchema, ToolCall, ToolCallContent,
@@ -61,8 +60,7 @@ use agent_client_protocol::{Agent, Client, ConnectTo, ConnectionTo, Error, Respo
 use serde_json::{json, Value};
 
 use super::pi_wire::{
-    self, PiArgs, PiEvent, PiModel, PiOut, PiState, PiUi, PiUsage, QUEUE_MODES,
-    SYNTHESIZED_COMMANDS, THINKING_LEVELS,
+    self, PiArgs, PiEvent, PiModel, PiOut, PiState, PiUi, PiUsage, SYNTHESIZED_COMMANDS,
 };
 use super::AdapterSpec;
 use crate::session::{EngineError, ResumeHandle};
@@ -1167,18 +1165,16 @@ async fn set_mode(
     cx: &ConnectionTo<Client>,
     request: SetSessionModeRequest,
 ) -> Result<SetSessionModeResponse, Error> {
+    // EXP-772: a session that never loaded the plan extension has no modes at
+    // all, so the switch is a silent no-op. An error here reached the feed as
+    // an "Agent error" narration for a chip the user simply tapped.
     if guard(&session.mode).is_none() {
-        return Err(Error::invalid_request().data(json!("pi has no session modes")));
+        log::debug!("engine: pi has no session modes; ignoring the mode switch");
+        return Ok(SetSessionModeResponse::new());
     }
-    let requested = request.mode_id.0.to_string();
-    let argument = match requested.as_str() {
-        MODE_PLAN => "on",
-        MODE_DEFAULT => "off",
-        other => {
-            return Err(Error::invalid_params()
-                .data(json!(format!("pi has no session mode {other}"))))
-        }
-    };
+    // Anything that is not `plan` means "stop planning" — including claude's
+    // `bypassPermissions`, so one client vocabulary drives every agent.
+    let argument = if request.mode_id.0.as_ref() == MODE_PLAN { "on" } else { "off" };
     switch_plan_mode(session, cx, argument).await?;
     Ok(SetSessionModeResponse::new())
 }
@@ -1415,7 +1411,9 @@ fn mode_state(mode: &Option<String>) -> Option<SessionModeState> {
 /// extension's gate; the ids match claude's so one picker renders both.
 fn available_modes() -> Vec<SessionMode> {
     vec![
-        SessionMode::new(SessionModeId::new(MODE_DEFAULT), "Manual")
+        // EXP-772: labelled like claude's pair (Plan / Build); pi's id for it
+        // stays `default`, which is pi's own posture.
+        SessionMode::new(SessionModeId::new(MODE_DEFAULT), "Build")
             .description("Run without the plan gate"),
         SessionMode::new(SessionModeId::new(MODE_PLAN), "Plan")
             .description("Create a plan before making changes"),
@@ -1423,89 +1421,11 @@ fn available_modes() -> Vec<SessionMode> {
 }
 
 /// The full config snapshot for a state + model list.
-fn config_options(state: &PiState, models: &[PiModel]) -> Vec<SessionConfigOption> {
-    let mut options = Vec::new();
-    let current_model = state
-        .model
-        .as_ref()
-        .map(PiModel::value_id)
-        .unwrap_or_default();
-    let mut values: Vec<SessionConfigSelectOption> = models
-        .iter()
-        .map(|model| SessionConfigSelectOption::new(model.value_id(), model.name.clone()))
-        .collect();
-    if !current_model.is_empty()
-        && !values.iter().any(|value| value.value.0.as_ref() == current_model)
-    {
-        // The running model always appears, even when `get_available_models`
-        // does not list it (a scoped or provider-side model) — a select whose
-        // current value is absent renders empty on every client.
-        let label = state
-            .model
-            .as_ref()
-            .map(|model| model.name.clone())
-            .unwrap_or_else(|| current_model.clone());
-        values.insert(
-            0,
-            SessionConfigSelectOption::new(current_model.clone(), label),
-        );
-    }
-    if !values.is_empty() {
-        options.push(
-            SessionConfigOption::new(
-                CONFIG_MODEL,
-                "Model",
-                SessionConfigKind::Select(SessionConfigSelect::new(current_model, values)),
-            )
-            .category(SessionConfigOptionCategory::Model),
-        );
-    }
-    if !state.thinking_level.is_empty() {
-        options.push(
-            SessionConfigOption::new(
-                CONFIG_THINKING,
-                "Thinking",
-                SessionConfigKind::Select(SessionConfigSelect::new(
-                    state.thinking_level.clone(),
-                    select_values(&THINKING_LEVELS),
-                )),
-            )
-            .category(SessionConfigOptionCategory::ThoughtLevel),
-        );
-    }
-    if !state.steering_mode.is_empty() {
-        options.push(SessionConfigOption::new(
-            CONFIG_STEERING,
-            "Steering",
-            SessionConfigKind::Select(SessionConfigSelect::new(
-                state.steering_mode.clone(),
-                select_values(&QUEUE_MODES),
-            )),
-        ));
-    }
-    if !state.follow_up_mode.is_empty() {
-        options.push(SessionConfigOption::new(
-            CONFIG_FOLLOW_UP,
-            "Follow-up",
-            SessionConfigKind::Select(SessionConfigSelect::new(
-                state.follow_up_mode.clone(),
-                select_values(&QUEUE_MODES),
-            )),
-        ));
-    }
-    options.push(SessionConfigOption::new(
-        CONFIG_AUTO_COMPACTION,
-        "Auto-compaction",
-        SessionConfigKind::Boolean(SessionConfigBoolean::new(state.auto_compaction)),
-    ));
-    options
-}
-
-fn select_values(values: &[&str]) -> Vec<SessionConfigSelectOption> {
-    values
-        .iter()
-        .map(|value| SessionConfigSelectOption::new(value.to_string(), value.to_string()))
-        .collect()
+/// EXP-772: EMPTY. Model / thinking / steering / follow-up / auto-compaction
+/// pickers left the mid-session steering UI on every client;
+/// [`set_config_option`] still applies the ids for an older publisher.
+fn config_options(_state: &PiState, _models: &[PiModel]) -> Vec<SessionConfigOption> {
+    Vec::new()
 }
 
 /// pi's builtin tools plus the shape most MCP tools take. Unknown names are
@@ -1726,67 +1646,19 @@ mod tests {
         }
     }
 
+    /// EXP-772: option chips are gone from every client, so the adapter
+    /// advertises none — whatever pi reports about itself.
     #[test]
-    fn the_config_snapshot_carries_every_switchable_pi_setting() {
+    fn the_config_snapshot_carries_no_options() {
         let models = vec![PiModel {
             provider: "anthropic".to_string(),
             id: "claude-opus-4-6".to_string(),
             name: "Claude Opus".to_string(),
             context_window: 200_000,
         }];
-        let options = config_options(&state(), &models);
-        let ids: Vec<String> = options.iter().map(|option| option.id.0.to_string()).collect();
-        assert_eq!(
-            ids,
-            vec![
-                "model",
-                "thinking_level",
-                "steering_mode",
-                "follow_up_mode",
-                "auto_compaction"
-            ]
-        );
-        // The RUNNING model is always selectable, even when the list omits it.
-        let model = &options[0];
-        match &model.kind {
-            SessionConfigKind::Select(select) => {
-                assert_eq!(select.current_value.0.as_ref(), "openai-codex/gpt-5.4");
-                let values = match &select.options {
-                    agent_client_protocol::schema::v1::SessionConfigSelectOptions::Ungrouped(
-                        values,
-                    ) => values,
-                    other => panic!("expected ungrouped values, got {other:?}"),
-                };
-                assert_eq!(values[0].value.0.as_ref(), "openai-codex/gpt-5.4");
-                assert_eq!(values[1].value.0.as_ref(), "anthropic/claude-opus-4-6");
-            }
-            other => panic!("expected a select, got {other:?}"),
-        }
-        assert_eq!(model.category, Some(SessionConfigOptionCategory::Model));
-        assert_eq!(
-            options[1].category,
-            Some(SessionConfigOptionCategory::ThoughtLevel)
-        );
-        // pi has no modes, so nothing here claims a Mode category.
-        assert!(options
-            .iter()
-            .all(|option| option.category != Some(SessionConfigOptionCategory::Mode)));
-    }
-
-    #[test]
-    fn a_state_without_a_model_still_yields_options() {
+        assert!(config_options(&state(), &models).is_empty());
         let bare = PiState { model: None, ..state() };
-        let options = config_options(&bare, &[]);
-        let ids: Vec<String> = options.iter().map(|option| option.id.0.to_string()).collect();
-        assert_eq!(
-            ids,
-            vec![
-                "thinking_level",
-                "steering_mode",
-                "follow_up_mode",
-                "auto_compaction"
-            ]
-        );
+        assert!(config_options(&bare, &[]).is_empty());
     }
 
     #[test]

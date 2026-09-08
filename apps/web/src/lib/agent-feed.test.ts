@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   ackAnswer,
   activeQuestionIds,
-  configChips,
+  mergeNarrationFragment,
+  modeChip,
   parseConfigState,
+  planModeToggle,
   parseSessionUsage,
   answerKey,
   applyQuestionResolved,
@@ -19,6 +21,7 @@ import {
   looksLikeMarkdown,
   pushEcho,
   resumesAfterCompaction,
+  subagentIdOf,
   summarizeSubagentRow,
   spliceBeforeQuestion,
   upsertQuestion,
@@ -583,6 +586,40 @@ describe(`groupFeedRows`, () => {
     ])
   })
 
+  // EXP-773: a subagent's PROSE and its user turns are scoped the same way —
+  // hidden from Main, shown in that subagent's view.
+  it(`a subagent's narration and user turns join its group, not the main feed`, () => {
+    const feed = [
+      item(1, `narration`),
+      item(2, `subagent`, { subagentId: `s1` }),
+      item(3, `narration`, { subagentId: `s1` }),
+      item(4, `user_message`, { subagentId: `s1` }),
+      item(5, `tool`, { subagentId: `s1` }),
+      item(6, `user_message`),
+    ]
+    expect(groupFeedRows(feed)).toEqual([
+      { kind: `single`, item: feed[0] },
+      {
+        kind: `subagent`,
+        id: 2,
+        subagentId: `s1`,
+        items: [feed[1], feed[2], feed[3], feed[4]],
+      },
+      { kind: `single`, item: feed[5] },
+    ])
+    // The accessor every renderer uses agrees.
+    expect(feed.map(subagentIdOf)).toEqual([
+      null,
+      `s1`,
+      `s1`,
+      `s1`,
+      `s1`,
+      null,
+    ])
+    // A kind that is NOT scopable keeps its main-feed row even with an id.
+    expect(subagentIdOf({ kind: `compaction`, subagentId: `s1` })).toBeNull()
+  })
+
   it(`a subagent tool breaks a main-thread run instead of joining it`, () => {
     const feed = [
       item(1, `tool`),
@@ -917,44 +954,35 @@ describe(`compaction`, () => {
 describe(`config state`, () => {
   const state = (over: Record<string, unknown> = {}) => ({
     kind: `config_state`,
-    options: [
-      {
-        id: `model`,
-        label: `Model`,
-        value: `opus`,
-        values: [
-          { id: `opus`, label: `Opus` },
-          { id: `sonnet`, label: `Sonnet` },
-        ],
-      },
+    modes: [
+      { id: `plan`, label: `Plan` },
+      { id: `bypassPermissions`, label: `Build` },
     ],
+    currentMode: `bypassPermissions`,
     ...over,
   })
 
-  it(`parseConfigState drops malformed options and keeps the rest`, () => {
+  // EXP-772: options are gone from the state entirely — an older publisher
+  // still sends them, the fold simply drops them.
+  it(`parseConfigState drops malformed modes, commands and every option`, () => {
     const parsed = parseConfigState(
       state({
-        options: [
-          `not an option`,
-          { label: `no id at all` },
-          { id: ``, label: `blank id` },
-          { id: `effort`, label: `Effort`, value: `high`, values: `nope` },
-          { id: `model`, label: `Model` },
-        ],
+        options: [{ id: `model`, label: `Model`, value: `opus` }],
         modes: [{ id: `plan`, label: `Plan`, description: `Read-only` }, 7],
         commands: [{ name: `review`, description: `Review the diff` }, null],
         currentMode: `plan`,
       })
     )
     expect(parsed).toEqual({
-      options: [
-        { id: `effort`, label: `Effort`, value: `high` },
-        { id: `model`, label: `Model` },
-      ],
       modes: [{ id: `plan`, label: `Plan`, description: `Read-only` }],
       commands: [{ name: `review`, description: `Review the diff` }],
       currentMode: `plan`,
     })
+    // An options-only payload from an older publisher is still a config
+    // state — it just carries no modes and no commands.
+    expect(
+      parseConfigState({ kind: `config_state`, options: [] })
+    ).toEqual({ modes: [], commands: [] })
     // Not a config state at all — the caller keeps its previous snapshot.
     expect(parseConfigState({ kind: `config_state` })).toBeNull()
     expect(parseConfigState(null)).toBeNull()
@@ -988,16 +1016,14 @@ describe(`config state`, () => {
     ).toEqual({ contextUsed: 10, contextSize: 20 })
   })
 
-  // EXP-746: this name is mirrored ×4 - Android carries it verbatim, iOS as
-  // `testConfigChipsPutsTheModeChipFirst`, desktop as
-  // `config_chips_puts_the_mode_chip_first`; keep the four in step.
-  it(`configChips puts the mode chip first`, () => {
+  // EXP-772: this name is mirrored ×4 - Android carries it verbatim, iOS as
+  // `testModeChipIsTheOnlyComposerControl`, desktop as
+  // `mode_chip_is_the_only_composer_control`; keep the four in step.
+  it(`the mode chip is the only composer control`, () => {
     const config = parseConfigState(
       state({
-        options: [
-          { id: `model`, label: `Model`, value: `opus`, values: [{ id: `opus`, label: `Opus` }] },
-          { id: `effort`, label: `Effort`, value: `high`, values: [{ id: `high`, label: `High` }] },
-        ],
+        // An older publisher's options are ignored, not rendered.
+        options: [{ id: `model`, label: `Model`, value: `opus` }],
         modes: [
           { id: `default`, label: `Default` },
           { id: `plan`, label: `Plan` },
@@ -1005,43 +1031,113 @@ describe(`config state`, () => {
         currentMode: `plan`,
       })
     )
-    expect(configChips(config).map((chip) => [chip.id, chip.valueLabel])).toEqual([
-      [`mode`, `Plan`],
-      [`model`, `Opus`],
-      [`effort`, `High`],
+    const chip = modeChip(config)
+    expect([chip?.id, chip?.valueLabel]).toEqual([`mode`, `Plan`])
+    expect(chip?.values).toEqual([
+      { id: `default`, label: `Default` },
+      { id: `plan`, label: `Plan` },
     ])
-    // No modes on this run → no mode chip.
-    expect(configChips(parseConfigState(state())).map((c) => c.id)).toEqual([
-      `model`,
-    ])
-    expect(configChips(null)).toEqual([])
+    // No modes on this run → no chip at all (codex advertises none).
+    expect(modeChip(parseConfigState(state({ modes: [] })))).toBeNull()
+    expect(modeChip(null)).toBeNull()
   })
 
-  it(`a values-less option is a read-only chip`, () => {
+  it(`an unknown current mode still reads something`, () => {
     const config = parseConfigState(
-      state({ options: [{ id: `fast`, label: `Fast`, value: `on` }] })
+      state({ modes: [{ id: `plan`, label: `Plan` }], currentMode: `weird` })
     )
-    expect(configChips(config)).toEqual([
-      {
-        kind: `option`,
-        id: `fast`,
-        label: `Fast`,
-        value: `on`,
-        valueLabel: `on`,
-        values: [],
-      },
-    ])
+    expect(modeChip(config)?.valueLabel).toBe(`weird`)
+    const blank = parseConfigState(
+      state({ modes: [{ id: `plan`, label: `Plan` }], currentMode: undefined })
+    )
+    expect(modeChip(blank)?.valueLabel).toBe(CONFIG_DEFAULT_VALUE_LABEL)
   })
 
-  it(`a blank value reads CLI default`, () => {
-    const config = parseConfigState(
-      state({
-        options: [
-          { id: `model`, label: `Model`, value: ``, values: [{ id: `opus`, label: `Opus` }] },
-        ],
+  // EXP-772: the claude/pi pair draws a Plan SWITCH; anything else keeps the
+  // two-value chip.
+  it(`planModeToggle recognizes the plan + one other pair`, () => {
+    expect(planModeToggle(parseConfigState(state()))).toEqual({
+      planId: `plan`,
+      buildId: `bypassPermissions`,
+      active: false,
+    })
+    expect(
+      planModeToggle(parseConfigState(state({ currentMode: `plan` })))?.active
+    ).toBe(true)
+    // Three modes, or two without a plan, are not the pair.
+    expect(
+      planModeToggle(
+        parseConfigState(
+          state({
+            modes: [
+              { id: `plan`, label: `Plan` },
+              { id: `default`, label: `Default` },
+              { id: `acceptEdits`, label: `Accept edits` },
+            ],
+          })
+        )
+      )
+    ).toBeNull()
+    expect(
+      planModeToggle(
+        parseConfigState(
+          state({
+            modes: [
+              { id: `default`, label: `Default` },
+              { id: `acceptEdits`, label: `Accept edits` },
+            ],
+          })
+        )
+      )
+    ).toBeNull()
+    expect(planModeToggle(null)).toBeNull()
+  })
+})
+
+// EXP-772: the ACP coalescer flushes one assistant message as several
+// narration events keyed by `messageId`.
+describe(`narration fragments`, () => {
+  const row = (over: Record<string, unknown>) => ({
+    id: 1,
+    kind: `narration`,
+    text: `Looking`,
+    ...over,
+  })
+
+  it(`appends onto the previous row with the same messageId`, () => {
+    const feed = [row({ messageId: `m1` })]
+    expect(
+      mergeNarrationFragment(feed, { messageId: `m1`, text: ` at the code.` })
+    ).toEqual([{ id: 1, kind: `narration`, text: `Looking at the code.`, messageId: `m1` }])
+  })
+
+  it(`never merges across a different message, a gap or a missing id`, () => {
+    const feed = [row({ messageId: `m1` })]
+    // Another message id.
+    expect(
+      mergeNarrationFragment(feed, { messageId: `m2`, text: `x` })
+    ).toBeNull()
+    // No id at all (an older publisher) — every event stays its own row.
+    expect(mergeNarrationFragment(feed, { text: `x` })).toBeNull()
+    // A row in between: the last row is not the narration any more.
+    expect(
+      mergeNarrationFragment(
+        [...feed, { id: 2, kind: `tool`, text: `` }],
+        { messageId: `m1`, text: `x` }
+      )
+    ).toBeNull()
+    // An empty feed.
+    expect(mergeNarrationFragment([], { messageId: `m1`, text: `x` })).toBeNull()
+  })
+
+  it(`keeps a subagent's fragments out of the main bubble`, () => {
+    const feed = [row({ messageId: `m1` })]
+    expect(
+      mergeNarrationFragment(feed, {
+        messageId: `m1`,
+        text: `x`,
+        subagentId: `sub-1`,
       })
-    )
-    expect(configChips(config)[0].valueLabel).toBe(CONFIG_DEFAULT_VALUE_LABEL)
-    expect(configChips(config)[0].value).toBe(``)
+    ).toBeNull()
   })
 })

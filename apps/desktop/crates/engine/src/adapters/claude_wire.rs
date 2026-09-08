@@ -359,6 +359,13 @@ pub struct UserMsg {
     pub is_replay: bool,
     #[serde(rename = "isSynthetic", alias = "is_synthetic")]
     pub is_synthetic: bool,
+    /// The CLI's own marker for a transcript entry that is MACHINERY, not a
+    /// turn: a system reminder, a hook injection, a tool-notification echo.
+    #[serde(rename = "isMeta", alias = "is_meta")]
+    pub is_meta: bool,
+    /// The summary entry a compaction writes back into the fresh context.
+    #[serde(rename = "isCompactSummary", alias = "is_compact_summary")]
+    pub is_compact_summary: bool,
     pub session_id: String,
     pub uuid: String,
     #[serde(flatten)]
@@ -1092,6 +1099,23 @@ pub fn strip_local_command_metadata(text: &str) -> Option<String> {
     (!stripped.trim().is_empty()).then_some(stripped)
 }
 
+/// EXP-772: the openers of a user text block the CLI (or a hook) INJECTED.
+/// The whole block is machinery, so it is dropped rather than stripped: a
+/// system reminder that reached a feed read as the human's own words.
+const INJECTED_BLOCK_OPENERS: [&str; 5] = [
+    "<system-reminder>",
+    "<task-notification>",
+    "<local-command",
+    "<command-name>",
+    "<command-message>",
+];
+
+/// Is this `user` text block machinery rather than a human turn?
+pub fn is_injected_user_block(text: &str) -> bool {
+    let head = text.trim_start();
+    INJECTED_BLOCK_OPENERS.iter().any(|opener| head.starts_with(opener))
+}
+
 /// Wrap `text` in a fence long enough to survive fences inside it.
 pub fn markdown_escape(text: &str) -> String {
     let mut fence = String::from("```");
@@ -1784,6 +1808,37 @@ mod tests {
             "[Agent stopped at its turn limit — the output below is partial]\n\nThe actual report."
         );
         assert_eq!(replace_partial_output_note("A normal report"), "A normal report");
+    }
+
+    /// EXP-772: the machinery the CLI writes into the transcript as `user`
+    /// entries never reads as the human's own words.
+    #[test]
+    fn an_injected_user_block_is_recognised_by_its_opener() {
+        for text in [
+            "<system-reminder>Do not do that</system-reminder>",
+            "  <task-notification>agent finished</task-notification>",
+            "<local-command-stdout>ok</local-command-stdout>",
+            "<local-command-stderr>bad</local-command-stderr>",
+            "<command-name>compact</command-name>",
+            "<command-message>compacting</command-message>",
+        ] {
+            assert!(is_injected_user_block(text), "{text}");
+        }
+        // Real prose that merely MENTIONS one is a human turn.
+        assert!(!is_injected_user_block("look at <system-reminder> in the log"));
+        assert!(!is_injected_user_block("fix the login bug"));
+    }
+
+    /// The CLI decodes its own machinery markers, so the adapter can read them.
+    #[test]
+    fn a_user_message_decodes_the_machinery_flags() {
+        let message: UserMsg = serde_json::from_str(
+            r#"{"message":{"content":[]},"isMeta":true,"isCompactSummary":true}"#,
+        )
+        .expect("a user message decodes");
+        assert!(message.is_meta);
+        assert!(message.is_compact_summary);
+        assert!(!message.is_synthetic);
     }
 
     #[test]

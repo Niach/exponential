@@ -236,13 +236,14 @@ final class SteerDeviceDecodingTests: XCTestCase {
         XCTAssertNil(device.agentDefaults(for: "pi"))
     }
 
-    /// The advertised default agent is only ever a SUGGESTION: a machine that
-    /// names one it can't run right now (signed out since it last saved its
-    /// EXP-746: the ACP cap and the device-global "Start in terminal"
-    /// preference ride the same two carriers as everything else — a `caps`
-    /// entry and a `launchDefaults` key — so an older machine simply reads as
-    /// terminal-only, never as a decode failure.
-    func testDecodesTheAcpCapAndTheStartInTerminalDefault() throws {
+    /// The ACP cap rides `caps` like every other capability, so an older
+    /// machine simply reads as not-ACP, never as a decode failure.
+    ///
+    /// EXP-773 deleted the "Start in terminal" preference. An old server still
+    /// stamps `startInTerminal` onto `launchDefaults`, and the decoder must
+    /// keep ignoring it — the whole payload would otherwise fail to parse and
+    /// the machine would vanish from every picker.
+    func testDecodesTheAcpCapAndIgnoresTheRetiredTerminalDefault() throws {
         let result = try decode("""
         {"devices":[
         {"deviceId":"d10","deviceLabel":"macbook","agents":["claude"],
@@ -253,13 +254,11 @@ final class SteerDeviceDecodingTests: XCTestCase {
         """)
         let acp = try XCTUnwrap(result.devices.first)
         XCTAssertTrue(acp.supportsAcp)
-        XCTAssertTrue(acp.startsInTerminal)
-        XCTAssertEqual(acp.launchDefaults?.startInTerminal, true)
+        XCTAssertEqual(acp.launchDefaults?.defaultAgent, "claude")
 
         let old = try XCTUnwrap(result.devices.last)
         XCTAssertFalse(old.supportsAcp)
-        XCTAssertFalse(old.startsInTerminal)
-        XCTAssertNil(old.launchDefaults?.startInTerminal)
+        XCTAssertEqual(old.launchDefaults?.defaultAgent, "claude")
     }
 
     /// EXP-749: `acpAgents` names which runnable agents the machine's ACP

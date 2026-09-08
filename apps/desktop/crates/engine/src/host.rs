@@ -19,7 +19,9 @@
 //!   microseconds) and straight out through [`SessionCtx::dispatch`];
 //! - `session/request_permission` / `elicitation/create` → mapped inline (so
 //!   cards publish in arrival order) and then SPAWNED to await the answer;
-//! - `fs/read_text_file` / `fs/write_text_file` → inline, one `std::fs` call;
+//! - `fs/read_text_file` / `fs/write_text_file` → SPAWNED onto a blocking
+//!   thread (EXP-766): `std::fs` on a FIFO, a dead network mount or a huge
+//!   file takes as long as it takes, and inline that stalls the connection;
 //! - `terminal/create|output|kill|release` → inline (a spawn, a buffer read,
 //!   a signal); `terminal/wait_for_exit` is SPAWNED, because it resolves only
 //!   when the child does (EXP-750);
@@ -422,9 +424,19 @@ impl PendingAsks {
 /// The host-local feed: the attached sink (desktop/CLI), every `subscribe()`
 /// receiver, the backlog a late subscriber replays first, and the latest-wins
 /// STATE that never enters that backlog.
-#[derive(Default)]
 pub(crate) struct LocalFeed {
     inner: Mutex<FeedState>,
+    /// EXP-766: whether rows are retained for a LATE subscriber. Only a host
+    /// with a `LocalSink` (the desktop) reopens a view mid-run; the CLI
+    /// daemon subscribes once, before the first frame, and printing does not
+    /// need a replay, so its 4096-row ring was pure retained memory.
+    keep_backlog: bool,
+}
+
+impl Default for LocalFeed {
+    fn default() -> Self {
+        Self::new(true)
+    }
 }
 
 /// Everything one lock protects. The backlog, the subscribers and the state
@@ -497,6 +509,16 @@ impl FeedState {
 }
 
 impl LocalFeed {
+    /// `keep_backlog` = a late subscriber will want the rows back. The
+    /// latest-wins slots are kept either way: they are what makes a feed
+    /// readable at all, and there are four of them.
+    pub(crate) fn new(keep_backlog: bool) -> Self {
+        Self {
+            inner: Mutex::new(FeedState::default()),
+            keep_backlog,
+        }
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, FeedState> {
         self.inner.lock().unwrap_or_else(|err| err.into_inner())
     }
@@ -513,6 +535,8 @@ impl LocalFeed {
             state.phase = Some(phase.clone());
         } else if let Some(slot) = state.slot(&event) {
             *slot = Some(event.clone());
+        } else if !self.keep_backlog {
+            // No replay to serve: live subscribers still get the event.
         } else if !state.coalesce(&event) {
             if state.backlog.len() >= BACKLOG_CAP {
                 state.backlog.pop_front();
@@ -535,6 +559,9 @@ impl LocalFeed {
     /// agent frame, so a ring that overflowed would have evicted it and left
     /// the view stuck in `Connecting` for the rest of the run (EXP-746 review
     /// UI-2).
+    ///
+    /// Without `keep_backlog` the backlog is empty by construction, so this
+    /// replays the state slots only and then streams live.
     pub(crate) fn subscribe(&self) -> flume::Receiver<LocalFeedEvent> {
         let (tx, rx) = flume::unbounded();
         let mut state = self.lock();
@@ -956,20 +983,45 @@ where
             on_receive_request!(),
         )
         .on_receive_request(
-            async move |request: ReadTextFileRequest, responder, _cx| {
-                match read_text_file(&request) {
-                    Ok(content) => responder.respond(ReadTextFileResponse::new(content)),
-                    Err(err) => responder.respond_with_internal_error(err),
-                }
+            async move |request: ReadTextFileRequest, responder, cx| {
+                // EXP-766: SPAWNED onto a blocking thread. A path that is a
+                // FIFO, an unreachable network mount or a multi-gigabyte file
+                // blocks `std::fs` for as long as it likes, and inline that is
+                // the whole connection.
+                cx.spawn(async move {
+                    let read = tokio::task::spawn_blocking(move || read_text_file(&request)).await;
+                    let sent = match read {
+                        Ok(Ok(content)) => responder.respond(ReadTextFileResponse::new(content)),
+                        Ok(Err(err)) => responder.respond_with_internal_error(err),
+                        Err(err) => responder
+                            .respond_with_internal_error(std::io::Error::other(err.to_string())),
+                    };
+                    if let Err(err) = sent {
+                        log::warn!("engine: fs/read_text_file response failed: {err}");
+                    }
+                    Ok(())
+                })?;
+                Ok(())
             },
             on_receive_request!(),
         )
         .on_receive_request(
-            async move |request: WriteTextFileRequest, responder, _cx| {
-                match write_text_file(&request) {
-                    Ok(()) => responder.respond(WriteTextFileResponse::new()),
-                    Err(err) => responder.respond_with_internal_error(err),
-                }
+            async move |request: WriteTextFileRequest, responder, cx| {
+                cx.spawn(async move {
+                    let written =
+                        tokio::task::spawn_blocking(move || write_text_file(&request)).await;
+                    let sent = match written {
+                        Ok(Ok(())) => responder.respond(WriteTextFileResponse::new()),
+                        Ok(Err(err)) => responder.respond_with_internal_error(err),
+                        Err(err) => responder
+                            .respond_with_internal_error(std::io::Error::other(err.to_string())),
+                    };
+                    if let Err(err) = sent {
+                        log::warn!("engine: fs/write_text_file response failed: {err}");
+                    }
+                    Ok(())
+                })?;
+                Ok(())
             },
             on_receive_request!(),
         )
@@ -1147,6 +1199,13 @@ where
             }
             ctx.asks.cancel_all();
             ctx.terminals.kill_all();
+            // EXP-766: the same dismissal `EngineCommand::Cancel` does. The
+            // loop ending with a card open used to leave that card published
+            // and `needs_input` true, so the ended run still read as waiting
+            // for an answer nobody can give.
+            let mut out = MapOut::default();
+            ctx.with_mapper(|mapper| mapper.on_cancel(&mut out));
+            ctx.dispatch(out);
             Ok(())
         })
         .await
@@ -1675,6 +1734,30 @@ mod tests {
                 ..
             } if *context_used == 1_234
         )));
+    }
+
+    /// EXP-766: the CLI daemon has no `LocalSink` and subscribes once, before
+    /// the run starts, so its ring only ever retained memory. Live delivery
+    /// and the state slots are unchanged.
+    #[test]
+    fn without_a_backlog_only_the_state_replays_but_live_events_still_arrive() {
+        let feed = LocalFeed::new(false);
+        let early = feed.subscribe();
+        feed.emit(None, LocalFeedEvent::Phase(EnginePhase::Live));
+        feed.emit(None, config_state("plan"));
+        feed.emit(None, usage(7));
+        for index in 0..BACKLOG_CAP * 2 {
+            feed.emit(None, narration(&format!("row {index}")));
+        }
+
+        // A subscriber attached BEFORE the run saw every row live.
+        assert_eq!(narrations(&drain(&early)).len(), BACKLOG_CAP * 2);
+
+        // A late one gets the state and nothing else.
+        let replay = drain(&feed.subscribe());
+        assert!(narrations(&replay).is_empty());
+        assert_eq!(phases(&replay), vec![EnginePhase::Live]);
+        assert_eq!(modes(&replay), vec!["plan"]);
     }
 
     fn output(tool_call_id: &str, chunk: &str, exit_code: Option<i32>) -> LocalFeedEvent {

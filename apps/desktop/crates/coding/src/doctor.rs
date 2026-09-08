@@ -613,10 +613,20 @@ fn probe_pi_rpc(check: &mut ToolCheck, settings: &Settings, depth: DoctorDepth) 
             return;
         }
     }
-    let supported = pi_rpc_handshake(&stamp.program);
+    let probed = pi_rpc_handshake(&stamp.program);
+    // Fail open for THIS call whatever happened (the engine's own handshake is
+    // the authoritative one).
+    let supported = probed.unwrap_or(true);
     let note = (!supported).then(|| PI_NO_RPC_MODE_NOTE.to_string());
     check.acp = Some(supported);
     check.acp_note = note.clone();
+    // EXP-766: only a REAL verdict is worth remembering. An indeterminate
+    // probe used to cache its fail-open `true` under the binary's stamp, so a
+    // pi that could not be spawned once read as ready until the binary
+    // changed or the process restarted.
+    if probed.is_none() {
+        return;
+    }
     if let Ok(mut cache) = PI_RPC_CACHE.lock() {
         cache.insert(
             stamp.program.clone(),
@@ -649,11 +659,12 @@ fn cached_pi_rpc(stamp: &PiRpcStamp) -> Option<PiRpcVerdict> {
 /// pins `Stdio::null()` on stdin; the recipe below is the same otherwise
 /// (own process group, drained pipes, killed at the deadline).
 ///
-/// Fails OPEN (`true`) in every ambiguous case (no spawn, no PATH match, a
-/// wedged child): the engine's own handshake is the authoritative one, and a
-/// false negative here silently demotes a working install to the terminal
-/// transport. Same never-block-the-launch posture as the two checks above.
-fn pi_rpc_handshake(program: &str) -> bool {
+/// `None` = INDETERMINATE (no spawn, no stdio, a wedged child). The caller
+/// still fails open on it — the engine's own handshake is the authoritative
+/// one and a false negative here silently demotes a working install to the
+/// terminal transport — but a `None` is never CACHED (EXP-766), so the next
+/// pass probes again instead of trusting an answer nobody gave.
+fn pi_rpc_handshake(program: &str) -> Option<bool> {
     use std::io::{Read as _, Write as _};
     use std::process::Stdio;
     use wait_timeout::ChildExt as _;
@@ -670,13 +681,13 @@ fn pi_rpc_handshake(program: &str) -> bool {
         cmd.process_group(0);
     }
     let Ok(mut child) = cmd.spawn() else {
-        return true;
+        return None;
     };
     let Some(mut stdin) = child.stdin.take() else {
-        return true;
+        return None;
     };
     let Some(mut stdout) = child.stdout.take() else {
-        return true;
+        return None;
     };
     // One command, then EOF: pi's rpc loop ends with its stdin, so the child
     // reaps itself and the deadline below is only the wedged-child guard.
@@ -688,7 +699,7 @@ fn pi_rpc_handshake(program: &str) -> bool {
     if !asked {
         let _ = child.kill();
         let _ = child.wait();
-        return true;
+        return None;
     }
     // Drain on a thread: a child that fills the pipe buffer would never exit.
     let reader = std::thread::spawn(move || {
@@ -704,9 +715,9 @@ fn pi_rpc_handshake(program: &str) -> bool {
         }
         let _ = child.kill();
         let _ = child.wait();
-        return true;
+        return None;
     }
-    answered_get_state(&reader.join().unwrap_or_default())
+    Some(answered_get_state(&reader.join().unwrap_or_default()))
 }
 
 /// Did the child answer our `get_state` on its rpc stream? Line-delimited
@@ -2155,6 +2166,30 @@ mod tests {
         probe_pi_rpc(&mut check, &Settings::default(), DoctorDepth::Deep);
         assert_eq!(check.acp, Some(false));
         assert_eq!(check.acp_note.as_deref(), Some("pi is not available"));
+    }
+
+    /// EXP-766: an INDETERMINATE probe still fails open for that one call, but
+    /// it is never cached. Caching it pinned "ready" onto a pi that could not
+    /// even be spawned, for the rest of the process.
+    #[test]
+    fn an_indeterminate_probe_is_not_cached() {
+        let program = std::env::temp_dir()
+            .join(format!("exp766-pi-missing-{}", std::process::id()))
+            .to_string_lossy()
+            .into_owned();
+        let settings = Settings {
+            pi_path: program.clone(),
+            ..Settings::default()
+        };
+        let mut check = green(Tool::Pi, "0.80.10");
+        probe_pi_rpc(&mut check, &settings, DoctorDepth::Quick);
+        // Fail-open is unchanged: the engine's handshake decides.
+        assert_eq!(check.acp, Some(true));
+        assert_eq!(check.acp_note, None);
+        assert!(
+            PI_RPC_CACHE.lock().unwrap().get(&program).is_none(),
+            "an answer nobody gave is not a verdict"
+        );
     }
 
     /// EXP-414: a wedged probe is killed at the deadline instead of stalling

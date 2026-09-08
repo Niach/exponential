@@ -459,6 +459,21 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
     let inbox = cx.global::<RemoteStartGlobal>().0.clone();
     let check_in = crate::device_sync::check_in_flag(cx);
     let account_id = account.id.clone();
+    // EXP-773: the transcript store this account's runs write to, and the
+    // one-replay-per-session guard the `history_request` handler takes.
+    let history_dir = auth.data_dir.clone();
+    let history_trpc = Arc::clone(&trpc);
+    let history_runtime = Arc::clone(&runtime);
+    let history_in_flight = steer::HistoryInFlight::new();
+    // Boot pass: drop journals nobody can ask for anymore (60 days).
+    {
+        let prune_dir = history_dir.clone();
+        cx.background_executor()
+            .spawn(async move {
+                steer::prune_journals(&prune_dir, steer::JOURNAL_MAX_AGE);
+            })
+            .detach();
+    }
     cx.spawn(async move |cx| {
         // EXP-484: the REPORT is kept, not just the advertisement it
         // derives — `devices.register` also carries the per-agent accounts.
@@ -528,9 +543,31 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
             let on_check_in: steer::control_channel::CheckInFn = Arc::new(move || {
                 check_in.store(true, std::sync::atomic::Ordering::SeqCst);
             });
+            // EXP-773: serve a stored transcript back to the relay. Reading
+            // and republishing both happen on the steer runtime — the socket
+            // loop only hands the id over.
+            let on_history_request: steer::HistoryRequestFn = Arc::new(move |session_id| {
+                let tickets: Arc<dyn PublisherTickets> = Arc::new(TrpcPublisherTickets {
+                    trpc: Arc::clone(&history_trpc),
+                    coding_session_id: session_id.clone(),
+                });
+                steer::serve_history_request(
+                    &history_runtime,
+                    tickets,
+                    history_dir.clone(),
+                    session_id,
+                    history_in_flight.clone(),
+                );
+            });
             let control_api: Arc<dyn ControlApi> = Arc::new(TrpcControlApi(trpc));
-            let handle =
-                spawn_control_channel(&runtime, device, control_api, on_start, on_check_in);
+            let handle = spawn_control_channel(
+                &runtime,
+                device,
+                control_api,
+                on_start,
+                on_check_in,
+                on_history_request,
+            );
 
             let channels = ControlChannels::global(cx);
             channels.update(cx, |channels, _| {
@@ -1505,6 +1542,7 @@ pub fn attach_publisher_pty(
             coding_flow::SessionSubject::Batch(_)
             | coding_flow::SessionSubject::Action(_) => None,
         },
+        journal_dir: None,
     };
     let handle = steer::publish(&runtime, spec, tickets, hooks);
 

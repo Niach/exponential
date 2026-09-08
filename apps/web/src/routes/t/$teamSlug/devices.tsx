@@ -139,7 +139,7 @@ function DevicesPage() {
                 {past.map((row) => (
                   <EndedSessionRow
                     key={row.session.id}
-                    row={{ session: row.session, canResume: row.canResume }}
+                    row={{ session: row.session }}
                     title={row.title}
                     identifier={row.identifier ?? undefined}
                     byline={pastRunRowByline(row)}

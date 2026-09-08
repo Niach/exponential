@@ -124,11 +124,6 @@ fun DeviceSettingsSheet(
     var drafts by remember {
         mutableStateOf(editableAgents.associateWith { agentDraft(device, it) })
     }
-    // EXP-746: device-GLOBAL, not per agent — it lives outside the agent card
-    // on purpose, so it never reads as "this agent runs in a terminal".
-    var startInTerminal by remember {
-        mutableStateOf(device.launchDefaults?.startInTerminal == true)
-    }
     var removeTarget by remember { mutableStateOf<DeviceWorktreeEntity?>(null) }
     // Codex's logout revokes the token server-side, so switching accounts
     // there is confirmed first (EXP-484); claude just re-runs its login.
@@ -147,7 +142,6 @@ fun DeviceSettingsSheet(
             editableAgents = editableAgents(device)
             defaultAgent = seededDefaultAgent(device, editableAgents)
             drafts = editableAgents.associateWith { agentDraft(device, it) }
-            startInTerminal = device.launchDefaults?.startInTerminal == true
             if (agentTab !in editableAgents) agentTab = editableAgents.first()
         }
     }
@@ -163,7 +157,7 @@ fun DeviceSettingsSheet(
         drafts = next
         viewModel.queueDefaults(
             device.deviceId,
-            buildDefaults(defaultAgent, editableAgents, next, startInTerminal),
+            buildDefaults(defaultAgent, editableAgents, next),
         )
     }
 
@@ -303,34 +297,11 @@ fun DeviceSettingsSheet(
                         defaultAgent = it
                         viewModel.queueDefaults(
                             device.deviceId,
-                            buildDefaults(it, editableAgents, drafts, startInTerminal),
+                            buildDefaults(it, editableAgents, drafts),
                         )
                     },
                 )
             }
-            Spacer(Modifier.height(8.dp))
-            // EXP-746: DEVICE-GLOBAL, so it gets its own group OUTSIDE the
-            // per-agent card below — inside it, the toggle would wrongly read
-            // as a per-agent setting.
-            OptionGroup {
-                SwitchRow(
-                    title = "Start in terminal",
-                    checked = startInTerminal,
-                    onCheckedChange = { next ->
-                        startInTerminal = next
-                        viewModel.queueDefaults(
-                            device.deviceId,
-                            buildDefaults(defaultAgent, editableAgents, drafts, next),
-                        )
-                    },
-                )
-            }
-            Text(
-                "Runs the agent in a terminal tab instead of the session screen.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                modifier = Modifier.padding(horizontal = 32.dp, vertical = 4.dp),
-            )
             Spacer(Modifier.height(8.dp))
             // EXP-694: the SAME agent card every launch surface renders — the
             // embedded agent tabs, model/effort, the toggles and this agent's
@@ -939,13 +910,8 @@ internal fun buildDefaults(
     defaultAgent: String,
     agents: List<String>,
     drafts: Map<String, AgentDraft>,
-    /** EXP-746: device-global, so it rides beside the per-agent map and is
-     *  written as a concrete boolean (the schema accepts null, but a
-     *  null-free jsonb is what every other writer stores). */
-    startInTerminal: Boolean = false,
 ): DeviceLaunchDefaults = DeviceLaunchDefaults(
     defaultAgent = defaultAgent,
-    startInTerminal = startInTerminal,
     agents = agents.associateWith { agent ->
         val draft = drafts[agent]
             ?: AgentDraft(defaultModelFor(agent), CLI_DEFAULT_EFFORT, false, false)
