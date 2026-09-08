@@ -14,7 +14,11 @@
 //! Mode preservation matters because the rename carries the temp's mode onto
 //! the target — a umask-default temp silently widens a 0600 file, and the
 //! files routed through here (`~/.claude.json`, codex `config.toml`,
-//! settings.json) hold OAuth state and keys.
+//! settings.json) hold OAuth state and keys. The temp is therefore CREATED at
+//! 0600 ([`create_private_temp`]) rather than chmod'ed after the write: a
+//! `File::create` temp is born at the umask mode (usually 0644), so the secret
+//! would sit world-readable for the whole write+fsync window. Widening back to
+//! the target's own mode happens only after the bytes are down.
 
 use std::fs;
 use std::io::Write;
@@ -42,6 +46,26 @@ fn temp_path(path: &Path) -> PathBuf {
     }
 }
 
+/// Create the temp file itself. On unix it is born 0600 with `create_new`, so
+/// no other user can ever open the secret we are about to write; `create_new`
+/// also turns a temp-name collision into an error instead of clobbering a
+/// sibling's in-flight temp. Elsewhere it is a plain `File::create`.
+fn create_private_temp(temp: &Path) -> std::io::Result<fs::File> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(temp)
+    }
+    #[cfg(not(unix))]
+    {
+        fs::File::create(temp)
+    }
+}
+
 /// Replace `path`'s contents in one rename. Creates the parent directory and
 /// the file itself when missing (fresh files land at 0600 on unix). The temp
 /// never survives a failure.
@@ -51,7 +75,7 @@ pub fn write_atomic(path: &Path, contents: &str) -> std::io::Result<()> {
     }
     let temp = temp_path(path);
     let replace = || -> std::io::Result<()> {
-        let mut file = fs::File::create(&temp)?;
+        let mut file = create_private_temp(&temp)?;
         file.write_all(contents.as_bytes())?;
         // fsync before the rename: without it a crash can leave the renamed
         // name pointing at zero bytes.
@@ -60,10 +84,15 @@ pub fn write_atomic(path: &Path, contents: &str) -> std::io::Result<()> {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
+            // Only widen (or narrow) once the bytes are written: an existing
+            // target keeps its own mode, a fresh file stays at the 0600 it was
+            // created with.
             let mode = fs::metadata(path)
                 .map(|meta| meta.permissions().mode() & 0o777)
                 .unwrap_or(0o600);
-            fs::set_permissions(&temp, fs::Permissions::from_mode(mode))?;
+            if mode != 0o600 {
+                fs::set_permissions(&temp, fs::Permissions::from_mode(mode))?;
+            }
         }
         fs::rename(&temp, path)
     };
@@ -139,6 +168,68 @@ mod tests {
             fs::metadata(&wide).unwrap().permissions().mode() & 0o777,
             0o644
         );
+    }
+
+    /// The window the mode dance used to leave open: the temp holds the same
+    /// secret as the target, so it must be PRIVATE from the moment it exists —
+    /// a post-write chmod is too late.
+    #[cfg(unix)]
+    #[test]
+    fn the_temp_is_born_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = temp_dir("temp-mode");
+        let temp = dir.0.join("settings.json.probe.tmp");
+        let file = create_private_temp(&temp).unwrap();
+        assert_eq!(
+            fs::metadata(&temp).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        // Unique names are the anti-clobber rule; `create_new` enforces it.
+        assert_eq!(
+            create_private_temp(&temp).unwrap_err().kind(),
+            std::io::ErrorKind::AlreadyExists
+        );
+        drop(file);
+    }
+
+    /// Same property observed through `write_atomic` itself: while a 0600
+    /// secret is being rewritten, no temp is ever visible to group or other.
+    /// (A 0644 target is deliberately not covered — there the temp is widened
+    /// to the mode the caller already chose for the file.)
+    #[cfg(unix)]
+    #[test]
+    fn a_live_write_never_exposes_a_readable_temp() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = temp_dir("temp-window");
+        let path = dir.0.join("settings.json");
+
+        let writer = {
+            let path = path.clone();
+            std::thread::spawn(move || {
+                let contents = format!("{{\"pad\":\"{}\"}}", "x".repeat(4 << 20));
+                for _ in 0..20 {
+                    write_atomic(&path, &contents).unwrap();
+                }
+            })
+        };
+        while !writer.is_finished() {
+            for entry in fs::read_dir(&dir.0).unwrap().filter_map(|entry| entry.ok()) {
+                if !entry.file_name().to_string_lossy().ends_with(".tmp") {
+                    continue;
+                }
+                let Ok(meta) = entry.metadata() else { continue };
+                let mode = meta.permissions().mode() & 0o777;
+                assert_eq!(mode & 0o077, 0, "temp exposed at {mode:o}");
+            }
+        }
+        writer.join().unwrap();
+        // The file was born here, so it keeps the temp's 0600 — the widening
+        // branch only ever restores a mode the caller had already chosen.
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert!(leftovers(&dir.0).is_empty());
     }
 
     /// The property the four settings.json writers depend on: a reader never

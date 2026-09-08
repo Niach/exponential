@@ -1,7 +1,7 @@
-- Upravljanje v2: model, trud i način rada agenta promijenite izravno u živoj sesiji čipovima iznad uređivača; očitanja konteksta i potrošnje osvježavaju se kako ih izvođenje javlja
+- Upravljanje: u živoj sesiji prebacujete se između „Plan“ i „Build“; model i trud biraju se jednom pri pokretanju, a očitanja konteksta i potrošnje osvježavaju se kako ih izvođenje javlja
 - Prošla izvođenja: završene sesije navode se po uređaju uz „Resume“, pa se završeno izvođenje može nastaviti
 - Chat bez repozitorija: chat pokrenut iz lista „Start coding“ više ne treba repozitorij i radi u privremenoj mapi samo s alatima Exponentiala
-- Odabir agenta: kad uređaj agenta može pokrenuti, ali ne i voditi ga na stranici sesije, odabir kaže da se pokreće u terminalu umjesto da tiho prijeđe na zamjenu
+- Odabir agenta: kad agent na uređaju nije spreman, odabir to kaže i blokira pokretanje dok tamo ne pokrenete doctor
 - Pregled upravljanja: identifikatori zadataka poput #EXP-12 postaju čipovi koje možete dodirnuti, a naredbe agenta prikazuju se kao naredbene oznake
 - Veze među zadacima: povežite zadatke kao nadređeni, podzadatak, blokira, blokiran, duplikat ili povezan iz lista svojstava; upisivanje #EXP-12 u opis ili komentar samo poveže dva zadatka
 - Niti komentara: odgovorite ispod komentara iz usidrenog uređivača; niti ostaju na jednoj razini, a komentar koji je agent objavio preko MCP-a to navodi u svom zaglavlju
@@ -12,3 +12,8 @@
 - Mirniji pregled aktivnosti: događaji stoje u jednom prigušenom retku s vremenom, komentari su u jednoj kartici
 - Gumb „Subscribe“ je uklonjen: zadatak pratite automatski kad ga stvorite, komentirate, dobijete dodijeljen ili ste u njemu spomenuti
 - Upravljanje: traka konteksta više ne prekriva prijepis
+- Sesije ostaju na vašem uređaju: prijepisi se spremaju na uređaj koji ih je pokrenuo, nikad na poslužitelj; prošla izvođenja otvarate iz odjeljaka Devices, Chat i Automations i dohvaćaju se s tog uređaja kad je na mreži
+- Razgovori subagenata: potezi subagenta prikazuju se u vlastitom prikazu, a tekst agenta više se ne lomi usred rečenice u zasebne retke
+- Izvođenje koje utihne to kaže: sesija pokazuje kad je agent prestao javljati napredak
+- Udaljena prijava agenta: zalijepite kod iz agentove poveznice za prijavu u postavke uređaja i prijavu dovršite s telefona
+- „Start coding“: jedan list za zadatke, akcije i chat s istim mogućnostima svugdje

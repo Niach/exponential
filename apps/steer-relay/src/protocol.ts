@@ -462,7 +462,10 @@ export type ServerFrame =
   // Codes a viewer may see: `no_such_session` (the room is not up and the
   // ticket names no device), and the EXP-773 history pair —
   // `device_offline` (the machine that holds the transcript is not connected)
-  // and `history_unavailable` (it is, but it produced nothing in 20s).
+  // and `history_unavailable` (it is, but it produced nothing in 20s). Both
+  // of the history pair are TERMINAL, so each is followed by a `bye` carrying
+  // the same string as its outcome before the close: a viewer that gets a
+  // close with no `bye` reads a plain drop and redials forever.
   | { t: `error`; code: string; message?: string }
   | { t: `activity`; event: ActivityEvent } // relay → activity audience (authenticated members only)
   | { t: `activity_reset` } // relay → activity audience: drop everything rendered so far

@@ -851,8 +851,17 @@ impl Mapper {
     /// An adapter or transport error worth showing: one capped narration,
     /// prefixed so it reads as the session speaking, not the agent.
     pub fn on_error(&mut self, message: &str, out: &mut MapOut) {
+        self.on_notice(&format!("Agent error: {message}"), out);
+    }
+
+    /// The ENGINE itself speaking into the transcript (FEED-25: the stall
+    /// watchdog announcing the turn it just cancelled). The same row
+    /// [`Mapper::on_error`] uses — one capped narration, because narration is
+    /// the only notice kind the relay's activity schema has — flushed first
+    /// so the notice lands AFTER whatever text it is explaining.
+    pub fn on_notice(&mut self, message: &str, out: &mut MapOut) {
         self.flush_all(out);
-        let text = self.clean(&format!("Agent error: {message}"), NARRATION_MAX);
+        let text = self.clean(message, NARRATION_MAX);
         emit(out, ActivityEvent::narration(text), None);
     }
 

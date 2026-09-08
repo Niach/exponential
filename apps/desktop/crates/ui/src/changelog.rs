@@ -55,6 +55,8 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Chat page**: the Chat page is a single prompt box with machine, agent, model, effort and plan as small pickers underneath, prefilled from your defaults.
 - **Subagent conversations**: a subagent's prompt no longer lands in the main transcript, and its own view shows its full conversation, not only its tool calls.
 - **Whole messages**: agent prose no longer splits mid-sentence into separate rows.
+- **Remote agent sign-in**: paste the code from an agent's login link into the machine's settings on web, desktop or mobile to finish signing that agent in from anywhere.
+- **Quiet runs say so**: a session whose agent has stopped reporting progress shows it, instead of looking alive while nothing happens.
 - **Desktop changes list**: the session page's changes sit under the transcript as a collapsible per-file list with Merge, like the web.
 - **Terminal-mode coding retired**: every coding session runs on the session page. The Start in terminal switch and the terminal-tab fallback are gone; plain terminal tabs and agent sign-in tabs stay. Where a picker used to say a start would open in a terminal, it now says the agent is not ready on that machine and blocks the start until you run the doctor there."#,
 };

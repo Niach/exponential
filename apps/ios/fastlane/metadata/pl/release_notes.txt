@@ -1,7 +1,7 @@
-- Sterowanie v2: model, wysiłek i tryb agenta przełączysz wprost w trwającej sesji chipami nad polem pisania; odczyty kontekstu i zużycia odświeżają się, gdy uruchomienie je zgłasza
+- Sterowanie: w trwającej sesji przełączasz się między „Plan” a „Build”; model i wysiłek wybierasz raz przy starcie, a odczyty kontekstu i zużycia odświeżają się, gdy uruchomienie je zgłasza
 - Poprzednie uruchomienia: zakończone sesje są wypisane przy każdym urządzeniu z „Resume”, więc zakończone uruchomienie można podjąć na nowo
 - Czat bez repozytorium: czat otwarty z panelu „Start coding” nie potrzebuje już repozytorium i działa w tymczasowym folderze wyłącznie z narzędziami Exponential
-- Wybór agenta: gdy urządzenie potrafi uruchomić agenta, ale nie sterować nim na stronie sesji, wybór mówi, że ruszy on w terminalu, zamiast po cichu się przełączyć
+- Wybór agenta: gdy agent nie jest gotowy na urządzeniu, wybór mówi o tym i blokuje start, dopóki nie uruchomisz tam doctora
 - Strumień sterowania: identyfikatory zadań takie jak #EXP-12 stają się chipami, które można dotknąć, a polecenia agenta pokazują się jako etykiety poleceń
 - Relacje między zadaniami: powiąż zadania jako nadrzędne, podzadanie, blokuje, zablokowane przez, duplikat lub powiązane z panelu właściwości; wpisanie #EXP-12 w opisie lub komentarzu samo łączy oba zadania
 - Wątki komentarzy: odpowiadaj pod komentarzem z zadokowanego pola pisania; wątki mają tylko jeden poziom, a komentarz, który agent wysłał przez MCP, mówi o tym w swoim nagłówku
@@ -12,3 +12,8 @@
 - Spokojniejszy strumień aktywności: zdarzenia to jeden przygaszony wiersz z godziną, komentarze siedzą w jednej karcie
 - Przycisk „Subscribe” znika: zadanie obserwujesz automatycznie, gdy je utworzysz, skomentujesz, dostaniesz przypisane lub zostaniesz w nim wspomniany
 - Sterowanie: pasek kontekstu już nie zasłania zapisu rozmowy
+- Sesje zostają na twoim urządzeniu: zapisy rozmów są przechowywane na urządzeniu, które je uruchomiło, nigdy na serwerze; poprzednie uruchomienia otwierasz w sekcjach Devices, Chat i Automations, a pobierają się z tego urządzenia, gdy jest online
+- Rozmowy subagentów: tury subagenta widać we własnym widoku, a tekst agenta nie rozpada się już w połowie zdania na osobne wiersze
+- Uruchomienie, które milknie, mówi o tym: sesja pokazuje, kiedy agent przestał zgłaszać postęp
+- Zdalne logowanie agenta: wklej kod z linku logowania agenta w ustawieniach urządzenia i dokończ logowanie z telefonu
+- „Start coding”: jeden panel dla zadań, akcji i czatu z tymi samymi opcjami wszędzie

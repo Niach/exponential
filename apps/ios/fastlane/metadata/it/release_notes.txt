@@ -1,7 +1,7 @@
-- Guida v2: cambia modello, sforzo e modalità dell'agente dalla sessione in corso con i chip sopra l'editor; le letture di contesto e di utilizzo si aggiornano man mano che l'esecuzione le riporta
+- Guida: passa tra «Plan» e «Build» dalla sessione in corso; modello e sforzo si scelgono una volta all'avvio, e le letture di contesto e di utilizzo si aggiornano man mano che l'esecuzione le riporta
 - Esecuzioni passate: le sessioni concluse sono elencate per dispositivo con «Resume», così un'esecuzione finita si può riprendere
 - Chat senza repository: una chat avviata dal foglio «Start coding» non richiede più un repository e gira in una cartella temporanea con i soli strumenti di Exponential
-- Scelta dell'agente: quando un dispositivo può eseguire un agente ma non guidarlo nella pagina della sessione, la scelta dice che parte in un terminale invece di ripiegare in silenzio
+- Scelta dell'agente: quando un agente non è pronto su un dispositivo, la scelta lo dice e blocca l'avvio finché non ci esegui il doctor
 - Feed di guida: gli identificatori delle issue come #EXP-12 diventano chip toccabili, e i comandi dell'agente compaiono come etichette di comando
 - Relazioni tra issue: collega le issue come padre, sotto-issue, blocca, bloccata da, duplicato o correlata dal foglio delle proprietà; scrivere #EXP-12 in una descrizione o in un commento collega le due issue da solo
 - Commenti in thread: rispondi sotto un commento dall'editor agganciato; i thread restano di un solo livello, e un commento pubblicato da un agente via MCP lo dichiara nella sua intestazione
@@ -12,3 +12,8 @@
 - Un feed di attività più tranquillo: gli eventi stanno su una sola riga attenuata con l'ora, i commenti vivono in un'unica scheda
 - Il pulsante «Subscribe» va in pensione: segui un'issue automaticamente quando la crei, la commenti, ti viene assegnata o vieni menzionato
 - Guida: la barra del contesto non copre più la trascrizione
+- Le sessioni restano sul tuo dispositivo: le trascrizioni sono salvate sul dispositivo che le ha eseguite, mai sul server; le esecuzioni passate si aprono da Devices, Chat e Automations e vengono recuperate da quel dispositivo quando è online
+- Conversazioni dei subagent: i turni di un subagent stanno in una vista propria, e il testo dell'agente non si spezza più a metà frase su righe separate
+- Un'esecuzione che tace lo dice: la sessione mostra quando l'agente ha smesso di riportare progressi
+- Accesso remoto dell'agente: incolla il codice dal link di login dell'agente nelle impostazioni del dispositivo per completare l'accesso dal telefono
+- «Start coding»: un solo foglio per issue, azioni e chat con le stesse opzioni ovunque

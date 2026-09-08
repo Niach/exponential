@@ -539,6 +539,10 @@ fn tick_stall(
                 ctx.session_id,
                 silent.as_secs()
             );
+            // Say it in the FEED, not just the log: the cancel otherwise
+            // shows up as the turn simply stopping, and an unattended run
+            // loses that work with nobody able to tell why.
+            ctx.notice(crate::stall::StallWatchdog::interrupt_notice(silent));
             let _ = commands.send(EngineCommand::Cancel);
         }
         crate::stall::StallAction::End => {

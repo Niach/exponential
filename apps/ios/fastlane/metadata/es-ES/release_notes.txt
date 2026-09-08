@@ -1,7 +1,7 @@
-- Dirección v2: cambia el modelo, el esfuerzo y el modo del agente desde la sesión en marcha con chips encima del editor; las lecturas de contexto y de uso se actualizan según las informa la ejecución
+- Dirección: cambia entre «Plan» y «Build» desde la sesión en marcha; el modelo y el esfuerzo se eligen una vez al arrancar, y las lecturas de contexto y de uso se actualizan según las informa la ejecución
 - Ejecuciones anteriores: las sesiones terminadas se listan por dispositivo con «Resume», así que una ejecución acabada se puede retomar
 - Chat sin repositorio: un chat abierto desde la hoja «Start coding» ya no necesita repositorio y se ejecuta en una carpeta temporal solo con las herramientas de Exponential
-- Selector de agente: cuando un dispositivo puede ejecutar un agente pero no dirigirlo en la página de la sesión, el selector avisa de que arranca en un terminal en vez de cambiar en silencio
+- Selector de agente: cuando un agente no está listo en un dispositivo, el selector lo dice y bloquea el arranque hasta que ejecutes allí el doctor
 - Feed de dirección: los identificadores de issues como #EXP-12 se convierten en chips que puedes tocar, y los comandos del agente se muestran como etiquetas de comando
 - Relaciones entre issues: enlaza issues como padre, sub-issue, bloquea, bloqueado por, duplicado o relacionado desde la hoja de propiedades; escribir #EXP-12 en una descripción o un comentario enlaza los dos issues por su cuenta
 - Comentarios en hilo: responde debajo de un comentario desde el editor acoplado; los hilos se quedan en un solo nivel, y un comentario que un agente publicó por MCP lo indica en su cabecera
@@ -12,3 +12,8 @@
 - Un feed de actividad más tranquilo: los eventos se leen como una línea atenuada con la hora, los comentarios viven en una sola tarjeta
 - El botón «Subscribe» se retira: sigues un issue automáticamente cuando lo creas, comentas, te lo asignan o te mencionan
 - Dirección: la barra de contexto ya no tapa la transcripción
+- Las sesiones se quedan en tu dispositivo: las transcripciones se guardan en el dispositivo que las ejecutó, nunca en el servidor; las ejecuciones pasadas se abren desde Devices, Chat y Automations y se traen de ese dispositivo cuando está en línea
+- Conversaciones de subagentes: los turnos de un subagente se ven en su propia vista, y el texto del agente ya no se parte a mitad de frase en filas separadas
+- Una ejecución que se queda callada lo dice: la sesión muestra cuándo el agente ha dejado de informar de su avance
+- Inicio de sesión remoto del agente: pega el código del enlace de login del agente en los ajustes del dispositivo para terminar de iniciar su sesión desde el móvil
+- «Start coding»: una sola hoja para issues, acciones y chat con las mismas opciones en todas partes

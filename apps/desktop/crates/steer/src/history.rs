@@ -352,6 +352,14 @@ pub fn serve_history_request(
     session_id: String,
     in_flight: HistoryInFlight,
 ) {
+    // Never republish over a run this machine is still hosting: the relay
+    // would hand the room to the replay and close the live publisher as
+    // REPLACED, which is terminal for it. Reachable whenever the row reads
+    // `ended` while the run is alive (see [`crate::publisher::is_publishing`]).
+    if crate::publisher::is_publishing(&session_id) {
+        log::info!("steer history: {session_id} is running here; not replaying over its publisher");
+        return;
+    }
     if !in_flight.claim(&session_id) {
         log::debug!("steer history: replay for {session_id} already in flight");
         return;

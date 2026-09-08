@@ -1237,9 +1237,16 @@ pub fn build_batch_deps(cx: &mut App) -> Option<CodingDeps> {
 
 /// EXP-637: does the run registry still hold a resumable workspace for
 /// `session_id`? Callable from a render pass (`&App`).
+///
+/// EXP-764: a repo-less run answers `false` even while its scratch dir
+/// stands. The dir, the record and the journal are purged with the run the
+/// moment it ends, and [`LocalSessions::remove`] hands that purge to a
+/// background thread — so the ended screen's first paint can still see the
+/// dir and would cache a Resume whose only possible outcome is "no local
+/// record for this run".
 pub fn run_is_resumable_ref(session_id: &str, cx: &App) -> bool {
     coding::run_registry::get(&coding_data_dir(cx), session_id)
-        .is_some_and(|record| record.resumable())
+        .is_some_and(|record| record.clone.is_some() && record.resumable())
 }
 
 /// [`build_batch_deps`]'s action sibling (EXP-253): the same assembly — the

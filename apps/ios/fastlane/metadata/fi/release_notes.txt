@@ -1,7 +1,7 @@
-- Ohjaus v2: vaihda agentin malli, panostus ja tila suoraan käynnissä olevasta istunnosta kirjoituskentän yläpuolella olevilla chipeillä; konteksti- ja käyttölukemat päivittyvät sitä mukaa kuin ajo ne ilmoittaa
+- Ohjaus: vaihda "Plan"- ja "Build"-tilan välillä suoraan käynnissä olevasta istunnosta; malli ja panostus valitaan kerran käynnistyksessä, ja konteksti- ja käyttölukemat päivittyvät sitä mukaa kuin ajo ne ilmoittaa
 - Aiemmat ajot: päättyneet istunnot listataan laitteittain "Resume"-painikkeella, joten päättyneen ajon voi ottaa uudelleen käsittelyyn
 - Chat ilman repositoriota: "Start coding" -paneelista aloitettu chat ei enää tarvitse repositoriota ja pyörii väliaikaisessa kansiossa vain Exponentialin työkaluilla
-- Agentin valinta: kun laite osaa käynnistää agentin muttei ohjata sitä istuntonäkymässä, valinta kertoo sen käynnistyvän terminaalissa sen sijaan, että vaihtaisi hiljaa
+- Agentin valinta: kun agentti ei ole laitteella valmis, valinta kertoo sen ja estää käynnistyksen, kunnes ajat siellä doctorin
 - Ohjausvirta: issue-tunnisteet kuten #EXP-12 muuttuvat napautettaviksi chip-painikkeiksi, ja agentin komennot näkyvät komentomerkkeinä
 - Issue-yhteydet: liitä issueita toisiinsa ylätehtävänä, alitehtävänä, estävänä, estettynä, duplikaattina tai liittyvänä ominaisuuspaneelista; #EXP-12 kuvauksessa tai kommentissa yhdistää kaksi issueta itsestään
 - Kommenttiketjut: vastaa kommentin alle telakoidusta kirjoituskentästä; ketjut pysyvät yhden tason syvyisinä, ja MCP:n kautta agentin kirjoittama kommentti kertoo sen otsikossaan
@@ -12,3 +12,8 @@
 - Rauhallisempi tapahtumavirta: tapahtumat ovat yksi vaimennettu rivi kellonaikoineen, kommentit ovat yhdessä kortissa
 - "Subscribe"-painike poistui: seuraat issueta automaattisesti, kun luot sen, kommentoit, saat sen itsellesi tai sinut mainitaan
 - Ohjaus: kontekstipalkki ei enää peitä keskustelunäkymää
+- Istunnot pysyvät omalla laitteellasi: keskustelut tallennetaan sille laitteelle, joka ne ajoi, ei koskaan palvelimelle; aiemmat ajot avataan Devices-, Chat- ja Automations-näkymistä ja haetaan siltä laitteelta, kun se on verkossa
+- Subagenttien keskustelut: subagentin vuorot näkyvät omassa näkymässään, eikä agentin teksti enää katkea kesken lauseen omille riveilleen
+- Hiljenevä ajo kertoo siitä: istunto näyttää, milloin agentti on lakannut ilmoittamasta edistymistä
+- Agentin etäkirjautuminen: liitä agentin kirjautumislinkin koodi laitteen asetuksiin ja viimeistele kirjautuminen puhelimesta
+- "Start coding": yksi paneeli issueille, toiminnoille ja chatille, samoilla valinnoilla kaikkialla

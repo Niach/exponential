@@ -191,9 +191,6 @@ pub struct SessionBar {
     /// user-resizable split. `None` until the first paint (renders every
     /// chip; `overflow_x_hidden` covers that one frame).
     chips_slot_width: Option<f32>,
-    /// EXP-372/EXP-739: a launch in flight (label of what is starting) — the
-    /// Chat button reads it so two quick clicks cannot buy two agents.
-    pending_launch: Option<SharedString>,
     /// This window — the screens panel is poked by id (see
     /// [`Self::poke_screens`]).
     window_id: WindowId,
@@ -228,11 +225,6 @@ impl SessionBar {
                     // the terminal screen is navigated to now. Also the path
                     // Phase 5's play button / remote start rides.
                     TerminalManagerEvent::TabOpened(id) => {
-                        // EXP-703: the chat-run launch has no success
-                        // callback of its own — the tab landing IS the
-                        // success, so the EXP-372 progress state ends here
-                        // (failures end it via the runner's failure hook).
-                        this.set_pending_launch(None, cx);
                         navigation::navigate(window, cx, Screen::Terminal { tab: *id });
                         this.focus_active_terminal(window, cx);
                         this.poke_screens(cx);
@@ -329,7 +321,6 @@ impl SessionBar {
             manager,
             agent_shell_holds: HashMap::new(),
             chips_slot_width: None,
-            pending_launch: None,
             window_id,
             _observe_screens: None,
             _subscription: subscription,
@@ -516,7 +507,6 @@ impl SessionBar {
     /// non-board screen (or missing session/board) opens at `$HOME`
     /// immediately (`open_shell(None)`).
     fn new_shell_tab(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        self.set_pending_launch(Some("New terminal".into()), cx);
         let Some((resolver, board_id, settings)) = self.shell_scope(window, cx) else {
             self.open_shell_cwd(None, cx);
             return;
@@ -547,23 +537,12 @@ impl SessionBar {
 
     /// Spawn a shell tab at `cwd` (`None` → `$HOME`, resolved by the manager).
     fn open_shell_cwd(&mut self, cwd: Option<PathBuf>, cx: &mut gpui::Context<Self>) {
-        // The launch is over either way — a spawn failure must not leave the
-        // Chat button dimmed.
-        self.set_pending_launch(None, cx);
         let shell_override = crate::coding_flow::terminal_shell_override(cx);
         let result = self
             .manager
             .update(cx, |manager, cx| manager.open_shell(cwd, shell_override, cx));
         if let Err(error) = result {
             log::error!("session bar: shell spawn failed: {error:#}");
-        }
-    }
-
-    /// EXP-372: flip the in-flight-launch state and repaint.
-    fn set_pending_launch(&mut self, label: Option<SharedString>, cx: &mut gpui::Context<Self>) {
-        if self.pending_launch != label {
-            self.pending_launch = label;
-            cx.notify();
         }
     }
 
@@ -685,7 +664,6 @@ impl SessionBar {
             log::warn!("session bar: chat launch ignored — no active team");
             return;
         };
-        let agent = options.agent;
         let action = api::actions::builtin_chat_action(&team_id);
         // The typed first message and, when the chat is anchored to one, the
         // repository. EXP-739: a repo-less chat emits no `repo` key at all.
@@ -713,16 +691,6 @@ impl SessionBar {
                 Some(full_name.clone()),
             ));
         }
-        // EXP-739: the SETTLED hook clears the pending state whichever way the
-        // start ends — the TabOpened edge alone would strand it forever on an
-        // ACP chat, which opens a center-panel session and no terminal tab.
-        self.set_pending_launch(Some(agent.label().into()), cx);
-        let bar = cx.entity().downgrade();
-        let on_settled: crate::action_run::ActionSettledHook = Box::new(move |cx, _started| {
-            if let Some(bar) = bar.upgrade() {
-                bar.update(cx, |bar, cx| bar.set_pending_launch(None, cx));
-            }
-        });
         crate::action_run::start_action_run(
             crate::action_run::StartActionArgs {
                 action_id: action.id,
@@ -736,7 +704,7 @@ impl SessionBar {
                 reservation: None,
                 trigger: None,
                 automation_id: None,
-                on_settled: Some(on_settled),
+                on_settled: None,
             },
             cx,
         );
@@ -775,14 +743,12 @@ impl SessionBar {
             full_name,
             cwd_override,
         };
-        self.set_pending_launch(Some(agent.label().into()), cx);
         cx.spawn_in(window, async move |this, cx| {
             let prepared = cx
                 .background_executor()
                 .spawn(async move { coding::prepare_agent_shell(&request, &deps) })
                 .await;
             let _ = this.update_in(cx, |this, window, cx| {
-                this.set_pending_launch(None, cx);
                 let launch = match prepared {
                     Ok(coding::PreparedAgentShell::Ready(launch)) => launch,
                     Ok(coding::PreparedAgentShell::Disabled(reason)) => {

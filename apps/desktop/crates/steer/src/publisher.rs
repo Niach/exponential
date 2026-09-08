@@ -473,10 +473,59 @@ pub fn publish(
         cmd_tx,
         running: running.clone(),
     };
-    runtime
-        .handle()
-        .spawn(run_publisher_loop(spec, tickets, hooks, cmd_rx, running));
+    let live = LivePublisher::claim(&spec.session_id);
+    runtime.handle().spawn(async move {
+        run_publisher_loop(spec, tickets, hooks, cmd_rx, running).await;
+        drop(live);
+    });
     handle
+}
+
+/// The sessions THIS PROCESS is publishing live, by id. Refcounted rather
+/// than a set: a second publisher for one id would otherwise have its
+/// teardown clear the entry the first one still needs.
+fn live_publishers() -> &'static Mutex<std::collections::HashMap<String, usize>> {
+    static LIVE: OnceLock<Mutex<std::collections::HashMap<String, usize>>> = OnceLock::new();
+    LIVE.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+/// One live publisher's entry in [`live_publishers`], released on drop so
+/// every exit path of the task clears it — including a panic.
+struct LivePublisher(String);
+
+impl LivePublisher {
+    fn claim(session_id: &str) -> Self {
+        if let Ok(mut live) = live_publishers().lock() {
+            *live.entry(session_id.to_string()).or_insert(0) += 1;
+        }
+        Self(session_id.to_string())
+    }
+}
+
+impl Drop for LivePublisher {
+    fn drop(&mut self) {
+        if let Ok(mut live) = live_publishers().lock() {
+            if let Some(count) = live.get_mut(&self.0) {
+                *count = count.saturating_sub(1);
+                if *count == 0 {
+                    live.remove(&self.0);
+                }
+            }
+        }
+    }
+}
+
+/// Is this machine publishing that session RIGHT NOW? EXP-773: the relay
+/// replaces a room's publisher (`CLOSE_REPLACED`), which a live publisher
+/// treats as terminal, so a stored-transcript replay must never open a
+/// second publisher for a session still running here — the DB row can read
+/// `ended` while the run is alive (a `kill` frame lost in a reconnect gap),
+/// and the replay would then silence the real run for good.
+pub fn is_publishing(session_id: &str) -> bool {
+    match live_publishers().lock() {
+        Ok(live) => live.contains_key(session_id),
+        Err(_) => false,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1135,6 +1184,24 @@ mod tests {
                 outcome: Some("killed".to_string())
             }
         );
+    }
+
+    /// The EXP-773 guard the history rail reads: a session is "publishing
+    /// here" for exactly as long as a publisher task holds it, and two
+    /// publishers for one id both have to let go before it clears.
+    #[test]
+    fn a_live_publisher_is_visible_to_the_history_rail_until_it_lets_go() {
+        assert!(!is_publishing("sess-live"));
+        let first = LivePublisher::claim("sess-live");
+        assert!(is_publishing("sess-live"));
+        let second = LivePublisher::claim("sess-live");
+        drop(first);
+        assert!(
+            is_publishing("sess-live"),
+            "the second publisher still owns the room"
+        );
+        drop(second);
+        assert!(!is_publishing("sess-live"));
     }
 
     // ── Full-task test against a local fake relay (tokio-tungstenite server)

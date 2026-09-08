@@ -1,7 +1,7 @@
-- Styrning v2: byt agentens modell, insats och läge från den pågående sessionen med chips ovanför skrivfältet; kontext- och användningsvärden uppdateras allteftersom körningen rapporterar dem
+- Styrning: växla mellan "Plan" och "Build" från den pågående sessionen; modell och insats väljs en gång vid start, och kontext- och användningsvärden uppdateras allteftersom körningen rapporterar dem
 - Tidigare körningar: avslutade sessioner listas per enhet med "Resume", så att en avslutad körning kan tas upp igen
 - Chatt utan repository: en chatt som startas från "Start coding"-bladet behöver inget repository och körs i en tillfällig mapp med bara Exponential-verktygen
-- Agentväljare: när en enhet kan köra en agent men inte styra den på sessionssidan säger väljaren att den startar i en terminal i stället för att tyst falla tillbaka
+- Agentväljare: när en agent inte är redo på en enhet säger väljaren det och blockerar starten tills du kör doctor där
 - Styrningsflöde: ärendeidentifierare som #EXP-12 blir chips du kan trycka på, och agentkommandon visas som kommandomärken
 - Relationer mellan ärenden: koppla ärenden som överordnat, underärende, blockerar, blockeras av, dubblett eller relaterat från egenskapsbladet; skriver du #EXP-12 i en beskrivning eller kommentar kopplas de två ärendena ihop av sig själva
 - Kommentarstrådar: svara under en kommentar från det dockade skrivfältet; trådar går bara en nivå ned, och en kommentar som en agent lagt via MCP säger det i sin rubrik
@@ -12,3 +12,8 @@
 - Ett lugnare aktivitetsflöde: händelser står som en dämpad rad med tid, kommentarer ligger i ett enda kort
 - Knappen "Subscribe" är borttagen: du följer ett ärende automatiskt när du skapar det, kommenterar, blir tilldelad eller blir nämnd
 - Styrning: kontextraden täcker inte längre utskriften
+- Sessionerna stannar på din egen enhet: utskrifter sparas på enheten som körde dem, aldrig på servern; tidigare körningar öppnas från Devices, Chat och Automations och hämtas från den enheten när den är online
+- Subagentsamtal: en subagents turer visas i en egen vy, och agentens text delas inte längre mitt i en mening över flera rader
+- En körning som tystnar säger till: sessionen visar när agenten har slutat rapportera framsteg
+- Fjärrinloggning för agenter: klistra in koden från agentens inloggningslänk i enhetens inställningar för att slutföra inloggningen från telefonen
+- "Start coding": ett blad för ärenden, åtgärder och chatt med samma alternativ överallt

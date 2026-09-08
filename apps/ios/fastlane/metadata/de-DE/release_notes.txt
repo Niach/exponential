@@ -1,7 +1,7 @@
-- Steuerung v2: Modell, Aufwand und Modus des Agenten wechselst du direkt in der laufenden Session über Chips oberhalb des Editors; Kontext- und Verbrauchsanzeigen aktualisieren sich, sobald der Lauf sie meldet
+- Steuerung: wechsle in der laufenden Session zwischen „Plan“ und „Build“; Modell und Aufwand wählst du einmal beim Start, und Kontext- und Verbrauchsanzeigen aktualisieren sich, sobald der Lauf sie meldet
 - Frühere Läufe: beendete Sessions stehen pro Gerät mit „Resume“ in der Liste, sodass ein beendeter Lauf wieder aufgenommen werden kann
 - Chat ohne Repository: ein Chat aus dem Sheet „Start coding“ braucht kein Repository mehr und läuft in einem temporären Ordner mit nur den Exponential-Werkzeugen
-- Agenten-Auswahl: kann ein Gerät einen Agenten zwar starten, aber nicht auf der Session-Seite steuern, sagt die Auswahl, dass er im Terminal startet, statt still darauf auszuweichen
+- Agenten-Auswahl: ist ein Agent auf einem Gerät nicht bereit, sagt die Auswahl das und blockiert den Start, bis du dort den doctor ausführst
 - Steuerungs-Feed: Issue-Kennungen wie #EXP-12 werden zu antippbaren Chips, und Agentenbefehle erscheinen als Befehls-Badges
 - Issue-Verknüpfungen: verknüpfe Issues als übergeordnet, Sub-Issue, blockiert, blockiert von, Duplikat oder verwandt direkt im Eigenschaften-Sheet; ein #EXP-12 in einer Beschreibung oder einem Kommentar verknüpft die beiden Issues von selbst
 - Kommentar-Threads: antworte unter einem Kommentar aus dem angedockten Editor; Threads bleiben eine Ebene tief, und ein Kommentar, den ein Agent über MCP geschrieben hat, sagt das in seiner Kopfzeile
@@ -12,3 +12,8 @@
 - Ein ruhigerer Aktivitäts-Feed: Ereignisse stehen als eine gedämpfte Zeile mit Uhrzeit, Kommentare sitzen in einer einzigen Karte
 - Der Button „Subscribe“ ist weg: du folgst einem Issue automatisch, wenn du es erstellst, kommentierst, zugewiesen wirst oder erwähnt wirst
 - Steuerung: die Kontextleiste überdeckt das Transkript nicht mehr
+- Sessions bleiben auf deinem Gerät: Transkripte liegen auf dem Gerät, das sie ausgeführt hat, nie auf dem Server; frühere Läufe öffnest du aus Devices, Chat und Automations, und sie werden von diesem Gerät geholt, sobald es online ist
+- Subagenten-Gespräche: die Züge eines Subagenten stehen in einer eigenen Ansicht, und der Text des Agenten wird nicht mehr mitten im Satz auf mehrere Zeilen verteilt
+- Ein Lauf, der verstummt, sagt es: die Session zeigt, wenn der Agent keinen Fortschritt mehr meldet
+- Agenten-Anmeldung aus der Ferne: füge den Code aus dem Login-Link eines Agenten in die Einstellungen des Geräts ein und schließe die Anmeldung vom Telefon aus ab
+- „Start coding“: ein Sheet für Issues, Actions und Chat, mit überall den gleichen Optionen

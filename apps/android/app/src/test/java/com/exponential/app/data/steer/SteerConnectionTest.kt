@@ -749,6 +749,47 @@ class SteerConnectionTest {
         connection.kick("test")
         assertNull(withTimeoutOrNull(300) { transport.opens.receive() })
     }
+
+    // ── EXP-773: the end banner never prints a protocol word ─────────────────
+
+    @Test
+    fun protocolOutcomesCarryNoBannerCaption() {
+        // Viewing an ENDED run ends with the journal republish closing itself
+        // out — the banner used to print that outcome verbatim, so it read
+        // "history". The two failures already have their own HistoryState line.
+        for (outcome in listOf("ended", "history", "history_unavailable", "device_offline")) {
+            assertNull(outcome, steerEndDetail(outcome))
+        }
+        assertNull(steerEndDetail(null))
+        assertNull(steerEndDetail(""))
+        // Anything the relay coins that isn't a known protocol word still shows.
+        assertEquals("publisher_lost", steerEndDetail("publisher_lost"))
+        assertEquals("killed", steerEndDetail("killed"))
+        // Cross-client contract: iOS `SteerOutcome.silentEndOutcomes`, web
+        // `steer-session-store.ts`.
+        assertEquals(
+            setOf("ended", "history", "history_unavailable", "device_offline"),
+            SILENT_END_OUTCOMES,
+        )
+    }
+
+    @Test
+    fun aHistoryByeEndsWithThePlainCaption() = runBlocking {
+        val transport = FakeTransport()
+        val connection = connection(transport, stagingTimings)
+        try {
+            val socket = liveWithFeed(transport, connection)
+            // The relay's journal republish signs off once the transcript is in.
+            socket.emit("""{"t":"bye","outcome":"history"}""")
+            socket.hangUp()
+            waitUntil("the ended phase") { connection.phase.value is AgentPhase.Ended }
+            assertEquals(AgentPhase.Ended(null), connection.phase.value)
+            // The transcript it delivered stays on screen.
+            assertEquals(1, connection.activity.value.feed.size)
+        } finally {
+            connection.close()
+        }
+    }
 }
 
 private const val SESSION_ID = "11111111-2222-3333-4444-555555555555"

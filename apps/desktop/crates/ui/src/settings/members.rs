@@ -243,7 +243,8 @@ impl MembersPane {
                         this.out_of_seats = true;
                     }
                     Err(err) => {
-                        this.error = Some(format!("Couldn't create the invite: {err}").into());
+                        this.error =
+                            Some(super::form_error(&err, "Couldn't create the invite.").into());
                     }
                 }
                 cx.notify();

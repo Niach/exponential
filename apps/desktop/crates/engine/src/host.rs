@@ -260,6 +260,25 @@ pub(crate) fn out_is_activity(out: &MapOut) -> bool {
     wire || local || out.idle == Some(true)
 }
 
+/// How often terminal output is allowed to move the activity clock.
+const TERMINAL_ACTIVITY_STEP: Duration = Duration::from_secs(1);
+
+/// FEED-25: does this terminal event count as the agent being alive? An
+/// agent's `terminal/*` command bypasses the mapper entirely, so without this
+/// a claude `Bash` call with a raised `BASH_MAX_TIMEOUT_MS` — or an
+/// `ExternalAgent` parked in `terminal/wait_for_exit` — streams for half an
+/// hour and still reads as a wedged turn. Written bytes count, and so does
+/// the exit edge that closes the card (once per terminal, and a command
+/// finishing IS progress); a `bind` flush of nothing at all does not.
+pub(crate) fn terminal_is_activity(event: &LocalFeedEvent) -> bool {
+    match event {
+        LocalFeedEvent::Output {
+            chunk, exit_code, ..
+        } => !chunk.is_empty() || exit_code.is_some(),
+        _ => false,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // The child a stdio adapter owns (EXP-746)
 // ---------------------------------------------------------------------------
@@ -865,6 +884,21 @@ impl SessionCtx {
         if out_is_activity(&out) {
             self.touch_activity();
         }
+        self.deliver(out);
+    }
+
+    /// FEED-25: one engine-authored notice into the transcript — the stall
+    /// watchdog announcing the turn it just cancelled. Routed exactly like
+    /// mapper output but WITHOUT the activity clock: the session speaking
+    /// about the agent is not the agent waking up, and a touch here would
+    /// clear the watchdog's own pending interrupt before it can escalate.
+    pub(crate) fn notice(&self, text: String) {
+        let mut out = MapOut::default();
+        self.with_mapper(|mapper| mapper.on_notice(&text, &mut out));
+        self.deliver(out);
+    }
+
+    fn deliver(&self, out: MapOut) {
         if let Some(sink) = self.sink.get() {
             for event in out.wire {
                 sink.send(event);
@@ -895,6 +929,20 @@ impl SessionCtx {
     pub(crate) fn touch_activity(&self) {
         if let Ok(mut at) = self.last_activity.lock() {
             *at = Instant::now();
+        }
+    }
+
+    /// FEED-25: the same clock, from the terminal reader thread — a chatty
+    /// command hits this per PTY read, so the write is rate-limited to one
+    /// per [`TERMINAL_ACTIVITY_STEP`]. The comparison IS the rate limit: the
+    /// stored instant only moves once the step has elapsed, which leaves the
+    /// clock at most one step behind and costs one uncontended lock.
+    pub(crate) fn touch_activity_throttled(&self) {
+        if let Ok(mut at) = self.last_activity.lock() {
+            let now = Instant::now();
+            if now.saturating_duration_since(*at) >= TERMINAL_ACTIVITY_STEP {
+                *at = now;
+            }
         }
     }
 
@@ -1595,6 +1643,11 @@ fn create_terminal(
     let weak = Arc::downgrade(ctx);
     let sink: TerminalSink = Arc::new(move |event| {
         if let Some(ctx) = weak.upgrade() {
+            // FEED-25: a running command is the agent working, even though
+            // none of this ever reaches the mapper (or the wire).
+            if terminal_is_activity(&event) {
+                ctx.touch_activity_throttled();
+            }
             ctx.emit_local(event);
         }
     });
@@ -1710,6 +1763,25 @@ mod tests {
         let mut started = MapOut::default();
         started.idle = Some(false);
         assert!(!out_is_activity(&started));
+    }
+
+    /// A `terminal/*` command never touches the mapper, so its bytes are the
+    /// engine's ONLY sign of life while a long build runs.
+    #[test]
+    fn terminal_bytes_and_the_exit_are_activity_but_an_empty_flush_is_not() {
+        let output = |chunk: &str, exit_code: Option<i32>| LocalFeedEvent::Output {
+            tool_call_id: "call-1".to_string(),
+            chunk: chunk.to_string(),
+            exit_code,
+        };
+        assert!(terminal_is_activity(&output("test 12 of 400\n", None)));
+        // The card's closing edge: a command that finished IS progress.
+        assert!(terminal_is_activity(&output("", Some(0))));
+        // A `bind` with nothing buffered and no exit says nothing at all.
+        assert!(!terminal_is_activity(&output("", None)));
+        assert!(!terminal_is_activity(&LocalFeedEvent::Phase(
+            EnginePhase::Live
+        )));
     }
 
     // ── The local feed's backlog and its latest-wins state (review UI-2) ───
