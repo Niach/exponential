@@ -99,6 +99,22 @@ object DesignTokens {
         val RowHeight: Dp = 32.dp
     }
 
+    // The agent transcript's measure, gap ladder and type scale (EXP-787) —
+    // gaps and widths in dp, the type entries in sp; the call site adds the
+    // unit. The gap is chosen by domain/AgentFeed.kt `transcriptGap`.
+    object Transcript {
+        const val MaxWidth: Int = 736
+        const val Gutter: Int = 48
+        const val GapTurn: Int = 16
+        const val GapBlock: Int = 12
+        const val GapTool: Int = 12
+        const val GapDefault: Int = 8
+        const val BodySize: Int = 14
+        const val BodyLineHeight: Int = 22
+        const val ToolSize: Int = 12
+        const val ToolLineHeight: Int = 18
+    }
+
     // Motion (EXP-523) — durations in MILLISECONDS (Compose's `tween` unit),
     // easings as CSS cubic-bezier control points. Read these through
     // ui/theme/Motion.kt, which collapses them to `snap()` when the OS has
