@@ -48,12 +48,24 @@ struct AgentMarkdownText: View {
 
     @State private var displayModel: IssueEditorModel
     @State private var displayedText: String?
+    /// EXP-787: the metrics are baked into the attributed string at parse time,
+    /// so a text-size change has to re-parse — the `@State` model outlives the
+    /// `init` that built it. The render cache keys on the RESOLVED metrics, so
+    /// stepping back to a previous size is a cache hit.
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     /// The steer feed's inline-code palette, generated straight off the shared
-    /// design tokens (web `--code-*`, desktop and Android mirror it).
+    /// design tokens (web `--code-*`, desktop and Android mirror it) — plus
+    /// (EXP-787) the transcript's own measure: agent prose reads at
+    /// `Transcript.bodySize` on a `Transcript.bodyLineHeight` line, while every
+    /// editable surface keeps the interchange body font. Both numbers are the
+    /// DEFAULT-size values; `MarkdownStyle` scales them through `UIFontMetrics`
+    /// at render time, so the transcript keeps Dynamic Type.
     static let chatCodePalette = MarkdownStyle.Overrides(
         inlineCodeForeground: DesignTokens.Semantic.codeText,
-        inlineCodeBackground: DesignTokens.Semantic.codeFill
+        inlineCodeBackground: DesignTokens.Semantic.codeFill,
+        bodySize: DesignTokens.Transcript.bodySize,
+        lineHeight: DesignTokens.Transcript.bodyLineHeight
     )
 
     init(
@@ -171,6 +183,11 @@ struct AgentMarkdownText: View {
             displayedText = newText
             displayModel = Self.model(
                 newText, context: context, options: options, overrides: overrides
+            )
+        }
+        .onChange(of: dynamicTypeSize) { _, _ in
+            displayModel = Self.model(
+                text, context: context, options: options, overrides: overrides
             )
         }
     }

@@ -2087,8 +2087,9 @@ pub struct MarkdownView {
     selectable: bool,
     /// EXP-698 CHAT rhythm — the steer feed's bodies (narration, the user
     /// bubble, the plan/ask cards). Two things change, both web parity:
-    /// a taller 1.625 line height with an 8px paragraph gap, and INLINE CODE
-    /// painted in the semantic code tint instead of the neutral muted fill.
+    /// the transcript's shared type token (EXP-787 — 14px over a 22px line
+    /// height, with an 8px paragraph gap), and INLINE CODE painted in the
+    /// semantic code tint instead of the neutral muted fill.
     /// Comments and issue descriptions are deliberately NOT chat — a document
     /// reads at the document rhythm, and its inline code stays neutral.
     chat: bool,
@@ -2314,15 +2315,20 @@ impl gpui::RenderOnce for MarkdownView {
         // at a 980px window the whole detail pane collapsed to roughly a
         // third of its correct width (counterfactual screenshots, headless
         // Xvfb A/B). Do not delete without re-running that A/B.
-        // EXP-698: chat bodies read at the web's message rhythm — `text-sm`
-        // over a 1.625 line height with an 8px paragraph gap; documents keep
-        // the tighter 6px block gap and the inherited line height.
+        // EXP-698: chat bodies read at the web's message rhythm, with an 8px
+        // paragraph gap; documents keep the tighter 6px block gap and the
+        // inherited line height.
+        //
+        // EXP-787: that rhythm is now the shared transcript TOKEN (14/22 on
+        // every client) rather than a rem-relative `text_sm` over a 1.625
+        // multiple — at the desktop's 14px rem those resolved to 12.25/19.9,
+        // which is not what web, iOS and Android render.
         let content = v_flex()
             .w_full()
             .when(self.chat, |this| {
                 this.gap_2()
-                    .text_sm()
-                    .line_height(gpui::relative(1.625))
+                    .text_size(px(theme::tokens::transcript::BODY_SIZE))
+                    .line_height(px(theme::tokens::transcript::BODY_LINE_HEIGHT))
             })
             .when(!self.chat, |this| this.gap_1p5())
             .children(children);
@@ -2408,8 +2414,14 @@ fn render_view_table(
     let border = theme.border;
     let header_bg = theme.muted;
     let font = gpui::font(theme.font_family.to_string());
-    // The chat rhythm renders at `text_sm`; documents inherit the base rem.
-    let rems = gpui::Rems(if view.chat { 0.875 } else { 1.0 });
+    // EXP-787: the chat rhythm renders at the transcript's BODY token;
+    // documents inherit the base rem. Measuring at the wrong size would size
+    // every column of a table in a steered message wrong.
+    let rems = gpui::Rems(if view.chat {
+        theme::tokens::transcript::BODY_SIZE / theme::FONT_SIZE_PX
+    } else {
+        1.0
+    });
 
     let widths: Vec<f32> = (0..columns)
         .map(|column| {

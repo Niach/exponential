@@ -463,6 +463,52 @@ public enum AgentFeedRow: Equatable, Sendable, Identifiable {
     }
 }
 
+/// EXP-787 — what a transcript row is for the shared gap ladder. Three
+/// classes, not seven row cases: the rhythm is about human turns, prose and
+/// tool noise, and nothing finer than that ever changes the spacing.
+public enum AgentRowClass: Equatable, Sendable {
+    /// A human turn — the prose bubble and the slash-command pill alike.
+    case turn
+    /// Assistant prose and the cards that read as prose (asks, plans, the
+    /// compaction marker).
+    case prose
+    /// Tool noise: single calls, collapsed runs, subagents, permission
+    /// markers — and the trailing "Working…" row, which is the same weight.
+    case tool
+}
+
+extension AgentFeedRow {
+    /// The row's class in the gap ladder.
+    public var rowClass: AgentRowClass {
+        switch self {
+        case .toolRun, .subagentRun: .tool
+        case .ask: .prose
+        case let .single(item):
+            switch item {
+            case .userMessage: .turn
+            case .narration, .question, .compaction: .prose
+            case .tool, .subagent, .permission: .tool
+            }
+        }
+    }
+}
+
+/// The space ABOVE one transcript row (EXP-787), named rather than measured:
+/// ExpCore cannot see ExpUI, so the session view maps these onto the shared
+/// `DesignTokens.Transcript` gap tokens.
+public enum AgentTranscriptGap: Equatable, Sendable {
+    /// The first row of the transcript — nothing above it to space against.
+    case none
+    /// `gapTurn` — either side of a human turn.
+    case turn
+    /// `gapBlock` — between two prose rows.
+    case block
+    /// `gapTool` — where prose meets a tool row.
+    case tool
+    /// `gapDefault` — between two consecutive tool rows.
+    case `default`
+}
+
 /// Per-card answer lock (protocol v2): a tap locks its card IMMEDIATELY so a
 /// double tap can never send twice. The desktop's `answer_ack` makes the lock
 /// permanent (and advances a stepper); nothing at all coming back expires the
@@ -942,6 +988,25 @@ public enum AgentFeed {
         var out = feed
         out.insert(item, at: index)
         return out
+    }
+
+    /// The gap ladder (EXP-787): the space above `cur`, chosen from the row
+    /// before it. ONE derivation, mirrored on all four clients (web
+    /// `lib/agent-feed.ts`, desktop `steer::feed`, Android `domain/AgentFeed`)
+    /// — a human turn gets the widest air on EITHER side, two tool rows the
+    /// tightest, prose meeting a tool row the step in between, and two prose
+    /// rows the block gap. Order matters: the turn rule wins over everything.
+    /// `prev == nil` is the first row, which has no gap at all.
+    public static func transcriptGap(
+        prev: AgentRowClass?, cur: AgentRowClass
+    ) -> AgentTranscriptGap {
+        guard let prev else { return .none }
+        if prev == .turn || cur == .turn { return .turn }
+        switch (prev == .tool, cur == .tool) {
+        case (true, true): return .default
+        case (true, false), (false, true): return .tool
+        case (false, false): return .block
+        }
     }
 
     /// Render rows over the flat feed — a projection only, the feed stays the

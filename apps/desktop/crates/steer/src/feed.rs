@@ -1276,6 +1276,92 @@ impl FeedRow<'_> {
             | FeedRow::Subagent { id, .. } => *id,
         }
     }
+
+    /// The row's rhythm class ([`RowClass`]).
+    pub fn class(&self) -> RowClass {
+        match self {
+            FeedRow::Single(item) => item.class(),
+            // A collapsed run of calls and a subagent's group are machine
+            // work, exactly like the single tool row they collapse.
+            FeedRow::ToolRun { .. } | FeedRow::Subagent { .. } => RowClass::Tool,
+            // A stepper card is a question the reader answers — prose.
+            FeedRow::Ask { .. } => RowClass::Prose,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// EXP-787 — the transcript's gap ladder
+// ---------------------------------------------------------------------------
+
+/// What a transcript row is, for the purpose of the space ABOVE it.
+///
+/// Three classes only: a sent user TURN (the loudest seam in a run), the
+/// agent's PROSE (narration, a question card, the compaction divider), and the
+/// machine's TOOL chatter (tool rows and runs, subagent groups, permission
+/// rows, the trailing "Working…" line). Mirrored ×4 — web
+/// `lib/agent-feed.ts`, ExpCore `AgentFeed`, Android `domain/AgentFeed`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RowClass {
+    Turn,
+    Prose,
+    Tool,
+}
+
+/// The space above a row, as a design-token NAME rather than a number: this
+/// crate is gpui- and theme-free (the headless CLI links it), so the px live
+/// in `theme::tokens::transcript` and the renderer maps a [`Gap`] onto them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Gap {
+    /// `gapTurn` — either side of a sent message.
+    Turn,
+    /// `gapBlock` — between two prose rows.
+    Block,
+    /// `gapTool` — where prose meets tool chatter.
+    Tool,
+    /// `gapDefault` — between two tool rows.
+    Default,
+}
+
+/// EXP-787 — the ONE gap derivation, in ladder order:
+///
+/// 1. either side is a [`RowClass::Turn`] ⇒ [`Gap::Turn`];
+/// 2. both are [`RowClass::Tool`] ⇒ [`Gap::Default`];
+/// 3. exactly one is [`RowClass::Tool`] ⇒ [`Gap::Tool`];
+/// 4. both prose ⇒ [`Gap::Block`].
+///
+/// The FIRST row of a transcript has no space above it at all — that is the
+/// renderer's rule (there is no `prev` to pass), never a fifth [`Gap`].
+pub fn transcript_gap(prev: RowClass, cur: RowClass) -> Gap {
+    match (prev, cur) {
+        (RowClass::Turn, _) | (_, RowClass::Turn) => Gap::Turn,
+        (RowClass::Tool, RowClass::Tool) => Gap::Default,
+        (RowClass::Tool, _) | (_, RowClass::Tool) => Gap::Tool,
+        _ => Gap::Block,
+    }
+}
+
+impl FeedKind {
+    /// The rhythm class of a row rendering exactly this item.
+    pub fn class(&self) -> RowClass {
+        match self {
+            FeedKind::UserMessage { .. } => RowClass::Turn,
+            FeedKind::Narration { .. }
+            | FeedKind::Question(_)
+            | FeedKind::Compaction => RowClass::Prose,
+            FeedKind::Tool { .. }
+            | FeedKind::Subagent { .. }
+            | FeedKind::Permission { .. } => RowClass::Tool,
+        }
+    }
+}
+
+impl FeedItem {
+    /// [`FeedKind::class`] — a single item classifies exactly as the row that
+    /// renders it alone.
+    pub fn class(&self) -> RowClass {
+        self.kind.class()
+    }
 }
 
 /// Group the flat feed into render rows — a PURE projection: the feed (and
@@ -1323,6 +1409,21 @@ impl FeedRowSpec {
             | FeedRowSpec::ToolRun { id, .. }
             | FeedRowSpec::Ask { id, .. }
             | FeedRowSpec::Subagent { id, .. } => *id,
+        }
+    }
+
+    /// EXP-787 — the row's rhythm class ([`FeedRow::class`]), WITHOUT
+    /// resolving the row: a renderer classifies every row in its window every
+    /// frame to pick the gaps, and that must not allocate. `items` is the
+    /// same slice the spec was grouped from; an index the feed no longer
+    /// holds reads as prose (the neutral rung).
+    pub fn class(&self, items: &[FeedItem]) -> RowClass {
+        match self {
+            FeedRowSpec::Single { item, .. } => {
+                items.get(*item).map_or(RowClass::Prose, FeedItem::class)
+            }
+            FeedRowSpec::ToolRun { .. } | FeedRowSpec::Subagent { .. } => RowClass::Tool,
+            FeedRowSpec::Ask { .. } => RowClass::Prose,
         }
     }
 
@@ -2838,5 +2939,109 @@ mod tests {
             vec!["marker", "narration", "tool", "user"]
         );
         assert!(matches!(rows[2], FeedRow::Single(_)));
+    }
+
+    /// EXP-787 — the gap ladder: the space ABOVE a row, chosen from the row
+    /// before it. All nine (prev, cur) pairs plus the first-row rule. This is
+    /// the ONE derivation, mirrored on web (`lib/agent-feed.ts`), iOS
+    /// (`AgentFeed`) and Android (`domain/AgentFeed`) — a change here is a
+    /// change in all four in the same PR.
+    #[test]
+    fn transcript_gap_ladder() {
+        use RowClass::{Prose, Tool, Turn};
+
+        // 1. Either side is a sent turn — the loudest seam wins outright,
+        //    tool chatter on the other side included.
+        assert_eq!(transcript_gap(Turn, Turn), Gap::Turn);
+        assert_eq!(transcript_gap(Turn, Prose), Gap::Turn);
+        assert_eq!(transcript_gap(Turn, Tool), Gap::Turn);
+        assert_eq!(transcript_gap(Prose, Turn), Gap::Turn);
+        assert_eq!(transcript_gap(Tool, Turn), Gap::Turn);
+        // 2. Two tool rows sit tight against each other.
+        assert_eq!(transcript_gap(Tool, Tool), Gap::Default);
+        // 3. Exactly one side is tool chatter.
+        assert_eq!(transcript_gap(Tool, Prose), Gap::Tool);
+        assert_eq!(transcript_gap(Prose, Tool), Gap::Tool);
+        // 4. Two prose blocks.
+        assert_eq!(transcript_gap(Prose, Prose), Gap::Block);
+
+        // The FIRST row has no row before it, so it takes no space at all.
+        // That is the renderer's rule, asserted here so it never grows into a
+        // fifth `Gap` variant.
+        let classes = [Prose, Tool, Turn];
+        let gaps: Vec<Option<Gap>> = classes
+            .iter()
+            .enumerate()
+            .map(|(ix, cur)| (ix > 0).then(|| transcript_gap(classes[ix - 1], *cur)))
+            .collect();
+        assert_eq!(gaps, vec![None, Some(Gap::Tool), Some(Gap::Turn)]);
+    }
+
+    /// The ladder is only as good as the classes fed to it: every row shape a
+    /// transcript can render classifies, and a spec classifies exactly like
+    /// the row it resolves to.
+    #[test]
+    fn transcript_gap_ladder_classes_every_row_shape() {
+        let mut feed = SteerFeed::new();
+        feed.apply(ActivityEvent::narration("thinking"));
+        feed.apply(ActivityEvent::UserMessage {
+            text: "do the thing".into(),
+            subagent_id: None,
+            at: None,
+        });
+        feed.apply(ActivityEvent::tool("Read", None));
+        feed.apply(ActivityEvent::tool("Grep", None));
+        feed.apply(ActivityEvent::Permission {
+            tool: "Bash".into(),
+            detail: None,
+            at: None,
+        });
+        feed.apply(ActivityEvent::Subagent {
+            id: "toolu_task".into(),
+            agent_type: "explorer".into(),
+            status: SubagentStatus::Started,
+            detail: None,
+            tool_calls: None,
+            at: None,
+        });
+        feed.apply(ActivityEvent::compaction(CompactionPhase::Ended, None));
+        feed.apply(ActivityEvent::Question {
+            text: "Which one?".into(),
+            options: vec![QuestionOption::new("Yes", "1")],
+            multi_select: None,
+            plan_mode: None,
+            id: Some("q1".into()),
+            ask_id: Some("ask1".into()),
+            index: Some(1),
+            total: Some(1),
+            header: None,
+            at: None,
+        });
+        feed.apply(question(Some("q2"), "And this?"));
+
+        let rows = feed.rows();
+        assert_eq!(
+            rows.iter().map(FeedRow::class).collect::<Vec<_>>(),
+            vec![
+                RowClass::Prose, // narration
+                RowClass::Turn,  // the sent message
+                RowClass::Tool,  // Read + Grep collapsed into a run
+                RowClass::Tool,  // the permission row
+                RowClass::Tool,  // the subagent group
+                RowClass::Prose, // the compaction divider
+                RowClass::Prose, // the ask stepper
+                RowClass::Prose, // a lone question card
+            ]
+        );
+        // The owned specs a virtualised renderer keeps say the same thing
+        // without resolving the row.
+        let items = feed.items();
+        assert_eq!(
+            feed.row_specs()
+                .iter()
+                .map(|spec| spec.class(items))
+                .collect::<Vec<_>>(),
+            rows.iter().map(FeedRow::class).collect::<Vec<_>>()
+        );
     }
 }

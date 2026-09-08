@@ -21,9 +21,11 @@ import {
   looksLikeMarkdown,
   pushEcho,
   resumesAfterCompaction,
+  rowClass,
   subagentIdOf,
   summarizeSubagentRow,
   spliceBeforeQuestion,
+  transcriptGap,
   upsertQuestion,
   visibleSubagentTabs,
   COMPACTION_TIMEOUT_MS,
@@ -31,9 +33,11 @@ import {
   ECHO_TTL_MS,
   type AnswerStates,
   type EchoEntry,
+  type FeedRow,
   type QuestionLike,
 } from "./agent-feed"
 import { CONFIG_DEFAULT_VALUE_LABEL } from "./steer-commands"
+import designTokens from "../../../../packages/design-tokens/tokens.json" with { type: "json" }
 
 describe(`local-echo dedupe`, () => {
   it(`consumes a matching echo exactly once`, () => {
@@ -1157,5 +1161,77 @@ describe(`narration fragments`, () => {
         subagentId: `sub-1`,
       })
     ).toBeNull()
+  })
+})
+
+// EXP-787: the gap ladder — the space ABOVE a row, chosen from the row before
+// it. The same nine pairings are locked on desktop, iOS and Android; the
+// numbers come from tokens.json `transcript`, so this asserts the RULE.
+describe(`transcriptGap ladder`, () => {
+  const {
+    gapTurn: TURN,
+    gapBlock: BLOCK,
+    gapTool: TOOL,
+    gapDefault: DEFAULT_GAP,
+  } = designTokens.transcript
+
+  const single = (kind: string) =>
+    ({ kind: `single`, item: { id: 1, kind } }) as FeedRow<{
+      id: number
+      kind: string
+    }>
+
+  it(`classifies a sent user message as a turn`, () => {
+    expect(rowClass(single(`user_message`))).toBe(`turn`)
+  })
+
+  it(`classifies prose rows`, () => {
+    expect(rowClass(single(`narration`))).toBe(`prose`)
+    expect(rowClass(single(`question`))).toBe(`prose`)
+    expect(rowClass(single(`compaction`))).toBe(`prose`)
+    expect(
+      rowClass({ kind: `ask`, id: 1, askId: `a1`, items: [] })
+    ).toBe(`prose`)
+  })
+
+  it(`classifies tool rows`, () => {
+    expect(rowClass(single(`tool`))).toBe(`tool`)
+    expect(rowClass(single(`permission`))).toBe(`tool`)
+    expect(rowClass(single(`subagent`))).toBe(`tool`)
+    expect(rowClass({ kind: `toolRun`, id: 1, items: [] })).toBe(`tool`)
+    expect(
+      rowClass({ kind: `subagent`, id: 1, subagentId: `s1`, items: [] })
+    ).toBe(`tool`)
+  })
+
+  it(`gives the first rendered row no gap at all`, () => {
+    expect(transcriptGap(null, `turn`)).toBe(0)
+    expect(transcriptGap(null, `prose`)).toBe(0)
+    expect(transcriptGap(null, `tool`)).toBe(0)
+  })
+
+  it(`opens and closes a user turn with the turn gap`, () => {
+    expect(transcriptGap(`turn`, `turn`)).toBe(TURN)
+    expect(transcriptGap(`turn`, `prose`)).toBe(TURN)
+    expect(transcriptGap(`turn`, `tool`)).toBe(TURN)
+    expect(transcriptGap(`prose`, `turn`)).toBe(TURN)
+    expect(transcriptGap(`tool`, `turn`)).toBe(TURN)
+  })
+
+  it(`packs consecutive tool rows tightest`, () => {
+    expect(transcriptGap(`tool`, `tool`)).toBe(DEFAULT_GAP)
+  })
+
+  it(`uses the tool gap where prose meets a tool row`, () => {
+    expect(transcriptGap(`prose`, `tool`)).toBe(TOOL)
+    expect(transcriptGap(`tool`, `prose`)).toBe(TOOL)
+  })
+
+  it(`separates two prose rows with the block gap`, () => {
+    expect(transcriptGap(`prose`, `prose`)).toBe(BLOCK)
+  })
+
+  it(`matches the shared tokens`, () => {
+    expect([TURN, BLOCK, TOOL, DEFAULT_GAP]).toEqual([16, 12, 12, 8])
   })
 })

@@ -54,13 +54,17 @@ import {
   looksLikeMarkdown,
   modeChip,
   planModeToggle,
+  rowClass,
   subagentIdOf,
   summarizeSubagentRow,
+  transcriptGapToken,
   visibleSubagentTabs,
   type AnswerState,
   type AnswerStates,
+  type RowClass,
   type SessionConfigState,
   type SubagentSummary,
+  type TranscriptGapToken,
 } from "@/lib/agent-feed"
 import {
   mergeAgentCommands,
@@ -177,6 +181,40 @@ const UiUnselectedIcon = conceptIcon(`ui-unselected`)
 // route owns the membership + config.enabled gating (the relay enforces both
 // regardless) and supplies `identity` + `onBack`. The "coding now" rows +
 // remote-start affordances live in issue-coding-rows.tsx.
+
+// ── Transcript rhythm (EXP-787) ──────────────────────────────────────────────
+// The measure and the gap ladder are shared tokens (packages/design-tokens
+// tokens.json `transcript`, mirrored as --transcript-* in styles.css and
+// derived ONCE in lib/agent-feed.ts). The renderer only maps a ladder token
+// onto its custom property, so no number is restated here.
+
+/** The centred reading column every transcript row sits in: the measure plus
+ *  one gutter either side, with the gutter as padding from `sm:` up (a phone
+ *  cannot afford 48px of it, so it keeps the old 12). */
+const TRANSCRIPT_COLUMN = `mx-auto w-full max-w-[calc(var(--transcript-max-width)_+_2_*_var(--transcript-gutter))] px-3 sm:px-[var(--transcript-gutter)]`
+
+/** Prose scale — agent narration and the sender's own bubbles. Markdown
+ *  bodies get the same size/leading from the `.agent-feed .tiptap-content`
+ *  rule in styles.css. */
+const TRANSCRIPT_BODY_TEXT = `text-[length:var(--transcript-body-size)] leading-[var(--transcript-body-line-height)]`
+
+/** Tool scale — tool rows, group captions, permission and subagent rows, the
+ *  compaction hairline and the "Working…" indicator. */
+const TRANSCRIPT_TOOL_TEXT = `text-[length:var(--transcript-tool-size)] leading-[var(--transcript-tool-line-height)]`
+
+const TRANSCRIPT_GAP_CLASS = {
+  gapTurn: `pt-[var(--transcript-gap-turn)]`,
+  gapBlock: `pt-[var(--transcript-gap-block)]`,
+  gapTool: `pt-[var(--transcript-gap-tool)]`,
+  gapDefault: `pt-[var(--transcript-gap-default)]`,
+} as const satisfies Record<TranscriptGapToken, string>
+
+/** The space above a row, as a class — `transcriptGapToken` picks it, the
+ *  first rendered row gets none. */
+function transcriptGapClass(prev: RowClass | null, cur: RowClass): string {
+  const token = transcriptGapToken(prev, cur)
+  return token === null ? `` : TRANSCRIPT_GAP_CLASS[token]
+}
 
 // ── Wire protocol ────────────────────────────────────────────────────────────
 // EXP-621: the relay protocol handling, the connection lifecycle and the feed
@@ -831,7 +869,8 @@ export function AgentSessionView({
                 <div
                   ref={setContentRef}
                   className={cn(
-                    `flex min-h-full flex-col justify-end gap-0.5 px-3 py-2`,
+                    `flex min-h-full flex-col justify-end py-2`,
+                    TRANSCRIPT_COLUMN,
                     // Room for the floating changes bar, so the newest row
                     // still scrolls fully clear of it (EXP-688).
                     floatingBar && `pb-14`
@@ -846,7 +885,8 @@ export function AgentSessionView({
                 <div
                   ref={setContentRef}
                   className={cn(
-                    `flex min-h-full flex-col justify-end gap-0.5 px-3 py-2`,
+                    `flex min-h-full flex-col justify-end py-2`,
+                    TRANSCRIPT_COLUMN,
                     // Room for the floating changes bar, so the newest row
                     // still scrolls fully clear of it (EXP-688).
                     floatingBar && `pb-14`
@@ -865,10 +905,25 @@ export function AgentSessionView({
                     </div>
                   ) : null}
                   {rows.map((row, index) => {
+                    // EXP-787: the rhythm is the ladder, not a uniform gap —
+                    // each row carries the space ABOVE it, chosen from the row
+                    // before it. The key stays the row id; the wrapper only
+                    // holds that padding.
+                    const gap = transcriptGapClass(
+                      index === 0 ? null : rowClass(rows[index - 1]),
+                      rowClass(row)
+                    )
+                    const wrap = (content: ReactNode) => (
+                      <div
+                        key={row.kind === `single` ? row.item.id : row.id}
+                        className={gap}
+                      >
+                        {content}
+                      </div>
+                    )
                     if (row.kind === `toolRun`) {
-                      return (
+                      return wrap(
                         <ToolGroupRow
-                          key={row.id}
                           items={
                             row.items as Extract<FeedItem, { kind: `tool` }>[]
                           }
@@ -877,12 +932,11 @@ export function AgentSessionView({
                       )
                     }
                     if (row.kind === `subagent`) {
-                      return <SubagentGroupRow key={row.id} items={row.items} />
+                      return wrap(<SubagentGroupRow items={row.items} />)
                     }
                     if (row.kind === `ask`) {
-                      return (
+                      return wrap(
                         <AskStepperCard
-                          key={row.id}
                           items={row.items as QuestionItem[]}
                           activeIds={questionIds}
                           canAnswer={canAnswer}
@@ -894,14 +948,10 @@ export function AgentSessionView({
                     const item = row.item
                     switch (item.kind) {
                       case `narration`:
-                        return <NarrationBubble key={item.id} text={item.text} />
+                        return wrap(<NarrationBubble text={item.text} />)
                       case `tool`:
-                        return (
-                          <ToolRow
-                            key={item.id}
-                            name={item.name}
-                            detail={item.detail}
-                          />
+                        return wrap(
+                          <ToolRow name={item.name} detail={item.detail} flush />
                         )
                       case `user_message`: {
                         // EXP-724: a steered slash command renders as a
@@ -910,22 +960,22 @@ export function AgentSessionView({
                           item.text,
                           agentCommands
                         )
-                        return command ? (
-                          <CommandRow
-                            key={item.id}
-                            name={command.command.name}
-                            args={command.args}
-                          />
-                        ) : (
-                          <UserMessageBubble key={item.id} text={item.text} />
+                        return wrap(
+                          command ? (
+                            <CommandRow
+                              name={command.command.name}
+                              args={command.args}
+                            />
+                          ) : (
+                            <UserMessageBubble text={item.text} />
+                          )
                         )
                       }
                       case `compaction`:
-                        return <CompactionRow key={item.id} />
+                        return wrap(<CompactionRow />)
                       case `permission`:
-                        return (
+                        return wrap(
                           <PermissionRow
-                            key={item.id}
                             tool={item.tool}
                             detail={item.detail}
                             active={
@@ -934,11 +984,10 @@ export function AgentSessionView({
                           />
                         )
                       case `subagent`:
-                        return <SubagentGroupRow key={item.id} items={[item]} />
+                        return wrap(<SubagentGroupRow items={[item]} />)
                       case `question`:
-                        return (
+                        return wrap(
                           <QuestionCard
-                            key={item.id}
                             item={item}
                             active={questionIds.has(item.id)}
                             canAnswer={canAnswer}
@@ -950,7 +999,18 @@ export function AgentSessionView({
                   })}
                   {/* EXP-389: the agent-is-busy footer under the newest
                       event (mobile parity) — main conversation only. */}
-                  {working && <WorkingIndicatorRow />}
+                  {working && (
+                    <div
+                      className={transcriptGapClass(
+                        rows.length === 0
+                          ? null
+                          : rowClass(rows[rows.length - 1]),
+                        `tool`
+                      )}
+                    >
+                      <WorkingIndicatorRow />
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1197,9 +1257,14 @@ function CenteredState({ children }: { children: React.ReactNode }) {
  *  the agent is still going. Static under reduced motion. */
 function WorkingIndicatorRow() {
   return (
-    <div className="flex items-center gap-2 py-1.5 motion-safe:animate-pulse">
+    <div
+      className={cn(
+        `flex items-center gap-2 motion-safe:animate-pulse`,
+        TRANSCRIPT_TOOL_TEXT
+      )}
+    >
       <CodingAssistantIcon className="size-3 shrink-0 text-muted-foreground/60" />
-      <span className="text-xs text-muted-foreground">Working…</span>
+      <span className="text-muted-foreground">Working…</span>
     </div>
   )
 }
@@ -1309,9 +1374,11 @@ const NarrationBubble = memo(function NarrationBubble({
   return (
     // EXP-696: no bubble, matching the natives (EXP-274) — a small assistant
     // glyph and the agent's prose running the full width of the feed.
-    <div className="flex items-start gap-2 py-1">
+    <div className="flex items-start gap-2">
       <CodingAssistantIcon className="mt-1.5 size-3 shrink-0 text-muted-foreground/60" />
-      <div className="min-w-0 flex-1 text-sm text-foreground/90">
+      <div
+        className={cn(`min-w-0 flex-1 text-foreground/90`, TRANSCRIPT_BODY_TEXT)}
+      >
         <FeedText text={text} ariaLabel="Agent message" hardBreaks />
       </div>
     </div>
@@ -1436,11 +1503,16 @@ const UserMessageBubble = memo(function UserMessageBubble({
     if (index >= 1 && index <= attachmentIds.length) setPreview(index - 1)
   }
   return (
-    <div className="flex justify-end py-1 pl-8">
+    <div className="flex justify-end pl-8">
       {/* EXP-696: the natives' neutral glass bubble, not a primary tint —
           slightly brighter than the assistant's glass sections so the
           sender's own turn reads apart from the feed. */}
-      <div className="min-w-0 rounded-xl border border-glass-stroke-strong bg-glass-active px-3 py-2 text-sm text-foreground/90">
+      <div
+        className={cn(
+          `min-w-0 rounded-xl border border-glass-stroke-strong bg-glass-active px-3 py-2 text-foreground/90`,
+          TRANSCRIPT_BODY_TEXT
+        )}
+      >
         {/* A height clamp, not `line-clamp`: line clamping needs a plain text
             flow, and a markdown body is a stack of blocks. */}
         <div
@@ -1507,12 +1579,17 @@ const UserMessageBubble = memo(function UserMessageBubble({
  *  instruction to the tool, not prose worth a chat bubble. */
 function CommandRow({ name, args }: { name: string; args: string }) {
   return (
-    <div className="flex justify-end py-1 pl-8">
-      <div className="flex min-w-0 items-center gap-1.5 rounded-xl border border-glass-stroke-strong bg-glass-active px-3 py-1.5">
+    <div className="flex justify-end pl-8">
+      <div
+        className={cn(
+          `flex min-w-0 items-center gap-1.5 rounded-xl border border-glass-stroke-strong bg-glass-active px-3 py-1.5`,
+          TRANSCRIPT_TOOL_TEXT
+        )}
+      >
         <CodingCommandIcon className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="shrink-0 font-mono text-xs">/{name}</span>
+        <span className="shrink-0 font-mono">/{name}</span>
         {args && (
-          <span className="truncate text-xs text-muted-foreground">{args}</span>
+          <span className="truncate text-muted-foreground">{args}</span>
         )}
       </div>
     </div>
@@ -1523,9 +1600,9 @@ function CommandRow({ name, args }: { name: string; args: string }) {
  *  everything above it is no longer in the agent's context. */
 function CompactionRow() {
   return (
-    <div className="flex items-center gap-2 py-1.5">
+    <div className={cn(`flex items-center gap-2`, TRANSCRIPT_TOOL_TEXT)}>
       <span className="h-px flex-1 bg-border/60" />
-      <span className="shrink-0 text-[0.6875rem] text-muted-foreground/70">
+      <span className="shrink-0 text-muted-foreground/70">
         {COMPACTED_LABEL}
       </span>
       <span className="h-px flex-1 bg-border/60" />
@@ -1791,7 +1868,7 @@ function AskCard({
   children: ReactNode
 }) {
   return (
-    <div className="my-1 rounded-xl border border-glass-stroke-card bg-glass-card p-3">
+    <div className="rounded-xl border border-glass-stroke-card bg-glass-card p-3">
       <div className="flex items-start gap-2">
         {plan ? (
           <CodingPlanIcon className="mt-0.5 size-3.5 shrink-0 text-primary" />
@@ -2010,10 +2087,10 @@ function PermissionRow({
   active?: boolean
 }) {
   return (
-    <div className="min-w-0 py-0.5 pl-0.5">
+    <div className={cn(`min-w-0 pl-0.5`, TRANSCRIPT_TOOL_TEXT)}>
       <div className="flex min-w-0 items-center gap-2">
         <UiPermissionIcon className="size-3 shrink-0 text-amber-400/70" />
-        <span className="shrink-0 text-xs font-medium text-amber-400/90">
+        <span className="shrink-0 font-medium text-amber-400/90">
           Permission · {tool}
         </span>
         {detail && (
@@ -2051,7 +2128,7 @@ function SubagentGroupRow({ items }: { items: FeedItem[] }) {
   const header = (
     <>
       <CodingSubagentIcon className="size-3 shrink-0 text-muted-foreground/60" />
-      <span className="shrink-0 text-xs font-medium">{agentType}</span>
+      <span className="shrink-0 font-medium">{agentType}</span>
       {!done && <UiLoadingIcon className="size-3 shrink-0 animate-spin" />}
       <span className="shrink-0 text-[0.6875rem]">
         {done ? `done` : `running`}
@@ -2067,7 +2144,12 @@ function SubagentGroupRow({ items }: { items: FeedItem[] }) {
   )
   if (!expandable) {
     return (
-      <div className="flex min-w-0 items-center gap-2 py-0.5 pl-0.5 text-muted-foreground">
+      <div
+        className={cn(
+          `flex min-w-0 items-center gap-2 pl-0.5 text-muted-foreground`,
+          TRANSCRIPT_TOOL_TEXT
+        )}
+      >
         {header}
       </div>
     )
@@ -2077,7 +2159,10 @@ function SubagentGroupRow({ items }: { items: FeedItem[] }) {
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className="flex w-full min-w-0 items-center gap-2 py-0.5 pl-0.5 text-muted-foreground hover:text-foreground"
+        className={cn(
+          `flex w-full min-w-0 items-center gap-2 pl-0.5 text-muted-foreground hover:text-foreground`,
+          TRANSCRIPT_TOOL_TEXT
+        )}
       >
         {expanded ? (
           <ChevronDown className="size-3 shrink-0" />
@@ -2152,9 +2237,14 @@ function AgentConversation({
   return (
     <>
       {summary && (
-        <div className="flex min-w-0 items-center gap-2 py-0.5 pl-0.5 text-muted-foreground">
+        <div
+          className={cn(
+            `flex min-w-0 items-center gap-2 py-0.5 pl-0.5 text-muted-foreground`,
+            TRANSCRIPT_TOOL_TEXT
+          )}
+        >
           <CodingSubagentIcon className="size-3 shrink-0 text-muted-foreground/60" />
-          <span className="shrink-0 text-xs font-medium">
+          <span className="shrink-0 font-medium">
             {summary.agentType}
           </span>
           {!summary.done && (
@@ -2175,15 +2265,25 @@ function AgentConversation({
           Nothing from this agent yet.
         </div>
       ) : (
-        rows.map((item) => {
-          if (item.kind === `narration`) {
-            return <NarrationBubble key={item.id} text={item.text} />
-          }
-          if (item.kind === `user_message`) {
-            return <UserMessageBubble key={item.id} text={item.text} />
-          }
+        rows.map((item, index) => {
+          // EXP-787: a subagent's conversation is a transcript too — same gap
+          // ladder, and its tool rows keep their tighter inner padding.
+          const gap = transcriptGapClass(
+            index === 0
+              ? null
+              : rowClass({ kind: `single`, item: rows[index - 1] }),
+            rowClass({ kind: `single`, item })
+          )
           return (
-            <ToolRow key={item.id} name={item.name} detail={item.detail} />
+            <div key={item.id} className={gap}>
+              {item.kind === `narration` ? (
+                <NarrationBubble text={item.text} />
+              ) : item.kind === `user_message` ? (
+                <UserMessageBubble text={item.text} />
+              ) : (
+                <ToolRow name={item.name} detail={item.detail} />
+              )}
+            </div>
           )
         })
       )}
@@ -2191,12 +2291,29 @@ function AgentConversation({
   )
 }
 
-/** Tool-call headline — compact single line, consecutive rows visually tight. */
-function ToolRow({ name, detail }: { name: string; detail?: string }) {
+/** Tool-call headline — compact single line, consecutive rows visually tight.
+ *  `flush` drops the row's own padding: in the main transcript the gap ladder
+ *  (EXP-787) supplies the rhythm, while the rows NESTED in an expanded tool
+ *  group or a subagent conversation keep their tighter inner one. */
+function ToolRow({
+  name,
+  detail,
+  flush = false,
+}: {
+  name: string
+  detail?: string
+  flush?: boolean
+}) {
   return (
-    <div className="flex min-w-0 items-center gap-2 py-0.5 pl-0.5">
+    <div
+      className={cn(
+        `flex min-w-0 items-center gap-2 pl-0.5`,
+        TRANSCRIPT_TOOL_TEXT,
+        !flush && `py-0.5`
+      )}
+    >
       <CodingToolIcon className="size-3 shrink-0 text-muted-foreground/60" />
-      <span className="shrink-0 text-xs font-medium">{name}</span>
+      <span className="shrink-0 font-medium">{name}</span>
       {detail && (
         <span
           className="truncate font-mono text-[0.6875rem] text-muted-foreground"
@@ -2227,7 +2344,10 @@ function ToolGroupRow({
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className="flex min-w-0 items-center gap-2 py-0.5 pl-0.5 text-muted-foreground hover:text-foreground"
+        className={cn(
+          `flex min-w-0 items-center gap-2 pl-0.5 text-muted-foreground hover:text-foreground`,
+          TRANSCRIPT_TOOL_TEXT
+        )}
       >
         {expanded ? (
           <ChevronDown className="size-3 shrink-0" />
@@ -2235,7 +2355,7 @@ function ToolGroupRow({
           <ChevronRight className="size-3 shrink-0" />
         )}
         <CodingToolIcon className="size-3 shrink-0 text-muted-foreground/60" />
-        <span className="shrink-0 text-xs font-medium">
+        <span className="shrink-0 font-medium">
           {items.length} tool calls
         </span>
       </button>

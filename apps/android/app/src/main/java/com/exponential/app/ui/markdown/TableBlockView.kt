@@ -106,11 +106,13 @@ private fun TableReadCell(
     val autolink = LocalMarkdownAutolink.current
     val inlineCode = LocalInlineCodeStyle.current
     val bare = LocalIssueRefBare.current
+    val body = LocalMarkdownBodyStyle.current
     val text = cell?.text.orEmpty()
     val marks = cell?.marks.orEmpty()
     ChipText(
         line = annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare),
-        style = MdStyle.body.copy(
+        // EXP-787: a table reads at whatever body measure is in force.
+        style = body.copy(
             fontWeight = if (header) FontWeight.SemiBold else null,
             textAlign = alignment.toTextAlign(),
         ),

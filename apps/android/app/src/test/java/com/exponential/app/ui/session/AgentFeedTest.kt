@@ -3,6 +3,7 @@ package com.exponential.app.ui.session
 import com.exponential.app.domain.ActivityFeedState
 import com.exponential.app.domain.AgentFeedItem
 import com.exponential.app.domain.AgentFeedRow
+import com.exponential.app.domain.AgentRowClass
 import com.exponential.app.domain.AnswerState
 import com.exponential.app.domain.COMPACTED_LABEL
 import com.exponential.app.domain.COMPACTING_LABEL
@@ -18,6 +19,7 @@ import com.exponential.app.domain.ConfigOption
 import com.exponential.app.domain.ConfigValue
 import com.exponential.app.domain.SessionConfigState
 import com.exponential.app.domain.SessionUsageState
+import com.exponential.app.domain.TranscriptGap
 import com.exponential.app.domain.modeChip
 import com.exponential.app.domain.QuestionOption
 import com.exponential.app.domain.SUBAGENT_FALLBACK_TYPE
@@ -37,6 +39,8 @@ import com.exponential.app.domain.localAnswerSummary
 import com.exponential.app.domain.lockAnswer
 import com.exponential.app.domain.locksCard
 import com.exponential.app.domain.resolveQuestions
+import com.exponential.app.domain.rowClass
+import com.exponential.app.domain.transcriptGap
 import com.exponential.app.domain.upsertQuestion
 import com.exponential.app.domain.visibleSubagentTabs
 import kotlinx.serialization.json.Json
@@ -1058,6 +1062,65 @@ class AgentFeedTest {
         assertEquals(listOf(2L, 3L, 4L), run.items.map { it.id })
         // The caption still counts TOOL calls, not conversation rows.
         assertEquals(1, run.toolCount)
+    }
+
+    // EXP-787: the transcript's gap ladder — ONE derivation, mirrored on all
+    // four clients. Space sits ABOVE a row and is chosen from the row before
+    // it; the first row gets none.
+    @Test
+    fun transcriptGapLadder() {
+        val turn = AgentRowClass.Turn
+        val prose = AgentRowClass.Prose
+        val toolClass = AgentRowClass.Tool
+
+        // The first row of the transcript hangs on nothing.
+        assertEquals(TranscriptGap.None, transcriptGap(null, turn))
+        assertEquals(TranscriptGap.None, transcriptGap(null, prose))
+        assertEquals(TranscriptGap.None, transcriptGap(null, toolClass))
+
+        // A human turn on EITHER side breathes widest — all 5 pairs.
+        assertEquals(TranscriptGap.Turn, transcriptGap(turn, turn))
+        assertEquals(TranscriptGap.Turn, transcriptGap(turn, prose))
+        assertEquals(TranscriptGap.Turn, transcriptGap(turn, toolClass))
+        assertEquals(TranscriptGap.Turn, transcriptGap(prose, turn))
+        assertEquals(TranscriptGap.Turn, transcriptGap(toolClass, turn))
+
+        // Two tool rows sit tightest; prose meeting one takes the middle step.
+        assertEquals(TranscriptGap.Default, transcriptGap(toolClass, toolClass))
+        assertEquals(TranscriptGap.Tool, transcriptGap(prose, toolClass))
+        assertEquals(TranscriptGap.Tool, transcriptGap(toolClass, prose))
+
+        // Two prose rows: a paragraph's worth.
+        assertEquals(TranscriptGap.Block, transcriptGap(prose, prose))
+
+        // The row classes themselves: every row shape lands where the ladder
+        // expects it.
+        assertEquals(turn, AgentFeedRow.Single(AgentFeedItem.UserMessage(0, "go")).rowClass)
+        assertEquals(prose, AgentFeedRow.Single(narrationItem(1, "hi")).rowClass)
+        assertEquals(prose, AgentFeedRow.Single(question(2)).rowClass)
+        assertEquals(prose, AgentFeedRow.Single(AgentFeedItem.Compaction(3)).rowClass)
+        assertEquals(
+            prose,
+            AgentFeedRow.QuestionStepper("ask", listOf(step("ask", 1, 4))).rowClass,
+        )
+        assertEquals(toolClass, AgentFeedRow.Single(tool(5)).rowClass)
+        assertEquals(toolClass, AgentFeedRow.ToolRun(listOf(tool(6), tool(7))).rowClass)
+        assertEquals(
+            toolClass,
+            AgentFeedRow.Single(AgentFeedItem.Permission(8, "Bash", "rm -rf")).rowClass,
+        )
+        assertEquals(toolClass, AgentFeedRow.Single(subagent(9, "s1", false)).rowClass)
+        assertEquals(
+            toolClass,
+            AgentFeedRow.SubagentRun(
+                id = 10,
+                subagentId = "s1",
+                agentType = "explore",
+                completed = false,
+                detail = null,
+                items = emptyList(),
+            ).rowClass,
+        )
     }
 
     // ── fixtures ────────────────────────────────────────────────────────────

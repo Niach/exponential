@@ -11,6 +11,10 @@ import {
   CONFIG_MODE_LABEL,
 } from "@/lib/steer-commands"
 import { contract } from "@exp/domain-contract"
+// EXP-787: the transcript's rhythm is a shared token group, read straight from
+// the canonical tokens.json (@exp/design-tokens is not a dependency of this
+// app — see design-tokens.test.ts, which reads the same file by path).
+import designTokens from "../../../../packages/design-tokens/tokens.json" with { type: "json" }
 
 /** A locally-echoed steered message awaiting its transcript-derived twin. */
 export interface EchoEntry {
@@ -674,6 +678,63 @@ export function groupFeedRows<
     i = end
   }
   return rows
+}
+
+// ── Transcript rhythm (EXP-787) ──────────────────────────────────────────────
+// The space ABOVE a row, chosen from the row before it. ONE derivation,
+// mirrored ×4 (desktop steer::feed, ExpCore AgentFeed, Android AgentFeed) and
+// fed by the shared `transcript` token group.
+
+/** What a transcript row weighs in the gap ladder: a sent user message
+ *  (`turn`), agent prose and the cards that read like prose (`prose`), or the
+ *  compact machine rows (`tool`). */
+export type RowClass = `turn` | `prose` | `tool`
+
+/** The ladder class of a render row. The trailing "Working…" indicator is not
+ *  a feed row — the renderer passes `tool` for it directly. */
+export function rowClass<T extends { id: number; kind: string }>(
+  row: FeedRow<T>
+): RowClass {
+  if (row.kind === `toolRun` || row.kind === `subagent`) return `tool`
+  if (row.kind === `ask`) return `prose`
+  switch (row.item.kind) {
+    case `user_message`:
+      return `turn`
+    case `tool`:
+    case `subagent`:
+    case `permission`:
+      return `tool`
+    default:
+      // narration, question, compaction and anything a newer publisher adds:
+      // prose is the safe default — it never crowds an unknown row.
+      return `prose`
+  }
+}
+
+/** Which token a pairing lands on, `null` for the first rendered row. The
+ *  renderer needs the NAME (it paints the matching `--transcript-gap-*` custom
+ *  property) and the natives need the value, so the rule is derived once here
+ *  and `transcriptGap` reads the number off it. */
+export type TranscriptGapToken = `gapTurn` | `gapBlock` | `gapTool` | `gapDefault`
+
+/** The ladder itself. Order matters: a user turn opens and closes a paragraph
+ *  of its own, so it wins over every other pairing. */
+export function transcriptGapToken(
+  prev: RowClass | null,
+  cur: RowClass
+): TranscriptGapToken | null {
+  if (prev === null) return null
+  if (prev === `turn` || cur === `turn`) return `gapTurn`
+  if (prev === `tool` && cur === `tool`) return `gapDefault`
+  if (prev === `tool` || cur === `tool`) return `gapTool`
+  return `gapBlock`
+}
+
+/** The gap above `cur`, given the row before it (`null` = the first rendered
+ *  row, which gets none). */
+export function transcriptGap(prev: RowClass | null, cur: RowClass): number {
+  const token = transcriptGapToken(prev, cur)
+  return token === null ? 0 : designTokens.transcript[token]
 }
 
 /** `subagent.agentType` when the desktop's hook payload carried none — old

@@ -20,6 +20,7 @@ const tokens = JSON.parse(
   avatar: Record<string, string>
   glass: Record<string, string>
   motion: { duration: Record<string, number>; ease: Record<string, number[]> }
+  transcript: Record<string, number | string>
 }
 
 const stylesCss = readFileSync(
@@ -175,6 +176,21 @@ describe(`design-tokens parity with web styles.css`, () => {
         rootVars[cssVar],
         `tokens.motion.ease.${key} should equal --${cssVar} in styles.css`
       ).toBe(`cubic-bezier(${curve.join(`, `)})`)
+    }
+  })
+
+  // EXP-787: the transcript's measure and rhythm. Theme-invariant like the
+  // motion tokens, so :root only. Every value is px — the gap ladder that
+  // picks between them lives in lib/agent-feed.ts (`transcriptGap`), which
+  // reads the same tokens.json, so this only has to guard the CSS mirror.
+  it(`every transcript token matches the corresponding :root CSS variable`, () => {
+    for (const [key, value] of Object.entries(tokens.transcript)) {
+      if (key.startsWith(`$`)) continue
+      const cssVar = `transcript-${kebab(key)}`
+      expect(
+        rootVars[cssVar],
+        `tokens.transcript.${key} should equal --${cssVar} in styles.css`
+      ).toBe(`${value}px`)
     }
   })
 

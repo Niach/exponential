@@ -93,6 +93,21 @@ public enum DesignTokens {
         public static let rowHeight: CGFloat = 32
     }
 
+    // The agent transcript's measure, gap ladder and type scale (EXP-787),
+    // all in pt. The gap is chosen by ExpCore `AgentFeed.transcriptGap`.
+    public enum Transcript {
+        public static let maxWidth: CGFloat = 736
+        public static let gutter: CGFloat = 48
+        public static let gapTurn: CGFloat = 16
+        public static let gapBlock: CGFloat = 12
+        public static let gapTool: CGFloat = 12
+        public static let gapDefault: CGFloat = 8
+        public static let bodySize: CGFloat = 14
+        public static let bodyLineHeight: CGFloat = 22
+        public static let toolSize: CGFloat = 12
+        public static let toolLineHeight: CGFloat = 18
+    }
+
     // Motion (EXP-523) — durations in SECONDS (SwiftUI's unit; tokens.json
     // stores integer milliseconds), easings as CSS cubic-bezier control
     // points. `BezierCurve` is hand-written in ExpUI/Sources/Motion.swift,
