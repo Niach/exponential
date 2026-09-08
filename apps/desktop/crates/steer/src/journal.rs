@@ -68,19 +68,22 @@ struct Entry {
 }
 
 /// EXP-758: the latest-wins slots, in the relay's replay order
-/// (`LATEST_REPLAY_ORDER` in hub.ts: `config_state`, `usage`, `diff` — the
-/// diff stays LAST, where it replayed before any of this became a map).
+/// (`LATEST_REPLAY_ORDER` in hub.ts: `config_state`, `usage`, `rate_limit`,
+/// `diff` — the diff stays LAST, where it replayed before any of this became
+/// a map). EXP-784 added `rate_limit` beside `usage`.
 const SLOT_CONFIG_STATE: usize = 0;
 const SLOT_USAGE: usize = 1;
-const SLOT_DIFF: usize = 2;
-const SLOT_COUNT: usize = 3;
+const SLOT_RATE_LIMIT: usize = 2;
+const SLOT_DIFF: usize = 3;
+const SLOT_COUNT: usize = 4;
 
-/// Which slot an event owns, if any. The ONE place the three latest-wins
+/// Which slot an event owns, if any. The ONE place the four latest-wins
 /// kinds are named.
 fn slot_of(event: &ActivityEvent) -> Option<usize> {
     match event {
         ActivityEvent::ConfigState { .. } => Some(SLOT_CONFIG_STATE),
         ActivityEvent::Usage { .. } => Some(SLOT_USAGE),
+        ActivityEvent::RateLimit { .. } => Some(SLOT_RATE_LIMIT),
         ActivityEvent::Diff { .. } => Some(SLOT_DIFF),
         _ => None,
     }
@@ -171,6 +174,8 @@ impl ActivityJournal {
         // kind of entry the two-tier rule may drop early.
         let subagent_tool = match &event {
             ActivityEvent::Tool {
+                id: None,
+                tool_kind: None,
                 subagent_id: Some(id),
                 ..
             }
@@ -363,6 +368,8 @@ mod tests {
         ActivityEvent::Tool {
             name: "Read".to_string(),
             detail: Some(detail.to_string()),
+            id: None,
+            tool_kind: None,
             subagent_id: Some(subagent_id.to_string()),
             at: None,
         }
@@ -481,6 +488,36 @@ mod tests {
                 &ActivityEvent::usage(20, 200, Some(0.5)),
             ],
             "the newest of each kind replays after the log, config then usage"
+        );
+    }
+
+    /// EXP-784: `rate_limit` is the fourth slot, replayed between `usage`
+    /// and the diff; a `tool_update` is a plain LOG row (EXP-785).
+    #[test]
+    fn rate_limit_is_a_slot_between_usage_and_diff_and_tool_update_is_a_row() {
+        let mut journal = ActivityJournal::new();
+        journal.push(ActivityEvent::diff("--- v1"));
+        journal.push(ActivityEvent::rate_limit("allowed_warning", None, None));
+        journal.push(ActivityEvent::usage(10, 200, None));
+        journal.push(ActivityEvent::tool("Edit", None));
+        journal.push(ActivityEvent::tool_update(
+            "tc-1",
+            Some(crate::ToolUpdateStatus::Completed),
+            None,
+        ));
+        journal.push(ActivityEvent::rate_limit("rejected", Some(5), None));
+
+        let replay: Vec<&ActivityEvent> = journal.replay().collect();
+        assert_eq!(journal.len(), 2, "the tool row and its update are the log");
+        assert_eq!(
+            replay,
+            vec![
+                &ActivityEvent::tool("Edit", None),
+                &ActivityEvent::tool_update("tc-1", Some(crate::ToolUpdateStatus::Completed), None),
+                &ActivityEvent::usage(10, 200, None),
+                &ActivityEvent::rate_limit("rejected", Some(5), None),
+                &ActivityEvent::diff("--- v1"),
+            ]
         );
     }
 

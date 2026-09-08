@@ -235,13 +235,40 @@ pub enum ActivityEvent {
     /// (file path / pattern / Bash description — NEVER a command string or a
     /// tool result). `subagentId` attributes the call to a running
     /// [`ActivityEvent::Subagent`] so clients can nest it under that agent.
+    ///
+    /// EXP-785: `id` is the ACP tool-call id (the key a later
+    /// [`ActivityEvent::ToolUpdate`] folds into this row by) and `tool_kind`
+    /// is ACP's kind bucket, so a client can tell an edit from a command
+    /// without parsing the name. Both absent from pre-EXP-785 publishers. The
+    /// wire key is `toolKind`, never `kind`: `kind` is this enum's tag.
     #[serde(rename_all = "camelCase")]
     Tool {
         name: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         detail: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tool_kind: Option<ToolKind>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         subagent_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
+    /// EXP-785/786: a tool call SETTLED (`status`) and/or an `edit` call's
+    /// per-file unified diff (`diff`, already redacted and cut to the
+    /// contract's `toolDiffMaxLines`/`toolDiffMaxBytes` on line boundaries; a
+    /// cut patch ends in a `\ N more lines truncated` marker line). A LOG row
+    /// on the wire and in every journal, but never a row on screen: clients
+    /// fold it INTO the [`ActivityEvent::Tool`] row whose `id` matches and
+    /// DROP one for an id they do not hold (evicted, or before their window).
+    #[serde(rename_all = "camelCase")]
+    ToolUpdate {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        status: Option<ToolUpdateStatus>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        diff: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         at: Option<i64>,
     },
@@ -414,6 +441,92 @@ pub enum ActivityEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         at: Option<i64>,
     },
+    /// EXP-784: the agent is rate-limited (or was, and is not any more).
+    /// LATEST-WINS state like [`ActivityEvent::Usage`], the fourth slot in
+    /// every registry (`journal.rs`, `history.rs`, the engine's `FeedState`,
+    /// `feed.rs`, the relay's `LATEST_WINS_KINDS`). `status` is the agent's
+    /// own word for the window (`allowed_warning`, `rejected`, …); an EMPTY
+    /// status or `"ok"` CLEARS the slot, the way a zero-size `usage` clears
+    /// the meter. `resets_at` is a unix-ms instant when the agent names one.
+    #[serde(rename_all = "camelCase")]
+    RateLimit {
+        status: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        resets_at: Option<i64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
+}
+
+/// EXP-785: ACP's tool-call kind on the wire — the contract's `toolKind`
+/// values, byte-locked by `tool_kind_matches_the_contract`.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolKind {
+    Read,
+    Edit,
+    Delete,
+    Move,
+    Search,
+    Execute,
+    Think,
+    Fetch,
+    SwitchMode,
+    Other,
+}
+
+impl ToolKind {
+    /// Every kind, in contract order.
+    pub const ALL: [ToolKind; 10] = [
+        ToolKind::Read,
+        ToolKind::Edit,
+        ToolKind::Delete,
+        ToolKind::Move,
+        ToolKind::Search,
+        ToolKind::Execute,
+        ToolKind::Think,
+        ToolKind::Fetch,
+        ToolKind::SwitchMode,
+        ToolKind::Other,
+    ];
+
+    /// The wire / contract value.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ToolKind::Read => "read",
+            ToolKind::Edit => "edit",
+            ToolKind::Delete => "delete",
+            ToolKind::Move => "move",
+            ToolKind::Search => "search",
+            ToolKind::Execute => "execute",
+            ToolKind::Think => "think",
+            ToolKind::Fetch => "fetch",
+            ToolKind::SwitchMode => "switch_mode",
+            ToolKind::Other => "other",
+        }
+    }
+
+    /// `None` for a value this build does not know (a future contract).
+    pub fn parse(value: &str) -> Option<ToolKind> {
+        ToolKind::ALL.into_iter().find(|kind| kind.as_str() == value)
+    }
+}
+
+/// `completed` | `failed` — how an [`ActivityEvent::ToolUpdate`] settled its
+/// call. A `failed` after a `completed` wins (the last word is the agent's).
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolUpdateStatus {
+    Completed,
+    Failed,
+}
+
+/// EXP-784: the two `rate_limit.status` values that CLEAR the slot.
+pub fn rate_limit_clears(status: &str) -> bool {
+    let status = status.trim();
+    status.is_empty() || status.eq_ignore_ascii_case("ok")
 }
 
 /// `started` | `ended` — the two [`ActivityEvent::Compaction`] edges.
@@ -456,7 +569,37 @@ impl ActivityEvent {
         ActivityEvent::Tool {
             name: name.into(),
             detail,
+            id: None,
+            tool_kind: None,
             subagent_id: None,
+            at: None,
+        }
+    }
+
+    /// EXP-785/786: a settle and/or a per-call diff for the tool row `id`.
+    pub fn tool_update(
+        id: impl Into<String>,
+        status: Option<ToolUpdateStatus>,
+        diff: Option<String>,
+    ) -> Self {
+        ActivityEvent::ToolUpdate {
+            id: id.into(),
+            status,
+            diff,
+            at: None,
+        }
+    }
+
+    /// EXP-784: the rate-limit slot; an empty/`ok` status clears it.
+    pub fn rate_limit(
+        status: impl Into<String>,
+        resets_at: Option<i64>,
+        message: Option<String>,
+    ) -> Self {
+        ActivityEvent::RateLimit {
+            status: status.into(),
+            resets_at,
+            message,
             at: None,
         }
     }
@@ -499,6 +642,8 @@ impl ActivityEvent {
                 fields
             }
             ActivityEvent::Diff { diff, .. } => vec![diff],
+            ActivityEvent::ToolUpdate { diff, .. } => diff.as_mut().into_iter().collect(),
+            ActivityEvent::RateLimit { message, .. } => message.as_mut().into_iter().collect(),
             ActivityEvent::Question {
                 text,
                 options,
@@ -576,7 +721,9 @@ impl ActivityEvent {
             | ActivityEvent::Permission { at, .. }
             | ActivityEvent::Compaction { at, .. }
             | ActivityEvent::ConfigState { at, .. }
-            | ActivityEvent::Usage { at, .. } => at,
+            | ActivityEvent::Usage { at, .. }
+            | ActivityEvent::ToolUpdate { at, .. }
+            | ActivityEvent::RateLimit { at, .. } => at,
         }
     }
 }
@@ -1351,6 +1498,8 @@ mod tests {
                 event: ActivityEvent::Tool {
                     name: "Grep".into(),
                     detail: Some("fn main".into()),
+                    id: None,
+                    tool_kind: None,
                     subagent_id: Some("agent_01".into()),
                     at: None,
                 },
@@ -1538,6 +1687,98 @@ mod tests {
         );
     }
 
+    // EXP-785/786/784: the three wire additions, byte-exact against
+    // protocol.ts and parsed back through the viewer path.
+    #[test]
+    fn tool_carries_its_call_id_and_kind_under_tool_kind_never_kind() {
+        let event = ActivityEvent::Tool {
+            name: "Edit".into(),
+            detail: Some("src/main.rs".into()),
+            id: Some("tc-1".into()),
+            tool_kind: Some(ToolKind::Edit),
+            subagent_id: None,
+            at: None,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert_eq!(
+            json,
+            r#"{"kind":"tool","name":"Edit","detail":"src/main.rs","id":"tc-1","toolKind":"edit"}"#
+        );
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&json).unwrap(), event);
+        // A pre-EXP-785 frame still parses, with both absent.
+        assert_eq!(
+            serde_json::from_str::<ActivityEvent>(r#"{"kind":"tool","name":"Edit"}"#).unwrap(),
+            ActivityEvent::tool("Edit", None)
+        );
+        assert_eq!(
+            serde_json::to_string(&ToolKind::SwitchMode).unwrap(),
+            r#""switch_mode""#
+        );
+    }
+
+    #[test]
+    fn tool_kind_matches_the_contract() {
+        let wire: Vec<&str> = ToolKind::ALL.iter().map(|kind| kind.as_str()).collect();
+        assert_eq!(wire, domain::contract::TOOL_KIND_VALUES);
+        for kind in ToolKind::ALL {
+            assert_eq!(ToolKind::parse(kind.as_str()), Some(kind));
+            assert_eq!(
+                serde_json::to_string(&kind).unwrap(),
+                format!("\"{}\"", kind.as_str())
+            );
+        }
+        assert_eq!(ToolKind::parse("teleport"), None);
+    }
+
+    #[test]
+    fn tool_update_serializes_to_the_relay_schema_and_parses_back() {
+        let settled = ActivityEvent::tool_update("tc-1", Some(ToolUpdateStatus::Failed), None);
+        assert_eq!(
+            serde_json::to_string(&settled).unwrap(),
+            r#"{"kind":"tool_update","id":"tc-1","status":"failed"}"#
+        );
+        let diffed = ActivityEvent::tool_update(
+            "tc-2",
+            Some(ToolUpdateStatus::Completed),
+            Some("--- a/x\n+++ b/x\n".into()),
+        );
+        let json = serde_json::to_string(&diffed).unwrap();
+        assert_eq!(
+            json,
+            r#"{"kind":"tool_update","id":"tc-2","status":"completed","diff":"--- a/x\n+++ b/x\n"}"#
+        );
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&json).unwrap(), diffed);
+        // A bare update (no status, no diff) is legal and says nothing.
+        assert_eq!(
+            serde_json::from_str::<ActivityEvent>(r#"{"kind":"tool_update","id":"tc-3"}"#).unwrap(),
+            ActivityEvent::tool_update("tc-3", None, None)
+        );
+    }
+
+    #[test]
+    fn rate_limit_serializes_to_the_relay_schema_and_clears_on_empty_or_ok() {
+        let limited = ActivityEvent::rate_limit(
+            "rejected",
+            Some(1_700_000_000_000),
+            Some("5-hour limit reached".into()),
+        );
+        let json = serde_json::to_string(&limited).unwrap();
+        assert_eq!(
+            json,
+            r#"{"kind":"rate_limit","status":"rejected","resetsAt":1700000000000,"message":"5-hour limit reached"}"#
+        );
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&json).unwrap(), limited);
+        assert_eq!(
+            serde_json::to_string(&ActivityEvent::rate_limit("", None, None)).unwrap(),
+            r#"{"kind":"rate_limit","status":""}"#
+        );
+        assert!(rate_limit_clears(""));
+        assert!(rate_limit_clears("ok"));
+        assert!(rate_limit_clears(" OK "));
+        assert!(!rate_limit_clears("allowed_warning"));
+        assert!(!rate_limit_clears("rejected"));
+    }
+
     #[test]
     fn text_fields_mut_skips_config_ids_values_and_command_names() {
         // EXP-511's reverse rewrite walks free text ONLY. Ids, the value in
@@ -1627,6 +1868,8 @@ mod tests {
                 at: None,
             },
             ActivityEvent::usage(1, 2, None),
+            ActivityEvent::tool_update("t", None, None),
+            ActivityEvent::rate_limit("rejected", None, None),
         ];
         for event in &mut events {
             *event.at_mut() = Some(7);
@@ -2388,6 +2631,8 @@ mod tests {
             ActivityEvent::Tool {
                 name: "Grep".into(),
                 detail: Some("fn main".into()),
+                id: None,
+                tool_kind: None,
                 subagent_id: Some("agent_01".into()),
                 at: None,
             },

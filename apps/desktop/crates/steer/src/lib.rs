@@ -67,6 +67,7 @@ pub mod image_message;
 pub mod journal;
 pub mod login_picker;
 pub mod publisher;
+pub mod tool_diff;
 pub mod tool_group_summary;
 pub mod viewer;
 
@@ -94,15 +95,16 @@ pub use feed::{
     group_feed_row_specs_from, group_feed_row_specs_into, group_feed_rows, summarize_subagent_row, transcript_gap, AnswerState, AnswerStatus,
     FeedItem, FeedItemId, FeedKind, FeedRow,
     FeedRowSpec, Gap, QuestionCard, RowClass,
-    SessionConfig, SessionUsage, SteerFeed, SubagentSummary, ANSWER_ACK_TIMEOUT, ECHO_CAP,
+    SessionConfig, SessionRateLimit, SessionUsage, SteerFeed, SubagentSummary, ANSWER_ACK_TIMEOUT, ECHO_CAP,
     FEED_BYTE_CAP, FEED_ITEM_CAP, REPLAY_MAX, REPLAY_QUIET,
 };
 pub use frames::{
-    ActivityEvent, ClientFrame, ConfigCommand, ConfigMode, ConfigOption, ConfigValue,
-    QuestionOption, ServerFrame, StartInput, StartRepoGroup, SteerRole, SubagentStatus,
-    ViewerFrame, ACTIVITY_CHANNEL, CLOSE_REPLACED, CLOSE_SESSION_ENDED, CLOSE_SLOW_CONSUMER,
-    CLOSE_UNAUTHORIZED,
+    rate_limit_clears, ActivityEvent, ClientFrame, ConfigCommand, ConfigMode, ConfigOption,
+    ConfigValue, QuestionOption, ServerFrame, StartInput, StartRepoGroup, SteerRole,
+    SubagentStatus, ToolKind, ToolUpdateStatus, ViewerFrame, ACTIVITY_CHANNEL, CLOSE_REPLACED,
+    CLOSE_SESSION_ENDED, CLOSE_SLOW_CONSUMER, CLOSE_UNAUTHORIZED,
 };
+pub use tool_diff::{truncate_unified_diff, unified_diff, TOOL_DIFF_MAX_BYTES, TOOL_DIFF_MAX_LINES};
 pub use image_message::{
     build_steer_image_message, image_marker, insert_image_marker, parse_steer_message,
     renumber_image_markers, ParsedSteerMessage, MAX_STEER_IMAGES,

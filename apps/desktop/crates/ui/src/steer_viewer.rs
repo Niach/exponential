@@ -2866,7 +2866,7 @@ impl SteerSessionView {
             FeedKind::Tool {
                 name,
                 detail,
-                subagent_id: _,
+                ..
             } => {
                 let row = tool_row(name, detail.as_deref(), cx);
                 // EXP-746: a LOCAL run's per-edit diff and command output hang

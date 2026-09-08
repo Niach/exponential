@@ -263,6 +263,27 @@ fn print_activity(event: &steer::ActivityEvent, state: &Mutex<AttachState>) {
                 println!("[{line}]");
             }
         }
+        // EXP-785/786: a settle folds into the tool row on a screen; on a line
+        // printer only a FAILURE is news, and the diff is covered by the
+        // worktree summary.
+        steer::ActivityEvent::ToolUpdate { id, status, .. } => {
+            if *status == Some(steer::ToolUpdateStatus::Failed) {
+                println!("  ✗ tool call {id} failed");
+            }
+        }
+        // EXP-784: one line per change of the rate-limit slot.
+        steer::ActivityEvent::RateLimit { status, message, .. } => {
+            if steer::rate_limit_clears(status) {
+                println!("[rate limit lifted]");
+            } else {
+                match message {
+                    Some(message) if !message.trim().is_empty() => {
+                        println!("[rate limit: {status} — {}]", message.trim())
+                    }
+                    _ => println!("[rate limit: {status}]"),
+                }
+            }
+        }
         steer::ActivityEvent::Usage { context_used, context_size, cost_usd, .. } => {
             let line = usage_line(*context_used, *context_size, *cost_usd);
             let mut state = lock(state);

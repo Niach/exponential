@@ -536,9 +536,10 @@ struct FeedState {
     backlog: std::collections::VecDeque<LocalFeedEvent>,
     /// Latest-wins state, kept OUT of the ring because eviction would
     /// otherwise silently drop it on a long run: the phase (the composer's
-    /// gate), and the three latest-wins activity kinds — the relay's own
-    /// `LATEST_WINS_KINDS` (D4: `config_state`, `usage`, `diff`), which are
-    /// slots in `SteerFeed` too and never feed rows.
+    /// gate), and the four latest-wins activity kinds — the relay's own
+    /// `LATEST_WINS_KINDS` (D4: `config_state`, `usage`, `rate_limit`
+    /// (EXP-784), `diff`), which are slots in `SteerFeed` too and never feed
+    /// rows. A `tool_update` (EXP-785) is an ordinary row of the ring.
     phase: Option<EnginePhase>,
     /// EXP-758: the [`EnginePhase::Failed`] edge, kept even after `Ended`
     /// overwrote the phase slot a millisecond later. Without it the ONE line
@@ -548,6 +549,7 @@ struct FeedState {
     failure: Option<EnginePhase>,
     config_state: Option<LocalFeedEvent>,
     usage: Option<LocalFeedEvent>,
+    rate_limit: Option<LocalFeedEvent>,
     diff: Option<LocalFeedEvent>,
     subscribers: Vec<flume::Sender<LocalFeedEvent>>,
 }
@@ -561,6 +563,7 @@ impl FeedState {
         match event {
             steer::ActivityEvent::ConfigState { .. } => Some(&mut self.config_state),
             steer::ActivityEvent::Usage { .. } => Some(&mut self.usage),
+            steer::ActivityEvent::RateLimit { .. } => Some(&mut self.rate_limit),
             steer::ActivityEvent::Diff { .. } => Some(&mut self.diff),
             _ => None,
         }
@@ -601,7 +604,7 @@ impl LocalFeed {
     /// ([`BacklogMode::Full`]); otherwise the small headless ring, which still
     /// covers the window between `engine::start` and the CLI's `subscribe`.
     /// The latest-wins slots are kept either way: they are what makes a feed
-    /// readable at all, and there are four of them.
+    /// readable at all, and there are five of them.
     pub(crate) fn new(keep_backlog: bool) -> Self {
         Self {
             inner: Mutex::new(FeedState::default()),
@@ -643,8 +646,8 @@ impl LocalFeed {
     /// A receiver that replays the backlog FIRST, so a view attaching late
     /// sees the whole session rather than the tail — then the latest-wins
     /// state, in the relay's own replay order (`hub.ts`: the log, then
-    /// `config_state`, `usage`, `diff`), with the phase last because it is
-    /// what the composer gates on.
+    /// `config_state`, `usage`, `rate_limit`, `diff`), with the phase last
+    /// because it is what the composer gates on.
     ///
     /// Replaying the state separately is what makes a REOPENED tab of a long
     /// run steerable: the `Phase(Live)` edge is emitted once, before the first
@@ -661,9 +664,14 @@ impl LocalFeed {
         for event in state.backlog.iter() {
             let _ = tx.send(event.clone());
         }
-        for event in [&state.config_state, &state.usage, &state.diff]
-            .into_iter()
-            .flatten()
+        for event in [
+            &state.config_state,
+            &state.usage,
+            &state.rate_limit,
+            &state.diff,
+        ]
+        .into_iter()
+        .flatten()
         {
             let _ = tx.send(event.clone());
         }

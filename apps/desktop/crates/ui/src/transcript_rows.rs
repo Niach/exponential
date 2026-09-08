@@ -581,6 +581,11 @@ mod tests {
                 name: name.to_string(),
                 detail: None,
                 subagent_id: None,
+                call_id: None,
+                tool_kind: None,
+                settled: false,
+                failed: false,
+                diff: None,
             },
             seq: None,
         }

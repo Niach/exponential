@@ -50,8 +50,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Duration;
 
 use crate::frames::{
-    ActivityEvent, CompactionPhase, ConfigCommand, ConfigMode, ConfigOption, QuestionOption,
-    SubagentStatus,
+    rate_limit_clears, ActivityEvent, CompactionPhase, ConfigCommand, ConfigMode, ConfigOption,
+    QuestionOption, SubagentStatus, ToolKind, ToolUpdateStatus,
 };
 
 /// EXP-783: the transcript keeps the WHOLE run. These are safety ceilings on
@@ -150,6 +150,21 @@ pub enum FeedKind {
         /// Set when the call came from a subagent's transcript — the row is
         /// nested under that subagent's card.
         subagent_id: Option<String>,
+        /// EXP-785: the ACP tool-call id — the key a `tool_update` folds
+        /// into this row by. Absent from a pre-EXP-785 publisher's rows,
+        /// which then never settle.
+        call_id: Option<String>,
+        /// EXP-785: ACP's kind bucket (`edit`, `execute`, …), when the
+        /// publisher sent one.
+        tool_kind: Option<ToolKind>,
+        /// EXP-785: a `tool_update` with a status landed — the call ENDED.
+        settled: bool,
+        /// EXP-785: that status was `failed` (a later `completed` clears it;
+        /// the last word is the agent's). Group captions sort these last.
+        failed: bool,
+        /// EXP-786: the per-call unified diff an `edit` published, already
+        /// cut to the contract's caps on the publisher.
+        diff: Option<String>,
     },
     UserMessage {
         text: String,
@@ -207,6 +222,18 @@ pub struct SessionUsage {
     pub context_used: i64,
     pub context_size: i64,
     pub cost_usd: Option<f64>,
+}
+
+/// EXP-784: the agent's rate-limit window as it last reported it — the
+/// fourth latest-wins slot beside [`SessionUsage`]. `status` is the agent's
+/// own word (`allowed_warning`, `rejected`, …); the slot is CLEARED, never
+/// filled, by an empty/`ok` status ([`rate_limit_clears`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionRateLimit {
+    pub status: String,
+    /// Unix ms when the window resets, if the agent named one.
+    pub resets_at: Option<i64>,
+    pub message: Option<String>,
 }
 
 /// One item of the visible feed.
@@ -350,6 +377,8 @@ pub struct SteerFeed {
     /// composer chips and the context meter, never feed rows.
     config: Option<SessionConfig>,
     usage: Option<SessionUsage>,
+    /// EXP-784: the rate-limit banner's state, same slot rule.
+    rate_limit: Option<SessionRateLimit>,
     answers: HashMap<String, AnswerState>,
     next_id: FeedItemId,
     /// Locally-echoed sent messages awaiting their transcript-derived twin.
@@ -418,6 +447,11 @@ impl SteerFeed {
     }
 
     /// EXP-746: the context/spend meter, `None` while unknown.
+    /// EXP-784: the rate-limit slot; `None` = not limited (or cleared).
+    pub fn rate_limit(&self) -> Option<&SessionRateLimit> {
+        self.rate_limit.as_ref()
+    }
+
     pub fn usage(&self) -> Option<SessionUsage> {
         self.usage
     }
@@ -747,6 +781,8 @@ impl SteerFeed {
             ActivityEvent::Tool {
                 name,
                 detail,
+                id,
+                tool_kind,
                 subagent_id,
                 ..
             } => {
@@ -754,7 +790,47 @@ impl SteerFeed {
                     name,
                     detail: non_blank(detail),
                     subagent_id,
+                    call_id: non_blank(id),
+                    tool_kind,
+                    settled: false,
+                    failed: false,
+                    diff: None,
                 });
+            }
+            // EXP-785/786: folded INTO the tool row with that call id — the
+            // newest one, since a re-run under the same id is a fresh row.
+            // Never a row of its own; one for an id this feed does not hold
+            // (evicted, or below the window) is dropped.
+            ActivityEvent::ToolUpdate {
+                id,
+                status,
+                diff: patch,
+                ..
+            } => {
+                let Some(item) = self.items.iter_mut().rev().find(|item| {
+                    matches!(&item.kind, FeedKind::Tool { call_id: Some(call_id), .. } if *call_id == id)
+                }) else {
+                    return;
+                };
+                let before = item_bytes(&item.kind);
+                if let FeedKind::Tool {
+                    settled,
+                    failed,
+                    diff,
+                    ..
+                } = &mut item.kind
+                {
+                    if let Some(status) = status {
+                        *settled = true;
+                        *failed = status == ToolUpdateStatus::Failed;
+                    }
+                    if let Some(patch) = non_blank(patch) {
+                        *diff = Some(patch);
+                    }
+                }
+                let after = item_bytes(&item.kind);
+                self.bytes = self.bytes.saturating_sub(before) + after;
+                self.trim();
             }
             ActivityEvent::UserMessage {
                 text, subagent_id, ..
@@ -929,6 +1005,20 @@ impl SteerFeed {
                     cost_usd,
                 });
             }
+            // EXP-784: the fourth slot. An empty/`ok` status CLEARS it (the
+            // zero-size `usage` rule); anything else is the newest word.
+            ActivityEvent::RateLimit {
+                status,
+                resets_at,
+                message,
+                ..
+            } => {
+                self.rate_limit = (!rate_limit_clears(&status)).then(|| SessionRateLimit {
+                    status: status.trim().to_string(),
+                    resets_at,
+                    message: non_blank(message),
+                });
+            }
         }
     }
 
@@ -1042,6 +1132,7 @@ impl SteerFeed {
         // clearing them here never blanks the chips for a visible moment.
         self.config = None;
         self.usage = None;
+        self.rate_limit = None;
         self.answers.clear();
         self.echoes.clear();
         if let Some(anchor) = anchor_id {
@@ -1192,8 +1283,10 @@ fn item_bytes(kind: &FeedKind) -> usize {
     const OVERHEAD: usize = domain::contract::STEER_FEED_ITEM_OVERHEAD_BYTES;
     let text = match kind {
         FeedKind::Narration { text, .. } | FeedKind::UserMessage { text, .. } => text.len(),
-        FeedKind::Tool { name, detail, .. } => {
-            name.len() + detail.as_ref().map_or(0, String::len)
+        FeedKind::Tool {
+            name, detail, diff, ..
+        } => {
+            name.len() + detail.as_ref().map_or(0, String::len) + diff.as_ref().map_or(0, String::len)
         }
         FeedKind::Permission { tool, detail } => {
             tool.len() + detail.as_ref().map_or(0, String::len)
@@ -1899,8 +1992,150 @@ mod tests {
                 name: "Edit".into(),
                 detail: None,
                 subagent_id: None,
+                call_id: None,
+                tool_kind: None,
+                settled: false,
+                failed: false,
+                diff: None,
             }
         );
+    }
+
+    // ── EXP-785/786: tool_update folds into its tool row ─────────────────
+
+    fn tool_with_id(id: &str, kind: ToolKind) -> ActivityEvent {
+        ActivityEvent::Tool {
+            name: "Edit".into(),
+            detail: Some("src/a.rs".into()),
+            id: Some(id.into()),
+            tool_kind: Some(kind),
+            subagent_id: None,
+            at: None,
+        }
+    }
+
+    fn tool_state(feed: &SteerFeed, at: usize) -> (bool, bool, Option<String>) {
+        match &feed.items()[at].kind {
+            FeedKind::Tool {
+                settled,
+                failed,
+                diff,
+                ..
+            } => (*settled, *failed, diff.clone()),
+            other => panic!("not a tool row: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_tool_update_settles_and_diffs_its_row_and_never_adds_one() {
+        let mut feed = SteerFeed::new();
+        feed.apply(tool_with_id("tc-1", ToolKind::Edit));
+        feed.apply(ActivityEvent::narration("between"));
+        feed.apply(tool_with_id("tc-2", ToolKind::Execute));
+        let bytes = feed.bytes();
+
+        feed.apply(ActivityEvent::tool_update(
+            "tc-1",
+            Some(ToolUpdateStatus::Completed),
+            Some("--- a/src/a.rs\n+++ b/src/a.rs\n".into()),
+        ));
+        assert_eq!(feed.len(), 3, "an update is never a row");
+        assert_eq!(
+            tool_state(&feed, 0),
+            (true, false, Some("--- a/src/a.rs\n+++ b/src/a.rs\n".to_string()))
+        );
+        assert_eq!(tool_state(&feed, 2), (false, false, None));
+        // The diff weighs against the budget.
+        assert_eq!(feed.bytes(), bytes + "--- a/src/a.rs\n+++ b/src/a.rs\n".len());
+        assert!(matches!(
+            &feed.items()[0].kind,
+            FeedKind::Tool { call_id: Some(id), tool_kind: Some(ToolKind::Edit), .. } if id == "tc-1"
+        ));
+
+        // A failed settle wins over the completed one; the diff stays.
+        feed.apply(ActivityEvent::tool_update("tc-1", Some(ToolUpdateStatus::Failed), None));
+        assert!(tool_state(&feed, 0).0);
+        assert!(tool_state(&feed, 0).1);
+        assert!(tool_state(&feed, 0).2.is_some());
+        // A status-less update carrying only a diff does not settle.
+        feed.apply(ActivityEvent::tool_update("tc-2", None, Some("+x\n".into())));
+        assert_eq!(tool_state(&feed, 2), (false, false, Some("+x\n".to_string())));
+    }
+
+    #[test]
+    fn a_tool_update_for_an_unknown_id_is_dropped() {
+        let mut feed = SteerFeed::new();
+        feed.apply(tool_with_id("tc-1", ToolKind::Read));
+        let bytes = feed.bytes();
+        feed.apply(ActivityEvent::tool_update(
+            "tc-evicted",
+            Some(ToolUpdateStatus::Failed),
+            Some("+never\n".into()),
+        ));
+        assert_eq!(feed.len(), 1);
+        assert_eq!(feed.bytes(), bytes);
+        assert_eq!(tool_state(&feed, 0), (false, false, None));
+        // An id-less legacy tool row never matches either.
+        feed.apply(ActivityEvent::tool("Grep", None));
+        feed.apply(ActivityEvent::tool_update("", Some(ToolUpdateStatus::Completed), None));
+        assert_eq!(tool_state(&feed, 1), (false, false, None));
+    }
+
+    #[test]
+    fn a_tool_update_folds_into_the_newest_row_with_that_id() {
+        let mut feed = SteerFeed::new();
+        feed.apply(tool_with_id("tc-1", ToolKind::Edit));
+        feed.apply(tool_with_id("tc-1", ToolKind::Edit));
+        feed.apply(ActivityEvent::tool_update("tc-1", Some(ToolUpdateStatus::Completed), None));
+        assert_eq!(tool_state(&feed, 0), (false, false, None));
+        assert_eq!(tool_state(&feed, 1), (true, false, None));
+    }
+
+    // ── EXP-784: the rate-limit slot ───────────────────────────────────────
+
+    #[test]
+    fn rate_limit_is_a_slot_and_an_empty_or_ok_status_clears_it() {
+        let mut feed = SteerFeed::new();
+        feed.apply(ActivityEvent::rate_limit(
+            "allowed_warning",
+            Some(1_700_000_000_000),
+            Some("  80% of the 5-hour window  ".into()),
+        ));
+        assert!(feed.is_empty(), "never a row");
+        assert_eq!(
+            feed.rate_limit(),
+            Some(&SessionRateLimit {
+                status: "allowed_warning".into(),
+                resets_at: Some(1_700_000_000_000),
+                message: Some("  80% of the 5-hour window  ".into()),
+            })
+        );
+        feed.apply(ActivityEvent::rate_limit("rejected", None, Some("".into())));
+        assert_eq!(
+            feed.rate_limit(),
+            Some(&SessionRateLimit { status: "rejected".into(), resets_at: None, message: None })
+        );
+        feed.apply(ActivityEvent::rate_limit("ok", None, None));
+        assert_eq!(feed.rate_limit(), None);
+        feed.apply(ActivityEvent::rate_limit("rejected", None, None));
+        feed.apply(ActivityEvent::rate_limit("", None, None));
+        assert_eq!(feed.rate_limit(), None);
+    }
+
+    #[test]
+    fn a_replay_swap_repaints_the_rate_limit_from_the_staged_events() {
+        let mut feed = SteerFeed::new();
+        feed.apply(ActivityEvent::rate_limit("rejected", None, None));
+        feed.apply_reset();
+        feed.apply(ActivityEvent::narration("replayed"));
+        feed.apply(ActivityEvent::rate_limit("allowed_warning", None, None));
+        feed.apply_synced();
+        assert_eq!(feed.rate_limit().map(|r| r.status.as_str()), Some("allowed_warning"));
+        // A replay that carries none leaves the slot empty, not stale.
+        feed.apply_reset();
+        feed.apply(ActivityEvent::narration("again"));
+        feed.apply_synced();
+        assert_eq!(feed.rate_limit(), None);
     }
 
     // ── Diff: latest replaces, empty clears (EXP-688) ──────────────────────
@@ -2572,6 +2807,8 @@ mod tests {
         feed.apply(ActivityEvent::Tool {
             name: "Grep".into(),
             detail: None,
+            id: None,
+            tool_kind: None,
             subagent_id: Some("agent_01".into()),
             at: None,
         });
@@ -2628,6 +2865,8 @@ mod tests {
         feed.apply(ActivityEvent::Tool {
             name: "Grep".into(),
             detail: None,
+            id: None,
+            tool_kind: None,
             subagent_id: Some("agent_01".into()),
             at: None,
         });
@@ -2650,6 +2889,8 @@ mod tests {
         feed.apply(ActivityEvent::Tool {
             name: "Read".into(),
             detail: None,
+            id: None,
+            tool_kind: None,
             subagent_id: Some("agent_01".into()),
             at: None,
         });
@@ -2689,6 +2930,8 @@ mod tests {
         feed.apply(ActivityEvent::Tool {
             name: "Grep".into(),
             detail: None,
+            id: None,
+            tool_kind: None,
             subagent_id: Some("a1".into()),
             at: None,
         });
@@ -2740,6 +2983,8 @@ mod tests {
         feed.apply(ActivityEvent::Tool {
             name: "Grep".into(),
             detail: None,
+            id: None,
+            tool_kind: None,
             subagent_id: Some("a1".into()),
             at: None,
         });
@@ -2767,6 +3012,8 @@ mod tests {
             feed.apply(ActivityEvent::Tool {
                 name: name.into(),
                 detail: None,
+                id: None,
+                tool_kind: None,
                 subagent_id: Some("a2".into()),
                 at: None,
             });
@@ -2907,6 +3154,8 @@ mod tests {
         feed.apply(ActivityEvent::Tool {
             name: "Grep".into(),
             detail: None,
+            id: None,
+            tool_kind: None,
             subagent_id: Some("toolu_task".into()),
             at: None,
         });

@@ -1,0 +1,7 @@
+{"sessionId":"acp-1","update":{"sessionUpdate":"tool_call","toolCallId":"tc-ok","title":"Read src/main.rs","kind":"read","status":"in_progress","content":[],"locations":[{"path":"/tmp/worktree/src/main.rs"}],"rawInput":{"file_path":"/tmp/worktree/src/main.rs"}}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"tool_call_update","toolCallId":"tc-ok","status":"completed","content":[{"type":"content","content":{"type":"text","text":"fn main() {}"}}]}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"tool_call","toolCallId":"tc-bad","title":"Run the tests","kind":"execute","status":"in_progress","content":[],"locations":[],"rawInput":{"command":"bun run test --token expu_supersecretkey"}}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"tool_call_update","toolCallId":"tc-bad","status":"failed","content":[{"type":"content","content":{"type":"text","text":"1 failed"}}],"rawOutput":{"exit_code":1}}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"tool_call","toolCallId":"tc-edit","title":"Edit src/lib.rs","kind":"edit","status":"in_progress","content":[],"locations":[{"path":"/tmp/worktree/src/lib.rs"}]}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"tool_call_update","toolCallId":"tc-edit","status":"completed","content":[{"type":"diff","path":"/tmp/worktree/src/lib.rs","oldText":"fn a() {}\nfn b() {}\n","newText":"fn a() {}\nfn b() { expu_supersecretkey }\n"}]}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"tool_call_update","toolCallId":"tc-unknown","status":"completed"}}
