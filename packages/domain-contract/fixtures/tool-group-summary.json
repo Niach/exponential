@@ -1,0 +1,157 @@
+[
+  {
+    "name": "empty",
+    "calls": [],
+    "expected": "No tool calls"
+  },
+  {
+    "name": "single command",
+    "calls": [{ "kind": "execute", "detail": "bun test", "failed": false }],
+    "expected": "Ran 1 command"
+  },
+  {
+    "name": "several commands",
+    "calls": [
+      { "kind": "execute", "detail": "bun install", "failed": false },
+      { "kind": "execute", "detail": "bun test", "failed": false },
+      { "kind": "execute", "detail": "bun test", "failed": false }
+    ],
+    "expected": "Ran 3 commands"
+  },
+  {
+    "name": "edits dedupe by path across edit, move and delete",
+    "calls": [
+      { "kind": "edit", "detail": "src/a.ts", "failed": false },
+      { "kind": "edit", "detail": "src/a.ts", "failed": false },
+      { "kind": "move", "detail": "src/a.ts", "failed": false },
+      { "kind": "delete", "detail": "src/b.ts", "failed": false }
+    ],
+    "expected": "Edited 2 files"
+  },
+  {
+    "name": "null and empty details are distinct files every time",
+    "calls": [
+      { "kind": "edit", "detail": null, "failed": false },
+      { "kind": "edit", "failed": false },
+      { "kind": "edit", "detail": "", "failed": false }
+    ],
+    "expected": "Edited 3 files"
+  },
+  {
+    "name": "reads dedupe by path",
+    "calls": [
+      { "kind": "read", "detail": "README.md", "failed": false },
+      { "kind": "read", "detail": "README.md", "failed": false },
+      { "kind": "read", "detail": "CLAUDE.md", "failed": false }
+    ],
+    "expected": "Read 2 files"
+  },
+  {
+    "name": "edits and reads of one path count in both sets",
+    "calls": [
+      { "kind": "read", "detail": "src/a.ts", "failed": false },
+      { "kind": "edit", "detail": "src/a.ts", "failed": false }
+    ],
+    "expected": "Edited 1 file · read 1 file"
+  },
+  {
+    "name": "mixed with failures",
+    "calls": [
+      { "kind": "execute", "detail": "cargo build", "failed": false },
+      { "kind": "execute", "detail": "cargo test", "failed": true },
+      { "kind": "edit", "detail": "src/lib.rs", "failed": false },
+      { "kind": "read", "detail": "Cargo.toml", "failed": false },
+      { "kind": "search", "detail": "fn main", "failed": false },
+      { "kind": "fetch", "detail": "https://docs.rs", "failed": false },
+      { "kind": "think", "detail": null, "failed": false }
+    ],
+    "expected": "Ran 2 commands · edited 1 file · read 1 file · searched 1 time · fetched 1 page · 1 other tool · 1 failed"
+  },
+  {
+    "name": "all other kinds read as used tools",
+    "calls": [
+      { "kind": "think", "detail": null, "failed": false },
+      { "kind": "switch_mode", "detail": "plan", "failed": false },
+      { "kind": "other", "detail": "TodoWrite", "failed": false }
+    ],
+    "expected": "Used 3 tools"
+  },
+  {
+    "name": "a single other tool",
+    "calls": [{ "kind": "other", "detail": "TodoWrite", "failed": false }],
+    "expected": "Used 1 tool"
+  },
+  {
+    "name": "used tools with a failure",
+    "calls": [
+      { "kind": "think", "detail": null, "failed": true },
+      { "kind": "other", "detail": "TodoWrite", "failed": false }
+    ],
+    "expected": "Used 2 tools · 1 failed"
+  },
+  {
+    "name": "an unknown kind counts as other",
+    "calls": [{ "kind": "banana", "detail": "?", "failed": false }],
+    "expected": "Used 1 tool"
+  },
+  {
+    "name": "capitalised when the first segment is edited",
+    "calls": [
+      { "kind": "edit", "detail": "src/a.ts", "failed": false },
+      { "kind": "other", "detail": "TodoWrite", "failed": false }
+    ],
+    "expected": "Edited 1 file · 1 other tool"
+  },
+  {
+    "name": "capitalised when the first segment is read",
+    "calls": [
+      { "kind": "read", "detail": "a", "failed": false },
+      { "kind": "read", "detail": "b", "failed": false },
+      { "kind": "search", "detail": "foo", "failed": true }
+    ],
+    "expected": "Read 2 files · searched 1 time · 1 failed"
+  },
+  {
+    "name": "capitalised when the first segment is searched",
+    "calls": [
+      { "kind": "search", "detail": "foo", "failed": false },
+      { "kind": "search", "detail": "bar", "failed": false }
+    ],
+    "expected": "Searched 2 times"
+  },
+  {
+    "name": "capitalised when the first segment is fetched",
+    "calls": [{ "kind": "fetch", "detail": "https://example.com", "failed": true }],
+    "expected": "Fetched 1 page · 1 failed"
+  },
+  {
+    "name": "every segment singular",
+    "calls": [
+      { "kind": "execute", "detail": "ls", "failed": true },
+      { "kind": "delete", "detail": "old.txt", "failed": false },
+      { "kind": "read", "detail": "new.txt", "failed": false },
+      { "kind": "search", "detail": "x", "failed": false },
+      { "kind": "fetch", "detail": "https://a", "failed": false },
+      { "kind": "switch_mode", "detail": "plan", "failed": false }
+    ],
+    "expected": "Ran 1 command · edited 1 file · read 1 file · searched 1 time · fetched 1 page · 1 other tool · 1 failed"
+  },
+  {
+    "name": "every segment plural",
+    "calls": [
+      { "kind": "execute", "detail": "ls", "failed": true },
+      { "kind": "execute", "detail": "pwd", "failed": true },
+      { "kind": "edit", "detail": "a", "failed": false },
+      { "kind": "move", "detail": "b", "failed": false },
+      { "kind": "read", "detail": "c", "failed": false },
+      { "kind": "read", "detail": null, "failed": false },
+      { "kind": "search", "detail": "x", "failed": false },
+      { "kind": "search", "detail": "y", "failed": false },
+      { "kind": "fetch", "detail": "https://a", "failed": false },
+      { "kind": "fetch", "detail": "https://b", "failed": false },
+      { "kind": "think", "detail": null, "failed": false },
+      { "kind": "other", "detail": "TodoWrite", "failed": false }
+    ],
+    "expected": "Ran 2 commands · edited 2 files · read 2 files · searched 2 times · fetched 2 pages · 2 other tools · 2 failed"
+  }
+]

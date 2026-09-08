@@ -176,3 +176,9 @@ export interface DomainContract {
 }
 
 export const contract = contractJson as unknown as DomainContract
+
+export {
+  toolGroupSummary,
+  TOOL_GROUP_SUMMARY_SEPARATOR,
+  type ToolCallSummary,
+} from "./tool-group-summary"

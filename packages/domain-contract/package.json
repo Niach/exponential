@@ -9,6 +9,7 @@
   },
   "exports": {
     ".": "./src/index.ts",
-    "./contract": "./contract.json"
+    "./contract": "./contract.json",
+    "./fixtures/*": "./fixtures/*"
   }
 }

@@ -67,6 +67,7 @@ pub mod image_message;
 pub mod journal;
 pub mod login_picker;
 pub mod publisher;
+pub mod tool_group_summary;
 pub mod viewer;
 
 use std::sync::Arc;
@@ -112,6 +113,7 @@ pub use history::{
     serve_history_request, HistoryInFlight, JournalWriter, JOURNAL_FILE_CAP, JOURNAL_MAX_AGE,
 };
 pub use journal::{ActivityJournal, JOURNAL_BYTE_CAP, JOURNAL_EVENT_CAP};
+pub use tool_group_summary::{tool_group_summary, ToolCallSummary, TOOL_GROUP_SUMMARY_SEPARATOR};
 pub use publisher::{
     image_localizer, publish, ActivitySender, AttachmentHook, KillSignal, PublishSpec,
     PublisherHandle, PublisherHooks, PublisherTickets, TrpcPublisherTickets,
