@@ -119,6 +119,8 @@ import com.exponential.app.domain.ConfigCommand
 import com.exponential.app.domain.ModeChip
 import com.exponential.app.domain.PLAN_TOGGLE_LABEL
 import com.exponential.app.domain.modeChip
+import com.exponential.app.domain.ToolCallSummary
+import com.exponential.app.domain.ToolGroupSummary
 import com.exponential.app.domain.AnswerState
 import com.exponential.app.domain.COMPACTED_LABEL
 import com.exponential.app.domain.COMPACTING_LABEL
@@ -1693,7 +1695,7 @@ private fun ActivityFeed(
                         )
                         is AgentFeedRow.Single -> when (val item = row.item) {
                             is AgentFeedItem.Narration -> NarrationBubble(item.text)
-                            is AgentFeedItem.Tool -> ToolRow(item.name, item.detail)
+                            is AgentFeedItem.Tool -> ToolRow(item.name, item.detail, failed = item.failed)
                             is AgentFeedItem.UserMessage -> {
                                 // EXP-724: a steered catalog command reads as one.
                                 val command =
@@ -2796,7 +2798,7 @@ private fun SubagentGroupRow(
 @Composable
 private fun SubagentItemRow(item: AgentFeedItem, nested: Boolean = false) {
     when (item) {
-        is AgentFeedItem.Tool -> ToolRow(item.name, item.detail, nested = nested)
+        is AgentFeedItem.Tool -> ToolRow(item.name, item.detail, nested = nested, failed = item.failed)
         is AgentFeedItem.Narration -> NarrationBubble(item.text, nested = nested)
         is AgentFeedItem.UserMessage -> UserMessageBubble(item.text, nested = nested)
         else -> Unit
@@ -2812,6 +2814,8 @@ private fun ToolRow(
      *  keep their own tight rhythm; a top-level row is spaced by the ladder
      *  instead (EXP-787). */
     nested: Boolean = false,
+    /** EXP-785: the call errored — the row tints rose, like the web. */
+    failed: Boolean = false,
 ) {
     Row(
         modifier = Modifier
@@ -2824,12 +2828,14 @@ private fun ToolRow(
             ExpIcons.codingTool,
             contentDescription = null,
             modifier = Modifier.size(12.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            tint = if (failed) DiffDelColor else {
+                MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+            },
         )
         Text(
             name,
             style = transcriptToolStyle(),
-            color = MaterialTheme.colorScheme.onSurface,
+            color = if (failed) DiffDelColor else MaterialTheme.colorScheme.onSurface,
         )
         if (!detail.isNullOrBlank()) {
             Text(
@@ -2844,13 +2850,20 @@ private fun ToolRow(
     }
 }
 
-// A run of ≥2 consecutive tool calls collapsed into one "N tool calls" row
-// (EXP-97), expandable to the individual rows. While the run is the trailing
-// row of a live session, the latest call stays visible under the count so the
-// viewer still sees live progress.
+// A run of ≥2 consecutive tool calls collapsed into one row (EXP-97),
+// expandable to the individual rows. EXP-785: the caption says what happened
+// ("Ran 4 commands · edited 2 files · 1 failed") — `ToolGroupSummary`, the
+// derivation shared ×4 — instead of counting calls. While the run is the
+// trailing row of a live session, the latest call stays visible under the
+// caption so the viewer still sees live progress.
 @Composable
 private fun ToolGroupRow(items: List<AgentFeedItem.Tool>, liveTail: Boolean) {
     var expanded by remember { mutableStateOf(false) }
+    val caption = remember(items) {
+        ToolGroupSummary.summarize(
+            items.map { ToolCallSummary(it.toolKind ?: "other", it.detail, it.failed) },
+        )
+    }
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -2872,18 +2885,18 @@ private fun ToolGroupRow(items: List<AgentFeedItem.Tool>, liveTail: Boolean) {
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
             )
             Text(
-                "${items.size} tool calls",
+                caption,
                 style = transcriptToolStyle(),
                 color = MaterialTheme.colorScheme.onSurface,
             )
         }
         when {
             expanded -> Column(modifier = Modifier.padding(start = 22.dp)) {
-                items.forEach { ToolRow(it.name, it.detail, nested = true) }
+                items.forEach { ToolRow(it.name, it.detail, nested = true, failed = it.failed) }
             }
             liveTail -> Column(modifier = Modifier.padding(start = 22.dp)) {
                 val latest = items.last()
-                ToolRow(latest.name, latest.detail, nested = true)
+                ToolRow(latest.name, latest.detail, nested = true, failed = latest.failed)
             }
         }
     }
