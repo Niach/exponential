@@ -1015,7 +1015,8 @@ fn feed_occurrences(feed: &SteerFeed, needle: &str) -> usize {
     feed.items()
         .iter()
         .filter(|item| match &item.kind {
-            steer::FeedKind::Narration { text } | steer::FeedKind::UserMessage { text } => {
+            steer::FeedKind::Narration { text, .. }
+            | steer::FeedKind::UserMessage { text, .. } => {
                 text.contains(needle)
             }
             steer::FeedKind::Tool { name, .. } => name.contains(needle),

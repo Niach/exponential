@@ -51,20 +51,17 @@
 use gpui::{
     actions, div, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, Bounds,
     ClickEvent, Entity, Focusable as _, InteractiveElement, IntoElement, KeyBinding,
-    ParentElement, Pixels, Render, SharedString, Styled, Subscription, Task, WeakEntity, Window,
-    WindowId,
+    ParentElement, Pixels, Render, SharedString, Styled, Subscription, Window, WindowId,
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex, notification::Notification, v_flex, ActiveTheme as _, Icon, Sizable as _,
     WindowExt as _,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::time::Duration;
 use terminal::{TabId, TabKind, TerminalManager, TerminalManagerEvent};
 
-use crate::changes_bar;
 use crate::coding_flow::{CodingHub, LocalSessionHost, LocalSessions, TokenRefreshers};
 use crate::controls::WebControl as _;
 use crate::icons::registry;
@@ -75,15 +72,6 @@ use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
 
 /// The bar's height — the web strip's `h-9`.
 pub(crate) const SESSION_BAR_H: f32 = 36.;
-
-/// EXP-688: how often the Latest-changes bar re-reads the branch diff. The
-/// same 3s cadence the steer emitter's `DiffSnapshots` publishes on. While
-/// there is nothing to read (no terminal on screen, a plain shell) the loop
-/// idles on the shorter beat instead — it runs no git at all there, and the
-/// bar then appears within a blink of the terminal coming up rather than 3s
-/// later.
-const CHANGES_POLL: Duration = Duration::from_secs(3);
-const CHANGES_IDLE_POLL: Duration = Duration::from_millis(500);
 
 /// Keymap scope for the terminal-screen bindings — an ancestor of the focused
 /// terminal view in the dispatch path, so the chords work while typing in
@@ -206,11 +194,6 @@ pub struct SessionBar {
     /// EXP-372/EXP-739: a launch in flight (label of what is starting) — the
     /// Chat button reads it so two quick clicks cannot buy two agents.
     pending_launch: Option<SharedString>,
-    /// EXP-688: the Latest-changes snapshot for the active terminal, when it
-    /// is a local coding session.
-    changes: Option<ChangesState>,
-    /// The expanded Latest-changes view (the shared side-by-side diff).
-    changes_diff: Entity<crate::diff::DiffView>,
     /// This window — the screens panel is poked by id (see
     /// [`Self::poke_screens`]).
     window_id: WindowId,
@@ -220,7 +203,6 @@ pub struct SessionBar {
     /// each other would ping-pong notifies forever — so the bar pokes it
     /// explicitly when its OWN state changes what the terminal screen shows.
     _observe_screens: Option<Subscription>,
-    _changes_poll: Task<()>,
     _subscription: Subscription,
 }
 
@@ -336,39 +318,6 @@ impl SessionBar {
             cx.observe(&hub, |_, _, cx| cx.notify()).detach();
         }
 
-        // EXP-688: the Latest-changes poll. One timer for the bar's life — it
-        // resolves the on-screen terminal itself and does no git work at all
-        // while no terminal is showing.
-        let changes_poll = cx.spawn_in(window, async move |this, window| loop {
-            let Ok(job) = this.update_in(window, |this, window, cx| this.changes_job(window, cx))
-            else {
-                return; // bar gone with its window
-            };
-            let beat = match job {
-                ChangesJob::Idle => CHANGES_IDLE_POLL,
-                ChangesJob::Poll {
-                    tab,
-                    worktree,
-                    base_ref,
-                } => {
-                    let files = window
-                        .background_executor()
-                        .spawn(async move {
-                            coding::scm::branch_diff(&worktree, base_ref.as_deref()).ok()
-                        })
-                        .await;
-                    if this
-                        .update_in(window, |this, _, cx| this.apply_changes(tab, files, cx))
-                        .is_err()
-                    {
-                        return;
-                    }
-                    CHANGES_POLL
-                }
-            };
-            window.background_executor().timer(beat).await;
-        });
-
         // Publish this window's bar (insert overwrites — a rebuilt shell wins).
         let window_id = window.window_handle().window_id();
         let entity = cx.entity();
@@ -381,11 +330,8 @@ impl SessionBar {
             agent_shell_holds: HashMap::new(),
             chips_slot_width: None,
             pending_launch: None,
-            changes: None,
-            changes_diff: cx.new(|cx| crate::diff::DiffView::new(window, cx)),
             window_id,
             _observe_screens: None,
-            _changes_poll: changes_poll,
             _subscription: subscription,
         }
     }
@@ -669,61 +615,20 @@ impl SessionBar {
         self.activate_visible_step(false, window, cx);
     }
 
-    /// EXP-739: the agent a one-click chat launches — the device's configured
-    /// `default_agent` when the doctor found it INSTALLED, else the first
-    /// installed one (a default pointing at an agent this machine does not
-    /// have must not disable the button). `None` while no report exists yet,
-    /// or when nothing is runnable at all.
-    fn default_chat_agent(cx: &gpui::App) -> Option<coding::CodingAgent> {
-        let hub = CodingHub::global_ref(cx)?;
-        let hub = hub.read(cx);
-        let installed = hub.doctor.report.as_ref()?.installed_agents();
-        let preferred = hub.settings.default_agent;
-        if installed.contains(&preferred) {
-            return Some(preferred);
-        }
-        installed.first().copied()
-    }
-
-    /// EXP-739: the bar's one-click "Chat" — a promptless, repo-LESS chat
-    /// run on the device's default agent ([`Self::launch_chat_run`] with no
-    /// repo), for the "just talk to the agent about the tracker" shape. The
-    /// web strip's trailing Chat glyph, in the same slot.
-    fn chat_button(&self, cx: &gpui::Context<Self>) -> AnyElement {
-        let bar = cx.entity().downgrade();
-        let agent = Self::default_chat_agent(cx);
-        // A launch is already in flight (this button's or cmd-t's): two quick
-        // clicks must not buy two session rows, two scratch dirs and two
-        // agents.
-        let pending = self.pending_launch.clone();
-        let tooltip: SharedString = match (&pending, agent) {
-            (Some(label), _) => format!("Starting {label}…").into(),
-            (None, Some(agent)) => format!("Chat with {}", agent.label()).into(),
-            (None, None) => crate::coding_flow::NO_AGENT_COPY.into(),
-        };
-        // NEVER `.disabled(true)` on a strip surface (gpui-disabled-button
-        // dead zone): dim the glyph and decide in the handler.
-        let inert = pending.is_some() || agent.is_none();
+    /// EXP-772: the bar's "Chat" — it OPENS the Chat page rather than
+    /// launching on the spot. A chat used to start promptless the moment the
+    /// glyph was clicked, on whatever agent the settings named; the page lets
+    /// the person type the first message and see (and change) the agent,
+    /// model, effort and plan mode before anything spawns.
+    fn chat_button(&self) -> AnyElement {
         Button::new("session-bar-chat")
             .ghost()
             .web_icon_xs()
             .icon(Icon::new(registry::ACTION_CHAT))
-            .tooltip(tooltip)
-            .when(inert, |this| this.opacity(0.4))
-            .on_click(move |_, window, cx| {
+            .tooltip("Chat")
+            .on_click(|_, window, cx| {
                 cx.stop_propagation();
-                let Some(agent) = agent else {
-                    return;
-                };
-                if pending.is_some() {
-                    return;
-                }
-                let Some(bar) = bar.upgrade() else {
-                    return;
-                };
-                bar.update(cx, |bar, cx| {
-                    bar.launch_chat_run(agent, None, window, cx);
-                });
+                navigation::navigate(window, cx, navigation::Screen::Chat);
             })
             .into_any_element()
     }
@@ -756,45 +661,58 @@ impl SessionBar {
     /// anchored to a repository — its OWN worktree on `exp/chat-<id8>`, never
     /// the trunk clone — and `None` for a repo-LESS chat, which the launcher
     /// runs worktree-less in a scratch dir: a conversation with the tracker
-    /// over MCP, no code checked out. The agent spawns with NO initial prompt
-    /// and waits for input either way (the attended promptless shape
-    /// `coding::prepare_action` allows since EXP-703).
+    /// over MCP, no code checked out.
+    ///
+    /// EXP-772: `options` are the Chat page's own picks (agent, model, effort,
+    /// plan) rather than the settings defaults, and `prompt` is the first
+    /// message typed there. `None` keeps the older promptless shape — the
+    /// agent spawns and waits for input (`coding::prepare_action` has allowed
+    /// that attended shape since EXP-703).
     pub(crate) fn launch_chat_run(
         &mut self,
-        agent: coding::CodingAgent,
+        options: coding::LaunchOptions,
         repo: Option<(String, String)>,
+        prompt: Option<String>,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        let Some(deps) = crate::coding_flow::build_action_deps(cx) else {
+        if crate::coding_flow::build_action_deps(cx).is_none() {
             log::warn!("session bar: chat launch ignored — not signed in");
             return;
-        };
+        }
         let nav = navigation::nav_for_window(window, cx);
         let Some(team_id) = navigation::active_team_id(&nav, cx) else {
             log::warn!("session bar: chat launch ignored — no active team");
             return;
         };
-        let options = coding::LaunchOptions::defaults_for(&deps.settings, agent);
+        let agent = options.agent;
         let action = api::actions::builtin_chat_action(&team_id);
-        // At most the `repo` input rides — deliberately NO `prompt`: the
-        // person is sitting at the terminal and types the first message
-        // themselves. EXP-739: a repo-less chat emits no `repo` key at all.
-        let inputs: Vec<coding::ActionInputValue> = match &repo {
-            Some((repository_id, full_name)) => action
+        // The typed first message and, when the chat is anchored to one, the
+        // repository. EXP-739: a repo-less chat emits no `repo` key at all.
+        let input_value = |key: &str, value: String, display: Option<String>| {
+            action
                 .inputs
                 .iter()
-                .filter(|input| input.key == "repo")
+                .find(|input| input.key == key)
                 .map(|input| coding::ActionInputValue {
                     key: input.key.clone(),
                     label: input.label.clone(),
                     input_type: input.input_type.clone(),
-                    value: repository_id.clone(),
-                    display: Some(full_name.clone()),
+                    value,
+                    display,
                 })
-                .collect(),
-            None => Vec::new(),
         };
+        let mut inputs: Vec<coding::ActionInputValue> = Vec::new();
+        if let Some(prompt) = prompt.map(|text| text.trim().to_string()).filter(|text| !text.is_empty()) {
+            inputs.extend(input_value("prompt", prompt, None));
+        }
+        if let Some((repository_id, full_name)) = &repo {
+            inputs.extend(input_value(
+                "repo",
+                repository_id.clone(),
+                Some(full_name.clone()),
+            ));
+        }
         // EXP-739: the SETTLED hook clears the pending state whichever way the
         // start ends — the TabOpened edge alone would strand it forever on an
         // ACP chat, which opens a center-panel session and no terminal tab.
@@ -941,159 +859,10 @@ impl SessionBar {
         })
     }
 
-    // -- Latest changes --------------------------------------------------------
-
-    /// What the next Latest-changes poll should do. Clears the snapshot (and
-    /// skips git entirely) whenever there is nothing to show: no terminal on
-    /// screen, an undocked one, or a tab that is not a local coding session
-    /// (a plain shell has no branch to diff).
-    fn changes_job(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> ChangesJob {
-        let idle = |this: &mut Self, cx: &mut gpui::Context<Self>| {
-            if this.changes.take().is_some() {
-                this.poke_screens(cx);
-                cx.notify();
-            }
-            ChangesJob::Idle
-        };
-        let nav = navigation::nav_for_window(window, cx);
-        let Some(Screen::Terminal { tab }) = navigation::resolved_screen(&nav, cx) else {
-            return idle(self, cx);
-        };
-        if crate::undock::is_terminal_tab_undocked(tab, cx)
-            || self.manager.read(cx).tab(tab).is_none()
-        {
-            return idle(self, cx);
-        }
-        let Some(sessions) = LocalSessions::global_ref(cx) else {
-            return idle(self, cx);
-        };
-        let scope = {
-            let sessions = sessions.read(cx);
-            sessions
-                .session_for_tab(tab)
-                .map(|session| (session.worktree.clone(), session.base_ref.clone()))
-        };
-        let Some((worktree, base_ref)) = scope else {
-            return idle(self, cx);
-        };
-        ChangesJob::Poll {
-            tab,
-            worktree,
-            base_ref,
-        }
-    }
-
-    /// Install a poll's answer. A FAILED poll (`None`) keeps the previous
-    /// snapshot (`merge_changes_snapshot`): a diff momentarily unreadable —
-    /// mid-rebase, mid-checkout — must not blank the bar and strand the Merge
-    /// pill alone. A real empty answer (the branch was reset) clears it.
-    fn apply_changes(
-        &mut self,
-        tab: TabId,
-        files: Option<Vec<coding::scm::DiffFile>>,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        let previous = self
-            .changes
-            .take()
-            .filter(|changes| changes.tab == tab);
-        let expanded = previous.as_ref().is_some_and(|changes| changes.expanded);
-        let generation = previous.as_ref().map_or(0, |changes| changes.generation);
-        let previous_files = previous.map(|changes| changes.files).unwrap_or_default();
-        let changed = files.as_ref().is_some_and(|files| *files != previous_files);
-        let files = changes_bar::merge_changes_snapshot(previous_files, files);
-        let (additions, deletions) = changes_bar::changes_totals(&files);
-        self.changes = Some(ChangesState {
-            tab,
-            files,
-            additions,
-            deletions,
-            expanded,
-            generation: generation + u64::from(changed),
-        });
-        if changed && expanded {
-            self.rebuild_changes_diff(cx);
-        }
-        self.poke_screens(cx);
-        cx.notify();
-    }
-
-    /// Rebuild the expanded side-by-side view from the current snapshot.
-    fn rebuild_changes_diff(&mut self, cx: &mut gpui::Context<Self>) {
-        let Some(changes) = self.changes.as_ref() else {
-            return;
-        };
-        let prepared = crate::diff::build_scm_diff(&changes.files, &cx.theme().highlight_theme);
-        self.changes_diff
-            .update(cx, |diff, cx| diff.set_prepared(prepared, cx));
-    }
-
-    /// EXP-678/EXP-688: "Latest changes" — the branch's diff (everything the
-    /// PR carries, committed work included) plus the Merge button, in one
-    /// row under the terminal grid. It renders when there IS a diff or an
-    /// open PR to merge, so the Merge pill never stands alone. The CHROME
-    /// lives in [`crate::changes_bar`] (EXP-746), where the session screen's
-    /// rail wears it too.
-    fn render_changes_bar(&self, tab: TabId, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        let merge = merge_tab_meta(tab, cx);
-        let changes = self
-            .changes
-            .as_ref()
-            .filter(|changes| changes.tab == tab && !changes.files.is_empty());
-        if !changes_bar::changes_bar_visible(changes.is_some(), merge.is_some()) {
-            return None;
-        }
-        let expanded = changes.is_some_and(|changes| changes.expanded);
-        let totals = changes.map(|changes| (changes.additions, changes.deletions));
-        Some(changes_bar::render(
-            changes_bar::ChangesSpec {
-                toggle_id: "terminal-changes-toggle",
-                placement: changes_bar::ChangesPlacement::Bar,
-                totals,
-                expanded,
-                merge,
-                diff_view: self.changes_diff.clone(),
-                on_toggle: Box::new(|this: &mut Self, cx| this.toggle_changes_expanded(cx)),
-                on_merged: Some(self.tab_close_on_merge(tab)),
-            },
-            cx,
-        ))
-    }
-
-    /// Flip the Latest-changes bar open/shut, building the diff rows the
-    /// first time it opens (they are only worth rendering when visible).
-    fn toggle_changes_expanded(&mut self, cx: &mut gpui::Context<Self>) {
-        let Some(changes) = self.changes.as_mut() else {
-            return;
-        };
-        changes.expanded = !changes.expanded;
-        if changes.expanded {
-            self.rebuild_changes_diff(cx);
-        }
-        self.poke_screens(cx);
-        cx.notify();
-    }
-
-    /// The local tab close a merge triggers: the tab closes the moment the
-    /// merge call fires (the `TabClosed` watcher fires the idempotent
-    /// `codingSessions.end`), so a merge that fails on conflicts never leaves
-    /// a live session holding the branch — the Reviews page's "Fix conflicts"
-    /// recovery starts immediately instead of parking behind a busy worktree.
-    /// The server ends the user's live sessions on OTHER devices after the
-    /// merge.
-    fn tab_close_on_merge(&self, tab: TabId) -> changes_bar::OnMerged {
-        let manager = self.manager.downgrade();
-        std::rc::Rc::new(move |cx: &mut App| {
-            if let Some(manager) = manager.upgrade() {
-                manager.update(cx, |manager, cx| manager.close_tab(tab, cx));
-            }
-        })
-    }
-
     // -- rendering -----------------------------------------------------------
 
-    /// EXP-769: the terminal SCREEN — `tab`'s grid filling the center, its
-    /// exit strip under it and the Latest-changes bar under that. The root
+    /// EXP-769: the terminal SCREEN — `tab`'s grid filling the center with
+    /// its exit strip under it. The root
     /// carries the terminal key context and the cmd-t/cmd-w/ctrl-tab
     /// handlers, so the chords keep working while typing in the grid
     /// wherever it paints. Rendered by `ScreensPanel` through this entity so
@@ -1163,7 +932,6 @@ impl SessionBar {
             // guards the 0-height case (§6.9).
             .child(div().flex_1().min_h_0().child(view))
             .when_some(exit_code, |this, code| this.child(exit_strip(code, cx)))
-            .children(self.render_changes_bar(tab, cx))
             .into_any_element()
     }
 }
@@ -1204,7 +972,7 @@ impl Render for SessionBar {
         let available = self
             .chips_slot_width
             .map_or(f32::MAX, |slot| (slot - button_reserve).max(0.));
-        let trailing = vec![self.chat_button(cx), self.new_terminal_button(cx)];
+        let trailing = vec![self.chat_button(), self.new_terminal_button(cx)];
         let tabs = crate::screens::screens_for_window(window, cx).map(|screens| {
             screens.update(cx, |screens, cx| {
                 screens.render_session_bar_tabs(available, trailing, window, cx)
@@ -1281,93 +1049,10 @@ pub(crate) fn exit_strip(code: i32, cx: &App) -> impl IntoElement {
 }
 
 /// EXP-688: the Latest-changes snapshot for ONE terminal tab.
-struct ChangesState {
-    tab: TabId,
-    files: Vec<coding::scm::DiffFile>,
-    additions: u32,
-    deletions: u32,
-    /// Whether the bar is showing its side-by-side diff.
-    expanded: bool,
-    /// Bumped on every CHANGED snapshot — the expanded view rebuilds off it.
-    generation: u64,
-}
-
-/// What one Latest-changes tick has to do.
-enum ChangesJob {
-    /// Nothing to show (no terminal on screen / not a session) — no git.
-    Idle,
-    Poll {
-        tab: TabId,
-        worktree: PathBuf,
-        base_ref: Option<String>,
-    },
-}
-
-/// The issue-chip snapshot of one issue-session terminal tab (EXP-325): the
-/// chip renders the center issue-tab treatment (status glyph + mono
-/// identifier + synced title) instead of the plain terminal title.
-pub(crate) struct IssueTabMeta {
-    pub(crate) status: domain::statuses::ResolvedStatus,
-    pub(crate) identifier: SharedString,
-    /// `None` for a blank issue title — the identifier already labels the
-    /// chip (the EXP-310 center-tab rule).
-    pub(crate) title: Option<SharedString>,
-}
-
-/// Resolve a tab back to its issue chip, when it is an issue session over a
-/// synced issue row (mirrors `screens::chip_content`). Batch/action/shell
-/// tabs (and unsynced issues) answer `None`.
-pub(crate) fn issue_tab_meta(tab_id: TabId, cx: &App) -> Option<IssueTabMeta> {
-    let sessions = LocalSessions::global_ref(cx)?;
-    let sessions = sessions.read(cx);
-    let crate::coding_flow::SessionSubject::Issue(issue_id) = sessions.subject_for_tab(tab_id)?
-    else {
-        return None;
-    };
-    let store = sync::Store::try_global(cx)?;
-    let issue = store.collections().issues.read(cx).get(issue_id)?;
-    let title = issue.title.trim();
-    Some(IssueTabMeta {
-        status: queries::resolve_issue_status(cx, issue),
-        identifier: SharedString::from(issue.identifier.clone()),
-        title: (!title.is_empty()).then(|| SharedString::from(title.to_string())),
-    })
-}
-
-/// Resolve a tab's merge affordance: the [`changes_bar::merge_target_for_run`]
-/// rules over the LOCAL session behind the tab, with its synced
-/// `coding_sessions` row looked up by the row id the launcher recorded
-/// (EXP-734 — an action or chat run's own chore PR lives there and nowhere
-/// else).
-fn merge_tab_meta(tab_id: TabId, cx: &App) -> Option<changes_bar::MergeTarget> {
-    let sessions = LocalSessions::global_ref(cx)?;
-    let sessions = sessions.read(cx);
-    let session = sessions.session_for_tab(tab_id)?;
-    let store = sync::Store::try_global(cx)?;
-    let collections = store.collections();
-    let issues = collections.issues.read(cx);
-    let rows = collections.coding_sessions.read(cx);
-    let issue_id = match &session.subject {
-        crate::coding_flow::SessionSubject::Issue(issue_id) => Some(issue_id.as_str()),
-        // Batch and action/chat runs carry no issue of their own — the branch
-        // and the session row answer for them.
-        crate::coding_flow::SessionSubject::Batch(_)
-        | crate::coding_flow::SessionSubject::Action(_) => None,
-    };
-    changes_bar::merge_target_for_run(
-        issue_id,
-        &session.branch,
-        rows.get(&session.session_id),
-        issues.iter(),
-    )
-}
-
-/// EXP-769: the caller's LIVE runs the session bar lists whether or not a
-/// tab is open for them (the web `useAgentsData(...).running`): every live
-/// row of the caller's on OTHER machines (`queries::remote_session_rows`,
-/// when a relay exists to open them through) plus the ACP runs THIS process
-/// hosts. Newest start first. A run hosted on this process's PTY path is
-/// its terminal tab and never listed here.
+/// EXP-769: the caller's LIVE runs the session bar lists (the web
+/// `useAgentsData(...).running`): every live row of the caller's on OTHER
+/// machines (`queries::remote_session_rows`, when a relay exists to open them
+/// through) plus the runs THIS process hosts. Newest start first.
 pub(crate) fn running_session_ids(cx: &mut App) -> Vec<String> {
     let Some(me) = queries::active_account(cx).map(|account| account.user_id) else {
         return Vec::new();
@@ -1381,22 +1066,9 @@ pub(crate) fn running_session_ids(cx: &mut App) -> Vec<String> {
     let collections = store.collections().clone();
     let now = chrono::Utc::now().timestamp();
 
-    let (local_ids, pty_ids): (HashSet<String>, HashSet<String>) = local_sessions
+    let local_ids: std::collections::HashSet<String> = local_sessions
         .as_ref()
-        .map(|sessions| {
-            let sessions = sessions.read(cx);
-            let ids = sessions.session_ids();
-            let pty = ids
-                .iter()
-                .filter(|id| {
-                    sessions
-                        .session_by_id(id)
-                        .is_some_and(|session| session.host.tab().is_some())
-                })
-                .cloned()
-                .collect();
-            (ids.into_iter().collect(), pty)
-        })
+        .map(|sessions| sessions.read(cx).session_ids().into_iter().collect())
         .unwrap_or_default();
 
     let sessions = collections.coding_sessions.read(cx);
@@ -1408,7 +1080,7 @@ pub(crate) fn running_session_ids(cx: &mut App) -> Vec<String> {
     rows.extend(
         sessions
             .iter()
-            .filter(|session| local_ids.contains(&session.id) && !pty_ids.contains(&session.id))
+            .filter(|session| local_ids.contains(&session.id))
             .filter(|session| queries::coding_session_is_live(session, now)),
     );
     rows.sort_by(|a, b| b.started_at.cmp(&a.started_at).then_with(|| b.id.cmp(&a.id)));
@@ -1480,14 +1152,7 @@ pub(crate) fn prompt_kill_session(
 ) {
     let spec = match local {
         Some(host) => {
-            // EXP-746: the copy names what actually happens — a run without a
-            // terminal must not be promised one.
-            let detail = if host.tab().is_some() {
-                "The agent stops immediately and the terminal tab closes. \
-                 Uncommitted work in the worktree is kept."
-            } else {
-                "The agent stops immediately. Uncommitted work in the worktree is kept."
-            };
+            let detail = "The agent stops immediately. Uncommitted work in the worktree is kept.";
             AlertSpec::new("Stop this coding session?", detail, "Stop session").on_ok(
                 move |_, cx| {
                     host.stop(cx);
@@ -1507,29 +1172,6 @@ pub(crate) fn prompt_kill_session(
         }),
     };
     native_dialog::open_alert(window, cx, spec);
-}
-
-/// EXP-746: show the terminal a PTY-hosted run occupies — the one seam
-/// [`crate::session_screen::open_session`] takes for a run that IS a
-/// terminal here. A session whose terminal lives in ANOTHER window's manager
-/// is left alone (that window owns it, and this one has nothing to show).
-pub(crate) fn reveal_pty_tab(
-    tab: TabId,
-    manager: &WeakEntity<TerminalManager>,
-    window: &mut Window,
-    cx: &mut App,
-) {
-    let Some(host) = host_for_window(window, cx) else {
-        return;
-    };
-    if host.read(cx).manager.entity_id() != manager.entity_id() {
-        return;
-    }
-    if host.read(cx).manager.read(cx).tab(tab).is_none() {
-        return;
-    }
-    navigation::navigate(window, cx, Screen::Terminal { tab });
-    host.update(cx, |host, cx| host.activate_tab_by_id(tab, window, cx));
 }
 
 #[cfg(test)]

@@ -213,24 +213,25 @@ class DeviceRowsTest {
 
     @Test
     fun `acp_agents maps through and null means every agent is assumed ready`() {
-        // EXP-749: an agent the machine runs but does NOT drive through the
-        // engine starts on a terminal tab; nothing is filtered on it.
+        // EXP-773: an agent the machine runs but does NOT drive through the
+        // engine cannot start there at all; nothing is filtered on it, the
+        // sheet captions it and blocks the start.
         val partial = entity { copy(acpAgents = """["claude"]""") }
             .toSteerDevice(nowMs, "me")
         assertEquals(listOf("claude"), partial.acpAgentIds)
-        assertFalse(partial.agentRunsInTerminal("claude"))
-        assertTrue(partial.agentRunsInTerminal("codex"))
+        assertFalse(partial.agentNotReady("claude"))
+        assertTrue(partial.agentNotReady("codex"))
 
         // Unknown (an older machine, or one that never advertised): assume
         // every runnable agent is ACP-ready, the pre-EXP-749 reading.
         val unknown = entity().toSteerDevice(nowMs, "me")
         assertNull(unknown.acpAgentIds)
-        assertFalse(unknown.agentRunsInTerminal("codex"))
+        assertFalse(unknown.agentNotReady("codex"))
 
-        // Explicitly empty is NOT unknown: everything runs in a terminal.
+        // Explicitly empty is NOT unknown: nothing can start there.
         val none = entity { copy(acpAgents = "[]") }.toSteerDevice(nowMs, "me")
         assertEquals(emptyList<String>(), none.acpAgentIds)
-        assertTrue(none.agentRunsInTerminal("claude"))
+        assertTrue(none.agentNotReady("claude"))
 
         // Malformed jsonb degrades to unknown, never drops the row.
         val broken = entity { copy(acpAgents = "not json") }.toSteerDevice(nowMs, "me")

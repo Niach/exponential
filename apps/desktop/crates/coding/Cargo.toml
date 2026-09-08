@@ -53,27 +53,3 @@ gpui = { workspace = true, optional = true }
 [features]
 default = ["gpui"]
 gpui = ["dep:gpui", "terminal/gpui"]
-
-[dev-dependencies]
-# tests/dry_run.rs only: a real (headless) gpui platform to drive
-# spawn_prepared + the exit hook end-to-end (same pattern as the terminal
-# crate's exit_hook e2e). Already in the build graph via the app crate.
-gpui_platform = { workspace = true }
-
-# §11.4 Phase-5 launcher dry-run e2e. harness = false: gpui's platform run
-# loop must own the PROCESS MAIN THREAD (libtest runs #[test] fns on worker
-# threads, where the macOS main-queue dispatcher never drains). The binary
-# self-skips unless EXP_CODING_DRYRUN_E2E=1, so plain `cargo test` stays
-# green and fast.
-[[test]]
-name = "dry_run"
-harness = false
-required-features = ["gpui"]
-
-# §7.6 / §11.4 Phase-5 gate #6: two concurrent coding sessions across two
-# TerminalManagers (the two-window scenario) — same harness rules as dry_run;
-# self-skips unless EXP_CODING_CONCURRENT_E2E=1.
-[[test]]
-name = "concurrent"
-harness = false
-required-features = ["gpui"]

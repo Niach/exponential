@@ -2,12 +2,12 @@
 //! `LaunchOptionsPane` twin, shared by every desktop surface that pins how an
 //! agent run starts:
 //!
-//! - [`Variant::Launch`] — the Start-coding dialog and the create-action
+//! - Launch: the Start-coding dialog and the create-action
 //!   dialog: the doctor-filtered agent pill strip, the per-agent Model /
 //!   Effort selects and the capability-gated toggles (ultracode, plan
 //!   mode). This is [`LaunchOptionsSection`], which OWNS that
 //!   state and hands out a [`LaunchOptions`] snapshot.
-//! - [`Variant::Automation`] — [`crate::automation_editor`]'s launch PINS:
+//! - Automation: [`crate::automation_editor`]'s launch PINS:
 //!   the exact same strip (seeded to the bound device's default agent — no
 //!   "Device default" pill since EXP-615), the same choice lists behind the
 //!   launch "CLI default" sentinel, and NO toggles (an unattended run never
@@ -35,7 +35,7 @@ use gpui::{
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_component::switch::Switch;
-use gpui_component::{select::Select, v_flex, ActiveTheme as _, Icon};
+use gpui_component::{select::Select, ActiveTheme as _, Icon};
 
 use coding::{CodingAgent, LaunchOptions};
 
@@ -45,27 +45,9 @@ use crate::coding_selects::{
 use crate::icons::ExpIcon;
 use crate::surface;
 
-/// Which surface the cluster is rendering for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Variant {
-    /// A run that starts NOW: every field resolves to a concrete value.
-    Launch,
-    /// An automation's pins: every field may stay unset ("Device default"),
-    /// and the bound machine's own launch defaults fill the gaps.
-    Automation,
-}
-
 /// The label the model/effort pickers show while nothing is pinned — the
 /// run then follows the agent CLI's own defaults, same wording as launch.
 pub(crate) const CLI_DEFAULT_LABEL: &str = "CLI default";
-
-/// EXP-746 (D7) — the ×4 copy for the "run this on the PTY path instead"
-/// switch. Web, iOS, Android and the three desktop surfaces that carry it
-/// (the Start-coding dialog, Settings → Tools, the Device settings dialog)
-/// say it in exactly these words.
-pub(crate) const START_IN_TERMINAL_LABEL: &str = "Start in terminal";
-pub(crate) const START_IN_TERMINAL_HINT: &str =
-    "Runs the agent in a terminal tab instead of the session screen.";
 
 /// One pill in the agent strip.
 pub(crate) struct AgentPill {
@@ -112,25 +94,25 @@ pub(crate) fn agent_defaults(settings: &coding::Settings, agent: CodingAgent) ->
     )
 }
 
-/// EXP-749: the pill note for an agent that RUNS on the target machine but
-/// not on its session screen. The pickers never hide such an agent, they say
-/// where it lands.
-pub(crate) const TERMINAL_ONLY_NOTE: &str = "runs in a terminal tab";
+/// EXP-749/EXP-773: the pill note for an agent installed on the target
+/// machine that cannot speak ACP there. The pickers never hide such an
+/// agent, they say it cannot run.
+pub(crate) const NO_SESSION_NOTE: &str = "can't run a session";
 
-/// EXP-749: does `agent` start in a terminal tab on a machine advertising
+/// EXP-749: can `agent` NOT run a session on a machine advertising
 /// `acp_agents`? `None` = the machine never said (an older build, or a
-/// doctor that has not landed) — assume the session screen and stay quiet.
-pub(crate) fn runs_in_terminal(acp_agents: Option<&[CodingAgent]>, agent: CodingAgent) -> bool {
+/// doctor that has not landed) — assume it can and stay quiet.
+pub(crate) fn cannot_run_session(acp_agents: Option<&[CodingAgent]>, agent: CodingAgent) -> bool {
     acp_agents.is_some_and(|ready| !ready.contains(&agent))
 }
 
 /// The LAUNCH strip's pills for `agents` (the doctor's pickable list).
-/// `terminal_only` (EXP-749) are the ones that would run on the PTY path
-/// there; a signed-out agent's note wins, since it cannot run at all yet.
+/// `no_session` (EXP-749) are the ones that cannot run a session there; a
+/// signed-out agent's note wins, since it cannot run at all yet.
 pub(crate) fn launch_pills(
     agents: &[CodingAgent],
     unauthed: &[CodingAgent],
-    terminal_only: &[CodingAgent],
+    no_session: &[CodingAgent],
 ) -> Vec<AgentPill> {
     agents
         .iter()
@@ -138,9 +120,9 @@ pub(crate) fn launch_pills(
             label: SharedString::from(agent.label()),
             icon: Some(agent_icon(*agent)),
             dimmed: unauthed.contains(agent),
-            note: match (unauthed.contains(agent), terminal_only.contains(agent)) {
+            note: match (unauthed.contains(agent), no_session.contains(agent)) {
                 (true, _) => Some(SharedString::from("not signed in")),
-                (false, true) => Some(SharedString::from(TERMINAL_ONLY_NOTE)),
+                (false, true) => Some(SharedString::from(NO_SESSION_NOTE)),
                 (false, false) => None,
             },
         })
@@ -261,7 +243,7 @@ fn pin_label(choices: &'static [(&'static str, &'static str)], picked: Option<&s
         .unwrap_or_else(|| CLI_DEFAULT_LABEL.to_string())
 }
 
-/// One [`Variant::Automation`] choice pin as a GROUPED picker row (EXP-694,
+/// One automation choice pin as a GROUPED picker row (EXP-694,
 /// S2): the label leading, the pinned value trailing at 70% behind a caret,
 /// no field chrome, and the "CLI default" sentinel while nothing is pinned.
 /// Writes through the `pick` accessor on the host's state `S`.
@@ -542,14 +524,14 @@ pub(crate) fn settled_agent(
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct RemoteDefaults {
     pub(crate) agents: Vec<CodingAgent>,
-    /// EXP-749: which of those run on that machine's SESSION SCREEN. `None`
-    /// = it never said, so nothing is claimed; the rest of `agents` carries
-    /// the "runs in a terminal tab" note. Never a filter.
+    /// EXP-749: which of those can run a SESSION there. `None` = it never
+    /// said, so nothing is claimed; the rest of `agents` carries the
+    /// "can't run a session" note. Never a filter.
     pub(crate) acp_agents: Option<Vec<CodingAgent>>,
     pub(crate) settings: coding::Settings,
 }
 
-/// The [`Variant::Launch`] cluster's own state: which agent runs, its
+/// The launch cluster's own state: which agent runs, its
 /// model/effort picks and the capability-gated toggles. Seeded from
 /// [`coding::Settings`]' per-AGENT fields; switching the agent tab re-seeds
 /// everything from that agent's own defaults.
@@ -759,7 +741,7 @@ impl LaunchOptionsSection {
         }
     }
 
-    /// The whole [`Variant::Launch`] cluster as ONE inset-grouped stack
+    /// The whole launch cluster as ONE inset-grouped stack
     /// (EXP-694 S4): the SHARED [`AgentDefaultsGroup`] — the embedded agent
     /// tabs row, the Model and effort picker rows, the optional `resume_row`,
     /// then the capability-gated toggles — every one a hairline-divided row of
@@ -793,11 +775,11 @@ impl LaunchOptionsSection {
         // EXP-749: a remote machine's agents that would land on the PTY path
         // there. Local runs say nothing here — the local doctor's own acp
         // rows (Settings → Tools) and "Start in terminal" cover this machine.
-        let terminal_only: Vec<CodingAgent> = match &self.remote {
+        let no_session: Vec<CodingAgent> = match &self.remote {
             Some(remote) => pickable
                 .iter()
                 .copied()
-                .filter(|agent| runs_in_terminal(remote.acp_agents.as_deref(), *agent))
+                .filter(|agent| cannot_run_session(remote.acp_agents.as_deref(), *agent))
                 .collect(),
             None => Vec::new(),
         };
@@ -820,7 +802,7 @@ impl LaunchOptionsSection {
         let agent = self.agent;
         let effort_disabled = self.ultracode && agent.supports_ultracode();
 
-        let mut pills = launch_pills(&pickable, &unauthed, &terminal_only);
+        let mut pills = launch_pills(&pickable, &unauthed, &no_session);
         pills.extend(external_pills(&externals));
         let builtin_count = pickable.len();
         let mut group = AgentDefaultsGroup::new(
@@ -885,31 +867,30 @@ impl LaunchOptionsSection {
 mod tests {
     use super::*;
 
-    /// EXP-749: an agent a remote machine can RUN but not on its session
-    /// screen keeps its pill and gains a note — the strip never hides it,
-    /// because the run still happens there, in a terminal tab.
+    /// EXP-749: an agent a remote machine has installed but cannot speak ACP
+    /// with keeps its pill and gains a note — the strip never hides it.
     #[test]
-    fn launch_pills_note_terminal_only_agents() {
+    fn launch_pills_note_agents_that_cannot_run_a_session() {
         let all = CodingAgent::ALL.to_vec();
         let pills = launch_pills(&all, &[], &[CodingAgent::Pi]);
         assert_eq!(pills.len(), all.len(), "a note never removes a pill");
         assert_eq!(pills[0].note, None);
         assert_eq!(
             pills[2].note.as_deref(),
-            Some(TERMINAL_ONLY_NOTE),
-            "pi runs in a terminal tab there"
+            Some(NO_SESSION_NOTE),
+            "pi cannot run a session there"
         );
         // Not signed in beats it: that agent cannot run at all yet.
         let pills = launch_pills(&all, &[CodingAgent::Pi], &[CodingAgent::Pi]);
         assert_eq!(pills[2].note.as_deref(), Some("not signed in"));
-        assert!(pills[2].dimmed, "a terminal-tab note never dims a pill");
+        assert!(pills[2].dimmed, "the sign-in note is what dims a pill");
         let pills = launch_pills(&all, &[], &[CodingAgent::Claude]);
         assert!(!pills[0].dimmed);
 
         // The unknown/ready cases the notes derive from.
-        assert!(!runs_in_terminal(None, CodingAgent::Pi));
-        assert!(runs_in_terminal(Some(&[]), CodingAgent::Pi));
-        assert!(!runs_in_terminal(
+        assert!(!cannot_run_session(None, CodingAgent::Pi));
+        assert!(cannot_run_session(Some(&[]), CodingAgent::Pi));
+        assert!(!cannot_run_session(
             Some(&[CodingAgent::Claude, CodingAgent::Pi]),
             CodingAgent::Pi
         ));

@@ -1128,7 +1128,6 @@ dependencies = [
  "dirs",
  "domain",
  "gpui",
- "gpui_platform",
  "libc",
  "log",
  "serde",

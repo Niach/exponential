@@ -51,7 +51,7 @@
     {
       "id": "ide",
       "label": "Desktop IDE",
-      "blurb": "The parts of the desktop app that have no counterpart anywhere else: the file tree, source control and the embedded terminal an agent actually runs in.",
+      "blurb": "The parts of the desktop app that have no counterpart anywhere else: the file tree, source control and a plain shell terminal.",
       "order": 9
     },
     {
@@ -1020,7 +1020,7 @@
       },
       "webMobile": "inherit",
       "notes": {
-        "desktop": "The IDE has no chat PAGE: the dock strip's Chat glyph starts a repo-less chat with the default agent and the run lands as a session tab (ACP) or a terminal tab (PTY). Capture it by hand from a started chat.",
+        "desktop": "The IDE has no chat PAGE: the dock strip's Chat glyph starts a repo-less chat with the default agent and the run lands as a session tab. Capture it by hand from a started chat.",
         "ios": "EXP-739 is web + desktop first; the phone still starts a chat from the launcher's Chat tab (start-coding-chat) and steers it on the session screen.",
         "android": "See ios."
       },
@@ -1928,7 +1928,7 @@
       "id": "terminal",
       "group": "ide",
       "title": "Terminal",
-      "blurb": "The embedded terminal an agent session actually runs in: fullscreen in the content area, one tab in the bottom session bar.",
+      "blurb": "A plain shell terminal: fullscreen in the content area, one tab in the bottom session bar.",
       "order": 3,
       "desktop": {
         "drive": {

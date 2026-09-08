@@ -229,8 +229,9 @@ data class SteerDevice(
 
     /**
      * The agents this machine runs through the ACP engine, in contract order
-     * (EXP-749), or null when it never advertised any — see [acpAgents]. An
-     * agent in [runnableAgents] but NOT here still starts, on a terminal tab.
+     * (EXP-749), or null when it never advertised any — see [acpAgents].
+     * EXP-773 deleted the PTY fallback, so an agent missing from a reported
+     * list cannot start here at all.
      */
     val acpAgentIds: List<String>?
         get() = acpAgents?.let { advertised ->
@@ -238,12 +239,13 @@ data class SteerDevice(
         }
 
     /**
-     * EXP-749: whether starting [agent] here lands in a terminal tab rather
-     * than the session screen. Nothing is filtered on it — the machine runs
-     * the agent either way, the picker just says which experience to expect.
-     * Unknown (null [acpAgentIds]) reads as ACP-ready, the pre-EXP-749 answer.
+     * EXP-773: whether [agent] CANNOT start here — the machine reported an ACP
+     * set and this agent is outside it, and there is no PTY path left. Nothing
+     * is FILTERED on it: the agent stays pickable, the caption says why the
+     * start is blocked. Unknown (null [acpAgentIds]) reads as ready, the
+     * pre-EXP-749 answer.
      */
-    fun agentRunsInTerminal(agent: String): Boolean =
+    fun agentNotReady(agent: String): Boolean =
         acpAgentIds?.let { agent !in it } == true
 
     /** EXP-409: agents installed but signed out — displayed, never offered. */
@@ -302,11 +304,10 @@ data class SteerDevice(
     val canAgentLoginCode: Boolean get() = caps?.contains("agent-login-code") == true
 
     /**
-     * EXP-746: whether this machine runs coding sessions through the in-process
-     * ACP engine (the session screen) rather than only on a terminal PTY.
-     * Read-only here — nothing on mobile picks a transport, and the machine's
-     * own "Start in terminal" default still overrides it; the cap only lets a
-     * picker say which experience a remote start will get.
+     * EXP-746: whether this machine runs coding sessions through the
+     * in-process ACP engine. Read-only here and no longer a gate: every build
+     * above the version floor advertises it (EXP-773 left no other transport),
+     * so nothing filters on it.
      */
     val supportsAcp: Boolean get() = caps?.contains("acp") == true
 

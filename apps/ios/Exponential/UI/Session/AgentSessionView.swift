@@ -230,7 +230,7 @@ struct AgentSessionView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This force-terminates the agent's terminal on the desktop and ends the session.")
+            Text("This stops the agent on the desktop and ends the session.")
         }
         // EXP-678: merging from the steering screen — same confirm-gated flow
         // as the Agents list and Reviews.

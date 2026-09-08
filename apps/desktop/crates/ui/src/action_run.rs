@@ -663,7 +663,7 @@ pub(crate) fn resume_run(
         let prepared = cx
             .background_executor()
             .spawn(async move {
-                coding::prepare_with_hooks(&request, &deps, crate::steer_wiring::sidecars())
+                coding::prepare(&request, &deps)
             })
             .await;
         let _ = window.update(cx, |_, window, cx| match prepared {
@@ -743,7 +743,7 @@ fn launch_action(
         let prepared = cx
             .background_executor()
             .spawn(async move {
-                coding::prepare_with_hooks(&request, &deps, crate::steer_wiring::sidecars())
+                coding::prepare(&request, &deps)
             })
             .await;
         let _ = target.update(cx, |_, window, cx| match prepared {

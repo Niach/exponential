@@ -429,13 +429,16 @@ export function LaunchDialog({
   const missingInputs =
     tab === `actions` ? missingRequiredInputs(inputDefs, inputValues) : []
   const submitBlocked =
-    tab === `issues`
+    // EXP-773: the picked agent is not ACP-ready on the picked machine, so
+    // there is no transport left to start it on (the options pane says so).
+    launch.agentNotReady ||
+    (tab === `issues`
       ? count === 0 || blocked
       : tab === `chat`
         ? // EXP-739: the repo is optional — a repo-less chat runs in the
           // agent's scratch dir; only the prompt gates the start.
           chatPrompt.trim().length === 0
-        : !selectedAction || missingInputs.length > 0
+        : !selectedAction || missingInputs.length > 0)
 
   const submit = () => {
     if (!device || submitBlocked) return

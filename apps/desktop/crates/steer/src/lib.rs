@@ -10,9 +10,8 @@
 //!   reset rule.
 //! - [`publisher`] — the per-coding-session publisher: push the scrubbed
 //!   [`activity`] stream, replay the session [`journal`] on every (re)connect,
-//!   inject remote `input`/`answer` into the shared PTY writer, claim/
-//!   take-over, kill, and auto-reconnect resuming the room. EXP-249 removed
-//!   the binary PTY mirror it used to carry.
+//!   route remote `input`/`answer`/`set_config` into the engine, claim/
+//!   take-over, kill, and auto-reconnect resuming the room.
 //! - [`viewer`] (EXP-696) — the other end of that wire: watch and steer a
 //!   session running on ANOTHER of the user's devices, the role web/iOS/
 //!   Android have had since EXP-249. It joins `channel:'activity'`, turns the
@@ -32,14 +31,11 @@
 //! The `coding` crate deliberately does not depend on `steer` (§3.1); the
 //! app/ui layer (the coding-flow glue) wires both:
 //!
-//! 1. **Publisher attach** — after `coding::spawn_prepared` returns
-//!    `LaunchOutcome::Spawned { session_id, .. }`, call
-//!    [`publisher::publish`] with a [`publisher::PublisherHooks`] built from
-//!    the tab's `Terminal` (`session.writer()` for input inject), then start
-//!    [`activity::spawn_emitter`] with `handle.activity_sender()`, the
-//!    session's [`hooks::HookServer`] receiver, and an [`activity::Steering`]
-//!    seam whose [`activity::AnswerLink`] also rides the publisher hooks. Call
-//!    `handle.shutdown(Some("exit:<code>"))` from the exit hook.
+//! 1. **Publisher attach** — the ACP engine's (`engine::lifecycle`): it
+//!    calls [`publisher::publish`] with [`publisher::PublisherHooks`] wired
+//!    to its own command channel, [`activity::AnswerLink`],
+//!    [`activity::CommandLink`] and [`activity::ConfigLink`], and shuts the
+//!    handle down with the run's outcome.
 //! 2. **Control channel** — once per signed-in account, call
 //!    [`control_channel::spawn_control_channel`] with the persistent
 //!    [`persistent_device_id`], `api::users::hostname()` as the label, and an
@@ -47,9 +43,8 @@
 //!    runs the §7 launcher with `LaunchOrigin::Remote`.
 //! 3. **Kill-switch** — the §8.8 own-row Electric watch lives in
 //!    `sync::kill_watch` (steer cannot depend on `sync`); its `on_ended`
-//!    callback kills the child (`Terminal::kill`) and calls
-//!    `handle.session_ended()` so the publisher stops reconnecting and says
-//!    a clean `bye`.
+//!    callback kills the engine, which stops the publisher and says a clean
+//!    `bye`.
 //! 4. **Viewer attach** (EXP-696) — for a session hosted ELSEWHERE, call
 //!    [`viewer::spawn_viewer`] with a [`viewer::TrpcViewerTickets`] and a
 //!    `flume` sender; drain the receiver on the UI side into a
@@ -62,24 +57,16 @@
 
 pub mod activity;
 pub mod agent_login_driver;
-pub mod codex_activity;
-pub mod codex_approval_picker;
 pub mod codex_login_picker;
 pub mod commands;
 pub mod control_channel;
 pub mod feed;
 pub mod frames;
 pub mod history;
-pub mod hooks;
 pub mod image_message;
 pub mod journal;
 pub mod login_picker;
-pub mod permission_picker;
-pub mod pi_activity;
-pub mod pi_observer;
-pub mod plan_picker;
 pub mod publisher;
-pub mod question_picker;
 pub mod viewer;
 
 use std::sync::Arc;
@@ -93,14 +80,13 @@ pub use control_channel::{
     RemoteStart, RemoteStartSubject, TrpcControlApi,
 };
 pub use activity::{
-    clamp_config_state, launch_narration, normalize_compaction_trigger, pump_commands,
-    spawn_emitter as spawn_activity_emitter, stop_now, synthetic_question_id, truncate,
+    clamp_config_state, normalize_compaction_trigger, stop_now, synthetic_question_id, truncate,
     truncate_marked, worktree_diff, AnswerLink, CommandLink, CommandSink, ConfigChange, ConfigLink,
-    DiffSnapshots, EmitterConfig, NeedsInputForwarder, NeedsInputHook, Redactor, RemoteAnswer,
-    SessionAgent, Steering, TurnSignal, ANSWER_RETRY_TTL, CONFIG_CATEGORY_MAX,
-    CONFIG_COMMANDS_MAX, CONFIG_DESCRIPTION_MAX, CONFIG_HINT_MAX, CONFIG_ID_MAX, CONFIG_LABEL_MAX,
-    CONFIG_MODES_MAX, CONFIG_OPTIONS_MAX, CONFIG_VALUES_MAX, DIFF_INTERVAL, POLL_INTERVAL,
-    QUESTION_OPTIONS_MAX, STOP_GRACE, TRUNCATION_MARKER,
+    DiffSnapshots, NeedsInputForwarder, NeedsInputHook, Redactor, RemoteAnswer, SessionAgent,
+    TurnSignal, ANSWER_RETRY_TTL, CONFIG_CATEGORY_MAX, CONFIG_COMMANDS_MAX,
+    CONFIG_DESCRIPTION_MAX, CONFIG_HINT_MAX, CONFIG_ID_MAX, CONFIG_LABEL_MAX, CONFIG_MODES_MAX,
+    CONFIG_OPTIONS_MAX, CONFIG_VALUES_MAX, DIFF_INTERVAL, POLL_INTERVAL, QUESTION_OPTIONS_MAX,
+    STOP_GRACE, TRUNCATION_MARKER,
 };
 pub use feed::{
     active_question_ids, answer_key, collect_subagents, group_feed_rows, summarize_subagent_row,
@@ -117,10 +103,6 @@ pub use frames::{
 pub use image_message::{
     build_steer_image_message, image_marker, insert_image_marker, parse_steer_message,
     renumber_image_markers, ParsedSteerMessage, MAX_STEER_IMAGES,
-};
-pub use hooks::{
-    hook_settings_json, write_hook_curl_config, HookContext, HookEvent, HookEventKind,
-    HookQuestion, HookQuestionOption, HookServer, HOOK_CONFIG_ENV, HOOK_PORT_ENV,
 };
 pub use history::{
     journal_dir, journal_path, prune_journals, publish_history, read_journal,
@@ -198,6 +180,11 @@ pub struct SteerTicketClaims {
     /// routes on it); the mirror carries it so the claim set stays honest.
     #[serde(default)]
     pub device_id: Option<String>,
+    /// EXP-432: the account that device is registered under, when it is not
+    /// `sub` (a run hosted on someone else's shared machine). Relay-routing
+    /// only, same as `device_id`.
+    #[serde(default)]
+    pub device_owner_id: Option<String>,
     pub role: SteerRole,
     /// Unix seconds.
     pub iat: i64,

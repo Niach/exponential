@@ -524,8 +524,7 @@ fn prepared(session_id: &str, worktree: PathBuf) -> coding::PreparedLaunch {
         base_ref: Some("origin/master".to_string()),
         run_cleanup: None,
         spawn: terminal::pty::SpawnSpec::new("claude"),
-        transport: coding::LaunchTransport::Acp,
-        acp: Some(coding::AcpLaunch {
+        acp: coding::AcpLaunch {
             prompt: None,
             options: coding::LaunchOptions {
                 agent: coding::CodingAgent::Claude,
@@ -539,7 +538,7 @@ fn prepared(session_id: &str, worktree: PathBuf) -> coding::PreparedLaunch {
             session_id: session_id.to_string(),
             resume: None,
             reaper_settings_path: None,
-        }),
+        },
         tab_title: "claude · EXP-746".to_string(),
         tab_title_prefix: "EXP-746".to_string(),
         heartbeat_scope: api::coding_sessions::HeartbeatScope {
@@ -554,7 +553,7 @@ fn prepared(session_id: &str, worktree: PathBuf) -> coding::PreparedLaunch {
             branch: None,
             agent: None,
         },
-        tab_kind: terminal::tab::TabKind::Claude,
+        action_id: None,
         bypass_permissions: true,
         plan_mode: false,
         agent: coding::CodingAgent::Claude,
@@ -562,7 +561,6 @@ fn prepared(session_id: &str, worktree: PathBuf) -> coding::PreparedLaunch {
         codex_originator: None,
         codex_resume_id: None,
         launch_hold: None,
-        transport_notice: None,
     }
 }
 

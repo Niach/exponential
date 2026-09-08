@@ -1200,7 +1200,7 @@ fun AgentSessionScreen(
             title = { Text("Kill this coding session?") },
             text = {
                 Text(
-                    "This force-terminates the agent's terminal on the desktop " +
+                    "This stops the agent on the desktop " +
                         "and ends the session. It cannot be undone.",
                 )
             },

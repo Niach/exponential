@@ -263,34 +263,35 @@ final class SteerDeviceDecodingTests: XCTestCase {
 
     /// EXP-749: `acpAgents` names which runnable agents the machine's ACP
     /// engine can drive. ABSENT is UNKNOWN — every agent is assumed ACP-ready,
-    /// exactly the pre-EXP-749 behaviour — so `agentRunsInTerminal` may only
-    /// be true when the machine actually reported.
-    func testAgentRunsInTerminalOnlyWhenAcpAgentsAreKnown() throws {
+    /// exactly the pre-EXP-749 behaviour — so `agentNotReady` may only be true
+    /// when the machine actually reported. EXP-773 removed the PTY fallback,
+    /// so a reported miss is unstartable rather than a terminal run.
+    func testAgentNotReadyOnlyWhenAcpAgentsAreKnown() throws {
         let result = try decode("""
         {"devices":[
         {"deviceId":"d12","deviceLabel":"macbook","agents":["claude","codex","pi"],
         "acpAgents":["claude","codex","bogus"],"caps":["acp"],"online":true},
         {"deviceId":"d13","deviceLabel":"old-box","agents":["claude","codex"],
         "caps":[],"online":true},
-        {"deviceId":"d14","deviceLabel":"terminal-box","agents":["claude"],
+        {"deviceId":"d14","deviceLabel":"stale-box","agents":["claude"],
         "acpAgents":[],"caps":["acp"],"online":true}]}
         """)
         let reported = try XCTUnwrap(result.devices.first)
         // Values outside the contract never reach the UI copy.
         XCTAssertEqual(reported.acpAgentIds, ["claude", "codex"])
-        XCTAssertFalse(reported.agentRunsInTerminal("claude"))
-        XCTAssertTrue(reported.agentRunsInTerminal("pi"))
+        XCTAssertFalse(reported.agentNotReady("claude"))
+        XCTAssertTrue(reported.agentNotReady("pi"))
 
         let unknown = result.devices[1]
         XCTAssertNil(unknown.acpAgentIds)
-        XCTAssertFalse(unknown.agentRunsInTerminal("claude"))
-        XCTAssertFalse(unknown.agentRunsInTerminal("codex"))
+        XCTAssertFalse(unknown.agentNotReady("claude"))
+        XCTAssertFalse(unknown.agentNotReady("codex"))
 
         // Reported EMPTY is knowledge, not ignorance: nothing runs over ACP
-        // there, so every agent lands in a terminal tab.
+        // there, so no agent can start.
         let none = result.devices[2]
         XCTAssertEqual(none.acpAgentIds, [])
-        XCTAssertTrue(none.agentRunsInTerminal("claude"))
+        XCTAssertTrue(none.agentNotReady("claude"))
     }
 
     /// settings) must not preselect it, or the sheet offers an agent the

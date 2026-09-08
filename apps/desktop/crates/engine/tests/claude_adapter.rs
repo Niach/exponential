@@ -391,7 +391,10 @@ async fn a_plain_turn_streams_once_and_settles_on_end_turn() {
             "commands:2".to_string(),
             // EXP-772: the vocabulary is empty — no option chips anywhere.
             "config:0".to_string(),
-            "mode:auto".to_string(),
+            // No mode event: the init frame reports the CLI's own spelling
+            // (`auto`), which clamps to the `bypassPermissions` this run
+            // already started in. Only the two modes `available_modes`
+            // advertises are ever announced.
             "user:Reply with the single word ok.".to_string(),
             "usage:18201/1000000".to_string(),
             "agent:ok".to_string(),

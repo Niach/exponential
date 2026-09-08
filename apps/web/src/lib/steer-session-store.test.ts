@@ -245,6 +245,68 @@ describe(`connection lifecycle`, () => {
     store.dispose()
   })
 
+  // EXP-773: the relay parks EVERY join it has no live room for, so a run
+  // whose publisher has not hello'd yet gets a device answer instead of
+  // `no_such_session`. None of those answers is an ending while the synced
+  // row says the run is alive.
+  it(`a history bye on a live run goes back to starting and redials`, async () => {
+    const { store, sockets } = makeStore()
+    store.noteSessionStatus(`running`)
+    store.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    const socket = sockets[0]
+    socket.open()
+    socket.frame({ t: `history_pending` })
+    socket.frame({
+      t: `activity`,
+      event: { kind: `narration`, text: `partial` },
+    })
+    socket.frame({ t: `bye`, outcome: `history` })
+    socket.serverClose(4001)
+    expect(store.getSnapshot().phase.kind).toBe(`starting`)
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(sockets.length).toBeGreaterThan(1)
+    store.dispose()
+  })
+
+  it(`a history_unavailable on a live run redials too`, async () => {
+    const { store, sockets } = makeStore()
+    store.noteSessionStatus(`running`)
+    store.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    const socket = sockets[0]
+    socket.open()
+    socket.frame({ t: `history_pending` })
+    socket.frame({ t: `error`, code: `history_unavailable` })
+    socket.frame({ t: `bye`, outcome: `history_unavailable` })
+    socket.serverClose(4001)
+    expect(store.getSnapshot().phase.kind).toBe(`starting`)
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(sockets.length).toBeGreaterThan(1)
+    store.dispose()
+  })
+
+  // The relay's timeout sends the error frame and THEN closes the room with
+  // the same code as the bye outcome — the human caption must survive it.
+  it(`the history timeout keeps its caption instead of the raw outcome`, async () => {
+    const { store, sockets } = makeStore()
+    store.noteSessionStatus(`ended`)
+    store.noteDeviceLabel(`buildbox`)
+    store.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    const socket = sockets[0]
+    socket.open()
+    socket.frame({ t: `history_pending` })
+    socket.frame({ t: `error`, code: `history_unavailable` })
+    socket.frame({ t: `bye`, outcome: `history_unavailable` })
+    socket.serverClose(4001)
+    expect(store.getSnapshot().phase).toEqual({
+      kind: `ended`,
+      detail: `No transcript on buildbox.`,
+    })
+    store.dispose()
+  })
+
   it(`history_unavailable says so, without a device name when none is known`, async () => {
     const { store, sockets } = makeStore()
     store.noteSessionStatus(`ended`)

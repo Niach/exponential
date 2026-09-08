@@ -256,6 +256,12 @@ pub async fn publish_history(
     ws.send(Message::Text(hello))
         .await
         .map_err(|err| format!("hello failed: {err}"))?;
+    // The same frame the live publisher opens with: this replay IS the whole
+    // transcript, so anything a previous replay left in the room's log would
+    // be duplicated in front of it.
+    ws.send(Message::Text(ClientFrame::ActivityReset.to_json()))
+        .await
+        .map_err(|err| format!("activity_reset failed: {err}"))?;
     for event in events {
         let framed = ClientFrame::Activity {
             event: event.clone(),

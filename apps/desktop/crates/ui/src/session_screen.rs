@@ -21,11 +21,10 @@
 //! it is [`resolve_source`].
 //!
 //! This screen owns the CHROME around that transcript — the identity header
-//! with the session's usage and kill, and the "Changes" rail. The transcript
-//! view keeps everything that is about the conversation itself (the feed, the
-//! banners, the composer and its chips), which is why it renders headerless
-//! here ([`SteerSessionView::set_chrome`]) and with its own header in the
-//! dock.
+//! with the session's usage and kill. The transcript view keeps everything
+//! that is about the conversation itself (the feed, the banners, the
+//! Latest-changes bar, the composer and its mode control), which is why it
+//! renders headerless here ([`SteerSessionView::set_chrome`]).
 //!
 //! Lifetime rule: a view lives exactly as long as its TAB. `ScreensPanel`
 //! creates it on first activation and calls [`SessionScreenView::shutdown`]
@@ -44,22 +43,14 @@ use gpui_component::{
     h_flex, popover::Popover, v_flex, ActiveTheme as _, Sizable as _,
 };
 
-use crate::coding_flow::{LocalSessionHost, LocalSessions};
+use crate::coding_flow::LocalSessions;
 use crate::icons::registry;
 use crate::navigation::Screen;
 use crate::steer_viewer::{FeedSource, SteerSessionView};
 
-/// Open `session_id`'s surface in this window.
-///
-/// A run THIS process hosts on the PTY path is its terminal — there is no ACP
-/// conversation to render and nothing to steer remotely about a child whose
-/// grid is right there. Everything else (a local ACP run, a run on another
-/// machine, an ended one) is a session screen.
+/// Open `session_id`'s surface in this window — always a session screen
+/// (EXP-773: a coding run has no terminal tab).
 pub(crate) fn open_session(session_id: &str, window: &mut Window, cx: &mut App) {
-    if let Some((tab, manager)) = pty_tab(session_id, cx) {
-        crate::session_bar::reveal_pty_tab(tab, &manager, window, cx);
-        return;
-    }
     // EXP-746 D5: a resume mints a NEW row id, so opening it plainly would put
     // a second tab beside the run it continues. `screens::sync_session_tabs`
     // reads that link off the synced row, but a LOCAL resume gets here first
@@ -111,7 +102,7 @@ pub(crate) enum SessionFeed {
     /// A finished ACP run replayed off its recorded transcript. Read-only.
     Replay,
     /// The relay viewer — a run on another machine, another process here, or
-    /// any PTY-recorded run whose only history is the room's journal.
+    /// one this machine kept no transcript of.
     Remote,
 }
 
@@ -119,18 +110,22 @@ pub(crate) enum SessionFeed {
 ///
 /// Order matters: a LIVE local engine wins over everything (replaying a run
 /// that is still writing would show a stale transcript beside a live one), and
-/// a replay is only ever offered for an ENDED run recorded on the ACP
-/// transport — a PTY-recorded run has no ACP transcript to load, and a live
-/// remote run belongs on the relay.
+/// a replay is only ever offered for an ENDED run THIS machine kept a
+/// transcript of — anything else belongs on the relay.
+///
+/// `has_transcript` is EXP-773's question: an on-device activity journal, or
+/// (for a run recorded before journals existed) a run-registry record the
+/// engine can re-open. It used to ask for the recorded launch TRANSPORT, back
+/// when a PTY-hosted run had no ACP transcript to load at all.
 pub(crate) fn feed_source_for(
     local_engine: bool,
-    recorded: Option<coding::LaunchTransport>,
+    has_transcript: bool,
     row_ended: bool,
 ) -> SessionFeed {
     if local_engine {
         return SessionFeed::Local;
     }
-    if row_ended && recorded == Some(coding::LaunchTransport::Acp) {
+    if row_ended && has_transcript {
         return SessionFeed::Replay;
     }
     SessionFeed::Remote
@@ -141,23 +136,40 @@ fn resolve_source(session_id: &str, cx: &mut App) -> (SessionFeed, FeedSource) {
     let engine = local_engine(session_id, cx);
     let record =
         coding::run_registry::get(&crate::coding_flow::coding_data_dir(cx), session_id);
+    // EXP-773: the DEVICE's own activity journal is the transcript of a past
+    // run — the exact events the relay fanned out, on disk, with no agent to
+    // respawn. It is preferred for that reason; the engine's `session/load`
+    // replay stays the fallback for a run recorded before journals existed.
+    let journal = journal_events(session_id, cx);
     let feed = feed_source_for(
         engine.is_some(),
-        record.as_ref().map(|record| record.transport()),
+        journal.is_some() || record.is_some(),
         row_ended(session_id, cx),
     );
     match (feed, engine) {
         (SessionFeed::Local, Some(session)) => (SessionFeed::Local, FeedSource::Local { session }),
-        (SessionFeed::Replay, _) => match record.and_then(|record| open_transcript(&record, cx)) {
-            Some(session) => (SessionFeed::Replay, FeedSource::Replay { session }),
-            // The record is there but its transcript is not loadable (no
-            // steer runtime, or the run never got as far as an id). The
-            // transcript view then says so — an empty relay feed with no
-            // explanation is the thing this must not become.
-            None => (SessionFeed::Remote, FeedSource::Remote { handle: None }),
+        (SessionFeed::Replay, _) => match journal {
+            Some(events) => (SessionFeed::Replay, FeedSource::journal(events)),
+            None => match record.and_then(|record| open_transcript(&record, cx)) {
+                Some(session) => (SessionFeed::Replay, FeedSource::Replay { session }),
+                // Neither a journal nor a loadable transcript (no steer
+                // runtime, or the run never got as far as an id). The
+                // transcript view then says so — an empty relay feed with no
+                // explanation is the thing this must not become.
+                None => (SessionFeed::Remote, FeedSource::Remote { handle: None }),
+            },
         },
         _ => (SessionFeed::Remote, FeedSource::Remote { handle: None }),
     }
+}
+
+/// EXP-773 — this device's journal for `session_id`, folded and replay-ready
+/// ([`steer::read_journal`]). `None` when the file is not there: this machine
+/// never ran the session, or the 60-day prune took it, and the caller falls
+/// back to the engine replay and then to the relay.
+fn journal_events(session_id: &str, cx: &App) -> Option<Vec<steer::frames::ActivityEvent>> {
+    let events = steer::read_journal(&crate::coding_flow::coding_data_dir(cx), session_id)?;
+    (!events.is_empty()).then_some(events)
 }
 
 /// Replay `record`'s conversation through the engine (ACP `session/load`).
@@ -216,25 +228,10 @@ fn open_transcript(record: &coding::run_registry::RunRecord, cx: &App) -> Option
 }
 
 /// The in-process ACP engine hosting `session_id`, if this process is running
-/// it (and not on a PTY).
+/// it.
 fn local_engine(session_id: &str, cx: &App) -> Option<engine::EngineSession> {
     let sessions = LocalSessions::global_ref(cx)?;
-    match &sessions.read(cx).session_by_id(session_id)?.host {
-        LocalSessionHost::Acp { session } => Some(session.clone()),
-        LocalSessionHost::Pty { .. } => None,
-    }
-}
-
-/// The terminal tab a run this process hosts occupies, if it is on the PTY
-/// path — the tab plus the manager that owns it.
-fn pty_tab(
-    session_id: &str,
-    cx: &App,
-) -> Option<(terminal::TabId, gpui::WeakEntity<terminal::TerminalManager>)> {
-    let sessions = LocalSessions::global_ref(cx)?;
-    let sessions = sessions.read(cx);
-    let host = &sessions.session_by_id(session_id)?.host;
-    Some((host.tab()?, host.manager()?))
+    Some(sessions.read(cx).session_by_id(session_id)?.host.session.clone())
 }
 
 /// Whether the SYNCED row says the run is over.
@@ -259,10 +256,11 @@ pub(crate) struct SessionScreenView {
     /// The engine reported its exit (D2). The synced row carries the same
     /// truth a round trip later — the inner view reads that one itself.
     ended: bool,
-    /// The "Changes" rail's parse of the published worktree diff, and the view
-    /// its expanded half renders into.
-    changes: Option<crate::changes_bar::ChangesSnapshot>,
-    changes_diff: Entity<crate::diff::DiffView>,
+    /// EXP-773: whether this machine still holds the run's workspace, resolved
+    /// ONCE (the registry parse is a file read; a session screen repaints on
+    /// every feed event). `None` until the run is over — a live run offers no
+    /// Resume.
+    resumable: Option<bool>,
     focus_handle: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -309,18 +307,14 @@ impl SessionScreenView {
             view
         });
         // The transcript notifies on every feed change — which is also when
-        // the published diff, the chips and the usage move.
-        let subscription = cx.observe(&inner, |this: &mut Self, _, cx| {
-            this.sync_changes(cx);
-            cx.notify();
-        });
+        // the header's usage and status move.
+        let subscription = cx.observe(&inner, |_: &mut Self, _, cx| cx.notify());
         Self {
             session_id,
             inner,
             feed,
             ended: false,
-            changes: None,
-            changes_diff: cx.new(|cx| crate::diff::DiffView::new(window, cx)),
+            resumable: None,
             focus_handle: cx.focus_handle(),
             _subscriptions: vec![subscription],
         }
@@ -353,87 +347,89 @@ impl SessionScreenView {
         cx.notify();
     }
 
-    // ── Changes rail ──────────────────────────────────────────────────────
+    // ── Header ────────────────────────────────────────────────────────────
 
-    /// Install the parse of the newly published diff, when
-    /// [`crate::changes_bar::sync`] says it changed. Same cache key the dock
-    /// uses: the raw string, so a repaint of an unchanged feed parses nothing.
-    fn sync_changes(&mut self, cx: &mut gpui::Context<Self>) {
-        let next = {
-            // Borrowed, never cloned: the published diff runs to 512 KiB and
-            // this fires on every feed event, so an unchanged one must cost
-            // a pointer comparison.
-            let raw = self.inner.read(cx).latest_diff();
-            crate::changes_bar::sync(self.changes.as_ref(), &self.session_id, raw)
-        };
-        let Some(next) = next else {
-            return;
-        };
-        self.changes = next;
-        if self.changes.as_ref().is_some_and(|state| state.expanded) {
-            self.rebuild_changes_diff(cx);
+    /// Whether the run is over — the engine's own exit edge, the transcript's
+    /// phase, or the synced row.
+    fn run_over(&self, cx: &App) -> bool {
+        self.ended || self.inner.read(cx).session_over()
+    }
+
+    /// EXP-773 — this machine still holds the run's workspace, so the header
+    /// may offer Resume. Resolved once per screen (the registry is a file).
+    fn resume_offered(&mut self, cx: &App) -> bool {
+        if !self.run_over(cx) {
+            return false;
+        }
+        match self.resumable {
+            Some(known) => known,
+            None => {
+                let known = crate::coding_flow::run_is_resumable_ref(&self.session_id, cx);
+                self.resumable = Some(known);
+                known
+            }
         }
     }
 
-    fn rebuild_changes_diff(&mut self, cx: &mut gpui::Context<Self>) {
-        let Some(state) = self.changes.as_ref() else {
-            return;
-        };
-        let prepared = crate::diff::build_scm_diff(&state.files, &cx.theme().highlight_theme);
-        self.changes_diff
-            .update(cx, |diff, cx| diff.set_prepared(prepared, cx));
+    /// EXP-773 — the ended run's byline, the one its list row used to carry
+    /// (machine, agent, who ended it, when). `None` while the row has not
+    /// synced.
+    fn ended_byline(&self, cx: &App) -> Option<SharedString> {
+        let inner = self.inner.read(cx);
+        let row = inner.session_row()?;
+        let byline = crate::run_rows::past_run_byline(
+            row,
+            inner.device_label(cx).as_deref(),
+            chrono::Utc::now().timestamp(),
+        );
+        (!byline.is_empty()).then(|| SharedString::from(byline))
     }
 
-    /// Flip the rail open/shut, building the diff rows the first time it opens
-    /// (they are only worth rendering when visible).
-    fn toggle_changes_expanded(&mut self, cx: &mut gpui::Context<Self>) {
-        let Some(state) = self.changes.as_mut() else {
-            return;
-        };
-        state.expanded = !state.expanded;
-        if state.expanded {
-            self.rebuild_changes_diff(cx);
-        }
-        cx.notify();
-    }
-
-    fn render_changes_rail(&mut self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        let (has_diff, merge, over) = {
-            let inner = self.inner.read(cx);
-            (
-                inner.latest_diff().is_some(),
-                inner
-                    .session_row()
-                    .and_then(|row| crate::changes_bar::merge_meta_for_session(row, cx)),
-                inner.session_over(),
-            )
-        };
-        let merge = crate::changes_bar::merge_when_live(merge, over);
-        if !crate::changes_bar::changes_bar_visible(has_diff, merge.is_some()) {
+    /// EXP-773 — the agent's own summary of a finished run, as a small muted
+    /// block above the transcript. It used to unfold inside the Past list; a
+    /// run is described in ONE place now, and this is it. `None` for a live
+    /// run and for one that left no summary.
+    fn render_summary(&mut self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        if !self.run_over(cx) {
             return None;
         }
-        let state = self.changes.as_ref();
-        let expanded = state.is_some_and(|state| state.expanded);
-        let totals = state.map(|state| (state.additions, state.deletions));
-        Some(crate::changes_bar::render(
-            crate::changes_bar::ChangesSpec {
-                toggle_id: "session-changes-toggle",
-                placement: crate::changes_bar::ChangesPlacement::Rail,
-                totals,
-                expanded,
-                merge,
-                diff_view: self.changes_diff.clone(),
-                on_toggle: Box::new(|this: &mut Self, cx| this.toggle_changes_expanded(cx)),
-                on_merged: None,
-            },
-            cx,
-        ))
+        let summary = self
+            .inner
+            .read(cx)
+            .session_row()?
+            .summary
+            .clone()
+            .filter(|text| !text.trim().is_empty())?;
+        Some(
+            div()
+                .w_full()
+                .flex_shrink_0()
+                .min_w_0()
+                .px_3()
+                .py_2()
+                .border_b_1()
+                .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child(
+                    // EXP-686: the agent writes GFM — render it, never dump
+                    // the source (the `comments.rs` recipe).
+                    crate::markdown::MarkdownView::new(
+                        SharedString::from(format!("session-summary-{}", self.session_id)),
+                        summary,
+                    )
+                    .selectable(true),
+                )
+                .into_any_element(),
+        )
     }
-
-    // ── Header ────────────────────────────────────────────────────────────
 
     fn render_header(&mut self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
+        // EXP-773: an ended run wears its list byline and, when this machine
+        // still holds the workspace, the Resume the Past row used to carry.
+        let resume = self.resume_offered(cx);
+        let byline = self.run_over(cx).then(|| self.ended_byline(cx)).flatten();
         let inner = self.inner.read(cx);
         let (tone, caption) = inner.header_status(cx);
         let (identifier, subject) = inner.header_identity(cx);
@@ -518,12 +514,15 @@ impl SessionScreenView {
                     .text_color(muted)
                     // The status caption already names the device when the
                     // transcript knows it (`phase_label`); append it only
-                    // when it does not.
-                    .child(SharedString::from(match device {
-                        Some(device) if !caption.contains(device.as_str()) => {
-                            format!("{caption} · {device}")
-                        }
-                        _ => caption,
+                    // when it does not. An ENDED run reads its full byline
+                    // instead (machine, agent, who ended it, when).
+                    .child(byline.unwrap_or_else(|| {
+                        SharedString::from(match device {
+                            Some(device) if !caption.contains(device.as_str()) => {
+                                format!("{caption} · {device}")
+                            }
+                            _ => caption,
+                        })
                     })),
             )
             // EXP-746: the session's own context meter. Gone once the run is
@@ -553,6 +552,29 @@ impl SessionScreenView {
                     )
                 },
             )
+            .when(resume, |this| {
+                let session_id = self.session_id.clone();
+                this.child(
+                    Button::new("session-resume")
+                        .ghost()
+                        .cursor_pointer()
+                        .xsmall()
+                        .icon(registry::RUN_RESUME)
+                        .label("Resume")
+                        .on_click(move |_, window, cx| {
+                            // The ONE desktop resume entry point: the
+                            // transport comes from the recorded run, never
+                            // from the setting.
+                            crate::action_run::resume_run(
+                                session_id.clone(),
+                                Some(window.window_handle()),
+                                false,
+                                coding::LaunchOrigin::Local,
+                                cx,
+                            );
+                        }),
+                )
+            })
             .when(can_kill && !self.ended, |this| {
                 let inner = self.inner.clone();
                 this.child(
@@ -634,65 +656,42 @@ impl Focusable for SessionScreenView {
 impl Render for SessionScreenView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let header = self.render_header(cx);
-        let rail = self.render_changes_rail(cx);
-        // `h_flex` centers its items: the column must claim the full height
-        // itself, or the transcript's list has no height to virtualize into
-        // and the header floats mid-panel over nothing.
-        h_flex()
+        let summary = self.render_summary(cx);
+        // EXP-773: one column — the identity header, a finished run's summary,
+        // then the transcript, whose own footer carries the Latest-changes bar
+        // and the composer. The 280px right rail the changes used to live in
+        // is gone.
+        v_flex()
             .size_full()
+            .min_w_0()
             .min_h_0()
-            .items_start()
             .track_focus(&self.focus_handle)
-            .child(
-                v_flex()
-                    .flex_1()
-                    .h_full()
-                    .min_w_0()
-                    .min_h_0()
-                    .child(header)
-                    .child(div().flex_1().min_h_0().child(self.inner.clone())),
-            )
-            .children(rail)
+            .child(header)
+            .children(summary)
+            .child(div().flex_1().min_h_0().child(self.inner.clone()))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{feed_source_for, SessionFeed};
-    use coding::LaunchTransport;
 
     /// The source decision in one table: a live local engine always wins, a
-    /// replay needs BOTH an ACP recording and an ended run, and everything
-    /// else — including every pre-746 record, which reads as the terminal —
-    /// falls back to the relay.
+    /// replay needs BOTH a transcript on this machine and an ended run, and
+    /// everything else falls back to the relay.
     #[test]
-    fn feed_source_for_prefers_the_engine_then_a_replayable_record() {
+    fn feed_source_for_prefers_the_engine_then_a_local_transcript() {
         // A run this process hosts renders its own engine, ended or not: the
         // exit edge arrives on that feed too.
-        assert_eq!(
-            feed_source_for(true, Some(LaunchTransport::Acp), false),
-            SessionFeed::Local
-        );
-        assert_eq!(
-            feed_source_for(true, Some(LaunchTransport::Acp), true),
-            SessionFeed::Local
-        );
-        // An ended ACP run we no longer host replays off its transcript.
-        assert_eq!(
-            feed_source_for(false, Some(LaunchTransport::Acp), true),
-            SessionFeed::Replay
-        );
+        assert_eq!(feed_source_for(true, true, false), SessionFeed::Local);
+        assert_eq!(feed_source_for(true, true, true), SessionFeed::Local);
+        // An ended run we no longer host replays off its on-device transcript.
+        assert_eq!(feed_source_for(false, true, true), SessionFeed::Replay);
         // Still running elsewhere — the relay is the only live feed.
-        assert_eq!(
-            feed_source_for(false, Some(LaunchTransport::Acp), false),
-            SessionFeed::Remote
-        );
-        // A PTY-recorded run has no ACP transcript to load, ended or not.
-        assert_eq!(
-            feed_source_for(false, Some(LaunchTransport::Terminal), true),
-            SessionFeed::Remote
-        );
-        // No local record at all (another machine's run).
-        assert_eq!(feed_source_for(false, None, true), SessionFeed::Remote);
+        assert_eq!(feed_source_for(false, true, false), SessionFeed::Remote);
+        // Nothing on this machine (another machine's run, or a pruned
+        // journal): the relay, which asks that device for the history.
+        assert_eq!(feed_source_for(false, false, true), SessionFeed::Remote);
+        assert_eq!(feed_source_for(false, false, false), SessionFeed::Remote);
     }
 }

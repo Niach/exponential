@@ -1044,6 +1044,10 @@ export function createSteerSessionStore(
     // EXP-773: a history error a redial can only repeat — the close it
     // precedes is terminal, so the wakeup kicks leave it alone.
     let terminalError = false
+    // EXP-773: this dial was parked on a device transcript. On a run the
+    // synced row still calls live that answer is about the JOURNAL, never
+    // about the run: the publisher just has not hello'd yet.
+    let sawHistoryPending = false
     let detail: string | null = null
 
     try {
@@ -1156,6 +1160,7 @@ export function createSteerSessionStore(
             // EXP-773: the relay parked this viewer and asked the device for
             // the run's journal. Never a redial state — the relay answers
             // with the transcript, `history_unavailable` or `device_offline`.
+            sawHistoryPending = true
             phase = {
               kind: `history_pending`,
               detail: `Fetching the transcript from ${deviceLabel ?? `the device`}…`,
@@ -1172,11 +1177,20 @@ export function createSteerSessionStore(
             } else {
               sawEnd = true
               // EXP-773: `history` is the journal republish closing itself
-              // out — the feed stays, with the plain ended caption.
-              detail =
-                f.outcome && f.outcome !== `ended` && f.outcome !== `history`
-                  ? f.outcome
-                  : null
+              // out — the feed stays, with the plain ended caption. The two
+              // history failures arrive as an `error` frame FIRST and then as
+              // this outcome; the caption that arm wrote is the human one, so
+              // it is never overwritten with the raw code.
+              if (!terminalError) {
+                detail =
+                  f.outcome &&
+                  f.outcome !== `ended` &&
+                  f.outcome !== `history` &&
+                  f.outcome !== `history_unavailable` &&
+                  f.outcome !== `device_offline`
+                    ? f.outcome
+                    : null
+              }
             }
             return
           }
@@ -1214,6 +1228,18 @@ export function createSteerSessionStore(
         // A half-delivered replay is worth less than the last complete
         // picture — the reader keeps what they were reading (EXP-656).
         discardStaging()
+        // EXP-773: the relay opens a pending history room for ANY join it
+        // has no live room for, so a run whose publisher is still connecting
+        // gets a device answer instead of `no_such_session`: a partial
+        // transcript, `history_unavailable` or `device_offline`, each closing
+        // the socket. None of them is an ending while the synced row says the
+        // run is alive — go back to `starting` and redial for the publisher.
+        if (sawHistoryPending && sessionStatus !== `ended`) {
+          phase = { kind: `starting` }
+          commit()
+          scheduleRedial()
+          return
+        }
         if (sawEnd) {
           phase = { kind: `ended`, detail: detail ?? undefined }
           // A run that ended mid-fold is not compacting any more (EXP-724).

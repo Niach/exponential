@@ -38,10 +38,11 @@ pub fn run(args: &[String]) -> CommandResult {
     print_check("codex", &report.codex);
     print_check("pi", &report.pi);
 
-    if settings.start_in_terminal {
+    if report.check_for(settings.default_agent).acp != Some(true) {
         println!();
         println!(
-            "  Note: \"Start in terminal\" is on, so every session runs in a terminal tab whatever the acp rows say."
+            "  Note: {} cannot run a coding session here — the acp row above says why.",
+            settings.default_agent.label()
         );
     }
 

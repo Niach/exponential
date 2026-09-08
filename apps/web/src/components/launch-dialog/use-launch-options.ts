@@ -10,6 +10,7 @@ import {
   defaultDeviceId,
   deviceAgentIds,
   deviceAgentLaunchDefaults,
+  deviceAgentNotReady,
   deviceDefaultAgent,
   type SteerDevice,
 } from "@/lib/steer-devices"
@@ -31,6 +32,10 @@ export interface LaunchOptions {
   /** Agents the settled device advertised (EXP-201). */
   availableAgents: string[]
   agent: string
+  /** EXP-773: the picked agent is outside the settled device's reported ACP
+   * set, so it cannot start there — every launch surface blocks submit on it
+   * while the options pane renders the "not ready" note. */
+  agentNotReady: boolean
   /** Re-seeds model/effort/toggles from the device's defaults for `next`. */
   switchAgent: (next: string) => void
   model: string
@@ -174,6 +179,7 @@ export function useLaunchOptions({
     setDeviceId,
     availableAgents,
     agent,
+    agentNotReady: deviceAgentNotReady(device, agent),
     switchAgent,
     model,
     setModel,

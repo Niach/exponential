@@ -217,6 +217,39 @@ describe(`ticket claim composition`, () => {
       )
     ).not.toHaveProperty(`deviceId`)
   })
+
+  it(`viewer: names the device's owner only when it differs (EXP-432)`, () => {
+    // A run hosted on someone else's machine: the relay indexes presence by
+    // device owner, so the host rides along.
+    expect(
+      buildSteerTicketClaims(
+        {
+          kind: `viewer`,
+          userId: `user-1`,
+          teamId: `ws-1`,
+          sessionId: `session-1`,
+          deviceId: `dev-1`,
+          deviceOwnerId: `host-1`,
+        },
+        NOW
+      )
+    ).toMatchObject({ deviceId: `dev-1`, deviceOwnerId: `host-1` })
+    // The caller's own machine: `sub` already is the owner, so the extra
+    // claim stays off the wire.
+    expect(
+      buildSteerTicketClaims(
+        {
+          kind: `viewer`,
+          userId: `user-1`,
+          teamId: `ws-1`,
+          sessionId: `session-1`,
+          deviceId: `dev-1`,
+          deviceOwnerId: `user-1`,
+        },
+        NOW
+      )
+    ).not.toHaveProperty(`deviceOwnerId`)
+  })
 })
 
 describe(`mintSteerTicket`, () => {

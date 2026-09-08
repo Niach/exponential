@@ -113,7 +113,9 @@ pub fn classify_line(line: &str) -> Incoming {
 /// the doctor probe, which have no runtime).
 pub struct AppServer {
     next_id: AtomicU64,
-    pending: Mutex<HashMap<u64, flume::Sender<Result<Value, Value>>>>,
+    /// `Arc` so a [`Waiter`] can outlive the borrow that created it and still
+    /// unregister itself on drop (EXP-766).
+    pending: PendingMap,
     writer: Arc<dyn LineSink>,
     /// Owning the child here is what kills it: dropping the last `AppServer`
     /// reference drops the transport's guard. Handing it to the router thread
@@ -123,19 +125,12 @@ pub struct AppServer {
     _child: Option<ChildLines>,
 }
 
+/// The id → waiter registry, shared with every outstanding [`Waiter`].
+type PendingMap = Arc<Mutex<HashMap<u64, flume::Sender<Result<Value, Value>>>>>;
+
 /// EXP-758: how many routed frames may wait on a consumer that is not keeping
 /// up, per queue. See [`AppServer::route`].
 const ROUTER_QUEUE_MAX: usize = 4096;
-
-/// EXP-766: how long the router blocks on a full queue for a frame that must
-/// not be lost. Long enough that a busy consumer catches up, short enough that
-/// a truly wedged one cannot park the router (the thread that also resolves
-/// responses) for the rest of the run.
-#[cfg(not(test))]
-const ROUTER_SEND_TIMEOUT: Duration = Duration::from_secs(30);
-/// The same lever, shortened so the wedged-consumer tests stay fast.
-#[cfg(test)]
-const ROUTER_SEND_TIMEOUT: Duration = Duration::from_millis(200);
 
 /// Notifications the router MAY drop when its queue is full: the per-token
 /// streams whose loss costs a rendering detail and nothing else. Every other
@@ -147,6 +142,27 @@ fn droppable_notification(method: &str) -> bool {
         || method.ends_with("/progress")
         // No reader at all: the engine keys on `item/started` / `item/completed`.
         || method == "item/updated"
+}
+
+/// One in-flight request's answer, and its registry entry.
+///
+/// EXP-766: the entry goes away when the WAITER does, not when the answer
+/// arrives. Every caller has a deadline over it (`CALL_TIMEOUT`, the
+/// interrupt's own timeout, a cancelled task) and dropping the future on a
+/// timeout used to leave the sender in `pending` for the life of the
+/// connection, one leaked entry per timed-out call.
+struct Waiter {
+    id: u64,
+    rx: flume::Receiver<Result<Value, Value>>,
+    pending: PendingMap,
+}
+
+impl Drop for Waiter {
+    fn drop(&mut self) {
+        if let Ok(mut pending) = self.pending.lock() {
+            pending.remove(&self.id);
+        }
+    }
 }
 
 impl AppServer {
@@ -204,25 +220,30 @@ impl AppServer {
     )> {
         let server = Arc::new(AppServer {
             next_id: AtomicU64::new(1),
-            pending: Mutex::new(HashMap::new()),
+            pending: Arc::new(Mutex::new(HashMap::new())),
             writer,
             _child: child,
         });
 
-        // EXP-758: BOUNDED. An unbounded queue turns an adapter that stops
-        // draining (a wedged handler, a paused pump) into unbounded memory
-        // growth fed by the app-server's stdout, with no symptom until the
-        // machine notices. The cap is deliberately far above any real backlog
-        // (a session that is 4096 frames behind is already broken).
+        // EXP-766: this thread also RESOLVES responses, so it must NEVER
+        // park. A blocking send parks it on the slowest consumer, and then
+        // every in-flight request behind it waits on that consumer too: a
+        // replay connection never drains its queues at all, so the wait had
+        // no end and the whole connection deadlocked. The stdout reader is
+        // bounded and lossy above it (`STDOUT_LINES_CAP`), so a parked router
+        // also loses raw lines, responses included.
         //
-        // EXP-766: WHAT a full queue does depends on the frame. Dropping a
-        // token delta costs a rendering detail; dropping a `turn/completed`
-        // parks `wait_for_turn` forever and dropping a server request leaves
-        // codex waiting for an answer that can never come. So only
-        // delta-class notifications drop; everything else applies
-        // backpressure for [`ROUTER_SEND_TIMEOUT`], and a request that STILL
-        // cannot be queued is answered on the wire with an error.
-        let (notification_tx, notifications) = flume::bounded(ROUTER_QUEUE_MAX);
+        // What a backlog costs decides the shape of each queue:
+        //
+        // - notifications ride an UNBOUNDED queue, and the EXP-758 cap
+        //   applies only to the delta class. Losing a token delta costs a
+        //   rendering detail; losing `turn/completed` parks `wait_for_turn`
+        //   forever.
+        // - requests ride a bounded queue with a NON-BLOCKING send, and one
+        //   that does not fit is refused on the wire: an unanswered approval
+        //   hangs the turn, and a bound is safe because every request needs
+        //   an answer from a consumer that is by then plainly gone.
+        let (notification_tx, notifications) = flume::unbounded();
         let (request_tx, requests) = flume::bounded(ROUTER_QUEUE_MAX);
         // WEAK on purpose: a strong reference here would keep the child alive
         // for as long as the router thread runs, which is precisely as long as
@@ -238,13 +259,7 @@ impl AppServer {
                         Incoming::ServerRequest { id, method, params } => {
                             let method_name = method.clone();
                             let request_id = id.clone();
-                            if request_tx
-                                .send_timeout(
-                                    ServerRequest { id, method, params },
-                                    ROUTER_SEND_TIMEOUT,
-                                )
-                                .is_err()
-                            {
+                            if request_tx.try_send(ServerRequest { id, method, params }).is_err() {
                                 // Never leave codex waiting: an unanswered
                                 // approval hangs the turn (EXP-766).
                                 log::warn!(
@@ -258,18 +273,17 @@ impl AppServer {
                             }
                         }
                         Incoming::Notification { method, params } => {
-                            if droppable_notification(&method) {
-                                if notification_tx.try_send((method.clone(), params)).is_err() {
-                                    log::warn!(
-                                        "engine: codex notification queue full, dropped {method}"
-                                    );
-                                }
-                            } else if notification_tx
-                                .send_timeout((method.clone(), params), ROUTER_SEND_TIMEOUT)
-                                .is_err()
+                            if droppable_notification(&method)
+                                && notification_tx.len() >= ROUTER_QUEUE_MAX
                             {
                                 log::warn!(
-                                    "engine: codex notification queue wedged, lost {method}"
+                                    "engine: codex notification queue full, dropped {method}"
+                                );
+                            } else if notification_tx.send((method.clone(), params)).is_err() {
+                                // The receiver is gone: the connection is
+                                // being torn down, not wedged.
+                                log::debug!(
+                                    "engine: codex notification stream closed, lost {method}"
                                 );
                             }
                         }
@@ -306,7 +320,7 @@ impl AppServer {
     }
 
     /// Register a waiter and write the request line.
-    fn issue(&self, method: &str, params: Value) -> Result<flume::Receiver<Result<Value, Value>>, Value> {
+    fn issue(&self, method: &str, params: Value) -> Result<Waiter, Value> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = flume::bounded(1);
         {
@@ -316,20 +330,21 @@ impl AppServer {
                 .map_err(|_| json!({ "message": "codex pending registry poisoned" }))?;
             pending.insert(id, tx);
         }
+        let waiter = Waiter { id, rx, pending: Arc::clone(&self.pending) };
         let line = json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params });
         if let Err(err) = self.writer.write_line(&line.to_string()) {
-            if let Ok(mut pending) = self.pending.lock() {
-                pending.remove(&id);
-            }
+            // The guard's drop unregisters the id.
             return Err(json!({ "message": format!("codex stdin write failed: {err}") }));
         }
-        Ok(rx)
+        Ok(waiter)
     }
 
     /// One request, awaited. `Err` is the app-server's own JSON-RPC error.
     pub async fn request(&self, method: &str, params: Value) -> Result<Value, Value> {
-        let rx = self.issue(method, params)?;
-        rx.recv_async()
+        let waiter = self.issue(method, params)?;
+        waiter
+            .rx
+            .recv_async()
             .await
             .map_err(|_| json!({ "message": "codex app-server dropped the request" }))?
     }
@@ -342,8 +357,10 @@ impl AppServer {
         params: Value,
         timeout: Duration,
     ) -> Result<Value, Value> {
-        let rx = self.issue(method, params)?;
-        rx.recv_timeout(timeout)
+        let waiter = self.issue(method, params)?;
+        waiter
+            .rx
+            .recv_timeout(timeout)
             .map_err(|_| json!({ "message": format!("codex {method} timed out") }))?
     }
 
@@ -1130,6 +1147,22 @@ mod tests {
         }
     }
 
+    /// A fake app-server that answers every request of ours on the SAME
+    /// stream the router reads, so a response has to travel the router thread
+    /// to reach its waiter.
+    struct Echo(flume::Sender<String>);
+    impl LineSink for Echo {
+        fn write_line(&self, line: &str) -> std::io::Result<()> {
+            let value = serde_json::from_str::<Value>(line).unwrap_or(Value::Null);
+            if let Some(id) = value.get("id").and_then(Value::as_u64) {
+                let _ = self.0.send(
+                    json!({ "jsonrpc": "2.0", "id": id, "result": { "ok": true } }).to_string(),
+                );
+            }
+            Ok(())
+        }
+    }
+
     /// Every line the router wrote back to the app-server.
     #[derive(Default)]
     struct Recorder(Mutex<Vec<Value>>);
@@ -1185,7 +1218,7 @@ mod tests {
     /// EXP-766: a lifecycle frame is never dropped for a consumer that is
     /// merely slow. Dropping `turn/completed` parks `wait_for_turn` forever.
     #[test]
-    fn a_lifecycle_frame_waits_for_a_slow_consumer() {
+    fn a_lifecycle_frame_survives_a_slow_consumer() {
         let (lines, incoming) = flume::unbounded();
         for index in 0..ROUTER_QUEUE_MAX {
             lines
@@ -1254,10 +1287,8 @@ mod tests {
         let (server, _notifications, requests) =
             AppServer::attach(incoming, Arc::clone(&recorder) as Arc<dyn LineSink>)
                 .expect("the router starts");
-        drain_within(&lines, 30);
+        drain_within(&lines, 10);
         assert_eq!(requests.len(), ROUTER_QUEUE_MAX);
-        // The LAST refusal is still inside its send timeout when the router
-        // takes the line off the stream.
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
         while recorder.0.lock().expect("the recorder").len() < overflow
             && std::time::Instant::now() < deadline
@@ -1268,6 +1299,70 @@ mod tests {
         assert_eq!(written.len(), overflow, "one error per refused request");
         assert_eq!(written[0]["id"], json!(format!("srv-{ROUTER_QUEUE_MAX}")));
         assert!(written[0]["error"]["message"].is_string());
+        drop(server);
+    }
+
+    /// EXP-766, the deadlock this file is being fixed for: the router thread
+    /// is the ONLY thread that resolves responses, so a subscriber that never
+    /// reads must not be able to stop it. It used to block on a send, which
+    /// left every in-flight request waiting on that subscriber.
+    #[test]
+    fn a_wedged_subscriber_cannot_block_a_response() {
+        let (lines, incoming) = flume::unbounded();
+        // Both queues jammed well past their cap, by consumers that read
+        // nothing at all: a replay connection starts no pumps.
+        for index in 0..ROUTER_QUEUE_MAX + 256 {
+            lines
+                .send(
+                    json!({
+                        "jsonrpc": "2.0",
+                        "method": "turn/completed",
+                        "params": { "turnId": format!("turn_{index}") },
+                    })
+                    .to_string(),
+                )
+                .expect("the fake stdout accepts the frame");
+            lines
+                .send(
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": format!("srv-{index}"),
+                        "method": "item/commandExecution/requestApproval",
+                        "params": {},
+                    })
+                    .to_string(),
+                )
+                .expect("the fake stdout accepts the frame");
+        }
+        // The receivers stay BOUND and unread for the whole test.
+        let (server, _notifications, _requests) =
+            AppServer::attach(incoming, Arc::new(Echo(lines.clone()))).expect("the router starts");
+        let answer = server
+            .request_blocking("thread/read", json!({}), Duration::from_secs(10))
+            .expect("the response resolved behind the jammed queues");
+        assert_eq!(answer["ok"], json!(true));
+        drop(server);
+    }
+
+    /// EXP-766: a call that times out unregisters itself. The waiters used to
+    /// stay in `pending` for the life of the connection, one per timed-out
+    /// call, and every one of them held a live channel.
+    #[test]
+    fn a_timed_out_call_leaves_no_waiter_behind() {
+        let (lines, incoming) = flume::unbounded();
+        // A sink that never answers: the call can only time out.
+        let (server, _notifications, _requests) =
+            AppServer::attach(incoming, Arc::new(Discard)).expect("the router starts");
+        for _ in 0..4 {
+            assert!(server
+                .request_blocking("thread/read", json!({}), Duration::from_millis(10))
+                .is_err());
+        }
+        assert!(
+            server.pending.lock().expect("the registry").is_empty(),
+            "a timed-out waiter unregisters itself"
+        );
+        drop(lines);
         drop(server);
     }
 

@@ -43,21 +43,19 @@ use std::sync::Arc;
 
 use gpui::{
     div, px, App, AppContext as _, Entity, IntoElement, ParentElement, Render,
-    SharedString, Styled, Subscription, WeakEntity, Window,
+    SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, notification::Notification, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
-    WindowExt as _,
+    h_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use sync::Store;
-use terminal::{TabId, TabKind, TerminalManager, TerminalManagerEvent};
+use terminal::TerminalManager;
 
 use coding::{
     run_doctor,
     run_registry::{RunKind, RunRecord},
-    CodingDeps, DoctorReport, IssueSeed, LaunchOptions, LaunchOrigin, LaunchOutcome, LaunchRequest,
-    Settings,
+    CodingDeps, DoctorReport, IssueSeed, LaunchOptions, LaunchOrigin, LaunchRequest, Settings,
 };
 
 use crate::controls::WebControl as _;
@@ -286,50 +284,18 @@ pub enum SessionSubject {
 /// session screen. Everything that used to reach for the tab goes through
 /// this instead, so the two hosts never grow parallel registries.
 #[derive(Clone)]
-pub enum LocalSessionHost {
-    Pty {
-        tab: TabId,
-        manager: WeakEntity<TerminalManager>,
-    },
-    Acp {
-        session: engine::EngineSession,
-    },
+pub struct LocalSessionHost {
+    pub session: engine::EngineSession,
 }
 
 impl LocalSessionHost {
-    /// The dock tab this run occupies, when it has one.
-    pub fn tab(&self) -> Option<TabId> {
-        match self {
-            LocalSessionHost::Pty { tab, .. } => Some(*tab),
-            LocalSessionHost::Acp { .. } => None,
-        }
-    }
-
-    /// The manager owning [`Self::tab`], when there is one.
-    pub fn manager(&self) -> Option<WeakEntity<TerminalManager>> {
-        match self {
-            LocalSessionHost::Pty { manager, .. } => Some(manager.clone()),
-            LocalSessionHost::Acp { .. } => None,
-        }
-    }
-
     /// "Stop this session."
     ///
-    /// The PTY arm closes the tab — `close_tab` kills the child and joins the
-    /// PTY threads, and the `TabClosed` watcher then fires the idempotent
-    /// `codingSessions.end` and clears the bookkeeping. The ACP arm kills the
-    /// engine, whose own end sequence (D14) ends the row and reports through
-    /// `EngineHost::on_exit`. Either way the row must never ghost.
+    /// Killing the engine runs its own end sequence (D14): it ends the row
+    /// and reports through `EngineHost::on_exit`, so the row never ghosts.
     pub fn stop(&self, cx: &mut App) {
-        match self {
-            LocalSessionHost::Pty { tab, manager } => {
-                let tab = *tab;
-                if let Some(manager) = manager.upgrade() {
-                    manager.update(cx, |manager, cx| manager.close_tab(tab, cx));
-                }
-            }
-            LocalSessionHost::Acp { session } => session.kill("ended"),
-        }
+        let _ = cx;
+        self.session.kill("ended");
     }
 }
 
@@ -464,29 +430,6 @@ impl LocalSessions {
             .any(|session| is_fix_conflicts_run(session.action_id.as_deref()))
     }
 
-    /// The coding session id whose terminal tab is `tab`, if this process is
-    /// coding it (reverse of the subject-keyed maps — the §8.5 banner resolves
-    /// a dock tab back to its steer session).
-    pub fn session_id_for_tab(&self, tab: TabId) -> Option<&str> {
-        self.all()
-            .find(|session| session.host.tab() == Some(tab))
-            .map(|session| session.session_id.as_str())
-    }
-
-    /// The subject whose terminal tab is `tab` — the terminal dock resolves
-    /// an issue-session tab back to its issue for the EXP-325 issue-styled
-    /// chip (status glyph + identifier + synced title).
-    pub fn subject_for_tab(&self, tab: TabId) -> Option<&SessionSubject> {
-        self.session_for_tab(tab).map(|session| &session.subject)
-    }
-
-    /// The live local session whose terminal tab is `tab` — the terminal
-    /// dock's merge affordance needs both the subject AND the branch
-    /// (EXP-498: a batch tab's merge target resolves by branch match).
-    pub fn session_for_tab(&self, tab: TabId) -> Option<&LocalCodingSession> {
-        self.all().find(|session| session.host.tab() == Some(tab))
-    }
-
     /// The live local session with this `coding_sessions` ROW id — the
     /// reverse of [`Self::session_for_tab`]. EXP-686: the automations run log
     /// resolves a synced live row back to the tab this process is hosting it
@@ -505,14 +448,10 @@ impl LocalSessions {
     }
 
     /// EXP-746: every in-process ACP engine this app hosts — the app-quit
-    /// sweep's kill list (a PTY child dies with its terminal; an engine's
-    /// does not).
+    /// sweep's kill list.
     pub(crate) fn acp_hosts(&self) -> Vec<engine::EngineSession> {
         self.all()
-            .filter_map(|session| match &session.host {
-                LocalSessionHost::Acp { session } => Some(session.clone()),
-                LocalSessionHost::Pty { .. } => None,
-            })
+            .map(|session| session.host.session.clone())
             .collect()
     }
 
@@ -624,7 +563,7 @@ impl LocalSessions {
     fn insert(
         sessions: &Entity<LocalSessions>,
         session: LocalCodingSession,
-        trpc: Arc<api::TrpcClient>,
+        _trpc: Arc<api::TrpcClient>,
         cx: &mut App,
     ) {
         // EXP-229: persist the row id so a crash / forced logout / failed
@@ -641,76 +580,6 @@ impl LocalSessions {
         let subject = session.subject.clone();
         let session_key = session.session_id.clone();
         let mut watchers: Vec<Subscription> = Vec::new();
-        // EXP-746: both watchers below are PTY-only — an ACP run has no tab to
-        // close and no manager to be released with, and its engine owns the
-        // end sequence (D14) instead.
-        let pty = match &session.host {
-            LocalSessionHost::Pty { tab, manager } => {
-                manager.upgrade().map(|manager| (*tab, manager))
-            }
-            LocalSessionHost::Acp { .. } => None,
-        };
-        if let Some((tab, manager)) = pty {
-            {
-                let sessions = sessions.downgrade();
-                let watch_subject = subject.clone();
-                let watch_tab = tab;
-                let session_id = session.session_id.clone();
-                let trpc = Arc::clone(&trpc);
-                watchers.push(cx.subscribe(
-                    &manager,
-                    move |_, event: &TerminalManagerEvent, cx| {
-                        if *event != TerminalManagerEvent::TabClosed(watch_tab) {
-                            return;
-                        }
-                        // End the row off the foreground (idempotent
-                        // server-side — a normal exit already ended it
-                        // before the close).
-                        spawn_tracked_end(Arc::clone(&trpc), session_id.clone());
-                        // EXP-283: detach the steer side (stop publisher +
-                        // emitter, unwatch the kill-watch) so our own end's
-                        // synced `ended` flip can't read back as a remote
-                        // kill. No-op when the kill path already detached.
-                        // The bye outcome is `ended`, NOT `killed`: closing a
-                        // tab is a normal end, and remote viewers label the
-                        // outcome verbatim (only `ended` renders detail-less).
-                        crate::steer_wiring::detach_publisher(
-                            &session_id,
-                            Some("ended".to_string()),
-                            cx,
-                        );
-                        if let Some(sessions) = sessions.upgrade() {
-                            LocalSessions::remove(&sessions, &watch_subject, cx);
-                        }
-                    },
-                ));
-            }
-            {
-                let sessions = sessions.downgrade();
-                let watch_subject = subject.clone();
-                let session_id = session.session_id.clone();
-                let trpc = Arc::clone(&trpc);
-                watchers.push(cx.observe_release(&manager, move |_, cx| {
-                    // A normal end already removed the entry (and with it
-                    // this subscription) — reaching here means the window
-                    // died around a live session. Idempotent server-side;
-                    // tracked so a release-cascade-then-quit still waits.
-                    spawn_tracked_end(trpc, session_id.clone());
-                    // EXP-283: same detach as the exit/close edges — the end
-                    // above flips the row, and the kill-watch must not read
-                    // our own flip back as a remote kill. `ended`, not
-                    // `killed`: a released window is a normal end for viewers.
-                    crate::steer_wiring::detach_publisher(
-                        &session_id,
-                        Some("ended".to_string()),
-                        cx,
-                    );
-                    if let Some(sessions) = sessions.upgrade() {
-                        LocalSessions::remove(&sessions, &watch_subject, cx);
-                    }
-                }));
-            }
-        }
         // EXP-498: merge always closes, but a batch session's row can't be
         // ended server-side (issue_id NULL, no batch↔PR linkage) — so the
         // desktop closes it itself when its branch's synced issues reach a
@@ -1034,7 +903,7 @@ pub fn install_quit_hook(cx: &mut App) {
         // child dies in the engine thread's `ChildGuard` drop, which our exit
         // never waited for, so ⌘Q with a live codex run orphaned `codex
         // app-server` and every tool subprocess under it (only claude carries
-        // the `claude-hooks` reaper anchor). Wait each engine out on the SAME
+        // the reaper's `claude-hooks` anchor). Wait each engine out on the SAME
         // deadline the row ends drain against; the network calls above are
         // already running on their own threads, so the two waits overlap.
         for session in &engines {
@@ -1469,219 +1338,6 @@ pub fn resume_blocker(record: &RunRecord, cx: &mut App) -> Option<String> {
     None
 }
 
-/// EXP-746: which host a prepared launch goes to. Pure, so the dispatch is a
-/// unit test rather than a gpui one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum SpawnArm {
-    /// A terminal tab in this window's dock — the pre-746 path, byte-identical.
-    Pty,
-    /// An in-process ACP engine rendered by the session screen.
-    Acp,
-}
-
-pub(crate) fn arm_for(transport: coding::LaunchTransport) -> SpawnArm {
-    match transport {
-        coding::LaunchTransport::Terminal => SpawnArm::Pty,
-        coding::LaunchTransport::Acp => SpawnArm::Acp,
-    }
-}
-
-/// Foreground half of the launch. The transport was decided at PREPARE time
-/// (`coding::resolve_transport` — an Acp-prepared launch has no TUI argv, so
-/// there is nothing to fall back to here); this only routes it to its host.
-///
-/// Every caller — the Start-coding dialog, the three relay start handlers,
-/// `action_run::resume_run`, the dock's chat launch — funnels through here,
-/// which is what keeps "there is no second, divergent start implementation"
-/// true across both transports.
-pub fn spawn_into_window(
-    prepared: coding::PreparedLaunch,
-    subject: SessionSubject,
-    window: &mut Window,
-    cx: &mut App,
-) -> Result<(), String> {
-    match arm_for(prepared.transport) {
-        SpawnArm::Pty => spawn_pty_into_window(prepared, subject, window, cx),
-        SpawnArm::Acp => spawn_acp_into_window(prepared, subject, window, cx),
-    }
-}
-
-/// The longest a transport notice may run in a toast: one line, no wrap.
-const TRANSPORT_NOTICE_MAX: usize = 160;
-
-/// EXP-758: the one-line form of `PreparedLaunch::transport_notice` (the
-/// launcher's "Started in a terminal because codex's ACP check failed"), or
-/// `None` when there is nothing to say. Pure so the shaping is testable
-/// without a window: a silent fallback to the PTY is exactly the surprise
-/// this notice exists to remove, so it must never be swallowed by a blank or
-/// a multi-line string.
-fn transport_notice_line(notice: &str) -> Option<SharedString> {
-    let flattened = notice.split_whitespace().collect::<Vec<_>>().join(" ");
-    if flattened.is_empty() {
-        return None;
-    }
-    Some(SharedString::from(steer::truncate(
-        &flattened,
-        TRANSPORT_NOTICE_MAX,
-    )))
-}
-
-/// Spawn the prepared agent tab into THIS window's dock, register the local
-/// session (play→stop), and hook the exit edge to clear it again. Shared by
-/// the single-issue and batch paths — only the [`SessionSubject`] differs. A
-/// spawn failure never strands the row — `spawn_prepared_with` already ends
-/// it.
-fn spawn_pty_into_window(
-    mut prepared: coding::PreparedLaunch,
-    subject: SessionSubject,
-    window: &mut Window,
-    cx: &mut App,
-) -> Result<(), String> {
-    let Some(manager) = window_terminal_manager(window, cx) else {
-        // No terminals in this window — end the already-started row so the
-        // "coding now" badge doesn't ghost (§7.1 step 6 created it).
-        if let Some(trpc) = queries::trpc_client(cx) {
-            end_row_best_effort(&Arc::new(trpc), &prepared.session_id);
-        }
-        return Err("No terminal in this window.".to_string());
-    };
-    let Some(trpc) = queries::trpc_client(cx) else {
-        return Err("Not signed in.".to_string());
-    };
-    let trpc = Arc::new(trpc);
-
-    // The P9 refresher inputs, snapshotted before the spawn consumes them.
-    let clone = prepared.clone.clone();
-    let repository_id = prepared.repository_id.clone();
-    // EXP-478: taken out BEFORE `spawn_prepared_with` — its `..` destructure
-    // would drop the hold pre-spawn, reopening the prune window it guards.
-    let launch_hold = prepared.launch_hold.take();
-    // The emitter's per-session facts (EXP-275 posture, EXP-383 agent,
-    // EXP-443 identities, EXP-432 requester), snapshotted the same way.
-    let steer_info = crate::steer_wiring::SteerSessionInfo {
-        bypass_permissions: prepared.bypass_permissions,
-        plan_mode: prepared.plan_mode,
-        agent: prepared.agent,
-        claude_session_id: prepared.claude_session_id.clone(),
-        codex_originator: prepared.codex_originator.clone(),
-        codex_resume_id: prepared.codex_resume_id.clone(),
-        started_by_id: prepared.heartbeat_scope.started_by_id.clone(),
-        // EXP-688: the emitter measures the published diff from here.
-        base_ref: prepared.base_ref.clone(),
-    };
-    // Action identity for the registry's exit announcement (EXP-257).
-    let action_id = match &prepared.tab_kind {
-        TabKind::Action(id) => Some(id.clone()),
-        _ => None,
-    };
-    // EXP-637: automation attribution (decides an agent-declared end's tab
-    // policy) and the run worktree to reclaim at exit.
-    let started_reason = prepared.heartbeat_scope.started_reason.clone();
-    let run_cleanup = prepared.run_cleanup.clone();
-    // EXP-484: which agent this tab is running.
-    let agent = prepared.agent;
-    // EXP-688: the dock's Latest-changes bar polls the branch diff here.
-    let base_ref = prepared.base_ref.clone();
-    // EXP-758: why this run is on a PTY at all, when the launcher fell back
-    // to the terminal transport rather than choosing it.
-    let transport_notice = prepared
-        .transport_notice
-        .as_deref()
-        .and_then(transport_notice_line);
-
-    let sessions = LocalSessions::global(cx);
-    let notify_sessions = sessions.downgrade();
-    let notify_subject = subject.clone();
-    let notify_session_id = prepared.session_id.clone();
-    let exit_notify: coding::ExitNotify = Box::new(move |exit, cx: &mut App| {
-        // EXP-283: detach the steer side FIRST — the exit hook just spawned
-        // the `codingSessions.end` thread, and the kill-watch must be
-        // unregistered before our own `ended` flip syncs back via Electric,
-        // or it reads as a remote kill and closes the exited tab (which must
-        // stay open with the exit strip, §7.5). Also stops the publisher with
-        // the spec'd `exit:<code>` bye and halts the activity emitter.
-        crate::steer_wiring::detach_publisher(
-            &notify_session_id,
-            Some(format!("exit:{}", exit.code)),
-            cx,
-        );
-        if let Some(sessions) = notify_sessions.upgrade() {
-            LocalSessions::remove(&sessions, &notify_subject, cx);
-        }
-    });
-
-    match coding::spawn_prepared_with(prepared, &manager, cx, Arc::clone(&trpc), Some(exit_notify))
-    {
-        Ok(LaunchOutcome::Spawned { session_id, terminal_tab, worktree, branch }) => {
-            // §08 steer publisher attach — tee this session's PTY out to the
-            // relay for phone steering. Best-effort: a no-op when steer is
-            // disabled/unreachable or the account is signed out. This is the
-            // single hookup the §08 wiring owns (`ui::steer_wiring`). The
-            // worktree rides along for the §P7 scrubbed activity emitter
-            // (members-only activity channel).
-            crate::steer_wiring::attach_publisher_pty(
-                &session_id,
-                &subject,
-                terminal_tab,
-                &manager,
-                worktree.clone(),
-                steer_info,
-                cx,
-            );
-            // P9: keep the clone's embedded token fresh for the session's
-            // life (released via LocalSessions::remove on either exit path).
-            // Repo-less action runs have no clone and nothing to refresh.
-            if let Some(repository_id) = &repository_id {
-                TokenRefreshers::retain(&clone, repository_id, cx);
-            }
-            LocalSessions::insert(
-                &sessions,
-                LocalCodingSession {
-                    session_id,
-                    subject,
-                    clone,
-                    branch,
-                    host: LocalSessionHost::Pty {
-                        tab: terminal_tab,
-                        manager: manager.downgrade(),
-                    },
-                    action_id,
-                    agent,
-                    worktree,
-                    base_ref,
-                    started_reason,
-                    run_cleanup,
-                },
-                trpc,
-                cx,
-            );
-            // EXP-478: released only now that the session is registered —
-            // every prune policy derived from here on carries the branch in
-            // `held_branches`; the gate covered the gap since before the
-            // worktree existed. Failure arms release via RAII instead.
-            drop(launch_hold);
-            // EXP-758: a run that SILENTLY landed on the terminal transport
-            // (the ACP probe failed, say) reads as the app ignoring the
-            // user's settings. Say it once, where the run just opened.
-            if let Some(notice) = transport_notice {
-                log::info!("[ui] transport notice: {notice}");
-                window.push_notification(Notification::info(notice), cx);
-            }
-            Ok(())
-        }
-        Ok(LaunchOutcome::Disabled { reason }) => Err(reason.message()),
-        Err(err) => Err(format!("Could not start the coding session: {err}")),
-    }
-}
-
-
-// ---------------------------------------------------------------------------
-// The ACP arm (EXP-746 D2)
-// ---------------------------------------------------------------------------
-
-/// The engine's exit callback. It fires on the engine's own thread, so the
-/// only thing it may do is hand the exit to the gpui foreground — the
-/// `steer_wiring` [`flume`] recipe.
 struct DesktopEngineHost {
     exits: flume::Sender<engine::EngineExit>,
 }
@@ -1707,9 +1363,11 @@ impl engine::EngineHost for DesktopEngineHost {
 /// 4. The hold is dropped only after `LocalSessions` registered the session,
 ///    so the auto-prune never sees an unheld worktree.
 ///
-/// Unlike the PTY arm this needs no terminal dock: an ACP run has no tab, so
-/// a window without one is a perfectly good host.
-fn spawn_acp_into_window(
+/// EXP-773: the ONE spawn path. A coding session has no tab, so a window
+/// without a terminal dock is a perfectly good host. Every caller — the
+/// Start-coding dialog, the three relay start handlers,
+/// `action_run::resume_run`, the chat launch — funnels through here.
+pub fn spawn_into_window(
     mut prepared: coding::PreparedLaunch,
     subject: SessionSubject,
     window: &mut Window,
@@ -1727,10 +1385,7 @@ fn spawn_acp_into_window(
     let worktree = prepared.worktree.clone();
     let base_ref = prepared.base_ref.clone();
     let agent = prepared.agent;
-    let action_id = match &prepared.tab_kind {
-        TabKind::Action(id) => Some(id.clone()),
-        _ => None,
-    };
+    let action_id = prepared.action_id.clone();
     let started_reason = prepared.heartbeat_scope.started_reason.clone();
     let started_by_id = prepared.heartbeat_scope.started_by_id.clone();
     let run_cleanup = prepared.run_cleanup.clone();
@@ -1833,7 +1488,7 @@ fn spawn_acp_into_window(
             subject,
             clone,
             branch,
-            host: LocalSessionHost::Acp { session },
+            host: LocalSessionHost { session },
             action_id,
             agent,
             worktree,
@@ -2000,24 +1655,11 @@ impl StartCodingControl {
     /// the PTY threads, after which the `TabClosed` watcher fires the
     /// idempotent `codingSessions.end`), an ACP engine is killed.
     ///
-    /// EXP-746: the confirm copy names what actually happens, so the terminal
-    /// sentence is not shown to someone whose run has no terminal.
     fn stop(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let Some(issue_id) = self.issue_id.clone() else {
             return;
         };
-        let in_terminal = LocalSessions::global_ref(cx).is_some_and(|sessions| {
-            sessions
-                .read(cx)
-                .get(&issue_id)
-                .is_some_and(|session| session.host.tab().is_some())
-        });
-        let detail = if in_terminal {
-            "The agent stops immediately and the terminal tab closes. \
-             Uncommitted work in the worktree is kept."
-        } else {
-            "The agent stops immediately. Uncommitted work in the worktree is kept."
-        };
+        let detail = "The agent stops immediately. Uncommitted work in the worktree is kept.";
         let spec = crate::native_dialog::AlertSpec::new(
             "Stop this coding session?",
             detail,
@@ -2334,62 +1976,6 @@ mod tests {
             quit_engine_wait(deadline, nearly_spent),
             QUIT_ENGINE_MIN_WAIT
         );
-    }
-
-    /// EXP-758: the launcher's transport fallback is a one-line toast on the
-    /// tab it opened, never a silent downgrade.
-    #[test]
-    fn a_transport_notice_shows_as_one_capped_line() {
-        assert_eq!(
-            transport_notice_line("Started in a terminal because codex's ACP check failed")
-                .as_deref(),
-            Some("Started in a terminal because codex's ACP check failed")
-        );
-        // Wrapped/indented text collapses to one line.
-        assert_eq!(
-            transport_notice_line("Started in a terminal\n  because the ACP check failed")
-                .as_deref(),
-            Some("Started in a terminal because the ACP check failed")
-        );
-        // Nothing to say stays quiet.
-        assert_eq!(transport_notice_line(""), None);
-        assert_eq!(transport_notice_line("  \n\t "), None);
-        // A long one is capped.
-        let long = "n ".repeat(TRANSPORT_NOTICE_MAX);
-        assert_eq!(
-            transport_notice_line(&long).map(|line| line.len()),
-            Some(TRANSPORT_NOTICE_MAX)
-        );
-    }
-
-    /// EXP-746: the prepared transport decides the host, and nothing else
-    /// does — no spawn-time fallback, because an Acp-prepared launch has no
-    /// TUI argv and a Terminal-prepared one has no ACP payload.
-    #[test]
-    fn spawn_dispatch_follows_the_prepared_transport() {
-        assert_eq!(arm_for(coding::LaunchTransport::Terminal), SpawnArm::Pty);
-        assert_eq!(arm_for(coding::LaunchTransport::Acp), SpawnArm::Acp);
-    }
-
-    /// EXP-746: "stop this session" reaches the right backend. The PTY arm
-    /// closes its tab (whose `TabClosed` watcher ends the row); the ACP arm
-    /// kills the engine (whose end sequence does). Asserted over the shape,
-    /// since neither side is constructible without gpui.
-    #[test]
-    fn local_session_host_stop_targets_the_right_backend() {
-        // A PTY host is the ONLY one with a tab and a manager — every reader
-        // that used to reach for `LocalCodingSession.tab` funnels through
-        // these two accessors, so an ACP run can never be mistaken for one.
-        let acp_has_no_tab = |host: &LocalSessionHost| host.tab().is_none();
-        // The enum is closed, so this is exhaustive by construction: adding a
-        // third backend without a `stop` arm will not compile.
-        fn stop_is_total(host: &LocalSessionHost) -> &'static str {
-            match host {
-                LocalSessionHost::Pty { .. } => "close the tab",
-                LocalSessionHost::Acp { .. } => "kill the engine",
-            }
-        }
-        let _ = (acp_has_no_tab, stop_is_total);
     }
 
     /// Trunk/scratch action runs record no branch — they must never read as

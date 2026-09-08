@@ -97,6 +97,18 @@ pub const BACKLOG_CAP: usize = 4096;
 /// becoming one unbounded string.
 pub const MERGED_OUTPUT_CAP: usize = 256 * 1024;
 
+/// [`BACKLOG_CAP`] for a host with no `LocalSink` (the CLI daemon). It never
+/// reopens a view, but `exponential code` does subscribe a few statements
+/// AFTER `engine::start`, and without a ring every row emitted in that window
+/// was lost. Small enough that a daemon holding it for the whole run costs
+/// nothing, large enough to cover the attach window.
+pub const BACKLOG_CAP_HEADLESS: usize = 64;
+
+/// [`MERGED_OUTPUT_CAP`] for that same small backlog. The attach window
+/// carries at most a command or two, and a daemon has no card to scroll, so
+/// an output row is cut here instead of growing to a quarter megabyte.
+pub const MERGED_OUTPUT_CAP_HEADLESS: usize = 8 * 1024;
+
 /// Why the run must stop. Produced by the host's own kill source: the
 /// desktop's Electric `sync::kill_watch`, the CLI's 15 s tRPC poll.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -426,11 +438,68 @@ impl PendingAsks {
 /// STATE that never enters that backlog.
 pub(crate) struct LocalFeed {
     inner: Mutex<FeedState>,
-    /// EXP-766: whether rows are retained for a LATE subscriber. Only a host
-    /// with a `LocalSink` (the desktop) reopens a view mid-run; the CLI
-    /// daemon subscribes once, before the first frame, and printing does not
-    /// need a replay, so its 4096-row ring was pure retained memory.
-    keep_backlog: bool,
+    /// EXP-766: how much is retained for a LATE subscriber. Only a host with
+    /// a `LocalSink` (the desktop) reopens a view mid-run, so a headless host
+    /// keeps the small ring rather than the 4096-row one.
+    mode: BacklogMode,
+}
+
+/// How much of the feed a host retains for a late subscriber.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BacklogMode {
+    /// A host with a `LocalSink` (the desktop) reopens tabs mid-run and needs
+    /// the whole transcript back, output bytes included.
+    Full,
+    /// A headless host (the CLI daemon). It subscribes once, but a few
+    /// statements after `engine::start`, so it needs the attach window and
+    /// nothing more: [`BACKLOG_CAP_HEADLESS`] rows with their output bodies
+    /// cut at [`MERGED_OUTPUT_CAP_HEADLESS`].
+    Headless,
+}
+
+impl BacklogMode {
+    /// How many rows the ring holds.
+    fn rows(self) -> usize {
+        match self {
+            BacklogMode::Full => BACKLOG_CAP,
+            BacklogMode::Headless => BACKLOG_CAP_HEADLESS,
+        }
+    }
+
+    /// How large one coalesced `Output` row may grow.
+    fn output_bytes(self) -> usize {
+        match self {
+            BacklogMode::Full => MERGED_OUTPUT_CAP,
+            BacklogMode::Headless => MERGED_OUTPUT_CAP_HEADLESS,
+        }
+    }
+
+    /// Whether a single oversized chunk is CUT to fit that cap. Only the
+    /// small ring does; the desktop keeps every byte a command wrote.
+    fn cuts_output(self) -> bool {
+        matches!(self, BacklogMode::Headless)
+    }
+
+    /// The row as it is STORED. Live delivery always carries the event whole;
+    /// this only shapes what a late subscriber replays.
+    fn row(self, event: LocalFeedEvent) -> LocalFeedEvent {
+        let LocalFeedEvent::Output {
+            tool_call_id,
+            chunk,
+            exit_code,
+        } = &event
+        else {
+            return event;
+        };
+        if !self.cuts_output() || chunk.len() <= self.output_bytes() {
+            return event;
+        }
+        LocalFeedEvent::Output {
+            tool_call_id: tool_call_id.clone(),
+            chunk: steer::truncate_marked(chunk, self.output_bytes()),
+            exit_code: *exit_code,
+        }
+    }
 }
 
 impl Default for LocalFeed {
@@ -483,7 +552,7 @@ impl FeedState {
     /// the same tool call, and only while neither carries an exit code (the
     /// closing event stays its own row, so a card still ends where it did).
     /// `true` = merged, nothing to push.
-    fn coalesce(&mut self, event: &LocalFeedEvent) -> bool {
+    fn coalesce(&mut self, event: &LocalFeedEvent, merged_cap: usize) -> bool {
         let LocalFeedEvent::Output {
             tool_call_id,
             chunk,
@@ -500,7 +569,7 @@ impl FeedState {
         else {
             return false;
         };
-        if last_id != tool_call_id || last_chunk.len() + chunk.len() > MERGED_OUTPUT_CAP {
+        if last_id != tool_call_id || last_chunk.len() + chunk.len() > merged_cap {
             return false;
         }
         last_chunk.push_str(chunk);
@@ -509,13 +578,19 @@ impl FeedState {
 }
 
 impl LocalFeed {
-    /// `keep_backlog` = a late subscriber will want the rows back. The
-    /// latest-wins slots are kept either way: they are what makes a feed
+    /// `keep_backlog` = a late subscriber will want the WHOLE transcript back
+    /// ([`BacklogMode::Full`]); otherwise the small headless ring, which still
+    /// covers the window between `engine::start` and the CLI's `subscribe`.
+    /// The latest-wins slots are kept either way: they are what makes a feed
     /// readable at all, and there are four of them.
     pub(crate) fn new(keep_backlog: bool) -> Self {
         Self {
             inner: Mutex::new(FeedState::default()),
-            keep_backlog,
+            mode: if keep_backlog {
+                BacklogMode::Full
+            } else {
+                BacklogMode::Headless
+            },
         }
     }
 
@@ -535,13 +610,11 @@ impl LocalFeed {
             state.phase = Some(phase.clone());
         } else if let Some(slot) = state.slot(&event) {
             *slot = Some(event.clone());
-        } else if !self.keep_backlog {
-            // No replay to serve: live subscribers still get the event.
-        } else if !state.coalesce(&event) {
-            if state.backlog.len() >= BACKLOG_CAP {
+        } else if !state.coalesce(&event, self.mode.output_bytes()) {
+            if state.backlog.len() >= self.mode.rows() {
                 state.backlog.pop_front();
             }
-            state.backlog.push_back(event.clone());
+            state.backlog.push_back(self.mode.row(event.clone()));
         }
         state
             .subscribers
@@ -560,8 +633,9 @@ impl LocalFeed {
     /// the view stuck in `Connecting` for the rest of the run (EXP-746 review
     /// UI-2).
     ///
-    /// Without `keep_backlog` the backlog is empty by construction, so this
-    /// replays the state slots only and then streams live.
+    /// A headless host replays the same way, off the small ring: `exponential
+    /// code` subscribes a few statements after `engine::start`, and those rows
+    /// would otherwise be gone by the time it does.
     pub(crate) fn subscribe(&self) -> flume::Receiver<LocalFeedEvent> {
         let (tx, rx) = flume::unbounded();
         let mut state = self.lock();
@@ -1211,6 +1285,30 @@ where
         .await
 }
 
+/// Whether `mode_id` is one of the modes the agent advertised, read off the
+/// mapper's live `config_state` (the same list every client's mode picker
+/// paints). An empty or absent list means the session has no modes at all.
+fn advertises_mode(mapper: &Mapper, mode_id: &str) -> bool {
+    // The published ids went through the same clamp, so compare like for like.
+    let wanted = steer::truncate(mode_id, steer::CONFIG_ID_MAX);
+    matches!(
+        mapper.config_state(),
+        steer::ActivityEvent::ConfigState { modes: Some(modes), .. }
+            if modes.iter().any(|mode| mode.id == wanted)
+    )
+}
+
+/// The engine's own mirror of a `session/set_mode` that answered Ok.
+///
+/// Gated on [`advertises_mode`]: a session with no modes answers Ok as a
+/// silent NO-OP (pi), and mirroring that would publish a `config_state`
+/// naming a mode the run never entered.
+fn mirror_mode(mapper: &mut Mapper, mode_id: &str, out: &mut MapOut) {
+    if advertises_mode(mapper, mode_id) {
+        mapper.set_current_mode(mode_id, out);
+    }
+}
+
 /// Returns `false` when the loop must stop.
 fn handle_command(
     cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Agent>,
@@ -1271,9 +1369,14 @@ fn handle_command(
                     // `set_mode` answers with nothing, so the engine mirrors
                     // the mode itself; the agent's own `CurrentModeUpdate`
                     // (when it sends one) is then a no-op re-emit.
-                    Ok(_) => ctx.with_mapper(|mapper| {
-                        mapper.set_current_mode(&mode_id.0, &mut out);
-                    }),
+                    //
+                    // Only for a mode the agent actually ADVERTISES: an agent
+                    // with no mode list answers Ok as a silent no-op (pi), and
+                    // mirroring that would publish a `config_state` claiming a
+                    // mode the run never entered.
+                    Ok(_) => {
+                        ctx.with_mapper(|mapper| mirror_mode(mapper, &mode_id.0, &mut out))
+                    }
                     Err(err) => {
                         ctx.with_mapper(|mapper| mapper.on_error(&err.to_string(), &mut out))
                     }
@@ -1736,11 +1839,15 @@ mod tests {
         )));
     }
 
-    /// EXP-766: the CLI daemon has no `LocalSink` and subscribes once, before
-    /// the run starts, so its ring only ever retained memory. Live delivery
-    /// and the state slots are unchanged.
+    /// EXP-766: the CLI daemon has no `LocalSink` and never reopens a view, so
+    /// it keeps the SMALL ring, not the 4096-row one. Live delivery and the
+    /// state slots are unchanged.
+    ///
+    /// The bug the small ring replaced (F14): with NO ring at all, `exponential
+    /// code` lost every row between `engine::start` and its own `subscribe` a
+    /// few statements later, which is the whole connect banner of a fast run.
     #[test]
-    fn without_a_backlog_only_the_state_replays_but_live_events_still_arrive() {
+    fn a_headless_backlog_keeps_the_attach_window_and_streams_live() {
         let feed = LocalFeed::new(false);
         let early = feed.subscribe();
         feed.emit(None, LocalFeedEvent::Phase(EnginePhase::Live));
@@ -1753,11 +1860,39 @@ mod tests {
         // A subscriber attached BEFORE the run saw every row live.
         assert_eq!(narrations(&drain(&early)).len(), BACKLOG_CAP * 2);
 
-        // A late one gets the state and nothing else.
+        // A late one gets the state plus the tail of the small ring.
         let replay = drain(&feed.subscribe());
-        assert!(narrations(&replay).is_empty());
+        let rows = narrations(&replay);
+        assert_eq!(rows.len(), BACKLOG_CAP_HEADLESS);
+        let newest = format!("row {}", BACKLOG_CAP * 2 - 1);
+        assert_eq!(rows.last(), Some(&newest));
         assert_eq!(phases(&replay), vec![EnginePhase::Live]);
         assert_eq!(modes(&replay), vec!["plan"]);
+    }
+
+    /// A daemon holds its ring for the whole run, so the 256 KiB output rows
+    /// the desktop wants are cut down to the attach-window size instead.
+    #[test]
+    fn a_headless_backlog_caps_the_output_rows_it_keeps() {
+        let feed = LocalFeed::new(false);
+        let rx = feed.subscribe();
+        let chunk = "x".repeat(MERGED_OUTPUT_CAP);
+        feed.emit(None, output("tc-1", &chunk, None));
+
+        // Live delivery is untouched: the CLI prints what the command wrote.
+        assert_eq!(
+            outputs(&drain(&rx))
+                .into_iter()
+                .map(|(_, chunk, _)| chunk.len())
+                .collect::<Vec<_>>(),
+            vec![MERGED_OUTPUT_CAP]
+        );
+
+        // What is RETAINED is bounded, and says it was cut.
+        let replayed = outputs(&drain(&feed.subscribe()));
+        assert_eq!(replayed.len(), 1);
+        assert!(replayed[0].1.len() <= MERGED_OUTPUT_CAP_HEADLESS);
+        assert!(replayed[0].1.ends_with(steer::TRUNCATION_MARKER));
     }
 
     fn output(tool_call_id: &str, chunk: &str, exit_code: Option<i32>) -> LocalFeedEvent {
@@ -2070,5 +2205,77 @@ mod tests {
             ElicitationFormMode::new(scope, ElicitationSchema::new()),
             "Which approach?",
         )
+    }
+
+    // ── The `set_mode` mirror (F13) ───────────────────────────────────────
+
+    fn test_mapper() -> Mapper {
+        Mapper::new(crate::mapper::MapperConfig {
+            redactor: Arc::new(steer::Redactor::new(Vec::new())),
+            cwd: PathBuf::from("/tmp/worktree"),
+            agent: steer::SessionAgent::Claude,
+            session_seed: "sess-1".to_string(),
+        })
+    }
+
+    fn advertise(mapper: &mut Mapper, current: &str, ids: &[&str]) {
+        use agent_client_protocol::schema::v1::{SessionMode, SessionModeState};
+        let modes = SessionModeState::new(
+            SessionModeId::new(current),
+            ids.iter()
+                .map(|id| SessionMode::new(SessionModeId::new(*id), *id))
+                .collect(),
+        );
+        let mut out = MapOut::default();
+        mapper.on_session_state(Some(&modes), &[], &[], &mut out);
+    }
+
+    fn current_mode(events: &[steer::ActivityEvent]) -> Vec<String> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                steer::ActivityEvent::ConfigState { current_mode, .. } => current_mode.clone(),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The bug this guards: pi advertises NO modes and answers `set_mode`
+    /// with a silent Ok. Mirroring that Ok published `current_mode = "plan"`
+    /// for a run that never entered plan mode, and every client painted it.
+    #[test]
+    fn a_set_mode_on_a_session_without_modes_publishes_no_config_state() {
+        let mut mapper = test_mapper();
+        let mut out = MapOut::default();
+        mirror_mode(&mut mapper, "plan", &mut out);
+
+        assert!(out.wire.is_empty(), "published {:?}", out.wire);
+        assert!(out.local.is_empty());
+        assert_eq!(current_mode(&[mapper.config_state()]), Vec::<String>::new());
+    }
+
+    /// An advertised mode still mirrors: `set_mode` answers with nothing, so
+    /// the re-emitted `config_state` is the only confirmation the wire has.
+    #[test]
+    fn a_set_mode_on_an_advertised_mode_still_mirrors_it() {
+        let mut mapper = test_mapper();
+        advertise(&mut mapper, "default", &["default", "plan"]);
+        let mut out = MapOut::default();
+        mirror_mode(&mut mapper, "plan", &mut out);
+
+        assert_eq!(current_mode(&out.wire), vec!["plan"]);
+    }
+
+    /// An agent WITH modes, asked for one that is not in its list: same rule,
+    /// nothing is mirrored.
+    #[test]
+    fn a_set_mode_on_an_unknown_mode_publishes_no_config_state() {
+        let mut mapper = test_mapper();
+        advertise(&mut mapper, "default", &["default", "acceptEdits"]);
+        let mut out = MapOut::default();
+        mirror_mode(&mut mapper, "plan", &mut out);
+
+        assert!(out.wire.is_empty(), "published {:?}", out.wire);
+        assert_eq!(current_mode(&[mapper.config_state()]), vec!["default"]);
     }
 }

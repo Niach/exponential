@@ -49,12 +49,6 @@ pub struct AgentDefaultsPatch {
 pub struct DefaultsPatch {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_agent: Option<String>,
-    /// EXP-746: the device-global "Start in terminal" toggle
-    /// ([`Settings::start_in_terminal`]) — a launch KNOB like the per-agent
-    /// ones below, just not per agent. Same EXP-495 posture: omitted when
-    /// `None`, never an explicit null.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub start_in_terminal: Option<bool>,
     pub agents: BTreeMap<String, AgentDefaultsPatch>,
 }
 
@@ -83,14 +77,6 @@ pub fn apply_defaults_patch(settings: &mut Settings, patch: &DefaultsPatch) -> b
             settings.default_agent = agent;
             changed = true;
         }
-    }
-    // EXP-746: absent leaves the local value alone, like every field here.
-    if let Some(start_in_terminal) = patch.start_in_terminal {
-        set_bool(
-            &mut settings.start_in_terminal,
-            start_in_terminal,
-            &mut changed,
-        );
     }
     for (agent_id, entry) in &patch.agents {
         let Some(agent) = CodingAgent::parse(agent_id) else {
@@ -159,7 +145,6 @@ pub fn defaults_wire(settings: &Settings) -> DefaultsPatch {
     }
     DefaultsPatch {
         default_agent: Some(settings.default_agent.id().to_string()),
-        start_in_terminal: Some(settings.start_in_terminal),
         agents,
     }
 }
@@ -411,7 +396,6 @@ mod tests {
         source.claude_ultracode = true;
         source.codex_effort = "high".into();
         source.pi_plan_mode = false;
-        source.start_in_terminal = true;
         let wire = defaults_wire(&source);
         let mut target = Settings::default();
         assert!(apply_defaults_patch(&mut target, &wire));
@@ -420,57 +404,6 @@ mod tests {
         assert!(target.claude_ultracode);
         assert_eq!(target.codex_effort, "high");
         assert!(!target.pi_plan_mode);
-        assert!(target.start_in_terminal, "EXP-746 rides the same wire");
-    }
-
-    /// EXP-746: the device-global toggle rides the SAME defaults wire as the
-    /// per-agent knobs, so a flip on one machine converges everywhere the
-    /// device's launch defaults do.
-    #[test]
-    fn defaults_wire_carries_start_in_terminal() {
-        let mut settings = Settings::default();
-        assert_eq!(defaults_wire(&settings).start_in_terminal, Some(false));
-        settings.start_in_terminal = true;
-        let wire = defaults_wire(&settings);
-        assert_eq!(wire.start_in_terminal, Some(true));
-        // EXP-495: present as a real boolean, never as an explicit null.
-        let json = serde_json::to_value(&wire).unwrap();
-        assert_eq!(json["startInTerminal"], true);
-    }
-
-    #[test]
-    fn apply_defaults_patch_sets_start_in_terminal() {
-        let mut settings = Settings::default();
-        assert!(!settings.start_in_terminal);
-        let patch = DefaultsPatch {
-            start_in_terminal: Some(true),
-            ..DefaultsPatch::default()
-        };
-        assert!(apply_defaults_patch(&mut settings, &patch));
-        assert!(settings.start_in_terminal);
-        // Applying the same value again changes nothing.
-        assert!(!apply_defaults_patch(&mut settings, &patch));
-        // ... and it flips back off.
-        let off = DefaultsPatch {
-            start_in_terminal: Some(false),
-            ..DefaultsPatch::default()
-        };
-        assert!(apply_defaults_patch(&mut settings, &off));
-        assert!(!settings.start_in_terminal);
-    }
-
-    /// A patch from an older host (or one that only touched the agent map)
-    /// must never RESET the local toggle.
-    #[test]
-    fn a_patch_without_the_field_leaves_it_alone() {
-        let mut settings = Settings::default();
-        settings.start_in_terminal = true;
-        let patch: DefaultsPatch =
-            serde_json::from_str(r#"{"defaultAgent":"codex","agents":{}}"#).unwrap();
-        assert_eq!(patch.start_in_terminal, None);
-        apply_defaults_patch(&mut settings, &patch);
-        assert!(settings.start_in_terminal, "an absent field is not a reset");
-        assert_eq!(settings.default_agent, CodingAgent::Codex);
     }
 
     // -- remove_worktree_remote ------------------------------------------------

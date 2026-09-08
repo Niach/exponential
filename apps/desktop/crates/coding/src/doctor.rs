@@ -384,10 +384,10 @@ pub struct AgentAdvertisement {
     /// EXP-746: the runnable agents that also speak ACP ([`ToolCheck::acp`]).
     /// EXP-749 puts it on the `devices.register` payload and the synced
     /// `devices.acp_agents` column, so remote pickers can SAY which agents
-    /// would start in a terminal tab on that machine. They never filter on
-    /// it: a not-ready agent still runs there, on the PTY path. An empty
-    /// list is a real answer ("none of them"); only a NULL column — an older
-    /// build's row — means "unknown, assume all".
+    /// can actually run a session on that machine (EXP-773: an agent that is
+    /// not ACP-ready cannot start one at all). An empty list is a real answer
+    /// ("none of them"); only a NULL column — an older build's row — means
+    /// "unknown, assume all".
     pub acp_agents: Vec<String>,
 }
 
@@ -473,7 +473,7 @@ fn run_doctor_with_depth(settings: &Settings, depth: DoctorDepth) -> DoctorRepor
 /// [`MIN_CLAUDE_VERSION`], and stamp the SEPARATE, non-fatal ACP readiness
 /// (EXP-746) from [`MIN_CLAUDE_ACP_VERSION`]. An unparseable version stays
 /// green — never falsely block a nonstandard build — and its ACP readiness
-/// stays unknown (`None`), which resolves to the PTY path.
+/// stays unknown (`None`), which refuses a coding launch with the note.
 fn apply_version_gate(check: &mut ToolCheck) {
     if !check.ok {
         return;
@@ -488,8 +488,7 @@ fn apply_version_gate(check: &mut ToolCheck) {
         let (acp_major, acp_minor, acp_patch) = MIN_CLAUDE_ACP_VERSION;
         check.acp_note = Some(format!(
             "Claude Code {major}.{minor}.{patch} has no ACP control protocol. \
-Update to {acp_major}.{acp_minor}.{acp_patch}+ for the session screen; \
-sessions run in a terminal tab until then."
+Update to {acp_major}.{acp_minor}.{acp_patch}+ to run coding sessions."
         ));
     }
     if version < MIN_CLAUDE_VERSION {
@@ -515,6 +514,7 @@ sessions run in a terminal tab until then."
 /// which still resolved to the engine and then died in the handshake. Like
 /// claude's, the floor is non-fatal (the run falls back to the PTY) and an
 /// unparseable version stays ready: never falsely demote a nonstandard build.
+/// EXP-773: a launch below the floor is REFUSED (there is no PTY left).
 fn apply_codex_acp(check: &mut ToolCheck) {
     check.acp = Some(check.ok);
     if !check.ok {
@@ -532,8 +532,7 @@ fn apply_codex_acp(check: &mut ToolCheck) {
     check.acp = Some(false);
     check.acp_note = Some(format!(
         "Codex {major}.{minor}.{patch} has no app-server this build can drive. \
-Update to {min_major}.{min_minor}.{min_patch}+ for the session screen; \
-sessions run in a terminal tab until then."
+Update to {min_major}.{min_minor}.{min_patch}+ to run coding sessions."
     ));
 }
 
@@ -546,8 +545,8 @@ pub fn probe_codex_acp(program: &str, path_env: &str) -> bool {
 }
 
 /// The copy a pi build without the rpc mode gets (EXP-746).
-const PI_NO_RPC_MODE_NOTE: &str = "This pi build has no rpc mode. Update pi for the session \
-screen; sessions run in a terminal tab until then.";
+const PI_NO_RPC_MODE_NOTE: &str = "This pi build has no rpc mode. Update pi to run coding \
+sessions.";
 
 /// EXP-755: the last `pi --mode rpc` verdict, per resolved program path.
 ///
@@ -1546,8 +1545,9 @@ mod tests {
         assert!(device_caps(&advert(&["claude"])).len() <= 16);
     }
 
-    /// EXP-746: ACP readiness NEVER gates a launch — a machine whose agents
-    /// all lack it still passes the doctor and simply runs in terminal tabs.
+    /// EXP-746: ACP readiness is not part of the DOCTOR's launch gate — a
+    /// machine whose agents all lack it still passes every tool check
+    /// (EXP-773's refusal is the launcher's, with the note below).
     #[test]
     fn acp_readiness_is_non_fatal() {
         let mut claude = green(Tool::Claude, "2.1.215 (Claude Code)");
@@ -2149,7 +2149,7 @@ mod tests {
             .acp_note
             .as_deref()
             .is_some_and(|note| note.contains("no rpc mode")
-                && note.contains("terminal tab")));
+                && note.contains("Update pi")));
 
         let mut again = green(Tool::Pi, "0.80.10");
         probe_pi_rpc(&mut again, &stub.settings(), DoctorDepth::Quick);

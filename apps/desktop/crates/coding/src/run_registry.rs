@@ -251,11 +251,11 @@ pub struct RunRecord {
     /// The ended session THIS run resumed (a resume of a resume chains).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resumed_from_id: Option<String>,
-    /// EXP-746: which engine ran it — `"pty"` or `"acp"`, written by
-    /// `prepare`. A resume RE-ENTERS this transport
-    /// ([`crate::launcher::resolve_transport`]): an ACP run has no TUI
-    /// resume handle and a PTY run has no ACP session id. Missing (every
-    /// pre-746 record) reads as the terminal — see [`RunRecord::transport`].
+    /// EXP-746: which engine ran it. EXP-773 left ONE
+    /// ([`crate::launcher::ACP_TRANSPORT`]) and the field stays on the
+    /// record so an older reader still parses it. A pre-773 `"pty"` value
+    /// (and a missing one) means the run has no ACP session id to reopen —
+    /// see [`RunRecord::is_acp`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transport: Option<String>,
     /// EXP-746: the ACP `sessionId` `session/load` takes — upserted by the
@@ -353,16 +353,13 @@ impl RunRecord {
         })
     }
 
-    /// EXP-746: the engine this run was recorded under. A missing value
-    /// (every pre-746 record) and an id this build does not know both read
-    /// as [`crate::launcher::LaunchTransport::Terminal`] — where a resume
-    /// can always land,
-    /// since the TUI takes the agent's own resume handles.
-    pub fn transport(&self) -> crate::launcher::LaunchTransport {
-        self.transport
-            .as_deref()
-            .and_then(crate::launcher::LaunchTransport::parse)
-            .unwrap_or(crate::launcher::LaunchTransport::Terminal)
+    /// EXP-773: whether this run was recorded on the ACP engine, i.e.
+    /// whether its `acpSessionId` can be re-entered with `session/load`. A
+    /// missing value, the retired `"pty"` and an id this build does not know
+    /// all answer `false` — the resume falls back to the agent's OWN handle
+    /// ([`Self::agent_native_session_id`]) instead.
+    pub fn is_acp(&self) -> bool {
+        self.transport.as_deref() == Some(crate::launcher::ACP_TRANSPORT)
     }
 
     /// Whether the recorded workspace can still be resumed INTO. A
@@ -761,9 +758,9 @@ mod tests {
         record(&dir, acp.clone());
         let loaded = get(&dir, "sess-acp").expect("record");
         assert_eq!(loaded, acp);
-        assert_eq!(loaded.transport(), crate::launcher::LaunchTransport::Acp);
+        assert!(loaded.is_acp());
 
-        // A PTY record carries none of the four keys at all.
+        // A pre-773 record carries none of the four keys at all.
         record(&dir, sample("sess-pty"));
         let entries: Vec<serde_json::Value> =
             serde_json::from_str(&std::fs::read_to_string(registry_path(&dir)).unwrap()).unwrap();
@@ -774,18 +771,14 @@ mod tests {
         for key in ["transport", "acpSessionId", "agentNativeSessionId", "externalAgent"] {
             assert_eq!(pty.get(key), None, "{key} must not be serialized");
         }
-        assert_eq!(
-            get(&dir, "sess-pty").unwrap().transport(),
-            crate::launcher::LaunchTransport::Terminal
-        );
-        // An id this build does not know degrades to the terminal too — the
-        // engine that owns it is not this one.
+        assert!(!get(&dir, "sess-pty").unwrap().is_acp());
+        // An id this build does not know is not the ACP engine either.
         let mut future = sample("sess-future");
         future.transport = Some("quantum".to_string());
-        assert_eq!(
-            future.transport(),
-            crate::launcher::LaunchTransport::Terminal
-        );
+        assert!(!future.is_acp());
+        // ... and neither is the retired PTY value.
+        future.transport = Some("pty".to_string());
+        assert!(!future.is_acp());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -894,7 +887,7 @@ mod tests {
         std::fs::write(registry_path(&dir), json).unwrap();
 
         let loaded = get(&dir, "sess-1").expect("record");
-        assert_eq!(loaded.transport(), crate::launcher::LaunchTransport::Acp);
+        assert!(loaded.is_acp());
         assert_eq!(loaded.acp_session_id.as_deref(), Some("acp-42"));
         assert_eq!(loaded.agent_native_session_id.as_deref(), Some("claude-99"));
         // A field this build has never heard of rides `extra`, as ever.

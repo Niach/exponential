@@ -15,7 +15,6 @@ mod launch;
 mod prefs;
 mod registry;
 mod session_host;
-mod sidecars;
 mod term;
 
 use std::process::ExitCode;

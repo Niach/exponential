@@ -455,6 +455,19 @@ impl ConnectTo<Client> for CodexAgent {
             let load_notifications = notifications.clone();
             let load_requests = requests.clone();
 
+            // EXP-766: a REPLAY connection starts no pumps ([`load_thread`]
+            // answers entirely from the `thread/read` response), so nothing
+            // would ever read the router's notification queue — and that queue
+            // is unbounded for lifecycle frames since the router may never
+            // park. Drain and discard instead: the thread ends when the router
+            // drops its sender at teardown.
+            if shared.spec.replay {
+                let drain = notifications.clone();
+                let _ = std::thread::Builder::new()
+                    .name("codex-replay-drain".to_string())
+                    .spawn(move || while drain.recv().is_ok() {});
+            }
+
             let main_shared = shared.clone();
             let init = shared.clone();
             let new_session = shared.clone();

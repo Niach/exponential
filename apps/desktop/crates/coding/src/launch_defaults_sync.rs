@@ -262,10 +262,6 @@ mod tests {
         settings.claude_model = "opus".into();
         let with_model = defaults_fingerprint(&settings);
         assert_ne!(base, with_model);
-        // EXP-746: `start_in_terminal` IS a launch default (it rides
-        // `defaults_wire`), so the fingerprint moves with it too.
-        settings.start_in_terminal = true;
-        assert_ne!(with_model, defaults_fingerprint(&settings));
     }
 
     #[test]

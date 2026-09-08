@@ -16,10 +16,7 @@ import {
   agentSupportsPlanMode,
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
-import {
-  deviceAgentRunsInTerminal,
-  type SteerDevice,
-} from "@/lib/steer-devices"
+import { deviceAgentNotReady, type SteerDevice } from "@/lib/steer-devices"
 
 // The options column of the unified launch dialog (EXP-257) — a
 // presentational extraction of the Start-coding dialog's right half: device
@@ -125,10 +122,10 @@ type AgentOptionsFieldsProps = {
   effortValue: string
   onEffortChange: (effort: string) => void
   /**
-   * EXP-749: the machine the run lands on. Pickers never FILTER on what it
-   * can drive over ACP — an agent outside its ACP set still starts, just in a
-   * terminal tab — so the only thing this changes is the one-line hint under
-   * the strip. Absent (or a build that never reported) = no hint.
+   * EXP-749/EXP-773: the machine the run lands on. Pickers never FILTER on
+   * what it can drive over ACP; an agent outside its reported set gets a
+   * one-line "not ready" note under the strip instead (and the caller blocks
+   * the start). Absent (or a build that never reported) = no note.
    */
   device?: SteerDevice
 } & (
@@ -198,11 +195,11 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
           })}
         </GlassTabsRow>
       )}
-      {deviceAgentRunsInTerminal(device, agent) && (
-        /* EXP-749: not a warning and not a gate — the run starts either way,
-           it just opens as a terminal tab on that machine. */
+      {deviceAgentNotReady(device, agent) && (
+        /* EXP-773: with the PTY path gone this combination cannot start at
+           all — the caller disables the start button on the same predicate. */
         <div className="px-4 py-2 text-[0.6875rem] text-muted-foreground">
-          {`Runs in a terminal tab on ${device!.deviceLabel || device!.deviceId}.`}
+          {`Not ready on ${device!.deviceLabel || device!.deviceId}. Run the doctor there.`}
         </div>
       )}
       <GlassPickerRow

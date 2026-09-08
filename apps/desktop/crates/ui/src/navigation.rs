@@ -66,6 +66,11 @@ pub enum Screen {
     /// The Automations page (EXP-686 — the web `t/$teamSlug/automations`
     /// page: the automation rows plus "Recent automated runs").
     Automations,
+    /// The Chat page (EXP-772 — the web `t/$teamSlug/chat` page: one centred
+    /// prompt box over a subtle row of launch pickers). Tab-less full-page
+    /// mode like Devices; sending starts a chat run and navigates to its
+    /// [`Screen::Session`].
+    Chat,
     /// The Reviews page (EXP-706 — the web `t/$teamSlug/reviews` page: every
     /// open PR across the team, issue-linked ones grouped by board plus the
     /// unlinked ones grouped by repo). It used to be a sidebar TOOL WINDOW
@@ -167,6 +172,7 @@ impl Screen {
             Screen::Devices
                 | Screen::Actions
                 | Screen::Automations
+                | Screen::Chat
                 | Screen::Reviews
                 | Screen::GettingStarted { .. }
         )
@@ -236,6 +242,7 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
         Screen::Devices => "Devices".into(),
         Screen::Actions => "Actions".into(),
         Screen::Automations => "Automations".into(),
+        Screen::Chat => "Chat".into(),
         Screen::Reviews => "Reviews".into(),
         Screen::GettingStarted { .. } => "Getting started".into(),
     }
@@ -366,6 +373,7 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
         "devices" => Some(Screen::Devices),
         "actions" => Some(Screen::Actions),
         "automations" => Some(Screen::Automations),
+        "chat" => Some(Screen::Chat),
         // EXP-706: Reviews left the rail's tool windows for its own page.
         "reviews" => Some(Screen::Reviews),
         "getting-started" => Some(Screen::GettingStarted {

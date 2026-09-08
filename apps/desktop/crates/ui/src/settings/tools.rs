@@ -29,7 +29,6 @@ use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
     input::{InputEvent, InputState},
-    switch::Switch,
     v_flex, ActiveTheme as _, Disableable as _,
 };
 
@@ -37,9 +36,7 @@ use coding::Settings;
 
 use crate::coding_flow::CodingHub;
 use crate::controls::{glass_input, WebControl as _};
-use crate::launch_options::{START_IN_TERMINAL_HINT, START_IN_TERMINAL_LABEL};
 use crate::native_dialog::{self, AlertSpec};
-use crate::surface::{glass_group_rows, glass_toggle_row};
 
 use super::doctor_section::DoctorPanel;
 use super::{card_header, danger_zone, error_notice, section};
@@ -50,11 +47,6 @@ pub struct ToolsPane {
     /// EXP-288: the shell new `+` terminal tabs spawn; blank = auto
     /// (the placeholder shows the detected platform default).
     shell_input: Entity<InputState>,
-    /// EXP-746 (D7): run coding sessions in a terminal tab instead of the
-    /// in-process session engine. A per-machine launch knob, exactly this
-    /// pane's altitude — but a launch DEFAULT, so `save` pushes it to the
-    /// device row like the rest of them.
-    start_in_terminal: bool,
     /// The shared tooling doctor (EXP-367 — also the onboarding tools step).
     doctor: Entity<DoctorPanel>,
     /// The hub settings the controls were last synced from (dirty baseline).
@@ -91,7 +83,6 @@ impl ToolsPane {
             repos_input,
             prefix_input,
             shell_input,
-            start_in_terminal: false,
             doctor,
             synced: None,
             save_error: None,
@@ -103,13 +94,11 @@ impl ToolsPane {
 
     /// Overlay ONLY this pane's owned fields from `from` onto `onto` — the
     /// single definition `resync`, `drafted` and `save` all lean on, so the
-    /// three can never drift (the [`super::agents`] pane's twin). EXP-746
-    /// added the fourth field; the pane owns exactly these.
+    /// three can never drift (the [`super::agents`] pane's twin).
     fn overlay_owned(onto: &mut Settings, from: &Settings) {
         onto.repos_root = from.repos_root.clone();
         onto.branch_prefix = from.branch_prefix.clone();
         onto.terminal_shell = from.terminal_shell.clone();
-        onto.start_in_terminal = from.start_in_terminal;
     }
 
     /// Mirror the hub's settings into the controls whenever they change out
@@ -136,7 +125,6 @@ impl ToolsPane {
         self.shell_input.update(cx, |input, cx| {
             input.set_value(settings.terminal_shell.clone().unwrap_or_default(), window, cx)
         });
-        self.start_in_terminal = settings.start_in_terminal;
         self.synced = Some(settings);
         cx.notify();
     }
@@ -160,7 +148,6 @@ impl ToolsPane {
         drafted.branch_prefix = value(&self.prefix_input, &defaults.branch_prefix);
         let shell = self.shell_input.read(cx).value().trim().to_string();
         drafted.terminal_shell = (!shell.is_empty()).then_some(shell);
-        drafted.start_in_terminal = self.start_in_terminal;
         drafted
     }
 
@@ -242,21 +229,7 @@ impl Render for ToolsPane {
                 cx,
             ))
             .child(Self::labeled_input("Branch prefix", &self.prefix_input, window, cx))
-            .child(Self::labeled_input("Terminal shell", &self.shell_input, window, cx))
-            // EXP-746 (D7): under the shell it borrows, on the grouped row
-            // rhythm every other switch in Settings wears.
-            .child(glass_group_rows(vec![glass_toggle_row(
-                START_IN_TERMINAL_LABEL,
-                Some(START_IN_TERMINAL_HINT.into()),
-                Switch::new("tools-start-in-terminal")
-                    .checked(self.start_in_terminal)
-                    .on_click(cx.listener(|this, checked: &bool, _, cx| {
-                        this.start_in_terminal = *checked;
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-                cx,
-            )]));
+            .child(Self::labeled_input("Terminal shell", &self.shell_input, window, cx));
 
         let mut save_area = v_flex().gap_2();
         if let Some(error) = &self.save_error {
@@ -301,19 +274,17 @@ impl Render for ToolsPane {
 mod tests {
     use super::*;
 
-    /// The pane's whole contract with its siblings: it owns FOUR settings
+    /// The pane's whole contract with its siblings: it owns THREE settings
     /// fields and touches nothing else, so a save here can never roll back a
-    /// concurrent Agents-pane save (and vice versa). EXP-746 added
-    /// `start_in_terminal` to that list — a fifth field silently joining it
-    /// (or one dropping out of `save`'s overlay) is exactly the bug this
-    /// locks.
+    /// concurrent Agents-pane save (and vice versa). A fourth field silently
+    /// joining it (or one dropping out of `save`'s overlay) is exactly the
+    /// bug this locks.
     #[test]
-    fn the_pane_owns_exactly_four_fields() {
+    fn the_pane_owns_exactly_three_fields() {
         let mut source = Settings::default();
         source.repos_root = "/tmp/repos".to_string();
         source.branch_prefix = "wip/".to_string();
         source.terminal_shell = Some("/bin/zsh".to_string());
-        source.start_in_terminal = true;
         // Fields the AGENTS pane owns — they must not travel.
         source.default_agent = coding::CodingAgent::Codex;
         source.claude_model = "opus".to_string();
@@ -325,7 +296,6 @@ mod tests {
         expected.repos_root = source.repos_root.clone();
         expected.branch_prefix = source.branch_prefix.clone();
         expected.terminal_shell = source.terminal_shell.clone();
-        expected.start_in_terminal = source.start_in_terminal;
         assert_eq!(target, expected);
         assert_eq!(target.default_agent, Settings::default().default_agent);
         assert_eq!(target.claude_model, Settings::default().claude_model);

@@ -79,10 +79,13 @@ fn a_recorded_turn_maps_to_the_wire_vector() {
             // EXP-772: every flush carries the agent's own message id, so a
             // client merges the pieces of ONE message back into one row.
             json!({"kind": "narration", "text": "Looking at the repo", "messageId": "m1"}),
+            // A THOUGHT derives its own id from the message's: the agent gives
+            // the thought and the answer one `messageId`, and merging by it
+            // would fold the chain of thought into the answer row.
             json!({
                 "kind": "narration",
                 "text": "They want the tests green",
-                "messageId": "t1"
+                "messageId": "t1#thought"
             }),
             // The detail is the location path, relative to the worktree.
             json!({"kind": "tool", "name": "Read", "detail": "src/main.rs"}),

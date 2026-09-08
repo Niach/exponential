@@ -66,6 +66,12 @@ pub const COMPACTION_MAX: Duration = Duration::from_secs(300);
 /// and, for a form, its whole field map for the rest of the session.
 pub const ANSWERED_ASKS_MAX: usize = 64;
 
+/// How many SETTLED tool calls keep their title/kind row. A settled call still
+/// gets trailing content-only updates (codex's `outputDelta` lands after the
+/// call reports completed), and those inherit their title and kind from this
+/// table, so the row outlives the settle and is evicted oldest-first instead.
+pub const SETTLED_TOOLS_MAX: usize = 256;
+
 /// The `_meta` key an adapter stamps a subagent edge under (see
 /// [`SubagentEdge`]).
 pub use crate::local::{
@@ -151,6 +157,8 @@ pub struct Mapper {
     /// message (claude's `--replay-user-messages`) is deduped against this.
     pending_echoes: std::collections::VecDeque<String>,
     tools: HashMap<String, ToolState>,
+    /// Settled tool calls in settle order, evicted past [`SETTLED_TOOLS_MAX`].
+    settled_tools: std::collections::VecDeque<String>,
     subagents: HashMap<String, String>,
     /// EXP-748: attributed tool calls per live subagent. The completed edge
     /// reports the total, so a viewer whose replay lost the individual rows
@@ -347,6 +355,7 @@ impl Mapper {
             user: Coalescer::default(),
             pending_echoes: std::collections::VecDeque::new(),
             tools: HashMap::new(),
+            settled_tools: std::collections::VecDeque::new(),
             subagents: HashMap::new(),
             subagent_tool_calls: HashMap::new(),
             subagent_prompts_seen: std::collections::HashSet::new(),
@@ -886,11 +895,20 @@ impl Mapper {
         self.answered_asks.push_back(retired);
         while self.answered_asks.len() > ANSWERED_ASKS_MAX {
             match self.answered_asks.pop_front() {
+                // An agent may REUSE an id for a new card. Evicting by id
+                // alone then deleted a live ask nobody had answered yet, so
+                // an entry that is unanswered is left alone: it owns the id
+                // now and gets retired by its own answer.
                 Some(RetiredAsk::Permission(id)) => {
-                    self.permissions.remove(&id);
-                    self.questions.remove(&id);
+                    if self.permissions.get(&id).is_some_and(|ask| ask.answered) {
+                        self.permissions.remove(&id);
+                        self.questions.remove(&id);
+                    }
                 }
                 Some(RetiredAsk::Elicitation(ask_id)) => {
+                    if !self.elicitations.get(&ask_id).is_some_and(|ask| ask.answered) {
+                        continue;
+                    }
                     if let Some(ask) = self.elicitations.remove(&ask_id) {
                         let total = ask.steps.len();
                         for step in 0..=total {
@@ -1014,24 +1032,31 @@ impl Mapper {
 
     /// A thought is BOTH a capped narration on the wire (viewers have always
     /// seen the agent think) and a richer local item the desktop styles.
+    ///
+    /// The narration carries a DERIVED id, never the assistant message's own:
+    /// a thought and the answer that follows it share one `messageId`, and the
+    /// clients merge narration rows by that key, so the chain of thought
+    /// landed inside the answer bubble. Thoughts of one message still merge
+    /// with each other (same derived id) and never with the answer.
     fn emit_thought(&mut self, flushed: &Flushed, out: &mut MapOut) {
         if flushed.text.trim().is_empty() {
             return;
         }
         let clean = self.clean(&flushed.text, NARRATION_MAX);
+        let message_id = flushed.message_id.as_ref().map(|id| thought_message_id(id));
         emit(
             out,
             ActivityEvent::Narration {
                 text: clean.clone(),
                 before_question_id: None,
-                message_id: flushed.message_id.clone(),
+                message_id: message_id.clone(),
                 subagent_id: flushed.subagent_id.clone(),
                 at: None,
             },
             None,
         );
         out.local.push(LocalFeedEvent::Thought {
-            message_id: flushed.message_id.clone(),
+            message_id,
             text: clean,
         });
     }
@@ -1085,6 +1110,9 @@ impl Mapper {
                 .map(|location| location.path.clone())
                 .collect(),
         });
+        // The id is LIVE again: an eviction queued by an earlier call under
+        // the same id would otherwise drop this one's row mid-flight.
+        self.settled_tools.retain(|settled| settled != &id);
         self.tools.insert(
             id.clone(),
             ToolState {
@@ -1132,10 +1160,26 @@ impl Mapper {
         if let Some(content) = content {
             self.tool_content(&id, kind, content, raw_output.as_ref(), out);
         }
-        // A settled call has no later update to inherit title/kind from, so
-        // its row is dead weight for the rest of the run (EXP-766).
+        // A settled call still gets trailing content-only updates (codex
+        // streams `outputDelta` past the completed status), and dropping the
+        // row right here published those under an empty title and
+        // `ToolKind::Other`. It is retired instead: kept for the next updates
+        // and evicted oldest-first past [`SETTLED_TOOLS_MAX`] (EXP-766).
         if matches!(status, Some(ToolCallStatus::Completed) | Some(ToolCallStatus::Failed)) {
-            self.tools.remove(&id);
+            self.retire_tool(id);
+        }
+    }
+
+    /// Queue a settled tool call for eviction. Re-settling one (a `failed`
+    /// after a `completed`) does not queue it twice.
+    fn retire_tool(&mut self, id: String) {
+        if !self.settled_tools.contains(&id) {
+            self.settled_tools.push_back(id);
+        }
+        while self.settled_tools.len() > SETTLED_TOOLS_MAX {
+            if let Some(evicted) = self.settled_tools.pop_front() {
+                self.tools.remove(&evicted);
+            }
         }
     }
 
@@ -1943,6 +1987,17 @@ fn message_id(chunk: &ContentChunk) -> Option<String> {
     chunk.message_id.as_ref().map(|id| id.0.to_string())
 }
 
+/// The suffix that separates a thought's narration id from its message's.
+const THOUGHT_ID_SUFFIX: &str = "#thought";
+
+/// The id a thought's narration publishes under. The agent gives a thought and
+/// the answer that follows it the SAME `messageId`, and clients merge
+/// narration rows by it, so the thought needs an id of its own.
+fn thought_message_id(message_id: &str) -> String {
+    let head = steer::truncate(message_id, ID_MAX - THOUGHT_ID_SUFFIX.len());
+    format!("{head}{THOUGHT_ID_SUFFIX}")
+}
+
 fn chunk_text(chunk: &ContentChunk) -> String {
     block_text(&chunk.content)
 }
@@ -2714,6 +2769,182 @@ mod tests {
             &plain.wire[0],
             ActivityEvent::Narration { message_id: None, .. }
         ));
+    }
+
+    /// A thought and the answer that follows it carry ONE agent `messageId`,
+    /// and clients merge narration rows by it: the thought has to publish
+    /// under an id of its own or the chain of thought lands in the answer.
+    #[test]
+    fn a_thought_and_its_answer_never_share_a_message_id() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::AgentThoughtChunk(chunk("Weighing it up", Some("msg-1")))),
+            &mut out,
+        );
+        mapper.on_update(
+            &notify(SessionUpdate::AgentMessageChunk(chunk("Here is the fix.", Some("msg-1")))),
+            &mut out,
+        );
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        let ids: Vec<Option<String>> = out
+            .wire
+            .iter()
+            .filter_map(|event| match event {
+                ActivityEvent::Narration { message_id, .. } => Some(message_id.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(ids.len(), 2, "{:?}", out.wire);
+        assert_ne!(ids[0], ids[1], "the thought merged into the answer row");
+        // The answer keeps the agent's own id; the thought derives one, so
+        // two thoughts of one message still merge with each other.
+        assert_eq!(ids[1], Some("msg-1".to_string()));
+        assert_eq!(ids[0], Some(thought_message_id("msg-1")));
+        // The local item agrees with the wire row.
+        assert!(out.local.iter().any(|event| matches!(
+            event,
+            LocalFeedEvent::Thought { message_id, .. }
+                if message_id.as_deref() == Some(thought_message_id("msg-1").as_str())
+        )));
+        // A long id still fits the relay's id cap after the suffix.
+        assert!(thought_message_id(&"m".repeat(ID_MAX * 2)).len() <= ID_MAX);
+    }
+
+    /// codex streams a tool call's output PAST its completed status: the
+    /// settled row is kept, so the trailing content-only update still knows
+    /// the card's title and kind (an `Execute` card's output is dropped
+    /// outright when the kind is lost).
+    #[test]
+    fn a_settled_tool_calls_trailing_output_still_lands_on_its_card() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let call = ToolCall::new(ToolCallId::new("tc-out"), "ls -la").kind(ToolKind::Execute);
+        mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut out);
+        let settled = ToolCallUpdate::new(
+            ToolCallId::new("tc-out"),
+            ToolCallUpdateFields::new().status(ToolCallStatus::Completed),
+        );
+        mapper.on_update(&notify(SessionUpdate::ToolCallUpdate(settled)), &mut MapOut::default());
+
+        let trailing_update = ToolCallUpdate::new(
+            ToolCallId::new("tc-out"),
+            ToolCallUpdateFields::new().content(vec![ToolCallContent::from(ContentBlock::Text(
+                TextContent::new("total 8"),
+            ))]),
+        );
+        let mut trailing = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::ToolCallUpdate(trailing_update)),
+            &mut trailing,
+        );
+        assert!(
+            trailing.local.iter().any(|event| matches!(
+                event,
+                LocalFeedEvent::Output { tool_call_id, chunk, .. }
+                    if tool_call_id == "tc-out" && chunk == "total 8"
+            )),
+            "{:?}",
+            trailing.local
+        );
+        assert!(
+            trailing.local.iter().any(|event| matches!(
+                event,
+                LocalFeedEvent::ToolCall { title, .. } if title == "ls -la"
+            )),
+            "{:?}",
+            trailing.local
+        );
+    }
+
+    /// The retained rows are bounded, and an id the agent REUSES for a new
+    /// call is never evicted by the settle of the old one.
+    #[test]
+    fn settled_tool_rows_are_bounded_and_a_reused_id_is_kept() {
+        fn start(mapper: &mut Mapper, id: &str) {
+            let call = ToolCall::new(ToolCallId::new(id.to_string()), "ls -la").kind(ToolKind::Execute);
+            mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut MapOut::default());
+        }
+        fn settle(mapper: &mut Mapper, id: &str) {
+            let update = ToolCallUpdate::new(
+                ToolCallId::new(id.to_string()),
+                ToolCallUpdateFields::new().status(ToolCallStatus::Completed),
+            );
+            mapper.on_update(&notify(SessionUpdate::ToolCallUpdate(update)), &mut MapOut::default());
+        }
+
+        let mut mapper = mapper();
+        // Settled once, then live again under the same id.
+        start(&mut mapper, "tc-reused");
+        settle(&mut mapper, "tc-reused");
+        start(&mut mapper, "tc-reused");
+
+        for n in 0..SETTLED_TOOLS_MAX + 8 {
+            let id = format!("tc-{n}");
+            start(&mut mapper, &id);
+            settle(&mut mapper, &id);
+        }
+        // The oldest settled rows are gone, the newest are kept.
+        assert!(!mapper.tools.contains_key("tc-0"));
+        assert!(mapper.tools.contains_key(&format!("tc-{}", SETTLED_TOOLS_MAX + 7)));
+        assert!(mapper.settled_tools.len() <= SETTLED_TOOLS_MAX);
+        // The reused id belongs to the LIVE call, which no eviction touches.
+        assert!(mapper.tools.contains_key("tc-reused"));
+    }
+
+    /// EXP-766 eviction is keyed on the ask id, and an agent may reuse one
+    /// for a NEW card: popping it must not delete an ask that is still open.
+    #[test]
+    fn a_reused_ask_id_survives_the_answered_ask_eviction() {
+        fn ask(mapper: &mut Mapper, id: &str) {
+            let request = RequestPermissionRequest::new(
+                SessionId::new("acp-1"),
+                ToolCallUpdate::new(
+                    ToolCallId::new(id.to_string()),
+                    ToolCallUpdateFields::new().title("Write src/main.rs"),
+                ),
+                vec![PermissionOption::new(
+                    PermissionOptionId::new("allow"),
+                    "Yes",
+                    PermissionOptionKind::AllowOnce,
+                )],
+            );
+            mapper.on_permission(&request, &mut MapOut::default());
+        }
+        fn answer(id: &str) -> steer::RemoteAnswer {
+            steer::RemoteAnswer {
+                question_id: id.to_string(),
+                ask_id: None,
+                keys: vec!["allow".to_string()],
+                text: None,
+            }
+        }
+
+        let mut mapper = mapper();
+        ask(&mut mapper, "tc-reused");
+        let answered = answer("tc-reused");
+        mapper.on_answer(&mapper.ask_key(&answered), &answered, &mut MapOut::default());
+        // The same id, a NEW open card.
+        ask(&mut mapper, "tc-reused");
+        // Enough answers to pop the retired entry that named it.
+        for n in 0..ANSWERED_ASKS_MAX {
+            let id = format!("tc-{n}");
+            ask(&mut mapper, &id);
+            let answered = answer(&id);
+            mapper.on_answer(&mapper.ask_key(&answered), &answered, &mut MapOut::default());
+        }
+        assert!(mapper.permissions.contains_key("tc-reused"));
+        assert!(mapper.questions.contains_key("tc-reused"));
+        assert_eq!(mapper.pending_asks(), 1);
+        // Still answerable, not a dropped card.
+        let answered = answer("tc-reused");
+        let mut out = MapOut::default();
+        assert_eq!(
+            mapper.on_answer(&mapper.ask_key(&answered), &answered, &mut out),
+            AnswerDecision::Permission {
+                option_id: "allow".to_string()
+            }
+        );
     }
 
     /// EXP-773: prose and turns inside a subagent are scoped to it, and the

@@ -2312,7 +2312,8 @@ mod tests {
             devices[0].acp_agents,
             Some(vec![coding::CodingAgent::Claude])
         );
-        // Never a filter: pi is still offered, it just runs in a terminal tab.
+        // Never a filter: pi is still offered, the pill just says it cannot
+        // run a session there.
         assert_eq!(
             devices[0].agents,
             vec![coding::CodingAgent::Claude, coding::CodingAgent::Pi]

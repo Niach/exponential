@@ -123,28 +123,24 @@ pub type AttachmentHook = Arc<dyn Fn(&str) -> Result<PathBuf, String> + Send + S
 /// [`PublisherHooks::attachments`], which runs on a blocking task off the
 /// dedicated input task (EXP-514) — never on the pump loop.
 pub struct PublisherHooks {
-    /// Remote `input` frames → the ONE shared PTY writer (§6.5). Build with
-    /// [`pty_writer_input_hook`] over `Terminal::writer()`.
+    /// Remote `input` frames that are NOT whole composer messages (a bare
+    /// `\r`, an `\x1b` interrupt). EXP-773: the engine's
+    /// `line_buffered_input` is the only implementation left.
     pub write_input: InputHook,
     /// Relay-initiated teardown: kill the `claude` child; the exit hook then
     /// ends the `coding_sessions` row (idempotent server-side).
     pub kill: Arc<dyn Fn(KillSignal) + Send + Sync>,
     /// Terminal-state errors worth surfacing (clock skew, repeated rejects).
     pub error: Arc<dyn Fn(String) + Send + Sync>,
-    /// EXP-249: semantic `answer` frames → the activity emitter, which owns
-    /// the live question state and the TUI key choreography. `None` (no
-    /// emitter) makes `answer` a no-op — steerers on such a session fall back
-    /// to the legacy keystroke path.
+    /// EXP-249: semantic `answer` frames → the ACP engine, which owns the
+    /// live question state. `None` makes `answer` a no-op.
     pub answers: Option<Arc<AnswerLink>>,
-    /// EXP-383: which agent CLI the session runs. Message-text frames get
-    /// per-agent composer treatment — the codex TUI hijacks a leading `/`,
-    /// `!` or `@` into a popup/mode whose Enter no longer submits, so those
-    /// messages are prefixed with a space.
+    /// EXP-383: which agent CLI the session runs — the slash-command catalog
+    /// a composer message is matched against.
     pub agent: SessionAgent,
-    /// EXP-383: pi's steer path. `Some` routes whole composer messages to
-    /// the observer extension (which injects them via pi's own
-    /// `sendUserMessage` queue semantics) instead of the PTY; single
-    /// keystrokes still land raw. `None` (claude/codex) keeps the PTY path.
+    /// Whole composer messages → the engine (which turns them into a
+    /// `session/prompt`). `None` writes them through
+    /// [`Self::write_input`] instead.
     pub text_sink: Option<Arc<dyn Fn(String) + Send + Sync>>,
     /// EXP-511: localizes the image embeds of a steered message — every
     /// `![image](/api/attachments/{id})` token is downloaded with this
@@ -154,55 +150,15 @@ pub struct PublisherHooks {
     /// MCP. Build with [`image_localizer`].
     pub attachments: Option<AttachmentHook>,
     /// EXP-724: the remote slash-command seam. A composer message whose
-    /// first token is a catalog `/name` for [`Self::agent`] is NOT typed
-    /// here — it crosses to the emitter, which owns the grid and the turn
-    /// state a command needs. `None` = commands ride the ordinary message
-    /// path (they then reach the agent as prose, the pre-EXP-724 behaviour).
+    /// first token is a catalog `/name` for [`Self::agent`] crosses here
+    /// instead of becoming prose. `None` = commands ride the ordinary
+    /// message path (the pre-EXP-724 behaviour).
     pub commands: Option<Arc<CommandLink>>,
     /// EXP-746: the live-config seam. `set_config`/`set_mode` cross to the
     /// ACP engine here — never through [`Self::write_input`], because there
-    /// are no keystrokes that could express them.
-    ///
-    /// `None` is the PTY path (and every test): a documented NO-OP. A PTY run
-    /// publishes no `config_state`, so no client ever renders a chip for it
-    /// and no conforming viewer sends these frames at all.
+    /// are no keystrokes that could express them. `None` (tests) is a
+    /// documented no-op.
     pub config: Option<Arc<ConfigLink>>,
-}
-
-/// Keystroke frames (`\r` submit, `\x1b` interrupt / CSI sequences, any lone
-/// byte — EXP-78: a single printable char is a picker answer, e.g. a digit
-/// selecting an AskUserQuestion/plan-approval option, and must land raw or the
-/// TUI sees a paste instead of a keypress) must land raw; anything else is
-/// message TEXT from a steerer's composer and gets local-paste treatment
-/// (bracketed, EXP-72 — a one-char message landing unbracketed is
-/// indistinguishable from typing it, harmless).
-fn is_keystroke(bytes: &[u8]) -> bool {
-    bytes.len() == 1 || bytes.first() == Some(&0x1b)
-}
-
-/// [`PublisherHooks::write_input`] over the shared PTY writer
-/// (`Terminal::writer()`): remote keystrokes land exactly like local typing,
-/// and remote message TEXT lands exactly like a local PASTE — bracketed when
-/// the child turned mode 2004 on (EXP-72: an unbracketed text+`\r` burst
-/// trips the `claude` TUI's paste heuristic, which inserts a newline instead
-/// of submitting).
-pub fn pty_writer_input_hook(
-    writer: Arc<std::sync::Mutex<Box<dyn std::io::Write + Send>>>,
-    term: terminal::TermHandle,
-) -> InputHook {
-    Arc::new(move |bytes| {
-        let bracket = !is_keystroke(bytes) && terminal::bracketed_paste_enabled(&term);
-        if let Ok(mut w) = writer.lock() {
-            if bracket {
-                let _ = w.write_all(b"\x1b[200~");
-                let _ = w.write_all(bytes);
-                let _ = w.write_all(b"\x1b[201~");
-            } else {
-                let _ = w.write_all(bytes);
-            }
-            let _ = w.flush();
-        }
-    })
 }
 
 /// [`PublisherHooks::attachments`] over an account's tRPC client (EXP-511):
@@ -461,14 +417,6 @@ impl ActivitySender {
     /// Publish one already-redacted activity event (best-effort).
     pub fn send(&self, event: ActivityEvent) {
         let _ = self.cmd_tx.send(PublisherCmd::Activity(event));
-    }
-
-    /// Test-only pair: a sender plus the receiving end to assert on what the
-    /// activity emitter actually published.
-    #[cfg(test)]
-    pub(crate) fn test_pair() -> (Self, flume::Receiver<PublisherCmd>) {
-        let (cmd_tx, rx) = flume::unbounded();
-        (Self { cmd_tx }, rx)
     }
 }
 
@@ -761,37 +709,6 @@ async fn run_publisher_loop(
 // Remote input (EXP-514: its own ordered task, off the pump loop)
 // ---------------------------------------------------------------------------
 
-// EXP-72: when a steerer's Enter (a bare `\r` frame) chases their message
-// text this closely, the child can read text+`\r` as ONE chunk and the
-// `claude` TUI's paste heuristic inserts a newline instead of submitting.
-// Hold the `\r` back until the child has had a beat to drain the text.
-// Ordering is safe — the input task is the only remote-input writer.
-pub(crate) const ENTER_SEPARATION: Duration = Duration::from_millis(150);
-// EXP-249 belt-and-braces: a pre-v2 client answers a picker by sending the
-// option digit and then a bare `\r`. The digit ALONE already submits (and
-// auto-advances a multi-question ask), so the trailing Enter would answer
-// the NEXT question with whatever it is sitting on. Swallow it while an
-// ask is pending.
-const ENTER_CASCADE_WINDOW: Duration = Duration::from_millis(500);
-// EXP-334: a free-text message arriving while a plan/ask picker owns the
-// keyboard would be EATEN by the picker — and its trailing Enter would
-// activate the highlighted row (observed: a note typed on a plan approval
-// silently approved the plan and the note was lost). Esc dismisses the
-// picker first (plan mode stays on; claude reads the next message as plan
-// feedback / a free-form reply), after a short pause for the TUI to drop
-// the picker before the text lands.
-const PICKER_DISMISS_PAUSE: Duration = Duration::from_millis(350);
-// EXP-347: the emitter publishes the grid-picker flag once per ~1s poll
-// tick, so a `true` read here can be stale — the desktop user may have
-// just answered the picker locally, and Escing then CANCELS the turn
-// claude already started. Hold the message this long (> the emitter's 1s
-// POLL_INTERVAL, so at least one fresh grid look lands in between) and
-// re-read before committing to the Esc. Only the reroute path pays the
-// latency, and there the agent is parked on a picker anyway.
-const PICKER_REVALIDATE_DEFER: Duration = Duration::from_millis(1250);
-// One Esc per message: later chunks of the same (≤4 KiB-chunked) message
-// must not re-fire while the emitter's grid flag lags the dismissal.
-const ESC_REROUTE_WINDOW: Duration = Duration::from_secs(3);
 // EXP-383: composer-message chunk tracking. A message arrives as ≤4 KiB
 // text chunks closed by a bare `\r`; the FIRST chunk is where codex's
 // leading-sigil guard applies and where pi's sink buffer opens. A chunk
@@ -799,24 +716,18 @@ const ESC_REROUTE_WINDOW: Duration = Duration::from_secs(3);
 // the next text chunk counts as a fresh composer open again.
 const MESSAGE_STALENESS: Duration = Duration::from_secs(5);
 
-/// The choreography state one remote `input` frame threads to the next.
+/// The composer state one remote `input` frame threads to the next.
 /// Session-lived (like the journal): a reconnect changes the socket, not the
 /// composer the steerer is typing into.
 #[derive(Default)]
 struct InputState {
-    last_input_at: Option<Instant>,
-    last_digit_at: Option<Instant>,
-    esc_routed_at: Option<Instant>,
     message_chunk_at: Option<Instant>,
-    /// EXP-444: the previous frame was a login-refused message — its trailing
-    /// Enter (the paste's submit) is swallowed too; any other input clears it.
-    login_refused_message: bool,
-    /// EXP-383 (pi): text chunks buffered for `text_sink` until the `\r`.
+    /// Text chunks buffered for `text_sink` until the `\r`.
     sink_buffer: String,
     /// EXP-724: the composer-opening chunk was a catalog slash command — the
-    /// whole message is buffered here (never written to the PTY) until its
-    /// `\r` hands it to the [`CommandLink`]. Same staleness rule as
-    /// `sink_buffer`: a buffer this old without its `\r` is a dead message.
+    /// whole message is buffered here until its `\r` hands it to the
+    /// [`CommandLink`]. Same staleness rule as `sink_buffer`: a buffer this
+    /// old without its `\r` is a dead message.
     command_buffer: Option<String>,
 }
 
@@ -841,62 +752,27 @@ fn spawn_input_pump(hooks: Arc<PublisherHooks>, embeds: ImageEmbedMap) -> flume:
     input_tx
 }
 
-/// One remote `input` frame's full choreography. Runs only on the input task
-/// (see [`spawn_input_pump`]) — free to sleep and download.
+/// One remote `input` frame. Runs only on the input task (see
+/// [`spawn_input_pump`]) — free to download attachments.
 async fn handle_input(
     mut data: String,
     hooks: &PublisherHooks,
     embeds: &ImageEmbedMap,
     state: &mut InputState,
 ) {
-    // EXP-511: localize the message's image embeds
-    // FIRST, so every consumer below (the pi sink, the
-    // codex sigil guard, the PTY write) sees the paths
-    // the agent can actually read. EXP-698: the paths
-    // ride a trailing `Image #N: <path>` manifest, so a
-    // localized message starts with the sender's prose —
-    // or, when it was images only, with `Image #1:`. It
-    // no longer starts with a bare `/path`, but the codex
-    // guard's space prefix stays: it is cheap, and the
-    // slash could come back from the sender's own text.
+    // EXP-511: localize the message's image embeds FIRST, so every consumer
+    // below sees the paths the agent can actually read. EXP-698: the paths
+    // ride a trailing `Image #N: <path>` manifest, so a localized message
+    // starts with the sender's prose — or, when it was images only, with
+    // `Image #1:`.
     if is_message_text(&data) {
         if let Some(localize) = &hooks.attachments {
             data = localize_image_embeds(data, localize, embeds).await;
         }
     }
-    // EXP-444: a login screen that solicited the OAuth
-    // code closed before this text arrived (local Esc,
-    // OAuth timeout) — writing it now would submit the
-    // code as an ordinary prompt, publish it as a
-    // UserMessage and journal it to every viewer. Refuse
-    // the message (one-shot — the emitter narrates that
-    // nothing was sent) and swallow its trailing Enter.
-    // Single keystrokes pass untouched.
-    // EXP-724: ahead of BOTH the pi sink and the command
-    // buffer now — a refused message must not reach an
-    // agent by any route.
-    if is_message_text(&data)
-        && hooks
-            .answers
-            .as_ref()
-            .is_some_and(|answers| answers.login_refusal_active())
-    {
-        if let Some(answers) = &hooks.answers {
-            answers.note_login_refusal();
-        }
-        state.login_refused_message = true;
-        return;
-    }
-    if std::mem::take(&mut state.login_refused_message) && data == "\r" {
-        return;
-    }
-    // EXP-724: a composer message whose first token is a
-    // catalog `/name` for this agent is a COMMAND, not
-    // prose: it is buffered here (never written) and
-    // handed whole to the emitter on its `\r`. The
-    // emitter owns the grid, the turn state and — for pi
-    // — the observer extension that runs `ctx.compact()`,
-    // none of which this task can reach.
+    // EXP-724: a composer message whose first token is a catalog `/name` for
+    // this agent is a COMMAND, not prose: it is buffered here and handed
+    // whole to the engine on its `\r`.
     if let Some(commands) = &hooks.commands {
         let stale = state
             .message_chunk_at
@@ -931,12 +807,8 @@ async fn handle_input(
             }
         }
     }
-    // EXP-383 (pi): with a text sink, whole composer
-    // messages route to the observer extension — pi's own
-    // `sendUserMessage` submits them, so the trailing
-    // `\r` is swallowed too. Single keystrokes (digits,
-    // Esc, arrows) still land raw on the PTY: local
-    // parity for everything that is not a message.
+    // Whole composer messages route to the engine, which submits them as one
+    // `session/prompt` — so the trailing `\r` is swallowed too.
     if let Some(sink) = &hooks.text_sink {
         let stale = state
             .message_chunk_at
@@ -955,78 +827,11 @@ async fn handle_input(
             return;
         }
     }
-    let ask_pending = hooks
-        .answers
-        .as_ref()
-        .is_some_and(|answers| answers.ask_pending());
-    if data == "\r" {
-        let cascade = ask_pending
-            && state
-                .last_digit_at
-                .is_some_and(|at| at.elapsed() < ENTER_CASCADE_WINDOW);
-        if cascade {
-            state.last_digit_at = None;
-            return;
-        }
-        if let Some(at) = state.last_input_at {
-            let elapsed = at.elapsed();
-            if elapsed < ENTER_SEPARATION {
-                tokio::time::sleep(ENTER_SEPARATION - elapsed).await;
-            }
-        }
-    }
-    // EXP-334: message text while a picker is on the grid
-    // → Esc the picker away first, or it eats the text and
-    // the trailing Enter answers it with the highlighted
-    // row. Single keystrokes (digits, Tab, Esc, arrow
-    // sequences) stay verbatim — they ARE picker input.
     if is_message_text(&data) {
-        let picker = || {
-            hooks
-                .answers
-                .as_ref()
-                .is_some_and(|answers| answers.grid_picker_pending())
-        };
-        let routed = state
-            .esc_routed_at
-            .is_some_and(|at| at.elapsed() < ESC_REROUTE_WINDOW);
-        if picker() && !routed {
-            // EXP-347: the flag may be a stale tick — defer
-            // past one emitter poll and re-confirm before
-            // the Esc, which would cancel a live turn if
-            // the picker was in fact just answered.
-            tokio::time::sleep(PICKER_REVALIDATE_DEFER).await;
-            if picker() {
-                state.esc_routed_at = Some(Instant::now());
-                (hooks.write_input)(b"\x1b");
-                tokio::time::sleep(PICKER_DISMISS_PAUSE).await;
-            }
-        }
-    }
-    if is_message_text(&data) {
-        // EXP-383: the codex composer hijacks a leading
-        // `/` (slash popup), `!` (bash mode) or `@` (file
-        // search) — Enter then accepts a completion
-        // instead of submitting. A space prefix defuses
-        // all three; only the chunk that OPENS the
-        // composer needs it.
-        let opens_composer = state
-            .message_chunk_at
-            .is_none_or(|at| at.elapsed() >= MESSAGE_STALENESS);
-        if hooks.agent == SessionAgent::Codex
-            && opens_composer
-            && data.starts_with(['/', '!', '@'])
-        {
-            (hooks.write_input)(b" ");
-        }
         state.message_chunk_at = Some(Instant::now());
     } else if data == "\r" {
         state.message_chunk_at = None;
     }
-    if data.len() == 1 && data.as_bytes()[0].is_ascii_digit() {
-        state.last_digit_at = Some(Instant::now());
-    }
-    state.last_input_at = Some(Instant::now());
     (hooks.write_input)(data.as_bytes())
 }
 
@@ -1332,71 +1137,6 @@ mod tests {
         );
     }
 
-    // ── EXP-72: remote input = keystrokes raw, message text = local paste ──
-
-    /// A `Terminal::writer()`-shaped writer that records into a shared Vec.
-    fn vec_writer() -> (
-        Arc<std::sync::Mutex<Box<dyn std::io::Write + Send>>>,
-        Arc<Mutex<Vec<u8>>>,
-    ) {
-        struct SharedVec(Arc<Mutex<Vec<u8>>>);
-        impl std::io::Write for SharedVec {
-            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-                self.0.lock().unwrap().extend_from_slice(buf);
-                Ok(buf.len())
-            }
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
-        let recorded = Arc::new(Mutex::new(Vec::new()));
-        let writer: Arc<std::sync::Mutex<Box<dyn std::io::Write + Send>>> = Arc::new(
-            std::sync::Mutex::new(Box::new(SharedVec(recorded.clone()))),
-        );
-        (writer, recorded)
-    }
-
-    /// Feed raw bytes into an emulator term (the emulator-test `advance`
-    /// pattern).
-    fn advance(term: &terminal::TermHandle, bytes: &[u8]) {
-        terminal::advance_bytes(term, bytes);
-    }
-
-    #[test]
-    fn keystroke_frames_pass_raw_even_with_bracketed_paste_on() {
-        let (writer, recorded) = vec_writer();
-        let term = terminal::Emulator::new(80, 24).term();
-        advance(&term, b"\x1b[?2004h");
-        let hook = pty_writer_input_hook(writer, term);
-        hook(b"\r"); // Enter (submit)
-        hook(b"\x1b"); // interrupt
-        hook(b"\x1b[A"); // CSI sequence (arrow up)
-        hook(b"1"); // EXP-78: picker answer digit — a keypress, not a paste
-        assert_eq!(recorded.lock().unwrap().as_slice(), b"\r\x1b\x1b[A1");
-    }
-
-    #[test]
-    fn text_frames_are_bracketed_when_the_child_enabled_mode_2004() {
-        let (writer, recorded) = vec_writer();
-        let term = terminal::Emulator::new(80, 24).term();
-        advance(&term, b"\x1b[?2004h");
-        let hook = pty_writer_input_hook(writer, term);
-        hook("fix the login bug".as_bytes());
-        assert_eq!(
-            recorded.lock().unwrap().as_slice(),
-            b"\x1b[200~fix the login bug\x1b[201~"
-        );
-    }
-
-    #[test]
-    fn text_frames_pass_raw_when_mode_2004_is_off() {
-        let (writer, recorded) = vec_writer();
-        let term = terminal::Emulator::new(80, 24).term();
-        let hook = pty_writer_input_hook(writer, term);
-        hook(b"echo hi");
-        assert_eq!(recorded.lock().unwrap().as_slice(), b"echo hi");
-    }
-
     // ── Full-task test against a local fake relay (tokio-tungstenite server)
 
     struct FakeTickets {
@@ -1620,190 +1360,10 @@ mod tests {
         assert!(recorded.errors.lock().unwrap().is_empty());
     }
 
-    #[test]
-    fn a_legacy_enter_cascade_is_dropped_while_an_ask_is_pending() {
-        let runtime = SteerRuntime::new().unwrap();
-        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
-        let recorded = Arc::new(Recorded::default());
-        let (link, _answers_rx) = AnswerLink::new();
-        let handle = publish(
-            &runtime,
-            PublishSpec {
-                session_id: "sess-e".to_string(),
-                issue_id: None,
-                journal_dir: None,
-            },
-            Arc::new(FakeTickets {
-                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
-            }),
-            recording_hooks_with(recorded.clone(), Some(link.clone())),
-        );
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
-
-        // A pre-v2 client answering a picker: digit, then a bare Enter. The
-        // digit already submitted, so the Enter must not reach the PTY.
-        link.set_ask_pending(true);
-        inject_tx
-            .send(Message::Text(r#"{"t":"input","data":"2"}"#.to_string()))
-            .unwrap();
-        inject_tx
-            .send(Message::Text(r#"{"t":"input","data":"\r"}"#.to_string()))
-            .unwrap();
-        wait_for(|| !recorded.inputs.lock().unwrap().is_empty());
-        std::thread::sleep(Duration::from_millis(400));
-        assert_eq!(
-            recorded.inputs.lock().unwrap().as_slice(),
-            &[b"2".to_vec()],
-            "the chased Enter is swallowed"
-        );
-
-        // With no ask pending, an Enter is ordinary steering input again.
-        link.set_ask_pending(false);
-        inject_tx
-            .send(Message::Text(r#"{"t":"input","data":"\r"}"#.to_string()))
-            .unwrap();
-        wait_for(|| recorded.inputs.lock().unwrap().len() == 2);
-        assert_eq!(recorded.inputs.lock().unwrap()[1], b"\r");
-        handle.shutdown(None);
-    }
-
-    #[test]
-    fn a_codex_message_with_a_leading_sigil_gets_a_space_prefix() {
-        // EXP-383: the codex composer hijacks a leading `/` `!` `@` into a
-        // popup/mode whose Enter no longer submits — the publisher defuses it
-        // with a typed space before the pasted text. Only the chunk that
-        // OPENS the composer is guarded; continuation chunks land verbatim.
-        let runtime = SteerRuntime::new().unwrap();
-        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
-        let recorded = Arc::new(Recorded::default());
-        let mut hooks = recording_hooks(recorded.clone());
-        hooks.agent = SessionAgent::Codex;
-        let handle = publish(
-            &runtime,
-            PublishSpec {
-                session_id: "sess-cx".to_string(),
-                issue_id: None,
-                journal_dir: None,
-            },
-            Arc::new(FakeTickets {
-                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
-            }),
-            hooks,
-        );
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
-
-        let send = |data: &str| {
-            inject_tx
-                .send(Message::Text(format!(
-                    r#"{{"t":"input","data":{}}}"#,
-                    serde_json::to_string(data).unwrap()
-                )))
-                .unwrap();
-        };
-        // A sigil-leading message: space, then the text, then the Enter.
-        send("/help me");
-        send("\r");
-        wait_for(|| recorded.inputs.lock().unwrap().len() >= 3);
-        assert_eq!(
-            recorded.inputs.lock().unwrap().as_slice(),
-            &[b" ".to_vec(), b"/help me".to_vec(), b"\r".to_vec()]
-        );
-        recorded.inputs.lock().unwrap().clear();
-
-        // A multi-chunk message: only the opening chunk is guarded.
-        send("!first chunk");
-        send("!second chunk");
-        send("\r");
-        wait_for(|| recorded.inputs.lock().unwrap().len() >= 4);
-        assert_eq!(
-            recorded.inputs.lock().unwrap().as_slice(),
-            &[
-                b" ".to_vec(),
-                b"!first chunk".to_vec(),
-                b"!second chunk".to_vec(),
-                b"\r".to_vec()
-            ]
-        );
-        recorded.inputs.lock().unwrap().clear();
-
-        // An ordinary message and single keystrokes stay untouched.
-        send("plain message");
-        send("\r");
-        send("2");
-        wait_for(|| recorded.inputs.lock().unwrap().len() >= 3);
-        assert_eq!(
-            recorded.inputs.lock().unwrap().as_slice(),
-            &[b"plain message".to_vec(), b"\r".to_vec(), b"2".to_vec()]
-        );
-        handle.shutdown(None);
-    }
-
-    #[test]
-    fn a_pi_text_sink_takes_whole_messages_and_keystrokes_stay_on_the_pty() {
-        // EXP-383: with a text sink (pi), composer messages route to the
-        // observer extension — including the swallowed submit Enter — while
-        // keystrokes (legacy digits, Esc) still land raw on the PTY.
-        let runtime = SteerRuntime::new().unwrap();
-        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
-        let recorded = Arc::new(Recorded::default());
-        let sunk: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-        let mut hooks = recording_hooks(recorded.clone());
-        hooks.agent = SessionAgent::Pi;
-        let sink = sunk.clone();
-        hooks.text_sink = Some(Arc::new(move |text| sink.lock().unwrap().push(text)));
-        let handle = publish(
-            &runtime,
-            PublishSpec {
-                session_id: "sess-pi".to_string(),
-                issue_id: None,
-                journal_dir: None,
-            },
-            Arc::new(FakeTickets {
-                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
-            }),
-            hooks,
-        );
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
-
-        let send = |data: &str| {
-            inject_tx
-                .send(Message::Text(format!(
-                    r#"{{"t":"input","data":{}}}"#,
-                    serde_json::to_string(data).unwrap()
-                )))
-                .unwrap();
-        };
-        // A chunked message + its Enter → ONE sink delivery, nothing on the
-        // PTY.
-        send("hello ");
-        send("pi world");
-        send("\r");
-        wait_for(|| !sunk.lock().unwrap().is_empty());
-        assert_eq!(sunk.lock().unwrap().as_slice(), &["hello pi world".to_string()]);
-        assert!(recorded.inputs.lock().unwrap().is_empty(), "message never hits the PTY");
-
-        // Keystrokes and a lone Enter (empty buffer) still reach the PTY.
-        send("2");
-        send("\u{1b}");
-        send("\r");
-        wait_for(|| recorded.inputs.lock().unwrap().len() >= 3);
-        assert_eq!(
-            recorded.inputs.lock().unwrap().as_slice(),
-            &[b"2".to_vec(), b"\x1b".to_vec(), b"\r".to_vec()]
-        );
-        assert_eq!(sunk.lock().unwrap().len(), 1);
-        handle.shutdown(None);
-    }
-
     // ── EXP-724: remote slash commands ─────────────────────────────────────
 
-    /// EXP-746: on the PTY path (`config = None`) the two live-config frames
-    /// are a documented NO-OP — never keystrokes, never an answer, never a
-    /// surfaced error. This is what makes `start_in_terminal = true`
-    /// behave exactly as it did before steering v2.
+    /// EXP-746: without a config link the two live-config frames are a
+    /// documented NO-OP — never an answer, never a surfaced error.
     #[test]
     fn set_config_and_set_mode_are_no_ops_without_a_config_link() {
         let runtime = SteerRuntime::new().unwrap();
@@ -1981,66 +1541,6 @@ mod tests {
             &[b"/new".to_vec(), b"\r".to_vec()]
         );
         assert!(link.try_recv().is_none());
-        handle.shutdown(None);
-    }
-
-    /// EXP-383's codex sigil guard defuses a leading `/` for PROSE. A catalog
-    /// command must never reach it — the `/` is the whole point there.
-    #[test]
-    fn a_codex_catalog_command_skips_the_sigil_guard() {
-        let runtime = SteerRuntime::new().unwrap();
-        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
-        let recorded = Arc::new(Recorded::default());
-        let link = CommandLink::new(None);
-        let mut hooks = recording_hooks(recorded.clone());
-        hooks.agent = SessionAgent::Codex;
-        hooks.commands = Some(link.clone());
-        let handle = publish(
-            &runtime,
-            PublishSpec {
-                session_id: "sess-cmd-cx".to_string(),
-                issue_id: None,
-                journal_dir: None,
-            },
-            Arc::new(FakeTickets {
-                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
-            }),
-            hooks,
-        );
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
-
-        let send = |data: &str| {
-            inject_tx
-                .send(Message::Text(format!(
-                    r#"{{"t":"input","data":{}}}"#,
-                    serde_json::to_string(data).unwrap()
-                )))
-                .unwrap();
-        };
-        send("/clear");
-        send("\r");
-        let received: Mutex<Vec<_>> = Mutex::new(Vec::new());
-        wait_for(|| {
-            if let Some(command) = link.try_recv() {
-                received.lock().unwrap().push(command);
-            }
-            !received.lock().unwrap().is_empty()
-        });
-        let received = received.into_inner().unwrap();
-        assert_eq!(received[0].text(), "/clear");
-        assert!(
-            recorded.inputs.lock().unwrap().is_empty(),
-            "no space prefix, no text, no Enter"
-        );
-        // …while `/help` (not in the catalog) still gets the guard.
-        send("/help me");
-        send("\r");
-        wait_for(|| recorded.inputs.lock().unwrap().len() >= 3);
-        assert_eq!(
-            recorded.inputs.lock().unwrap().as_slice(),
-            &[b" ".to_vec(), b"/help me".to_vec(), b"\r".to_vec()]
-        );
         handle.shutdown(None);
     }
 
@@ -2503,175 +2003,6 @@ mod tests {
         let mut tool = ActivityEvent::tool("Read", Some("/img/1.png".into()));
         restore_image_embeds(&mut tool, &embeds);
         assert_eq!(tool, ActivityEvent::tool("Read", Some(EMBED.to_string())));
-    }
-
-    #[test]
-    fn message_text_is_distinguished_from_keystrokes() {
-        // Message shapes.
-        assert!(is_message_text("please refine the plan"));
-        assert!(is_message_text("42")); // multi-char, even if all digits
-        // Keystroke shapes stay verbatim.
-        assert!(!is_message_text("2")); // legacy answer digit
-        assert!(!is_message_text("\r"));
-        assert!(!is_message_text("\t"));
-        assert!(!is_message_text("\u{1b}")); // Esc button
-        assert!(!is_message_text("\u{1b}[A")); // CSI arrow sequence
-    }
-
-    #[test]
-    fn message_text_escs_a_pending_picker_before_it_lands() {
-        // EXP-334: a note typed while a plan/ask picker owns the keyboard used
-        // to be EATEN by the picker — and its trailing Enter activated the
-        // highlighted row (a plan note silently approved the plan). The
-        // publisher must dismiss the picker with Esc first, ONCE per message.
-        let runtime = SteerRuntime::new().unwrap();
-        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
-        let recorded = Arc::new(Recorded::default());
-        let (link, _answers_rx) = AnswerLink::new();
-        let handle = publish(
-            &runtime,
-            PublishSpec {
-                session_id: "sess-p".to_string(),
-                issue_id: None,
-                journal_dir: None,
-            },
-            Arc::new(FakeTickets {
-                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
-            }),
-            recording_hooks_with(recorded.clone(), Some(link.clone())),
-        );
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
-
-        link.set_grid_picker_pending(true);
-        // Two chunks of one message, then the composer Enter — the mobile
-        // send shape.
-        inject_tx
-            .send(Message::Text(
-                r#"{"t":"input","data":"please refine "}"#.to_string(),
-            ))
-            .unwrap();
-        inject_tx
-            .send(Message::Text(r#"{"t":"input","data":"the plan"}"#.to_string()))
-            .unwrap();
-        inject_tx
-            .send(Message::Text(r#"{"t":"input","data":"\r"}"#.to_string()))
-            .unwrap();
-        wait_for(|| recorded.inputs.lock().unwrap().len() >= 4);
-        assert_eq!(
-            recorded.inputs.lock().unwrap().as_slice(),
-            &[
-                b"\x1b".to_vec(), // ONE Esc, before the first chunk only
-                b"please refine ".to_vec(),
-                b"the plan".to_vec(),
-                b"\r".to_vec(), // the Enter passes through — it submits the composer
-            ]
-        );
-
-        // With no picker on the grid, message text flows through untouched.
-        link.set_grid_picker_pending(false);
-        inject_tx
-            .send(Message::Text(r#"{"t":"input","data":"and add tests"}"#.to_string()))
-            .unwrap();
-        wait_for(|| recorded.inputs.lock().unwrap().len() == 5);
-        assert_eq!(recorded.inputs.lock().unwrap()[4], b"and add tests");
-        handle.shutdown(None);
-    }
-
-    /// EXP-444: with the login refusal armed (the OAuth-code screen closed
-    /// before the paste arrived), the message and its trailing Enter are
-    /// swallowed, the refusal note is set for the emitter's narration, and —
-    /// because a note disarms (one-shot) — the re-send flows through.
-    #[test]
-    fn login_refusal_swallows_the_paste_and_its_enter() {
-        let runtime = SteerRuntime::new().unwrap();
-        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
-        let recorded = Arc::new(Recorded::default());
-        let (link, _answers_rx) = AnswerLink::new();
-        let handle = publish(
-            &runtime,
-            PublishSpec {
-                session_id: "sess-lr".to_string(),
-                issue_id: None,
-                journal_dir: None,
-            },
-            Arc::new(FakeTickets {
-                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
-            }),
-            recording_hooks_with(recorded.clone(), Some(link.clone())),
-        );
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
-
-        link.arm_login_refusal();
-        inject_tx
-            .send(Message::Text(
-                r#"{"t":"input","data":"opaque-oauth-code-abc123"}"#.to_string(),
-            ))
-            .unwrap();
-        inject_tx
-            .send(Message::Text(r#"{"t":"input","data":"\r"}"#.to_string()))
-            .unwrap();
-        // The re-send after the refusal (the note disarmed it) goes through.
-        inject_tx
-            .send(Message::Text(
-                r#"{"t":"input","data":"a normal message"}"#.to_string(),
-            ))
-            .unwrap();
-        wait_for(|| recorded.inputs.lock().unwrap().len() >= 1);
-        assert_eq!(
-            recorded.inputs.lock().unwrap().as_slice(),
-            &[b"a normal message".to_vec()],
-            "the refused paste and its Enter never reach the PTY"
-        );
-        assert!(link.take_login_refusal_note(), "the emitter gets the note");
-        handle.shutdown(None);
-    }
-
-    #[test]
-    fn a_stale_picker_flag_is_revalidated_before_the_esc() {
-        // EXP-347: the emitter publishes the grid-picker flag once per ~1s
-        // tick, so it can read `true` right after the desktop user answered
-        // the picker locally — and the Esc would then CANCEL the turn claude
-        // already started. The publisher defers past one emitter tick and
-        // re-reads; a flag that dropped in the meantime means no Esc.
-        let runtime = SteerRuntime::new().unwrap();
-        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
-        let recorded = Arc::new(Recorded::default());
-        let (link, _answers_rx) = AnswerLink::new();
-        let handle = publish(
-            &runtime,
-            PublishSpec {
-                session_id: "sess-r".to_string(),
-                issue_id: None,
-                journal_dir: None,
-            },
-            Arc::new(FakeTickets {
-                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
-            }),
-            recording_hooks_with(recorded.clone(), Some(link.clone())),
-        );
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
-
-        // The flag is (stale-)true when the message arrives…
-        link.set_grid_picker_pending(true);
-        inject_tx
-            .send(Message::Text(
-                r#"{"t":"input","data":"looks good, one note"}"#.to_string(),
-            ))
-            .unwrap();
-        // …but the emitter learns of the local answer during the publisher's
-        // revalidation defer and drops it.
-        std::thread::sleep(Duration::from_millis(300));
-        link.set_grid_picker_pending(false);
-        wait_for(|| !recorded.inputs.lock().unwrap().is_empty());
-        assert_eq!(
-            recorded.inputs.lock().unwrap().as_slice(),
-            &[b"looks good, one note".to_vec()],
-            "no Esc — the re-read saw the picker gone"
-        );
-        handle.shutdown(None);
     }
 
     #[test]

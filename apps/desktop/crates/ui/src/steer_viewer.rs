@@ -132,8 +132,9 @@ struct PendingImage {
 
 /// Where a [`SteerSessionView`]'s feed comes from (EXP-746).
 ///
-/// One renderer, three sources: today's relay viewer, an in-process ACP run on
-/// this machine, and a read-only replay of a finished one. `Local` and
+/// One renderer, four sources: today's relay viewer, an in-process ACP run on
+/// this machine, a read-only replay of a finished one, and (EXP-773) a
+/// finished run read straight off this device's activity JOURNAL. `Local` and
 /// `Replay` additionally produce local-only rich items (per-edit diff cards,
 /// command output, the pinned plan, thoughts) that never touch the wire.
 pub(crate) enum FeedSource {
@@ -144,16 +145,29 @@ pub(crate) enum FeedSource {
     Remote { handle: Option<ViewerHandle> },
     /// A finished run replayed through the engine's `session/load`.
     Replay { session: engine::EngineSession },
+    /// EXP-773 — a finished run read off `{data_dir}/journal/<id>.jsonl`
+    /// ([`steer::read_journal`]): the SAME events the relay fanned out, folded
+    /// and replayed into the same reducer, with no engine and no socket. This
+    /// is what the desktop shows for its OWN past runs; the events are drained
+    /// into the feed by the constructor.
+    Journal { events: Vec<steer::frames::ActivityEvent> },
 }
 
 impl FeedSource {
+    /// EXP-773 — a read-only view over a past run's on-device journal.
+    pub(crate) fn journal(events: Vec<steer::frames::ActivityEvent>) -> Self {
+        FeedSource::Journal { events }
+    }
+
     /// The relay handle, when this source HAS one. Steering, answers and
     /// wakeups all go through it; a local source answers `None` and drives its
     /// [`engine::EngineSession`] directly instead.
     fn handle(&self) -> Option<&ViewerHandle> {
         match self {
             FeedSource::Remote { handle } => handle.as_ref(),
-            FeedSource::Local { .. } | FeedSource::Replay { .. } => None,
+            FeedSource::Local { .. } | FeedSource::Replay { .. } | FeedSource::Journal { .. } => {
+                None
+            }
         }
     }
 
@@ -162,7 +176,7 @@ impl FeedSource {
     fn session(&self) -> Option<&engine::EngineSession> {
         match self {
             FeedSource::Local { session } | FeedSource::Replay { session } => Some(session),
-            FeedSource::Remote { .. } => None,
+            FeedSource::Remote { .. } | FeedSource::Journal { .. } => None,
         }
     }
 
@@ -172,13 +186,16 @@ impl FeedSource {
     fn steerable_session(&self) -> Option<&engine::EngineSession> {
         match self {
             FeedSource::Local { session } => Some(session),
-            FeedSource::Replay { .. } | FeedSource::Remote { .. } => None,
+            FeedSource::Replay { .. } | FeedSource::Remote { .. } | FeedSource::Journal { .. } => {
+                None
+            }
         }
     }
 
-    /// A replay renders history and offers no composer at all.
+    /// A replay renders history and offers no composer at all — and so does a
+    /// journal read, which is history off the disk.
     fn read_only(&self) -> bool {
-        matches!(self, FeedSource::Replay { .. })
+        matches!(self, FeedSource::Replay { .. } | FeedSource::Journal { .. })
     }
 }
 
@@ -243,6 +260,13 @@ pub(crate) struct SteerSessionView {
     /// pinned plan, thoughts) a `Local`/`Replay` source produces. Empty for
     /// every remote session — the wire carries none of it.
     extras: crate::session_extras::LocalExtras,
+    /// EXP-773: the "Latest changes" bar's parse of the published worktree
+    /// diff, and the per-file list its expanded half renders into. It lives
+    /// HERE rather than on the hosting screen because the bar sits between the
+    /// transcript and the composer (web `agent-session` parity), and both of
+    /// those are this view's.
+    changes: Option<crate::changes_bar::ChangesSnapshot>,
+    changes_diff: Entity<crate::diff::DiffView>,
     /// The extras cards expanded on a row (their own set: a folded tool BODY
     /// and a folded diff are different questions about the same row).
     expanded_extras: HashSet<FeedItemId>,
@@ -391,6 +415,14 @@ impl SteerSessionView {
             expanded_groups: HashSet::new(),
             expanded_bodies: HashSet::new(),
             extras: crate::session_extras::LocalExtras::default(),
+            changes: None,
+            changes_diff: cx.new(|cx| {
+                let mut diff = crate::diff::DiffView::new(window, cx);
+                // EXP-773: the expanded body is a per-file collapsible list,
+                // like the web `FileDiffList` — not one flat wall of hunks.
+                diff.set_collapsible(true);
+                diff
+            }),
             expanded_extras: HashSet::new(),
             scroll: ScrollHandle::new(),
             follow_tail: true,
@@ -419,6 +451,21 @@ impl SteerSessionView {
                     detail: Some("Live steering is unavailable on this instance.".to_string()),
                 };
             }
+        }
+        // EXP-773: a journal source is the whole transcript, already on disk.
+        // Fold it into the SAME reducer the wire feeds, then mark the run
+        // over: there is nothing to connect to and nothing to steer.
+        let journal = match &mut this.source {
+            FeedSource::Journal { events } => Some(std::mem::take(events)),
+            _ => None,
+        };
+        if let Some(events) = journal {
+            for event in events {
+                this.feed.apply(event);
+            }
+            this.sync_changes(cx);
+            this.connected = false;
+            this.phase = ViewerPhase::Ended { outcome: None };
         }
         if let Some(session) = this.source.session().cloned() {
             // EXP-746 review UI-2: seed the phase from the engine, so a view
@@ -524,16 +571,9 @@ impl SteerSessionView {
         self.can_kill(cx)
     }
 
-    /// EXP-698 — the relay-delivered worktree diff behind the session
-    /// screen's "Changes" rail. The host publishes it with every activity
-    /// frame, so a REMOTE run's diff is on this machine after all: the bar
-    /// used to be local-tabs-only on the stale rationale that it was not.
-    pub(crate) fn latest_diff(&self) -> Option<&str> {
-        self.feed.latest_diff()
-    }
-
     /// The synced `coding_sessions` row behind this viewer — what the
-    /// Changes rail resolves the Merge target from
+    /// header names the run from, and what the Latest-changes bar resolves
+    /// its Merge target from
     /// ([`crate::changes_bar::merge_meta_for_session`]).
     pub(crate) fn session_row(&self) -> Option<&domain::rows::CodingSession> {
         self.row.as_ref()
@@ -760,6 +800,7 @@ impl SteerSessionView {
             }
             ViewerEvent::Activity(activity) => {
                 self.feed.apply(activity);
+                self.sync_changes(cx);
                 if self.feed.is_staging() {
                     self.arm_staging_swap(cx);
                 }
@@ -769,12 +810,16 @@ impl SteerSessionView {
                 self.staging_started = Some(std::time::Instant::now());
                 self.arm_staging_swap(cx);
             }
-            ViewerEvent::Synced => self.feed.apply_synced(),
+            ViewerEvent::Synced => {
+                self.feed.apply_synced();
+                self.sync_changes(cx);
+            }
             ViewerEvent::Keepalive => {
                 // EXP-656: a keepalive is also an end-of-replay signal for a
                 // markerless republish — the beat means the burst is over.
                 if self.feed.is_staging() {
                     self.feed.force_swap();
+                    self.sync_changes(cx);
                 }
             }
             ViewerEvent::LocalMessage(text) => {
@@ -894,6 +939,7 @@ impl SteerSessionView {
                     }
                 }
                 self.note_feed_moved(pulse);
+                self.sync_changes(cx);
                 self.note_compaction(was_compacting, cx);
             }
             engine::LocalFeedEvent::Phase(phase) => {
@@ -998,6 +1044,7 @@ impl SteerSessionView {
                         let pulse = feed_pulse(&this.feed);
                         this.feed.force_swap();
                         this.note_feed_moved(pulse);
+                        this.sync_changes(cx);
                         this.note_compaction(was_compacting, cx);
                         this.staging_started = None;
                         cx.notify();
@@ -1063,9 +1110,9 @@ impl SteerSessionView {
                 });
                 true
             }
-            // A replay is history: its questions were answered (or dropped)
-            // when the run happened.
-            FeedSource::Replay { .. } => false,
+            // A replay (and a journal read) is history: its questions were
+            // answered — or dropped — when the run happened.
+            FeedSource::Replay { .. } | FeedSource::Journal { .. } => false,
             FeedSource::Remote { handle } => handle.as_ref().is_some_and(|handle| {
                 handle.send_answer(question_id, card.ask_id.as_deref(), &keys, text.as_deref())
             }),
@@ -1180,9 +1227,15 @@ impl SteerSessionView {
             .unwrap_or_default()
     }
 
-    /// EXP-746: the live option/mode chips this session offers.
-    pub(crate) fn config_chips(&self) -> Vec<crate::session_extras::ConfigChip> {
-        crate::session_extras::config_chips(self.feed.config())
+    /// EXP-772: the composer's ONE chip — the session mode, or `None` when
+    /// the run advertises no modes.
+    pub(crate) fn mode_chip(&self) -> Option<crate::session_extras::ConfigChip> {
+        crate::session_extras::mode_chip(self.feed.config())
+    }
+
+    /// EXP-772: the plan/build pair behind the compact "Plan" switch.
+    pub(crate) fn plan_toggle(&self) -> Option<crate::session_extras::PlanModeToggle> {
+        crate::session_extras::plan_mode_toggle(self.feed.config())
     }
 
     /// EXP-746: the run's context/spend meter (the usage sheet's own block).
@@ -1190,28 +1243,86 @@ impl SteerSessionView {
         self.feed.usage()
     }
 
-    /// EXP-746 — set one live option. Fire-and-forget on BOTH sources: the
-    /// publisher's next `config_state` is the confirmation, so there is no
-    /// optimistic write to roll back (D4).
-    pub(crate) fn set_config(&self, id: &str, value: &str) {
-        match &self.source {
-            FeedSource::Local { session } => {
-                session.set_config(id, engine::ConfigValue::from_wire(value))
-            }
-            FeedSource::Replay { .. } => {}
-            FeedSource::Remote { handle } => {
-                if let Some(handle) = handle.as_ref() {
-                    handle.send_config(id, value);
-                }
-            }
+    // ── EXP-773: the "Latest changes" bar ─────────────────────────────────
+
+    /// Install the parse of the newly published diff, when
+    /// [`crate::changes_bar::sync`] says it changed. The cache key is the raw
+    /// string, so a feed event that carried no new diff parses nothing.
+    fn sync_changes(&mut self, cx: &mut gpui::Context<Self>) {
+        let next = {
+            // Borrowed, never cloned: the published diff runs to 512 KiB and
+            // this fires on every feed event, so an unchanged one must cost
+            // a pointer comparison.
+            let raw = self.feed.latest_diff();
+            crate::changes_bar::sync(self.changes.as_ref(), &self.session_id, raw)
+        };
+        let Some(next) = next else {
+            return;
+        };
+        self.changes = next;
+        if self.changes.as_ref().is_some_and(|state| state.expanded) {
+            self.rebuild_changes_diff(cx);
         }
+    }
+
+    fn rebuild_changes_diff(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some(state) = self.changes.as_ref() else {
+            return;
+        };
+        let prepared = crate::diff::build_scm_diff(&state.files, &cx.theme().highlight_theme);
+        self.changes_diff
+            .update(cx, |diff, cx| diff.set_prepared(prepared, cx));
+    }
+
+    /// Flip the bar open/shut, building the diff rows the first time it opens
+    /// (they are only worth rendering when visible).
+    fn toggle_changes_expanded(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some(state) = self.changes.as_mut() else {
+            return;
+        };
+        state.expanded = !state.expanded;
+        if state.expanded {
+            self.rebuild_changes_diff(cx);
+        }
+        cx.notify();
+    }
+
+    /// EXP-773 — the collapsible "Latest changes +N −M [Merge]" row, painted
+    /// UNDER the transcript and above the composer (web `agent-session`). It
+    /// draws for a diff OR an open PR, so the Merge pill never stands alone.
+    fn render_changes_bar(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        let merge = self
+            .session_row()
+            .and_then(|row| crate::changes_bar::merge_meta_for_session(row, cx));
+        let merge = crate::changes_bar::merge_when_live(merge, self.session_over());
+        let has_diff = self.feed.latest_diff().is_some();
+        if !crate::changes_bar::changes_bar_visible(has_diff, merge.is_some()) {
+            return None;
+        }
+        let state = self.changes.as_ref();
+        let expanded = state.is_some_and(|state| state.expanded);
+        let totals = state.map(|state| (state.additions, state.deletions));
+        Some(crate::changes_bar::render(
+            crate::changes_bar::ChangesSpec {
+                toggle_id: "session-changes-toggle",
+                totals,
+                expanded,
+                merge,
+                diff_view: self.changes_diff.clone(),
+                on_toggle: Box::new(|this: &mut Self, cx| this.toggle_changes_expanded(cx)),
+                // No tab to close here, and the server ends the session on
+                // merge anyway (EXP-498).
+                on_merged: None,
+            },
+            cx,
+        ))
     }
 
     /// EXP-746 — switch the session mode (`plan` ⇄ the agent's default).
     pub(crate) fn set_mode(&self, id: &str) {
         match &self.source {
             FeedSource::Local { session } => session.set_mode(id),
-            FeedSource::Replay { .. } => {}
+            FeedSource::Replay { .. } | FeedSource::Journal { .. } => {}
             FeedSource::Remote { handle } => {
                 if let Some(handle) = handle.as_ref() {
                     handle.send_mode(id);
@@ -1716,7 +1827,7 @@ pub(crate) fn kill_description(device_label: Option<&str>) -> String {
         _ => String::new(),
     };
     format!(
-        "This force-terminates the terminal{on_device} and ends the session. \
+        "This stops the agent{on_device} and ends the session. \
          Uncommitted work in the worktree is kept, but the agent stops immediately."
     )
 }
@@ -2135,7 +2246,9 @@ impl SteerSessionView {
             FeedRow::Single(item) => self.render_item(item, active, window, cx),
             FeedRow::ToolRun { id, items } => self.render_tool_run(*id, items, live_tail, cx),
             FeedRow::Ask { id, items, .. } => self.render_ask(*id, items, active, window, cx),
-            FeedRow::Subagent { id, items, .. } => self.render_subagent(*id, items, cx),
+            FeedRow::Subagent { id, items, .. } => {
+                self.render_subagent(*id, items, window, cx)
+            }
         }
     }
 
@@ -2148,7 +2261,7 @@ impl SteerSessionView {
     ) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         match &item.kind {
-            FeedKind::Narration { text } => h_flex()
+            FeedKind::Narration { text, .. } => h_flex()
                 .w_full()
                 .min_w_0()
                 .gap_2()
@@ -2180,7 +2293,7 @@ impl SteerSessionView {
             // EXP-724: a message that IS a catalog command reads as a
             // compact pill, not a chat bubble — the agent was steered, not
             // spoken to.
-            FeedKind::UserMessage { text }
+            FeedKind::UserMessage { text, .. }
                 if parse_command(text, self.agent()).is_some() =>
             {
                 let parsed = parse_command(text, self.agent()).expect("matched above");
@@ -2224,7 +2337,7 @@ impl SteerSessionView {
                     )
                     .into_any_element()
             }
-            FeedKind::UserMessage { text } => h_flex()
+            FeedKind::UserMessage { text, .. } => h_flex()
                 .w_full()
                 .min_w_0()
                 .justify_end()
@@ -2311,7 +2424,7 @@ impl SteerSessionView {
                     })
                     .into_any_element()
             }
-            FeedKind::Subagent { .. } => self.render_subagent(item.id, &[item], cx),
+            FeedKind::Subagent { .. } => self.render_subagent(item.id, &[item], window, cx),
             FeedKind::Question(_) => self.render_question(item, active, window, cx),
             // EXP-724: the quiet divider a finished compaction leaves behind
             // — everything above it is context the agent no longer holds.
@@ -2622,12 +2735,19 @@ impl SteerSessionView {
         &self,
         id: FeedItemId,
         items: &[&FeedItem],
+        window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         let summary = summarize_subagent_row(items);
-        let tools: Vec<&&FeedItem> = items.iter().filter(|item| item.is_tool()).collect();
-        let expandable = !tools.is_empty();
+        // EXP-773: the group's BODY is everything the subagent produced —
+        // its prose and the turns addressed to it as well as its tool calls,
+        // in feed order. Only the lifecycle markers stay in the header.
+        let body: Vec<&&FeedItem> = items
+            .iter()
+            .filter(|item| !matches!(item.kind, FeedKind::Subagent { .. }))
+            .collect();
+        let expandable = !body.is_empty();
         let expanded = expandable && self.expanded_groups.contains(&id);
         let running = matches!(
             items.iter().find_map(|item| match &item.kind {
@@ -2696,14 +2816,28 @@ impl SteerSessionView {
         });
         let mut column = v_flex().w_full().min_w_0().child(header);
         if expanded {
-            for item in tools {
-                if let FeedKind::Tool { name, detail, .. } = &item.kind {
-                    column = column.child(div().pl_5().child(tool_row(name, detail.as_deref(), cx)));
-                    // EXP-746: an expanded group shows each call's local
-                    // cards too — that is what expanding it is for.
-                    if let Some(extras) = self.render_extras(item.id, cx) {
-                        column = column.child(div().pl_5().child(extras));
+            for item in body {
+                match &item.kind {
+                    FeedKind::Tool { name, detail, .. } => {
+                        column = column
+                            .child(div().pl_5().child(tool_row(name, detail.as_deref(), cx)));
+                        // EXP-746: an expanded group shows each call's local
+                        // cards too — that is what expanding it is for.
+                        if let Some(extras) = self.render_extras(item.id, cx) {
+                            column = column.child(div().pl_5().child(extras));
+                        }
                     }
+                    // EXP-773: the subagent's own prose and the turns sent to
+                    // it read exactly as they do on the main line, indented
+                    // under the group instead of splitting it.
+                    FeedKind::Narration { .. } | FeedKind::UserMessage { .. } => {
+                        column = column.child(
+                            div()
+                                .pl_5()
+                                .child(self.render_item(item, &HashSet::new(), window, cx)),
+                        );
+                    }
+                    _ => {}
                 }
             }
         }
@@ -3274,15 +3408,15 @@ impl SteerSessionView {
 
     fn render_composer(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let can_send = self.can_send(cx);
-        let chips = self.render_config_chips(cx);
+        let mode = self.render_mode_control(cx);
         let composer = crate::composer::GlassComposer::new(
             v_flex()
                 .w_full()
                 .min_w_0()
-                // EXP-746: the live model/effort/mode chips sit above the
-                // draft, where the agent's posture is visible while typing at
-                // it.
-                .when_some(chips, |this, chips| this.child(chips))
+                // EXP-772: the ONE live control — the session mode — sits
+                // above the draft, where the agent's posture is visible while
+                // typing at it.
+                .when_some(mode, |this, mode| this.child(mode))
                 // EXP-724: the `/` menu sits INSIDE the composer card,
                 // above the textarea — no popover, no caret anchoring
                 // (the token is always the whole draft).
@@ -3342,91 +3476,145 @@ impl SteerSessionView {
             .into_any_element()
     }
 
-    /// EXP-746 — one pill per live agent option, the mode chip first.
+    /// EXP-772 — the composer's ONE live control: the session MODE.
+    ///
+    /// Model, effort and every other option picker left the mid-session UI (an
+    /// agent is configured when it starts, and the only thing worth flipping
+    /// mid-run is plan on/off). The claude/pi shape — exactly two modes, one
+    /// of them `plan` — draws a compact "Plan" toggle pill; any other mode
+    /// list falls back to a two-value chip, and a run with no modes (codex)
+    /// draws nothing.
     ///
     /// Fire-and-forget (D4): the pill repaints when the publisher's next
     /// `config_state` lands, so there is no optimistic value and no spinner.
-    /// An option with no `values` is read-only — it renders its value and
-    /// opens nothing.
-    fn render_config_chips(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        use crate::session_extras::ChipKind;
-        let chips = self.config_chips();
-        if chips.is_empty() {
-            return None;
-        }
+    fn render_mode_control(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         let muted = cx.theme().muted_foreground;
-        let mut row = h_flex().w_full().min_w_0().flex_wrap().gap_1().pb_1();
-        for (index, chip) in chips.into_iter().enumerate() {
-            let id = SharedString::from(format!("steer-chip-{index}"));
-            let label = SharedString::from(format!("{}: {}", chip.label, chip.value_label));
-            if chip.values.is_empty() {
-                row = row.child(
-                    crate::surface::glass_pill(
-                        id,
-                        crate::surface::PillSize::Sm,
-                        crate::surface::PillMode::Readonly,
-                        cx,
+        if let Some(toggle) = self.plan_toggle() {
+            let target = if toggle.active {
+                toggle.build_id.clone()
+            } else {
+                toggle.plan_id.clone()
+            };
+            return Some(
+                h_flex()
+                    .w_full()
+                    .min_w_0()
+                    .gap_1()
+                    .pb_1()
+                    .child(
+                        crate::surface::glass_pill(
+                            "steer-plan-toggle",
+                            crate::surface::PillSize::Sm,
+                            crate::surface::PillMode::Select {
+                                selected: toggle.active,
+                            },
+                            cx,
+                        )
+                        .tooltip(|window, cx| {
+                            gpui_component::tooltip::Tooltip::new("Plan mode").build(window, cx)
+                        })
+                        .child(div().text_xs().child("Plan"))
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                            this.set_mode(&target);
+                            cx.notify();
+                        })),
                     )
-                    .child(div().text_xs().text_color(muted).child(label)),
-                );
-                continue;
-            }
-            // The popover and its trigger are two elements in one subtree —
-            // gpui ids must not collide.
-            let trigger = crate::surface::glass_pill_button(
-                SharedString::from(format!("steer-chip-trigger-{index}")),
-                crate::surface::PillSize::Sm,
-                cx,
-            )
-            .label(label);
-            let kind = chip.kind;
-            let option_id = chip.id.clone();
-            let values = chip.values.clone();
-            let view = cx.entity().downgrade();
-            row = row.child(
-                gpui_component::popover::Popover::new(id)
-                    .p_1()
-                    .trigger(trigger)
-                    .content(move |_, _window, cx| {
-                        let mut menu = v_flex().min_w(px(160.)).gap_0p5();
-                        for value in &values {
-                            let view = view.clone();
-                            let option_id = option_id.clone();
-                            let value_id = value.id.clone();
-                            menu = menu.child(
-                                div()
-                                    .id(SharedString::from(format!(
-                                        "steer-chip-value-{option_id}-{value_id}"
-                                    )))
-                                    .w_full()
-                                    .px_2()
-                                    .py_1()
-                                    .rounded(px(theme::tokens::radius::SM))
-                                    .cursor_pointer()
-                                    .text_xs()
-                                    .hover(|this| this.bg(cx.theme().accent))
-                                    .child(SharedString::from(value.label.clone()))
-                                    .on_click(move |_: &ClickEvent, _window, cx| {
-                                        let Some(view) = view.upgrade() else {
-                                            return;
-                                        };
-                                        view.update(cx, |this, cx| {
-                                            match kind {
-                                                ChipKind::Mode => this.set_mode(&value_id),
-                                                ChipKind::Option => {
-                                                    this.set_config(&option_id, &value_id)
-                                                }
-                                            }
-                                            cx.notify();
-                                        });
-                                    }),
-                            );
-                        }
-                        menu
-                    }),
+                    .into_any_element(),
             );
         }
-        Some(row.into_any_element())
+        let chip = self.mode_chip()?;
+        let label = SharedString::from(format!("{}: {}", chip.label, chip.value_label));
+        if chip.values.len() < 2 {
+            return Some(
+                h_flex()
+                    .w_full()
+                    .min_w_0()
+                    .gap_1()
+                    .pb_1()
+                    .child(
+                        crate::surface::glass_pill(
+                            "steer-mode-chip",
+                            crate::surface::PillSize::Sm,
+                            crate::surface::PillMode::Readonly,
+                            cx,
+                        )
+                        .child(div().text_xs().text_color(muted).child(label)),
+                    )
+                    .into_any_element(),
+            );
+        }
+        // The popover and its trigger are two elements in one subtree — gpui
+        // ids must not collide.
+        let trigger = crate::surface::glass_pill_button(
+            "steer-mode-chip-trigger",
+            crate::surface::PillSize::Sm,
+            cx,
+        )
+        .label(label);
+        let values = chip.values.clone();
+        let current = chip.value.clone();
+        let view = cx.entity().downgrade();
+        Some(
+            h_flex()
+                .w_full()
+                .min_w_0()
+                .gap_1()
+                .pb_1()
+                .child(
+                    gpui_component::popover::Popover::new("steer-mode-chip")
+                        .p_1()
+                        .trigger(trigger)
+                        .content(move |_, _window, cx| {
+                            let mut menu = v_flex().min_w(px(160.)).gap_0p5();
+                            for value in &values {
+                                let view = view.clone();
+                                let value_id = value.id.clone();
+                                let picked = value_id == current;
+                                menu = menu.child(
+                                    h_flex()
+                                        .id(SharedString::from(format!(
+                                            "steer-mode-value-{value_id}"
+                                        )))
+                                        .w_full()
+                                        .gap_2()
+                                        .items_center()
+                                        .px_2()
+                                        .py_1()
+                                        .rounded(px(theme::tokens::radius::SM))
+                                        .cursor_pointer()
+                                        .text_xs()
+                                        .hover(|this| this.bg(cx.theme().accent))
+                                        .child(
+                                            div()
+                                                .flex_1()
+                                                .min_w_0()
+                                                .child(SharedString::from(value.label.clone())),
+                                        )
+                                        // The mode in force, marked the way
+                                        // the web menu marks it.
+                                        .when(picked, |this| {
+                                            this.child(
+                                                Icon::new(registry::UI_CHECK)
+                                                    .xsmall()
+                                                    .text_color(theme::tokens::GREEN.to_hsla()),
+                                            )
+                                        })
+                                        .on_click(move |_: &ClickEvent, _window, cx| {
+                                            let Some(view) = view.upgrade() else {
+                                                return;
+                                            };
+                                            view.update(cx, |this, cx| {
+                                                this.set_mode(&value_id);
+                                                cx.notify();
+                                            });
+                                        }),
+                                );
+                            }
+                            menu
+                        }),
+                )
+                .into_any_element(),
+        )
     }
 
     /// EXP-724: the `/` command rows — mono name, muted argument hint, muted
@@ -3854,6 +4042,10 @@ impl Render for SteerSessionView {
             .filter(|_| composer_visible)
             .map(|text| crate::session_extras::render_thought(text, cx));
         let composer = composer_visible.then(|| self.render_composer(cx));
+        // EXP-773: the Latest-changes bar sits between the transcript and the
+        // composer, exactly where the web view puts it — an ended run keeps
+        // it (the work is what the reader came for), it only loses the Merge.
+        let changes = self.render_changes_bar(cx);
         v_flex()
             .key_context("SteerSession")
             .track_focus(&self.focus_handle)
@@ -3866,6 +4058,7 @@ impl Render for SteerSessionView {
             .children(plan)
             .children(thought)
             .children(compacting)
+            .children(changes)
             .children(composer)
     }
 }
@@ -4112,12 +4305,12 @@ mod tests {
     #[test]
     fn the_kill_copy_names_the_device_only_when_there_is_one() {
         assert!(kill_description(Some("macbook")).starts_with(
-            "This force-terminates the terminal on macbook and ends the session."
+            "This stops the agent on macbook and ends the session."
         ));
         assert!(kill_description(None)
-            .starts_with("This force-terminates the terminal and ends the session."));
+            .starts_with("This stops the agent and ends the session."));
         assert!(kill_description(Some("")).starts_with(
-            "This force-terminates the terminal and ends the session."
+            "This stops the agent and ends the session."
         ));
     }
 

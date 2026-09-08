@@ -166,7 +166,10 @@ fun CreateActionSheet(
         applyAgentSeed(defaultAgentFor(settled))
     }
 
-    val canCreate = device != null && description.isNotBlank()
+    // EXP-773: the creator run cannot start on a machine whose ACP engine
+    // does not drive the picked agent.
+    val canCreate = device != null && !device.agentNotReady(agent) &&
+        description.isNotBlank()
 
     GlassSheet(
         title = "New action",

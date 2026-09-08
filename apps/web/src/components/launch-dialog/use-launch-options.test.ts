@@ -41,3 +41,26 @@ describe(`useLaunchOptions plan mode`, () => {
     expect(result.current.buildOptions().planMode).toBe(true)
   })
 })
+
+// EXP-773: the PTY fallback is gone, so an agent outside the settled device's
+// reported ACP set has nowhere to start — every launch surface blocks submit
+// on this flag.
+describe(`useLaunchOptions readiness`, () => {
+  it(`is false while the device reports no ACP set`, () => {
+    const { result } = renderHook(() =>
+      useLaunchOptions({ open: true, devices: [device] })
+    )
+    expect(result.current.agentNotReady).toBe(false)
+  })
+
+  it(`is true when the settled agent is outside the reported set`, () => {
+    const { result } = renderHook(() =>
+      useLaunchOptions({
+        open: true,
+        devices: [{ ...device, acpAgents: [`codex`] }],
+      })
+    )
+    expect(result.current.agent).toBe(`claude`)
+    expect(result.current.agentNotReady).toBe(true)
+  })
+})

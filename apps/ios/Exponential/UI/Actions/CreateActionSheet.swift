@@ -92,6 +92,9 @@ struct CreateActionSheet: View {
 
     private var canSubmit: Bool {
         device != nil
+            // EXP-773: the creator run cannot start on a machine whose ACP
+            // engine does not drive the picked agent.
+            && device?.agentNotReady(agent) != true
             && !descriptionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && descriptionText.count <= DomainContract.actionInputTextMax
             && name.count <= DomainContract.actionInputTextMax

@@ -46,16 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-issue-previews-and-relations",
-    date: "2026-09-07",
-    title: "Issue previews and tidier relations",
-    summary: "Hover an issue reference for a preview card, add sub-issues inline, and find Merge PR next to Start coding.",
-    body: r#"- **Issue preview cards**: hovering a #EXP-12 pill in a description, comment, timeline, relation row or steering feed on web and desktop opens a card with the issue's identifier, assignee, title, status, priority and labels. On iOS and Android the chips in the steering feed open the issue on tap.
-- **Relations as headings**: relations sit below the description under Sub-issues, Parent, Blocked by, Blocks, Duplicate of, Duplicated by and Related, and disappear when there are none.
-- **Add sub-issues inline**: an Add sub-issues row opens an inline composer; the new issue is created with its parent relation in one step, and the MCP create tool takes a parentId too.
-- **One issue menu**: Copy link, Add relation, Unmark duplicate and Delete live in a single round menu on the issue page and in the issue list's context menu.
-- **Merge PR next to Start coding**: on an issue with an open pull request the Merge button sits in the properties card beside Start coding.
-- **Session pages**: a coding session opens on its own page from the bottom strip, and Chat starts an agent without an issue or a repository. Read the entries below for the full story."#,
+    id: "2026-09-sessions-on-your-machine",
+    date: "2026-09-08",
+    title: "Sessions that stay on your machine",
+    summary: "Transcripts live on the device that ran them, plan mode always builds, and the chat page is one prompt box with your defaults underneath.",
+    body: r#"- **Transcripts on your machine**: every session's transcript is written to the device that runs it, never to the server. Past runs in Devices, Chat and Automations open on their own page; when that machine is online the transcript is fetched from it on demand, and when it is offline the page says so.
+- **Plan mode always builds**: a claude session started in plan mode no longer stops to ask for tool permissions, and leaving plan mode into Build works. The composer keeps one Plan switch; model and effort are chosen once, in the start dialog.
+- **Chat page**: the Chat page is a single prompt box with machine, agent, model, effort and plan as small pickers underneath, prefilled from your defaults.
+- **Subagent conversations**: a subagent's prompt no longer lands in the main transcript, and its own view shows its full conversation, not only its tool calls.
+- **Whole messages**: agent prose no longer splits mid-sentence into separate rows.
+- **Desktop changes list**: the session page's changes sit under the transcript as a collapsible per-file list with Merge, like the web.
+- **Terminal-mode coding retired**: every coding session runs on the session page. The Start in terminal switch and the terminal-tab fallback are gone; plain terminal tabs and agent sign-in tabs stay. Where a picker used to say a start would open in a terminal, it now says the agent is not ready on that machine and blocks the start until you run the doctor there."#,
 };
 
 /// Whether the rail's "What's new" card renders, given the stored

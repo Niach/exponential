@@ -682,76 +682,78 @@ pub(crate) fn render_thought(text: &str, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-/// One composer chip: what it is called, what it currently reads, and what it
-/// may be set to.
+/// EXP-772: the composer's ONE chip — the session MODE. Model, effort and
+/// every other option picker left the mid-session UI: an agent is configured
+/// when it starts, and the only thing worth flipping mid-run is plan on/off.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ConfigChip {
-    pub(crate) kind: ChipKind,
-    /// The option id a `set_config` names; the mode chip carries no id (its
-    /// values ARE the mode ids).
-    pub(crate) id: String,
-    /// From the wire, never a local constant — that is how the four clients
-    /// agree on "Model" / "Effort" without mirroring anything.
+    /// The mode id in force.
+    pub(crate) value: String,
+    /// Its leading label ("Mode").
     pub(crate) label: String,
+    /// What it currently reads ("Plan").
     pub(crate) value_label: String,
-    /// Empty = read-only on this run: render the value, offer no menu.
+    /// Every mode the run advertised; one entry = read-only.
     pub(crate) values: Vec<steer::frames::ConfigValue>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ChipKind {
-    Mode,
-    Option,
-}
-
-/// The chip row in the order every client draws it: the MODE chip first when
-/// the run has modes, then the options in publisher order. Mirrored ×4 as
-/// `configChips`.
-pub(crate) fn config_chips(config: Option<&steer::SessionConfig>) -> Vec<ConfigChip> {
-    let Some(config) = config else {
-        return Vec::new();
-    };
-    let mut chips = Vec::new();
-    if !config.modes.is_empty() {
-        let current = config.current_mode.as_deref().unwrap_or_default();
-        let value_label = config
+/// EXP-772: the mode chip, or `None` when the run advertises no modes (codex
+/// advertises none, so its composer draws nothing). Mirrored ×4 as `modeChip`.
+pub(crate) fn mode_chip(config: Option<&steer::SessionConfig>) -> Option<ConfigChip> {
+    let config = config?;
+    if config.modes.is_empty() {
+        return None;
+    }
+    let current = config.current_mode.as_deref().unwrap_or_default();
+    let value_label = config
+        .modes
+        .iter()
+        .find(|mode| mode.id == current)
+        .map(|mode| mode.label.clone())
+        .filter(|label| !label.is_empty())
+        .or_else(|| (!current.is_empty()).then(|| current.to_string()))
+        .unwrap_or_else(|| crate::slash_commands::CONFIG_DEFAULT_VALUE_LABEL.to_string());
+    Some(ConfigChip {
+        value: current.to_string(),
+        label: crate::slash_commands::CONFIG_MODE_LABEL.to_string(),
+        value_label,
+        values: config
             .modes
             .iter()
-            .find(|mode| mode.id == current)
-            .map(|mode| mode.label.clone())
-            .unwrap_or_else(|| crate::slash_commands::CONFIG_DEFAULT_VALUE_LABEL.to_string());
-        chips.push(ConfigChip {
-            kind: ChipKind::Mode,
-            id: current.to_string(),
-            label: crate::slash_commands::CONFIG_MODE_LABEL.to_string(),
-            value_label,
-            values: config
-                .modes
-                .iter()
-                .map(|mode| steer::frames::ConfigValue::new(mode.id.clone(), mode.label.clone()))
-                .collect(),
-        });
+            .map(|mode| steer::frames::ConfigValue::new(mode.id.clone(), mode.label.clone()))
+            .collect(),
+    })
+}
+
+/// The mode id every plan-capable agent advertises.
+pub(crate) const PLAN_MODE_ID: &str = "plan";
+
+/// EXP-772: the plan/build PAIR — exactly two modes, one of them `plan`. That
+/// shape (claude, and pi when it launched with the plan extension) draws a
+/// compact "Plan" toggle pill instead of a two-value chip; anything else falls
+/// back to the chip. Mirrored ×4 as `planModeToggle`.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct PlanModeToggle {
+    /// The mode to switch to when turning plan ON.
+    pub(crate) plan_id: String,
+    /// The mode to switch back to when turning it OFF.
+    pub(crate) build_id: String,
+    /// Plan mode is in force right now.
+    pub(crate) active: bool,
+}
+
+pub(crate) fn plan_mode_toggle(config: Option<&steer::SessionConfig>) -> Option<PlanModeToggle> {
+    let config = config?;
+    if config.modes.len() != 2 {
+        return None;
     }
-    for option in &config.options {
-        let value = option.value.as_deref().unwrap_or_default();
-        let values = option.values.clone().unwrap_or_default();
-        let value_label = values
-            .iter()
-            .find(|candidate| candidate.id == value)
-            .map(|candidate| candidate.label.clone())
-            .or_else(|| (!value.is_empty()).then(|| value.to_string()))
-            // A blank value is the CLI's own default, which is a CHOICE and
-            // not a missing answer.
-            .unwrap_or_else(|| crate::slash_commands::CONFIG_DEFAULT_VALUE_LABEL.to_string());
-        chips.push(ConfigChip {
-            kind: ChipKind::Option,
-            id: option.id.clone(),
-            label: option.label.clone(),
-            value_label,
-            values,
-        });
-    }
-    chips
+    let plan = config.modes.iter().find(|mode| mode.id == PLAN_MODE_ID)?;
+    let build = config.modes.iter().find(|mode| mode.id != PLAN_MODE_ID)?;
+    Some(PlanModeToggle {
+        plan_id: plan.id.clone(),
+        build_id: build.id.clone(),
+        active: config.current_mode.as_deref() == Some(plan.id.as_str()),
+    })
 }
 
 /// The header's compact context read (`124k / 200k`) — the sheet spells out
@@ -1020,60 +1022,71 @@ mod tests {
         assert_eq!(extras.thought(), None);
     }
 
-    // ── EXP-746: the chip row (×4 `configChips`) ──────────────────────────
+    // ── EXP-772: the composer's ONE chip (×4 `modeChip`) ──────────────────
 
-    fn config() -> steer::SessionConfig {
+    fn config(modes: &[(&str, &str)], current: Option<&str>) -> steer::SessionConfig {
         steer::SessionConfig {
-            options: vec![
-                steer::frames::ConfigOption {
-                    value: Some("opus".to_string()),
-                    values: Some(vec![
-                        steer::frames::ConfigValue::new("opus", "Opus"),
-                        steer::frames::ConfigValue::new("sonnet", "Sonnet"),
-                    ]),
-                    ..steer::frames::ConfigOption::new("model", "Model")
-                },
-                steer::frames::ConfigOption {
-                    value: Some(String::new()),
-                    ..steer::frames::ConfigOption::new("effort", "Effort")
-                },
-            ],
-            current_mode: Some("plan".to_string()),
-            modes: vec![
-                steer::frames::ConfigMode::new("default", "Default"),
-                steer::frames::ConfigMode::new("plan", "Plan"),
-            ],
+            // EXP-772: the engine publishes an EMPTY option list now — the
+            // mid-session model/effort pickers are gone on every client.
+            options: Vec::new(),
+            current_mode: current.map(str::to_string),
+            modes: modes
+                .iter()
+                .map(|(id, label)| steer::frames::ConfigMode::new(*id, *label))
+                .collect(),
             commands: Vec::new(),
         }
     }
 
+    /// The chip row is the mode and nothing else — a claude run reads "Plan",
+    /// a run with no modes (codex) draws nothing at all.
     #[test]
-    fn config_chips_puts_the_mode_chip_first() {
-        let chips = config_chips(Some(&config()));
+    fn the_only_chip_left_is_the_mode() {
+        let claude = config(&[("plan", "Plan"), ("bypassPermissions", "Build")], Some("plan"));
+        let chip = mode_chip(Some(&claude)).expect("claude advertises modes");
+        assert_eq!((chip.label.as_str(), chip.value_label.as_str()), ("Mode", "Plan"));
+        assert_eq!(chip.values.len(), 2);
+
+        // No modes, no chip; no config at all, no chip.
+        assert!(mode_chip(Some(&config(&[], None))).is_none());
+        assert!(mode_chip(None).is_none());
+
+        // A mode the publisher never described still names itself.
+        let unknown = config(&[("plan", "Plan")], Some("acceptEdits"));
         assert_eq!(
-            chips
-                .iter()
-                .map(|chip| (chip.kind, chip.label.as_str(), chip.value_label.as_str()))
-                .collect::<Vec<_>>(),
-            vec![
-                (ChipKind::Mode, "Mode", "Plan"),
-                (ChipKind::Option, "Model", "Opus"),
-                // A blank value is the CLI's own default, spelled out.
-                (ChipKind::Option, "Effort", "CLI default"),
-            ]
+            mode_chip(Some(&unknown)).expect("a mode is in force").value_label,
+            "acceptEdits"
         );
-        // An option with no `values` is read-only: render it, offer no menu.
-        assert!(chips[2].values.is_empty());
-        // A run with no modes draws no mode chip at all.
-        let modeless = steer::SessionConfig {
-            modes: Vec::new(),
-            current_mode: None,
-            ..config()
-        };
-        assert!(config_chips(Some(&modeless))
-            .iter()
-            .all(|chip| chip.kind == ChipKind::Option));
-        assert!(config_chips(None).is_empty());
+    }
+
+    /// EXP-772: exactly two modes with `plan` among them is the toggle shape;
+    /// anything else falls back to the chip.
+    #[test]
+    fn a_plan_build_pair_becomes_a_plan_switch() {
+        let claude = config(&[("plan", "Plan"), ("bypassPermissions", "Build")], Some("plan"));
+        let toggle = plan_mode_toggle(Some(&claude)).expect("the claude pair");
+        assert_eq!(toggle.plan_id, "plan");
+        assert_eq!(toggle.build_id, "bypassPermissions");
+        assert!(toggle.active);
+
+        // Off plan, the switch points back at Build.
+        let building = config(
+            &[("plan", "Plan"), ("bypassPermissions", "Build")],
+            Some("bypassPermissions"),
+        );
+        let toggle = plan_mode_toggle(Some(&building)).expect("the claude pair");
+        assert!(!toggle.active);
+
+        // A pair without `plan`, a single mode and a three-mode list are all
+        // chips, not switches.
+        assert!(plan_mode_toggle(Some(&config(&[("a", "A"), ("b", "B")], Some("a")))).is_none());
+        assert!(plan_mode_toggle(Some(&config(&[("plan", "Plan")], Some("plan")))).is_none());
+        assert!(plan_mode_toggle(Some(&config(
+            &[("plan", "Plan"), ("b", "B"), ("c", "C")],
+            Some("plan")
+        )))
+        .is_none());
+        assert!(plan_mode_toggle(None).is_none());
     }
 
     /// The header shows the tokens; the sheet adds the percent and the cost.

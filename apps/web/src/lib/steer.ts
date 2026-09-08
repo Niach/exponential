@@ -106,6 +106,9 @@ export type SteerTicketSeed =
        * the transcript never leaves the device. Absent on rows that named no
        * device. */
       deviceId?: string
+      /** EXP-432: the account that device is registered under (the run's host
+       * for a shared-device run). Omitted = the ticket's own user. */
+      deviceOwnerId?: string
     }
 
 export function buildSteerTicketClaims(
@@ -140,8 +143,15 @@ export function buildSteerTicketClaims(
         sessionId: seed.sessionId,
         role: `viewer`,
         // EXP-773: only when the row named a device — an undefined key would
-        // widen the ticket's JSON for nothing.
+        // widen the ticket's JSON for nothing. The owner claim rides along
+        // with it (EXP-432: presence is indexed by device owner) and only
+        // when it differs from the ticket's own user.
         ...(seed.deviceId ? { deviceId: seed.deviceId } : {}),
+        ...(seed.deviceId &&
+        seed.deviceOwnerId &&
+        seed.deviceOwnerId !== seed.userId
+          ? { deviceOwnerId: seed.deviceOwnerId }
+          : {}),
       }
   }
 }

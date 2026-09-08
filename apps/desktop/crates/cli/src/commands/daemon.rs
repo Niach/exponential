@@ -24,7 +24,6 @@ use crate::context::{self, Ctx};
 use crate::launch::{self, ActionRepo};
 use crate::registry;
 use crate::session_host::{self, LaunchEnv, RunningSession};
-use crate::sidecars::Sidecars;
 
 /// EXP-481: 30s (down from 60) — online-ness now derives from
 /// `last_seen_at` freshness against the contract's 90s window, so one
@@ -193,9 +192,8 @@ fn gated_update_due(gated: bool, last_attempt: Option<Instant>, now: Instant) ->
 struct LiveSession {
     issue_id: Option<String>,
     /// EXP-530: the `actions` row this run executes (from the prepared
-    /// launch's [`terminal::tab::TabKind::Action`]) — the automation host's
-    /// defer check ("never launch a second run of an action already
-    /// running here").
+    /// launch's `action_id`) — the automation host's defer check ("never
+    /// launch a second run of an action already running here").
     action_id: Option<String>,
     branch: String,
     is_fix_run: bool,
@@ -342,22 +340,13 @@ fn run_daemon(args: &[String]) -> CommandResult {
     }
     // EXP-758: an ACP child outlives a host that died without its quit sweep
     // (a crash, SIGKILL, a hard reboot of the service), and nothing else ever
-    // kills it, since the PTY reaper's `claude-hooks` anchor only finds
-    // claude. The recorded pids are the anchor here, and a pid whose host is
+    // kills it, since the reaper's `claude-hooks` anchor only finds claude. The recorded pids are the anchor here, and a pid whose host is
     // still alive (the desktop app sharing this data dir, REV-20) is skipped.
     let orphans = coding::reaper::reap_recorded(&ctx.data_dir);
     if orphans > 0 {
         log::info!("reaped {orphans} orphaned agent process(es) from an earlier run");
     }
 
-    let sidecars = Arc::new(Sidecars::new());
-    // EXP-758: the sidecars bind lazily, per agent, on the launch path. A
-    // device that starts every run in a terminal
-    // (`Settings::start_in_terminal`) needs them for every launch it will
-    // ever do, so it binds them here instead of paying for it on the first.
-    sidecars.ensure_started_if(
-        coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir)).start_in_terminal,
-    );
     let runtime = match steer::SteerRuntime::new() {
         Ok(runtime) => Some(runtime),
         Err(err) => {
@@ -401,7 +390,6 @@ fn run_daemon(args: &[String]) -> CommandResult {
     let automation_worker = sync_manager.as_ref().map(|manager| {
         let worker = spawn_automation_worker(AutomationHost {
             ctx: Arc::clone(&ctx),
-            sidecars: Arc::clone(&sidecars),
             runtime: runtime.clone(),
             sessions: Arc::clone(&sessions),
             reservations: reservations.clone(),
@@ -520,7 +508,6 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 }
                 Ok(reservation) => {
                     let ctx = Arc::clone(&ctx);
-                    let sidecars = Arc::clone(&sidecars);
                     let runtime = runtime.clone();
                     let sessions = Arc::clone(&sessions);
                     let personal_key = personal_key.clone();
@@ -529,7 +516,6 @@ fn run_daemon(args: &[String]) -> CommandResult {
                         let _reservation = reservation;
                         handle_remote_start(
                             &ctx,
-                            &sidecars,
                             runtime.as_ref(),
                             &sessions,
                             personal_key,
@@ -1135,7 +1121,6 @@ fn reconcile_stale_sessions(ctx: &Ctx) {
 
 fn handle_remote_start(
     ctx: &Ctx,
-    sidecars: &Sidecars,
     runtime: Option<&Arc<steer::SteerRuntime>>,
     sessions: &Sessions,
     personal_key: Option<String>,
@@ -1168,22 +1153,22 @@ fn handle_remote_start(
     // appearing (desktop parity).
     let outcome = match start.subject.clone() {
         RemoteStartSubject::Issue(issue_id) => remote_issue_start(
-            ctx, sidecars, runtime, sessions, personal_key, options, origin, issue_id,
+            ctx, runtime, sessions, personal_key, options, origin, issue_id,
             // EXP-481: honor the remote resume flag — the launcher's marker
             // gate degrades a missing/foreign worktree to a fresh session.
             start.resume,
         ),
         RemoteStartSubject::Batch { issue_ids, team_id, repo } => remote_batch_start(
-            ctx, sidecars, runtime, sessions, personal_key, options, origin, issue_ids, team_id, repo,
+            ctx, runtime, sessions, personal_key, options, origin, issue_ids, team_id, repo,
         ),
         RemoteStartSubject::Action { action_id, team_id, repo, inputs, .. } => remote_action_start(
-            ctx, sidecars, runtime, sessions, personal_key, options, origin, action_id, team_id, repo, inputs,
+            ctx, runtime, sessions, personal_key, options, origin, action_id, team_id, repo, inputs,
         ),
         // EXP-637: the run registry holds everything else (agent, workspace,
         // branch, options), so the frame's launch options are ignored by
         // contract — a resumed run keeps what it recorded.
         RemoteStartSubject::Resume { session_id } => remote_resume_start(
-            ctx, sidecars, runtime, sessions, personal_key, origin, session_id,
+            ctx, runtime, sessions, personal_key, origin, session_id,
         ),
     };
     if let Err(err) = outcome {
@@ -1230,7 +1215,6 @@ fn issue_resume_record(
 #[allow(clippy::too_many_arguments)]
 fn remote_issue_start(
     ctx: &Ctx,
-    sidecars: &Sidecars,
     runtime: Option<&Arc<steer::SteerRuntime>>,
     sessions: &Sessions,
     personal_key: Option<String>,
@@ -1267,12 +1251,10 @@ fn remote_issue_start(
             start_resume,
         )),
     };
-    // EXP-761: the sidecars bind inside `prepare` — on its Terminal arm
-    // only, for the launched CLI's own one. An ACP launch binds nothing.
-    let prepared = coding::prepare_with_hooks(&request, &deps, &*sidecars)
-    .map_err(|err| anyhow::anyhow!("{err}"))?;
+    let prepared = coding::prepare(&request, &deps)
+        .map_err(|err| anyhow::anyhow!("{err}"))?;
     spawn_prepared(
-        ctx, sidecars, runtime, sessions, personal_key, prepared,
+        ctx, runtime, sessions, personal_key, prepared,
         Some(issue.id), false,
     )
 }
@@ -1280,7 +1262,6 @@ fn remote_issue_start(
 #[allow(clippy::too_many_arguments)]
 fn remote_batch_start(
     ctx: &Ctx,
-    sidecars: &Sidecars,
     runtime: Option<&Arc<steer::SteerRuntime>>,
     sessions: &Sessions,
     personal_key: Option<String>,
@@ -1358,17 +1339,14 @@ fn remote_batch_start(
     };
     let deps = launch::coding_deps(ctx, seeds, launch::LaunchHost::Daemon, runtime);
     let request = PrepareRequest::Batch(request);
-    // EXP-761: the sidecars bind inside `prepare` — on its Terminal arm
-    // only, for the launched CLI's own one. An ACP launch binds nothing.
-    let prepared = coding::prepare_with_hooks(&request, &deps, &*sidecars)
-    .map_err(|err| anyhow::anyhow!("{err}"))?;
-    spawn_prepared(ctx, sidecars, runtime, sessions, personal_key, prepared, None, false)
+    let prepared = coding::prepare(&request, &deps)
+        .map_err(|err| anyhow::anyhow!("{err}"))?;
+    spawn_prepared(ctx, runtime, sessions, personal_key, prepared, None, false)
 }
 
 #[allow(clippy::too_many_arguments)]
 fn remote_action_start(
     ctx: &Ctx,
-    sidecars: &Sidecars,
     runtime: Option<&Arc<steer::SteerRuntime>>,
     sessions: &Sessions,
     personal_key: Option<String>,
@@ -1437,11 +1415,9 @@ fn remote_action_start(
 
     let deps = launch::coding_deps(ctx, HashMap::new(), launch::LaunchHost::Daemon, runtime);
     let request = PrepareRequest::Action(request);
-    // EXP-761: the sidecars bind inside `prepare` — on its Terminal arm
-    // only, for the launched CLI's own one. An ACP launch binds nothing.
-    let prepared = coding::prepare_with_hooks(&request, &deps, &*sidecars)
-    .map_err(|err| anyhow::anyhow!("{err}"))?;
-    spawn_prepared(ctx, sidecars, runtime, sessions, personal_key, prepared, None, is_fix_run)
+    let prepared = coding::prepare(&request, &deps)
+        .map_err(|err| anyhow::anyhow!("{err}"))?;
+    spawn_prepared(ctx, runtime, sessions, personal_key, prepared, None, is_fix_run)
 }
 
 /// EXP-637 — RESUME an ended run of ANY kind out of the local run registry
@@ -1451,7 +1427,6 @@ fn remote_action_start(
 #[allow(clippy::too_many_arguments)]
 fn remote_resume_start(
     ctx: &Ctx,
-    sidecars: &Sidecars,
     runtime: Option<&Arc<steer::SteerRuntime>>,
     sessions: &Sessions,
     personal_key: Option<String>,
@@ -1502,17 +1477,14 @@ fn remote_resume_start(
     };
     let deps = launch::coding_deps(ctx, seeds, launch::LaunchHost::Daemon, runtime);
     let request = PrepareRequest::ResumeRun(request);
-    // EXP-761: the sidecars bind inside `prepare` — on its Terminal arm
-    // only, for the launched CLI's own one. An ACP launch binds nothing.
-    let prepared = coding::prepare_with_hooks(&request, &deps, &*sidecars)
-    .map_err(|err| anyhow::anyhow!("{err}"))?;
-    spawn_prepared(ctx, sidecars, runtime, sessions, personal_key, prepared, issue_id, false)
+    let prepared = coding::prepare(&request, &deps)
+        .map_err(|err| anyhow::anyhow!("{err}"))?;
+    spawn_prepared(ctx, runtime, sessions, personal_key, prepared, issue_id, false)
 }
 
 #[allow(clippy::too_many_arguments)]
 fn spawn_prepared(
     ctx: &Ctx,
-    sidecars: &Sidecars,
     runtime: Option<&Arc<steer::SteerRuntime>>,
     sessions: &Sessions,
     personal_key: Option<String>,
@@ -1530,25 +1502,14 @@ fn spawn_prepared(
     let env = LaunchEnv {
         ctx,
         runtime,
-        sidecars,
         personal_key,
     };
-    // EXP-530: an action run's own id, straight off the prepared tab kind —
-    // the automation host defers while it is live.
-    let action_id = match &prepared.tab_kind {
-        terminal::tab::TabKind::Action(id) => Some(id.clone()),
-        _ => None,
-    };
+    // EXP-530: an action run's own id — the automation host defers while it
+    // is live.
+    let action_id = prepared.action_id.clone();
     // EXP-637: snapshotted before the launch consumes the prepared value.
     let cleanup = prepared.run_cleanup.clone();
-    // EXP-758: why this run is not on the transport the settings asked for
-    // (today: an agent whose ACP check failed fell back to the terminal).
-    // The daemon has no user-visible notice channel of its own (a remote
-    // start is never acked, see `handle_remote_start`), so the log is it.
-    if let Some(notice) = &prepared.transport_notice {
-        log::info!("session {}: {notice}", prepared.session_id);
-    }
-    let session = Arc::new(session_host::launch(&env, prepared, false, issue_id.clone())?);
+    let session = Arc::new(session_host::launch(&env, prepared, issue_id.clone())?);
     log::info!(
         "session {} started ({}, branch {})",
         session.session_id,
@@ -2096,7 +2057,6 @@ fn spawn_delta_drain(manager: &Arc<sync::SyncManager>, worker: flume::Sender<Aut
 /// Everything the worker thread owns.
 struct AutomationHost {
     ctx: Arc<Ctx>,
-    sidecars: Arc<Sidecars>,
     runtime: Option<Arc<steer::SteerRuntime>>,
     sessions: Sessions,
     reservations: StartReservations,
@@ -2382,17 +2342,14 @@ impl AutomationHost {
             self.runtime.as_ref(),
         );
         let request = PrepareRequest::Action(request);
-        // EXP-761: the sidecars bind inside `prepare` — on its Terminal arm
-        // only, for the launched CLI's own one. An ACP launch binds nothing.
-        let prepared = coding::prepare_with_hooks(&request, &deps, &*self.sidecars)
-        .map_err(|err| anyhow::anyhow!("{err}"))?;
+        let prepared = coding::prepare(&request, &deps)
+            .map_err(|err| anyhow::anyhow!("{err}"))?;
         if let Prepared::Disabled(reason) = &prepared {
             log::warn!("automation run refused: {}", reason.message());
             return Ok(false);
         }
         spawn_prepared(
             &self.ctx,
-            &self.sidecars,
             self.runtime.as_ref(),
             &self.sessions,
             self.personal_key.clone(),
@@ -2951,47 +2908,6 @@ mod tests {
                 .collect(),
             acp_agents: Vec::new(),
         }
-    }
-
-    /// EXP-758 (EXP-478): the run is in the live list, the prune's `held`
-    /// set, BEFORE its launch gate is released. Released earlier (which is
-    /// what `session_host::launch` used to do) a `worktree_prune` landing in
-    /// the gap removes the worktree of a run that just started.
-    #[test]
-    fn registering_a_session_releases_the_launch_gate_only_after_the_push() {
-        let clone = std::env::temp_dir().join(format!(
-            "exp-cli-register-{}-{}",
-            std::process::id(),
-            uuid::Uuid::new_v4()
-        ));
-        std::fs::create_dir_all(&clone).expect("temp clone");
-        let sessions: Sessions = Arc::new(Mutex::new(Vec::new()));
-        let session = Arc::new(crate::session_host::test_session(
-            "sess-1",
-            Some(coding::launch_gate::hold(&clone)),
-        ));
-        // Pre-registration: the prune on that clone cannot run at all.
-        assert!(coding::launch_gate::try_exclusive(&clone, || ()).is_none());
-
-        register_session(
-            &sessions,
-            LiveSession {
-                issue_id: Some("issue-1".to_string()),
-                action_id: None,
-                branch: session.branch.clone(),
-                is_fix_run: false,
-                cleanup: None,
-                session: Arc::clone(&session),
-            },
-        );
-
-        let guard = lock_sessions(&sessions);
-        assert_eq!(guard.len(), 1, "the run is registered");
-        assert_eq!(guard[0].branch, "exp/EXP-1");
-        drop(guard);
-        assert!(!session.holds_launch_gate(), "and only then is the gate free");
-        assert!(coding::launch_gate::try_exclusive(&clone, || ()).is_some());
-        let _ = std::fs::remove_dir_all(&clone);
     }
 
     #[test]

@@ -926,18 +926,6 @@ describe(`activity event kinds`, () => {
     planMode: true,
     id: `toolu_plan`,
   }
-  // EXP-746: an ACP session's option keys are the agent's own option ids,
-  // which are words, not keystrokes.
-  const acpQuestion = {
-    kind: `question`,
-    text: `## The plan`,
-    options: [
-      { label: `Yes, clear context and auto-accept edits`, key: `exit-plan-clear-accept-edits` },
-      { label: `No, keep planning`, key: `exit-plan-default` },
-    ],
-    planMode: true,
-    id: `toolu_acp_plan`,
-  }
   // EXP-746: every declared field at once — the whole-object assertions below
   // are what catch a field the schema forgot (the relay re-serializes the
   // PARSED event, so an undeclared one is stripped in silence).
@@ -2109,6 +2097,56 @@ describe(`session history on demand (EXP-773)`, () => {
     // The room is gone: a fresh join asks the device again.
     const again = joinWithDevice(hub)
     expect(again.frames().map((f) => f.t)).toContain(`history_pending`)
+    hub.destroy()
+  })
+
+  test(`a shared-device run reaches the device under deviceOwnerId`, () => {
+    const hub = new Hub()
+    // EXP-432: the machine is registered by its HOST, and the run's row is
+    // owned by the requester who started it there.
+    const device = connectDevice(hub, `host-user`)
+    const sock = new FakeSocket()
+    hub.onOpen(
+      sock,
+      claims({
+        role: `viewer`,
+        sub: `requester`,
+        sessionId: `sess-past`,
+        deviceId: `dev-1`,
+        deviceOwnerId: `host-user`,
+      })
+    )
+    hub.onMessage(sock, JSON.stringify({ t: `join`, channel: `activity` }))
+    expect(device.lastFrame(`history_request`)).toMatchObject({
+      sessionId: `sess-past`,
+    })
+    expect(sock.frames().map((f) => f.t)).toEqual([
+      `activity_reset`,
+      `history_pending`,
+    ])
+    expect(sock.closed).toBeNull()
+    hub.destroy()
+  })
+
+  test(`a second replay into the same room does not duplicate the transcript`, () => {
+    const hub = new Hub()
+    connectDevice(hub)
+    const member = joinWithDevice(hub)
+    const first = connectPublisher(hub, `sess-past`)
+    activity(hub, first, { kind: `narration`, text: `what happened` })
+
+    // A second history publisher for the same room (a redial that raced the
+    // first one's bye): its hello starts from an EMPTY log, so the replay it
+    // is about to send is not appended behind the first one's copy.
+    const resets = member.framesOf(`activity_reset`).length
+    const second = connectPublisher(hub, `sess-past`)
+    expect(member.framesOf(`activity_reset`)).toHaveLength(resets + 1)
+    activity(hub, second, { kind: `narration`, text: `what happened` })
+
+    const late = joinWithDevice(hub)
+    expect(late.events()).toEqual([
+      { kind: `narration`, text: `what happened` },
+    ])
     hub.destroy()
   })
 

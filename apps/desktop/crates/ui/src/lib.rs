@@ -36,9 +36,11 @@ mod automation_editor;
 mod board;
 mod board_form;
 mod changelog;
-// EXP-746: the ONE "Latest changes" surface — the dock's row and the session
-// screen's rail render through it.
+// EXP-746: the ONE "Latest changes" surface — every session surface renders
+// through it.
 mod changes_bar;
+// EXP-772: the Chat page — one centred prompt box, one row of pickers.
+mod chat_screen;
 pub mod coding_flow;
 mod coding_selects;
 mod comment_attachments;
@@ -61,7 +63,6 @@ mod file_viewer;
 mod filter_bar;
 mod filter_popover;
 mod getting_started;
-mod graceful_stop;
 mod github_connect;
 mod icons;
 mod image_preview;

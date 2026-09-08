@@ -182,6 +182,9 @@ pub(crate) fn build_screen_content(
         Screen::Automations => cx
             .new(|cx| crate::automations_view::AutomationsView::new(window, cx))
             .into(),
+        Screen::Chat => cx
+            .new(|cx| crate::chat_screen::ChatScreenView::new(window, cx))
+            .into(),
         Screen::Reviews => cx
             .new(|cx| crate::reviews_view::ReviewsView::new(window, cx))
             .into(),
@@ -568,19 +571,11 @@ fn terminal_chip_content(tab: terminal::TabId, cx: &App) -> ChipContent {
         };
         (gpui::SharedString::from(code.to_string()), color)
     });
-    let mut content = match crate::session_bar::issue_tab_meta(tab, cx) {
-        Some(issue) => ChipContent {
-            lead: ChipLead::Status(issue.status),
-            identifier: Some(issue.identifier),
-            title: issue.title,
-            caption: None,
-            badge: None,
-            paused: false,
-        },
-        None => ChipContent {
-            lead: ChipLead::Shell,
-            ..ChipContent::plain(entry.title().clone())
-        },
+    // EXP-773: a terminal tab is a plain shell or an agent login — a coding
+    // run has its own screen, so no issue chip can resolve from a tab.
+    let mut content = ChipContent {
+        lead: ChipLead::Shell,
+        ..ChipContent::plain(entry.title().clone())
     };
     content.badge = badge;
     content
@@ -678,6 +673,9 @@ pub struct ScreensPanel {
     /// The Automations page (EXP-686 — the automation rows plus the
     /// "Recent automated runs" log).
     automations: Entity<crate::automations_view::AutomationsView>,
+    /// The Chat page (EXP-772 — the centred prompt box; the same tab-less
+    /// full-page mode).
+    chat: Entity<crate::chat_screen::ChatScreenView>,
     /// The Reviews page (EXP-706 — the team's open PRs; the same tab-less
     /// full-page mode. It was a sidebar tool window until EXP-706).
     reviews: Entity<crate::reviews_view::ReviewsView>,
@@ -736,6 +734,7 @@ impl ScreensPanel {
         let actions = cx.new(|cx| crate::actions_view::ActionsView::new(window, cx));
         let automations =
             cx.new(|cx| crate::automations_view::AutomationsView::new(window, cx));
+        let chat = cx.new(|cx| crate::chat_screen::ChatScreenView::new(window, cx));
         let reviews = cx.new(|cx| crate::reviews_view::ReviewsView::new(window, cx));
         let getting_started =
             cx.new(|cx| crate::getting_started::GettingStartedView::new(window, cx));
@@ -831,6 +830,7 @@ impl ScreensPanel {
             devices,
             actions,
             automations,
+            chat,
             reviews,
             getting_started,
             sessions: HashMap::new(),
@@ -1039,6 +1039,7 @@ impl ScreensPanel {
             | Screen::Devices
             | Screen::Actions
             | Screen::Automations
+            | Screen::Chat
             | Screen::Reviews
             | Screen::GettingStarted { .. }
             | Screen::Settings => {
@@ -2584,6 +2585,7 @@ impl Render for ScreensPanel {
             Some(Screen::Devices) => self.devices.clone().into_any_element(),
             Some(Screen::Actions) => self.actions.clone().into_any_element(),
             Some(Screen::Automations) => self.automations.clone().into_any_element(),
+            Some(Screen::Chat) => self.chat.clone().into_any_element(),
             Some(Screen::Reviews) => self.reviews.clone().into_any_element(),
             Some(Screen::GettingStarted { .. }) => {
                 self.getting_started.clone().into_any_element()

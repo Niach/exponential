@@ -108,6 +108,10 @@ interface Room {
   /** EXP-773: fires HISTORY_TIMEOUT_MS after the ask went down the device's
    *  control socket — the device is online but produced nothing. */
   historyTimer: ReturnType<typeof setTimeout> | null
+  /** EXP-773: the log was filled by a device REPLAYING its journal. A second
+   *  replay into the same room would append the whole transcript again, so
+   *  the next publisher's hello starts from an empty log. */
+  historyLog: boolean
   /** EXP-746: latest-wins STATE by kind (`diff`, `config_state`, `usage`) —
    *  the newest one replaces its predecessor, stays OUT of the count/byte
    *  budget, and the join replay sends them after the log. Each schema
@@ -391,7 +395,17 @@ export class Hub {
             clearTimeout(room.historyTimer)
             room.historyTimer = null
           }
+          const servingHistory = room.pendingHistory
           room.pendingHistory = false
+          // A previous replay already filled this log: a second one would
+          // append the same transcript again, so start it empty. The
+          // publisher's own `activity_reset` does this too, but only devices
+          // new enough to send one.
+          if (room.historyLog && room.publisher !== conn) {
+            this.clearActivityLog(room)
+            this.fanoutActivity(room, frame({ t: `activity_reset` }))
+          }
+          room.historyLog = servingHistory
           // Re-hello after a drop: resume the same room. The publisher clears
           // and re-publishes its own history via `activity_reset` — the relay
           // never guesses what survived the gap.
@@ -522,12 +536,7 @@ export class Hub {
         // Publisher-only: the desktop is about to re-publish its full history.
         const room = this.roomFor(conn)
         if (!room || room.publisher !== conn) return
-        room.activityLog = []
-        room.activityBytes = 0
-        room.subagentToolCounts.clear()
-        room.subagentToolEntries = 0
-        room.subagentScanFrom = 0
-        room.lastByKind.clear()
+        this.clearActivityLog(room)
         this.fanoutActivity(room, frame({ t: `activity_reset` }))
         return
       }
@@ -686,6 +695,17 @@ export class Hub {
     return conn.sessionId ? this.rooms.get(conn.sessionId) : undefined
   }
 
+  /** Drop the replay log and everything derived from it. The caller decides
+   *  whether members hear an `activity_reset` about it. */
+  private clearActivityLog(room: Room) {
+    room.activityLog = []
+    room.activityBytes = 0
+    room.subagentToolCounts.clear()
+    room.subagentToolEntries = 0
+    room.subagentScanFrom = 0
+    room.lastByKind.clear()
+  }
+
   /** A fresh room. `publisher: null` + `pendingHistory: true` is the EXP-773
    *  shape: a room opened by a VIEWER, waiting for the device to replay. */
   private newRoom(
@@ -701,6 +721,7 @@ export class Hub {
       lastPublisherActivity: Date.now(), // REV2-X
       pendingHistory: publisher === null,
       historyTimer: null,
+      historyLog: false,
       activityMembers: new Set(),
       activityLog: [],
       activityBytes: 0,
@@ -726,9 +747,14 @@ export class Hub {
       conn.sock.close(CLOSE_SESSION_ENDED, `no_such_session`)
       return undefined
     }
-    // Devices are indexed under their OWNER, so a ticket can only ever reach
-    // a machine of the user it was minted for.
-    const control = this.devices.get(conn.claims.sub)?.get(deviceId)
+    // Devices are indexed under their OWNER, and for a shared-device run
+    // (EXP-432) that is the HOST, not the requester the ticket was minted
+    // for — so the mint names the account to look the device up under. Both
+    // ids come from the signed ticket, so this still reaches only the machine
+    // the web app decided ran this session.
+    const control = this.devices
+      .get(conn.claims.deviceOwnerId ?? conn.claims.sub)
+      ?.get(deviceId)
     if (!control) {
       conn.sock.send(frame({ t: `error`, code: `device_offline` }))
       conn.sock.close(CLOSE_SESSION_ENDED, `device_offline`)

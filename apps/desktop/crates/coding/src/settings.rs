@@ -62,7 +62,7 @@ pub const DEFAULT_CLAUDE_EFFORT: &str = "";
 /// Foreign top-level keys other subsystems own (`launchDefaultsSync`,
 /// `actionAutomations`) ride the merge-save untouched and must never enter
 /// this list.
-const DEAD_KEYS: [&str; 15] = [
+const DEAD_KEYS: [&str; 16] = [
     "usageWindow",
     "subagentModel",
     "subagentEffort",
@@ -78,6 +78,7 @@ const DEAD_KEYS: [&str; 15] = [
     "claudeSkipPermissions",
     "codexSkipPermissions",
     "railExpanded",
+    "startInTerminal",
 ];
 
 /// The resolved coding settings. `repos_root` is stored in its raw
@@ -142,15 +143,6 @@ pub struct Settings {
     /// per-install store. `None`/blank = auto (the platform's
     /// `default_shell()` resolution in the terminal crate).
     pub terminal_shell: Option<String>,
-    /// EXP-746: run coding sessions as a TERMINAL tab (today's PTY path)
-    /// instead of the in-process ACP engine. Device-global like
-    /// [`terminal_shell`](Self::terminal_shell) above — not a launcher knob,
-    /// but this file is the app's ONE merge-preserving per-install store —
-    /// and OFF by default: the ACP engine is the default path, so this
-    /// returns the PTY one. It is not the only route back there:
-    /// [`crate::launcher::resolve_transport`] also falls back for every login
-    /// flow and for an agent without ACP readiness.
-    pub start_in_terminal: bool,
     /// EXP-746 (D13): user-declared external ACP agents this machine may
     /// launch beside the three builtins. Opt-in and LOCAL-only — never
     /// advertised to remote pickers, never a [`CodingAgent`], and always the
@@ -229,8 +221,6 @@ impl Default for Settings {
             claude_plan_mode: true,
             pi_plan_mode: true,
             terminal_shell: None,
-            // EXP-746: the ACP engine is the default path.
-            start_in_terminal: false,
             external_agents: Vec::new(),
             changelog_seen_id: None,
             tools_setup_seen: false,
@@ -598,8 +588,6 @@ mod tests {
         assert!(settings.pi_plan_mode);
         // EXP-288: no shell override by default (auto-detect).
         assert_eq!(settings.terminal_shell, None);
-        // EXP-746: sessions run in the ACP engine unless this is flipped.
-        assert!(!settings.start_in_terminal);
         assert!(settings.external_agents.is_empty());
         // EXP-367: a fresh install has not seen the tools onboarding step.
         assert!(!settings.tools_setup_seen);
@@ -826,7 +814,6 @@ mod tests {
             claude_plan_mode: false,
             pi_plan_mode: false,
             terminal_shell: Some("/opt/homebrew/bin/fish".to_string()),
-            start_in_terminal: true,
             external_agents: vec![ExternalAgentSpec {
                 id: "acme".to_string(),
                 label: "Acme".to_string(),
@@ -850,45 +837,28 @@ mod tests {
         assert!(raw.contains("\"claudePlanMode\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"piPlanMode\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"changelogSeenId\""), "camelCase keys: {raw}");
-        assert!(raw.contains("\"startInTerminal\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"externalAgents\""), "camelCase keys: {raw}");
         assert_eq!(Settings::load(&path), settings);
     }
 
-    /// EXP-746: the ACP engine is the default path — a fresh install (and a
-    /// settings file predating the key) starts sessions IN it, not in a
-    /// terminal tab.
+    /// EXP-773: `startInTerminal` is a DEAD key — the PTY coding path is
+    /// gone, so a settings file carrying it loads fine and the next save
+    /// drops it.
     #[test]
-    fn start_in_terminal_defaults_off() {
-        assert!(!Settings::default().start_in_terminal);
-        let dir = TempDir::new("start-in-terminal-default");
-        let path = dir.0.join("settings.json");
-        fs::write(&path, r#"{"claudeModel":"opus"}"#).unwrap();
-        assert!(!Settings::load(&path).start_in_terminal);
-    }
-
-    /// EXP-746: the flag rides the SAME merge-preserving save every other key
-    /// does — a foreign top-level key (`launchDefaultsSync` and friends)
-    /// survives a save that flips it, and the flag survives a save by a
-    /// subsystem that never heard of it.
-    #[test]
-    fn a_saved_start_in_terminal_survives_a_merge_save() {
-        let dir = TempDir::new("start-in-terminal-merge");
+    fn a_retired_start_in_terminal_key_is_dropped_on_save() {
+        let dir = TempDir::new("start-in-terminal-dead");
         let path = dir.0.join("settings.json");
         fs::write(
             &path,
-            r#"{"launchDefaultsSync":{"desk-1":{"dirty":true}},"claudeModel":"opus"}"#,
+            r#"{"startInTerminal":true,"launchDefaultsSync":{"desk-1":{"dirty":true}}}"#,
         )
         .unwrap();
-        let mut settings = Settings::load(&path);
-        settings.start_in_terminal = true;
+        let settings = Settings::load(&path);
         settings.save(&path).unwrap();
 
-        let reloaded = Settings::load(&path);
-        assert!(reloaded.start_in_terminal);
         let root: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
-        assert_eq!(root["startInTerminal"], true);
+        assert!(root.get("startInTerminal").is_none());
         assert_eq!(root["launchDefaultsSync"]["desk-1"]["dirty"], true);
     }
 

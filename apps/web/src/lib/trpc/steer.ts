@@ -174,15 +174,27 @@ export const steerRouter = router({
       ) {
         await assertTeamMember(userId, session.teamId)
       }
+      // EXP-773: name the machine that ran it, so a join on an ENDED session
+      // can ask that device for the transcript instead of getting
+      // `no_such_session`. ENDED ONLY: on a live row the relay would open a
+      // pending history room for a publisher that simply has not hello'd yet
+      // and serve the viewer a PARTIAL transcript that then closes as ended,
+      // instead of the retryable `no_such_session` a starting desktop needs.
+      // EXP-432: the device is registered under its HOST's account, not the
+      // requester's, so the ticket names the owner to look it up under.
+      const historyDevice =
+        session.status === `ended` && session.deviceId
+          ? {
+              deviceId: session.deviceId,
+              deviceOwnerId: session.hostUserId ?? session.userId,
+            }
+          : {}
       return mintSteerTicket(config, {
         kind: `viewer`,
         userId,
         teamId: session.teamId,
         sessionId: session.id,
-        // EXP-773: name the machine that ran it, so a join on an ENDED
-        // session can ask that device for the transcript instead of getting
-        // `no_such_session`.
-        deviceId: session.deviceId ?? undefined,
+        ...historyDevice,
       })
     }),
 

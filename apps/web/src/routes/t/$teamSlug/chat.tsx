@@ -340,7 +340,13 @@ function ChatPrompt({
     devices: candidateDevices,
     planModeOff: true,
   })
-  const blocked = starting || !launch.device || prompt.trim().length === 0
+  // EXP-773: an agent outside the machine's reported ACP set has no transport
+  // left to start on — the note under the pickers says so.
+  const blocked =
+    starting ||
+    !launch.device ||
+    launch.agentNotReady ||
+    prompt.trim().length === 0
   const send = () => {
     if (!launch.device || blocked) return
     onStart(launch.device, launch.buildOptions(), { prompt })
@@ -447,6 +453,11 @@ function ChatPrompt({
                 aria-label="Plan mode"
               />
             </label>
+          )}
+          {launch.agentNotReady && (
+            <span>
+              {`Not ready on ${launch.device!.deviceLabel || launch.device!.deviceId}. Run the doctor there.`}
+            </span>
           )}
           {/* The desktop inserts the row when the launcher spins up; the page
               flips to the live view the moment it syncs. */}
