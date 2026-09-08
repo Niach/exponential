@@ -170,6 +170,9 @@ final class AgentSessionModel {
     /// rate-limit windows), so it lives beside it and renders in its own
     /// block.
     private(set) var sessionUsage: AgentSessionUsage?
+    /// EXP-784: the agent's rate-limit window, the fourth latest-wins slot.
+    /// Nil = not limited (or cleared by an empty/`ok` status).
+    private(set) var sessionRateLimit: AgentSessionRateLimit?
     /// The synced coding_sessions row — flips to ended via Electric.
     private(set) var session: CodingSessionEntity?
     /// EXP-549/550: the host machine as it presents right now — the LIVE
@@ -1610,6 +1613,7 @@ final class AgentSessionModel {
         // config across a session swap would be the actual bug.
         sessionConfig = nil
         sessionUsage = nil
+        sessionRateLimit = nil
     }
 
     // MARK: - Compaction strip (EXP-724)
@@ -1868,8 +1872,16 @@ final class AgentSessionModel {
                 id: takeEventId(),
                 name: name,
                 detail: Self.trimmedField(event["detail"]),
-                subagentId: Self.trimmedField(event["subagentId"])
+                subagentId: Self.trimmedField(event["subagentId"]),
+                callId: Self.trimmedField(event["id"]),
+                toolKind: AgentFeed.toolKind(event["toolKind"])
             ))
+        case "tool_update":
+            // EXP-785/786: folded INTO the tool row with that call id — never
+            // a row. An id this feed does not hold is dropped.
+            guard let next = AgentFeed.applyToolUpdate(feed: feed, event: event) else { return }
+            feed = next
+            recountFeedBytes()
         case "diff":
             // Diffs never enter the feed — the latest replaces the previous
             // one behind the pinned "Latest changes" chip.
@@ -1953,6 +1965,9 @@ final class AgentSessionModel {
             sessionConfig = AgentFeed.applyConfigState(sessionConfig, event: event)
         case "usage":
             sessionUsage = AgentFeed.applyUsage(sessionUsage, event: event)
+        case "rate_limit":
+            // EXP-784: the fourth slot; an empty/`ok` status clears it.
+            sessionRateLimit = AgentFeed.applyRateLimit(sessionRateLimit, event: event)
         case "compaction":
             // EXP-724. The strip's state is the pure fold; the marker row is
             // the caller's job because only `ended` writes one — and it writes

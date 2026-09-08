@@ -227,6 +227,23 @@ public struct AgentSessionUsage: Equatable, Sendable {
     }
 }
 
+/// EXP-784: the agent's rate-limit window as it last reported it — the fourth
+/// latest-wins slot beside `AgentSessionUsage`. `status` is the agent's own
+/// word (`allowed_warning`, `rejected`, …); the slot is CLEARED by an
+/// empty/`ok` status (`AgentFeed.rateLimitClears`), never filled by one.
+public struct AgentSessionRateLimit: Equatable, Sendable {
+    public let status: String
+    /// Unix ms when the window resets, when the agent named one.
+    public let resetsAt: Int?
+    public let message: String?
+
+    public init(status: String, resetsAt: Int? = nil, message: String? = nil) {
+        self.status = status
+        self.resetsAt = resetsAt
+        self.message = message
+    }
+}
+
 /// EXP-772: the composer's ONE steering control — the agent's mode. Model,
 /// effort and every other option picker is gone from a running session: those
 /// are launch decisions, and a mid-run swap only ever confused a transcript.
@@ -280,7 +297,19 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     case narration(id: Int, text: String, messageId: String? = nil, subagentId: String? = nil)
     /// `subagentId` (protocol v2) tags the tool as a subagent's work — such
     /// runs collapse under their subagent row.
-    case tool(id: Int, name: String, detail: String?, subagentId: String?)
+    ///
+    /// EXP-785: `callId` is the ACP tool-call id a later `tool_update` folds
+    /// into this row by (nil on rows from a pre-EXP-785 publisher, which then
+    /// never settle); `toolKind` is ACP's kind bucket (a contract `toolKind`
+    /// value); `settled` = a status landed (the call ENDED), `failed` = that
+    /// status was `failed` (a later `completed` clears it). EXP-786: `diff`
+    /// is the per-call unified diff an `edit` published, already cut to the
+    /// contract's caps by the publisher.
+    case tool(
+        id: Int, name: String, detail: String?, subagentId: String?,
+        callId: String? = nil, toolKind: String? = nil,
+        settled: Bool = false, failed: Bool = false, diff: String? = nil
+    )
     /// A human turn: the initial prompt or a steered message. `subagentId`
     /// (EXP-773) tags a turn addressed to a subagent — same scoping rule as
     /// narration.
@@ -307,7 +336,7 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     public var id: Int {
         switch self {
         case let .narration(id, _, _, _): id
-        case let .tool(id, _, _, _): id
+        case let .tool(id, _, _, _, _, _, _, _, _): id
         case let .userMessage(id, _, _): id
         case let .question(value): value.id
         case let .subagent(id, _, _, _, _, _): id
@@ -324,8 +353,11 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
         switch self {
         case let .narration(_, text, messageId, subagentId):
             .narration(id: id, text: text, messageId: messageId, subagentId: subagentId)
-        case let .tool(_, name, detail, subagentId):
-            .tool(id: id, name: name, detail: detail, subagentId: subagentId)
+        case let .tool(_, name, detail, subagentId, callId, toolKind, settled, failed, diff):
+            .tool(
+                id: id, name: name, detail: detail, subagentId: subagentId,
+                callId: callId, toolKind: toolKind, settled: settled, failed: failed, diff: diff
+            )
         case let .userMessage(_, text, subagentId):
             .userMessage(id: id, text: text, subagentId: subagentId)
         case let .question(question):
@@ -367,7 +399,7 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     /// interleaving into the main thread.
     public var subagentKey: String? {
         switch self {
-        case let .tool(_, _, _, subagentId): return subagentId
+        case let .tool(_, _, _, subagentId, _, _, _, _, _): return subagentId
         case let .subagent(_, subagentId, _, _, _, _): return subagentId
         case let .narration(_, _, _, subagentId): return subagentId
         case let .userMessage(_, _, subagentId): return subagentId
@@ -637,8 +669,9 @@ public enum AgentFeed {
         switch item {
         case let .narration(_, text, _, _): return overhead + text.utf8.count
         case let .userMessage(_, text, _): return overhead + text.utf8.count
-        case let .tool(_, name, detail, _):
-            return overhead + name.utf8.count + (detail?.utf8.count ?? 0)
+        case let .tool(_, name, detail, _, _, _, _, _, diff):
+            // EXP-786: a folded per-call diff weighs too.
+            return overhead + name.utf8.count + (detail?.utf8.count ?? 0) + (diff?.utf8.count ?? 0)
         case let .permission(_, tool, detail):
             return overhead + tool.utf8.count + (detail?.utf8.count ?? 0)
         case let .subagent(_, subagentId, agentType, _, detail, _):
@@ -801,6 +834,69 @@ public enum AgentFeed {
             currentMode: string(event["currentMode"]),
             modes: modes,
             commands: commands
+        )
+    }
+
+    /// EXP-785: ACP's tool-call kinds — the contract's `toolKind` list.
+    public static let toolKindValues = DomainContract.toolKindValues
+
+    /// A wire `toolKind`, or nil for anything this build does not know.
+    public static func toolKind(_ raw: Any?) -> String? {
+        guard let value = raw as? String, toolKindValues.contains(value) else { return nil }
+        return value
+    }
+
+    /// EXP-785/786: fold a `tool_update` into the NEWEST tool row whose
+    /// `callId` matches — a settle (`status`), a per-call `diff`, or both.
+    /// Never a row of its own. Nil = no row holds that id (evicted, or below
+    /// the window, or a pre-EXP-785 row), and the caller keeps the feed as
+    /// is. A `failed` after a `completed` wins; a status-less update carrying
+    /// only a diff never settles the call.
+    public static func applyToolUpdate(
+        feed: [AgentFeedItem], event: [String: Any]
+    ) -> [AgentFeedItem]? {
+        guard let id = string(event["id"]),
+              let at = feed.lastIndex(where: { item in
+                  if case let .tool(_, _, _, _, callId, _, _, _, _) = item { return callId == id }
+                  return false
+              }),
+              case let .tool(rowId, name, detail, subagentId, callId, toolKind, settled, failed, diff)
+                = feed[at]
+        else { return nil }
+        var nextSettled = settled
+        var nextFailed = failed
+        if let status = event["status"] as? String, status == "completed" || status == "failed" {
+            nextSettled = true
+            nextFailed = status == "failed"
+        }
+        let nextDiff = string(event["diff"]) ?? diff
+        var next = feed
+        next[at] = .tool(
+            id: rowId, name: name, detail: detail, subagentId: subagentId,
+            callId: callId, toolKind: toolKind,
+            settled: nextSettled, failed: nextFailed, diff: nextDiff
+        )
+        return next
+    }
+
+    /// EXP-784: the `rate_limit.status` values that CLEAR the slot.
+    public static func rateLimitClears(_ status: String) -> Bool {
+        let trimmed = status.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty || trimmed.lowercased() == "ok"
+    }
+
+    /// Fold a `rate_limit` activity event. Nil CLEARS the slot — for an
+    /// empty/`ok` status (the window lifted) AND for an unreadable payload: a
+    /// stale "rate limited" banner beside a live run is the worse error.
+    public static func applyRateLimit(
+        _ current: AgentSessionRateLimit?, event: [String: Any]
+    ) -> AgentSessionRateLimit? {
+        guard let status = event["status"] as? String, !rateLimitClears(status) else { return nil }
+        let resetsAt = (event["resetsAt"] as? NSNumber)?.intValue
+        return AgentSessionRateLimit(
+            status: status.trimmingCharacters(in: .whitespacesAndNewlines),
+            resetsAt: (resetsAt ?? -1) >= 0 ? resetsAt : nil,
+            message: string(event["message"])?.trimmingCharacters(in: .whitespacesAndNewlines)
         )
     }
 

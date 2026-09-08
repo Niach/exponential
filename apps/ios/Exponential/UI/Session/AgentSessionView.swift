@@ -947,7 +947,7 @@ struct AgentSessionView: View {
             switch item {
             case let .narration(_, text, _, _):
                 NarrationBubble(text: text, context: markdownContext)
-            case let .tool(_, name, detail, _):
+            case let .tool(_, name, detail, _, _, _, _, _, _):
                 ToolRow(name: name, detail: detail)
             case let .userMessage(_, text, _):
                 // EXP-724: a steered slash command is a control action, not
@@ -2650,14 +2650,14 @@ private struct ToolGroupRow: View {
             if expanded {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(items) { item in
-                        if case let .tool(_, name, detail, _) = item {
+                        if case let .tool(_, name, detail, _, _, _, _, _, _) = item {
                             ToolRow(name: name, detail: detail, nested: true)
                         }
                     }
                 }
                 .padding(.leading, 20)
             } else if liveTail, let last = items.last,
-                      case let .tool(_, name, detail, _) = last {
+                      case let .tool(_, name, detail, _, _, _, _, _, _) = last {
                 ToolRow(name: name, detail: detail, nested: true)
                     .padding(.leading, 20)
             }
@@ -2761,7 +2761,7 @@ private struct SubagentItemRow: View {
     @ViewBuilder
     private var content: some View {
         switch item {
-        case let .tool(_, name, detail, _):
+        case let .tool(_, name, detail, _, _, _, _, _, _):
             ToolRow(name: name, detail: detail)
         case let .narration(_, text, _, _):
             NarrationBubble(text: text, context: context)
