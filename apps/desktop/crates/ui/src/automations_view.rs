@@ -36,9 +36,6 @@ use crate::run_rows;
 pub struct AutomationsView {
     nav: Entity<Navigation>,
     scroll: ScrollHandle,
-    /// EXP-637: run rows whose summary is expanded (decision 5 — collapsed
-    /// by default). Per-view and unpersisted; keyed by session row id.
-    expanded_runs: std::collections::HashSet<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -67,7 +64,6 @@ impl AutomationsView {
         Self {
             nav,
             scroll: ScrollHandle::new(),
-            expanded_runs: std::collections::HashSet::new(),
             _subscriptions: subscriptions,
         }
     }
@@ -350,78 +346,23 @@ impl AutomationsView {
             );
         }
         for (index, session) in runs.iter().take(RECENT_RUNS_CAP).enumerate() {
-            let session_id = session.id.clone();
-            let expanded = self.expanded_runs.contains(&session_id);
-            // EXP-637: only a run this machine recorded can be resumed here
-            // (the workspace is local) — a run from another device shows its
-            // summary and nothing else.
-            let resumable = crate::coding_flow::run_is_resumable_ref(&session_id, cx);
-            // EXP-686: a LIVE run this process hosts opens from its row — the
-            // dock expands onto its tab (or its undocked window is raised).
-            // EXP-746: an ACP run has no terminal at all, so its row opens the
-            // session SCREEN instead. A live run on ANOTHER machine has
-            // neither here, so its card stays inert.
-            let live = !run_rows::run_has_ended(session);
-            let live_tab = live.then(|| local_terminal_tab(&session_id, cx)).flatten();
-            let live_acp = live && live_tab.is_none() && local_acp_session(&session_id, cx);
-            let open_id = session_id.clone();
-            let on_open: Option<Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App)>> =
-                match live_tab {
-                    Some((tab, manager)) => Some(Box::new(
-                        move |_: &gpui::ClickEvent, window: &mut Window, cx: &mut App| {
-                            let Some(manager) = manager.upgrade() else {
-                                return;
-                            };
-                            crate::undock::reveal_terminal_tab(
-                                tab,
-                                manager,
-                                window.window_handle(),
-                                cx,
-                            );
-                        },
-                    )),
-                    None if live_acp => Some(Box::new(
-                        move |_: &gpui::ClickEvent, window: &mut Window, cx: &mut App| {
-                            crate::session_screen::open_session(&open_id, window, cx);
-                        },
-                    )),
-                    None => None,
-                };
-            let toggle_id = session_id.clone();
-            let resume_id = session_id.clone();
+            let open_id = session.id.clone();
             // EXP-746: the row itself lives in `run_rows` now — the Devices
-            // screen's Running and Past lists draw the same card. This list's
-            // shape is unchanged: the automation glyph leads, the action name
-            // titles it, the caption is EXP-686's status vocabulary.
+            // screen's Running and Past lists draw the same card. EXP-773
+            // flattened it to a plain link: the transcript, the run's summary
+            // and Resume are the fullscreen session view's, not the list's.
             let parts = run_rows::automation_row_parts(session, chrono::Utc::now().timestamp());
             run_rows_column = run_rows_column.child(run_rows::render_run_row(
                 run_rows::RunRowSpec {
                     id_prefix: "run",
                     index,
-                    session,
                     lead: run_rows::RunRowLead::Automation,
                     identifier: None,
                     title: parts.title,
                     caption: Some(parts.caption),
-                    expandable: parts.expandable,
-                    expanded,
-                    resumable,
-                    on_toggle: Box::new(cx.listener(move |this: &mut Self, _, _, cx| {
-                        if !this.expanded_runs.insert(toggle_id.clone()) {
-                            this.expanded_runs.remove(&toggle_id);
-                        }
-                        cx.notify();
+                    on_open: Some(Box::new(move |_, window, cx| {
+                        crate::session_screen::open_session(&open_id, window, cx);
                     })),
-                    on_resume: Box::new(move |_, window, cx| {
-                        crate::action_run::resume_run(
-                            resume_id.clone(),
-                            Some(window.window_handle()),
-                            false,
-                            coding::LaunchOrigin::Local,
-                            cx,
-                        );
-                    }),
-                    on_open,
                     kill: None,
                 },
                 cx,
@@ -600,39 +541,6 @@ fn last_run_label(session: &domain::rows::CodingSession) -> String {
         }
         None => format!("Last run {status}"),
     }
-}
-
-/// The dock tab a LIVE run occupies on THIS machine (EXP-686), if this
-/// process is the one hosting it IN A TERMINAL. `None` for a run on another
-/// device (there is no terminal here to reveal) and for an EXP-746 ACP run
-/// (it has no tab at all — see [`local_acp_session`]).
-fn local_terminal_tab(
-    session_id: &str,
-    cx: &App,
-) -> Option<(terminal::TabId, gpui::WeakEntity<terminal::TerminalManager>)> {
-    let sessions = crate::coding_flow::LocalSessions::global_ref(cx)?;
-    let sessions = sessions.read(cx);
-    let session = sessions.session_by_id(session_id)?;
-    match &session.host {
-        crate::coding_flow::LocalSessionHost::Pty { tab, manager } => {
-            Some((*tab, manager.clone()))
-        }
-        crate::coding_flow::LocalSessionHost::Acp { .. } => None,
-    }
-}
-
-/// EXP-746: is this LIVE run an ACP session this process hosts? Its row opens
-/// the session SCREEN rather than revealing a terminal tab, so the caller
-/// routes on this instead of [`local_terminal_tab`].
-fn local_acp_session(session_id: &str, cx: &App) -> bool {
-    crate::coding_flow::LocalSessions::global_ref(cx).is_some_and(|sessions| {
-        sessions.read(cx).session_by_id(session_id).is_some_and(|session| {
-            matches!(
-                session.host,
-                crate::coding_flow::LocalSessionHost::Acp { .. }
-            )
-        })
-    })
 }
 
 /// Flip an automation's `enabled` flag through `automations.update`

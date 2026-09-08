@@ -72,7 +72,7 @@ export function useKillSession(
           <DialogHeader>
             <DialogTitle>Kill this coding session?</DialogTitle>
             <DialogDescription>
-              This force-terminates the terminal
+              This stops the agent
               {deviceLabel ? ` on ${deviceLabel}` : ``} and ends the session.
               Uncommitted work in the worktree is kept, but the agent stops
               immediately.

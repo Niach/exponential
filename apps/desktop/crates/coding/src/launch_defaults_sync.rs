@@ -154,7 +154,9 @@ pub fn write_marker(
     }
     let mut rendered = serde_json::to_string_pretty(&root).expect("render settings json");
     rendered.push('\n');
-    std::fs::write(settings_path, rendered)
+    // EXP-766: one of settings.json's four writers — all of them replace the
+    // file by rename so a concurrent reader never sees a truncated object.
+    api::atomic_file::write_atomic(settings_path, &rendered)
 }
 
 fn read_root(settings_path: &Path) -> Option<Value> {
@@ -260,10 +262,6 @@ mod tests {
         settings.claude_model = "opus".into();
         let with_model = defaults_fingerprint(&settings);
         assert_ne!(base, with_model);
-        // EXP-746: `start_in_terminal` IS a launch default (it rides
-        // `defaults_wire`), so the fingerprint moves with it too.
-        settings.start_in_terminal = true;
-        assert_ne!(with_model, defaults_fingerprint(&settings));
     }
 
     #[test]

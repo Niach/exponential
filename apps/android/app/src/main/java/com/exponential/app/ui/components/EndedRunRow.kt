@@ -10,53 +10,37 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.exponential.app.domain.RunResumeTarget
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.markdown.MarkdownView
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
 
 /**
- * EXP-637: one run in the Actions screen's "Recent automated runs" (the Agents
- * tab's own "Recent runs" list was dropped in EXP-676).
+ * EXP-637: one run in a runs list — the Actions screen's "Recent automated
+ * runs" and the Agents screen's "Past".
  *
- * A FINISHED row is EXPANDABLE, and the summary is deliberately NOT inline: a
- * close-out paragraph on every collapsed row would drown the list. Collapsed
- * shows the run's name and when it ended; tapping expands to the agent's full
- * summary (rendered as the GFM it is) and the Resume affordance, which only
- * exists while [resumeTarget] resolves (own ended run, its own machine online
- * and `resume-run`-capable).
- *
- * EXP-686: a run that is still going ([isLive]) says "Running", carries no
- * chevron and nothing to expand — the whole row opens the live session
- * through [onOpen] instead. No self-reported outcome is shown anywhere.
- *
- * Same rule on web, desktop and iOS.
+ * EXP-773 made it a plain LINK. A row used to expand to the agent's close-out
+ * summary and a Resume pill; both now live at the top of the fullscreen
+ * session view, next to the transcript they belong to. So a row is title ·
+ * state · byline and a tap opens that session — live or finished, the same
+ * gesture, the same destination. Same rule on web, desktop and iOS.
  */
 @Composable
 fun EndedRunRow(
     title: String,
-    summary: String?,
     timeLabel: String,
+    onOpen: () -> Unit,
     modifier: Modifier = Modifier,
     // The monospace lead-in an issue-scoped run shows (its identifier); action
     // and chat runs have none.
@@ -64,28 +48,22 @@ fun EndedRunRow(
     // The machine that ran it, when the surface tracks one.
     deviceLabel: String? = null,
     /**
-     * EXP-746: the Devices screen's "Past" caption, composed once by
+     * EXP-746: the Agents screen's "Past" caption, composed once by
      * `pastRunByline` — `<device> · <agent label> · ended by <who> · <time>`.
      * When set it REPLACES the device/time line below, so the ×4 string is
      * whatever that one function produced; the Automations list passes none
      * and keeps the caption it always had.
      */
     byline: String? = null,
-    // The run is still going: "Running", and the row opens it.
+    // The run is still going: "Running".
     isLive: Boolean = false,
-    onOpen: (() -> Unit)? = null,
-    resumeTarget: RunResumeTarget? = null,
-    resuming: Boolean = false,
-    onResume: (RunResumeTarget) -> Unit = {},
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    var confirmResume by remember { mutableStateOf(false) }
     Column(
         modifier = modifier
             .fillMaxWidth()
             .testTag("ended-run-row")
             .glassRow()
-            .clickable { if (onOpen != null) onOpen() else expanded = !expanded }
+            .clickable(onClick = onOpen)
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -146,84 +124,12 @@ fun EndedRunRow(
                     }
                 }
             }
-            // A live row has nothing to expand — it opens instead.
-            if (!isLive) {
-                Icon(
-                    if (expanded) ExpIcons.uiChevronUp else ExpIcons.uiChevronDown,
-                    contentDescription = if (expanded) "Collapse run" else "Expand run",
-                    modifier = Modifier.padding(start = 8.dp).size(16.dp),
-                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                )
-            }
+            Icon(
+                ExpIcons.uiChevronRight,
+                contentDescription = null,
+                modifier = Modifier.padding(start = 8.dp).size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
         }
-        if (expanded && !isLive) {
-            Spacer(Modifier.height(8.dp))
-            // The wire form is GFM (EXP-686): render it, and say so explicitly
-            // when there is nothing to render — MarkdownView draws nothing for
-            // a blank string.
-            val body = summary?.takeIf { it.isNotBlank() }
-            if (body != null) {
-                MarkdownView(markdown = body)
-            } else {
-                Text(
-                    "This run left no summary.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                )
-            }
-            if (resumeTarget != null) {
-                Spacer(Modifier.height(10.dp))
-                if (resuming) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(12.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            "Resuming on ${resumeTarget.deviceLabel}…",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                        )
-                    }
-                } else {
-                    GlassPill(
-                        "Resume",
-                        icon = ExpIcons.runResume,
-                        onClick = { confirmResume = true },
-                        modifier = Modifier.testTag("resume-run"),
-                    )
-                }
-            }
-        }
-    }
-
-    // A resume relaunches the agent on that machine — cheap, but not silent:
-    // same confirm shape as the other remote commands.
-    if (confirmResume && resumeTarget != null) {
-        AlertDialog(
-            onDismissRequest = { confirmResume = false },
-            title = { Text("Resume this run?") },
-            text = {
-                Text(
-                    "Starts the agent again on ${resumeTarget.deviceLabel}, in the same " +
-                        "workspace, picking up where the run stopped.",
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        confirmResume = false
-                        onResume(resumeTarget)
-                    },
-                ) { Text("Resume") }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmResume = false }) { Text("Cancel") }
-            },
-        )
     }
 }

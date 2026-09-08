@@ -167,8 +167,16 @@ fn worktree_is_young(worktree: &Path, now: SystemTime) -> bool {
 /// Classify a worktree's status. A failing `git status` counts as
 /// [`DirtyState::TrackedChanges`] — never prune what we couldn't inspect.
 pub fn worktree_dirty_state(worktree: &Path) -> DirtyState {
-    let Ok(output) = run_git(Some(worktree), &["status", "--porcelain"], None, "git status")
-    else {
+    // EXP-766: `--untracked-files=all` overrides a repo/global
+    // `status.showUntrackedFiles=no`, which would otherwise report a
+    // worktree full of untracked work as CLEAN — and clean is the one state
+    // that gets removed without `--force`.
+    let Ok(output) = run_git(
+        Some(worktree),
+        &["status", "--porcelain", "--untracked-files=all"],
+        None,
+        "git status",
+    ) else {
         return DirtyState::TrackedChanges;
     };
     let mut untracked_only = true;
@@ -375,6 +383,15 @@ fn prune_landed_locked(clone: &Path, policy: &PrunePolicy) -> PruneReport {
                 .collect()
         })
         .unwrap_or_default();
+    // EXP-766: the cwds of runs a LIVE host process is still driving.
+    // `policy.busy_paths` is process-local (this app's terminal tabs), so
+    // without this a worktree the CLI daemon — or a sibling desktop on the
+    // shared data dir (REV-20) — is coding in reads as idle debris.
+    let live_run_cwds: Vec<std::path::PathBuf> = policy
+        .run_registry_dir
+        .as_deref()
+        .map(crate::run_registry::live_host_cwds)
+        .unwrap_or_default();
     let default_branch = effective_default_branch(clone, policy.default_branch.as_deref());
     report.default_branch = default_branch.clone();
     let origin_ref = default_branch.as_deref().map(|branch| format!("origin/{branch}"));
@@ -389,11 +406,12 @@ fn prune_landed_locked(clone: &Path, policy: &PrunePolicy) -> PruneReport {
             .iter()
             .any(|prefix| !prefix.is_empty() && branch.starts_with(prefix.as_str()))
     };
-    // A busy tab anywhere under a worktree parks it. Both sides canonicalized
-    // when possible — git reports resolved paths, tab cwds may be symlinked.
+    // A busy tab (or a live run's cwd) anywhere under a worktree parks it.
+    // Both sides canonicalized when possible — git reports resolved paths,
+    // tab cwds may be symlinked.
     let busy = |worktree: &Path| {
         let canonical = worktree.canonicalize().ok();
-        policy.busy_paths.iter().any(|path| {
+        policy.busy_paths.iter().chain(&live_run_cwds).any(|path| {
             let path = path.canonicalize().unwrap_or_else(|_| path.clone());
             path.starts_with(worktree)
                 || canonical
@@ -956,6 +974,61 @@ mod tests {
             vec![("exp/EXP-22".to_string(), SkipReason::RecentlyCreated)]
         );
         assert!(wt.exists());
+    }
+
+    /// EXP-766: a run whose HOST process is still alive parks its worktree,
+    /// even though nothing in THIS process knows about it — that is exactly
+    /// the CLI daemon (or a sibling desktop) coding on the shared data dir.
+    #[test]
+    fn a_live_runs_worktree_is_parked() {
+        let dir = temp_dir("livehost");
+        let (_origin, clone) = seed(&dir.0);
+        let wt = worktree(&clone, "exp/EXP-30");
+        backdate(&wt);
+        let data_dir = dir.0.join("data");
+        fs::create_dir_all(&data_dir).unwrap();
+
+        let mut record = crate::run_registry::sample_record("run-live");
+        record.cwd = wt.clone();
+        record.clone = None;
+        record.branch = None;
+        record.host_pid = Some(std::process::id());
+        crate::run_registry::record(&data_dir, record.clone());
+
+        let mut watched = policy(&["exp/"]);
+        watched.run_registry_dir = Some(data_dir.clone());
+        let report = prune_landed(&clone, &watched);
+        assert!(report.is_empty(), "{report:?}");
+        assert!(wt.exists(), "a live host's worktree must survive");
+
+        // Same record, a pid nobody holds: nothing parks it anymore.
+        let mut dead = record;
+        dead.host_pid = Some(u32::MAX - 1);
+        crate::run_registry::record(&data_dir, dead);
+        let report = prune_landed(&clone, &watched);
+        assert_eq!(report.removed_worktrees, vec!["exp/EXP-30".to_string()]);
+        assert!(!wt.exists());
+    }
+
+    /// EXP-766: `status.showUntrackedFiles=no` in the repo config used to make
+    /// a worktree full of untracked work look CLEAN — and clean is the state
+    /// that is removed without `--force`.
+    #[test]
+    fn untracked_files_are_seen_through_a_status_config() {
+        let dir = temp_dir("hidden");
+        let (_origin, clone) = seed(&dir.0);
+        let wt = worktree(&clone, "exp/EXP-31");
+        git(&wt, &["config", "status.showUntrackedFiles", "no"]);
+        fs::write(wt.join("agent-notes.md"), "work in progress\n").unwrap();
+        backdate(&wt);
+
+        assert_eq!(worktree_dirty_state(&wt), DirtyState::UntrackedOnly);
+
+        // And the removal still succeeds, because it now passes --force.
+        let report = prune_landed(&clone, &policy(&["exp/"]));
+        assert_eq!(report.removed_worktrees, vec!["exp/EXP-31".to_string()]);
+        assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+        assert!(!wt.exists());
     }
 
     /// EXP-478: a live launch hold parks the WHOLE pass — worktree removals

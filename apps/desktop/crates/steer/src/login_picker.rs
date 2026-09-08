@@ -1,25 +1,15 @@
 //! Claude login-flow detection on the live terminal grid (EXP-430).
 //!
-//! When claude's OAuth token expires mid-session it prints "Please run
-//! /login" — that line reaches viewers through the transcript tail, and a
-//! steered `/login` reaches the PTY, but the interactive login TUI it opens
-//! is invisible remotely: it renders only on the grid, never in the
-//! transcript, so a headless-server session dead-ends without SSH. Like the
-//! plan picker (EXP-150), the emitter watches the grid instead:
+//! The interactive `claude /login` TUI renders only on the grid, never in a
+//! transcript, so [`detect`] recognizes its screens on a plain-text snapshot
+//! ([`terminal::screen_lines`]): the method picker, the OAuth-URL/paste-code
+//! screen (carrying the reconstructed URL), the OAuth error screen, and —
+//! best-effort — the success screen.
 //!
-//! * [`detect`] recognizes the login screens on a plain-text snapshot
-//!   ([`terminal::screen_lines`]): the method picker (published as an
-//!   answerable question), the OAuth-URL/paste-code screen (published as a
-//!   narration carrying the reconstructed URL — the remote user opens it in
-//!   a browser and sends the code back as an ordinary message), the OAuth
-//!   error screen, and — best-effort — the success screen.
-//! * [`LoginWatcher`] is the per-session state machine, debounced like
-//!   [`crate::plan_picker::PlanPickerWatcher`] but keyed on the settled
-//!   [`LoginPhase`] so phase CHANGES (picker → URL → error) re-fire
-//!   [`Transition::Show`] without an intervening [`Transition::Resolved`],
-//!   and a retry's fresh URL re-fires too. [`LoginPhase::Success`] is only
-//!   surfaced as a continuation of a pending login phase — claude echoing
-//!   "Login successful" in ordinary output must never look like a login.
+//! EXP-773 removed the mid-session watcher along with the PTY coding path.
+//! The one consumer left is [`crate::agent_login_driver`], which drives the
+//! agent-login PTY tab (a login is each CLI's own flow and stays on a real
+//! terminal).
 //!
 //! Anchors were captured live from claude v2.1.222 (onboarding and
 //! mid-session `/login` render the same screens; mid-session adds a "Login"
@@ -116,17 +106,6 @@ pub enum LoginPhase {
     Error { message: String },
     /// Best-effort success detection (see [`SUCCESS_ANCHORS`]).
     Success,
-}
-
-/// One state-machine step outcome.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Transition {
-    /// A login screen settled (or the settled screen changed) — publish it.
-    Show(LoginPhase),
-    /// Every login screen left the grid while one was pending — retire the
-    /// published question/state (answered locally, cancelled, or completed
-    /// without a recognizable success screen).
-    Resolved,
 }
 
 /// Detect a login-flow screen on a visible-screen snapshot.
@@ -303,90 +282,6 @@ fn detect_success(lines: &[String]) -> bool {
         .any(|line| SUCCESS_ANCHORS.iter().any(|a| line.contains(a)))
 }
 
-/// Debounce depth, matching the other grid watchers: a screen must hold for
-/// this many consecutive ticks before the machine transitions — one
-/// mid-render frame (a half-painted URL) must not flap it.
-const STREAK: u8 = 2;
-
-/// Per-session login-flow state machine — see the module docs.
-#[derive(Default)]
-pub struct LoginWatcher {
-    /// The settled phase, between its `Show` and the flow's `Resolved`.
-    pending: Option<LoginPhase>,
-    candidate: Option<LoginPhase>,
-    present_streak: u8,
-    absent_streak: u8,
-}
-
-impl LoginWatcher {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Whether the login flow currently waits on a human (the EXP-214
-    /// "needs input" signal). Success is excluded — the emitter dismisses
-    /// that screen itself.
-    pub fn is_pending(&self) -> bool {
-        matches!(
-            self.pending,
-            Some(LoginPhase::MethodPicker { .. })
-                | Some(LoginPhase::UrlPrompt { .. })
-                | Some(LoginPhase::Error { .. })
-        )
-    }
-
-    /// Feed one poll tick. `display_offset > 0` (viewport scrolled into
-    /// history) freezes the machine entirely.
-    pub fn tick(&mut self, lines: &[String], display_offset: usize) -> Option<Transition> {
-        if display_offset > 0 {
-            return None;
-        }
-        match detect(lines) {
-            Some(phase) => {
-                self.absent_streak = 0;
-                if self.pending.as_ref() == Some(&phase) {
-                    self.candidate = None;
-                    self.present_streak = 0;
-                    return None;
-                }
-                // Success out of nowhere is claude ECHOING login-ish text in
-                // ordinary output — only a continuation of a pending login
-                // phase may surface it (and trigger the emitter's Enter).
-                if matches!(phase, LoginPhase::Success) && self.pending.is_none() {
-                    self.candidate = None;
-                    self.present_streak = 0;
-                    return None;
-                }
-                if self.candidate.as_ref() == Some(&phase) {
-                    self.present_streak += 1;
-                } else {
-                    self.candidate = Some(phase);
-                    self.present_streak = 1;
-                }
-                if self.present_streak >= STREAK {
-                    let settled = self.candidate.take()?;
-                    self.present_streak = 0;
-                    self.pending = Some(settled.clone());
-                    return Some(Transition::Show(settled));
-                }
-                None
-            }
-            None => {
-                self.present_streak = 0;
-                self.candidate = None;
-                self.pending.as_ref()?;
-                self.absent_streak += 1;
-                if self.absent_streak >= STREAK {
-                    self.pending = None;
-                    self.absent_streak = 0;
-                    return Some(Transition::Resolved);
-                }
-                None
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -532,139 +427,6 @@ mod tests {
         // Claude quoting "OAuth error: …" in ordinary narration.
         let lines = screen(&["The logs show OAuth error: expired token, so…"]);
         assert_eq!(detect(&lines), None);
-    }
-
-    #[test]
-    fn watcher_debounces_show_and_resolve() {
-        let mut w = LoginWatcher::new();
-        assert_eq!(w.tick(&repl_screen(), 0), None);
-        // First sighting: debounce.
-        assert_eq!(w.tick(&method_picker_screen(), 0), None);
-        assert!(matches!(
-            w.tick(&method_picker_screen(), 0),
-            Some(Transition::Show(LoginPhase::MethodPicker { .. }))
-        ));
-        assert!(w.is_pending());
-        // Steady state: silent.
-        assert_eq!(w.tick(&method_picker_screen(), 0), None);
-        // One absent frame: still pending.
-        assert_eq!(w.tick(&repl_screen(), 0), None);
-        assert!(w.is_pending());
-        assert_eq!(w.tick(&repl_screen(), 0), Some(Transition::Resolved));
-        assert!(!w.is_pending());
-        assert_eq!(w.tick(&repl_screen(), 0), None);
-    }
-
-    #[test]
-    fn phase_change_refires_show_without_resolved() {
-        let mut w = LoginWatcher::new();
-        w.tick(&method_picker_screen(), 0);
-        assert!(matches!(w.tick(&method_picker_screen(), 0), Some(Transition::Show(_))));
-        // Picker answered locally → URL screen: Show(UrlPrompt), no Resolved.
-        assert_eq!(w.tick(&url_screen(), 0), None);
-        assert!(matches!(
-            w.tick(&url_screen(), 0),
-            Some(Transition::Show(LoginPhase::UrlPrompt { .. }))
-        ));
-        assert!(w.is_pending());
-        // Bad code → error screen.
-        assert_eq!(w.tick(&error_screen(), 0), None);
-        assert!(matches!(
-            w.tick(&error_screen(), 0),
-            Some(Transition::Show(LoginPhase::Error { .. }))
-        ));
-    }
-
-    #[test]
-    fn a_changed_url_refires_show() {
-        // Retry loop: same phase shape, different URL (fresh state param).
-        let mut w = LoginWatcher::new();
-        w.tick(&url_screen(), 0);
-        assert!(matches!(w.tick(&url_screen(), 0), Some(Transition::Show(_))));
-        let mut retry = url_screen();
-        retry[7] = "Pl_FCJLsmPZzk&code_challenge_method=S256&state=DIFFERENT".to_string();
-        assert_eq!(w.tick(&retry, 0), None);
-        assert!(matches!(
-            w.tick(&retry, 0),
-            Some(Transition::Show(LoginPhase::UrlPrompt { .. }))
-        ));
-    }
-
-    #[test]
-    fn a_half_painted_url_does_not_settle() {
-        // Mid-render frames differ tick to tick — the candidate resets and
-        // nothing fires until the screen holds still for STREAK ticks.
-        let mut w = LoginWatcher::new();
-        let mut half = url_screen();
-        half.truncate(6);
-        assert_eq!(w.tick(&half, 0), None);
-        assert_eq!(w.tick(&url_screen(), 0), None);
-        assert!(matches!(w.tick(&url_screen(), 0), Some(Transition::Show(_))));
-    }
-
-    #[test]
-    fn success_is_only_a_continuation() {
-        let success = screen(&["   Login successful. Press Enter to continue…"]);
-        // Standalone success-ish text (claude echoing it in output): ignored.
-        let mut w = LoginWatcher::new();
-        assert_eq!(w.tick(&success, 0), None);
-        assert_eq!(w.tick(&success, 0), None);
-        assert!(!w.is_pending());
-
-        // As a continuation of a pending login phase: surfaced.
-        let mut w = LoginWatcher::new();
-        w.tick(&url_screen(), 0);
-        assert!(matches!(w.tick(&url_screen(), 0), Some(Transition::Show(_))));
-        assert_eq!(w.tick(&success, 0), None);
-        assert!(matches!(
-            w.tick(&success, 0),
-            Some(Transition::Show(LoginPhase::Success))
-        ));
-        // Success no longer needs input.
-        assert!(!w.is_pending());
-    }
-
-    #[test]
-    fn watcher_freezes_while_scrolled() {
-        let mut w = LoginWatcher::new();
-        // A picker seen only in scrolled-back history never Shows.
-        assert_eq!(w.tick(&method_picker_screen(), 3), None);
-        assert_eq!(w.tick(&method_picker_screen(), 3), None);
-        assert_eq!(w.tick(&repl_screen(), 0), None);
-
-        // A pending flow scrolled out of view never Resolves.
-        w.tick(&method_picker_screen(), 0);
-        assert!(matches!(w.tick(&method_picker_screen(), 0), Some(Transition::Show(_))));
-        assert_eq!(w.tick(&repl_screen(), 5), None);
-        assert_eq!(w.tick(&repl_screen(), 5), None);
-        assert!(w.is_pending());
-        assert_eq!(w.tick(&method_picker_screen(), 0), None);
-    }
-
-    #[test]
-    fn login_screens_do_not_match_the_other_pickers_and_vice_versa() {
-        // The login method picker must not detect as a plan or ask picker —
-        // and their screens must not detect as a login flow. Keeping these
-        // disjoint is what keeps the publisher's Esc-reroute and the answer
-        // machinery from crossing wires.
-        assert_eq!(crate::plan_picker::detect(&method_picker_screen()), None);
-        assert_eq!(crate::question_picker::detect(&method_picker_screen()), None);
-        assert_eq!(
-            crate::question_picker::detect_during_ask(&method_picker_screen()),
-            None
-        );
-        assert_eq!(crate::plan_picker::detect(&url_screen()), None);
-        assert_eq!(crate::question_picker::detect(&url_screen()), None);
-
-        let plan_screen = screen(&[
-            " Claude has written up a plan and is ready to execute. Would you like to",
-            " proceed?",
-            "",
-            " ❯ 1. Yes, auto-accept edits",
-            "   2. Yes, manually approve edits",
-        ]);
-        assert!(crate::plan_picker::detect(&plan_screen).is_some());
-        assert_eq!(detect(&plan_screen), None);
     }
 
     /// EXP-484: `claude auth login --claudeai` prints the sign-in URL with

@@ -19,7 +19,7 @@
 //! * live sessions protect: synced rows via their issue mapping
 //!   (heartbeat-stale rows count as absent, EXP-153; `merged` sessions are
 //!   still LIVE, EXP-358), local batch/action runs via
-//!   [`LocalSessions::held_branches`], busy terminal tabs via their cwd.
+//!   [`LocalSessions::held_branches`], busy shell tabs via their cwd.
 //!
 //! Branches no synced issue maps to (deleted issues, trashed boards, stale
 //! batch branches) end up in NO set — the engine falls back to pure git

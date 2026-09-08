@@ -248,7 +248,11 @@ export function CreateActionDialog({
       : description
   const triggerOverflow = descriptionWithTrigger.length > MAX_ACTION_INPUT_TEXT
   const submitBlocked =
-    missingRequiredInputs(inputDefs, inputValues).length > 0 || triggerOverflow
+    missingRequiredInputs(inputDefs, inputValues).length > 0 ||
+    triggerOverflow ||
+    // EXP-773: the creator run cannot start on a machine whose ACP engine
+    // does not drive the picked agent.
+    launch.agentNotReady
 
   const submit = () => {
     if (!device || submitBlocked) return

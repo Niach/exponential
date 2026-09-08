@@ -44,6 +44,11 @@ const TERMINAL_ROWS: u16 = 50;
 /// megabytes of nothing kept for the whole session.
 const DEFAULT_OUTPUT_BYTE_LIMIT: usize = 1 << 20;
 
+/// EXP-766: the ceiling on an agent-chosen `outputByteLimit`. The value comes
+/// straight off the wire, so without a clamp one `terminal/create` can ask the
+/// engine to retain gigabytes for the rest of the session.
+const MAX_OUTPUT_BYTE_LIMIT: usize = 8 << 20;
+
 /// How long the reaped child's exit waits for the reader thread to hit EOF
 /// before it resolves anyway. On Linux `waitpid` routinely returns with tens
 /// of kilobytes still sitting in the master, so publishing the exit right
@@ -170,7 +175,8 @@ impl OutputBuffer {
         let limit = limit
             .and_then(|limit| usize::try_from(limit).ok())
             .filter(|limit| *limit > 0)
-            .unwrap_or(DEFAULT_OUTPUT_BYTE_LIMIT);
+            .unwrap_or(DEFAULT_OUTPUT_BYTE_LIMIT)
+            .min(MAX_OUTPUT_BYTE_LIMIT);
         OutputBuffer {
             text: String::new(),
             truncated: false,
@@ -843,6 +849,20 @@ mod tests {
         });
         let snapshot = terminals.snapshot(&id).expect("the terminal is known");
         assert_eq!(snapshot.output, "llo");
+    }
+
+    /// EXP-766: the limit is an agent-supplied number, so it is clamped. A
+    /// `terminal/create` asking for 4 GiB of retention gets the ceiling.
+    #[test]
+    fn an_absurd_output_limit_is_clamped() {
+        assert_eq!(
+            OutputBuffer::new(Some(u64::MAX)).limit,
+            MAX_OUTPUT_BYTE_LIMIT
+        );
+        assert_eq!(OutputBuffer::new(Some(4 << 30)).limit, MAX_OUTPUT_BYTE_LIMIT);
+        // A sane request is untouched, and no request at all is the default.
+        assert_eq!(OutputBuffer::new(Some(4096)).limit, 4096);
+        assert_eq!(OutputBuffer::new(None).limit, DEFAULT_OUTPUT_BYTE_LIMIT);
     }
 
     /// Releasing a terminal kills whatever it is still running — an agent

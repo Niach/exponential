@@ -159,6 +159,12 @@ impl ActivityJournal {
             ActivityEvent::Tool {
                 subagent_id: Some(id),
                 ..
+            }
+            // EXP-773: prose a subagent wrote renders INSIDE that subagent's
+            // card, so it is second class exactly like the calls around it.
+            | ActivityEvent::Narration {
+                subagent_id: Some(id),
+                ..
             } if !id.is_empty() => Some(id.clone()),
             _ => None,
         };

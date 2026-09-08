@@ -23,7 +23,7 @@ use agent_client_protocol::schema::v1::{
     CancelNotification, ListSessionsRequest, LoadSessionRequest, NewSessionRequest,
     NewSessionResponse, PromptRequest, RequestPermissionOutcome,
     RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome,
-    SessionConfigId, SessionConfigKind, SessionConfigOptionValue, SessionModeId,
+    SessionConfigId, SessionConfigOptionValue, SessionModeId,
     SessionNotification, SessionUpdate, SetSessionConfigOptionRequest, SetSessionModeRequest,
     StopReason, TextContent, ToolCallContent, ToolKind,
 };
@@ -389,8 +389,12 @@ async fn a_plain_turn_streams_once_and_settles_on_end_turn() {
         run.shape(),
         vec![
             "commands:2".to_string(),
-            "config:3".to_string(),
-            "mode:auto".to_string(),
+            // EXP-772: the vocabulary is empty — no option chips anywhere.
+            "config:0".to_string(),
+            // No mode event: the init frame reports the CLI's own spelling
+            // (`auto`), which clamps to the `bypassPermissions` this run
+            // already started in. Only the two modes `available_modes`
+            // advertises are ever announced.
             "user:Reply with the single word ok.".to_string(),
             "usage:18201/1000000".to_string(),
             "agent:ok".to_string(),
@@ -493,25 +497,14 @@ async fn the_new_session_response_carries_the_modes_and_the_config_options() {
     let modes = run.session.modes.as_ref().expect("modes are advertised");
     let ids: Vec<String> =
         modes.available_modes.iter().map(|mode| mode.id.0.to_string()).collect();
-    assert!(ids.contains(&"plan".to_string()));
-    assert!(ids.contains(&"acceptEdits".to_string()));
-    assert!(!ids.contains(&"dontAsk".to_string()));
+    // EXP-772: plan on, plan off, and nothing else.
+    assert_eq!(ids, vec!["plan".to_string(), "bypassPermissions".to_string()]);
     assert_eq!(modes.current_mode_id.0.as_ref(), "bypassPermissions");
 
+    // …and no option chips at all: model / effort / fast / agent left the
+    // mid-session steering UI on every client.
     let options = run.session.config_options.as_ref().expect("config options");
-    let ids: Vec<String> = options.iter().map(|option| option.id.0.to_string()).collect();
-    // Mode is NOT among them: it rides `session/set_mode`, and a second chip
-    // for it would render twice on every client. Fast is missing too, and
-    // deliberately: the launch flag names the alias `opus`, and only the
-    // resolved id the CLI reports on `system/init` says whether the model
-    // supports it — the option appears on the config update that follows.
-    assert_eq!(ids, vec!["model", "effort"]);
-    match &options[0].kind {
-        SessionConfigKind::Select(select) => {
-            assert_eq!(select.current_value.0.as_ref(), "opus");
-        }
-        other => panic!("expected a select, got {other:?}"),
-    }
+    assert!(options.is_empty(), "{options:?}");
 }
 
 #[tokio::test]
@@ -528,37 +521,28 @@ async fn a_permission_reaches_the_client_and_its_answer_reaches_the_cli() {
     .await;
 
     assert_eq!(run.stop_reason, StopReason::EndTurn);
-    let request = run.permissions.first().expect("one permission request");
-    // The card is the tool call itself, so the client renders what will run.
-    assert_eq!(request.tool_call.fields.kind, Some(ToolKind::Execute));
-    assert!(request
-        .tool_call
-        .fields
-        .title
-        .as_ref()
-        .is_some_and(|title| title.starts_with("rm -f")));
-    let options: Vec<String> =
-        request.options.iter().map(|option| option.option_id.0.to_string()).collect();
-    // The CLI suggested a rule bundle, so "don't ask again" is offered.
-    assert_eq!(options, vec!["allow-once", "allow-with-updates", "reject"]);
-
-    // What actually matters: the allow reached claude, keyed by the tool use.
+    // EXP-772: permissions are bypassed in every mode, so an ordinary tool is
+    // allowed HERE — no card ever reaches the client.
+    assert!(run.permissions.is_empty(), "{:?}", run.permissions);
     let answer = run.control_responses().first().copied().expect("an answer went back");
     let payload = &answer["response"]["response"];
     assert_eq!(payload["behavior"], serde_json::json!("allow"));
     assert_eq!(payload["decisionClassification"], serde_json::json!("user_temporary"));
     assert_eq!(payload["toolUseID"], serde_json::json!("toolu_01U7SzXzR2hsSy8k3Yuei2Dq"));
-    assert_eq!(payload["updatedInput"], request.tool_call.fields.raw_input.clone().unwrap());
+    // The input goes back verbatim: nothing rewrote what the model asked for.
+    assert_eq!(payload["updatedInput"]["command"], serde_json::json!("rm -f /work/tree/x"));
 }
 
+/// EXP-772: the plan approval is one of the only two dialogs left, so it is
+/// what the cancellation contract is locked against.
 #[tokio::test]
 async fn a_cancelled_permission_is_denied_rather_than_left_hanging() {
     let work = workdir("permission-cancel");
     let run = drive(
-        "permission",
+        "plan",
         &work.0,
-        "Run exactly this shell command and nothing else",
-        false,
+        "Append world to note.txt. Plan first.",
+        true,
         Arc::new(|_request| RequestPermissionOutcome::Cancelled),
         cancel_elicitations(),
     )
@@ -573,15 +557,106 @@ async fn a_cancelled_permission_is_denied_rather_than_left_hanging() {
     assert_eq!(run.stop_reason, StopReason::EndTurn);
 }
 
+/// EXP-772: the CLI replays MACHINERY as `user` entries — system reminders,
+/// hook and task notifications, local-command echoes, the summary a
+/// compaction hands the fresh context. None of it may reach a feed as the
+/// human's own words; a real turn beside them still does.
 #[tokio::test]
-async fn the_plan_approval_is_a_switch_mode_card_with_the_plan_and_four_options() {
+async fn replayed_machinery_never_becomes_a_user_message() {
+    let work = workdir("user-filter");
+    let scenario = synthetic(
+        &work.0,
+        &[
+            r#"{"type":"system","subtype":"init","cwd":"/work/tree","session_id":"11111111-2222-3333-4444-555555555555","tools":["Bash"],"model":"claude-opus-5[1m]","permissionMode":"bypassPermissions","slash_commands":["compact"],"agents":[],"uuid":"00000000-0000-4000-8000-000000000001"}"#,
+            r#"{"type":"user","isMeta":true,"message":{"content":[{"type":"text","text":"The user opened a file."}]},"session_id":"11111111-2222-3333-4444-555555555555","uuid":"00000000-0000-4000-8000-000000000002"}"#,
+            r#"{"type":"user","isCompactSummary":true,"message":{"content":[{"type":"text","text":"Summary of the conversation so far."}]},"session_id":"11111111-2222-3333-4444-555555555555","uuid":"00000000-0000-4000-8000-000000000003"}"#,
+            r#"{"type":"user","message":{"content":[{"type":"text","text":"<system-reminder>Never do that.</system-reminder>"},{"type":"text","text":"and now the migration"}]},"session_id":"11111111-2222-3333-4444-555555555555","uuid":"00000000-0000-4000-8000-000000000004"}"#,
+            r#"{"type":"user","message":{"content":[{"type":"text","text":"<task-notification>agent finished</task-notification>"}]},"session_id":"11111111-2222-3333-4444-555555555555","uuid":"00000000-0000-4000-8000-000000000005"}"#,
+            r#"{"type":"result","subtype":"success","is_error":false,"stop_reason":"end_turn","result":"Done.","session_id":"11111111-2222-3333-4444-555555555555","uuid":"00000000-0000-4000-8000-000000000006","queued_turn_count":0}"#,
+        ],
+        &[],
+    );
+    let run = drive_at(
+        &scenario,
+        &work.0,
+        "Start the migration.",
+        false,
+        reject_all(),
+        cancel_elicitations(),
+    )
+    .await;
+
+    let users: Vec<String> = run
+        .updates
+        .iter()
+        .map(|notification| shape(&notification.update))
+        .filter(|shape| shape.starts_with("user:"))
+        .collect();
+    assert_eq!(users, vec!["user:and now the migration".to_string()], "{users:?}");
+}
+
+/// EXP-772: even in PLAN mode an ordinary tool is allowed right here — the
+/// only two dialogs left are the plan approval and a question. `reject_all`
+/// would refuse a card if one were raised, and the CLI would see a deny.
+#[tokio::test]
+async fn a_tool_in_plan_mode_is_auto_allowed_without_a_card() {
+    let work = workdir("plan-auto-allow");
+    let scenario = synthetic(
+        &work.0,
+        &[
+            r#"{"type":"system","subtype":"init","cwd":"/work/tree","session_id":"11111111-2222-3333-4444-555555555555","tools":["Bash"],"model":"claude-opus-5[1m]","permissionMode":"plan","slash_commands":["compact"],"agents":[],"uuid":"00000000-0000-4000-8000-000000000001"}"#,
+            r#"{"type":"control_request","request_id":"0f1c2d3e-4a5b-6c7d-8e9f-000000000009","request":{"subtype":"can_use_tool","tool_name":"Bash","display_name":"Bash","input":{"command":"rg todo","description":"Search for todos"},"description":"Search for todos","tool_use_id":"toolu_theplanmodebash"}}"#,
+        ],
+        &[
+            r#"{"type":"result","subtype":"success","is_error":false,"stop_reason":"end_turn","result":"Searched.","session_id":"11111111-2222-3333-4444-555555555555","uuid":"00000000-0000-4000-8000-000000000004","queued_turn_count":0}"#,
+        ],
+    );
+    let run = drive_at(
+        &scenario,
+        &work.0,
+        "Look for todos, then plan.",
+        true,
+        reject_all(),
+        cancel_elicitations(),
+    )
+    .await;
+
+    assert!(run.permissions.is_empty(), "{:?}", run.permissions);
+    let answer = run.control_responses().first().copied().expect("an answer went back");
+    let payload = &answer["response"]["response"];
+    assert_eq!(payload["behavior"], serde_json::json!("allow"));
+    assert_eq!(payload["toolUseID"], serde_json::json!("toolu_theplanmodebash"));
+}
+
+/// EXP-772: a plan-mode launch keeps `--permission-mode plan` AND the
+/// dangerous flag — without the flag at spawn the CLI refuses the
+/// `bypassPermissions` switch the approved plan makes.
+#[tokio::test]
+async fn a_plan_launch_still_bypasses_permissions() {
+    let work = workdir("plan-argv");
+    let run = drive(
+        "plan",
+        &work.0,
+        "Append world to note.txt. Plan first.",
+        true,
+        pick("exit-plan-bypass"),
+        cancel_elicitations(),
+    )
+    .await;
+
+    assert_eq!(run.argv_value("--permission-mode"), Some("plan"));
+    assert!(run.argv.iter().any(|arg| arg == "--allow-dangerously-skip-permissions"));
+}
+
+#[tokio::test]
+async fn the_plan_approval_is_a_switch_mode_card_with_the_plan_and_its_options() {
     let work = workdir("plan");
     let run = drive(
         "plan",
         &work.0,
         "Append world to note.txt. Plan first.",
         true,
-        pick("exit-plan-accept-edits"),
+        pick("exit-plan-bypass"),
         cancel_elicitations(),
     )
     .await;
@@ -608,12 +683,12 @@ async fn the_plan_approval_is_a_switch_mode_card_with_the_plan_and_four_options(
     }
     let options: Vec<String> =
         request.options.iter().map(|option| option.option_id.0.to_string()).collect();
+    // EXP-772: coding the plan is the only elevated answer left.
     assert_eq!(
         options,
         vec![
-            "exit-plan-clear-auto".to_string(),
-            "exit-plan-auto".to_string(),
-            "exit-plan-default".to_string(),
+            "exit-plan-clear-bypass".to_string(),
+            "exit-plan-bypass".to_string(),
             "reject".to_string(),
         ]
     );
@@ -624,7 +699,9 @@ async fn the_plan_approval_is_a_switch_mode_card_with_the_plan_and_four_options(
     assert_eq!(payload["behavior"], serde_json::json!("allow"));
     assert_eq!(
         payload["updatedPermissions"],
-        serde_json::json!([{ "type": "setMode", "mode": "acceptEdits", "destination": "session" }])
+        serde_json::json!([
+            { "type": "setMode", "mode": "bypassPermissions", "destination": "session" }
+        ])
     );
 }
 
@@ -636,7 +713,7 @@ async fn a_clear_context_approval_denies_with_an_interrupt_and_re_prompts_the_pl
         &work.0,
         "Append world to note.txt. Plan first.",
         true,
-        pick("exit-plan-clear-auto"),
+        pick("exit-plan-clear-bypass"),
         cancel_elicitations(),
     )
     .await;
@@ -1118,15 +1195,11 @@ async fn a_subagents_permission_chunks_and_edges_carry_the_parent_tool_use() {
     assert_eq!(shapes[1], "tool:echo probe >> probe.txt");
     assert_eq!(shapes[2], "tool_update:Completed");
 
-    // The permission raised INSIDE the subagent names it too, without losing
-    // the `permission` meta it already carried.
-    let permission = run.permissions.first().expect("the subagent's permission");
-    let meta = permission.tool_call.meta.as_ref().expect("the permission carries meta");
-    assert_eq!(meta.get("subagentId"), Some(&serde_json::json!(parent)));
-    assert_eq!(
-        meta.get("permission").and_then(|meta| meta.get("description")),
-        Some(&serde_json::json!("Append probe to probe.txt"))
-    );
+    // EXP-772: the permission the subagent raised is allowed without a card,
+    // keyed by ITS tool use — nothing reaches the client to attribute.
+    assert!(run.permissions.is_empty(), "{:?}", run.permissions);
+    let answer = run.control_responses().first().copied().expect("an answer went back");
+    assert_eq!(answer["response"]["response"]["behavior"], serde_json::json!("allow"));
 
     // In THIS recording the task completes before the turn's `result`, so the
     // completed edge is simply mid-stream: the answer the CLI streamed after
@@ -1154,7 +1227,10 @@ async fn a_backgrounded_subagent_never_adopts_a_main_thread_permission() {
         &[
             r#"{"type":"system","subtype":"init","cwd":"/work/tree/subagent","session_id":"11111111-2222-3333-4444-555555555555","tools":["Task","Bash"],"model":"claude-opus-5[1m]","permissionMode":"default","slash_commands":["compact"],"agents":["general-purpose"],"uuid":"00000000-0000-4000-8000-000000000001"}"#,
             r#"{"type":"system","subtype":"task_started","task_id":"bg-task-1","tool_use_id":"toolu_thebackgroundtask","description":"Tail the dev server","subagent_type":"general-purpose","is_backgrounded":true,"spawn_depth":1,"task_type":"local_agent","uuid":"00000000-0000-4000-8000-000000000002","session_id":"11111111-2222-3333-4444-555555555555"}"#,
-            r#"{"type":"control_request","request_id":"0f1c2d3e-4a5b-6c7d-8e9f-000000000001","request":{"subtype":"can_use_tool","tool_name":"Bash","display_name":"Bash","input":{"command":"echo main >> main.txt","description":"Append main to main.txt"},"description":"Append main to main.txt","tool_use_id":"toolu_themainthreadbash"}}"#,
+            // EXP-772: the plan approval, because it is one of the only two
+            // dialogs a client still sees — an ordinary tool is auto-allowed
+            // and has no card to attribute at all.
+            r#"{"type":"control_request","request_id":"0f1c2d3e-4a5b-6c7d-8e9f-000000000001","request":{"subtype":"can_use_tool","tool_name":"ExitPlanMode","display_name":"ExitPlanMode","input":{"plan":"Plan: append main to main.txt"},"description":"Append main to main.txt","tool_use_id":"toolu_themainthreadplan"}}"#,
         ],
         &[
             r#"{"type":"system","subtype":"task_updated","task_id":"bg-task-1","patch":{"status":"completed"},"uuid":"00000000-0000-4000-8000-000000000003","session_id":"11111111-2222-3333-4444-555555555555"}"#,
@@ -1166,7 +1242,7 @@ async fn a_backgrounded_subagent_never_adopts_a_main_thread_permission() {
         &work.0,
         "Tail the dev server in the background and append main to main.txt.",
         false,
-        pick("allow-once"),
+        pick("reject"),
         cancel_elicitations(),
     )
     .await;
@@ -1361,6 +1437,68 @@ async fn usage_after_a_replay_resumes_the_same_conversation() {
         !argv.iter().any(|arg| arg.starts_with("--session-id")),
         "claude refuses --session-id together with --resume: {argv:?}"
     );
+}
+
+#[tokio::test]
+async fn two_prompts_racing_on_a_loaded_session_spawn_one_cli() {
+    // EXP-766: the lazy spawn checked `child.is_none()` and stored the child
+    // in two separate lock windows, so two prompts arriving together each
+    // started a CLI. The second one silently orphaned the first: two
+    // processes on one worktree, one of them talking to nobody.
+    let work = workdir("start-race");
+    record_transcript(&work.0, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeef1", &work.0);
+
+    let adapter = ClaudeAgent::new(spec("basic", &work.0, false)).expect("the adapter builds");
+    let listed = work.0.clone();
+    Client
+        .builder()
+        .name("exp746-test-client")
+        .on_receive_notification(
+            async move |_notification: SessionNotification, _cx| Ok(()),
+            on_receive_notification!(),
+        )
+        .connect_with(adapter, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(engine::client_capabilities()),
+            )
+            .block_task()
+            .await?;
+            let sessions = cx
+                .send_request(ListSessionsRequest::new().cwd(listed.clone()))
+                .block_task()
+                .await?;
+            let loaded = sessions.sessions[0].session_id.clone();
+            cx.send_request(LoadSessionRequest::new(loaded.clone(), listed))
+                .block_task()
+                .await?;
+            // No child yet, and both of these spawn one. `/usage` is answered
+            // from a control request, so neither needs a recorded turn.
+            let first = cx
+                .send_request(PromptRequest::new(
+                    loaded.clone(),
+                    vec![ContentBlock::Text(TextContent::new("/usage"))],
+                ))
+                .block_task();
+            let second = cx
+                .send_request(PromptRequest::new(
+                    loaded,
+                    vec![ContentBlock::Text(TextContent::new("/usage"))],
+                ))
+                .block_task();
+            let (first, second) = tokio::join!(first, second);
+            first?;
+            second?;
+            Ok::<_, Error>(())
+        })
+        .await
+        .expect("the connection runs cleanly");
+
+    // Every spawn APPENDS its stdin log, and every start opens with one
+    // `initialize` control request: two of them would be two CLIs.
+    let stdin = std::fs::read_to_string(work.0.join("stdin.jsonl")).expect("the CLI was spawned");
+    let initializes = stdin.matches(r#""subtype":"initialize""#).count();
+    assert_eq!(initializes, 1, "exactly one CLI was started: {stdin}");
 }
 
 #[tokio::test]

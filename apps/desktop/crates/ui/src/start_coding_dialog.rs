@@ -313,25 +313,6 @@ fn open(
     });
 }
 
-/// EXP-746 (D7): the second line the Device row's read-only toggle adds — a
-/// remote target's value is edited on that machine, not per start.
-const REMOTE_START_IN_TERMINAL_HINT: &str = "Set on that machine's device settings.";
-
-/// EXP-746 (D7): the "Start in terminal" value the dialog shows, and whether
-/// it may be flipped here. The TARGET machine owns it: this install's own
-/// settings for a local run, the picked machine's advertised launch defaults
-/// for a remote one — and a remote one is read-only, because there is no
-/// per-start field on `steer.startSession` and D7 rules one out. Pure.
-fn seeded_start_in_terminal(
-    local: &coding::Settings,
-    remote: Option<&launch_options::RemoteDefaults>,
-) -> (bool, bool) {
-    match remote {
-        Some(remote) => (remote.settings.start_in_terminal, false),
-        None => (local.start_in_terminal, true),
-    }
-}
-
 /// The unified dialog's top-level subject (EXP-257).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SubjectTab {
@@ -477,12 +458,6 @@ pub struct StartCodingDialogView {
     /// toggles) — the same component the create-action dialog renders.
     launch: LaunchOptionsSection,
     /// EXP-746 (D7): run the agent in a TERMINAL tab (today's PTY path)
-    /// instead of the in-process session engine. Device-GLOBAL, not a
-    /// per-start choice: it seeds from the target machine's launch defaults
-    /// and, for THIS machine, writes straight back to them
-    /// ([`Self::set_start_in_terminal`]). A remote pick renders it read-only
-    /// — there is no per-start field on the wire and D7 rules one out.
-    start_in_terminal: bool,
     /// EXP-696: the machine the run starts on (`None` before the first
     /// settle). The routing switch is its candidate's `is_own` flag: this
     /// machine takes the LOCAL launch paths, anything else goes out as one
@@ -716,7 +691,6 @@ impl StartCodingDialogView {
             list_scroll: ScrollHandle::new(),
             body_scroll: ScrollHandle::new(),
             launch: LaunchOptionsSection::new(window, cx),
-            start_in_terminal: hub.read(cx).settings.start_in_terminal,
             device_id: None,
             device_explicit: false,
             device_resolved: false,
@@ -836,67 +810,14 @@ impl StartCodingDialogView {
                 acp_agents: device.acp_agents.clone(),
                 settings: device.defaults.clone(),
             });
-        // EXP-746: the machine decides both of these. `start_in_terminal` is
-        // a launch DEFAULT the target advertises (D7), and an external agent
-        // (D13) is a local-only pick, so pointing at another machine drops
-        // the pills with it.
+        // EXP-746 (D13): an external agent is a local-only pick, so pointing
+        // at another machine drops the pills with it.
         let local = CodingHub::global(cx).read(cx).settings.clone();
-        (self.start_in_terminal, _) = seeded_start_in_terminal(&local, remote.as_ref());
         self.launch.set_externals(match remote {
             Some(_) => Vec::new(),
             None => local.external_agents.clone(),
         });
         self.launch.set_remote(remote, window, cx);
-    }
-
-    /// EXP-746 (D7): flip "Start in terminal" for THIS machine.
-    ///
-    /// Through [`CodingHub::save_settings`], never `save_ui_prefs`: the key
-    /// is a launch DEFAULT, so it has to reach `devices.launch_defaults`
-    /// (`device_sync::push_local_defaults_if_changed` runs on this path and
-    /// on no other), which is what lets a remote picker show it. Re-running
-    /// the doctor is the price, and every Agents-pane save already pays it.
-    fn set_start_in_terminal(&mut self, on: bool, cx: &mut gpui::Context<Self>) {
-        if self.start_in_terminal == on {
-            return;
-        }
-        self.start_in_terminal = on;
-        let hub = CodingHub::global(cx);
-        let mut settings = hub.read(cx).settings.clone();
-        settings.start_in_terminal = on;
-        if let Err(err) = CodingHub::save_settings(&hub, settings, cx) {
-            log::warn!("[ui] saving start_in_terminal failed: {err}");
-        }
-        cx.notify();
-    }
-
-    /// EXP-746 (D7): the "Start in terminal" group — its own glass group
-    /// between the Device picker and the launch cluster, so the shared
-    /// cluster's signature never changes and an agent-tab switch (which
-    /// re-seeds ultracode/plan mode) can never reset it.
-    fn start_in_terminal_group(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        let editable = self.remote_device().is_none();
-        let mut description = String::from(launch_options::START_IN_TERMINAL_HINT);
-        if !editable {
-            // A per-start override would need a new field on
-            // `StartSessionInput`; D7 rules one out, so the row explains
-            // where the value lives instead of pretending to be editable.
-            description.push(' ');
-            description.push_str(REMOTE_START_IN_TERMINAL_HINT);
-        }
-        crate::surface::glass_group_rows(vec![crate::surface::glass_toggle_row(
-            launch_options::START_IN_TERMINAL_LABEL,
-            Some(SharedString::from(description)),
-            Switch::new("sc-start-in-terminal")
-                .checked(self.start_in_terminal)
-                .disabled(!editable)
-                .on_click(cx.listener(|this, on: &bool, _, cx| {
-                    this.set_start_in_terminal(*on, cx);
-                }))
-                .into_any_element(),
-            cx,
-        )])
-        .into_any_element()
     }
 
     /// The settled machine, or `None` while nothing has settled.
@@ -1462,17 +1383,16 @@ impl StartCodingDialogView {
         cx.notify();
     }
 
-    /// EXP-749: the run WILL start on the target machine, just not on its
-    /// session screen — that machine advertises the selected agent as
-    /// runnable but not ACP-ready. Never a blocker, a muted line beside one:
-    /// a machine that never advertised readiness (an older build) says
-    /// nothing, and a local run is covered by "Start in terminal".
+    /// EXP-749/EXP-773: the target machine has the selected agent installed
+    /// but cannot speak ACP with it, so a run there would be refused. Never
+    /// a blocker on its own (a machine that never advertised readiness — an
+    /// older build — says nothing), a muted line beside one.
     fn terminal_note(&self) -> Option<SharedString> {
         let device = self.remote_device()?;
-        launch_options::runs_in_terminal(device.acp_agents.as_deref(), self.launch.agent).then(
+        launch_options::cannot_run_session(device.acp_agents.as_deref(), self.launch.agent).then(
             || {
                 format!(
-                    "{} runs {} in a terminal tab.",
+                    "{} can't run {} sessions.",
                     device.label,
                     self.launch.agent.label()
                 )
@@ -2047,7 +1967,7 @@ impl StartCodingDialogView {
             let prepared = window
                 .background_executor()
                 .spawn(async move {
-                    coding::prepare_with_hooks(&request, &deps, crate::steer_wiring::sidecars())
+                    coding::prepare(&request, &deps)
                 })
                 .await;
             // The terminal tab spawns into the OPENER window's dock
@@ -3066,7 +2986,6 @@ impl Render for StartCodingDialogView {
             .min_w_0()
             .gap_2()
             .children(device_picker)
-            .child(self.start_in_terminal_group(cx))
             .child(self.launch.render(
                 "sc-launch",
                 |this: &mut Self| &mut this.launch,
@@ -3135,42 +3054,4 @@ impl Render for StartCodingDialogView {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    /// EXP-746 (D7): the toggle describes the machine the run will start on,
-    /// not this one. Picking another machine shows ITS advertised default and
-    /// goes read-only — there is no per-start override on the wire, so a
-    /// writable switch there would silently change nothing.
-    #[test]
-    fn start_in_terminal_seeds_from_the_target_device() {
-        let mut local = coding::Settings::default();
-        local.start_in_terminal = true;
-        // No remote target: this install's own value, editable.
-        assert_eq!(seeded_start_in_terminal(&local, None), (true, true));
-
-        let mut advertised = coding::Settings::default();
-        advertised.start_in_terminal = false;
-        let remote = launch_options::RemoteDefaults {
-            agents: vec![coding::CodingAgent::Claude],
-            acp_agents: None,
-            settings: advertised,
-        };
-        assert_eq!(
-            seeded_start_in_terminal(&local, Some(&remote)),
-            (false, false),
-            "the target machine's value wins, and it is not editable here"
-        );
-
-        // ...and the other way round: a machine that DOES start in a terminal
-        // shows on even while this one is off.
-        let off = coding::Settings::default();
-        let mut terminal_host = coding::Settings::default();
-        terminal_host.start_in_terminal = true;
-        let remote = launch_options::RemoteDefaults {
-            agents: vec![coding::CodingAgent::Claude],
-            acp_agents: None,
-            settings: terminal_host,
-        };
-        assert_eq!(seeded_start_in_terminal(&off, Some(&remote)), (true, false));
-    }
 }

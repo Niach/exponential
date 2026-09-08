@@ -32,20 +32,11 @@ impl TabId {
     }
 }
 
-/// §6.13's tab kinds (EXP-253 adds [`TabKind::Action`] and removes the
-/// run-config `Run` kind; EXP-259 removes the one-shot `ClaudeTask` kind —
-/// conflict fixing became the builtin "Fix merge conflicts" action run).
+/// §6.13's tab kinds. EXP-773 removed the `Claude` and `Action` kinds with
+/// the PTY coding path: a coding run is the in-process ACP engine now, and
+/// the only terminals left are the user's own.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TabKind {
-    /// A Start-coding session (one per `coding_sessions` row, §07 opens it).
-    Claude,
-    /// A running team action (EXP-253): an interactive agent session bound
-    /// to a `coding_sessions` row (steerable like [`TabKind::Claude`]) but
-    /// with no PR contract — it runs on the trunk clone, a PR branch's
-    /// worktree (the fix-conflicts builtin), or a scratch dir. Carries the
-    /// `actions` row id (plain string; the `terminal` crate has no api/DB
-    /// types — §6.1 dependency rule).
-    Action(String),
     /// An EXP-325 "+"-menu agent session: a promptless interactive agent CLI
     /// on the repo's trunk clone with NO issue/batch/action subject — no
     /// `coding_sessions` row, no steer room. Does NOT hold trunk auto-sync

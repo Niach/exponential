@@ -228,9 +228,10 @@ struct LaunchOptionsSection: View {
         devices.first { $0.deviceId == deviceId } ?? (devices.count == 1 ? devices.first : nil)
     }
 
-    /// EXP-749: the picked agent runs there, outside the ACP engine.
-    private var terminalNote: String? {
-        LaunchVocabulary.terminalNote(device: resolvedDevice, agent: agent)
+    /// EXP-773: the picked agent is outside that machine's ACP set, so it
+    /// cannot start there.
+    private var notReadyNote: String? {
+        LaunchVocabulary.notReadyNote(device: resolvedDevice, agent: agent)
     }
 
     private var resumeNote: String? {
@@ -240,14 +241,14 @@ struct LaunchOptionsSection: View {
 
     @ViewBuilder
     private var optionsFooter: some View {
-        if resumeNote != nil || terminalNote != nil || footerNote != nil {
+        if resumeNote != nil || notReadyNote != nil || footerNote != nil {
             VStack(alignment: .leading, spacing: 4) {
                 if let resumeNote {
                     Text(resumeNote)
                 }
-                if let terminalNote {
-                    Text(terminalNote)
-                        .accessibilityIdentifier("launch-terminal-note")
+                if let notReadyNote {
+                    Text(notReadyNote)
+                        .accessibilityIdentifier("launch-not-ready-note")
                 }
                 if let footerNote {
                     Text(footerNote)

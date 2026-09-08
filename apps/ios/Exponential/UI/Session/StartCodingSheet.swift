@@ -557,8 +557,15 @@ struct StartCodingSheet: View {
     private var multiRepo: Bool { checkedRepoIds.count > 1 }
     private var overCap: Bool { effectiveChecked.count > Self.maxBatchIssues }
 
+    /// EXP-773: the picked agent is outside the picked machine's reported ACP
+    /// set — with the PTY path gone nothing can start there, so every subject
+    /// gate below folds it in while the options footer explains why.
+    private var agentNotReady: Bool {
+        device?.agentNotReady(agent) == true
+    }
+
     private var canStart: Bool {
-        device != nil && !effectiveChecked.isEmpty && !multiRepo && !overCap
+        device != nil && !agentNotReady && !effectiveChecked.isEmpty && !multiRepo && !overCap
     }
 
     private var startTitle: String {
@@ -898,6 +905,7 @@ struct StartCodingSheet: View {
 
     private var canRunAction: Bool {
         device != nil
+            && !agentNotReady
             && selectedAction != nil
             && !hasUnknownInputType
             && requiredInputsFilled
@@ -1034,6 +1042,7 @@ struct StartCodingSheet: View {
     /// it never gates.
     private var canStartChat: Bool {
         device != nil
+            && !agentNotReady
             && !chatPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && chatPrompt.count <= DomainContract.actionInputTextMax
     }

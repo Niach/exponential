@@ -367,11 +367,7 @@ pub fn start(start: EngineStart, host: Arc<dyn EngineHost>) -> Result<EngineSess
         "EXP-746 (EXP-478): the host takes `prepared.launch_hold` BEFORE engine::start \
          and drops it only after it registered the session"
     );
-    let acp = start
-        .prepared
-        .acp
-        .clone()
-        .ok_or(EngineError::Unsupported("this launch has no ACP half"))?;
+    let acp = start.prepared.acp.clone();
     let agent = agent_kind(&start.prepared);
     let child_exit = ChildExitLink::new();
     let adapter = Adapter::new(AdapterSpec {
@@ -447,8 +443,8 @@ where
         local_sink,
         agent: agent.clone(),
         replay: false,
-        resume: acp.as_ref().and_then(|acp| acp.resume.clone()).map(ResumeHandle::from),
-        prompt: acp.as_ref().and_then(|acp| acp.prompt.clone()),
+        resume: acp.resume.clone().map(ResumeHandle::from),
+        prompt: acp.prompt.clone(),
         child_exit: parts.child_exit,
     });
     if let Some(sink) = parts.sink {
@@ -460,11 +456,7 @@ where
 /// The builtin agent the launch names, or the external spec its options carry
 /// (D13 — `PreparedLaunch.agent` is always a builtin).
 fn agent_kind(prepared: &coding::PreparedLaunch) -> coding::AgentKind {
-    match prepared
-        .acp
-        .as_ref()
-        .and_then(|acp| acp.options.external.clone())
-    {
+    match prepared.acp.options.external.clone() {
         Some(spec) => coding::AgentKind::External(spec),
         None => coding::AgentKind::Builtin(prepared.agent),
     }
@@ -502,6 +494,10 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
     let mut secrets = steer::activity::secrets_from_worktree(&spec.run.worktree);
     secrets.extend(spec.personal_key);
     let redactor = Arc::new(steer::Redactor::new(secrets));
+    // EXP-766: a host with a local sink (the desktop) reattaches a view
+    // mid-run and keeps the full row backlog; a headless host keeps only the
+    // small attach-window ring (`BacklogMode::Headless`).
+    let keep_backlog = spec.local_sink.is_some();
     let mapper = Mapper::new(MapperConfig {
         redactor: Arc::clone(&redactor),
         cwd: spec.run.worktree.clone(),
@@ -528,7 +524,7 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
         prompt: spec.prompt,
         mapper: Mutex::new(mapper),
         sink: OnceLock::new(),
-        feed: LocalFeed::default(),
+        feed: LocalFeed::new(keep_backlog),
         asks: PendingAsks::default(),
         terminals: Default::default(),
         ids: Mutex::new(SessionIds::default()),

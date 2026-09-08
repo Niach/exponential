@@ -5,9 +5,9 @@ import com.exponential.app.data.api.AgentLaunchDefaults
 import com.exponential.app.data.api.DeviceLaunchDefaults
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.domain.DomainContract
+import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -148,21 +148,17 @@ class DeviceSettingsDefaultsTest {
         assertEquals(edited, agents.associateWith { agentDraft(echoed, it) })
     }
 
+    /** EXP-773 deleted the "Start in terminal" preference. An older server
+     *  still stamps `startInTerminal` onto `launchDefaults`; the decoder is
+     *  `ignoreUnknownKeys`, so the key is skipped instead of failing the whole
+     *  object and dropping the machine out of every picker. */
     @Test
-    fun `buildDefaults carries startInTerminal`() {
-        val agents = listOf("claude")
-        val drafts = mapOf("claude" to AgentDraft("fable", "", ultracode = false, planMode = false))
-        // EXP-746: DEVICE-GLOBAL — it rides beside the per-agent map, never
-        // inside one, and is written as a concrete boolean.
-        assertTrue(
-            buildDefaults("claude", agents, drafts, startInTerminal = true).startInTerminal == true,
+    fun `a retired startInTerminal key still decodes`() {
+        val json = Json { ignoreUnknownKeys = true }
+        val defaults = json.decodeFromString(
+            DeviceLaunchDefaults.serializer(),
+            """{"defaultAgent":"claude","startInTerminal":true,"agents":{}}""",
         )
-        assertEquals(
-            false,
-            buildDefaults("claude", agents, drafts, startInTerminal = false).startInTerminal,
-        )
-        // Absent on the wire reads as off, and an explicit null never throws.
-        assertNull(DeviceLaunchDefaults(defaultAgent = "claude").startInTerminal)
-        assertEquals(false, DeviceLaunchDefaults(startInTerminal = false).startInTerminal)
+        assertEquals("claude", defaults.defaultAgent)
     }
 }

@@ -6,10 +6,9 @@ import { describe, expect, it } from "vitest"
 import {
   deviceAcpAgentIds,
   deviceAgentLaunchDefaults,
-  deviceAgentRunsInTerminal,
+  deviceAgentNotReady,
   deviceDefaultAgent,
   deviceIsMine,
-  deviceStartsInTerminal,
   deviceSupportsAcp,
   deviceUpdateAvailable,
   showDeviceUpdateButton,
@@ -172,28 +171,8 @@ describe(`device launch defaults`, () => {
   })
 })
 
-// EXP-746: the device-GLOBAL transport toggle and the engine capability.
-describe(`start in terminal (EXP-746)`, () => {
-  it(`reads the device-global toggle, defaulting to the session screen`, () => {
-    expect(
-      deviceStartsInTerminal(
-        server({ launchDefaults: { startInTerminal: true } })
-      )
-    ).toBe(true)
-    expect(
-      deviceStartsInTerminal(
-        server({ launchDefaults: { startInTerminal: false } })
-      )
-    ).toBe(false)
-    // A machine that never toggled it (or an older build that cannot) runs on
-    // the session screen.
-    expect(
-      deviceStartsInTerminal(server({ launchDefaults: { defaultAgent: `claude` } }))
-    ).toBe(false)
-    expect(deviceStartsInTerminal(server())).toBe(false)
-    expect(deviceStartsInTerminal(undefined)).toBe(false)
-  })
-
+// EXP-746: the engine capability.
+describe(`ACP hosting (EXP-746)`, () => {
   it(`gates ACP hosting on the advertised cap`, () => {
     expect(deviceSupportsAcp({ caps: [`worktrees`, `acp`] })).toBe(true)
     expect(deviceSupportsAcp({ caps: [`worktrees`] })).toBe(false)
@@ -581,28 +560,40 @@ describe(`agent status mapping (EXP-484)`, () => {
 
 // EXP-749: a machine reports WHICH of its runnable agents its ACP engine can
 // drive. NULL is an older build that never reported — assume every runnable
-// agent is ACP-ready (the old behaviour), never a terminal claim.
+// agent is ACP-ready (the old behaviour). EXP-773 deleted the PTY fallback, so
+// an agent outside a REPORTED set cannot start on that machine at all.
 describe(`acp agents (EXP-749)`, () => {
-  it(`a row that never reported reads unknown, and claims no terminal run`, () => {
+  it(`a row that never reported reads unknown, and blocks nothing`, () => {
     const mapped = steerDeviceFromRow(
       deviceRow({ agents: [`claude`, `codex`], acpAgents: null }),
       { now: NOW, currentUserId: `me` }
     )
     expect(deviceAcpAgentIds(mapped)).toBeNull()
-    expect(deviceAgentRunsInTerminal(mapped, `codex`)).toBe(false)
-    expect(deviceAgentRunsInTerminal(mapped, `claude`)).toBe(false)
+    expect(deviceAgentNotReady(mapped, `codex`)).toBe(false)
+    expect(deviceAgentNotReady(mapped, `claude`)).toBe(false)
   })
 
-  it(`a runnable agent outside the reported ACP set runs in a terminal`, () => {
+  it(`an agent outside the reported ACP set is not ready there`, () => {
     const mapped = steerDeviceFromRow(
       deviceRow({ agents: [`claude`, `codex`], acpAgents: [`claude`] }),
       { now: NOW, currentUserId: `me` }
     )
     expect(deviceAcpAgentIds(mapped)).toEqual([`claude`])
-    expect(deviceAgentRunsInTerminal(mapped, `codex`)).toBe(true)
-    expect(deviceAgentRunsInTerminal(mapped, `claude`)).toBe(false)
-    // Not runnable there at all = not a terminal claim either.
-    expect(deviceAgentRunsInTerminal(mapped, `pi`)).toBe(false)
+    expect(deviceAgentNotReady(mapped, `codex`)).toBe(true)
+    expect(deviceAgentNotReady(mapped, `claude`)).toBe(false)
+    // Not runnable there at all is equally unstartable.
+    expect(deviceAgentNotReady(mapped, `pi`)).toBe(true)
+    // No agent picked yet is never a claim.
+    expect(deviceAgentNotReady(mapped, ``)).toBe(false)
+  })
+
+  it(`an empty reported set blocks every agent`, () => {
+    const mapped = steerDeviceFromRow(
+      deviceRow({ agents: [`claude`], acpAgents: [] }),
+      { now: NOW, currentUserId: `me` }
+    )
+    expect(deviceAcpAgentIds(mapped)).toEqual([])
+    expect(deviceAgentNotReady(mapped, `claude`)).toBe(true)
   })
 
   it(`filters values outside the contract, like deviceAgentIds`, () => {

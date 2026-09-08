@@ -2,7 +2,7 @@ import Foundation
 
 // Mirrors apps/web/src/lib/trpc/steer.ts (the ticket-minting router) + the relay
 // wire contract in apps/steer-relay/src/protocol.ts. The steer relay is the
-// data-plane for live terminal bytes (Electric can't carry a PTY). The desktop
+// data-plane for the live activity channel (Electric can't carry it). The desktop
 // mints a short-lived HS256 relay ticket per socket via tRPC, then dials the
 // relay outbound (`wss://<relay>/ws?ticket=<token>`). `STEER_RELAY_URL` unset ⇒
 // the subsystem reports disabled and the desktop opens no sockets (graceful-off).
@@ -93,26 +93,22 @@ public struct AgentLaunchDefaults: Decodable, Equatable, Sendable {
 /// sent. `agents` covers the RUNNABLE agents only (contract `codingAgent`
 /// ids). Absent entirely on an older desktop — every reader falls back to the
 /// static contract defaults.
+///
+/// EXP-773 dropped `startInTerminal`: the PTY coding path is gone. Decoding
+/// ignores unknown keys, so a row an older server still stamps it onto keeps
+/// parsing.
 public struct DeviceLaunchDefaults: Decodable, Equatable, Sendable {
     /// The machine's configured default agent. Clamped to what it actually
     /// runs by the reader — a signed-out default must not preselect.
     public let defaultAgent: String?
     public let agents: [String: AgentLaunchDefaults]?
-    /// EXP-746: run coding sessions on a TERMINAL tab instead of the in-app
-    /// session screen. DEVICE-GLOBAL, not per agent — it picks the transport
-    /// the machine launches with, and every start on it follows. Absent on a
-    /// machine that never wrote it (and on every pre-EXP-746 build), which
-    /// reads as false everywhere.
-    public let startInTerminal: Bool?
 
     public init(
         defaultAgent: String? = nil,
-        agents: [String: AgentLaunchDefaults]? = nil,
-        startInTerminal: Bool? = nil
+        agents: [String: AgentLaunchDefaults]? = nil
     ) {
         self.defaultAgent = defaultAgent
         self.agents = agents
-        self.startInTerminal = startInTerminal
     }
 }
 
@@ -246,9 +242,9 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     public let unauthedAgents: [String]?
     /// EXP-749: the subset of `agents` the machine's ACP engine can drive.
     /// ABSENT = the build never reported it, so every runnable agent is
-    /// assumed ACP-ready (the pre-EXP-749 behaviour). An agent in `agents`
-    /// but not here still starts — in a terminal tab on that machine.
-    /// Never a filter: read it through `agentRunsInTerminal(_:)`.
+    /// assumed ACP-ready (the pre-EXP-749 behaviour). EXP-773 deleted the PTY
+    /// fallback, so an agent missing from a REPORTED list cannot start there.
+    /// Never a filter: read it through `agentNotReady(_:)`.
     public let acpAgents: [String]?
     /// Feature capabilities the desktop advertised (EXP-253: `actions`).
     /// Absent (old desktop/relay) = none — action starts are strictly gated
@@ -384,16 +380,16 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
 
     /// EXP-749: the ACP-drivable agents as contract ids, or nil when the
     /// machine reported none at all. Nil is UNKNOWN, never "none" — collapsing
-    /// it with `?? []` would claim every agent runs in a terminal there.
+    /// it with `?? []` would claim no agent can start there.
     public var acpAgentIds: [String]? {
         guard let acpAgents else { return nil }
         return acpAgents.filter { DomainContract.codingAgentValues.contains($0) }
     }
 
-    /// EXP-749: whether starting [agent] on this machine lands in a terminal
-    /// tab rather than the session screen — it runs there, just outside ACP.
+    /// EXP-773: whether [agent] CANNOT start on this machine — it reported an
+    /// ACP set and this agent is outside it, and the PTY fallback is gone.
     /// Only ever true when the machine actually reported its ACP agents.
-    public func agentRunsInTerminal(_ agent: String) -> Bool {
+    public func agentNotReady(_ agent: String) -> Bool {
         guard let acpAgentIds else { return false }
         return !acpAgentIds.contains(agent)
     }
@@ -411,14 +407,8 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
 
     /// EXP-746: whether this machine can run a session through the in-process
     /// ACP engine (the session screen) at all. A machine without the cap is an
-    /// older build that only ever runs a terminal session — the toggle below
-    /// is then moot, so surfaces that mention the session screen hide it.
+    /// older build.
     public var supportsAcp: Bool { caps?.contains("acp") == true }
-
-    /// EXP-746: this machine's device-global "Start in terminal" preference,
-    /// as the row advertises it. Absent = false (an older build has no session
-    /// screen to opt out of).
-    public var startsInTerminal: Bool { launchDefaults?.startInTerminal == true }
 
     /// EXP-484: whether this machine can run an agent sign-in REMOTELY (the
     /// `agent_login` device command). Strictly cap-gated like the other remote

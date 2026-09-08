@@ -3,7 +3,7 @@
 //! A repo-less run (the "Create action" creator, a repo-less chat or team
 //! action) spawns in `<data_dir>/actions/<action>/<run>/`, a directory
 //! holding nothing but launcher sidecars: the MCP config, the `.exp-agents`
-//! marker, an oversized `PROMPT.md`. Every agent keeps its transcript
+//! marker, a pi bridge extension. Every agent keeps its transcript
 //! ELSEWHERE — claude under `~/.claude/projects/<munged cwd>/` keyed by the
 //! path STRING, codex in its own rollouts, pi in `<data_dir>/pi-sessions/` —
 //! so the directory is disposable: it goes when the run ends and a resume
@@ -45,9 +45,7 @@ const LEGACY_SIDECARS: &[&str] = &[
     crate::mcp_json::MCP_JSON_FILE,
     crate::mcp_json::LEGACY_MCP_JSON_FILE,
     crate::worktree_agents::AGENTS_FILE,
-    crate::prompt::PROMPT_FILE,
     crate::pi_bridge::PI_BRIDGE_FILE,
-    crate::pi_bridge::PI_OBSERVER_FILE,
 ];
 
 /// `<data_dir>/actions` — where `launcher::prepare_action` puts every
@@ -379,7 +377,7 @@ mod tests {
         let dir = temp_dir("scratch-sweep-child");
         let run = scratch(&dir.0, "builtin_chat", "aaaaaaaa");
         age(&run, OLD);
-        std::fs::write(run.join(crate::prompt::PROMPT_FILE), "fresh").unwrap();
+        std::fs::write(run.join(crate::pi_bridge::PI_BRIDGE_FILE), "fresh").unwrap();
         std::fs::File::open(&run)
             .unwrap()
             .set_modified(SystemTime::now() - OLD)

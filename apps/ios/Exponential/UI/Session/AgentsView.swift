@@ -66,12 +66,6 @@ struct AgentsView: View {
     // usually a conflict, so the failing row's caption offers the builtin
     // recovery run on any reachable machine.
     @State private var fixTarget: FixConflictsTarget?
-    // EXP-746 "Past": which finished rows are expanded (the summary and the
-    // Resume pill live behind a tap — a list of paragraphs is unreadable), the
-    // pending Resume confirm, and the rows with a send in flight.
-    @State private var expandedPastIds: Set<String> = []
-    @State private var resumeTarget: ResumeTarget?
-    @State private var resumingIds: Set<String> = []
     /// EXP-694 (S6): the action/automation editor a session row's trailing
     /// button opened.
     @State private var sessionEditTarget: SessionEditTarget?
@@ -97,14 +91,6 @@ struct AgentsView: View {
         let rowId: String
         let issueId: String
         var id: String { rowId }
-    }
-
-    /// The finished run a Resume confirm is pending for (EXP-746). Only the
-    /// ids are captured: the copy is fixed and the row may re-sync underneath.
-    private struct ResumeTarget: Identifiable {
-        let sessionId: String
-        let deviceId: String
-        var id: String { sessionId }
     }
 
     /// The machine a settings sheet is open for. EXP-490: the ID only — the
@@ -335,10 +321,9 @@ struct AgentsView: View {
 
     // MARK: - Past (EXP-746)
 
-    /// The caller's finished runs: collapsed to title + byline, expanding to
-    /// the agent's close-out summary and — on the machine that ran it — a
-    /// Resume. Its own node so the confirm alert doesn't stack onto one that
-    /// already presents something (SwiftUI drops those).
+    /// The caller's finished runs: title + byline, and a tap opens that run's
+    /// fullscreen session view — where its transcript, its close-out summary
+    /// and its Resume live since EXP-773. The row itself holds no state.
     ///
     /// This re-adds what EXP-676 removed, for a different reason: a session is
     /// a screen now, so a finished run is where its transcript and its Resume
@@ -353,34 +338,10 @@ struct AgentsView: View {
                     title: PastRuns.title(row.session, issue: row.issue),
                     identifier: row.issue?.identifier,
                     byline: pastByline(row),
-                    summary: row.session.summary,
-                    expanded: expandedPastIds.contains(row.id),
-                    canResume: steerEnabled && row.resume != nil,
-                    resuming: resumingIds.contains(row.id),
-                    onToggle: { togglePastRun(row.id) },
-                    onResume: {
-                        guard let device = row.resume else { return }
-                        resumeTarget = ResumeTarget(
-                            sessionId: row.session.id, deviceId: device.deviceId
-                        )
-                    },
-                    summary: { AgentMarkdownText(text: $0, context: markdownContext) }
+                    onOpen: { sessionTarget = .init(sessionId: row.session.id) }
                 )
                 .accessibilityIdentifier("past-run-row")
             }
-        }
-        .alert(
-            "Resume this run?",
-            isPresented: Binding(
-                get: { resumeTarget != nil },
-                set: { if !$0 { resumeTarget = nil } }
-            ),
-            presenting: resumeTarget
-        ) { target in
-            Button("Resume") { resume(target) }
-            Button("Cancel", role: .cancel) { resumeTarget = nil }
-        } message: { _ in
-            Text("Reopens the run on the machine that ran it, in the same worktree, and continues where the agent stopped.")
         }
     }
 
@@ -394,55 +355,6 @@ struct AgentsView: View {
             endedBy: row.session.endedBy,
             relativeTime: relativeDate(PastRuns.endedAt(row.session))
         )
-    }
-
-    /// Everything an `AgentMarkdownText` needs to render the images a close-out
-    /// summary can carry (EXP-698: passing nil silently drops them).
-    private var markdownContext: AgentMarkdownContext {
-        AgentMarkdownContext(
-            baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
-            accountId: accountId,
-            httpClient: deps.httpClient
-        )
-    }
-
-    private func togglePastRun(_ id: String) {
-        if expandedPastIds.contains(id) {
-            expandedPastIds.remove(id)
-        } else {
-            expandedPastIds.insert(id)
-        }
-    }
-
-    /// Resume a finished run on its own machine (EXP-637's path, EXP-746's
-    /// entry point). Like every other remote start this is a COMMAND — the
-    /// watcher waits for the new row the desktop inserts (keyed on
-    /// `resumed_from_id`) and pushes the live screen.
-    private func resume(_ target: ResumeTarget) {
-        resumeTarget = nil
-        guard let device = (devices ?? []).first(where: { $0.deviceId == target.deviceId })
-        else { return }
-        resumingIds.insert(target.sessionId)
-        startWatcher.sending()
-        Task {
-            do {
-                try await deps.steerApi.resumeSession(
-                    accountId: accountId,
-                    sessionId: target.sessionId,
-                    deviceId: target.deviceId
-                )
-                startWatcher.begin(
-                    key: .resumed(fromId: target.sessionId),
-                    userId: deps.auth.userId,
-                    device: device,
-                    db: deps.db,
-                    accountId: accountId
-                )
-            } catch {
-                startWatcher.failed(error.userFacingMessage)
-            }
-            resumingIds.remove(target.sessionId)
-        }
     }
 
     private var emptyState: some View {

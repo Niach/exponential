@@ -284,31 +284,12 @@ fn live_ids_from(
         .collect()
 }
 
-/// Is `pid` a live process on this machine? `kill(pid, 0)` delivers no signal
-/// and only reports reachability: `Ok` = alive, `EPERM` = alive but owned by
-/// another user, `ESRCH` = gone. Windows has no cheap equivalent without a new
-/// dependency and reports "not alive", i.e. keeps the pre-EXP-295 behavior
-/// there (the second-instance case is a Unix dev/test workflow).
-#[cfg(unix)]
+/// Is `pid` a live process on this machine? EXP-766: one implementation for
+/// every caller ([`coding::process::is_alive`]) — `kill(pid, 0)` on unix,
+/// `tasklist` on Windows, which used to answer a flat "not alive" here and
+/// made the EXP-295 second-instance guard blind there.
 fn process_is_alive(pid: u32) -> bool {
-    // `kill` reads a SIGNED pid: 0 means "our whole process group" and any
-    // negative value means "that process group", so only values that survive
-    // the round-trip into a positive `pid_t` may be probed. A recorded pid
-    // outside that range is corrupt — treat it as gone.
-    if pid == 0 || pid > i32::MAX as u32 {
-        return false;
-    }
-    // SAFETY: `kill` with signal 0 has no side effects beyond setting errno.
-    let rc = unsafe { libc::kill(pid as libc::pid_t, 0) };
-    if rc == 0 {
-        return true;
-    }
-    std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
-}
-
-#[cfg(not(unix))]
-fn process_is_alive(_pid: u32) -> bool {
-    false
+    coding::process::is_alive(pid)
 }
 
 /// Whether an end attempt's outcome RESOLVES the registry entry (drop it) or

@@ -1,7 +1,5 @@
-import { useState } from "react"
-import { Link } from "@tanstack/react-router"
+import { Link, useParams } from "@tanstack/react-router"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import { ChevronDown, LoaderCircle } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
 import {
   mergeTargetProps,
@@ -19,11 +17,8 @@ import { agentLabel } from "@/components/agent-usage-bar"
 import { pastRunByline, pastRunEndedAt } from "@/lib/past-runs"
 import { actionCollection } from "@/lib/collections"
 import { getActionIcon } from "@/lib/board-icons"
-import { trpc } from "@/lib/trpc-client"
-import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Pill } from "@/components/ui/pill"
-import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { SessionMergeButton } from "@/components/session-merge-button"
 import { GlassRow } from "@/components/ui/glass-rows"
 
@@ -266,17 +261,13 @@ export function SessionRow({
 }
 
 // ── Ended runs (EXP-637) ─────────────────────────────────────────────────────
-// A run that closed itself through `exponential_sessions_end` carries the
-// agent's own account of it: a one-paragraph summary (EXP-686 dropped the
-// self-reported outcome — the summary IS the report). Decision 5: it is NEVER
-// inline. Collapsed shows the title and the time; expanding reveals the
-// summary, rendered as the markdown the agent wrote, and Resume. This is the
-// Automations tab's "Recent automated runs" row (EXP-676 dropped the Agents
-// page's "Recent runs" list — only automated runs are listed now, so every row
-// is an action run and no "Action" kind label is drawn), mirrored on desktop,
-// iOS and Android.
-
-const ResumeIcon = conceptIcon(`run-resume`)
+// EXP-773: a finished run is a LINK, nothing more. The row used to expand into
+// the agent's close-out summary and a Resume button; both moved into the
+// fullscreen session view, where the transcript lives (the device republishes
+// its journal on demand). So Devices → Past, the chat page's "Past chats" and
+// the Automations tab's "Recent automated runs" all render the same plain row:
+// title, identifier, byline, and a tap that opens `sessions/$sessionId`.
+// Mirrored on desktop, iOS and Android.
 
 /** EXP-746: the Past row's caption. The ORDER and the "ended by" wording are
  * the ×4 rule (lib/past-runs.ts); the agent label and the relative time are
@@ -293,12 +284,10 @@ export function pastRunRowByline(row: PastRunRow): string {
   })
 }
 
-/** What an ended-run row needs — the Automations tab builds both fields off
- * the synced session + device rows. */
+/** What an ended-run row needs — the Automations tab builds it off the synced
+ * session row. */
 export interface EndedRunRow {
   session: CodingSession
-  /** EXP-637: the run's machine is online and advertises `resume-run`. */
-  canResume: boolean
 }
 
 export function EndedSessionRow({
@@ -320,101 +309,54 @@ export function EndedSessionRow({
    * the Automations tab passes none and keeps the old row verbatim. */
   byline?: string
 }) {
-  const { session, canResume } = row
-  const [expanded, setExpanded] = useState(false)
-  const [resuming, setResuming] = useState(false)
+  const { session } = row
+  // Loose match, like `useOpenSession`: every caller lives under `/t/$teamSlug`,
+  // but the row must not throw in a test that mounts one outside the layout.
+  const { teamSlug } = useParams({ strict: false })
 
-  // The resumed run arrives as a NEW row over Electric; the button only has
-  // to send the command, so it settles as soon as the relay accepted it.
-  const resume = async () => {
-    if (!session.deviceId) return
-    setResuming(true)
-    try {
-      await trpc.steer.startSession.mutate({
-        resumeSessionId: session.id,
-        deviceId: session.deviceId,
-      })
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : `Could not resume that run`)
-    } finally {
-      setResuming(false)
-    }
+  const body = (
+    <>
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-1.5 text-sm">
+          {identifier && (
+            <span className="shrink-0 font-mono text-xs text-muted-foreground">
+              {identifier}
+            </span>
+          )}
+          <span className="truncate font-medium">{title}</span>
+        </div>
+        {byline && (
+          <div className="truncate text-xs text-muted-foreground">{byline}</div>
+        )}
+      </div>
+      {!byline && (
+        <span className="shrink-0 text-xs text-muted-foreground">
+          {relativeTime(session.endedAt ?? session.startedAt)}
+        </span>
+      )}
+    </>
+  )
+
+  if (!teamSlug) {
+    return (
+      <GlassRow
+        className="gap-2"
+        data-testid={`ended-session-${session.id}`}
+      >
+        {body}
+      </GlassRow>
+    )
   }
 
   return (
-    <GlassRow
-      interactive
-      className="flex-col items-stretch gap-2"
-      onClick={() => setExpanded((open) => !open)}
-      data-testid={`ended-session-${session.id}`}
-    >
-      <div className="flex min-w-0 items-center gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-1.5 text-sm">
-            {identifier && (
-              <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                {identifier}
-              </span>
-            )}
-            <span className="truncate font-medium">{title}</span>
-          </div>
-          {byline && (
-            <div className="truncate text-xs text-muted-foreground">
-              {byline}
-            </div>
-          )}
-        </div>
-        <div className="flex shrink-0 items-center gap-2 text-xs">
-          {!byline && (
-            <span className="text-muted-foreground">
-              {relativeTime(session.endedAt ?? session.startedAt)}
-            </span>
-          )}
-          <ChevronDown
-            className={`size-4 text-muted-foreground transition-transform duration-fast ${expanded ? `rotate-180` : ``}`}
-            aria-hidden
-          />
-        </div>
-      </div>
-      {expanded && (
-        <div
-          className="flex flex-col gap-2 border-t border-glass-stroke pt-2"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {session.summary ? (
-            <div className="text-sm text-foreground">
-              <MarkdownEditor
-                markdown={session.summary}
-                editable={false}
-                onChange={() => {}}
-                // EXP-698: the run summary is feed-sized markdown.
-                appearance="chat"
-              />
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              This run left no summary.
-            </p>
-          )}
-          {canResume && (
-            <div>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={resuming}
-                onClick={resume}
-              >
-                {resuming ? (
-                  <LoaderCircle className="animate-spin" />
-                ) : (
-                  <ResumeIcon />
-                )}
-                Resume
-              </Button>
-            </div>
-          )}
-        </div>
-      )}
+    <GlassRow asChild interactive className="gap-2">
+      <Link
+        to="/t/$teamSlug/sessions/$sessionId"
+        params={{ teamSlug, sessionId: session.id }}
+        data-testid={`ended-session-${session.id}`}
+      >
+        {body}
+      </Link>
     </GlassRow>
   )
 }

@@ -43,9 +43,8 @@ use agent_client_protocol::schema::v1::{
     LoadSessionRequest, LoadSessionResponse, NewSessionRequest, NewSessionResponse,
     PermissionOption, PermissionOptionKind, Plan, PlanEntry, PlanEntryPriority, PlanEntryStatus,
     PromptCapabilities, PromptRequest, PromptResponse, RequestPermissionOutcome,
-    RequestPermissionRequest, SessionCapabilities, SessionConfigOption, SessionConfigOptionCategory,
-    PermissionOptionId, SessionConfigOptionValue, SessionConfigSelectOption,
-    SessionConfigValueId, SessionId,
+    RequestPermissionRequest, SessionCapabilities, SessionConfigOption,
+    PermissionOptionId, SessionConfigOptionValue, SessionId,
     SessionInfo, SessionListCapabilities, SessionMode, SessionModeId, SessionModeState,
     SessionNotification, SessionResumeCapabilities, SessionUpdate, SetSessionConfigOptionRequest,
     SetSessionConfigOptionResponse, SetSessionModeRequest, SetSessionModeResponse, StopReason,
@@ -58,7 +57,7 @@ use serde_json::{json, Value};
 use tokio::sync::Notify;
 
 use super::codex_wire::{
-    self, ApprovalKind, AppServer, CodexMode, ServerRequest, TurnRequest, CODEX_MODES,
+    self, ApprovalKind, AppServer, CodexMode, ServerRequest, TurnRequest,
 };
 use super::AdapterSpec;
 use crate::session::{EngineError, ResumeHandle};
@@ -71,6 +70,11 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(120);
 /// notification, so the wait needs its own bound. Mirrors the clients' shared
 /// `COMPACTION_TIMEOUT`.
 const COMPACTION_TIMEOUT: Duration = Duration::from_secs(180);
+/// EXP-766: how long ONE turn may run before the adapter stops waiting for a
+/// `turn/completed` that is never coming. Deliberately far above any real
+/// turn — a single prompt drives hours of tool calls on a long run — so this
+/// only ever fires on a wire that is already dead.
+const TURN_MAX: Duration = Duration::from_secs(6 * 60 * 60);
 
 /// The live rate-limit windows codex pushes over `account/rateLimits/updated`,
 /// parsed into the SAME shape the desktop usage sheet reads.
@@ -281,10 +285,8 @@ struct Config {
 struct ModelInfo {
     id: String,
     model: String,
-    display: String,
     efforts: Vec<String>,
     default_effort: Option<String>,
-    supports_fast: bool,
 }
 
 struct Shared {
@@ -453,6 +455,19 @@ impl ConnectTo<Client> for CodexAgent {
             let load_notifications = notifications.clone();
             let load_requests = requests.clone();
 
+            // EXP-766: a REPLAY connection starts no pumps ([`load_thread`]
+            // answers entirely from the `thread/read` response), so nothing
+            // would ever read the router's notification queue — and that queue
+            // is unbounded for lifecycle frames since the router may never
+            // park. Drain and discard instead: the thread ends when the router
+            // drops its sender at teardown.
+            if shared.spec.replay {
+                let drain = notifications.clone();
+                let _ = std::thread::Builder::new()
+                    .name("codex-replay-drain".to_string())
+                    .spawn(move || while drain.recv().is_ok() {});
+            }
+
             let main_shared = shared.clone();
             let init = shared.clone();
             let new_session = shared.clone();
@@ -570,23 +585,36 @@ impl ConnectTo<Client> for CodexAgent {
                 )
                 .on_receive_request(
                     async move |request: SetSessionModeRequest, responder, cx: ConnectionTo<Client>| {
+                        // EXP-772: plan on / plan off is the ONE steerable mode,
+                        // and on codex it IS the collaboration setting. The
+                        // answer goes back immediately (EXP-758: a mode switch
+                        // must never queue behind an app-server round trip) and
+                        // the `thread/settings/update` runs spawned, with the
+                        // mode that actually took echoed after it. A mode id
+                        // this build does not know is answered and IGNORED —
+                        // an error would surface as an "Agent error" narration
+                        // for a chip the user simply tapped.
                         let shared = set_mode.clone();
-                        let Some(mode) = CodexMode::parse(request.mode_id.0.as_ref()) else {
-                            return responder.respond_with_error(Error::invalid_params());
+                        let collaboration = match request.mode_id.0.as_ref() {
+                            PLAN_MODE_ID => Some(COLLABORATION_PLAN),
+                            BUILD_MODE_ID => Some(COLLABORATION_DEFAULT),
+                            _ => None,
                         };
-                        if let Ok(mut config) = shared.config.lock() {
-                            config.mode = mode;
-                        }
                         let sent = responder.respond(SetSessionModeResponse::new());
-                        // The response carries nothing, so the chip only moves
-                        // once the mode is echoed back as an update.
-                        if let Some(session_id) = shared.session_id() {
-                            let _ = cx.send_notification(SessionNotification::new(
-                                session_id,
-                                SessionUpdate::CurrentModeUpdate(CurrentModeUpdate::new(
-                                    SessionModeId::new(mode.id()),
-                                )),
-                            ));
+                        if let Some(collaboration) = collaboration {
+                            let notify = cx.clone();
+                            let _ = cx.spawn(async move {
+                                set_collaboration(&shared, collaboration).await;
+                                if let Some(session_id) = shared.session_id() {
+                                    let _ = notify.send_notification(SessionNotification::new(
+                                        session_id,
+                                        SessionUpdate::CurrentModeUpdate(CurrentModeUpdate::new(
+                                            SessionModeId::new(current_mode_id(&shared)),
+                                        )),
+                                    ));
+                                }
+                                Ok(())
+                            });
                         }
                         sent
                     },
@@ -889,11 +917,6 @@ fn model_info(entry: &Value) -> ModelInfo {
         .unwrap_or(id.as_str())
         .to_string();
     ModelInfo {
-        display: entry
-            .get("displayName")
-            .and_then(Value::as_str)
-            .unwrap_or(model.as_str())
-            .to_string(),
         id,
         model,
         efforts,
@@ -901,109 +924,83 @@ fn model_info(entry: &Value) -> ModelInfo {
             .get("defaultReasoningEffort")
             .and_then(Value::as_str)
             .map(str::to_string),
-        supports_fast: entry
-            .get("additionalSpeedTiers")
-            .and_then(Value::as_array)
-            .is_some_and(|tiers| tiers.iter().any(|tier| tier.as_str() == Some("fast"))),
+    }
+}
+
+/// EXP-772: plan on, plan off — the ids claude uses, so a client has ONE mode
+/// vocabulary for every agent. The approval × sandbox presets are no longer
+/// steerable: every run is full access.
+pub const PLAN_MODE_ID: &str = "plan";
+pub const BUILD_MODE_ID: &str = "bypassPermissions";
+/// The two values of codex's own `collaboration` thread setting.
+const COLLABORATION_PLAN: &str = "plan";
+const COLLABORATION_DEFAULT: &str = "default";
+
+fn current_mode_id(shared: &Shared) -> &'static str {
+    let planning = shared
+        .config
+        .lock()
+        .map(|config| config.collaboration == COLLABORATION_PLAN)
+        .unwrap_or(false);
+    if planning {
+        PLAN_MODE_ID
+    } else {
+        BUILD_MODE_ID
     }
 }
 
 fn mode_state(shared: &Shared) -> SessionModeState {
-    let current = shared
-        .config
-        .lock()
-        .map(|config| config.mode)
-        .unwrap_or_default();
     SessionModeState::new(
-        SessionModeId::new(current.id()),
-        CODEX_MODES
-            .into_iter()
-            .map(|mode| {
-                SessionMode::new(SessionModeId::new(mode.id()), mode.label())
-                    .description(mode.description())
-            })
-            .collect(),
+        SessionModeId::new(current_mode_id(shared)),
+        vec![
+            SessionMode::new(SessionModeId::new(PLAN_MODE_ID), "Plan")
+                .description("Create a plan before making changes"),
+            SessionMode::new(SessionModeId::new(BUILD_MODE_ID), "Build")
+                .description("Make the changes"),
+        ],
     )
 }
 
-/// The chips: model, reasoning effort, fast mode and the collaboration mode.
-/// The approval × sandbox presets are ACP MODES, not a config option, so the
-/// mode chip has exactly one home (D4).
-fn config_options(shared: &Shared) -> Vec<SessionConfigOption> {
-    let Ok(config) = shared.config.lock() else {
-        return Vec::new();
-    };
-    let mut options = Vec::new();
-    if !config.models.is_empty() {
-        options.push(
-            SessionConfigOption::select(
-                "model",
-                "Model",
-                SessionConfigValueId::new(config.model.as_str()),
-                config
-                    .models
-                    .iter()
-                    .map(|model| {
-                        SessionConfigSelectOption::new(
-                            SessionConfigValueId::new(model.id.as_str()),
-                            model.display.as_str(),
-                        )
-                    })
-                    .collect::<Vec<_>>(),
-            )
-            .category(SessionConfigOptionCategory::Model),
-        );
-    }
-    let current = config
-        .models
-        .iter()
-        .find(|model| model.id == config.model || model.model == config.model);
-    if let Some(model) = current {
-        if !model.efforts.is_empty() {
-            let value = config
-                .effort
-                .clone()
-                .or_else(|| model.default_effort.clone())
-                .unwrap_or_else(|| model.efforts[0].clone());
-            options.push(
-                SessionConfigOption::select(
-                    "reasoning_effort",
-                    "Effort",
-                    SessionConfigValueId::new(value.as_str()),
-                    model
-                        .efforts
-                        .iter()
-                        .map(|effort| {
-                            SessionConfigSelectOption::new(
-                                SessionConfigValueId::new(effort.as_str()),
-                                effort.as_str(),
-                            )
-                        })
-                        .collect::<Vec<_>>(),
-                )
-                .category(SessionConfigOptionCategory::ThoughtLevel),
-            );
-        }
-        if model.supports_fast {
-            options.push(
-                SessionConfigOption::boolean("fast-mode", "Fast", config.fast)
-                    .category(SessionConfigOptionCategory::ModelConfig),
-            );
-        }
-    }
-    options.push(
-        SessionConfigOption::select(
-            "collaboration_mode",
-            "Collaboration",
-            SessionConfigValueId::new(config.collaboration.as_str()),
-            vec![
-                SessionConfigSelectOption::new(SessionConfigValueId::new("default"), "Default"),
-                SessionConfigSelectOption::new(SessionConfigValueId::new("plan"), "Plan"),
-            ],
+/// EXP-772: EMPTY. Model / effort / fast pickers left the mid-session
+/// steering UI on every client; `session/set_config_option` still accepts the
+/// ids ([`apply_config_option`]) for an older publisher.
+fn config_options(_shared: &Shared) -> Vec<SessionConfigOption> {
+    Vec::new()
+}
+
+/// Switch codex's collaboration setting (its plan mode). Silent on a codex
+/// that has no `thread/settings/update` (0.144.5): the mode simply does not
+/// move, which is what [`current_mode_id`] then reports.
+async fn set_collaboration(shared: &Arc<Shared>, mode: &str) {
+    let (thread_id, model, effort) = {
+        let session = shared.session_id();
+        let config = shared.config.lock().ok();
+        (
+            session.map(|id| id.0.to_string()),
+            config.as_ref().map(|config| config.model.clone()),
+            config.as_ref().and_then(|config| config.effort.clone()),
         )
-        .category(SessionConfigOptionCategory::Other("collaboration_mode".to_string())),
-    );
-    options
+    };
+    let Some(thread_id) = thread_id else { return };
+    let result = call(
+        shared,
+        "thread/settings/update",
+        codex_wire::thread_settings_collaboration_params(
+            &thread_id,
+            mode,
+            model.as_deref(),
+            effort.as_deref(),
+        ),
+    )
+    .await;
+    match result {
+        Ok(_) => {
+            if let Ok(mut config) = shared.config.lock() {
+                config.collaboration = mode.to_string();
+            }
+        }
+        Err(error) => log::warn!("engine: codex collaboration mode unavailable: {error}"),
+    }
 }
 
 async fn apply_config_option(shared: &Arc<Shared>, request: &SetSessionConfigOptionRequest) {
@@ -1046,40 +1043,9 @@ async fn apply_config_option(shared: &Arc<Shared>, request: &SetSessionConfigOpt
                 config.fast = value == "true" || value == "on";
             }
         }
-        ("collaboration_mode", ConfigPick::Id(mode)) => {
-            let (thread_id, model, effort) = {
-                let session = shared.session_id();
-                let config = shared.config.lock().ok();
-                (
-                    session.map(|id| id.0.to_string()),
-                    config.as_ref().map(|config| config.model.clone()),
-                    config.as_ref().and_then(|config| config.effort.clone()),
-                )
-            };
-            let Some(thread_id) = thread_id else { return };
-            let result = call(
-                shared,
-                "thread/settings/update",
-                codex_wire::thread_settings_collaboration_params(
-                    &thread_id,
-                    &mode,
-                    model.as_deref(),
-                    effort.as_deref(),
-                ),
-            )
-            .await;
-            match result {
-                Ok(_) => {
-                    if let Ok(mut config) = shared.config.lock() {
-                        config.collaboration = mode;
-                    }
-                }
-                // 0.144.5 has no `thread/settings/update`, so plan mode simply
-                // is not available on that codex. Leaving the value where it
-                // was makes the chip snap back instead of lying.
-                Err(error) => log::warn!("engine: codex collaboration mode unavailable: {error}"),
-            }
-        }
+        // Plan mode rides `session/set_mode` now (EXP-772); the option id is
+        // still accepted for a publisher that only speaks config options.
+        ("collaboration_mode", ConfigPick::Id(mode)) => set_collaboration(shared, &mode).await,
         _ => {}
     }
 }
@@ -1275,6 +1241,7 @@ async fn start_turn(
 }
 
 async fn wait_for_turn(shared: &Arc<Shared>, turn_id: &str) -> TurnOutcome {
+    let deadline = tokio::time::Instant::now() + TURN_MAX;
     loop {
         // Register BEFORE checking: a notification that lands between the
         // check and the await must still wake this task.
@@ -1290,7 +1257,12 @@ async fn wait_for_turn(shared: &Arc<Shared>, turn_id: &str) -> TurnOutcome {
         if shared.closed.load(Ordering::SeqCst) {
             return TurnOutcome::Failed;
         }
-        notified.await;
+        // EXP-766: the backstop. Without it a lost `turn/completed` parks the
+        // prompt forever and the run only ends when a person kills it.
+        if tokio::time::timeout_at(deadline, notified).await.is_err() {
+            log::warn!("engine: codex turn {turn_id} never completed, giving up");
+            return TurnOutcome::Failed;
+        }
     }
 }
 
@@ -1361,13 +1333,15 @@ async fn interrupt(shared: &Arc<Shared>, live: Vec<String>) {
         return;
     };
     for turn_id in live {
-        let _ = shared
-            .server
-            .request(
-                "turn/interrupt",
-                codex_wire::turn_interrupt_params(&thread_id, &turn_id),
-            )
-            .await;
+        // EXP-766: bounded like every other call. An app-server that never
+        // answers the interrupt must not park the cancel path.
+        let request = shared.server.request(
+            "turn/interrupt",
+            codex_wire::turn_interrupt_params(&thread_id, &turn_id),
+        );
+        if tokio::time::timeout(CALL_TIMEOUT, request).await.is_err() {
+            log::warn!("engine: codex turn/interrupt timed out for {turn_id}");
+        }
     }
 }
 

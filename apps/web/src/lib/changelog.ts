@@ -25,6 +25,19 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-sessions-on-your-machine`,
+    date: `2026-09-08`,
+    title: `Sessions that stay on your machine`,
+    summary: `Transcripts live on the device that ran them, plan mode always builds, and the chat page is one prompt box with your defaults underneath.`,
+    body: `- **Transcripts on your machine**: every session's transcript is written to the device that runs it, never to the server. Past runs in Devices, Chat and Automations open on their own page; when that machine is online the transcript is fetched from it on demand, and when it is offline the page says so.
+- **Plan mode always builds**: a claude session started in plan mode no longer stops to ask for tool permissions, and leaving plan mode into Build works. The composer keeps one Plan switch; model and effort are chosen once, in the start dialog.
+- **Chat page**: the Chat page is a single prompt box with machine, agent, model, effort and plan as small pickers underneath, prefilled from your defaults.
+- **Subagent conversations**: a subagent's prompt no longer lands in the main transcript, and its own view shows its full conversation, not only its tool calls.
+- **Whole messages**: agent prose no longer splits mid-sentence into separate rows.
+- **Desktop changes list**: the session page's changes sit under the transcript as a collapsible per-file list with Merge, like the web.
+- **Terminal-mode coding retired**: every coding session runs on the session page. The Start in terminal switch and the terminal-tab fallback are gone; plain terminal tabs and agent sign-in tabs stay. Where a picker used to say a start would open in a terminal, it now says the agent is not ready on that machine and blocks the start until you run the doctor there.`,
+  },
+  {
     id: `2026-09-issue-previews-and-relations`,
     date: `2026-09-07`,
     title: `Issue previews and tidier relations`,

@@ -124,13 +124,13 @@ enum LaunchVocabulary {
         device.deviceLabel.isEmpty ? device.deviceId : device.deviceLabel
     }
 
-    /// EXP-749: the note under the options when the picked agent runs on the
-    /// machine but OUTSIDE its ACP engine — the run still starts, it just
-    /// lands in a terminal tab there instead of the session screen. Nil when
+    /// EXP-773: the note under the options when the picked agent is outside
+    /// the machine's reported ACP set — with the PTY path gone it cannot start
+    /// there at all, so the caller also disables the start button. Nil when
     /// the machine never reported its ACP agents (unknown = assume all) or
     /// drives this one. Never a filter: the agent stays pickable.
-    static func terminalNote(device: SteerDevice?, agent: String) -> String? {
-        guard let device, !agent.isEmpty, device.agentRunsInTerminal(agent) else { return nil }
-        return "Runs in a terminal tab on \(deviceName(device))."
+    static func notReadyNote(device: SteerDevice?, agent: String) -> String? {
+        guard let device, !agent.isEmpty, device.agentNotReady(agent) else { return nil }
+        return "Not ready on \(deviceName(device)). Run the doctor there."
     }
 }

@@ -76,19 +76,16 @@ pub fn status(args: &[String]) -> CommandResult {
     // EXP-746: which installed agents run on the session screen. Everything
     // else keeps launching into a terminal tab (`coding::resolve_transport`),
     // which is a fallback, never a failure — hence no ✗ vocabulary here.
-    println!("ACP       {}", acp_summary(&ctx.settings, &report));
+    println!("ACP       {}", acp_summary(&report));
     let git = if report.git.ok { "ok" } else { "MISSING" };
     println!("Git       {git}");
     Ok(ExitCode::SUCCESS)
 }
 
-/// The one-line ACP readiness summary for `status`. The device-global
-/// "Start in terminal" setting wins over every per-agent answer, so it is
-/// what the line says when it is on.
-fn acp_summary(settings: &coding::Settings, report: &coding::DoctorReport) -> String {
-    if settings.start_in_terminal {
-        return "off — \"Start in terminal\" is on".to_string();
-    }
+/// The one-line ACP readiness summary for `status`: which installed agents
+/// can actually run a coding session on this machine (EXP-773 — an agent
+/// that fails the check cannot start one at all).
+fn acp_summary(report: &coding::DoctorReport) -> String {
     let ready: Vec<&str> = report
         .installed_agents()
         .into_iter()
@@ -96,7 +93,7 @@ fn acp_summary(settings: &coding::Settings, report: &coding::DoctorReport) -> St
         .map(|agent| agent.id())
         .collect();
     if ready.is_empty() {
-        return "none — sessions run in a terminal tab".to_string();
+        return "none — no installed agent can run a session".to_string();
     }
     ready.join(", ")
 }
@@ -131,30 +128,19 @@ mod tests {
         }
     }
 
-    /// EXP-746: `status` says which agents reach the session screen. Only
-    /// INSTALLED agents count, "Start in terminal" overrides every per-agent
-    /// answer, and nothing here is ever phrased as a failure — the terminal
-    /// path is a fallback, not a broken machine.
+    /// EXP-746/EXP-773: `status` says which agents can run a session. Only
+    /// INSTALLED agents count.
     #[test]
     fn the_acp_line_names_the_ready_agents() {
-        let mut settings = coding::Settings::default();
-        assert!(!settings.start_in_terminal, "the default is the ACP engine");
-
         let both = report(Some(true), Some(true));
-        assert_eq!(acp_summary(&settings, &both), "claude, codex");
+        assert_eq!(acp_summary(&both), "claude, codex");
         // pi is not installed, so its `Some(true)` never reaches the line.
         assert!(!both.installed_agents().contains(&CodingAgent::Pi));
 
-        assert_eq!(acp_summary(&settings, &report(Some(true), None)), "claude");
+        assert_eq!(acp_summary(&report(Some(true), None)), "claude");
         assert_eq!(
-            acp_summary(&settings, &report(Some(false), Some(false))),
-            "none — sessions run in a terminal tab"
-        );
-
-        settings.start_in_terminal = true;
-        assert_eq!(
-            acp_summary(&settings, &report(Some(true), Some(true))),
-            "off — \"Start in terminal\" is on"
+            acp_summary(&report(Some(false), Some(false))),
+            "none — no installed agent can run a session"
         );
     }
 }

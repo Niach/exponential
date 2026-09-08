@@ -19,7 +19,6 @@ use coding::{Prepared, PrepareRequest};
 use super::{reject_unknown_flags, take_flag, take_value, CommandResult};
 use crate::launch::{self, AgentFlags};
 use crate::session_host::{self, LaunchEnv, RunningSession};
-use crate::sidecars::Sidecars;
 use crate::{context, term};
 
 pub fn run(args: &[String]) -> CommandResult {
@@ -57,14 +56,11 @@ pub fn run(args: &[String]) -> CommandResult {
     let runtime = steer::SteerRuntime::new().ok();
     let deps = launch::coding_deps(&ctx, seeds, launch::LaunchHost::Foreground, runtime.as_ref());
 
-    let sidecars = Sidecars::new();
     let personal_key = context::ensure_personal_key(&ctx).ok();
 
     let request = PrepareRequest::Issue(request);
-    // EXP-761: the sidecars bind inside `prepare` — on its Terminal arm
-    // only, for the launched CLI's own one. An ACP launch binds nothing.
-    let prepared = coding::prepare_with_hooks(&request, &deps, &sidecars)
-    .map_err(|err| anyhow::anyhow!("{err}"))?;
+    let prepared = coding::prepare(&request, &deps)
+        .map_err(|err| anyhow::anyhow!("{err}"))?;
     let prepared = match prepared {
         Prepared::Ready(prepared) => prepared,
         Prepared::Disabled(reason) => {
@@ -76,14 +72,9 @@ pub fn run(args: &[String]) -> CommandResult {
     let env = LaunchEnv {
         ctx: &ctx,
         runtime: runtime.as_ref(),
-        sidecars: &sidecars,
         personal_key,
     };
-    // EXP-758: printed BEFORE the attach's "Connecting" line, so a run that
-    // silently fell back to the terminal says so ("Started in a terminal
-    // because codex's ACP check failed") instead of just looking different.
-    let transport_notice = prepared.transport_notice.clone();
-    let session = session_host::launch(&env, prepared, interactive, Some(issue.id.clone()))?;
+    let session = session_host::launch(&env, prepared, Some(issue.id.clone()))?;
     let session = Arc::new(session);
     // EXP-758 (EXP-478): this process is the run's only registry: there is
     // no session list to push into, so the gate ends here.
@@ -94,64 +85,12 @@ pub fn run(args: &[String]) -> CommandResult {
         session.branch,
         session.worktree.display()
     );
-    if let Some(notice) = &transport_notice {
-        println!("{notice}");
+    if interactive {
+        attend_acp(&session)
+    } else {
+        println!("Detached — steer it from the web.");
+        wait_with_signals(&session)
     }
-
-    match (interactive, session.attaches_by_line()) {
-        // EXP-746: an ACP run has no PTY to tee, so its attach is a line
-        // transcript plus a line composer.
-        (true, true) => attend_acp(&session),
-        (true, false) => attend(&session),
-        (false, _) => {
-            println!("Detached — steer it from the web.");
-            wait_with_signals(&session)
-        }
-    }
-}
-
-/// Interactive attach: raw-mode stdin straight into the PTY (the same
-/// shared writer remote steer input uses), output mirrored by the session
-/// host's tee, local resizes forwarded. Shared with `run`.
-pub fn attend(session: &Arc<RunningSession>) -> CommandResult {
-    let raw = term::RawMode::enter();
-
-    // stdin pump — reads stay blocking; the thread dies with the process.
-    {
-        let session = Arc::clone(session);
-        std::thread::spawn(move || {
-            use std::io::Read as _;
-            let mut stdin = std::io::stdin().lock();
-            let mut buf = [0u8; 1024];
-            loop {
-                match stdin.read(&mut buf) {
-                    Ok(0) | Err(_) => return,
-                    Ok(n) => session.write_stdin(&buf[..n]),
-                }
-            }
-        });
-    }
-    // Resize watcher — polling beats signal plumbing here and reacts fast
-    // enough for a human dragging a window.
-    if session.supports_resize() {
-        let session = Arc::clone(session);
-        let mut last = term::window_size();
-        std::thread::spawn(move || loop {
-            std::thread::sleep(Duration::from_millis(400));
-            let now = term::window_size();
-            if now != last {
-                if let Some((cols, rows)) = now {
-                    session.resize(cols, rows);
-                }
-                last = now;
-            }
-        });
-    }
-
-    let exit = session.wait_detailed();
-    drop(raw);
-    println!();
-    print_exit(&exit)
 }
 
 // ---------------------------------------------------------------------------
@@ -173,10 +112,7 @@ const OUTPUT_LINE_CAP: usize = 200;
 /// the command sink, a bare number as the answer to the pending question
 /// card, anything else as a message.
 pub fn attend_acp(session: &Arc<RunningSession>) -> CommandResult {
-    let Some(feed) = session.feed() else {
-        // Not an ACP session after all — the raw byte tee is its attach.
-        return attend(session);
-    };
+    let feed = session.feed();
     let state = Arc::new(Mutex::new(AttachState::default()));
     println!("Type a message and press Enter. `/name` runs a command; a bare number answers a question.");
 

@@ -1179,6 +1179,74 @@ describe(`steer.mintTicket — owner OR host (EXP-432)`, () => {
     expect(h.mintSteerTicket).toHaveBeenCalledTimes(1)
   })
 
+  // EXP-773: the transcript of an ended run lives on the device that ran it,
+  // so a viewer ticket names that device and a publisher ticket may be minted
+  // for a session that is long over (the device republishes from disk).
+  it(`names the session's device on viewer tickets for an ENDED run`, async () => {
+    queueSession({
+      userId: `actor`,
+      hostUserId: null,
+      status: `ended`,
+      deviceId: `dev-1`,
+    })
+    await caller.mintTicket({ kind: `viewer`, sessionId: SESSION_ID })
+    expect(h.mintSteerTicket).toHaveBeenCalledWith(expect.anything(), {
+      kind: `viewer`,
+      userId: `actor`,
+      teamId: `ws-1`,
+      sessionId: SESSION_ID,
+      deviceId: `dev-1`,
+      deviceOwnerId: `actor`,
+    })
+  })
+
+  // A LIVE run must keep the retryable `no_such_session` answer: the relay
+  // would otherwise serve the device's partial journal for a publisher that
+  // simply has not hello'd yet, and the viewer would settle on `ended`.
+  it(`names no device while the run is live`, async () => {
+    queueSession({ userId: `actor`, hostUserId: null, deviceId: `dev-1` })
+    await caller.mintTicket({ kind: `viewer`, sessionId: SESSION_ID })
+    expect(h.mintSteerTicket).toHaveBeenCalledWith(expect.anything(), {
+      kind: `viewer`,
+      userId: `actor`,
+      teamId: `ws-1`,
+      sessionId: SESSION_ID,
+    })
+  })
+
+  // EXP-432: presence is indexed by device OWNER, so a run hosted on someone
+  // else's machine has to name the host or the relay looks it up under the
+  // requester and finds nothing.
+  it(`names the HOST as the device owner on a shared-device run`, async () => {
+    queueSession({
+      userId: `actor`,
+      hostUserId: `host-1`,
+      status: `ended`,
+      deviceId: `dev-1`,
+    })
+    await caller.mintTicket({ kind: `viewer`, sessionId: SESSION_ID })
+    expect(h.mintSteerTicket).toHaveBeenCalledWith(expect.anything(), {
+      kind: `viewer`,
+      userId: `actor`,
+      teamId: `ws-1`,
+      sessionId: SESSION_ID,
+      deviceId: `dev-1`,
+      deviceOwnerId: `host-1`,
+    })
+  })
+
+  it(`mints publisher and viewer tickets for an ENDED session`, async () => {
+    queueSession({ userId: `actor`, hostUserId: null, status: `ended`, deviceId: `dev-1` })
+    await caller.mintTicket({ kind: `publisher`, sessionId: SESSION_ID })
+    queueSession({ userId: `actor`, hostUserId: null, status: `ended`, deviceId: `dev-1` })
+    await caller.mintTicket({ kind: `viewer`, sessionId: SESSION_ID })
+    expect(h.mintSteerTicket).toHaveBeenCalledTimes(2)
+    expect(h.mintSteerTicket.mock.calls[0]?.[1]).toMatchObject({
+      kind: `publisher`,
+      sessionId: SESSION_ID,
+    })
+  })
+
   it(`refuses a requester who left the team on someone else's host`, async () => {
     queueSession({ userId: `actor`, hostUserId: `host-1` })
     h.assertTeamMember.mockRejectedValueOnce(

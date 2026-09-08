@@ -24,6 +24,9 @@ dirs = { workspace = true }
 uuid = { workspace = true }
 # PKCE S256 challenge for the OAuth deep-link code exchange (REV-13).
 sha2 = { workspace = true }
+# EXP-766: the one line that explains an unreadable settings.json (the device
+# identity refuses to re-mint over one). Same pin as `crates/coding`.
+log = "0.4"
 
 # NOTE (locked decision 2026-07-03): secrets are ALWAYS file-based (0600/0700,
 # see token_store.rs) — never the OS keyring. The keyring crate was removed:

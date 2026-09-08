@@ -445,6 +445,9 @@ fn full_protocol_flow_against_the_real_relay() {
         }),
         Arc::new(move |start| started_clone.lock().unwrap().push(start)),
         Arc::new(move || checked_in_clone.store(true, Ordering::SeqCst)),
+        // EXP-773: no stored transcript in this fixture — the relay never
+        // asks, and an ask would be a no-op anyway.
+        Arc::new(|_session_id| {}),
     );
 
     // EXP-481: the check-in nudge rides the same control socket. EXP-672
@@ -574,6 +577,7 @@ fn full_protocol_flow_against_the_real_relay() {
         PublishSpec {
             session_id: SESSION_ID.to_string(),
             issue_id: Some("issue-int-1".to_string()),
+            journal_dir: None,
         },
         Arc::new(BunTickets {
             relay_port: relay.port,
@@ -750,6 +754,7 @@ fn publisher_reconnects_and_resumes_the_room_after_a_socket_drop() {
         PublishSpec {
             session_id: SESSION_ID.to_string(),
             issue_id: Some("issue-int-2".to_string()),
+            journal_dir: None,
         },
         Arc::new(BunTickets {
             relay_port: relay.port,
@@ -833,6 +838,7 @@ fn the_production_viewer_watches_and_steers_a_real_room() {
         PublishSpec {
             session_id: SESSION_ID.to_string(),
             issue_id: None,
+            journal_dir: None,
         },
         Arc::new(BunTickets {
             relay_port: relay.port,
@@ -1009,7 +1015,8 @@ fn feed_occurrences(feed: &SteerFeed, needle: &str) -> usize {
     feed.items()
         .iter()
         .filter(|item| match &item.kind {
-            steer::FeedKind::Narration { text } | steer::FeedKind::UserMessage { text } => {
+            steer::FeedKind::Narration { text, .. }
+            | steer::FeedKind::UserMessage { text, .. } => {
                 text.contains(needle)
             }
             steer::FeedKind::Tool { name, .. } => name.contains(needle),

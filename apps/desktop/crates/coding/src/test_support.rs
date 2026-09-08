@@ -137,6 +137,37 @@ impl WorktreeProvider for FakeWorktrees {
 /// answering `--version`; its version line never parses as a claude triple,
 /// so the version gate stays open), key pre-seeded (no mint traffic), a fake
 /// worktree provider, and a canned tRPC server.
+/// EXP-773: a stub agent CLI that answers `--version` with an ACP-READY
+/// version and exits 0 for everything else. The engine is the only coding
+/// transport now, so a launch is REFUSED unless the doctor reports
+/// `acp: Some(true)` — every prepare fixture needs one of these rather than
+/// the bare `git` the old PTY fallback tolerated. Unix-only (desktop tests
+/// run on Linux, `.github/workflows/test.yml`).
+#[cfg(unix)]
+pub(crate) fn acp_ready_stub(data_dir: &Path, name: &str, version: &str) -> String {
+    use std::os::unix::fs::PermissionsExt;
+    let stub = data_dir.join("bin").join(name);
+    fs::create_dir_all(stub.parent().unwrap()).unwrap();
+    // `--version` answers the doctor's version gate; anything else reads one
+    // line and answers pi's `get_state` rpc handshake (harmless for the
+    // claude/codex stubs, which are never probed that way).
+    fs::write(
+        &stub,
+        format!(
+            "#!/bin/sh\ncase \"$1\" in\n--version) echo '{version}';;\n*) read line\n\
+echo '{{\"id\":\"1\",\"type\":\"response\",\"command\":\"get_state\",\"success\":true}}';;\nesac\n"
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+    stub.to_string_lossy().into_owned()
+}
+
+#[cfg(not(unix))]
+pub(crate) fn acp_ready_stub(_data_dir: &Path, _name: &str, _version: &str) -> String {
+    "git".to_string()
+}
+
 pub(crate) fn make_deps(base: &str, data_dir: &Path, worktrees: Arc<FakeWorktrees>) -> CodingDeps {
     let store = TokenStore::file_only(data_dir.to_path_buf());
     store
@@ -147,7 +178,11 @@ pub(crate) fn make_deps(base: &str, data_dir: &Path, worktrees: Arc<FakeWorktree
         token_store: Arc::new(store),
         account_id: "acct".to_string(),
         settings: Settings {
-            claude_path: "git".to_string(),
+            // EXP-773: ACP-ready stubs — the engine is the only transport, so
+            // an agent the doctor cannot vouch for cannot start at all.
+            claude_path: acp_ready_stub(data_dir, "claude", "9.9.9 (Claude Code)"),
+            codex_path: acp_ready_stub(data_dir, "codex", "9.9.9"),
+            pi_path: acp_ready_stub(data_dir, "pi", "9.9.9"),
             repos_root: data_dir.join("repos").to_string_lossy().into_owned(),
             branch_prefix: "exp/".to_string(),
             ..Settings::default()
@@ -164,9 +199,7 @@ pub(crate) fn make_deps(base: &str, data_dir: &Path, worktrees: Arc<FakeWorktree
         codex_sessions_root: None,
         claude_projects_root: None,
         device_id: None,
-        // EXP-746: the tests' host CAN run the engine — the transport then
-        // hangs off the settings + the agent's readiness, which is what the
-        // `resolve_transport` and prepare tests exercise.
+        // EXP-746: the tests' host CAN run the engine.
         acp_available: true,
         data_dir: data_dir.to_path_buf(),
     }

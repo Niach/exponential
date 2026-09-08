@@ -659,11 +659,6 @@ impl RichTab {
         }
     }
 
-    /// See [`Self::ground`].
-    pub(crate) fn ground(mut self, ground: bool) -> Self {
-        self.ground = ground;
-        self
-    }
 }
 
 /// EXP-698 — the ONE RICH tab: the only tab shape left that is not a
@@ -809,7 +804,6 @@ mod tests {
         assert!(tab.badge.is_none());
         // EXP-760: a chip is INSIDE a card unless the strip says otherwise.
         assert!(!tab.ground);
-        assert!(RichTab::new("t", false).ground(true).ground);
     }
 
     /// EXP-698: a Button pill and a `Div` pill must paint the SAME surface.

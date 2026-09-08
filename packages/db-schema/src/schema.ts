@@ -1021,10 +1021,6 @@ export interface DeviceAgentLaunchDefaults {
 }
 export interface DeviceLaunchDefaults {
   defaultAgent?: string
-  // EXP-746: run the agent in a terminal tab instead of the in-process ACP
-  // session screen. DEVICE-GLOBAL and agent-independent on purpose — it sits
-  // beside `defaultAgent`, never inside `agents`.
-  startInTerminal?: boolean
   agents?: Record<string, DeviceAgentLaunchDefaults>
 }
 // Every field is `.nullish()`, not `.optional()`: 0.14.10 native builds
@@ -1036,11 +1032,9 @@ export interface DeviceLaunchDefaults {
 // key from a newer or older client is dropped, not a reason to 400 the
 // register.
 export const deviceLaunchDefaultsSchema = z.object({
+  // EXP-773 removed `startInTerminal`: the strip-mode object above means an
+  // older desktop still sending it is simply dropped, never a 400.
   defaultAgent: z.string().min(1).max(32).nullish(),
-  // EXP-746: device-global, agent-independent. `.nullish()` like every
-  // sibling, and the strip-mode object above means a device that never sends
-  // it is simply unaffected (older builds stay on their PTY path anyway).
-  startInTerminal: z.boolean().nullish(),
   agents: z
     .record(
       z.string().min(1).max(32),

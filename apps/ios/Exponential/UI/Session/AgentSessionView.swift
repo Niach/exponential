@@ -98,6 +98,11 @@ struct AgentSessionView: View {
     /// slid in from the bottom.
     @State private var menuAnchor: CGRect = .zero
     @State private var menuOpen = false
+    /// EXP-773: the ended run's Resume — its confirm and the in-flight send.
+    /// The watcher above owns the "waiting for the desktop" caption and
+    /// pushes the resumed run's own screen.
+    @State private var showResumeConfirm = false
+    @State private var resuming = false
     /// EXP-696: whether THIS screen ever saw the run live — the auto-back on
     /// the ended edge only fires after that, so a finished run's feed opened
     /// from a list stays browsable.
@@ -165,6 +170,10 @@ struct AgentSessionView: View {
 
             VStack(spacing: 0) {
                 if let model {
+                    // EXP-773: an ended run's close-out and its Resume sit
+                    // ABOVE its transcript, where the list rows used to hide
+                    // them behind a chevron.
+                    endedHeader(model)
                     feedArea(model)
                     banners(model)
                     compactionStrip(model)
@@ -209,13 +218,19 @@ struct AgentSessionView: View {
                 }
             }
         }
+        .alert("Resume this run?", isPresented: $showResumeConfirm) {
+            Button("Resume") { if let model { resumeRun(model) } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Reopens the run on the machine that ran it, in the same worktree, and continues where the agent stopped.")
+        }
         .alert("Kill this coding session?", isPresented: $showKillConfirm) {
             Button("Kill session", role: .destructive) {
                 Task { await model?.killSession() }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This force-terminates the agent's terminal on the desktop and ends the session.")
+            Text("This stops the agent on the desktop and ends the session.")
         }
         // EXP-678: merging from the steering screen — same confirm-gated flow
         // as the Agents list and Reviews.
@@ -441,12 +456,25 @@ struct AgentSessionView: View {
         return state
     }
 
+    /// EXP-773: the journal fetch's own status line — which machine is being
+    /// asked, and what it said. Nil whenever no fetch is in play. Mirrored ×4.
+    private func historyStatus(_ model: AgentSessionModel) -> String? {
+        switch model.history {
+        case .pending: return "Fetching the transcript from \(hostLabel)…"
+        case .deviceOffline:
+            return "\(hostLabel) is offline. The transcript lives on that machine."
+        case .unavailable: return "No transcript on \(hostLabel)."
+        case nil: return nil
+        }
+    }
+
     /// Line 2: what the header used to say on its own — the phase, and the
     /// machine the run is parked on.
     private var headerCaption: String {
         let label = model?.hostDevice.label ?? session.deviceLabel
         let deviceName = (label?.isEmpty == false) ? label : nil
         let device = deviceName.map { " · \($0)" } ?? ""
+        if let model, model.history != nil { return "Session ended" }
         if hostPaused { return "Paused\(device)" }
         switch model?.phase {
         case .live:
@@ -465,11 +493,124 @@ struct AgentSessionView: View {
         }
     }
 
+    // MARK: - Ended header (EXP-773)
+
+    /// A finished run's byline, its Resume and its close-out summary, above
+    /// the transcript. Every runs list dropped its expand-to-summary row for
+    /// this: a close-out is a paragraph, and a paragraph belongs next to the
+    /// transcript it summarizes, not in a list.
+    @ViewBuilder
+    private func endedHeader(_ model: AgentSessionModel) -> some View {
+        if model.sessionEnded {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Text(endedByline(model))
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    // Only on the machine that still holds the run's worktree
+                    // (`RunResume`) — everywhere else there is nothing to
+                    // pick up.
+                    if steerEnabled, model.resumeDevice != nil {
+                        GlassPill(
+                            "Resume",
+                            icon: AppIcons.runResume,
+                            mode: .action { showResumeConfirm = true },
+                            enabled: !resuming
+                        )
+                        .accessibilityIdentifier("resume-run")
+                    }
+                }
+                if let summary = model.session?.summary, !summary.isEmpty {
+                    AgentMarkdownText(text: summary, context: markdownContext)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("run-summary")
+                }
+                if let failure = startWatcher.failure {
+                    Text(failure)
+                        .font(.caption2)
+                        .foregroundStyle(DesignTokens.Semantic.red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else if let caption = startWatcher.sentCaption {
+                    Text(caption)
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+        }
+    }
+
+    /// "macbook · Claude Code · ended by you · 5m ago" — the ×4 `PastRuns`
+    /// rule the list rows print, now that the row itself only carries a link.
+    private func endedByline(_ model: AgentSessionModel) -> String {
+        let row = model.session ?? session
+        return PastRuns.byline(
+            device: model.hostDevice.displayLabel,
+            agent: row.agent.map { LaunchVocabulary.agentLabel($0) },
+            endedBy: row.endedBy,
+            relativeTime: relativeDate(PastRuns.endedAt(row))
+        )
+    }
+
+    private func relativeDate(_ stamp: String) -> String {
+        guard let date = WireTimestamps.parse(stamp) else { return "" }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    /// Pick this finished run up again on the machine that ran it — the SAME
+    /// `steer.startSession({resumeSessionId})` the list rows used to send.
+    /// A start is a COMMAND, so the shared watcher waits for the row the
+    /// desktop inserts and pushes that session.
+    private func resumeRun(_ model: AgentSessionModel) {
+        guard let device = model.resumeDevice, !resuming else { return }
+        resuming = true
+        startWatcher.sending()
+        Task {
+            do {
+                try await deps.steerApi.resumeSession(
+                    accountId: accountId,
+                    sessionId: session.id,
+                    deviceId: device.deviceId
+                )
+                startWatcher.begin(
+                    key: .resumed(fromId: session.id),
+                    userId: deps.auth.userId,
+                    device: device,
+                    db: deps.db,
+                    accountId: accountId
+                )
+            } catch {
+                startWatcher.failed(error.userFacingMessage)
+            }
+            resuming = false
+        }
+    }
+
     // MARK: - Feed
 
     @ViewBuilder
     private func feedArea(_ model: AgentSessionModel) -> some View {
-        if model.feed.isEmpty, hostPaused {
+        if model.feed.isEmpty, let status = historyStatus(model) {
+            // EXP-773: a finished run's transcript lives on the machine that
+            // ran it, and the relay is asking that machine for it. Say which
+            // machine, and say plainly when it can't answer — this is not a
+            // connection problem the viewer can wait out.
+            centeredState {
+                if model.history == .pending {
+                    ProgressView().tint(.white)
+                }
+                Text(status)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .multilineTextAlignment(.center)
+            }
+        } else if model.feed.isEmpty, hostPaused {
             // EXP-550: the machine hosting this run is asleep. The session is
             // NOT over — it resumes when the machine comes back — so say that
             // instead of spinning on "waiting for the live stream" forever.
@@ -596,15 +737,16 @@ struct AgentSessionView: View {
                                 detail: focused.detail
                             )
                             if focused.items.isEmpty {
-                                Text("No tool calls yet.")
+                                Text("Nothing from this agent yet.")
                                     .font(.caption)
                                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                                     .padding(.vertical, 4)
                             } else {
+                                // EXP-773: the run's prose and the turns
+                                // addressed to it interleave with its tool
+                                // calls, in publish order.
                                 ForEach(focused.items) { item in
-                                    if case let .tool(_, name, detail, _) = item {
-                                        ToolRow(name: name, detail: detail)
-                                    }
+                                    SubagentItemRow(item: item, context: markdownContext)
                                 }
                             }
                         } else {
@@ -733,16 +875,20 @@ struct AgentSessionView: View {
         case let .toolRun(items):
             ToolGroupRow(items: items, liveTail: isLast && model?.phase == .live)
         case let .subagentRun(run):
-            SubagentGroupRow(run: run, liveTail: isLast && model?.phase == .live)
+            SubagentGroupRow(
+                run: run,
+                liveTail: isLast && model?.phase == .live,
+                context: markdownContext
+            )
         case let .ask(group):
             askCard(group)
         case let .single(item):
             switch item {
-            case let .narration(_, text):
+            case let .narration(_, text, _, _):
                 NarrationBubble(text: text, context: markdownContext)
             case let .tool(_, name, detail, _):
                 ToolRow(name: name, detail: detail)
-            case let .userMessage(_, text):
+            case let .userMessage(_, text, _):
                 // EXP-724: a steered slash command is a control action, not
                 // prose — it renders as a compact pill instead of a bubble.
                 // EXP-746: over the MERGED catalog, so a command the agent
@@ -1398,65 +1544,67 @@ struct AgentSessionView: View {
         }
     }
 
-    // MARK: - Live config chips (EXP-746)
+    // MARK: - Mode chip (EXP-746, narrowed by EXP-772)
 
-    /// The agent's live options as pickable pills — the mode chip first, then
-    /// every option it advertised. Picks are FIRE-AND-FORGET: the publisher
-    /// re-emits `config_state` once it applied and that repaint is the
-    /// confirmation, so nothing here holds a pending state. An agent that
-    /// refuses the switch simply re-emits the old value and the chip snaps
-    /// back.
+    /// The run's MODE, and nothing else. Model and effort pickers are gone
+    /// from a live session — they are launch decisions, and a mid-run swap
+    /// only ever muddied the transcript — so the strip carries one control.
+    ///
+    /// Picks are FIRE-AND-FORGET: the publisher re-emits `config_state` once
+    /// it applied and that repaint is the confirmation, so nothing here holds
+    /// a pending state. An agent that refuses simply re-emits the old mode and
+    /// the chip snaps back.
     @ViewBuilder
     private func configChipRow(_ model: AgentSessionModel) -> some View {
-        let chips = model.configChips
-        if !chips.isEmpty {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(chips) { chip in
-                        configChip(chip, model)
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 2)
+        if let chip = model.modeChip {
+            HStack(spacing: 6) {
+                modeChipControl(chip, model)
+                Spacer(minLength: 0)
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 2)
             .padding(.bottom, 4)
         }
     }
 
     @ViewBuilder
-    private func configChip(_ chip: AgentConfigChip, _ model: AgentSessionModel) -> some View {
-        let label = "\(chip.label): \(chip.valueLabel)"
-        // A values-less option is read-only on this run, and so is every chip
-        // while the run can't be steered — the pills dim exactly like the send
-        // button rather than offering a tap that would no-op (EXP-621).
-        if chip.isReadOnly || !model.canSteer {
-            GlassPill(label, mode: .readonly, enabled: model.canSteer)
-                .accessibilityIdentifier("agent-config-chip")
+    private func modeChipControl(_ chip: AgentModeChip, _ model: AgentSessionModel) -> some View {
+        if let toggle = chip.planToggle {
+            // `plan` plus exactly one other mode is a yes/no question, so it
+            // draws as one — a two-entry dropdown for "Plan or Build" is a
+            // menu that can only ever say the thing the pill already shows.
+            GlassPill(
+                AgentFeed.planToggleLabel,
+                mode: .select(isSelected: toggle.on) {
+                    model.sendMode(id: toggle.on ? toggle.otherId : toggle.planId)
+                },
+                enabled: model.canSteer
+            )
+            .accessibilityIdentifier("agent-mode-chip")
         } else {
-            GlassMenu {
-                ForEach(chip.values) { value in
-                    GlassMenuItem(value.label) {
-                        pickConfig(chip, value: value, model)
+            let label = "\(AgentFeed.configModeLabel): \(chip.valueLabel)"
+            // A run that advertises modes it won't switch between is read-only,
+            // and so is every chip while the run can't be steered — the pill
+            // dims exactly like the send button rather than offering a tap
+            // that would no-op (EXP-621).
+            if chip.isReadOnly || !model.canSteer {
+                GlassPill(label, mode: .readonly, enabled: model.canSteer)
+                    .accessibilityIdentifier("agent-mode-chip")
+            } else {
+                GlassMenu {
+                    ForEach(chip.values) { value in
+                        GlassMenuItem(value.label) { model.sendMode(id: value.id) }
+                    }
+                } label: {
+                    GlassPill(label, mode: .readonly) {
+                        EmptyView()
+                    } trailing: {
+                        AppIcon(AppIcons.uiChevronDown, size: GlassPillSize.sm.glyphSize)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     }
                 }
-            } label: {
-                GlassPill(label, mode: .readonly) {
-                    EmptyView()
-                } trailing: {
-                    AppIcon(AppIcons.uiChevronDown, size: GlassPillSize.sm.glyphSize)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                }
+                .accessibilityIdentifier("agent-mode-chip")
             }
-            .accessibilityIdentifier("agent-config-chip")
-        }
-    }
-
-    private func pickConfig(
-        _ chip: AgentConfigChip, value: AgentConfigValue, _ model: AgentSessionModel
-    ) {
-        switch chip.kind {
-        case .mode: model.sendMode(id: value.id)
-        case .option: model.sendConfig(id: chip.id, value: value.id)
         }
     }
 
@@ -2380,6 +2528,9 @@ private struct SubagentGroupRow: View {
     let run: AgentSubagentRun
     /// The trailing row of a live session — keep the latest call visible.
     let liveTail: Bool
+    /// EXP-773: the group carries the subagent's own prose now, so it needs
+    /// what an `AgentMarkdownText` needs.
+    let context: AgentMarkdownContext
 
     @State private var expanded = false
 
@@ -2430,19 +2581,39 @@ private struct SubagentGroupRow: View {
                     .padding(.leading, 20)
             }
             if expanded {
+                // EXP-773: the run's whole conversation in order — its prose
+                // and the turns addressed to it, not just its tool calls.
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(run.items) { item in
-                        if case let .tool(_, name, detail, _) = item {
-                            ToolRow(name: name, detail: detail)
-                        }
+                        SubagentItemRow(item: item, context: context)
                     }
                 }
                 .padding(.leading, 20)
-            } else if liveTail, let last = run.items.last,
-                      case let .tool(_, name, detail, _) = last {
-                ToolRow(name: name, detail: detail)
+            } else if liveTail, let last = run.items.last {
+                SubagentItemRow(item: last, context: context)
                     .padding(.leading, 20)
             }
+        }
+    }
+}
+
+/// EXP-773: one row of a subagent's conversation — its prose, a turn
+/// addressed to it, or one of its tool calls. Anything else a group somehow
+/// collected renders nothing rather than crashing the feed.
+private struct SubagentItemRow: View {
+    let item: AgentFeedItem
+    let context: AgentMarkdownContext
+
+    var body: some View {
+        switch item {
+        case let .tool(_, name, detail, _):
+            ToolRow(name: name, detail: detail)
+        case let .narration(_, text, _, _):
+            NarrationBubble(text: text, context: context)
+        case let .userMessage(_, text, _):
+            UserMessageBubble(text: text, context: context)
+        default:
+            EmptyView()
         }
     }
 }

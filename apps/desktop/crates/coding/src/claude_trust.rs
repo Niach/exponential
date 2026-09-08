@@ -133,8 +133,7 @@ fn ensure_onboarded_in_config(
         .map_err(|err| format!("serialize {}: {err}", config.display()))?;
     // Write-then-rename: .claude.json is the user's own claude state and a
     // torn write would break every claude invocation, not just ours.
-    let temp = config.with_extension("json.exp-tmp");
-    crate::atomic_config::replace_preserving_mode(config, &temp, &serialized)?;
+    crate::atomic_config::replace_preserving_mode(config, &serialized)?;
     Ok(true)
 }
 
@@ -300,8 +299,7 @@ fn retain_projects(config: &Path, keep: impl Fn(&str) -> bool) -> Result<usize, 
             return Ok(0);
         }
     }
-    let temp = config.with_extension("json.exp-tmp");
-    crate::atomic_config::replace_preserving_mode(config, &temp, &serialized)?;
+    crate::atomic_config::replace_preserving_mode(config, &serialized)?;
     Ok(dropped)
 }
 

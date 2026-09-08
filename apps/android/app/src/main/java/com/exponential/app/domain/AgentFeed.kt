@@ -48,7 +48,21 @@ fun AnswerState?.locksCard(): Boolean = this == AnswerState.Sending || this == A
 sealed interface AgentFeedItem {
     val id: Long
 
-    data class Narration(override val id: Long, val text: String) : AgentFeedItem
+    /** Agent prose.
+     *
+     *  [messageId] (EXP-772) is the ACP id of the assistant message this
+     *  chunk came out of: the engine flushes one message in several events,
+     *  and consecutive flushes of the SAME message grow ONE row instead of a
+     *  column of fragments (see `mergeNarration`).
+     *
+     *  [subagentId] (EXP-773) tags prose a subagent wrote — it renders inside
+     *  that subagent's run, never in the main feed. */
+    data class Narration(
+        override val id: Long,
+        val text: String,
+        val messageId: String? = null,
+        val subagentId: String? = null,
+    ) : AgentFeedItem
 
     data class Tool(
         override val id: Long,
@@ -59,8 +73,14 @@ sealed interface AgentFeedItem {
         val subagentId: String? = null,
     ) : AgentFeedItem
 
-    /** A human turn (EXP-78): the initial prompt or a steered message. */
-    data class UserMessage(override val id: Long, val text: String) : AgentFeedItem
+    /** A human turn (EXP-78): the initial prompt or a steered message.
+     *  [subagentId] (EXP-773) tags a turn addressed to a subagent — same
+     *  scoping rule as [Narration]. */
+    data class UserMessage(
+        override val id: Long,
+        val text: String,
+        val subagentId: String? = null,
+    ) : AgentFeedItem
 
     /** An interactive question (AskUserQuestion / plan approval, EXP-78).
      *  [planMode] marks an ExitPlanMode plan-approval picker (EXP-97) —
@@ -123,6 +143,17 @@ sealed interface AgentFeedItem {
      *  leaves in the timeline — the STRIP itself is
      *  [ActivityFeedState.compacting], never a row. */
     data class Compaction(override val id: Long) : AgentFeedItem
+}
+
+/** The subagent a feed item belongs to, if any — the grouping key of a
+ *  subagent run. EXP-773 widened it past tool calls: prose and human turns
+ *  carry it too, so a subagent's whole conversation groups under its own row.
+ *  The lifecycle markers are matched separately (they ARE the row). */
+fun AgentFeedItem.subagentKey(): String? = when (this) {
+    is AgentFeedItem.Tool -> subagentId
+    is AgentFeedItem.Narration -> subagentId
+    is AgentFeedItem.UserMessage -> subagentId
+    else -> null
 }
 
 /** EXP-724: the caption of the indeterminate strip pinned above the composer
@@ -193,65 +224,74 @@ data class SessionUsageState(
 /** A chip whose value is blank — the CLI's own default. Byte-identical ×4. */
 const val CONFIG_DEFAULT_VALUE_LABEL = "CLI default"
 
-/** The mode chip's leading label. Byte-identical ×4. */
+/** The mode chip's leading label — the only chip label left, so the only one
+ *  the four clients have to agree on by hand. Byte-identical ×4. */
 const val CONFIG_MODE_LABEL = "Mode"
 
-/** The mode chip's synthetic id — modes are switched with `set_mode`, not
- *  `set_config`, so this never collides with a real option id. */
-const val CONFIG_MODE_CHIP_ID = "mode"
+/** EXP-772: the contract id of plan mode, and the label of the compact switch
+ *  that replaces a `plan` + one other pair. Byte-identical ×4. */
+const val PLAN_MODE_ID = "plan"
+const val PLAN_TOGGLE_LABEL = "Plan"
 
-/** What one composer chip renders and what picking a value would send. */
-data class ConfigChip(
-    val kind: Kind,
-    /** The option id for [Kind.Option]; [CONFIG_MODE_CHIP_ID] for the mode. */
-    val id: String,
-    /** The chip's leading label — off the WIRE, never a local vocabulary, so
-     *  all four clients agree by construction (only [CONFIG_MODE_LABEL] is
-     *  client-side, because a mode chip has no wire label of its own). */
-    val label: String,
-    /** What it currently reads ("Opus", [CONFIG_DEFAULT_VALUE_LABEL]). */
+/**
+ * EXP-772: the composer's ONE steering control — the agent's mode. Model,
+ * effort and every other option picker is gone from a running session: those
+ * are launch decisions, and a mid-run swap only ever muddied the transcript.
+ * The engine publishes an empty `config_state.options` to match.
+ */
+data class ModeChip(
+    /** The mode in force, as the publisher labels it. */
     val valueLabel: String,
-    /** Empty = read-only: render the value, offer no menu. */
+    /** Every advertised mode, in publisher order. */
     val values: List<ConfigValue> = emptyList(),
+    /** Set when the run advertises exactly `plan` plus one other mode — the
+     *  pair claude offers. The chip then draws as a compact "Plan" switch
+     *  rather than a two-entry dropdown, because that is the only thing such a
+     *  dropdown could ever say. */
+    val planToggle: PlanToggle? = null,
 ) {
-    enum class Kind { Mode, Option }
+    /** The plan switch's two sides. */
+    data class PlanToggle(
+        /** The run is in plan mode right now. */
+        val on: Boolean,
+        val planId: String,
+        /** Where flipping the switch OFF goes. */
+        val otherId: String,
+    )
+
+    /** A chip with nothing to pick from is a read-only badge. */
+    val readOnly: Boolean get() = values.isEmpty()
 }
 
 /**
- * The chip row in the order every client draws it: the MODE chip first when
- * the run has modes, then the options in PUBLISHER order. Byte-identical ×4
- * (`configChips` on web, iOS `AgentFeed.configChips`, desktop `feed.rs`).
+ * The composer's one chip, or null when the run advertises no modes (codex) —
+ * that draws nothing at all rather than an inert badge. Exactly `plan` + one
+ * other mode collapses into the compact Plan switch; anything else stays a
+ * picker over every advertised mode. Byte-identical ×4 (web
+ * `steer-commands.ts`, iOS `AgentFeed.modeChip`, desktop `feed.rs`).
  */
-fun configChips(config: SessionConfigState?): List<ConfigChip> {
-    if (config == null) return emptyList()
-    val chips = mutableListOf<ConfigChip>()
-    if (config.modes.isNotEmpty()) {
-        val current = config.modes.firstOrNull { it.id == config.currentMode }
-        chips += ConfigChip(
-            kind = ConfigChip.Kind.Mode,
-            id = CONFIG_MODE_CHIP_ID,
-            label = CONFIG_MODE_LABEL,
-            // An unadvertised current mode still reads as itself rather than
-            // as "CLI default" — the agent is genuinely in it.
-            valueLabel = current?.label
-                ?: config.currentMode?.takeIf { it.isNotBlank() }
-                ?: CONFIG_DEFAULT_VALUE_LABEL,
-            values = config.modes.map { ConfigValue(it.id, it.label) },
-        )
-    }
-    config.options.forEach { option ->
-        val picked = option.values.firstOrNull { it.id == option.value }
-        chips += ConfigChip(
-            kind = ConfigChip.Kind.Option,
-            id = option.id,
-            label = option.label,
-            valueLabel = picked?.label
-                ?: option.value?.takeIf { it.isNotBlank() }
-                ?: CONFIG_DEFAULT_VALUE_LABEL,
-            values = option.values,
-        )
-    }
-    return chips
+fun modeChip(config: SessionConfigState?): ModeChip? {
+    if (config == null || config.modes.isEmpty()) return null
+    val current = config.modes.firstOrNull { it.id == config.currentMode }
+    val plan = config.modes.firstOrNull { it.id == PLAN_MODE_ID }
+    val other = config.modes.firstOrNull { it.id != PLAN_MODE_ID }
+    return ModeChip(
+        // An unadvertised current mode still reads as itself rather than as
+        // "CLI default" — the agent is genuinely in it.
+        valueLabel = current?.label
+            ?: config.currentMode?.takeIf { it.isNotBlank() }
+            ?: CONFIG_DEFAULT_VALUE_LABEL,
+        values = config.modes.map { ConfigValue(it.id, it.label) },
+        planToggle = if (config.modes.size == 2 && plan != null && other != null) {
+            ModeChip.PlanToggle(
+                on = config.currentMode == plan.id,
+                planId = plan.id,
+                otherId = other.id,
+            )
+        } else {
+            null
+        },
+    )
 }
 
 /** Append a question card, or REPLACE the card carrying the same wire id in
@@ -289,6 +329,36 @@ fun spliceBeforeQuestion(
     }
     if (index < 0) return null
     return feed.toMutableList().apply { add(index, item) }
+}
+
+/**
+ * EXP-772: fold a narration chunk into the row above it when both came out of
+ * the SAME assistant message.
+ *
+ * The engine's coalescer flushes one message in several `narration` events,
+ * which used to draw one bubble per flush and shred a paragraph into a column
+ * of fragments. Every event now carries the ACP [messageId] of its message, so
+ * a flush whose message is the one directly above APPENDS to that row (raw
+ * concatenation — the flushes are chunks of one string, not sentences).
+ * Anything in between (a tool call, a question, another scope's prose) ends
+ * the run: the message really did resume after something happened.
+ *
+ * Null = nothing to merge into, and the caller appends a fresh row.
+ * Mirrored x4 (web `agent-feed.ts`, iOS `AgentFeed.mergeNarration`, desktop
+ * `feed.rs`).
+ */
+fun mergeNarration(
+    feed: List<AgentFeedItem>,
+    text: String,
+    messageId: String?,
+    subagentId: String?,
+): List<AgentFeedItem>? {
+    if (messageId.isNullOrBlank()) return null
+    val last = feed.lastOrNull() as? AgentFeedItem.Narration ?: return null
+    if (last.messageId != messageId || last.subagentId != subagentId) return null
+    return feed.toMutableList().apply {
+        this[lastIndex] = last.copy(text = last.text + text)
+    }
 }
 
 /** Fold a `question_resolved` event into the feed (EXP-249): retire the card
@@ -430,10 +500,14 @@ sealed interface AgentFeedRow {
         val agentType: String,
         val completed: Boolean,
         val detail: String?,
-        val tools: List<AgentFeedItem.Tool>,
-        /** EXP-748: what the "N tool calls" caption counts — the visible rows
-         *  or, when the publisher reported more (replay evicted a subagent's
-         *  tool events), its count. 0 = nothing to say. */
+        /** EXP-773: everything published under this subagent, in feed order —
+         *  its tool calls plus the prose it wrote and the turns addressed to
+         *  it, so the run reads as a conversation. The lifecycle markers stay
+         *  out: they ARE the row. */
+        val items: List<AgentFeedItem>,
+        /** EXP-748: what the "N tool calls" caption counts — the visible tool
+         *  rows or, when the publisher reported more (replay evicted a
+         *  subagent's tool events), its count. 0 = nothing to say. */
         val toolCount: Int = 0,
     ) : AgentFeedRow
 }
@@ -453,38 +527,36 @@ fun groupFeedRows(feed: List<AgentFeedItem>): List<AgentFeedRow> {
         .groupBy { it.askId!! }
     val markersBySubagent = feed.filterIsInstance<AgentFeedItem.Subagent>()
         .groupBy { it.subagentId }
-    val toolsBySubagent = feed.filterIsInstance<AgentFeedItem.Tool>()
-        .filter { it.subagentId != null }
-        .groupBy { it.subagentId!! }
+    // EXP-773: prose and human turns are scoped too, so a subagent's whole
+    // conversation groups under its row instead of interleaving into main.
+    val itemsBySubagent = feed.filter { it !is AgentFeedItem.Subagent }
+        .mapNotNull { item -> item.subagentKey()?.let { it to item } }
+        .groupBy({ it.first }, { it.second })
     val emittedAsks = mutableSetOf<String>()
     val emittedSubagents = mutableSetOf<String>()
     val rows = mutableListOf<AgentFeedRow>()
     var i = 0
     while (i < feed.size) {
         val item = feed[i]
-        val subagentId = when {
-            item is AgentFeedItem.Subagent -> item.subagentId
-            item is AgentFeedItem.Tool -> item.subagentId
-            else -> null
-        }
+        val subagentId = if (item is AgentFeedItem.Subagent) item.subagentId else item.subagentKey()
         when {
             subagentId != null -> {
                 if (emittedSubagents.add(subagentId)) {
                     val markers = markersBySubagent[subagentId].orEmpty()
-                    val tools = toolsBySubagent[subagentId].orEmpty()
+                    val scoped = itemsBySubagent[subagentId].orEmpty()
                     val types = markers.map { it.agentType }.filter { it.isNotBlank() }
                     rows.add(
                         AgentFeedRow.SubagentRun(
-                            id = (markers.map { it.id } + tools.map { it.id }).min(),
+                            id = (markers.map { it.id } + scoped.map { it.id }).min(),
                             subagentId = subagentId,
                             agentType = types.firstOrNull { it != SUBAGENT_FALLBACK_TYPE }
                                 ?: types.firstOrNull()
                                 ?: SUBAGENT_FALLBACK_TYPE,
                             completed = markers.any { it.completed },
                             detail = markers.lastOrNull { it.detail != null }?.detail,
-                            tools = tools,
+                            items = scoped,
                             toolCount = maxOf(
-                                tools.size,
+                                scoped.count { it is AgentFeedItem.Tool },
                                 markers.mapNotNull { it.toolCalls }.maxOrNull() ?: 0,
                             ),
                         ),
@@ -621,16 +693,24 @@ fun ActivityFeedState.applyActivityEvent(
         if (text.isBlank()) {
             this
         } else {
+            val messageId = event.str("messageId")?.takeIf { it.isNotBlank() }
+            val subagentId = event.str("subagentId")?.takeIf { it.isNotBlank() }
+            val row = AgentFeedItem.Narration(nextEventId, text, messageId, subagentId)
             // EXP-483: prose from the withheld ask/plan entry flushes AFTER
             // its already-published card — splice it back above.
             val anchor = event.str("beforeQuestionId")?.takeIf { it.isNotBlank() }
-            val spliced = anchor?.let {
-                spliceBeforeQuestion(feed, it, AgentFeedItem.Narration(nextEventId, text))
-            }
-            if (spliced != null) {
-                copy(feed = capFeed(spliced), nextEventId = nextEventId + 1)
+            val spliced = anchor?.let { spliceBeforeQuestion(feed, it, row) }
+            // EXP-772: consecutive flushes of ONE assistant message are one
+            // bubble. A merge consumes no feed id — the row it grew has one.
+            val merged = if (spliced == null) {
+                mergeNarration(feed, text, messageId, subagentId)
             } else {
-                append(AgentFeedItem.Narration(nextEventId, text))
+                null
+            }
+            when {
+                spliced != null -> copy(feed = capFeed(spliced), nextEventId = nextEventId + 1)
+                merged != null -> copy(feed = merged)
+                else -> append(row)
             }
         }
     }
@@ -654,8 +734,19 @@ fun ActivityFeedState.applyActivityEvent(
     "diff" -> copy(latestDiff = event.str("diff")?.takeIf { it.isNotBlank() })
     "user_message" -> {
         val text = event.str("text")
-        if (text.isNullOrBlank() || isEcho(text)) this
-        else append(AgentFeedItem.UserMessage(nextEventId, text))
+        if (text.isNullOrBlank() || isEcho(text)) {
+            this
+        } else {
+            // EXP-773: a turn addressed to a subagent renders inside that
+            // subagent's run, never in the main thread.
+            append(
+                AgentFeedItem.UserMessage(
+                    id = nextEventId,
+                    text = text,
+                    subagentId = event.str("subagentId")?.takeIf { it.isNotBlank() },
+                ),
+            )
+        }
     }
     "question" -> {
         val text = event.str("text")
@@ -906,6 +997,27 @@ private fun ActivityFeedState.withFeed(next: List<AgentFeedItem>): ActivityFeedS
 /** Trim to the client cap — the oldest events fall off the top. */
 fun capFeed(feed: List<AgentFeedItem>): List<AgentFeedItem> =
     if (feed.size > FEED_CAP) feed.takeLast(FEED_CAP) else feed
+
+/**
+ * EXP-773: where an ENDED run's transcript is coming from. The relay has no
+ * room for a finished session, so it asks the device that ran it to republish
+ * its on-disk journal; these are the three answers.
+ */
+enum class HistoryState {
+    /** The relay woke the device and is waiting for it to publish. */
+    Pending,
+
+    /** The machine holding the journal is not reachable. Terminal: nothing to
+     *  redial for, the file is on that disk. */
+    DeviceOffline,
+
+    /** The device answered and has no journal for this run. Terminal. */
+    Unavailable,
+    ;
+
+    /** Nothing is going to change on its own — stop dialing. */
+    val terminal: Boolean get() = this != Pending
+}
 
 sealed interface AgentPhase {
     data object Idle : AgentPhase

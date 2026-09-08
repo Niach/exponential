@@ -31,16 +31,20 @@ import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.domain.DeviceFreshness
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.HistoryState
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.MergeTarget
 import com.exponential.app.domain.PendingAttachment
+import com.exponential.app.domain.RunResumeTarget
 import com.exponential.app.domain.SessionConfigState
 import com.exponential.app.domain.SessionDevicePresentation
 import com.exponential.app.domain.SessionUsageState
 import com.exponential.app.domain.SlashCommand
 import com.exponential.app.domain.SlashCommands
 import com.exponential.app.domain.resolveMergeTarget
+import com.exponential.app.domain.resumeTargetFor
+import com.exponential.app.domain.toSteerDevice
 import com.exponential.app.domain.resolveSessionDevice
 import com.exponential.app.ui.issue.StartIssueOption
 import com.exponential.app.ui.markdown.AttachmentDims
@@ -286,6 +290,25 @@ class AgentSessionViewModel @Inject constructor(
 
     val currentUserId: StateFlow<String?> = auth.userId
 
+    /**
+     * EXP-773: the machine a Resume of this ENDED run would go to, or null
+     * when there is none — a live run, someone else's, a machine that is away
+     * or too old to advertise `resume-run`. Resume moved off the list rows
+     * onto this screen, so the ×4 `resumeTargetFor` rule is resolved here now,
+     * re-decided on every heartbeat. Display gating only: the server re-checks
+     * the same rule.
+     */
+    val resumeTarget: StateFlow<RunResumeTarget?> = combine(
+        session,
+        deviceRows,
+        DeviceLiveness.ticker(),
+        currentUserId,
+    ) { row, devices, now, userId ->
+        row?.let {
+            resumeTargetFor(it, devices.map { d -> d.toSteerDevice(now, userId) }, userId)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     // ── The live connection's state, re-exposed unchanged (EXP-621) ─────────
 
     val phase: StateFlow<AgentPhase> = connection.phase
@@ -296,6 +319,11 @@ class AgentSessionViewModel @Inject constructor(
     val connected: StateFlow<Boolean> = connection.connected
 
     val activity: StateFlow<ActivityFeedState> = connection.activity
+
+    /** EXP-773: an ENDED run's transcript is fetched from the machine that ran
+     *  it — this is that fetch's status. Null on a live run. */
+    val history: StateFlow<HistoryState?> = connection.history
+
     val pendingImages: StateFlow<List<PendingAttachment>> = connection.pendingImages
     val steerSending: StateFlow<Boolean> = connection.steerSending
     val steerImageError: StateFlow<String?> = connection.steerImageError
@@ -472,12 +500,10 @@ class AgentSessionViewModel @Inject constructor(
         labels: List<String> = emptyList(),
     ) = connection.sendQuestionAnswer(questionId, askId, keys, text, labels)
 
-    /** EXP-746: change one live agent option. Fire-and-forget — the
-     *  re-emitted `config_state` IS the confirmation, so nothing here waits,
-     *  locks or times out. */
-    fun setConfig(id: String, value: String) = connection.setConfig(id, value)
-
-    /** EXP-746: switch the run into one of its advertised modes. */
+    /** EXP-746: switch the run into one of its advertised modes.
+     *  Fire-and-forget — the re-emitted `config_state` IS the confirmation, so
+     *  nothing here waits, locks or times out. EXP-772 retired the option
+     *  pickers beside it: model and effort are launch decisions now. */
     fun setMode(id: String) = connection.setMode(id)
 
     /**
@@ -521,6 +547,11 @@ class AgentSessionViewModel @Inject constructor(
 
     fun startCoding(device: SteerDevice, issueIds: List<String>, options: SteerStartOptions) =
         steerLaunch.startCoding(device, issueIds, options)
+
+    /** EXP-773: Resume this finished run on the machine that ran it. Rides the
+     *  same rails a remote start does — the desktop's new row lands in
+     *  [startedSessionId] and the screen opens it. */
+    fun resumeRun(target: RunResumeTarget) = steerLaunch.resumeRun(target)
 
     init {
         steerLaunch.attach(viewModelScope)

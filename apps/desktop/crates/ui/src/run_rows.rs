@@ -6,24 +6,22 @@
 //! rows, so the row generalized instead: [`render_run_row`] takes a
 //! [`RunRowSpec`] and every list is a caller.
 //!
-//! The shape is EXP-686's, unchanged: a lead glyph, the run's name, a muted
-//! caption, and — for a FINISHED run — a chevron opening its summary plus a
-//! Resume button when this machine still holds the workspace. What the lists
-//! vary is the lead (the automation glyph, the run's agent mark, a live
-//! status dot), the caption (a relative time, a device byline) and whether
-//! the row offers a ⋯ menu that ends the run.
+//! EXP-773 flattened the shape: a lead glyph, the run's name, a muted caption
+//! and nothing else. A row is a plain LINK — clicking it opens the fullscreen
+//! session view, which is where the transcript, the run's summary and its
+//! Resume button live now. What the lists vary is the lead (the automation
+//! glyph, the run's agent mark, a live status dot), the caption (a relative
+//! time, a device byline) and whether the row offers a ⋯ menu that ends the
+//! run.
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, App, ClickEvent, Hsla, InteractiveElement, IntoElement, ParentElement, SharedString,
     StatefulInteractiveElement as _, Styled, Window,
 };
-use gpui_component::{
-    button::Button, menu::DropdownMenu as _, ActiveTheme as _, Icon, Sizable as _,
-};
+use gpui_component::{menu::DropdownMenu as _, ActiveTheme as _, Icon, Sizable as _};
 
 use crate::coding_selects::agent_icon;
-use crate::controls::WebControl as _;
 use crate::icons::registry;
 
 /// A row callback (open / toggle / resume / kill) — boxed so the spec stays
@@ -54,59 +52,42 @@ pub(crate) struct RunRowKill {
     pub(crate) on_kill: RunRowAction,
 }
 
-pub(crate) struct RunRowSpec<'a> {
+pub(crate) struct RunRowSpec {
     /// Element-id namespace for the row's stateful children. The Devices
     /// screen renders two run lists in one scroll, and ids collide within a
     /// parent — each list names its own.
     pub(crate) id_prefix: &'static str,
     pub(crate) index: usize,
-    pub(crate) session: &'a domain::rows::CodingSession,
     pub(crate) lead: RunRowLead,
     /// The issue identifier, rendered muted ahead of the title. `None` for a
     /// run with no issue (an action run, a batch, an automation).
     pub(crate) identifier: Option<SharedString>,
     pub(crate) title: SharedString,
     pub(crate) caption: Option<SharedString>,
-    /// Whether the row has a summary to open. Only a FINISHED run does — a
-    /// live one has nothing written yet.
-    pub(crate) expandable: bool,
-    pub(crate) expanded: bool,
-    pub(crate) resumable: bool,
-    pub(crate) on_toggle: RunRowAction,
-    pub(crate) on_resume: RunRowAction,
     pub(crate) on_open: Option<RunRowAction>,
     pub(crate) kill: Option<RunRowKill>,
 }
 
-/// One run card (EXP-637/686, generalized by EXP-746).
+/// One run card (EXP-637/686, generalized by EXP-746, flattened by EXP-773).
 ///
-/// EXP-637: a finished row is EXPANDABLE (decision 5) — expanded it adds the
-/// agent's own summary (real markdown since EXP-686, with an explicit
-/// fallback line when the run left none) and, when the run registry still
-/// holds its workspace, a Resume button. A LIVE row has no chevron: `on_open`
-/// makes the whole card open the run instead. Same rule in every runs list on
-/// every client.
-pub(crate) fn render_run_row(spec: RunRowSpec<'_>, cx: &App) -> gpui::AnyElement {
+/// Every row is a LINK: `on_open` makes the whole card open the run's
+/// fullscreen session view, where the transcript, the summary and Resume live.
+/// The chevron that used to unfold a summary inside the list is gone — a run
+/// was described in two places, and the list is not the better one. Same rule
+/// in every runs list on every client.
+pub(crate) fn render_run_row(spec: RunRowSpec, cx: &App) -> gpui::AnyElement {
     let RunRowSpec {
         id_prefix,
         index,
-        session,
         lead,
         identifier,
         title,
         caption,
-        expandable,
-        expanded,
-        resumable,
-        on_toggle,
-        on_resume,
         on_open,
         kill,
     } = spec;
     let theme = cx.theme();
     let muted = theme.muted_foreground;
-    let summary = session.summary.clone().filter(|text| !text.trim().is_empty());
-    let session_id = session.id.clone();
     let header = div()
         .flex()
         .w_full()
@@ -156,25 +137,6 @@ pub(crate) fn render_run_row(spec: RunRowSpec<'_>, cx: &App) -> gpui::AnyElement
                 .text_color(muted)
                 .child(caption)
         }))
-        .when(expandable, |this| {
-            this.child(
-                crate::controls::glass_icon_button(
-                    SharedString::from(format!("{id_prefix}-toggle-{session_id}")),
-                    Icon::from(if expanded {
-                        registry::UI_CHEVRON_UP
-                    } else {
-                        registry::UI_CHEVRON_DOWN
-                    }),
-                    cx,
-                )
-                // The card itself may be clickable — the chevron must never
-                // fall through to it.
-                .on_click(move |event, window, cx| {
-                    cx.stop_propagation();
-                    on_toggle(event, window, cx);
-                }),
-            )
-        })
         .when_some(kill, |this, kill| {
             let on_kill = std::rc::Rc::new(kill.on_kill);
             let label = kill.label.clone();
@@ -208,7 +170,6 @@ pub(crate) fn render_run_row(spec: RunRowSpec<'_>, cx: &App) -> gpui::AnyElement
                     .child(menu),
             )
         });
-    let summary_id = session_id.clone();
     crate::surface::glass_row_card()
         .id((SharedString::from(format!("{id_prefix}-card")), index))
         .flex()
@@ -223,51 +184,6 @@ pub(crate) fn render_run_row(spec: RunRowSpec<'_>, cx: &App) -> gpui::AnyElement
                 .on_click(move |event, window, cx| on_open(event, window, cx))
         })
         .child(header)
-        .when(expanded && expandable, |this| {
-            this.child(match summary {
-                // EXP-686: the agent writes GFM — render it, don't dump the
-                // source (the `comments.rs` recipe: selectable so a summary
-                // joins the window selection layer).
-                Some(summary) => div()
-                    .w_full()
-                    .min_w_0()
-                    .text_xs()
-                    .child(
-                        crate::markdown::MarkdownView::new(
-                            SharedString::from(format!("{id_prefix}-summary-{summary_id}")),
-                            summary,
-                        )
-                        .selectable(true),
-                    )
-                    .into_any_element(),
-                None => div()
-                    .w_full()
-                    .min_w_0()
-                    .text_xs()
-                    .text_color(muted)
-                    .child("This run left no summary.")
-                    .into_any_element(),
-            })
-            .when(resumable, |this| {
-                this.child(
-                    // The row wrapper keeps the button at its label width —
-                    // a bare child of this `flex_col` card would stretch.
-                    div().flex().w_full().child(
-                        Button::new(SharedString::from(format!(
-                            "{id_prefix}-resume-{session_id}"
-                        )))
-                        .outline()
-                        .web_sm()
-                        .icon(Icon::from(registry::RUN_RESUME))
-                        .label("Resume")
-                        .on_click(move |event, window, cx| {
-                            cx.stop_propagation();
-                            on_resume(event, window, cx);
-                        }),
-                    ),
-                )
-            })
-        })
         .into_any_element()
 }
 
@@ -298,14 +214,12 @@ pub(crate) struct AutomationRowParts {
     /// The ONLY status word left is "Running" (EXP-686) — an ended row is
     /// just a name and a time.
     pub(crate) caption: SharedString,
-    pub(crate) expandable: bool,
 }
 
 pub(crate) fn automation_row_parts(
     session: &domain::rows::CodingSession,
     now_epoch: i64,
 ) -> AutomationRowParts {
-    let ended = run_has_ended(session);
     let when = run_started_at(session)
         .map(|at| crate::comments::relative_time(at, now_epoch))
         .unwrap_or_default();
@@ -316,12 +230,11 @@ pub(crate) fn automation_row_parts(
                 .clone()
                 .unwrap_or_else(|| "Action".to_string()),
         ),
-        caption: SharedString::from(if ended {
+        caption: SharedString::from(if run_has_ended(session) {
             when
         } else {
             format!("Running · {when}")
         }),
-        expandable: ended,
     }
 }
 
@@ -395,11 +308,11 @@ mod tests {
     }
 
     /// EXP-746 moved the Automations row here; its rendered shape must not
-    /// have moved with it. The row is built from these three values, so
-    /// locking them locks the row: the action-name snapshot (with the
-    /// pre-EXP-253 fallback), the EXP-686 caption vocabulary ("Running · …"
-    /// while live, a bare relative time once ended) and the chevron on ended
-    /// rows only.
+    /// have moved with it. The row is built from these two values, so locking
+    /// them locks the row: the action-name snapshot (with the pre-EXP-253
+    /// fallback) and the EXP-686 caption vocabulary ("Running · …" while live,
+    /// a bare relative time once ended). EXP-773 retired the chevron — a row
+    /// opens the session view instead of unfolding a summary in place.
     #[test]
     fn an_automation_row_renders_the_same_shape_it_used_to() {
         let now = 1_700_000_000;
@@ -414,14 +327,12 @@ mod tests {
         let parts = automation_row_parts(&live, now);
         assert_eq!(parts.title, SharedString::from("Release train"));
         assert_eq!(parts.caption, SharedString::from("Running · 2 hours ago"));
-        assert!(!parts.expandable, "a live run has nothing to expand yet");
 
         let mut ended = live.clone();
         ended.id = "s-ended".to_string();
         ended.status = Some(domain::contract::CODING_SESSION_STATUS_ENDED.to_string());
         let parts = automation_row_parts(&ended, now);
         assert_eq!(parts.caption, SharedString::from("2 hours ago"));
-        assert!(parts.expandable);
 
         // A row from before the action-name snapshot still names itself.
         let mut nameless = ended.clone();
@@ -436,16 +347,10 @@ mod tests {
         let spec = RunRowSpec {
             id_prefix: "run",
             index: 0,
-            session: &ended,
             lead: RunRowLead::Automation,
             identifier: None,
             title: parts.title.clone(),
             caption: Some(parts.caption.clone()),
-            expandable: parts.expandable,
-            expanded: false,
-            resumable: false,
-            on_toggle: Box::new(|_, _, _| {}),
-            on_resume: Box::new(|_, _, _| {}),
             on_open: None,
             kill: None,
         };

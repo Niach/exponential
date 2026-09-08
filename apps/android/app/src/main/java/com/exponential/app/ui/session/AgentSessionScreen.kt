@@ -110,13 +110,18 @@ import com.exponential.app.domain.AgentFeedItem
 import com.exponential.app.domain.AgentFeedRow
 import com.exponential.app.domain.AgentPhase
 import com.exponential.app.domain.AgentUsagePresentation
-import com.exponential.app.domain.ConfigChip
+import com.exponential.app.domain.CONFIG_MODE_LABEL
 import com.exponential.app.domain.ConfigCommand
-import com.exponential.app.domain.configChips
+import com.exponential.app.domain.ModeChip
+import com.exponential.app.domain.PLAN_TOGGLE_LABEL
+import com.exponential.app.domain.modeChip
 import com.exponential.app.domain.AnswerState
 import com.exponential.app.domain.COMPACTED_LABEL
 import com.exponential.app.domain.COMPACTING_LABEL
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.HistoryState
+import com.exponential.app.domain.RunResumeTarget
+import com.exponential.app.domain.pastRunByline
 import com.exponential.app.domain.MergeTarget
 import com.exponential.app.domain.MAX_STEER_IMAGES
 import com.exponential.app.domain.insertImageMarker
@@ -137,6 +142,7 @@ import com.exponential.app.domain.groupFeedRows
 import com.exponential.app.domain.localAnswerSummary
 import com.exponential.app.domain.locksCard
 import com.exponential.app.domain.visibleSubagentTabs
+import com.exponential.app.ui.components.agentLabel
 import com.exponential.app.ui.components.ComposerSubmitButton
 import com.exponential.app.ui.components.ComposerToolButton
 import com.exponential.app.ui.components.GlassComposer
@@ -163,6 +169,7 @@ import com.exponential.app.ui.issue.StartCodingSheet
 import com.exponential.app.ui.issue.StaticDot
 import com.exponential.app.ui.issue.splitUnifiedDiff
 import com.exponential.app.ui.issue.unifiedDiffStats
+import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.markdown.IssueRefHandler
 import com.exponential.app.ui.markdown.LocalAttachmentDims
 import com.exponential.app.ui.markdown.LocalIssueRefBare
@@ -175,6 +182,7 @@ import com.exponential.app.ui.markdown.LocalMarkdownAutolink
 import com.exponential.app.ui.markdown.MarkdownMediaUtils
 import com.exponential.app.ui.markdown.MarkdownView
 import com.exponential.app.ui.markdown.MdStyle
+import com.exponential.app.ui.steer.ActionRunState
 import com.exponential.app.ui.steer.SteerRunCaptionRow
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
@@ -241,6 +249,11 @@ fun AgentSessionScreen(
     val hostDevice by viewModel.hostDevice.collectAsStateWithLifecycle()
     val hostOffline by viewModel.hostDeviceOffline.collectAsStateWithLifecycle()
     val activity by viewModel.activity.collectAsStateWithLifecycle()
+    // EXP-773: an ENDED run's transcript is republished by the machine that
+    // ran it — this is that fetch's status, and the Resume that machine can
+    // take.
+    val history by viewModel.history.collectAsStateWithLifecycle()
+    val resumeTarget by viewModel.resumeTarget.collectAsStateWithLifecycle()
     val feed = activity.feed
     val latestDiff = activity.latestDiff
     val currentUserId by viewModel.currentUserId.collectAsStateWithLifecycle()
@@ -304,7 +317,7 @@ fun AgentSessionScreen(
     // which publishes neither.
     val sessionConfig by viewModel.sessionConfig.collectAsStateWithLifecycle()
     val sessionUsage by viewModel.sessionUsage.collectAsStateWithLifecycle()
-    val chips = remember(sessionConfig) { configChips(sessionConfig) }
+    val modeChip = remember(sessionConfig) { modeChip(sessionConfig) }
     // EXP-746: the `/` hint counts the MERGED catalog — an agent that
     // advertises commands has a menu even if the contract had none for it.
     // An agent-less run that publishes a `config_state` is an EXTERNAL agent
@@ -550,8 +563,38 @@ fun AgentSessionScreen(
             // EXP-688: the usage strip that used to sit here is gone — usage
             // lives in the "…" menu's Usage sheet, and the Latest-changes bar
             // FLOATS over the tail of this feed instead of eating its height.
+            // EXP-773: an ended run's close-out and its Resume sit ABOVE its
+            // transcript, where the list rows used to hide them behind a
+            // chevron.
+            EndedRunHeader(
+                session = session,
+                hostLabel = hostDevice.displayLabel,
+                resumeTarget = resumeTarget,
+                runState = launchRunState,
+                onResume = viewModel::resumeRun,
+            )
             Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
                 when {
+                    // EXP-773: a finished run's transcript lives on the
+                    // machine that ran it, and the relay is asking that
+                    // machine for it. Say which machine, and say plainly when
+                    // it cannot answer — this is not a connection problem the
+                    // viewer can wait out.
+                    feed.isEmpty() && history != null -> CenteredState {
+                        if (history == HistoryState.Pending) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
+                        Text(
+                            historyStatus(history, hostDevice.displayLabel),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                     // EXP-550: the machine is gone — an endless "waiting for
                     // the live stream" spinner was the bug. The run is parked,
                     // and it picks up when the machine comes back.
@@ -1043,9 +1086,8 @@ fun AgentSessionScreen(
                     live = phase == AgentPhase.Live && connected,
                     planPending = planAwaitingApproval,
                     commandsAvailable = slashCatalogAvailable,
-                    // EXP-746: the live model/effort/mode chips.
-                    chips = chips,
-                    onSetOption = viewModel::setConfig,
+                    // EXP-772: the run's mode, the one steering chip left.
+                    modeChip = modeChip,
                     onSetMode = viewModel::setMode,
                     onPickImages = {
                         imagePicker.launch(
@@ -1158,7 +1200,7 @@ fun AgentSessionScreen(
             title = { Text("Kill this coding session?") },
             text = {
                 Text(
-                    "This force-terminates the agent's terminal on the desktop " +
+                    "This stops the agent on the desktop " +
                         "and ends the session. It cannot be undone.",
                 )
             },
@@ -1434,7 +1476,7 @@ private fun ActivityFeed(
     // and `working` re-pins when the EXP-389 footer appears/disappears.
     LaunchedEffect(feed.size, follow, agentTab, working) {
         val visible = if (focused != null) {
-            focused.tools.size + 1
+            focused.items.size + 1
         } else {
             rows.size + (if (working) 1 else 0)
         }
@@ -1469,14 +1511,15 @@ private fun ActivityFeed(
         ) {
             if (focused != null) {
                 // EXP-356: the focused subagent's conversation — its
-                // delegation summary, then every tool call as a full row.
+                // delegation summary, then (EXP-773) its prose, the turns
+                // addressed to it and its tool calls, in publish order.
                 item(key = "agent-summary") {
-                    SubagentGroupRow(run = focused.copy(tools = emptyList()), liveTail = false)
+                    SubagentGroupRow(run = focused.copy(items = emptyList()), liveTail = false)
                 }
-                if (focused.tools.isEmpty()) {
+                if (focused.items.isEmpty()) {
                     item(key = "agent-empty") {
                         Text(
-                            "No tool calls yet.",
+                            "Nothing from this agent yet.",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(
                                 alpha = TextEmphasis.Tertiary,
@@ -1485,8 +1528,8 @@ private fun ActivityFeed(
                         )
                     }
                 } else {
-                    items(focused.tools, key = { it.id }) { tool ->
-                        ToolRow(tool.name, tool.detail)
+                    items(focused.items, key = { it.id }) { item ->
+                        SubagentItemRow(item)
                     }
                 }
             } else {
@@ -1540,7 +1583,7 @@ private fun ActivityFeed(
                                 agentType = item.agentType,
                                 completed = item.completed,
                                 detail = item.detail,
-                                tools = emptyList(),
+                                items = emptyList(),
                             ),
                             liveTail = false,
                         )
@@ -2521,7 +2564,7 @@ private fun SubagentGroupRow(
     liveTail: Boolean,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val expandable = run.tools.isNotEmpty()
+    val expandable = run.items.isNotEmpty()
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -2586,14 +2629,28 @@ private fun SubagentGroupRow(
             )
         }
         when {
+            // EXP-773: the run's whole conversation in order, not just its
+            // tool calls.
             expanded -> Column(modifier = Modifier.padding(start = 22.dp)) {
-                run.tools.forEach { ToolRow(it.name, it.detail) }
+                run.items.forEach { SubagentItemRow(it) }
             }
-            liveTail && run.tools.isNotEmpty() -> Column(modifier = Modifier.padding(start = 22.dp)) {
-                val latest = run.tools.last()
-                ToolRow(latest.name, latest.detail)
+            liveTail && run.items.isNotEmpty() -> Column(modifier = Modifier.padding(start = 22.dp)) {
+                SubagentItemRow(run.items.last())
             }
         }
+    }
+}
+
+// EXP-773: one row of a subagent's conversation — its prose, a turn addressed
+// to it, or one of its tool calls. Anything else a group somehow collected
+// renders nothing rather than breaking the feed.
+@Composable
+private fun SubagentItemRow(item: AgentFeedItem) {
+    when (item) {
+        is AgentFeedItem.Tool -> ToolRow(item.name, item.detail)
+        is AgentFeedItem.Narration -> NarrationBubble(item.text)
+        is AgentFeedItem.UserMessage -> UserMessageBubble(item.text)
+        else -> Unit
     }
 }
 
@@ -2721,12 +2778,10 @@ private fun SteerComposer(
     /** EXP-724: this run's agent has catalog commands — the placeholder says
      *  so, since a `/` menu nothing hints at is a menu nobody finds. */
     commandsAvailable: Boolean,
-    /** EXP-746: the live agent configuration as chips, in publisher order
-     *  (the mode chip first). Empty on a PTY run — which publishes none — and
-     *  then the composer draws exactly what it always did. */
-    chips: List<ConfigChip> = emptyList(),
-    /** Picking a value on an option chip: (option id, value id). */
-    onSetOption: (String, String) -> Unit = { _, _ -> },
+    /** EXP-772: the run's MODE, the one steering control left. Null when the
+     *  run advertises no modes, and the composer then draws exactly what it
+     *  always did. */
+    modeChip: ModeChip? = null,
     /** Picking a mode on the mode chip. */
     onSetMode: (String) -> Unit = {},
     onPickImages: () -> Unit,
@@ -2778,14 +2833,11 @@ private fun SteerComposer(
         opaque = true,
         // EXP-746: the chip row sits ABOVE the pending-image strip, which
         // keeps that strip exactly where it has always been.
-        leading = if (chips.isEmpty()) {
-            null
-        } else {
+        leading = modeChip?.let { chip ->
             {
-                ConfigChipRow(
-                    chips = chips,
+                ModeChipRow(
+                    chip = chip,
                     enabled = live && !sending,
-                    onSetOption = onSetOption,
                     onSetMode = onSetMode,
                 )
             }
@@ -2853,20 +2905,125 @@ private fun SteerComposer(
 }
 
 /**
- * EXP-746: the live agent-configuration chips above the composer — the mode
- * chip first, then the options in publisher order ([configChips] decides that,
- * identically on all four clients).
- *
- * Each chip is fire-and-forget: the tap sends one `set_config`/`set_mode`
- * frame and nothing here goes into a pending state, because the publisher's
- * re-emitted `config_state` IS the confirmation. A chip the run advertises no
- * values for is READ-ONLY — it renders what is in force and opens no menu.
+ * EXP-773: what the journal fetch is doing, named after the machine that holds
+ * it. Byte-identical ×4 (web `session-history.ts`, iOS `historyStatus`,
+ * desktop `session.rs`).
+ */
+private fun historyStatus(state: HistoryState?, device: String): String = when (state) {
+    HistoryState.Pending -> "Fetching the transcript from $device…"
+    HistoryState.DeviceOffline ->
+        "$device is offline. The transcript lives on that machine."
+    HistoryState.Unavailable -> "No transcript on $device."
+    null -> ""
+}
+
+/**
+ * EXP-773: a finished run's byline, its Resume and its close-out summary,
+ * above the transcript. Every runs list dropped its expand-to-summary row for
+ * this: a close-out is a paragraph, and a paragraph belongs next to the
+ * transcript it summarizes, not in a list. Renders nothing while the run is
+ * still going.
  */
 @Composable
-private fun ConfigChipRow(
-    chips: List<ConfigChip>,
+private fun EndedRunHeader(
+    session: CodingSessionEntity?,
+    hostLabel: String,
+    resumeTarget: RunResumeTarget?,
+    runState: ActionRunState,
+    onResume: (RunResumeTarget) -> Unit,
+) {
+    if (session == null || session.status != DomainContract.codingSessionStatusEnded) return
+    var confirmResume by remember { mutableStateOf(false) }
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                // The ×4 `pastRunByline` the list rows print, now that the row
+                // itself only carries a link.
+                pastRunByline(
+                    deviceLabel = hostLabel,
+                    agentLabel = session.agent?.takeIf { it.isNotBlank() }?.let(::agentLabel),
+                    endedBy = session.endedBy,
+                    timeLabel = relativeTime(session.endedAt ?: session.updatedAt),
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            // Only on the machine that still holds the run's worktree
+            // (`resumeTargetFor`) — everywhere else there is nothing to pick
+            // up.
+            if (resumeTarget != null) {
+                GlassPill(
+                    label = "Resume",
+                    icon = ExpIcons.runResume,
+                    size = PillSize.Sm,
+                    enabled = runState !is ActionRunState.Sending,
+                    onClick = { confirmResume = true },
+                    modifier = Modifier.testTag("resume-run"),
+                )
+            }
+        }
+        val summary = session.summary?.takeIf { it.isNotBlank() }
+        if (summary != null) {
+            Box(modifier = Modifier.testTag("run-summary")) {
+                MarkdownView(markdown = summary)
+            }
+        }
+        // The shared "waiting for the desktop" / refusal caption every remote
+        // start on every surface prints.
+        SteerRunCaptionRow(state = runState)
+    }
+
+    // A resume relaunches the agent on that machine — cheap, but not silent:
+    // the same confirm shape as the other remote commands.
+    if (confirmResume && resumeTarget != null) {
+        AlertDialog(
+            onDismissRequest = { confirmResume = false },
+            title = { Text("Resume this run?") },
+            text = {
+                Text(
+                    "Starts the agent again on ${resumeTarget.deviceLabel}, in the same " +
+                        "workspace, picking up where the run stopped.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmResume = false
+                        onResume(resumeTarget)
+                    },
+                ) { Text("Resume") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmResume = false }) { Text("Cancel") }
+            },
+        )
+    }
+}
+
+/**
+ * EXP-772: the run's MODE above the composer, and nothing else. Model and
+ * effort pickers are gone from a live session — they are launch decisions, and
+ * a mid-run swap only ever muddied the transcript.
+ *
+ * Fire-and-forget: the tap sends one `set_mode` frame and nothing here goes
+ * into a pending state, because the publisher's re-emitted `config_state` IS
+ * the confirmation. An agent that refuses re-emits the old mode and the chip
+ * snaps back.
+ *
+ * `plan` plus exactly one other mode draws as a compact Plan SWITCH: a
+ * two-entry dropdown for "Plan or Build" is a menu that can only ever say the
+ * thing the pill already shows.
+ */
+@Composable
+private fun ModeChipRow(
+    chip: ModeChip,
     enabled: Boolean,
-    onSetOption: (String, String) -> Unit,
     onSetMode: (String) -> Unit,
 ) {
     Row(
@@ -2877,42 +3034,49 @@ private fun ConfigChipRow(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        chips.forEach { chip ->
-            key(chip.kind, chip.id) {
-                var open by remember { mutableStateOf(false) }
-                val pickable = enabled && chip.values.isNotEmpty()
-                Box {
-                    GlassPill(
-                        label = chip.valueLabel,
-                        size = PillSize.Sm,
-                        mode = if (pickable) PillMode.Action else PillMode.Readonly,
-                        enabled = enabled,
-                        onClick = { open = true },
-                        leading = {
-                            Text(
-                                chip.label,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(
-                                    alpha = TextEmphasis.Tertiary,
-                                ),
-                                maxLines = 1,
-                            )
+        val toggle = chip.planToggle
+        if (toggle != null) {
+            GlassPill(
+                label = PLAN_TOGGLE_LABEL,
+                size = PillSize.Sm,
+                mode = PillMode.Select,
+                selected = toggle.on,
+                enabled = enabled,
+                onClick = { onSetMode(if (toggle.on) toggle.otherId else toggle.planId) },
+                modifier = Modifier.testTag("agent-mode-chip"),
+            )
+            return@Row
+        }
+        var open by remember { mutableStateOf(false) }
+        val pickable = enabled && !chip.readOnly
+        Box {
+            GlassPill(
+                label = chip.valueLabel,
+                size = PillSize.Sm,
+                mode = if (pickable) PillMode.Action else PillMode.Readonly,
+                enabled = enabled,
+                onClick = { open = true },
+                modifier = Modifier.testTag("agent-mode-chip"),
+                leading = {
+                    Text(
+                        CONFIG_MODE_LABEL,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(
+                            alpha = TextEmphasis.Tertiary,
+                        ),
+                        maxLines = 1,
+                    )
+                },
+            )
+            GlassDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                chip.values.forEach { value ->
+                    GlassMenuItem(
+                        text = { Text(value.label) },
+                        onClick = {
+                            open = false
+                            onSetMode(value.id)
                         },
                     )
-                    GlassDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                        chip.values.forEach { value ->
-                            GlassMenuItem(
-                                text = { Text(value.label) },
-                                onClick = {
-                                    open = false
-                                    when (chip.kind) {
-                                        ConfigChip.Kind.Mode -> onSetMode(value.id)
-                                        ConfigChip.Kind.Option -> onSetOption(chip.id, value.id)
-                                    }
-                                },
-                            )
-                        }
-                    }
                 }
             }
         }

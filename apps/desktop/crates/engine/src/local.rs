@@ -152,6 +152,13 @@ pub const SUBAGENT_META_KEY: &str = "exponentialSubagent";
 /// equal the edge's `id` above.
 pub const SUBAGENT_ID_META_KEY: &str = "subagentId";
 
+/// EXP-772: the `_meta` key an adapter stamps on a `UserMessageChunk` it
+/// INJECTED itself (claude's `/clear` and the plan hand-off re-prompt). The
+/// mapper registers the text as a pending echo and publishes NOTHING: the
+/// CLI replays every user turn, so without this the machinery the adapter
+/// typed for the user surfaces as a user bubble.
+pub const INJECTED_PROMPT_META_KEY: &str = "exponentialInjectedPrompt";
+
 /// The `_meta` key on a `CompactionUpdate` (or the notification carrying it)
 /// naming what triggered the compaction — ACP has no field for it. Folded by
 /// `steer::normalize_compaction_trigger` (`manual` stays, everything else is

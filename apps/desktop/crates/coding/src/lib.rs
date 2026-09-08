@@ -19,18 +19,17 @@
 //! ```text
 //! // background executor (blocking network + git I/O, gpui-free):
 //! let prepared = coding::prepare(&req, &deps)?;
-//! // foreground (gpui):
+//! // foreground:
 //! match prepared {
-//!     Prepared::Ready(p) => coding::spawn_prepared(p, &terminal_manager, cx, trpc)?,
+//!     Prepared::Ready(p) => engine::start(p, ..)?,
 //!     Prepared::Disabled(reason) => LaunchOutcome::Disabled { reason },
 //! }
 //! ```
 //!
-//! On `LaunchOutcome::Spawned { session_id, .. }` the app/ui layer hands the
-//! session id to the steer publisher (§08; the PTY tee was removed with the
-//! binary mirror in EXP-249 — only the scrubbed activity stream publishes) —
-//! `coding` deliberately does not depend on `steer` (§3.1 dependency
-//! direction).
+//! EXP-773: the in-process ACP engine (`crates/engine`) is the ONE host —
+//! it owns the publisher, the activity vocabulary and the session's end.
+//! `coding` deliberately depends on neither `engine` nor `steer` (§3.1
+//! dependency direction).
 //!
 //! The eight steps, their failure surfaces (`DisabledReason` — never
 //! falsely block, always explain), and the worktree layout are specified in
@@ -60,6 +59,7 @@ pub mod launch_gate;
 pub mod launcher;
 pub mod mcp_json;
 pub mod pi_bridge;
+pub mod process;
 pub mod prompt;
 pub mod prune;
 pub mod remote_admin;
@@ -81,9 +81,8 @@ pub mod worktree_agents;
 
 pub use agent::{AgentKind, CodingAgent};
 pub use argv::{
-    permission_args, session_args, AgentMcp, LaunchOptions, SessionTail, HOOK_CONFIG_ENV,
-    HOOK_PORT_ENV, MCP_SESSION_ID_ENV, MCP_TOKEN_ENV, MCP_URL_ENV, OBSERVER_TOKEN_ENV,
-    OBSERVER_URL_ENV,
+    permission_args, shell_args, AgentMcp, LaunchOptions, MCP_SESSION_ID_ENV, MCP_TOKEN_ENV,
+    MCP_URL_ENV,
 };
 pub use batch_launcher::{
     action_run_branch, action_slug, batch_branch_name, chat_run_branch, new_batch_id, new_run_id,
@@ -120,28 +119,22 @@ pub use git_worktree::{
     branch_name, clone_path, shell_cwd, worktree_path, GitError, TokenUrl,
 };
 pub use launch_gate::LaunchHold;
-#[cfg(feature = "gpui")]
-pub use launcher::{spawn_prepared, spawn_prepared_with, ExitNotify};
 pub use launcher::{set_session_end_observer, start_heartbeat, HeartbeatStop};
 pub use launcher::SESSION_HEARTBEAT_INTERVAL;
 pub use launcher::{
     claude_projects_root, claude_transcript_exists, default_device_label, end_session,
     end_session_best_effort, locate_claude_transcript, prepare, prepare_agent_shell,
-    prepare_with_hooks, resolve_pty_sidecars, resolve_transport, resolve_transport_with_reason,
-    transport_notice,
-    AcpLaunch, ActionLaunchRequest, ActionRunKind,
+    AcpLaunch, ActionLaunchRequest, ActionRunKind, ACP_TRANSPORT,
     AgentShellLaunch, AgentShellRequest, CodingDeps, CodingError, DisabledReason,
-    GitWorktrees, HookSetup, IssueSeed, IssueSeedFn, LaunchOrigin, LaunchOutcome, LaunchRequest,
-    LaunchTransport, NoSidecars, ObserverSetup, ResumeRunRequest, ResumeSeed, SessionEndObserver,
-    SidecarSource,
-    Prepared, PreparedAgentShell, PrepareRequest, PreparedLaunch, TransportChoice,
-    TransportFallback, WorktreeProvider,
+    GitWorktrees, IssueSeed, IssueSeedFn, LaunchOrigin, LaunchOutcome, LaunchRequest,
+    ResumeRunRequest, ResumeSeed, SessionEndObserver,
+    Prepared, PreparedAgentShell, PrepareRequest, PreparedLaunch, WorktreeProvider,
 };
 pub use run_cleanup::{remove_if_clean, CleanupOutcome, RunCleanup};
 pub use mcp_json::{
     remove_stale_legacy_mcp_json, render_mcp_json, write_mcp_json, MCP_JSON_FILE,
 };
-pub use pi_bridge::{write_pi_bridge, write_pi_observer, PI_BRIDGE_FILE, PI_OBSERVER_FILE};
+pub use pi_bridge::{write_pi_bridge, PI_BRIDGE_FILE};
 pub use prune::{prune_landed, PrunePolicy, PruneReport, SkipReason};
 pub use inventory::{
     inventory_fingerprint, scan_clones, scan_inventory, CloneRef, WorktreeInventoryEntry,
@@ -154,10 +147,7 @@ pub use remote_admin::{
     apply_defaults_patch, conservative_prune_policy, defaults_wire, remove_worktree_remote,
     AgentDefaultsPatch, DefaultsPatch, RemoveWorktreeError,
 };
-pub use prompt::{
-    deliver_prompt, deliver_prompt_file, render_prompt, render_resume_prompt,
-    write_rendered_prompt, PromptDelivery, PROMPT_ARGV_MAX_BYTES, PROMPT_FILE, SEED_LINE,
-};
+pub use prompt::{render_prompt, render_resume_prompt};
 pub use settings::{ExternalAgentSpec, Settings};
 pub use token_refresh::{
     next_refresh_delay, refresh_clone_token, REFRESH_LEAD, TOKEN_REFRESH_RETRY,

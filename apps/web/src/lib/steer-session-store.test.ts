@@ -164,6 +164,166 @@ describe(`connection lifecycle`, () => {
     store.dispose()
   })
 
+  // EXP-772: the ACP coalescer flushes one assistant message as several
+  // narration events sharing a `messageId`.
+  it(`merges narration fragments that share a messageId`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    const fragment = (text: string, messageId?: string) => ({
+      t: `activity`,
+      event: { kind: `narration`, text, messageId },
+    })
+    socket.frame(fragment(`Looking`, `m1`))
+    socket.frame(fragment(` at the code.`, `m1`))
+    socket.frame(fragment(`Next message.`, `m2`))
+    // No id at all (an older publisher): its own row, always.
+    socket.frame(fragment(`Legacy line.`))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().feed.map((item) => (item as { text: string }).text)).toEqual([
+      `Looking at the code.`,
+      `Next message.`,
+      `Legacy line.`,
+    ])
+    // A tool row in between ends the bubble — the fragment opens a new one.
+    socket.frame({ t: `activity`, event: { kind: `tool`, name: `Read` } })
+    socket.frame(fragment(` more`, `m2`))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().feed).toHaveLength(5)
+    store.dispose()
+  })
+
+  // EXP-773: an ended run's transcript lives on the DEVICE. The relay parks
+  // the viewer, asks the machine to republish its journal, and the feed
+  // stays visible after the `bye`.
+  it(`history_pending names the device and the history bye ends the run`, async () => {
+    const { store, sockets } = makeStore()
+    store.noteSessionStatus(`ended`)
+    store.noteDeviceLabel(`buildbox`)
+    store.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    const socket = sockets[0]
+    socket.open()
+    socket.frame({ t: `history_pending` })
+    expect(store.getSnapshot().phase).toEqual({
+      kind: `history_pending`,
+      detail: `Fetching the transcript from buildbox…`,
+    })
+    // The republish streams like any replay — and never claims to be live.
+    socket.frame({ t: `activity_reset` })
+    socket.frame({ t: `activity`, event: { kind: `narration`, text: `did it` } })
+    socket.frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().phase.kind).toBe(`history_pending`)
+    expect(store.getSnapshot().feed).toHaveLength(1)
+    socket.frame({ t: `bye`, outcome: `history` })
+    socket.serverClose(4001)
+    expect(store.getSnapshot().phase).toEqual({ kind: `ended`, detail: undefined })
+    // The transcript stays on screen, read-only.
+    expect(store.getSnapshot().feed).toHaveLength(1)
+    store.dispose()
+  })
+
+  it(`a device_offline history error is terminal and never redials`, async () => {
+    const { store, sockets } = makeStore()
+    store.noteSessionStatus(`ended`)
+    store.noteDeviceLabel(`buildbox`)
+    store.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    const socket = sockets[0]
+    socket.open()
+    socket.frame({ t: `error`, code: `device_offline` })
+    socket.serverClose(4001)
+    expect(store.getSnapshot().phase).toEqual({
+      kind: `closed`,
+      detail: `buildbox is offline. The transcript lives on that machine.`,
+      terminal: true,
+    })
+    // Terminal: neither the backoff nor a wakeup opens a second socket.
+    store.kick(`test`)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(sockets).toHaveLength(1)
+    store.dispose()
+  })
+
+  // EXP-773: the relay parks EVERY join it has no live room for, so a run
+  // whose publisher has not hello'd yet gets a device answer instead of
+  // `no_such_session`. None of those answers is an ending while the synced
+  // row says the run is alive.
+  it(`a history bye on a live run goes back to starting and redials`, async () => {
+    const { store, sockets } = makeStore()
+    store.noteSessionStatus(`running`)
+    store.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    const socket = sockets[0]
+    socket.open()
+    socket.frame({ t: `history_pending` })
+    socket.frame({
+      t: `activity`,
+      event: { kind: `narration`, text: `partial` },
+    })
+    socket.frame({ t: `bye`, outcome: `history` })
+    socket.serverClose(4001)
+    expect(store.getSnapshot().phase.kind).toBe(`starting`)
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(sockets.length).toBeGreaterThan(1)
+    store.dispose()
+  })
+
+  it(`a history_unavailable on a live run redials too`, async () => {
+    const { store, sockets } = makeStore()
+    store.noteSessionStatus(`running`)
+    store.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    const socket = sockets[0]
+    socket.open()
+    socket.frame({ t: `history_pending` })
+    socket.frame({ t: `error`, code: `history_unavailable` })
+    socket.frame({ t: `bye`, outcome: `history_unavailable` })
+    socket.serverClose(4001)
+    expect(store.getSnapshot().phase.kind).toBe(`starting`)
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(sockets.length).toBeGreaterThan(1)
+    store.dispose()
+  })
+
+  // The relay's timeout sends the error frame and THEN closes the room with
+  // the same code as the bye outcome — the human caption must survive it.
+  it(`the history timeout keeps its caption instead of the raw outcome`, async () => {
+    const { store, sockets } = makeStore()
+    store.noteSessionStatus(`ended`)
+    store.noteDeviceLabel(`buildbox`)
+    store.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    const socket = sockets[0]
+    socket.open()
+    socket.frame({ t: `history_pending` })
+    socket.frame({ t: `error`, code: `history_unavailable` })
+    socket.frame({ t: `bye`, outcome: `history_unavailable` })
+    socket.serverClose(4001)
+    expect(store.getSnapshot().phase).toEqual({
+      kind: `ended`,
+      detail: `No transcript on buildbox.`,
+    })
+    store.dispose()
+  })
+
+  it(`history_unavailable says so, without a device name when none is known`, async () => {
+    const { store, sockets } = makeStore()
+    store.noteSessionStatus(`ended`)
+    store.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    const socket = sockets[0]
+    socket.open()
+    socket.frame({ t: `error`, code: `history_unavailable` })
+    socket.serverClose(4001)
+    expect(store.getSnapshot().phase).toEqual({
+      kind: `closed`,
+      detail: `No transcript on the device.`,
+      terminal: true,
+    })
+    store.dispose()
+  })
+
   it(`snapshot identity is stable between mutations`, async () => {
     const { store, sockets } = makeStore()
     await goLive(store, sockets)
@@ -830,18 +990,10 @@ describe(`live config + usage (EXP-746)`, () => {
     t: `activity`,
     event: {
       kind: `config_state`,
-      options: [
-        {
-          id: `model`,
-          label: `Model`,
-          value: `opus`,
-          values: [
-            { id: `opus`, label: `Opus` },
-            { id: `sonnet`, label: `Sonnet` },
-          ],
-        },
+      modes: [
+        { id: `plan`, label: `Plan` },
+        { id: `bypassPermissions`, label: `Build` },
       ],
-      modes: [{ id: `plan`, label: `Plan` }],
       currentMode: `plan`,
       commands: [{ name: `review`, description: `Review the diff` }],
       ...over,
@@ -865,18 +1017,10 @@ describe(`live config + usage (EXP-746)`, () => {
     await vi.advanceTimersByTimeAsync(100)
     expect(store.getSnapshot().feed).toEqual([])
     expect(store.getSnapshot().config).toEqual({
-      options: [
-        {
-          id: `model`,
-          label: `Model`,
-          value: `opus`,
-          values: [
-            { id: `opus`, label: `Opus` },
-            { id: `sonnet`, label: `Sonnet` },
-          ],
-        },
+      modes: [
+        { id: `plan`, label: `Plan` },
+        { id: `bypassPermissions`, label: `Build` },
       ],
-      modes: [{ id: `plan`, label: `Plan` }],
       commands: [{ name: `review`, description: `Review the diff` }],
       currentMode: `plan`,
     })
@@ -889,15 +1033,13 @@ describe(`live config + usage (EXP-746)`, () => {
     socket.frame(configEvent())
     socket.frame(
       configEvent({
-        options: [{ id: `effort`, label: `Effort`, value: `high` }],
-        modes: undefined,
+        modes: [],
         currentMode: undefined,
         commands: undefined,
       })
     )
     await vi.advanceTimersByTimeAsync(100)
     expect(store.getSnapshot().config).toEqual({
-      options: [{ id: `effort`, label: `Effort`, value: `high` }],
       modes: [],
       commands: [],
     })
@@ -949,31 +1091,9 @@ describe(`live config + usage (EXP-746)`, () => {
     store.dispose()
   })
 
-  it(`setConfig sends one set_config frame and nothing else`, async () => {
-    const { store, sockets } = makeStore()
-    const socket = await goLive(store, sockets)
-    const before = socket.sent.length
-    expect(store.setConfig(`model`, `sonnet`)).toBe(true)
-    expect(socket.sent.slice(before)).toEqual([
-      JSON.stringify({ t: `set_config`, id: `model`, value: `sonnet` }),
-    ])
-    // Fire-and-forget: no optimistic slot write, the re-emission repaints.
-    expect(store.getSnapshot().config).toBeNull()
-    store.dispose()
-  })
-
-  it(`setConfig sends a blank value verbatim`, async () => {
-    const { store, sockets } = makeStore()
-    const socket = await goLive(store, sockets)
-    const before = socket.sent.length
-    expect(store.setConfig(`model`, ``)).toBe(true)
-    expect(socket.sent.slice(before)).toEqual([
-      JSON.stringify({ t: `set_config`, id: `model`, value: `` }),
-    ])
-    store.dispose()
-  })
-
-  it(`setMode sends one set_mode frame`, async () => {
+  // EXP-772: the mode is the ONLY thing the composer switches now — the
+  // `set_config` sender went with the option chips.
+  it(`setMode sends one set_mode frame and nothing else`, async () => {
     const { store, sockets } = makeStore()
     const socket = await goLive(store, sockets)
     const before = socket.sent.length
@@ -981,15 +1101,16 @@ describe(`live config + usage (EXP-746)`, () => {
     expect(socket.sent.slice(before)).toEqual([
       JSON.stringify({ t: `set_mode`, id: `plan` }),
     ])
+    // Fire-and-forget: no optimistic slot write, the re-emission repaints.
+    expect(store.getSnapshot().config).toBeNull()
     store.dispose()
   })
 
-  it(`setConfig on a closed socket returns false and sends nothing`, async () => {
+  it(`setMode on a closed socket returns false and sends nothing`, async () => {
     const { store, sockets } = makeStore()
     const socket = await goLive(store, sockets)
     socket.serverClose(1006)
     const before = socket.sent.length
-    expect(store.setConfig(`model`, `sonnet`)).toBe(false)
     expect(store.setMode(`plan`)).toBe(false)
     expect(socket.sent).toHaveLength(before)
     store.dispose()
@@ -1023,14 +1144,11 @@ describe(`replay staging (EXP-751)`, () => {
     t: `activity`,
     event: {
       kind: `config_state`,
-      options: [
-        {
-          id: `model`,
-          label: `Model`,
-          value: `opus`,
-          values: [{ id: `opus`, label: `Opus` }],
-        },
+      modes: [
+        { id: `plan`, label: `Plan` },
+        { id: `bypassPermissions`, label: `Build` },
       ],
+      currentMode: `plan`,
     },
   }
   const usageFrame = {
@@ -1302,7 +1420,7 @@ describe(`replay staging (EXP-751)`, () => {
       const snap = store.getSnapshot()
       seen.push([
         snap.feed.length,
-        snap.config?.options[0]?.value,
+        snap.config?.currentMode,
         snap.usage?.contextSize,
         snap.latestDiff,
       ])
@@ -1318,7 +1436,7 @@ describe(`replay staging (EXP-751)`, () => {
     socket.frame({ t: `activity_synced` })
     await vi.advanceTimersByTimeAsync(100)
     unsubscribe()
-    expect(seen).toEqual([[1, `opus`, 100_000, `--- b`]])
+    expect(seen).toEqual([[1, `plan`, 100_000, `--- b`]])
 
     // A replay that carries none of them leaves the slots empty — they are
     // state derived from the log, not a sticky client cache.

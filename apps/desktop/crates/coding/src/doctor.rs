@@ -384,10 +384,10 @@ pub struct AgentAdvertisement {
     /// EXP-746: the runnable agents that also speak ACP ([`ToolCheck::acp`]).
     /// EXP-749 puts it on the `devices.register` payload and the synced
     /// `devices.acp_agents` column, so remote pickers can SAY which agents
-    /// would start in a terminal tab on that machine. They never filter on
-    /// it: a not-ready agent still runs there, on the PTY path. An empty
-    /// list is a real answer ("none of them"); only a NULL column — an older
-    /// build's row — means "unknown, assume all".
+    /// can actually run a session on that machine (EXP-773: an agent that is
+    /// not ACP-ready cannot start one at all). An empty list is a real answer
+    /// ("none of them"); only a NULL column — an older build's row — means
+    /// "unknown, assume all".
     pub acp_agents: Vec<String>,
 }
 
@@ -473,7 +473,7 @@ fn run_doctor_with_depth(settings: &Settings, depth: DoctorDepth) -> DoctorRepor
 /// [`MIN_CLAUDE_VERSION`], and stamp the SEPARATE, non-fatal ACP readiness
 /// (EXP-746) from [`MIN_CLAUDE_ACP_VERSION`]. An unparseable version stays
 /// green — never falsely block a nonstandard build — and its ACP readiness
-/// stays unknown (`None`), which resolves to the PTY path.
+/// stays unknown (`None`), which refuses a coding launch with the note.
 fn apply_version_gate(check: &mut ToolCheck) {
     if !check.ok {
         return;
@@ -488,8 +488,7 @@ fn apply_version_gate(check: &mut ToolCheck) {
         let (acp_major, acp_minor, acp_patch) = MIN_CLAUDE_ACP_VERSION;
         check.acp_note = Some(format!(
             "Claude Code {major}.{minor}.{patch} has no ACP control protocol. \
-Update to {acp_major}.{acp_minor}.{acp_patch}+ for the session screen; \
-sessions run in a terminal tab until then."
+Update to {acp_major}.{acp_minor}.{acp_patch}+ to run coding sessions."
         ));
     }
     if version < MIN_CLAUDE_VERSION {
@@ -515,6 +514,7 @@ sessions run in a terminal tab until then."
 /// which still resolved to the engine and then died in the handshake. Like
 /// claude's, the floor is non-fatal (the run falls back to the PTY) and an
 /// unparseable version stays ready: never falsely demote a nonstandard build.
+/// EXP-773: a launch below the floor is REFUSED (there is no PTY left).
 fn apply_codex_acp(check: &mut ToolCheck) {
     check.acp = Some(check.ok);
     if !check.ok {
@@ -532,8 +532,7 @@ fn apply_codex_acp(check: &mut ToolCheck) {
     check.acp = Some(false);
     check.acp_note = Some(format!(
         "Codex {major}.{minor}.{patch} has no app-server this build can drive. \
-Update to {min_major}.{min_minor}.{min_patch}+ for the session screen; \
-sessions run in a terminal tab until then."
+Update to {min_major}.{min_minor}.{min_patch}+ to run coding sessions."
     ));
 }
 
@@ -546,8 +545,8 @@ pub fn probe_codex_acp(program: &str, path_env: &str) -> bool {
 }
 
 /// The copy a pi build without the rpc mode gets (EXP-746).
-const PI_NO_RPC_MODE_NOTE: &str = "This pi build has no rpc mode. Update pi for the session \
-screen; sessions run in a terminal tab until then.";
+const PI_NO_RPC_MODE_NOTE: &str = "This pi build has no rpc mode. Update pi to run coding \
+sessions.";
 
 /// EXP-755: the last `pi --mode rpc` verdict, per resolved program path.
 ///
@@ -613,10 +612,20 @@ fn probe_pi_rpc(check: &mut ToolCheck, settings: &Settings, depth: DoctorDepth) 
             return;
         }
     }
-    let supported = pi_rpc_handshake(&stamp.program);
+    let probed = pi_rpc_handshake(&stamp.program);
+    // Fail open for THIS call whatever happened (the engine's own handshake is
+    // the authoritative one).
+    let supported = probed.unwrap_or(true);
     let note = (!supported).then(|| PI_NO_RPC_MODE_NOTE.to_string());
     check.acp = Some(supported);
     check.acp_note = note.clone();
+    // EXP-766: only a REAL verdict is worth remembering. An indeterminate
+    // probe used to cache its fail-open `true` under the binary's stamp, so a
+    // pi that could not be spawned once read as ready until the binary
+    // changed or the process restarted.
+    if probed.is_none() {
+        return;
+    }
     if let Ok(mut cache) = PI_RPC_CACHE.lock() {
         cache.insert(
             stamp.program.clone(),
@@ -649,11 +658,12 @@ fn cached_pi_rpc(stamp: &PiRpcStamp) -> Option<PiRpcVerdict> {
 /// pins `Stdio::null()` on stdin; the recipe below is the same otherwise
 /// (own process group, drained pipes, killed at the deadline).
 ///
-/// Fails OPEN (`true`) in every ambiguous case (no spawn, no PATH match, a
-/// wedged child): the engine's own handshake is the authoritative one, and a
-/// false negative here silently demotes a working install to the terminal
-/// transport. Same never-block-the-launch posture as the two checks above.
-fn pi_rpc_handshake(program: &str) -> bool {
+/// `None` = INDETERMINATE (no spawn, no stdio, a wedged child). The caller
+/// still fails open on it — the engine's own handshake is the authoritative
+/// one and a false negative here silently demotes a working install to the
+/// terminal transport — but a `None` is never CACHED (EXP-766), so the next
+/// pass probes again instead of trusting an answer nobody gave.
+fn pi_rpc_handshake(program: &str) -> Option<bool> {
     use std::io::{Read as _, Write as _};
     use std::process::Stdio;
     use wait_timeout::ChildExt as _;
@@ -670,13 +680,13 @@ fn pi_rpc_handshake(program: &str) -> bool {
         cmd.process_group(0);
     }
     let Ok(mut child) = cmd.spawn() else {
-        return true;
+        return None;
     };
     let Some(mut stdin) = child.stdin.take() else {
-        return true;
+        return None;
     };
     let Some(mut stdout) = child.stdout.take() else {
-        return true;
+        return None;
     };
     // One command, then EOF: pi's rpc loop ends with its stdin, so the child
     // reaps itself and the deadline below is only the wedged-child guard.
@@ -688,7 +698,7 @@ fn pi_rpc_handshake(program: &str) -> bool {
     if !asked {
         let _ = child.kill();
         let _ = child.wait();
-        return true;
+        return None;
     }
     // Drain on a thread: a child that fills the pipe buffer would never exit.
     let reader = std::thread::spawn(move || {
@@ -704,9 +714,9 @@ fn pi_rpc_handshake(program: &str) -> bool {
         }
         let _ = child.kill();
         let _ = child.wait();
-        return true;
+        return None;
     }
-    answered_get_state(&reader.join().unwrap_or_default())
+    Some(answered_get_state(&reader.join().unwrap_or_default()))
 }
 
 /// Did the child answer our `get_state` on its rpc stream? Line-delimited
@@ -1535,8 +1545,9 @@ mod tests {
         assert!(device_caps(&advert(&["claude"])).len() <= 16);
     }
 
-    /// EXP-746: ACP readiness NEVER gates a launch — a machine whose agents
-    /// all lack it still passes the doctor and simply runs in terminal tabs.
+    /// EXP-746: ACP readiness is not part of the DOCTOR's launch gate — a
+    /// machine whose agents all lack it still passes every tool check
+    /// (EXP-773's refusal is the launcher's, with the note below).
     #[test]
     fn acp_readiness_is_non_fatal() {
         let mut claude = green(Tool::Claude, "2.1.215 (Claude Code)");
@@ -2138,7 +2149,7 @@ mod tests {
             .acp_note
             .as_deref()
             .is_some_and(|note| note.contains("no rpc mode")
-                && note.contains("terminal tab")));
+                && note.contains("Update pi")));
 
         let mut again = green(Tool::Pi, "0.80.10");
         probe_pi_rpc(&mut again, &stub.settings(), DoctorDepth::Quick);
@@ -2155,6 +2166,30 @@ mod tests {
         probe_pi_rpc(&mut check, &Settings::default(), DoctorDepth::Deep);
         assert_eq!(check.acp, Some(false));
         assert_eq!(check.acp_note.as_deref(), Some("pi is not available"));
+    }
+
+    /// EXP-766: an INDETERMINATE probe still fails open for that one call, but
+    /// it is never cached. Caching it pinned "ready" onto a pi that could not
+    /// even be spawned, for the rest of the process.
+    #[test]
+    fn an_indeterminate_probe_is_not_cached() {
+        let program = std::env::temp_dir()
+            .join(format!("exp766-pi-missing-{}", std::process::id()))
+            .to_string_lossy()
+            .into_owned();
+        let settings = Settings {
+            pi_path: program.clone(),
+            ..Settings::default()
+        };
+        let mut check = green(Tool::Pi, "0.80.10");
+        probe_pi_rpc(&mut check, &settings, DoctorDepth::Quick);
+        // Fail-open is unchanged: the engine's handshake decides.
+        assert_eq!(check.acp, Some(true));
+        assert_eq!(check.acp_note, None);
+        assert!(
+            PI_RPC_CACHE.lock().unwrap().get(&program).is_none(),
+            "an answer nobody gave is not a verdict"
+        );
     }
 
     /// EXP-414: a wedged probe is killed at the deadline instead of stalling

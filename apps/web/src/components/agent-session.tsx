@@ -35,14 +35,6 @@ import {
   formatUsageCost,
   CONTEXT_SECTION_TITLE,
 } from "@/lib/agent-usage"
-import {
-  agentEffortValues,
-  agentModelValues,
-} from "@/lib/coding-launch-prefs"
-import {
-  effortLabel,
-  modelLabel,
-} from "@/components/launch-dialog/launch-options-pane"
 import type { SessionDevice } from "@/lib/session-device"
 import type { SessionIdentity } from "@/lib/session-identity"
 import {
@@ -54,15 +46,16 @@ import {
   answerKey,
   askStepperView,
   collectSubagents,
-  configChips,
   groupFeedRows,
   isAnswerLocked,
   looksLikeMarkdown,
+  modeChip,
+  planModeToggle,
+  subagentIdOf,
   summarizeSubagentRow,
   visibleSubagentTabs,
   type AnswerState,
   type AnswerStates,
-  type ConfigChip,
   type SessionConfigState,
   type SubagentSummary,
 } from "@/lib/agent-feed"
@@ -74,7 +67,6 @@ import {
   steerCommandsFor,
   COMPACTED_LABEL,
   COMPACTING_LABEL,
-  DEFAULT_STEER_AGENT,
   type SteerCommand,
 } from "@/lib/steer-commands"
 import {
@@ -236,6 +228,7 @@ export function AgentSessionView({
   currentUserId,
   identity,
   mergeTarget,
+  banner,
   onBack,
 }: {
   session: CodingSession
@@ -248,6 +241,9 @@ export function AgentSessionView({
    *  batch run's resolved representative (EXP-535), or the run's own chore PR
    *  row (EXP-734). Absent (no open PR, still syncing) = no Merge pill. */
   mergeTarget?: SessionMergeTarget
+  /** EXP-773: a strip between the header and the feed — the session route's
+   *  ended-run close-out (byline, Resume, the agent's summary). */
+  banner?: React.ReactNode
   /** Leave the session page (the socket outlives the unmount, EXP-621). */
   onBack: () => void
 }) {
@@ -405,16 +401,14 @@ export function AgentSessionView({
     agentTab !== null && visibleTabs.some((a) => a.subagentId === agentTab)
       ? agentTab
       : null
-  /** The focused agent's stream (its lifecycle markers + tool calls). */
+  /** The focused agent's stream, in feed order: its lifecycle markers, tool
+   *  calls and — since EXP-773 — the prose and user turns the mapper scoped
+   *  to it (they are hidden from Main for exactly that reason). */
   const agentItems = useMemo(
     () =>
       activeAgent === null
         ? []
-        : feed.filter(
-            (item) =>
-              (item.kind === `tool` || item.kind === `subagent`) &&
-              item.subagentId === activeAgent
-          ),
+        : feed.filter((item) => subagentIdOf(item) === activeAgent),
     [feed, activeAgent]
   )
   /** A trailing question/plan means the session is blocked on a human — the
@@ -523,6 +517,11 @@ export function AgentSessionView({
   // `kick`, which decides for itself whether this store is actually stuck
   // (it also shortcuts a `starting` backoff step); the phase test that used
   // to live here moved inside it.
+  // EXP-773: the history phases name the machine the transcript lives on.
+  useEffect(
+    () => store.noteDeviceLabel(device.label),
+    [store, device.label]
+  )
   const deviceOnline = device.online
   const wasOfflineRef = useRef(false)
   useEffect(() => {
@@ -701,6 +700,8 @@ export function AgentSessionView({
         )}
       </div>
 
+      {banner}
+
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-card/40">
           {/* EXP-356: conversation tabs — Main plus one per RUNNING subagent
               (ended tabs are dropped, EXP-387). */}
@@ -746,13 +747,19 @@ export function AgentSessionView({
                   </span>
                 </CenteredState>
               ) : feed.length === 0 &&
-                (phase.kind === `connecting` || phase.kind === `starting`) ? (
+                (phase.kind === `connecting` ||
+                  phase.kind === `starting` ||
+                  phase.kind === `history_pending`) ? (
                 <CenteredState>
                   <UiLoadingIcon className="size-4 animate-spin text-muted-foreground" />
                   <span className="text-xs text-muted-foreground">
-                    {phase.kind === `starting`
-                      ? `The agent is starting. Waiting for the live stream…`
-                      : `Connecting…`}
+                    {/* EXP-773: a finished run's transcript is a file on the
+                        device — the relay is asking it to republish. */}
+                    {phase.kind === `history_pending`
+                      ? (phase.detail ?? `Fetching the transcript…`)
+                      : phase.kind === `starting`
+                        ? `The agent is starting. Waiting for the live stream…`
+                        : `Connecting…`}
                   </span>
                 </CenteredState>
               ) : feed.length === 0 && live && !latestDiff ? (
@@ -1068,6 +1075,10 @@ function phaseLabel(
     return deviceLabel ? `Live · ${deviceLabel}` : `Live`
   }
   if (phase.kind === `starting`) return `Agent starting…`
+  // EXP-773: the run is over; its transcript is coming off the device.
+  if (phase.kind === `history_pending`) {
+    return deviceLabel ? `Loading transcript · ${deviceLabel}` : `Loading transcript`
+  }
   if (phase.kind === `connecting` || phase.kind === `idle`) return `Connecting…`
   if (phase.kind === `ended`) return `Session ended`
   return `Disconnected`
@@ -1088,7 +1099,10 @@ function PhaseDot({
   stale?: boolean
 }) {
   const connecting =
-    !paused && (phase.kind === `connecting` || phase.kind === `starting`)
+    !paused &&
+    (phase.kind === `connecting` ||
+      phase.kind === `starting` ||
+      phase.kind === `history_pending`)
   const awaiting = phase.kind === `live` && (awaitingInput || stale)
   return (
     <span
@@ -2041,8 +2055,10 @@ function AgentTab({
 }
 
 /** A focused subagent conversation (EXP-356): its delegation summary on top,
- *  then every tool call as a full row — the flat feed stays the state, this
- *  is a per-agent projection like the grouped main view. */
+ *  then its stream in feed order — the flat feed stays the state, this is a
+ *  per-agent projection like the grouped main view. EXP-773: the subagent's
+ *  own narration and user turns render here (interleaved with its tool rows),
+ *  because they are hidden from Main. */
 function AgentConversation({
   summary,
   items,
@@ -2050,8 +2066,16 @@ function AgentConversation({
   summary?: SubagentSummary
   items: FeedItem[]
 }) {
-  const tools = items.filter(
-    (i): i is Extract<FeedItem, { kind: `tool` }> => i.kind === `tool`
+  const rows = items.filter(
+    (
+      item
+    ): item is Extract<
+      FeedItem,
+      { kind: `tool` | `narration` | `user_message` }
+    > =>
+      item.kind === `tool` ||
+      item.kind === `narration` ||
+      item.kind === `user_message`
   )
   return (
     <>
@@ -2074,14 +2098,22 @@ function AgentConversation({
           )}
         </div>
       )}
-      {tools.length === 0 ? (
+      {rows.length === 0 ? (
         <div className="py-1 pl-0.5 text-xs text-muted-foreground">
-          No tool calls yet.
+          Nothing from this agent yet.
         </div>
       ) : (
-        tools.map((tool) => (
-          <ToolRow key={tool.id} name={tool.name} detail={tool.detail} />
-        ))
+        rows.map((item) => {
+          if (item.kind === `narration`) {
+            return <NarrationBubble key={item.id} text={item.text} />
+          }
+          if (item.kind === `user_message`) {
+            return <UserMessageBubble key={item.id} text={item.text} />
+          }
+          return (
+            <ToolRow key={item.id} name={item.name} detail={item.detail} />
+          )
+        })
       )}
     </>
   )
@@ -2152,88 +2184,72 @@ function ToolGroupRow({
   )
 }
 
-/** EXP-746: a chip's value as THIS client says it. The wire label always
- *  wins (all four clients then agree by construction); a raw value that
- *  happens to be part of the launch vocabulary runs through the same
- *  `modelLabel`/`effortLabel` the Start-coding dialog uses, so a chip reads
- *  "GPT-5.6 Sol" rather than `gpt-5.6-sol`. No new label table. */
-function configValueText(
-  chip: ConfigChip,
-  value: string,
-  wireLabel: string,
-  agent: string | null
-): string {
-  if (!value) return wireLabel
-  if (wireLabel !== value) return wireLabel
-  const id = agent?.trim() ? agent.trim() : DEFAULT_STEER_AGENT
-  if (chip.id === `model` && agentModelValues(id).includes(value)) {
-    return modelLabel(value)
-  }
-  if (chip.id === `effort` && agentEffortValues(id).includes(value)) {
-    return effortLabel(value)
-  }
-  return wireLabel
-}
-
-/** The composer's live-config chips: the mode chip first, then the agent's
- *  options in publisher order (`configChips`). A chip the agent published no
- *  values for is READ-ONLY — it renders what is in force and offers no menu.
- *  Switching is fire-and-forget: the publisher's re-emitted `config_state`
- *  repaints the chip, so there is no pending state to draw. */
-function ConfigChipRow({
-  chips,
-  agent,
+/** EXP-772: the composer's ONE live control — the session MODE. Model,
+ *  effort and every other option picker left the mid-session UI: an agent is
+ *  configured when it starts, and the only thing worth flipping mid-run is
+ *  plan on/off.
+ *
+ *  The claude/pi shape (exactly two modes, one of them `plan`) draws a "Plan"
+ *  toggle pill; any other mode list falls back to a two-value chip. Switching
+ *  is fire-and-forget: the publisher's re-emitted `config_state` repaints it,
+ *  so there is no pending state to draw. */
+function SessionModeControl({
+  config,
   live,
-  onPick,
+  onPickMode,
 }: {
-  chips: ConfigChip[]
-  agent: string | null
+  config: SessionConfigState | null
   live: boolean
-  onPick: (chip: ConfigChip, valueId: string) => void
+  onPickMode: (modeId: string) => void
 }) {
-  if (chips.length === 0) return null
+  const plan = planModeToggle(config)
+  const chip = modeChip(config)
+  if (plan) {
+    return (
+      <Pill
+        size="sm"
+        mode="select"
+        selected={plan.active}
+        disabled={!live}
+        title="Plan mode"
+        aria-pressed={plan.active}
+        onClick={() => onPickMode(plan.active ? plan.buildId : plan.planId)}
+      >
+        Plan
+      </Pill>
+    )
+  }
+  if (!chip) return null
+  if (chip.values.length < 2) {
+    return (
+      <Pill key={chip.id} size="sm" title={chip.label}>
+        <span className="text-muted-foreground">{chip.label}</span>
+        <span>{chip.valueLabel}</span>
+      </Pill>
+    )
+  }
   return (
-    <div className="flex min-w-0 items-center gap-1 overflow-x-auto">
-      {chips.map((chip) => {
-        const label = (
-          <>
-            <span className="text-muted-foreground">{chip.label}</span>
-            <span>
-              {configValueText(chip, chip.value, chip.valueLabel, agent)}
-            </span>
-          </>
-        )
-        if (chip.values.length === 0) {
-          return (
-            <Pill key={chip.id} size="sm" title={chip.label}>
-              {label}
-            </Pill>
-          )
-        }
-        return (
-          <DropdownMenu key={chip.id}>
-            <DropdownMenuTrigger asChild>
-              <Pill size="sm" mode="action" disabled={!live} title={chip.label}>
-                {label}
-              </Pill>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              {chip.values.map((value) => (
-                <DropdownMenuItem
-                  key={value.id}
-                  onSelect={() => onPick(chip, value.id)}
-                >
-                  {configValueText(chip, value.id, value.label, agent)}
-                  {value.id === chip.value && (
-                    <Check className="ml-auto size-3.5 shrink-0 text-emerald-500" />
-                  )}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )
-      })}
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Pill size="sm" mode="action" disabled={!live} title={chip.label}>
+          <span className="text-muted-foreground">{chip.label}</span>
+          <span>{chip.valueLabel}</span>
+        </Pill>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        {chip.values.map((value) => (
+          <DropdownMenuItem
+            key={value.id}
+            onSelect={() => onPickMode(value.id)}
+          >
+            {value.label}
+            {value.id === chip.value && (
+              <Check className="ml-auto size-3.5 shrink-0 text-emerald-500" />
+            )}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -2294,7 +2310,6 @@ function MessageComposer({
       ),
     [catalogAgent, config?.commands]
   )
-  const chips = useMemo(() => configChips(config), [config])
   const menu = useSlashCommandMenu({
     text,
     commands,
@@ -2455,16 +2470,12 @@ function MessageComposer({
             >
               <UiAddIcon />
             </ComposerTool>
-            {/* EXP-746: the agent's live config, as text pills (D10 — no new
-                icon concepts). They scroll rather than push the send glyph. */}
-            <ConfigChipRow
-              chips={chips}
-              agent={agent}
+            {/* EXP-772: the run's MODE, and nothing else — a "Plan" toggle
+                on claude/pi, a two-value chip on anything else. */}
+            <SessionModeControl
+              config={config}
               live={live}
-              onPick={(chip, valueId) => {
-                if (chip.kind === `mode`) store.setMode(valueId)
-                else store.setConfig(chip.id, valueId)
-              }}
+              onPickMode={(modeId) => store.setMode(modeId)}
             />
           </>
         }

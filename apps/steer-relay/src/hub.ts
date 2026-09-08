@@ -100,6 +100,18 @@ interface Room {
   /** Scan hint: no subagent tool entry lives BELOW this index, so the search
    *  for the oldest one starts here instead of at the head. */
   subagentScanFrom: number
+  /** EXP-773: the room exists only to catch a device's history replay — no
+   *  publisher has hello'd yet, and its `historyTimer` closes it if none
+   *  does. A viewer that joins one is told `history_pending` instead of
+   *  `activity_synced`. */
+  pendingHistory: boolean
+  /** EXP-773: fires HISTORY_TIMEOUT_MS after the ask went down the device's
+   *  control socket — the device is online but produced nothing. */
+  historyTimer: ReturnType<typeof setTimeout> | null
+  /** EXP-773: the log was filled by a device REPLAYING its journal. A second
+   *  replay into the same room would append the whole transcript again, so
+   *  the next publisher's hello starts from an empty log. */
+  historyLog: boolean
   /** EXP-746: latest-wins STATE by kind (`diff`, `config_state`, `usage`) —
    *  the newest one replaces its predecessor, stays OUT of the count/byte
    *  budget, and the join replay sends them after the log. Each schema
@@ -158,6 +170,15 @@ const VIEWER_KEEPALIVE_INTERVAL_MS = 15_000
 // the relay side. One warning per SOCKET per window keeps a chatty or hostile
 // client from filling the log.
 const FRAME_WARN_INTERVAL_MS = 30_000
+// EXP-773: how long a pending history room waits for the device to hello. It
+// has to mint a publisher ticket (a tRPC round trip) and read a file back, so
+// the window is generous; past it the viewer is told the transcript is not
+// coming rather than left spinning.
+const HISTORY_TIMEOUT_MS = 20_000
+/** EXP-773: the `bye` outcome a history replay ends with (steer's
+ *  `HISTORY_OUTCOME`) — the room answers `activity_synced` before closing,
+ *  because the parked viewers have just been sent a complete transcript. */
+const HISTORY_OUTCOME = `history`
 
 function frame(msg: ServerFrame): string {
   return JSON.stringify(msg)
@@ -199,6 +220,11 @@ export class Hub {
   // a join rate, a desktop the idle detector keeps detaching as idle closes.
   private viewerJoins = 0
   private publisherIdleCloses = 0
+  // EXP-773: how often a viewer asked a device for a stored transcript, and
+  // the two ways that ask fails.
+  private historyRequests = 0
+  private historyDeviceOffline = 0
+  private historyTimeouts = 0
 
   constructor() {
     // REV2-X: Start the idle publisher detector — checks every 30s for
@@ -359,22 +385,27 @@ export class Hub {
         conn.sessionId = sessionId
         let room = this.rooms.get(sessionId)
         if (!room) {
-          room = {
-            sessionId,
-            issueId: msg.issueId,
-            publisher: conn,
-            staleTimer: null,
-            lastPublisherActivity: Date.now(), // REV2-X
-            activityMembers: new Set(),
-            activityLog: [],
-            activityBytes: 0,
-            subagentToolCounts: new Map(),
-            subagentToolEntries: 0,
-            subagentScanFrom: 0,
-            lastByKind: new Map(),
-          }
+          room = this.newRoom(sessionId, conn, msg.issueId)
           this.rooms.set(sessionId, room)
         } else {
+          // EXP-773: the publisher this room was WAITING for (a history
+          // replay, or a live publisher that raced the ask) — the room stops
+          // being pending and the timeout is off.
+          if (room.historyTimer) {
+            clearTimeout(room.historyTimer)
+            room.historyTimer = null
+          }
+          const servingHistory = room.pendingHistory
+          room.pendingHistory = false
+          // A previous replay already filled this log: a second one would
+          // append the same transcript again, so start it empty. The
+          // publisher's own `activity_reset` does this too, but only devices
+          // new enough to send one.
+          if (room.historyLog && room.publisher !== conn) {
+            this.clearActivityLog(room)
+            this.fanoutActivity(room, frame({ t: `activity_reset` }))
+          }
+          room.historyLog = servingHistory
           // Re-hello after a drop: resume the same room. The publisher clears
           // and re-publishes its own history via `activity_reset` — the relay
           // never guesses what survived the gap.
@@ -396,11 +427,14 @@ export class Hub {
         if (!sessionId) return
         if (conn.claims.role !== `viewer`) return
 
-        const room = this.rooms.get(sessionId)
+        let room = this.rooms.get(sessionId)
         if (!room) {
-          conn.sock.send(frame({ t: `error`, code: `no_such_session` }))
-          conn.sock.close(CLOSE_SESSION_ENDED, `no_such_session`)
-          return
+          // EXP-773: the room is not up, but the ticket may name the machine
+          // that RAN the session — the transcript lives on that device's
+          // disk, never here. Ask it for one; the room opens PENDING and the
+          // viewer parks until the replay arrives (or the timer gives up).
+          room = this.requestHistory(conn, sessionId)
+          if (!room) return // an error frame went out and the socket is closed
         }
         conn.sessionId = sessionId
 
@@ -410,9 +444,16 @@ export class Hub {
         // is always a complete, self-contained picture.
         conn.sock.send(frame({ t: `activity_reset` }))
         this.replayActivity(room, conn)
-        // EXP-656: unconditional — an empty log still ends with the marker,
-        // so a client never waits out its quiet fallback on a fresh room.
-        conn.sock.send(ACTIVITY_SYNCED_FRAME)
+        if (room.pendingHistory) {
+          // EXP-773: a second viewer joining a pending room gets whatever has
+          // landed so far and the same "still fetching" marker — never
+          // `activity_synced`, which would claim a complete picture.
+          conn.sock.send(frame({ t: `history_pending` }))
+        } else {
+          // EXP-656: unconditional — an empty log still ends with the marker,
+          // so a client never waits out its quiet fallback on a fresh room.
+          conn.sock.send(ACTIVITY_SYNCED_FRAME)
+        }
         this.viewerJoins += 1
         return
       }
@@ -495,12 +536,7 @@ export class Hub {
         // Publisher-only: the desktop is about to re-publish its full history.
         const room = this.roomFor(conn)
         if (!room || room.publisher !== conn) return
-        room.activityLog = []
-        room.activityBytes = 0
-        room.subagentToolCounts.clear()
-        room.subagentToolEntries = 0
-        room.subagentScanFrom = 0
-        room.lastByKind.clear()
+        this.clearActivityLog(room)
         this.fanoutActivity(room, frame({ t: `activity_reset` }))
         return
       }
@@ -508,6 +544,14 @@ export class Hub {
       case `bye`: {
         const room = this.roomFor(conn)
         if (!room || room.publisher !== conn) return
+        // EXP-773: a history replay ends with a COMPLETE transcript, so the
+        // parked viewers are told the picture is whole before the room goes.
+        // Any other outcome is a live session ending and gets none.
+        if (msg.outcome === HISTORY_OUTCOME) {
+          for (const member of room.activityMembers.keys()) {
+            member.sock.send(ACTIVITY_SYNCED_FRAME)
+          }
+        }
         this.closeRoom(room, msg.outcome ?? `ended`)
         return
       }
@@ -639,6 +683,9 @@ export class Hub {
       slowConsumerEvictions: this.slowConsumerEvictions,
       viewerJoins: this.viewerJoins,
       publisherIdleCloses: this.publisherIdleCloses,
+      historyRequests: this.historyRequests,
+      historyDeviceOffline: this.historyDeviceOffline,
+      historyTimeouts: this.historyTimeouts,
     }
   }
 
@@ -648,6 +695,87 @@ export class Hub {
     return conn.sessionId ? this.rooms.get(conn.sessionId) : undefined
   }
 
+  /** Drop the replay log and everything derived from it. The caller decides
+   *  whether members hear an `activity_reset` about it. */
+  private clearActivityLog(room: Room) {
+    room.activityLog = []
+    room.activityBytes = 0
+    room.subagentToolCounts.clear()
+    room.subagentToolEntries = 0
+    room.subagentScanFrom = 0
+    room.lastByKind.clear()
+  }
+
+  /** A fresh room. `publisher: null` + `pendingHistory: true` is the EXP-773
+   *  shape: a room opened by a VIEWER, waiting for the device to replay. */
+  private newRoom(
+    sessionId: string,
+    publisher: Conn | null,
+    issueId?: string
+  ): Room {
+    return {
+      sessionId,
+      issueId,
+      publisher,
+      staleTimer: null,
+      lastPublisherActivity: Date.now(), // REV2-X
+      pendingHistory: publisher === null,
+      historyTimer: null,
+      historyLog: false,
+      activityMembers: new Set(),
+      activityLog: [],
+      activityBytes: 0,
+      subagentToolCounts: new Map(),
+      subagentToolEntries: 0,
+      subagentScanFrom: 0,
+      lastByKind: new Map(),
+    }
+  }
+
+  /** EXP-773: a viewer joined a session with no live room. If its ticket
+   *  names the device that ran the session AND that device's control socket
+   *  is online under the SAME user, open a pending room and ask the device
+   *  for its stored transcript. Otherwise answer and close, as before.
+   *  Returns the room to park the viewer in, or `undefined` when the socket
+   *  has already been answered with an error. */
+  private requestHistory(conn: Conn, sessionId: string): Room | undefined {
+    const deviceId = conn.claims.deviceId
+    if (!deviceId) {
+      // No device claim (an older web build, or a session that never named
+      // one): nothing can serve the transcript — the pre-EXP-773 answer.
+      conn.sock.send(frame({ t: `error`, code: `no_such_session` }))
+      conn.sock.close(CLOSE_SESSION_ENDED, `no_such_session`)
+      return undefined
+    }
+    // Devices are indexed under their OWNER, and for a shared-device run
+    // (EXP-432) that is the HOST, not the requester the ticket was minted
+    // for — so the mint names the account to look the device up under. Both
+    // ids come from the signed ticket, so this still reaches only the machine
+    // the web app decided ran this session.
+    const control = this.devices
+      .get(conn.claims.deviceOwnerId ?? conn.claims.sub)
+      ?.get(deviceId)
+    if (!control) {
+      conn.sock.send(frame({ t: `error`, code: `device_offline` }))
+      conn.sock.close(CLOSE_SESSION_ENDED, `device_offline`)
+      this.historyDeviceOffline += 1
+      return undefined
+    }
+    const room = this.newRoom(sessionId, null)
+    room.historyTimer = setTimeout(() => {
+      room.historyTimer = null
+      for (const member of room.activityMembers.keys()) {
+        member.sock.send(frame({ t: `error`, code: `history_unavailable` }))
+      }
+      this.historyTimeouts += 1
+      this.closeRoom(room, `history_unavailable`)
+    }, HISTORY_TIMEOUT_MS)
+    this.rooms.set(sessionId, room)
+    control.sock.send(frame({ t: `history_request`, sessionId }))
+    this.historyRequests += 1
+    return room
+  }
+
   private entryFor(event: ActivityEvent): ActivityEntry {
     const framed = frame({ t: `activity`, event })
     const entry: ActivityEntry = {
@@ -655,7 +783,12 @@ export class Hub {
       bytes: Buffer.byteLength(framed, `utf8`),
     }
     // EXP-748: tag the entries the count cap is allowed to sacrifice.
-    if (event.kind === `tool` && event.subagentId) {
+    // EXP-773: prose a subagent wrote renders inside that subagent's card, so
+    // it is second class exactly like the calls around it.
+    if (
+      (event.kind === `tool` || event.kind === `narration`) &&
+      event.subagentId
+    ) {
       entry.subagentTool = event.subagentId
     }
     return entry
@@ -754,6 +887,7 @@ export class Hub {
 
   private closeRoom(room: Room, outcome: string) {
     if (room.staleTimer) clearTimeout(room.staleTimer)
+    if (room.historyTimer) clearTimeout(room.historyTimer)
     this.rooms.delete(room.sessionId)
     const msg = frame({ t: `bye`, outcome })
     for (const member of room.activityMembers.keys()) {

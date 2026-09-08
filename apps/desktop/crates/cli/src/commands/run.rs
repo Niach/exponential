@@ -14,7 +14,6 @@ use coding::{ActionInputValue, Prepared, PrepareRequest};
 use super::{reject_unknown_flags, take_flag, take_value, take_values, CommandResult};
 use crate::launch::{self, ActionRepo, AgentFlags};
 use crate::session_host::{self, LaunchEnv};
-use crate::sidecars::Sidecars;
 use crate::{context, term};
 
 pub fn run(args: &[String]) -> CommandResult {
@@ -71,14 +70,11 @@ pub fn run(args: &[String]) -> CommandResult {
         launch::LaunchHost::Foreground,
         runtime.as_ref(),
     );
-    let sidecars = Sidecars::new();
     let personal_key = context::ensure_personal_key(&ctx).ok();
 
     let request = PrepareRequest::Action(request);
-    // EXP-761: the sidecars bind inside `prepare` — on its Terminal arm
-    // only, for the launched CLI's own one. An ACP launch binds nothing.
-    let prepared = coding::prepare_with_hooks(&request, &deps, &sidecars)
-    .map_err(|err| anyhow!("{err}"))?;
+    let prepared = coding::prepare(&request, &deps)
+        .map_err(|err| anyhow!("{err}"))?;
     let prepared = match prepared {
         Prepared::Ready(prepared) => prepared,
         Prepared::Disabled(reason) => {
@@ -90,28 +86,17 @@ pub fn run(args: &[String]) -> CommandResult {
     let env = LaunchEnv {
         ctx: &ctx,
         runtime: runtime.as_ref(),
-        sidecars: &sidecars,
         personal_key,
     };
-    // EXP-758: `code` parity, the fallback notice prints before the attach.
-    let transport_notice = prepared.transport_notice.clone();
-    let session = Arc::new(session_host::launch(&env, prepared, interactive, None)?);
+    let session = Arc::new(session_host::launch(&env, prepared, None)?);
     // EXP-758 (EXP-478): no session list here either: the run IS this
     // process, so the launch gate ends at its own registration point.
     session.release_launch_hold();
-    if let Some(notice) = &transport_notice {
-        println!("{notice}");
-    }
-
-    let outcome = match (interactive, session.attaches_by_line()) {
-        // EXP-746: same fork as `code` — an ACP run attaches as a line
-        // transcript, a PTY run as the raw byte tee.
-        (true, true) => super::code::attend_acp(&session),
-        (true, false) => super::code::attend(&session),
-        (false, _) => {
-            println!("Session {} running — steer it from the web.", session.session_id);
-            super::code::wait_with_signals(&session)
-        }
+    let outcome = if interactive {
+        super::code::attend_acp(&session)
+    } else {
+        println!("Session {} running — steer it from the web.", session.session_id);
+        super::code::wait_with_signals(&session)
     };
     // EXP-757 (daemon parity): a repo-less run's scratch dir goes with the
     // run; the run record keeps it resumable.

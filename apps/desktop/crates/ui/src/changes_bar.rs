@@ -7,14 +7,11 @@
 //! and the pure snapshot helpers live here, generic over the view that hosts
 //! them.
 //!
-//! Two placements, one design:
-//!
-//! - [`ChangesPlacement::Bar`] is the dock's row — a 28px band above the tab
-//!   strip whose expanded diff is a fixed 288px (the web's `max-h-72`). It
-//!   must stay PIXEL-IDENTICAL to what the dock painted before the move.
-//! - [`ChangesPlacement::Rail`] is the session screen's right column — the
-//!   same rows stacked in a 280px rail whose expanded diff fills the
-//!   available height instead of a fixed one.
+//! ONE placement (EXP-773): a 28px band whose expanded body is a fixed 288px
+//! (the web's `max-h-72`) of the per-file collapsible diff list, painted UNDER
+//! the transcript and above the composer — the web `agent-session` layout. The
+//! session screen used to wear it as a 280px right RAIL instead; a rail beside
+//! a conversation is not where changes read.
 
 use std::rc::Rc;
 
@@ -34,11 +31,6 @@ use crate::icons::{registry, ExpIcon};
 pub(crate) const CHANGES_BAR_H: f32 = 28.;
 pub(crate) const CHANGES_DIFF_H: f32 = 288.;
 
-/// EXP-746: the session screen's Changes rail width. The transcript owns the
-/// rest of the row, so the diff reads as a side panel rather than a second
-/// column of prose.
-pub(crate) const CHANGES_RAIL_W: f32 = 280.;
-
 /// What a CONFIRMED merge does on top of firing the op.
 ///
 /// The dock closes the local terminal tab the moment the merge call fires so
@@ -48,20 +40,11 @@ pub(crate) const CHANGES_RAIL_W: f32 = 280.;
 /// and manager — only the caller can.
 pub(crate) type OnMerged = Rc<dyn Fn(&mut App)>;
 
-/// Where the bar is being painted.
-pub(crate) enum ChangesPlacement {
-    /// The terminal dock's row above the tab strip.
-    Bar,
-    /// The session screen's right rail (EXP-746).
-    Rail,
-}
-
 /// Everything one painting of the bar needs. Generic over the hosting view so
 /// the toggle stays the caller's own state (the dock keeps two snapshots, the
 /// session screen one).
 pub(crate) struct ChangesSpec<V: Render> {
     pub(crate) toggle_id: &'static str,
-    pub(crate) placement: ChangesPlacement,
     /// `None` when there is no diff at all (an open PR whose branch no longer
     /// differs): the row still draws, carrying only the Merge pill.
     pub(crate) totals: Option<(u32, u32)>,
@@ -79,7 +62,6 @@ pub(crate) struct ChangesSpec<V: Render> {
 pub(crate) fn render<V: Render>(spec: ChangesSpec<V>, cx: &mut Context<V>) -> AnyElement {
     let ChangesSpec {
         toggle_id,
-        placement,
         totals,
         expanded,
         merge,
@@ -159,32 +141,15 @@ pub(crate) fn render<V: Render>(spec: ChangesSpec<V>, cx: &mut Context<V>) -> An
         );
     }
 
-    match placement {
-        ChangesPlacement::Bar => {
-            let bar = v_flex().w_full().flex_shrink_0().child(row);
-            if expanded {
-                bar.child(div().w_full().h(px(CHANGES_DIFF_H)).child(diff_view))
-                    .into_any_element()
-            } else {
-                bar.into_any_element()
-            }
-        }
-        // EXP-746: the rail carries the same rows, but the diff has a column
-        // to fill instead of a band to sit in — a fixed 288px inside a
-        // full-height rail would leave a hole under it.
-        ChangesPlacement::Rail => {
-            let rail = v_flex()
-                .w(px(CHANGES_RAIL_W))
-                .h_full()
-                .flex_shrink_0()
-                .child(row);
-            if expanded {
-                rail.child(div().w_full().flex_1().min_h_0().child(diff_view))
-                    .into_any_element()
-            } else {
-                rail.into_any_element()
-            }
-        }
+    let bar = v_flex().w_full().flex_shrink_0().child(row);
+    if expanded {
+        // The body is the per-file collapsible list (`DiffView::set_collapsible`),
+        // which virtualizes and scrolls inside this fixed band — the web
+        // `FileDiffList` under a `max-h-72`.
+        bar.child(div().w_full().h(px(CHANGES_DIFF_H)).child(diff_view))
+            .into_any_element()
+    } else {
+        bar.into_any_element()
     }
 }
 
@@ -323,18 +288,6 @@ pub(crate) fn changes_bar_visible(has_diff: bool, has_open_pr: bool) -> bool {
 /// and shared by both placements so "over" can never mean two things.
 pub(crate) fn merge_when_live(merge: Option<MergeTarget>, over: bool) -> Option<MergeTarget> {
     merge.filter(|_| !over)
-}
-
-/// Keep the last snapshot across a FAILED poll (`None`): git errors for a
-/// moment during a rebase/checkout, and blanking the bar on that would strand
-/// the Merge button alone — the exact shape of the bug EXP-688 fixes. A real
-/// answer always wins, an empty one included (a reset branch has no changes).
-/// Pure.
-pub(crate) fn merge_changes_snapshot(
-    previous: Vec<coding::scm::DiffFile>,
-    next: Option<Vec<coding::scm::DiffFile>>,
-) -> Vec<coding::scm::DiffFile> {
-    next.unwrap_or(previous)
 }
 
 /// `+adds -dels` over every file in the snapshot. Pure.
@@ -501,26 +454,6 @@ mod tests {
         );
     }
 
-    /// A momentarily empty answer (mid-rebase, mid-checkout) keeps the last
-    /// real diff — blanking the bar there is what left the Merge button
-    /// standing alone.
-    #[test]
-    fn an_empty_snapshot_keeps_the_last_non_empty_diff() {
-        let previous = vec![diff_file("a.rs", 1, 0)];
-        // A failed poll keeps the previous answer.
-        let kept = merge_changes_snapshot(previous.clone(), None);
-        assert_eq!(kept, previous);
-        // A real answer always wins, even a smaller one.
-        let next = vec![diff_file("b.rs", 1, 0)];
-        assert_eq!(
-            merge_changes_snapshot(previous.clone(), Some(next.clone())),
-            next
-        );
-        // A real EMPTY answer clears the bar (the branch was reset).
-        assert!(merge_changes_snapshot(previous, Some(Vec::new())).is_empty());
-        // Nothing either way is still nothing.
-        assert!(merge_changes_snapshot(Vec::new(), None).is_empty());
-    }
 
     /// The bar renders for a diff OR an open PR — and for neither it is not
     /// painted at all (a shell tab has no session to describe).
@@ -532,13 +465,12 @@ mod tests {
         assert!(!changes_bar_visible(false, false));
     }
 
-    /// EXP-746: the dock's BAR and the session screen's RAIL are two
-    /// placements of ONE surface, so both ask the same two questions — is
-    /// there anything to show, and may this run still be merged. A rail that
-    /// appeared where the bar stays hidden (or kept a Merge the bar drops)
-    /// would be two rules pretending to be one.
+    /// The terminal bar and the session screen's bar are ONE surface, so both
+    /// ask the same two questions — is there anything to show, and may this
+    /// run still be merged. A bar that appeared on one surface where it stays
+    /// hidden on the other would be two rules pretending to be one.
     #[test]
-    fn rail_and_bar_agree_on_visibility() {
+    fn every_surface_agrees_on_visibility() {
         let target = MergeTarget::Issue {
             issue_id: "i-1".to_string(),
         };

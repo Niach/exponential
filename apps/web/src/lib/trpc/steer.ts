@@ -135,7 +135,9 @@ export const steerRouter = router({
       // Only the session owner's own desktop may publish its PTY — or, for a
       // shared-device run (EXP-432), the hosting daemon's account: the row is
       // requester-owned while the device owner's daemon runs the agent and
-      // publishes its activity.
+      // publishes its activity. EXP-773: an ENDED session mints too — the
+      // device republishes its stored transcript through the same role, and
+      // ownership is the whole gate either way.
       if (input.kind === `publisher`) {
         if (session.userId !== userId && session.hostUserId !== userId) {
           throw new TRPCError({
@@ -172,11 +174,27 @@ export const steerRouter = router({
       ) {
         await assertTeamMember(userId, session.teamId)
       }
+      // EXP-773: name the machine that ran it, so a join on an ENDED session
+      // can ask that device for the transcript instead of getting
+      // `no_such_session`. ENDED ONLY: on a live row the relay would open a
+      // pending history room for a publisher that simply has not hello'd yet
+      // and serve the viewer a PARTIAL transcript that then closes as ended,
+      // instead of the retryable `no_such_session` a starting desktop needs.
+      // EXP-432: the device is registered under its HOST's account, not the
+      // requester's, so the ticket names the owner to look it up under.
+      const historyDevice =
+        session.status === `ended` && session.deviceId
+          ? {
+              deviceId: session.deviceId,
+              deviceOwnerId: session.hostUserId ?? session.userId,
+            }
+          : {}
       return mintSteerTicket(config, {
         kind: `viewer`,
         userId,
         teamId: session.teamId,
         sessionId: session.id,
+        ...historyDevice,
       })
     }),
 

@@ -425,19 +425,25 @@ fun StartCodingSheet(
     val resumeOn = resume && resumeCandidate != null
     val multiRepo = checkedCount >= 1 && repoIds.size > 1
     val tooMany = checkedCount > MAX_BATCH_ISSUES
-    val canStart = device != null && checkedCount in 1..MAX_BATCH_ISSUES && !multiRepo
+    // EXP-773: the picked agent is outside the picked machine's reported ACP
+    // set — with the PTY path gone nothing can start there, so every subject
+    // gate folds it in while the options caption explains why.
+    val agentNotReady = device?.agentNotReady(agent) == true
+    val canStart = device != null && !agentNotReady &&
+        checkedCount in 1..MAX_BATCH_ISSUES && !multiRepo
     // Actions-tab launch gate: a settled desktop, a selection, no unknown
     // input types, and every required input filled.
     val requiredInputsFilled = selectedActionInputs
         .filter { it.required }
         .all { !inputValues[it.key].isNullOrBlank() }
-    val canRunAction = device != null && selectedAction != null &&
+    val canRunAction = device != null && !agentNotReady && selectedAction != null &&
         !hasUnknownInputType && requiredInputsFilled
     // Chat needs its one required input (the prompt — the repository is
     // optional since EXP-739) and a team to hang the hidden builtin row on
     // (every builtin start carries its teamId).
     val chatAction = selectedTeamId?.let { builtinChatAction(it) }
-    val canChat = device != null && chatAction != null && chatPrompt.isNotBlank()
+    val canChat = device != null && !agentNotReady && chatAction != null &&
+        chatPrompt.isNotBlank()
 
     // Full-height sheet (EXP-208), one-shell chrome (EXP-687): a drag handle,
     // no title, and ONE pinned bottom button — the Cancel pill and the

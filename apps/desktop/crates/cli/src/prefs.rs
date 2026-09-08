@@ -19,10 +19,11 @@ fn write_key(data_dir: &Path, key: &str, value: serde_json::Value) {
         object.insert(key.to_string(), value);
     }
     let persist = || -> std::io::Result<()> {
-        std::fs::create_dir_all(data_dir)?;
         let mut rendered = serde_json::to_string_pretty(&root).unwrap_or_else(|_| "{}".to_string());
         rendered.push('\n');
-        std::fs::write(data_dir.join("settings.json"), rendered)
+        // EXP-766: replace by rename — the desktop app shares this file and
+        // must never read it mid-write.
+        api::atomic_file::write_atomic(&data_dir.join("settings.json"), &rendered)
     };
     let _ = persist();
 }

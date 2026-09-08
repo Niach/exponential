@@ -45,7 +45,7 @@ use agent_client_protocol::schema::v1::{
     PlanEntryPriority, PlanEntryStatus, PromptCapabilities, PromptRequest, PromptResponse,
     RequestPermissionOutcome, RequestPermissionRequest, ResumeSessionRequest,
     ResumeSessionResponse, SessionCapabilities, SessionConfigId, SessionConfigOption,
-    SessionConfigOptionCategory, SessionConfigOptionValue, SessionConfigSelectOption, SessionId,
+    SessionConfigOptionValue, SessionId,
     SessionInfo, SessionListCapabilities, SessionMode, SessionModeId, SessionModeState,
     SessionNotification, SessionResumeCapabilities, SessionUpdate, SetSessionConfigOptionRequest,
     SetSessionConfigOptionResponse, SetSessionModeRequest, SetSessionModeResponse, StopReason,
@@ -79,22 +79,23 @@ pub use crate::local::SUBAGENT_META_KEY;
 /// (claude's `parent_tool_use_id`) — the engine's `subagentId`.
 pub use crate::local::SUBAGENT_ID_META_KEY as PARENT_TOOL_CALL_META_KEY;
 
+/// `_meta` key marking a prompt this adapter injected (EXP-772).
+pub use crate::local::INJECTED_PROMPT_META_KEY;
+
 /// The subagents the CLI ships. They are spawned by the model, never picked
 /// for the main thread, so the `agent` option offers only what the user (or a
 /// plugin) configured.
 const BUILTIN_AGENT_NAMES: [&str; 5] =
     ["claude", "general-purpose", "Explore", "Plan", "statusline-setup"];
 
-/// Config option ids. `mode` is NOT among the options the adapter advertises —
-/// modes ride the ACP-native `SessionModeState`/`session/set_mode` lane, and
-/// advertising both would render two mode chips on every client. It is still
-/// ACCEPTED by `session/set_config_option` so a client that only knows config
-/// options can steer the mode.
+/// The config option ids `session/set_config_option` still ACCEPTS. EXP-772
+/// retired the chips themselves — nothing advertises or sends these any more
+/// (`config_options` is empty), and `mode` is gone from the vocabulary
+/// entirely: modes ride the ACP-native `session/set_mode` lane alone.
 const CONFIG_MODEL: &str = "model";
 const CONFIG_EFFORT: &str = "effort";
 const CONFIG_FAST: &str = "fast";
 const CONFIG_AGENT: &str = "agent";
-const CONFIG_MODE: &str = "mode";
 
 /// The value that means "whatever the CLI would pick" for effort and agent.
 const CONFIG_DEFAULT_VALUE: &str = "default";
@@ -325,6 +326,11 @@ struct ClaudeSession {
     gone: flume::Receiver<()>,
     /// The pump's half of `gone`, dropped when stdout ends.
     gone_gate: Mutex<Option<flume::Sender<()>>>,
+    /// EXP-766: serializes [`ClaudeSession::start`]. The child check and the
+    /// child store cannot be one atomic step (a spawn plus a handshake sits
+    /// between them), so two prompts racing on a loaded session used to spawn
+    /// two CLIs, the second silently orphaning the first.
+    start_gate: tokio::sync::Mutex<()>,
     state: Mutex<State>,
 }
 
@@ -550,6 +556,7 @@ impl ClaudeSession {
             session_id: SessionId::new(session_id),
             gone,
             gone_gate: Mutex::new(Some(gone_gate)),
+            start_gate: tokio::sync::Mutex::new(()),
             state: Mutex::new(state),
         }
     }
@@ -601,11 +608,22 @@ impl ClaudeSession {
     /// Spawn the CLI (once), start the pump, and run the `initialize` control
     /// request. `resume` reopens a recorded conversation, in which case the
     /// fresh `--session-id` pin is dropped (claude refuses both).
+    ///
+    /// EXP-766: serialized on `start_gate`. Two prompts can reach this at the
+    /// same time on a loaded session (the `session/load` → prompt path spawns
+    /// the child lazily), and the check and the store are not one step, so a
+    /// second caller has to WAIT for the first rather than race it.
     async fn start(
         self: &Arc<Self>,
         cx: &ConnectionTo<Client>,
         resume: Option<&str>,
     ) -> Result<(), Error> {
+        if self.lock().child.is_some() {
+            return Ok(());
+        }
+        let _starting = self.start_gate.lock().await;
+        // Re-checked under the gate: the caller we queued behind may have
+        // spawned the child while we waited.
         if self.lock().child.is_some() {
             return Ok(());
         }
@@ -689,7 +707,12 @@ impl ClaudeSession {
             // ALWAYS pinned (measured): with the flag absent the CLI takes the
             // user's own settings default and an `auto` machine never asks.
             permission_mode: Some(wire::argv_permission_mode(&mode)),
-            allow_dangerous: mode == "bypassPermissions",
+            // EXP-772: ALWAYS. Permissions are bypassed in every mode, plan
+            // included — a plan launch keeps `--permission-mode plan` for the
+            // planning behaviour, and the mode switch the plan approval makes
+            // ("bypassPermissions") is only accepted when the flag was there
+            // at spawn.
+            allow_dangerous: true,
             session_id: Some(self.session_id.0.as_ref()),
             resume,
             fork_session: false,
@@ -930,7 +953,7 @@ impl ClaudeSession {
     }
 
     async fn set_mode(self: &Arc<Self>, cx: &ConnectionTo<Client>, mode: &str) -> Result<(), Error> {
-        let mode = self.clamp_mode(cx, mode);
+        let mode = clamp_mode(mode);
         self.control_request(wire::set_permission_mode(&mode)).await?;
         self.lock().mode = mode.clone();
         self.notify(
@@ -941,124 +964,12 @@ impl ClaudeSession {
         Ok(())
     }
 
-    /// `auto` needs model support; the upstream falls back to `acceptEdits`
-    /// and says so once, which is better than a mode the model ignores.
-    fn clamp_mode(self: &Arc<Self>, cx: &ConnectionTo<Client>, mode: &str) -> String {
-        if mode != "auto" {
-            return mode.to_string();
-        }
-        let state = self.lock();
-        let supported = state
-            .models
-            .iter()
-            .find(|model| model.value == state.model)
-            .map(|model| model.supports_auto_mode)
-            // No model list (a CLI that answered no initialize) — trust the pick.
-            .unwrap_or(true);
-        drop(state);
-        if supported {
-            return mode.to_string();
-        }
-        self.notify(
-            cx,
-            SessionUpdate::AgentMessageChunk(ContentChunk::new(ContentBlock::Text(
-                TextContent::new(
-                    "**Auto mode unavailable:** this model does not support it, so the session \
-                     stays on Accept edits.",
-                ),
-            ))),
-        );
-        "acceptEdits".to_string()
-    }
-
+    /// EXP-772: EMPTY. Model / effort / fast / agent pickers left the
+    /// mid-session steering UI on every client, so the adapter advertises no
+    /// options at all; `set_config` still ACCEPTS the ids an older publisher
+    /// may send.
     fn config_options(&self) -> Vec<SessionConfigOption> {
-        let state = self.lock();
-        let mut options = Vec::new();
-
-        let model_options: Vec<SessionConfigSelectOption> = if state.models.is_empty() {
-            vec![SessionConfigSelectOption::new(
-                state.model.clone(),
-                display_model(&state.model),
-            )]
-        } else {
-            state
-                .models
-                .iter()
-                .map(|model| {
-                    SessionConfigSelectOption::new(model.value.clone(), model.display_name.clone())
-                        .description((!model.description.is_empty())
-                            .then(|| model.description.clone()))
-                })
-                .collect()
-        };
-        options.push(
-            SessionConfigOption::select(CONFIG_MODEL, "Model", state.model.clone(), model_options)
-                .category(SessionConfigOptionCategory::Model),
-        );
-
-        let current_model = state.models.iter().find(|model| model.value == state.model);
-        let effort_levels: Vec<String> = match current_model {
-            Some(model) if model.supports_effort && !model.supported_effort_levels.is_empty() => {
-                model.supported_effort_levels.clone()
-            }
-            // Before the model list arrives (or on a CLI that reports none) the
-            // contract's own effort vocabulary keeps the chip usable.
-            _ => coding::CodingAgent::Claude
-                .effort_values()
-                .iter()
-                .map(|level| (*level).to_string())
-                .collect(),
-        };
-        let mut effort_options = vec![SessionConfigSelectOption::new(
-            CONFIG_DEFAULT_VALUE,
-            "CLI default",
-        )];
-        effort_options.extend(
-            effort_levels
-                .iter()
-                .map(|level| SessionConfigSelectOption::new(level.clone(), title_case(level))),
-        );
-        if state.ultracode {
-            effort_options.push(SessionConfigSelectOption::new("ultracode", "Ultracode"));
-        }
-        let current_effort = if state.ultracode && state.effort.is_none() {
-            "ultracode".to_string()
-        } else {
-            state.effort.clone().unwrap_or_else(|| CONFIG_DEFAULT_VALUE.to_string())
-        };
-        options.push(
-            SessionConfigOption::select(CONFIG_EFFORT, "Effort", current_effort, effort_options)
-                .category(SessionConfigOptionCategory::ThoughtLevel),
-        );
-
-        if state.fast_supported
-            && current_model.map(|model| model.supports_fast_mode).unwrap_or(false)
-        {
-            options.push(
-                SessionConfigOption::boolean(CONFIG_FAST, "Fast", state.fast)
-                    .category(SessionConfigOptionCategory::ModelConfig),
-            );
-        }
-
-        if !state.custom_agents.is_empty() {
-            let mut agent_options = vec![SessionConfigSelectOption::new(
-                CONFIG_DEFAULT_VALUE,
-                "CLI default",
-            )];
-            agent_options.extend(
-                state
-                    .custom_agents
-                    .iter()
-                    .map(|agent| SessionConfigSelectOption::new(agent.clone(), agent.clone())),
-            );
-            let current =
-                state.agent.clone().unwrap_or_else(|| CONFIG_DEFAULT_VALUE.to_string());
-            options.push(
-                SessionConfigOption::select(CONFIG_AGENT, "Agent", current, agent_options)
-                    .category(SessionConfigOptionCategory::Other("agent".to_string())),
-            );
-        }
-        options
+        Vec::new()
     }
 
     async fn set_config(
@@ -1110,12 +1021,6 @@ impl ClaudeSession {
                 self.control_request(wire::apply_flag_settings(json!({ "agent": agent })))
                     .await?;
                 self.lock().agent = agent;
-            }
-            // Not advertised (modes ride `session/set_mode`), but accepted so
-            // a client that only speaks config options can still steer.
-            CONFIG_MODE => {
-                let mode = picked.unwrap_or_else(|| "default".to_string());
-                self.set_mode(cx, &mode).await?;
             }
             other => {
                 return Err(Error::invalid_params()
@@ -1311,12 +1216,12 @@ impl ClaudeSession {
                     state.model = system.model.clone();
                     state.context_window.infer(&system.model);
                 }
-                let mode_changed = match &system.permission_mode {
-                    Some(mode) if !mode.is_empty() && *mode != state.mode => {
-                        state.mode = mode.clone();
+                let mode_changed = match init_mode(system.permission_mode.as_deref(), &state.mode) {
+                    Some(mode) => {
+                        state.mode = mode;
                         true
                     }
-                    _ => false,
+                    None => false,
                 };
                 state.terminal_commands = system
                     .extra
@@ -1718,15 +1623,24 @@ impl ClaudeSession {
             .count();
         let structured =
             (results == 1 && !message.tool_use_result.is_null()).then(|| &message.tool_use_result);
+        // EXP-772: the CLI writes machinery into the transcript as `user`
+        // entries — system reminders, synthetic refusals, the summary a
+        // compaction hands the fresh context. None of it is a human turn, so
+        // none of it becomes a user bubble. The `tool_result` blocks of such
+        // an entry are still honoured: they are the agent's own plumbing.
+        let injected = message.is_meta || message.is_synthetic || message.is_compact_summary;
 
         for block in &blocks {
             match block.get("type").and_then(Value::as_str) {
                 Some("tool_result") => self.on_tool_result(cx, block, structured, &parent),
-                Some("text") => {
+                Some("text") if !injected => {
                     let text = block.get("text").and_then(Value::as_str).unwrap_or_default();
-                    // The CLI persists local commands wrapped in
-                    // <command-name>/<local-command-stdout> markers; a message
-                    // that is nothing but markers is not a user message.
+                    // A block that OPENS with an injection marker is machinery
+                    // whole; the local-command wrappers are stripped in place
+                    // so real prose beside them survives.
+                    if wire::is_injected_user_block(text) {
+                        continue;
+                    }
                     let Some(text) = wire::strip_local_command_metadata(text) else { continue };
                     if text.trim().is_empty() {
                         continue;
@@ -1756,7 +1670,9 @@ impl ClaudeSession {
     ) {
         let Some(id) = block.get("tool_use_id").and_then(Value::as_str) else { return };
         let failed = block.get("is_error").and_then(Value::as_bool).unwrap_or(false);
-        let entry = self.lock().tools.get(id).map(|entry| (entry.name.clone(), entry.input.clone()));
+        // The result is the last reader of the call, so TAKE the entry: a
+        // finished Write/Edit must not keep its whole input alive for the run.
+        let entry = self.lock().tools.remove(id).map(|entry| (entry.name, entry.input));
         let (name, input) = entry.unwrap_or_else(|| (String::new(), Value::Null));
 
         if is_task_tool(&name) {
@@ -1968,6 +1884,7 @@ impl ClaudeSession {
         let session = self.clone();
         let mode = restart.mode.clone();
         let plan = restart.plan.clone();
+        let injected = cx.clone();
         let _ = cx.spawn(async move {
             if let Err(error) = session.control_request(wire::set_permission_mode(&mode)).await {
                 log::warn!("engine: claude plan-mode switch failed: {error}");
@@ -1977,9 +1894,9 @@ impl ClaudeSession {
                 state.mode = mode.clone();
                 state.skip_local_command_result = true;
             }
-            let _ = session.send(wire::user_message("/clear", None));
+            session.inject_prompt(&injected, "/clear");
             let prompt = format!("{PLAN_RESTART_PROMPT}\n\n{plan}");
-            let _ = session.send(wire::user_message(&prompt, None));
+            session.inject_prompt(&injected, &prompt);
             Ok(())
         });
         self.notify(
@@ -1988,6 +1905,23 @@ impl ClaudeSession {
                 restart.mode,
             ))),
         );
+    }
+
+    /// Send a prompt the ADAPTER composed (`/clear`, the plan hand-off), not
+    /// the user. EXP-772: the CLI replays every user turn, so the mapper is
+    /// told to arm its echo dedupe first and publishes no bubble for either
+    /// the injection or its replay.
+    fn inject_prompt(self: &Arc<Self>, cx: &ConnectionTo<Client>, text: &str) {
+        let mut meta = Map::new();
+        meta.insert(INJECTED_PROMPT_META_KEY.to_string(), json!(true));
+        self.notify_meta(
+            cx,
+            SessionUpdate::UserMessageChunk(ContentChunk::new(ContentBlock::Text(
+                TextContent::new(text),
+            ))),
+            meta,
+        );
+        let _ = self.send(wire::user_message(text, None));
     }
 
     // -----------------------------------------------------------------------
@@ -2034,9 +1968,20 @@ impl ClaudeSession {
     ) {
         let tool_use_id = request.tool_use_id.clone().unwrap_or_else(|| request_id.clone());
         let answer = if request.is_ask_user_question() {
-            self.ask_user_question(cx, &request, &tool_use_id).await
-        } else {
+            PermissionAnswer::plain(self.ask_user_question(cx, &request, &tool_use_id).await)
+        } else if request.is_exit_plan_mode() {
             self.request_permission(cx, &request, &tool_use_id).await
+        } else {
+            // EXP-772: permissions are bypassed in EVERY mode, so the only
+            // two dialogs left are the plan approval and a question the model
+            // asked. Everything else is allowed here, without a card: the CLI
+            // still asks under a safety check, and a card the user cannot
+            // meaningfully refuse is just a stall.
+            log::debug!(
+                "engine: claude auto-allowing {} (permissions bypassed)",
+                request.tool_name
+            );
+            PermissionAnswer::plain(wire::permission_allow(&tool_use_id, request.input.clone()))
         };
         // The CLI cancelled this request while we were asking: answering it
         // now would be answering a request that no longer exists.
@@ -2049,9 +1994,37 @@ impl ClaudeSession {
             log::debug!("engine: claude abandoned control request {request_id}; not answering");
             return;
         }
-        match self.send(wire::control_response_success(&request_id, answer)) {
-            Ok(()) => log::debug!("engine: answered claude control request {request_id}"),
+        // The answer's SIDE EFFECTS (a mode switch, an armed plan restart)
+        // land only once the response is actually on the wire: an aborted or
+        // unwritable request must not clear the plan or start a build turn.
+        match self.send(wire::control_response_success(&request_id, answer.response)) {
+            Ok(()) => {
+                log::debug!("engine: answered claude control request {request_id}");
+                self.apply_permission_effects(cx, answer.effects);
+            }
             Err(error) => log::warn!("engine: claude control response {request_id} failed: {error}"),
+        }
+    }
+
+    /// Fold a permission answer's effects into the session: the mode switch is
+    /// published as a `CurrentModeUpdate` plus a fresh `config_state`, exactly
+    /// like a steered `session/set_mode`, so the client's Plan/Build toggle
+    /// follows a plan approval instead of staying stuck on Plan.
+    fn apply_permission_effects(
+        self: &Arc<Self>,
+        cx: &ConnectionTo<Client>,
+        effects: PermissionEffects,
+    ) {
+        let switched = {
+            let mut state = self.lock();
+            take_permission_effects(&mut state, effects)
+        };
+        if let Some(mode) = switched {
+            self.notify(
+                cx,
+                SessionUpdate::CurrentModeUpdate(CurrentModeUpdate::new(SessionModeId::new(mode))),
+            );
+            self.publish_config(cx);
         }
     }
 
@@ -2060,7 +2033,7 @@ impl ClaudeSession {
         cx: &ConnectionTo<Client>,
         request: &wire::ControlReq,
         tool_use_id: &str,
-    ) -> Value {
+    ) -> PermissionAnswer {
         let exit_plan = request.is_exit_plan_mode();
         let info = tool_info(&request.tool_name, &request.input, self.cwd());
         let options = if exit_plan {
@@ -2137,7 +2110,7 @@ impl ClaudeSession {
         options: Vec<PermissionOption>,
         request: &wire::ControlReq,
         tool_use_id: &str,
-    ) -> Value {
+    ) -> PermissionAnswer {
         let outcome = cx
             .send_request(RequestPermissionRequest::new(
                 self.session_id.clone(),
@@ -2161,70 +2134,13 @@ impl ClaudeSession {
             }
         };
         let Some(selected) = selected else {
-            return wire::permission_deny(tool_use_id, "Cancelled by the user", false);
+            return PermissionAnswer::plain(wire::permission_deny(
+                tool_use_id,
+                "Cancelled by the user",
+                false,
+            ));
         };
-        self.apply_permission_selection(&selected, request, tool_use_id)
-    }
-
-    fn apply_permission_selection(
-        self: &Arc<Self>,
-        option_id: &str,
-        request: &wire::ControlReq,
-        tool_use_id: &str,
-    ) -> Value {
-        if request.is_exit_plan_mode() {
-            if let Some(mode) = exit_plan_clear_context_mode(option_id) {
-                // NOT an allow: allowing would run ExitPlanMode in the old
-                // context before the hand-off. The interrupt is consumed by
-                // `on_result`, which re-prompts the plan in a fresh context.
-                let plan = request
-                    .input
-                    .get("plan")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string();
-                self.lock().pending_plan_restart =
-                    Some(PlanRestart { plan, mode: mode.to_string() });
-                return wire::permission_deny(
-                    tool_use_id,
-                    "User accepted the plan and requested a fresh context",
-                    true,
-                );
-            }
-            if let Some(mode) = exit_plan_mode(option_id) {
-                self.lock().mode = mode.to_string();
-                let mut allow = wire::permission_allow(tool_use_id, request.input.clone());
-                allow["updatedPermissions"] =
-                    json!([{ "type": "setMode", "mode": mode, "destination": "session" }]);
-                if mode != "default" {
-                    allow["decisionClassification"] = json!("user_permanent");
-                }
-                return allow;
-            }
-            if option_id == "reject" {
-                // A plain deny lets claude keep planning; the interrupt stops
-                // this turn so the user can steer instead.
-                return wire::permission_deny(tool_use_id, "User chose to keep planning", true);
-            }
-        }
-        match option_id {
-            "allow-once" => wire::permission_allow(tool_use_id, request.input.clone()),
-            "allow-with-updates" => {
-                let mut allow = wire::permission_allow(tool_use_id, request.input.clone());
-                if let Some(updates) = request.permission_suggestions.as_array() {
-                    allow["updatedPermissions"] = json!(updates);
-                    allow["decisionClassification"] = json!("user_permanent");
-                }
-                allow
-            }
-            "reject" => {
-                wire::permission_deny(tool_use_id, "User refused permission to run tool", false)
-            }
-            other => {
-                log::warn!("engine: claude permission option {other} is not one we offered");
-                wire::permission_deny(tool_use_id, "User refused permission to run tool", false)
-            }
-        }
+        permission_answer(&selected, request, tool_use_id)
     }
 
     async fn ask_user_question(
@@ -2398,54 +2314,39 @@ impl ClaudeSession {
 // pure helpers
 // ---------------------------------------------------------------------------
 
-/// The five modes the picker offers. `dontAsk` is accepted by the CLI and
-/// deliberately never offered; `bypassPermissions` is hidden from root
-/// (the CLI's own `ALLOW_BYPASS` rule) because the CLI refuses it there.
+/// EXP-772: plan on, plan off. Permissions are bypassed in every mode, so
+/// `default`/`acceptEdits`/`auto` differ in nothing a user can see and are
+/// never offered; `dontAsk` was never offered either.
 fn available_modes() -> Vec<SessionMode> {
-    let mut modes = vec![
-        SessionMode::new(SessionModeId::new("default"), "Manual")
-            .description("Always ask before making changes"),
-        SessionMode::new(SessionModeId::new("acceptEdits"), "Accept edits")
-            .description("Automatically accept all file edits"),
+    vec![
         SessionMode::new(SessionModeId::new("plan"), "Plan")
             .description("Create a plan before making changes"),
-        SessionMode::new(SessionModeId::new("auto"), "Auto")
-            .description("Claude handles permission decisions"),
-    ];
-    if allow_bypass() {
-        modes.push(
-            SessionMode::new(SessionModeId::new("bypassPermissions"), "Bypass permissions")
-                .description("Accepts all permissions"),
-        );
-    }
-    modes
+        SessionMode::new(SessionModeId::new("bypassPermissions"), "Build")
+            .description("Make the changes"),
+    ]
 }
 
-/// `ALLOW_BYPASS = !IS_ROOT || !!IS_SANDBOX` (`permissions/modes.js`).
-fn allow_bypass() -> bool {
-    #[cfg(unix)]
-    let root = unsafe { libc::geteuid() } == 0;
-    #[cfg(not(unix))]
-    let root = false;
-    !root || std::env::var_os("IS_SANDBOX").is_some()
-}
-
-fn title_case(value: &str) -> String {
-    let mut chars = value.chars();
-    match chars.next() {
-        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-        None => String::new(),
+/// EXP-772: the only steerable modes are `plan` and `bypassPermissions`.
+/// Anything else (an older publisher's `default`, `acceptEdits`, `auto`, or
+/// whatever the CLI reports it launched in) means "stop planning", so it lands
+/// on `bypassPermissions` rather than a mode [`available_modes`] never offers
+/// and no client can render.
+fn clamp_mode(mode: &str) -> String {
+    match mode {
+        "plan" => "plan".to_string(),
+        _ => "bypassPermissions".to_string(),
     }
 }
 
-/// A readable label for a model the CLI never described (no initialize
-/// response): the alias as typed, capitalized.
-fn display_model(model: &str) -> String {
-    if model.is_empty() {
-        "CLI default".to_string()
-    } else {
-        title_case(model)
-    }
+/// The mode a `system/init` frame adopts, or `None` to keep the current one.
+/// The CLI reports its OWN spelling (`acceptEdits` after a `--permission-mode`
+/// launch), which goes through the same clamp as a steered switch: state.mode
+/// feeds `mode_state`, and a value outside `available_modes` strands the
+/// client's Plan/Build toggle.
+fn init_mode(reported: Option<&str>, current: &str) -> Option<String> {
+    let reported = reported.filter(|mode| !mode.is_empty())?;
+    let clamped = clamp_mode(reported);
+    (clamped != current).then_some(clamped)
 }
 
 fn plan_status(status: &str) -> PlanEntryStatus {
@@ -2504,11 +2405,13 @@ fn tool_info(name: &str, input: &Value, cwd: &Path) -> ToolInfo {
     match name {
         "Agent" | "Task" => {
             let description = string("description");
-            let prompt = string("prompt");
             ToolInfo {
                 title: if description.is_empty() { "Task".into() } else { description.into() },
                 kind: ToolKind::Think,
-                content: if prompt.is_empty() { vec![] } else { vec![text_content(prompt)] },
+                // EXP-773: the prompt body is NOT the card. A subagent's own
+                // rows render inside its card; repeating the whole prompt
+                // above them buried the run.
+                content: vec![],
                 locations: vec![],
             }
         }
@@ -3055,49 +2958,144 @@ fn host_of(url: &str) -> Option<String> {
     (!host.is_empty()).then(|| host.to_string())
 }
 
-/// The plan-approval menu (`permissions/options/tools.js`). The elevated mode
-/// is `auto` when it is offered, else `bypassPermissions`, else `acceptEdits`
-/// — and the clear-context option only exists when there IS a plan to carry.
-fn exit_plan_options(input: &Value) -> Vec<PermissionOption> {
-    let modes = available_modes();
-    let has = |id: &str| modes.iter().any(|mode| mode.id.0.as_ref() == id);
-    let elevated = if has("auto") {
-        "auto"
-    } else if has("bypassPermissions") {
-        "bypassPermissions"
-    } else {
-        "acceptEdits"
+/// A picked permission option: the control response to write, plus what that
+/// answer CHANGES once it is on the wire.
+struct PermissionAnswer {
+    response: Value,
+    effects: PermissionEffects,
+}
+
+/// What a permission answer does BESIDES answering. Held apart from the
+/// response because a request the CLI cancelled while its card was open is
+/// never answered at all: arming a plan restart for one of those cleared the
+/// context and ran a build turn for an approval that no longer existed.
+#[derive(Default)]
+struct PermissionEffects {
+    /// The session mode the answer switches into.
+    mode: Option<String>,
+    /// The accepted plan to re-prompt in a fresh context.
+    plan_restart: Option<PlanRestart>,
+}
+
+impl PermissionAnswer {
+    /// An answer that changes nothing.
+    fn plain(response: Value) -> PermissionAnswer {
+        PermissionAnswer {
+            response,
+            effects: PermissionEffects::default(),
+        }
+    }
+}
+
+/// Fold an answered permission's effects into the session state. Returns the
+/// mode the client has to be told about, if it moved.
+fn take_permission_effects(state: &mut State, effects: PermissionEffects) -> Option<String> {
+    if let Some(restart) = effects.plan_restart {
+        state.pending_plan_restart = Some(restart);
+    }
+    let mode = effects.mode?;
+    state.mode = mode.clone();
+    Some(mode)
+}
+
+/// The control response for the option the user picked. PURE by design: every
+/// consequence rides [`PermissionEffects`], so nothing has happened yet if the
+/// response never reaches the CLI.
+fn permission_answer(
+    option_id: &str,
+    request: &wire::ControlReq,
+    tool_use_id: &str,
+) -> PermissionAnswer {
+    if request.is_exit_plan_mode() {
+        if let Some(mode) = exit_plan_clear_context_mode(option_id) {
+            // NOT an allow: allowing would run ExitPlanMode in the old
+            // context before the hand-off. The interrupt is consumed by
+            // `on_result`, which re-prompts the plan in a fresh context.
+            let plan = request
+                .input
+                .get("plan")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            return PermissionAnswer {
+                response: wire::permission_deny(
+                    tool_use_id,
+                    "User accepted the plan and requested a fresh context",
+                    true,
+                ),
+                effects: PermissionEffects {
+                    mode: None,
+                    plan_restart: Some(PlanRestart {
+                        plan,
+                        mode: mode.to_string(),
+                    }),
+                },
+            };
+        }
+        if let Some(mode) = exit_plan_mode(option_id) {
+            let mut allow = wire::permission_allow(tool_use_id, request.input.clone());
+            allow["updatedPermissions"] =
+                json!([{ "type": "setMode", "mode": mode, "destination": "session" }]);
+            if mode != "default" {
+                allow["decisionClassification"] = json!("user_permanent");
+            }
+            return PermissionAnswer {
+                response: allow,
+                effects: PermissionEffects {
+                    // Clamped like a steered switch: the toggle the approval
+                    // moves is the one `available_modes` advertises.
+                    mode: Some(clamp_mode(mode)),
+                    plan_restart: None,
+                },
+            };
+        }
+        if option_id == "reject" {
+            // A plain deny lets claude keep planning; the interrupt stops
+            // this turn so the user can steer instead.
+            return PermissionAnswer::plain(wire::permission_deny(
+                tool_use_id,
+                "User chose to keep planning",
+                true,
+            ));
+        }
+    }
+    let response = match option_id {
+        "allow-once" => wire::permission_allow(tool_use_id, request.input.clone()),
+        "allow-with-updates" => {
+            let mut allow = wire::permission_allow(tool_use_id, request.input.clone());
+            if let Some(updates) = request.permission_suggestions.as_array() {
+                allow["updatedPermissions"] = json!(updates);
+                allow["decisionClassification"] = json!("user_permanent");
+            }
+            allow
+        }
+        "reject" => wire::permission_deny(tool_use_id, "User refused permission to run tool", false),
+        other => {
+            log::warn!("engine: claude permission option {other} is not one we offered");
+            wire::permission_deny(tool_use_id, "User refused permission to run tool", false)
+        }
     };
+    PermissionAnswer::plain(response)
+}
+
+/// The plan-approval menu. EXP-772: permissions are bypassed in every mode,
+/// so "manually approve edits" is no longer an answer that means anything —
+/// what is left is code it, code it in a FRESH context (only when there is a
+/// plan to carry), or keep planning.
+fn exit_plan_options(input: &Value) -> Vec<PermissionOption> {
     let plan = input.get("plan").and_then(Value::as_str).unwrap_or_default();
     let mut options = Vec::new();
     if !plan.trim().is_empty() {
-        let (id, name) = match elevated {
-            "auto" => ("exit-plan-clear-auto", "Yes, clear context and use auto mode"),
-            "bypassPermissions" => {
-                ("exit-plan-clear-bypass", "Yes, clear context and bypass permissions")
-            }
-            _ => ("exit-plan-clear-accept-edits", "Yes, clear context and auto-accept edits"),
-        };
         options.push(PermissionOption::new(
-            PermissionOptionId::new(id),
-            name,
+            PermissionOptionId::new("exit-plan-clear-bypass"),
+            "Yes, and start with a fresh context",
             PermissionOptionKind::AllowAlways,
         ));
     }
-    let (id, name) = match elevated {
-        "auto" => ("exit-plan-auto", "Yes, and use auto mode"),
-        "bypassPermissions" => ("exit-plan-bypass", "Yes, and bypass permissions"),
-        _ => ("exit-plan-accept-edits", "Yes, auto-accept edits"),
-    };
     options.push(PermissionOption::new(
-        PermissionOptionId::new(id),
-        name,
+        PermissionOptionId::new("exit-plan-bypass"),
+        "Yes",
         PermissionOptionKind::AllowAlways,
-    ));
-    options.push(PermissionOption::new(
-        PermissionOptionId::new("exit-plan-default"),
-        "Yes, manually approve edits",
-        PermissionOptionKind::AllowOnce,
     ));
     options.push(PermissionOption::new(
         PermissionOptionId::new("reject"),
@@ -3659,17 +3657,18 @@ mod tests {
         assert_eq!(window.size(), 1_000_000);
     }
 
+    /// EXP-772: approving a plan means coding it, in this context or a fresh
+    /// one — every answer lands on `bypassPermissions`.
     #[test]
-    fn the_plan_menu_offers_four_options_with_the_clear_context_one_first() {
+    fn the_plan_menu_offers_the_clear_context_option_first() {
         let options = exit_plan_options(&json!({ "plan": "# Plan" }));
         let ids: Vec<String> =
             options.iter().map(|option| option.option_id.0.to_string()).collect();
         assert_eq!(
             ids,
             vec![
-                "exit-plan-clear-auto".to_string(),
-                "exit-plan-auto".to_string(),
-                "exit-plan-default".to_string(),
+                "exit-plan-clear-bypass".to_string(),
+                "exit-plan-bypass".to_string(),
                 "reject".to_string(),
             ]
         );
@@ -3678,11 +3677,106 @@ mod tests {
             .iter()
             .map(|option| option.option_id.0.to_string())
             .collect();
-        assert_eq!(ids.len(), 3);
-        // The clear-context options DENY with an interrupt; they never allow.
-        assert_eq!(exit_plan_clear_context_mode("exit-plan-clear-auto"), Some("auto"));
-        assert_eq!(exit_plan_mode("exit-plan-clear-auto"), None);
-        assert_eq!(exit_plan_mode("exit-plan-default"), Some("default"));
+        assert_eq!(ids, vec!["exit-plan-bypass".to_string(), "reject".to_string()]);
+        // The clear-context option DENIES with an interrupt; it never allows.
+        assert_eq!(
+            exit_plan_clear_context_mode("exit-plan-clear-bypass"),
+            Some("bypassPermissions")
+        );
+        assert_eq!(exit_plan_mode("exit-plan-clear-bypass"), None);
+        assert_eq!(exit_plan_mode("exit-plan-bypass"), Some("bypassPermissions"));
+    }
+
+    fn exit_plan_request() -> wire::ControlReq {
+        wire::ControlReq {
+            subtype: "can_use_tool".into(),
+            tool_name: "ExitPlanMode".into(),
+            input: json!({ "plan": "# Plan\n\n1. Do the thing" }),
+            ..wire::ControlReq::default()
+        }
+    }
+
+    /// Approving a plan with "Yes" moves the session to Build: the state has
+    /// to move WITH the CLI, and the client is told, or its Plan/Build toggle
+    /// stays stuck on Plan for the rest of the run.
+    #[test]
+    fn a_plan_approval_switches_the_mode_and_announces_it() {
+        let request = exit_plan_request();
+        let answer = permission_answer("exit-plan-bypass", &request, "toolu_1");
+        assert_eq!(answer.response["behavior"], json!("allow"));
+        assert_eq!(
+            answer.response["updatedPermissions"][0]["mode"],
+            json!("bypassPermissions")
+        );
+        assert_eq!(answer.effects.mode.as_deref(), Some("bypassPermissions"));
+
+        // Folding the effects in moves the state and yields the mode to
+        // announce as a `CurrentModeUpdate` + a fresh `config_state`.
+        let mut state = State { mode: "plan".to_string(), ..State::default() };
+        let announced = take_permission_effects(&mut state, answer.effects);
+        assert_eq!(announced.as_deref(), Some("bypassPermissions"));
+        assert_eq!(state.mode, "bypassPermissions");
+        assert!(state.pending_plan_restart.is_none());
+
+        // Keeping the plan changes nothing.
+        let keep = permission_answer("reject", &request, "toolu_1");
+        let mut state = State { mode: "plan".to_string(), ..State::default() };
+        assert_eq!(take_permission_effects(&mut state, keep.effects), None);
+        assert_eq!(state.mode, "plan");
+    }
+
+    /// A CANCELLED plan approval is never answered, so it must not arm the
+    /// restart either: it used to `/clear` the context and run a build turn
+    /// for an approval the CLI had already abandoned.
+    #[test]
+    fn a_cancelled_plan_approval_arms_no_restart() {
+        let request = exit_plan_request();
+        let answer = permission_answer("exit-plan-clear-bypass", &request, "toolu_1");
+        // Computing the answer touches no state at all.
+        assert_eq!(answer.response["behavior"], json!("deny"));
+        assert!(answer.effects.plan_restart.is_some());
+
+        // `answer_can_use_tool` takes the abort BEFORE it writes anything, and
+        // the effects ride the write.
+        let mut state = State::default();
+        state.answering.insert("req-1".to_string());
+        state.aborted_requests.insert("req-1".to_string());
+        state.answering.remove("req-1");
+        let aborted = state.aborted_requests.remove("req-1");
+        assert!(aborted);
+        if !aborted {
+            take_permission_effects(&mut state, answer.effects);
+        }
+        assert!(state.pending_plan_restart.is_none(), "the abandoned plan armed a restart");
+
+        // The same answer on a request that WAS written arms it.
+        let answer = permission_answer("exit-plan-clear-bypass", &request, "toolu_1");
+        let mut state = State::default();
+        assert_eq!(take_permission_effects(&mut state, answer.effects), None);
+        let restart = state.pending_plan_restart.expect("the accepted plan is armed");
+        assert_eq!(restart.mode, "bypassPermissions");
+        assert!(restart.plan.starts_with("# Plan"));
+    }
+
+    /// `system/init` reports the mode the CLI actually launched in, in its own
+    /// spelling: it goes through the same clamp a steered switch does, since
+    /// `available_modes` only ever offers `plan` and `bypassPermissions`.
+    #[test]
+    fn the_init_frame_mode_is_clamped_to_the_offered_ones() {
+        let offered: Vec<String> =
+            available_modes().iter().map(|mode| mode.id.0.to_string()).collect();
+        for reported in ["acceptEdits", "default", "auto", "dontAsk", "bypassPermissions"] {
+            let adopted = init_mode(Some(reported), "plan").expect("a change off plan");
+            assert_eq!(adopted, "bypassPermissions", "{reported}");
+            assert!(offered.contains(&adopted));
+        }
+        // Plan is adopted as itself.
+        assert_eq!(init_mode(Some("plan"), "bypassPermissions").as_deref(), Some("plan"));
+        // Nothing to adopt: no frame value, an empty one, or one that clamps
+        // to the mode already current.
+        assert_eq!(init_mode(None, "plan"), None);
+        assert_eq!(init_mode(Some(""), "plan"), None);
+        assert_eq!(init_mode(Some("acceptEdits"), "bypassPermissions"), None);
     }
 
     #[test]
@@ -3785,16 +3879,15 @@ mod tests {
         assert_eq!(message["origin"]["kind"], json!("human"));
     }
 
+    /// EXP-772: plan on, plan off. Nothing else is steerable — every other
+    /// permission mode differs in nothing a user can see.
     #[test]
-    fn the_mode_picker_never_offers_dont_ask() {
+    fn the_mode_picker_offers_plan_and_build_only() {
         let ids: Vec<String> =
             available_modes().iter().map(|mode| mode.id.0.to_string()).collect();
-        assert!(ids.starts_with(&[
-            "default".to_string(),
-            "acceptEdits".to_string(),
-            "plan".to_string(),
-            "auto".to_string(),
-        ]));
-        assert!(!ids.iter().any(|id| id == "dontAsk"));
+        assert_eq!(ids, vec!["plan".to_string(), "bypassPermissions".to_string()]);
+        let labels: Vec<String> =
+            available_modes().iter().map(|mode| mode.name.clone()).collect();
+        assert_eq!(labels, vec!["Plan".to_string(), "Build".to_string()]);
     }
 }

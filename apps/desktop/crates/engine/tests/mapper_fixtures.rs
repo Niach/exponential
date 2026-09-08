@@ -76,8 +76,17 @@ fn a_recorded_turn_maps_to_the_wire_vector() {
         wire("turn.jsonl"),
         vec![
             // The two chunks of `m1` coalesced; the tool call flushed them.
-            json!({"kind": "narration", "text": "Looking at the repo"}),
-            json!({"kind": "narration", "text": "They want the tests green"}),
+            // EXP-772: every flush carries the agent's own message id, so a
+            // client merges the pieces of ONE message back into one row.
+            json!({"kind": "narration", "text": "Looking at the repo", "messageId": "m1"}),
+            // A THOUGHT derives its own id from the message's: the agent gives
+            // the thought and the answer one `messageId`, and merging by it
+            // would fold the chain of thought into the answer row.
+            json!({
+                "kind": "narration",
+                "text": "They want the tests green",
+                "messageId": "t1#thought"
+            }),
             // The detail is the location path, relative to the worktree.
             json!({"kind": "tool", "name": "Read", "detail": "src/main.rs"}),
             json!({
@@ -87,7 +96,7 @@ fn a_recorded_turn_maps_to_the_wire_vector() {
                 "costUsd": 0.12
             }),
             // The turn end flushed `m2`.
-            json!({"kind": "narration", "text": "Done."}),
+            json!({"kind": "narration", "text": "Done.", "messageId": "m2"}),
         ]
     );
 }
@@ -592,7 +601,7 @@ fn id_less_chunks_are_separated_and_streamed_ones_still_coalesce() {
                 "kind": "narration",
                 "text": "pi: Codex error: stream closed\npi: Codex error: no response"
             }),
-            json!({"kind": "narration", "text": "Looking at the repo"}),
+            json!({"kind": "narration", "text": "Looking at the repo", "messageId": "m1"}),
         ]
     );
 }

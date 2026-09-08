@@ -1,4 +1,4 @@
-//! Reap agent processes that escaped the PTY (EXP-300).
+//! Reap agent processes that escaped their host (EXP-300).
 //!
 //! ## The bug
 //!
@@ -23,7 +23,7 @@
 //!
 //! ## Why the obvious fixes do not work
 //!
-//! `Terminal::shutdown` already kills the PTY child. That is not enough:
+//! Killing the spawned child is not enough:
 //! `claude` spawns a background daemon that `setsid`s into its own session, so
 //! it is neither in the child's process group (no `killpg`) nor in our process
 //! tree by the time we look (`ppid == 1` — already reparented to launchd, so

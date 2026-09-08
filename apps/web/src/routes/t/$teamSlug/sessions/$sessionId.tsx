@@ -1,4 +1,4 @@
-import { useCallback } from "react"
+import { useCallback, useMemo, useState } from "react"
 import {
   createFileRoute,
   Link,
@@ -7,11 +7,27 @@ import {
   useNavigate,
   useRouter,
 } from "@tanstack/react-router"
+import { useLiveQuery } from "@tanstack/react-db"
+import { LoaderCircle } from "lucide-react"
+import { toast } from "sonner"
 import { AgentSessionView } from "@/components/agent-session"
+import { agentLabel } from "@/components/agent-usage-bar"
+import { relativeTime } from "@/components/comment-rows/format"
 import { SessionStatusBadge } from "@/components/issue-coding-rows"
+import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { Button } from "@/components/ui/button"
 import { conceptIcon } from "@/lib/icons.generated"
+import { deviceCollection } from "@/lib/collections"
+import { pastRunByline, pastRunEndedAt } from "@/lib/past-runs"
+import {
+  deviceCanResumeRun,
+  deviceRowIsOnline,
+} from "@/lib/steer-devices"
+import { trpc } from "@/lib/trpc-client"
+import type { CodingSession, Device } from "@/db/schema"
 import { rowPrState, useSessionRow } from "@/hooks/use-agents-data"
+import { useNow } from "@/hooks/use-now"
+import { useSessionDevice } from "@/hooks/use-session-device"
 import { sessionIdentity } from "@/lib/session-identity"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug } from "@/hooks/use-team-data"
@@ -125,13 +141,23 @@ function SessionPage() {
     <div className="flex h-full min-h-0 flex-col">
       {/* The run may END while this page is open — the view stays mounted and
           read-only (its own tab in the strip vanishes, because `running`
-          excludes ended rows). Nothing navigates away underneath the user. */}
+          excludes ended rows). Nothing navigates away underneath the user.
+          EXP-773: a finished run carries its close-out under the header — the
+          byline the Past lists used to expand, Resume on the machine that
+          still holds the worktree, and the agent's summary. The feed connects
+          to the relay exactly like a live one; the device republishes its
+          journal. */}
       <AgentSessionView
         key={session.id}
         session={session}
         currentUserId={currentUserId}
         identity={identity}
         mergeTarget={row.mergeTarget}
+        banner={
+          session.status === `ended` ? (
+            <EndedRunHeader session={session} />
+          ) : undefined
+        }
         onBack={goBack}
       />
     </div>
@@ -164,4 +190,103 @@ function SessionStubHeader({
       <span className="size-9 shrink-0" />
     </div>
   )
+}
+
+const ResumeIcon = conceptIcon(`run-resume`)
+
+/** EXP-773: the ended-run block above the transcript — the caption the Past
+ * rows carry (lib/past-runs.ts `pastRunByline`), Resume when the run's machine
+ * is online and advertises `resume-run`, and the agent's own close-out summary
+ * as a small muted markdown block. */
+function EndedRunHeader({ session }: { session: CodingSession }) {
+  const [resuming, setResuming] = useState(false)
+  const device = useSessionDevice(session)
+  const canResume = useCanResumeOn(session)
+
+  const byline = pastRunByline(session, {
+    deviceLabel: device.label ?? session.deviceLabel,
+    agentLabel: session.agent ? agentLabel(session.agent) : null,
+    relativeTime:
+      pastRunEndedAt(session) > 0
+        ? relativeTime(new Date(pastRunEndedAt(session)))
+        : ``,
+  })
+
+  // The resumed run arrives as a NEW row over Electric; the button only has to
+  // send the command, so it settles as soon as the relay accepted it.
+  const resume = async () => {
+    if (!session.deviceId) return
+    setResuming(true)
+    try {
+      await trpc.steer.startSession.mutate({
+        resumeSessionId: session.id,
+        deviceId: session.deviceId,
+      })
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : `Could not resume that run`)
+    } finally {
+      setResuming(false)
+    }
+  }
+
+  return (
+    <div className="flex shrink-0 flex-col gap-2 border-b border-border bg-card/40 px-3 py-2">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+          {byline || `This run has ended`}
+        </span>
+        {canResume && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            disabled={resuming}
+            onClick={resume}
+          >
+            {resuming ? (
+              <LoaderCircle className="animate-spin" />
+            ) : (
+              <ResumeIcon />
+            )}
+            Resume
+          </Button>
+        )}
+      </div>
+      {session.summary && (
+        <div className="max-h-40 overflow-y-auto text-xs text-muted-foreground">
+          <MarkdownEditor
+            markdown={session.summary}
+            editable={false}
+            onChange={() => {}}
+            // EXP-698: the run summary is feed-sized markdown.
+            appearance="chat"
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** EXP-637: Resume relaunches the run on the machine that still holds its
+ * worktree — the button is hidden when that machine is offline or too old to
+ * resume, rather than failing after the click. */
+function useCanResumeOn(session: CodingSession): boolean {
+  const { data: deviceRows } = useLiveQuery((query) =>
+    query.from({ d: deviceCollection })
+  )
+  const now = useNow(30_000)
+  const deviceId = session.deviceId
+  const userId = session.userId
+  return useMemo(() => {
+    if (!deviceId) return false
+    const rows = ((deviceRows ?? []) as Device[]).filter(
+      (row) => row.deviceId === deviceId
+    )
+    const row = rows.find((r) => r.userId === userId) ?? rows[0]
+    if (!row) return false
+    return (
+      deviceRowIsOnline(row.lastSeenAt, now) &&
+      deviceCanResumeRun({ caps: row.caps ?? [] })
+    )
+  }, [deviceRows, deviceId, userId, now])
 }

@@ -18,56 +18,29 @@
 //!    launcher on a shell window (the SAME `coding_flow` path the button
 //!    uses, `LaunchOrigin::Relay`).
 //!
-//! 2. **Publisher — attaches on coding-session launch.**
-//!    [`attach_publisher_pty`] is the single call
-//!    `coding_flow::spawn_pty_into_window` makes right after `coding` reports
-//!    `LaunchOutcome::Spawned` (an ACP run publishes from the engine instead,
-//!    EXP-746 D14). It mints a
-//!    publisher ticket over tRPC (never signed locally), wires the live
-//!    terminal's Send+Sync handles (`Terminal::writer()` for remote input and
-//!    answer injection, `Terminal::term()` for the grid the emitter watches),
-//!    starts the §P7 activity emitter with this session's hook-sidecar stream,
-//!    and registers the session for the kill-switch. Best-effort: a disabled/
-//!    unreachable relay is a no-op (the session runs fine locally).
+//! 2. **Publisher — the ENGINE's (EXP-746 D14, EXP-773).** A coding session
+//!    runs in the in-process ACP engine, which owns its publisher, its
+//!    activity vocabulary and its `bye`. Nothing here attaches one.
 //!
-//!    EXP-249 also puts the **claude hooks sidecar** here: [`install`] starts
-//!    ONE loopback [`steer::HookServer`] per process, [`hook_setup`] hands its
-//!    port/token/settings to `coding::prepare_with_hooks` at every launch site,
-//!    and a router thread fans each delivery to the session whose worktree it
-//!    came from.
-//!
-//! 3. **Kill-switch — the own-row Electric watch (§8.8).** Every published
-//!    session is registered with the [`sync::KillWatch`]; when its
-//!    `coding_sessions` row flips to `ended` (a `steer.killSession` DB write
-//!    that reaches us over sync even when the relay is dead), the callback
-//!    kills the `claude` child and stops the publisher — the only kill path
-//!    that survives a dead relay.
-//!
-//! Cross-thread discipline: the publisher task runs on the steer tokio runtime,
-//! so its hooks must be `Send + Sync`. Input-inject operates on `Send + Sync`
-//! `Arc` handles directly (the shared PTY writer + the `TermHandle`); the rest
-//! (presence, error, relay-kill) marshal onto the gpui foreground through a
-//! per-session [`flume`] channel drained by a foreground task, because they
-//! touch the gpui-held `Terminal` / registry.
+//! 3. **Kill-switch — the own-row Electric watch (§8.8).** Every session is
+//!    registered with the [`sync::KillWatch`]; when its `coding_sessions` row
+//!    flips to `ended` (a `steer.killSession` DB write that reaches us over
+//!    sync even when the relay is dead), [`register_kill_feed`] turns it into
+//!    an [`engine::KillFeed`] edge — the only kill path that survives a dead
+//!    relay.
 
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use gpui::{App, AppContext as _, Entity, Global, WeakEntity};
-use terminal::{TabId, TerminalManager};
+use gpui::{App, AppContext as _, Entity, Global};
 
 use coding::{
-    prepare_with_hooks, BatchIssueSpec, BatchLaunchRequest, CodingAgent, LaunchOptions,
-    LaunchOrigin, Prepared, PrepareRequest, RepoGroup, ResumeRunRequest,
+    prepare, BatchIssueSpec, BatchLaunchRequest, LaunchOptions, LaunchOrigin, Prepared,
+    PrepareRequest, RepoGroup, ResumeRunRequest,
 };
-use steer::publisher::pty_writer_input_hook;
 use steer::{
-    spawn_activity_emitter, spawn_control_channel, AnswerLink, CommandLink, ControlApi,
-    ControlChannelHandle, DeviceIdentity, EmitterConfig, HookEvent, HookServer, PublishSpec,
-    PublisherHandle, PublisherHooks, PublisherTickets, Steering, SteerRuntime, TrpcControlApi,
-    TrpcPublisherTickets,
+    spawn_control_channel, ControlApi, ControlChannelHandle, DeviceIdentity, PublisherTickets,
+    SteerRuntime, TrpcControlApi, TrpcPublisherTickets,
 };
 use sync::{KillWatch, Store};
 
@@ -123,21 +96,7 @@ pub fn install(cx: &mut App) {
 
     // Lazily-created entity globals — materialize now so later access never
     // races the first coding session.
-    let _ = PublisherRegistry::global(cx);
     let _ = ControlChannels::global(cx);
-
-    // EXP-758: the two PTY sidecars (EXP-249 claude hooks, EXP-383 pi
-    // observer) used to bind a loopback port each in EVERY desktop process,
-    // whether or not a single run ever landed on the terminal transport,
-    // and since EXP-746 the default run is ACP, so on most machines they
-    // bound, listened and were never spoken to. They are lazy now
-    // ([`PtySidecars`]: the launcher binds them from its Terminal arm,
-    // EXP-761). The one case that still starts them here is the device
-    // having already chosen the PTY: `start_in_terminal` makes every launch
-    // a terminal launch, so waiting buys nothing.
-    if terminal_first(cx) {
-        sidecars().warm();
-    }
 
     // §8.3 #4: relay `start_session` → foreground launcher.
     let (tx, rx) = flume::unbounded::<steer::RemoteStart>();
@@ -148,255 +107,6 @@ pub fn install(cx: &mut App) {
         }
     })
     .detach();
-}
-
-// ---------------------------------------------------------------------------
-// The claude hooks sidecar (EXP-249) — one server, per-session routing
-// ---------------------------------------------------------------------------
-
-/// One session's subscription to the sidecar.
-struct HookSubscriber {
-    worktree: PathBuf,
-    tx: flume::Sender<HookEvent>,
-    /// claude session ids already routed here — the tie-breaker when two
-    /// sessions share a cwd (two action runs on the same trunk clone).
-    bound: HashSet<String>,
-}
-
-/// The process-wide hooks sidecar: the loopback server, the `HookSetup` every
-/// launch site passes to `coding::prepare_with_hooks`, and the router that
-/// fans each delivery to the session it came from (by `cwd`, then pinned by
-/// claude's own session id).
-struct HookSidecar {
-    setup: coding::HookSetup,
-    subscribers: Arc<Mutex<Vec<HookSubscriber>>>,
-    /// Alive for the process — dropping it stops the accept loop.
-    _server: HookServer,
-}
-
-impl HookSidecar {
-    fn start() -> Option<Arc<Self>> {
-        let server = match HookServer::start() {
-            Ok(server) => server,
-            Err(err) => {
-                log::warn!(
-                    "steer: hooks sidecar failed to bind: {err} — every session degrades to \
-                     grid-only detection (no question identity, no transcript pin)"
-                );
-                return None;
-            }
-        };
-        let setup = coding::HookSetup {
-            port: server.port(),
-            token: server.token().to_string(),
-            settings_json: server.settings_json(),
-        };
-        let subscribers: Arc<Mutex<Vec<HookSubscriber>>> = Arc::new(Mutex::new(Vec::new()));
-        let events = server.events().clone();
-        let routed = Arc::clone(&subscribers);
-        std::thread::Builder::new()
-            .name("exp-hook-router".to_string())
-            .spawn(move || {
-                while let Ok(event) = events.recv() {
-                    route_hook_event(&routed, event);
-                }
-            })
-            .ok()?;
-        Some(Arc::new(Self {
-            setup,
-            subscribers,
-            _server: server,
-        }))
-    }
-
-    /// Subscribe a session's worktree; the receiver goes to its emitter and
-    /// dropping it unsubscribes on the next delivery. `session_id` (EXP-443)
-    /// is the launcher-minted `--session-id`: pre-seeding `bound` with it
-    /// makes rule 1 of [`route_hook_event`] authoritative from the first
-    /// delivery — no cwd guess, no insertion-order race with a same-cwd
-    /// subscriber.
-    fn subscribe(&self, worktree: &Path, session_id: Option<&str>) -> flume::Receiver<HookEvent> {
-        let (tx, rx) = flume::unbounded();
-        let mut subscribers = match self.subscribers.lock() {
-            Ok(subscribers) => subscribers,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        subscribers.retain(|subscriber| !subscriber.tx.is_disconnected());
-        subscribers.push(HookSubscriber {
-            worktree: canonical(worktree),
-            tx,
-            bound: session_id
-                .map(|id| HashSet::from([id.to_string()]))
-                .unwrap_or_default(),
-        });
-        rx
-    }
-}
-
-/// `std::fs::canonicalize` or the path as given — the hook payload's `cwd` and
-/// our worktree must compare equal through symlinked temp/home dirs.
-fn canonical(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
-}
-
-/// Deliver one hook event to at most ONE session: a claude session id we have
-/// already seen wins outright, otherwise the cwd picks the session (preferring
-/// one with no bound id yet, so two runs sharing a trunk clone split instead
-/// of piling onto the first).
-///
-/// EXP-443: sessions launch with their `bound` set pre-seeded by the minted
-/// `--session-id`, so rule 1 is authoritative from the first delivery and
-/// the cwd tie-break no longer races two same-cwd runs. The cwd fallback
-/// stays for the ids a pre-seed cannot know: a `/clear`-minted rotation and
-/// pre-EXP-443 resumes.
-fn route_hook_event(subscribers: &Arc<Mutex<Vec<HookSubscriber>>>, event: HookEvent) {
-    let mut subscribers = match subscribers.lock() {
-        Ok(subscribers) => subscribers,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-    subscribers.retain(|subscriber| !subscriber.tx.is_disconnected());
-    let session_id = event.context.session_id.clone();
-    let target = session_id
-        .as_ref()
-        .and_then(|id| {
-            subscribers
-                .iter()
-                .position(|subscriber| subscriber.bound.contains(id))
-        })
-        .or_else(|| {
-            let cwd = canonical(Path::new(event.context.cwd.as_deref()?));
-            subscribers
-                .iter()
-                .position(|subscriber| subscriber.worktree == cwd && subscriber.bound.is_empty())
-                .or_else(|| {
-                    subscribers
-                        .iter()
-                        .position(|subscriber| subscriber.worktree == cwd)
-                })
-        });
-    let Some(target) = target else {
-        log::debug!("steer: hook event with no matching session, dropped");
-        return;
-    };
-    if let Some(id) = session_id {
-        subscribers[target].bound.insert(id);
-    }
-    let _ = subscribers[target].tx.send(event);
-}
-
-// ---------------------------------------------------------------------------
-// The PTY sidecars, on demand (EXP-758 / EXP-761)
-// ---------------------------------------------------------------------------
-
-/// The process-wide PTY sidecar host: the claude hooks sidecar (EXP-249) and
-/// the pi observer server (EXP-383), each bound LAZILY on first ask and never
-/// rebound. `None` in a cell records a start that was ATTEMPTED and failed —
-/// the documented degrade (grid-only claude detection, diffs-only pi feed),
-/// logged once instead of retried on every launch.
-///
-/// EXP-761: a plain static, not a gpui `Global`, because the asks come from
-/// `coding::prepare_with_hooks` on the BACKGROUND executor — it is a
-/// [`coding::SidecarSource`], asked on the launcher's Terminal arm only and
-/// there only for the launched CLI's own sidecar. The launcher decides,
-/// because it alone knows the resolved transport; the EXP-758 guess made
-/// ahead of `prepare` (the removed `launch_needs_pty_sidecars`) read a cold process's
-/// missing doctor report as "not ACP-ready" and bound a port for a launch
-/// that then ran on ACP.
-pub(crate) struct PtySidecars {
-    hooks: std::sync::OnceLock<Option<Arc<HookSidecar>>>,
-    observer: std::sync::OnceLock<Option<Arc<steer::pi_observer::ObserverServer>>>,
-}
-
-static SIDECARS: PtySidecars = PtySidecars::new();
-
-/// The host every launch site hands to `coding::prepare_with_hooks`, and
-/// the emitter attach reads its subscriptions from.
-pub(crate) fn sidecars() -> &'static PtySidecars {
-    &SIDECARS
-}
-
-impl PtySidecars {
-    /// A host that has bound NOTHING yet.
-    const fn new() -> Self {
-        Self {
-            hooks: std::sync::OnceLock::new(),
-            observer: std::sync::OnceLock::new(),
-        }
-    }
-
-    /// EXP-758: bind both up front when this device starts every run in a
-    /// terminal (`Settings::start_in_terminal`): every launch it will ever
-    /// do wants them, so the first one should not pay the bind.
-    pub(crate) fn warm(&self) {
-        let _ = self.hook_sidecar_bound();
-        let _ = self.observer_server_bound();
-    }
-
-    /// BINDS the hooks server on the first call (a failed bind is remembered
-    /// as `None`).
-    fn hook_sidecar_bound(&self) -> Option<&Arc<HookSidecar>> {
-        self.hooks
-            .get_or_init(|| {
-                let sidecar = HookSidecar::start();
-                if sidecar.is_none() {
-                    log::warn!("steer: hooks sidecar unavailable — grid-only detection");
-                }
-                sidecar
-            })
-            .as_ref()
-    }
-
-    /// BINDS the pi observer server on the first call.
-    fn observer_server_bound(&self) -> Option<&Arc<steer::pi_observer::ObserverServer>> {
-        self.observer
-            .get_or_init(|| match steer::pi_observer::ObserverServer::start() {
-                Ok(server) => Some(Arc::new(server)),
-                Err(err) => {
-                    log::warn!("steer: pi observer sidecar failed to bind: {err}");
-                    None
-                }
-            })
-            .as_ref()
-    }
-
-    /// The hooks sidecar IF a PTY claude launch bound it — never binds
-    /// (the emitter attach; a session whose launch never asked has nothing
-    /// to subscribe to).
-    fn hook_sidecar(&self) -> Option<&Arc<HookSidecar>> {
-        self.hooks.get().and_then(Option::as_ref)
-    }
-
-    /// The observer server IF a pi PTY launch bound it — never binds.
-    fn observer_server(&self) -> Option<&Arc<steer::pi_observer::ObserverServer>> {
-        self.observer.get().and_then(Option::as_ref)
-    }
-}
-
-/// EXP-761: the launcher asks here, on its Terminal arm only.
-impl coding::SidecarSource for PtySidecars {
-    /// `None` = no sidecar (bind failed) — the launcher then writes no
-    /// `--settings` file and the session runs on grid-only detection.
-    fn hooks(&self) -> Option<coding::HookSetup> {
-        self.hook_sidecar_bound().map(|sidecar| sidecar.setup.clone())
-    }
-
-    /// `None` = no observer — a pi session then runs with the observer
-    /// extension inert (diffs-only feed).
-    fn observer(&self) -> Option<coding::ObserverSetup> {
-        self.observer_server_bound().map(|server| coding::ObserverSetup {
-            port: server.port(),
-            token: server.token().to_string(),
-        })
-    }
-}
-
-/// Is this device on the terminal transport by settings? Read off the
-/// settings FILE rather than [`crate::coding_flow::CodingHub`], because
-/// [`install`] runs before anything else has touched the hub and creating it
-/// there would kick the doctor's `--version` probes into app startup.
-fn terminal_first(cx: &App) -> bool {
-    let data_dir = crate::coding_flow::coding_data_dir(cx);
-    coding::Settings::load(&coding::Settings::default_path(&data_dir)).start_in_terminal
 }
 
 // ---------------------------------------------------------------------------
@@ -459,6 +169,21 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
     let inbox = cx.global::<RemoteStartGlobal>().0.clone();
     let check_in = crate::device_sync::check_in_flag(cx);
     let account_id = account.id.clone();
+    // EXP-773: the transcript store this account's runs write to, and the
+    // one-replay-per-session guard the `history_request` handler takes.
+    let history_dir = auth.data_dir.clone();
+    let history_trpc = Arc::clone(&trpc);
+    let history_runtime = Arc::clone(&runtime);
+    let history_in_flight = steer::HistoryInFlight::new();
+    // Boot pass: drop journals nobody can ask for anymore (60 days).
+    {
+        let prune_dir = history_dir.clone();
+        cx.background_executor()
+            .spawn(async move {
+                steer::prune_journals(&prune_dir, steer::JOURNAL_MAX_AGE);
+            })
+            .detach();
+    }
     cx.spawn(async move |cx| {
         // EXP-484: the REPORT is kept, not just the advertisement it
         // derives — `devices.register` also carries the per-agent accounts.
@@ -528,9 +253,31 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
             let on_check_in: steer::control_channel::CheckInFn = Arc::new(move || {
                 check_in.store(true, std::sync::atomic::Ordering::SeqCst);
             });
+            // EXP-773: serve a stored transcript back to the relay. Reading
+            // and republishing both happen on the steer runtime — the socket
+            // loop only hands the id over.
+            let on_history_request: steer::HistoryRequestFn = Arc::new(move |session_id| {
+                let tickets: Arc<dyn PublisherTickets> = Arc::new(TrpcPublisherTickets {
+                    trpc: Arc::clone(&history_trpc),
+                    coding_session_id: session_id.clone(),
+                });
+                steer::serve_history_request(
+                    &history_runtime,
+                    tickets,
+                    history_dir.clone(),
+                    session_id,
+                    history_in_flight.clone(),
+                );
+            });
             let control_api: Arc<dyn ControlApi> = Arc::new(TrpcControlApi(trpc));
-            let handle =
-                spawn_control_channel(&runtime, device, control_api, on_start, on_check_in);
+            let handle = spawn_control_channel(
+                &runtime,
+                device,
+                control_api,
+                on_start,
+                on_check_in,
+                on_history_request,
+            );
 
             let channels = ControlChannels::global(cx);
             channels.update(cx, |channels, _| {
@@ -995,12 +742,10 @@ fn remote_issue_start(issue_id: String, start: &steer::RemoteStart, cx: &mut App
         return;
     };
 
-    // EXP-761: the PTY sidecars bind inside `prepare`, on its Terminal arm
-    // only — an ACP launch binds nothing.
     cx.spawn(async move |cx| {
         let prepared = cx
             .background_executor()
-            .spawn(async move { prepare_with_hooks(&prepare_request, &deps, sidecars()) })
+            .spawn(async move { prepare(&prepare_request, &deps) })
             .await;
         let _ = target.update(cx, |_, window, cx| match prepared {
             Ok(Prepared::Ready(prepared)) => {
@@ -1147,11 +892,10 @@ fn remote_batch_start(
     };
 
     let prepare_request = PrepareRequest::Batch(request);
-    // EXP-761: as above, `prepare` binds the sidecars — or nothing.
     cx.spawn(async move |cx| {
         let prepared = cx
             .background_executor()
-            .spawn(async move { prepare_with_hooks(&prepare_request, &deps, sidecars()) })
+            .spawn(async move { prepare(&prepare_request, &deps) })
             .await;
         let _ = target.update(cx, |_, window, cx| match prepared {
             Ok(Prepared::Ready(prepared)) => {
@@ -1173,49 +917,7 @@ fn remote_batch_start(
     .detach();
 }
 
-// ---------------------------------------------------------------------------
-// Publisher registry (§8.4/§8.5) — the sessions this process is publishing
-// ---------------------------------------------------------------------------
-
-struct PublisherEntry {
-    handle: PublisherHandle,
-    /// §P7: the activity emitter's run flag (members-only activity channel);
-    /// flipping it `false` stops the thread on teardown.
-    activity_active: Arc<AtomicBool>,
-    /// EXP-637: the emitter's turn-state signal — the graceful stop waits on
-    /// it so an agent that just called `exponential_sessions_end` finishes
-    /// writing its close-out before anything tears the child down.
-    turn_signal: Arc<steer::TurnSignal>,
-}
-
-/// Session-keyed publisher handles — parallels `coding_flow::LocalSessions`
-/// but holds the steer side (the publisher task handle).
-#[derive(Default)]
-pub struct PublisherRegistry {
-    entries: HashMap<String, PublisherEntry>,
-}
-struct PublisherRegistryGlobal(Entity<PublisherRegistry>);
-impl Global for PublisherRegistryGlobal {}
-
-impl PublisherRegistry {
-    fn global(cx: &mut App) -> Entity<PublisherRegistry> {
-        if let Some(g) = cx.try_global::<PublisherRegistryGlobal>() {
-            return g.0.clone();
-        }
-        let entity = cx.new(|_| PublisherRegistry::default());
-        cx.set_global(PublisherRegistryGlobal(entity.clone()));
-        entity
-    }
-
-    fn global_ref(cx: &App) -> Option<Entity<PublisherRegistry>> {
-        cx.try_global::<PublisherRegistryGlobal>()
-            .map(|g| g.0.clone())
-    }
-}
-
-/// EXP-746 — the facts BOTH hosts need off the app state, extracted verbatim
-/// from [`attach_publisher_pty`] so the PTY publisher and the ACP engine read
-/// them from one place instead of drifting apart.
+/// EXP-746 — the account facts the engine needs off the app state.
 ///
 /// REV2-17: the account's `expu_` personal key. It is the redactor's
 /// exact-match secret (a codex/pi session carries it in the spawn env, never
@@ -1313,359 +1015,6 @@ pub(crate) fn kill_reason(ended_by: Option<&str>) -> engine::KillReason {
     }
 }
 
-/// Marshaled from the publisher task (steer runtime) to the gpui foreground.
-enum SteerUiEvent {
-    /// A surfaced publisher error (clock skew, repeated rejects — §8.7).
-    Error(String),
-    /// End the session: a relay `kill` frame. Kills the child + stops the
-    /// publisher; drains stop after.
-    Teardown,
-    /// EXP-637: the own-row Electric kill (§8.8) with the ended row's
-    /// close-out. Which teardown it gets is [`ended_policy`]'s call — an
-    /// AGENT-declared end is the run finishing itself, not a kill.
-    Ended(sync::kill_watch::EndedFacts),
-}
-
-/// The per-session facts the emitter needs off a `PreparedLaunch`, snapshotted
-/// by `coding_flow::spawn_into_window` before the spawn consumes it.
-pub struct SteerSessionInfo {
-    /// EXP-275: the launch's resolved permission posture (bypass on: a
-    /// non-pi agent outside plan mode) — feeds the emitter's launch narration. Bypass
-    /// sessions still hit real permission prompts (claude flags dangerous
-    /// commands even then, EXP-564), so nothing else keys on it.
-    pub bypass_permissions: bool,
-    /// EXP-529: the launch started in plan mode — stamped into the emitter's
-    /// launch narration so remote viewers can tell the run's posture.
-    pub plan_mode: bool,
-    /// EXP-383: which agent CLI the session runs — selects the activity
-    /// emitter and gates the claude-only hook/answer machinery off for
-    /// codex/pi.
-    pub agent: CodingAgent,
-    /// EXP-443: the launcher-minted `--session-id` (fresh claude sessions).
-    pub claude_session_id: Option<String>,
-    /// EXP-443: the launcher-stamped codex rollout originator.
-    pub codex_originator: Option<String>,
-    /// EXP-443: the exact rollout id a codex native resume reopens.
-    pub codex_resume_id: Option<String>,
-    /// EXP-432: the requesting teammate on a shared-device relay start
-    /// (`heartbeat_scope.started_by_id`) — `None` on local/own starts.
-    pub started_by_id: Option<String>,
-    /// EXP-688: the ref the published diff is measured from
-    /// (`origin/<default branch>`) — see [`steer::activity::worktree_diff`].
-    pub base_ref: Option<String>,
-}
-
-/// Attach a steer publisher to a freshly launched PTY coding session (§8.4).
-/// The single call `coding_flow::spawn_pty_into_window` makes on
-/// `LaunchOutcome::Spawned` — for BOTH subjects (issue sessions and
-/// multi-issue batch runs; a batch session publishes with `issue_id: None` and
-/// is never publicly fanned). Best-effort and non-blocking: a disabled/
-/// unreachable relay ends the publisher task quietly and the session keeps
-/// running locally.
-///
-/// EXP-746: the TERMINAL transport's publisher, and only it. An ACP run's
-/// publisher belongs to the engine (D14) — it has no PTY writer, no grid to
-/// scrape and no keystroke choreography, and giving it a second owner here
-/// would mean two `bye`s and two ends for one run.
-pub fn attach_publisher_pty(
-    session_id: &str,
-    subject: &coding_flow::SessionSubject,
-    tab: TabId,
-    manager: &Entity<TerminalManager>,
-    worktree: PathBuf,
-    info: SteerSessionInfo,
-    cx: &mut App,
-) {
-    let SteerSessionInfo {
-        bypass_permissions,
-        plan_mode,
-        agent,
-        claude_session_id,
-        codex_originator,
-        codex_resume_id,
-        started_by_id,
-        base_ref,
-    } = info;
-    let session_agent = match agent {
-        CodingAgent::Claude => steer::activity::SessionAgent::Claude,
-        CodingAgent::Codex => steer::activity::SessionAgent::Codex,
-        CodingAgent::Pi => steer::activity::SessionAgent::Pi,
-    };
-    let is_claude = session_agent == steer::activity::SessionAgent::Claude;
-    // EXP-455: keystroke-choreographed remote answering — claude's pickers
-    // and codex's approval modals. Pi steers through its observer extension,
-    // but its ONE answerable question — the plan-approval confirm dialog
-    // (EXP-441) — resolves by keystroke too, so the answer seam covers it.
-    let steers_by_keystroke =
-        is_claude || session_agent == steer::activity::SessionAgent::Codex;
-    let answers_remotely =
-        steers_by_keystroke || session_agent == steer::activity::SessionAgent::Pi;
-    let Some(runtime) = runtime(cx) else {
-        return; // steer off (runtime failed to init)
-    };
-    let Some(trpc) = queries::trpc_client(cx) else {
-        return; // signed out — nothing to publish as
-    };
-    let trpc = Arc::new(trpc);
-
-    // Foreground: read the Send+Sync PTY handles off the live terminal (the
-    // §6.14 seam — the publisher never opens its own PTY or re-reads).
-    let Some(view) = manager.read(cx).tab(tab).map(|tab| tab.view.clone()) else {
-        return;
-    };
-    let (writer, term) = {
-        let session = view.read(cx).session().borrow();
-        (session.writer(), session.term())
-    };
-
-    // The foreground-marshal channel for the non-`Send`-handle hooks.
-    let (ui_tx, ui_rx) = flume::unbounded::<SteerUiEvent>();
-    let error_tx = ui_tx.clone();
-    let kill_tx = ui_tx.clone();
-
-    // Remote input → the ONE shared PTY writer (Send+Sync Arc, no gpui); the
-    // TermHandle is the EXP-72 bracketed-paste gate for text frames. The
-    // EXP-249 answer choreography injects through the SAME hook, so the child
-    // cannot tell a steerer's answer from local typing.
-    let write_input = pty_writer_input_hook(writer, term.clone());
-    // EXP-249: `answer` frames land on the publisher and are executed by the
-    // emitter, which owns question identity and the live grid.
-    let (answer_link, answers) = AnswerLink::new();
-
-    // EXP-383: a pi session's observer subscription — the emitter drains the
-    // event stream, the publisher pushes remote composer messages into the
-    // steer queue the extension long-polls (applied via pi.sendUserMessage).
-    let pi_observer = (session_agent == steer::activity::SessionAgent::Pi)
-        .then(|| {
-            sidecars()
-                .observer_server()
-                .map(|server| server.subscribe(&worktree))
-        })
-        .flatten();
-    let (pi_events, pi_steer) = match pi_observer {
-        Some((events, steer_handle)) => (Some(events), Some(steer_handle)),
-        None => (None, None),
-    };
-    // EXP-724: the remote slash-command seam. The publisher RECOGNISES a
-    // catalog command and hands it whole to the emitter, which owns the grid
-    // and the turn state typing one needs. Pi is the exception that proves
-    // it: its commands never touch the PTY at all, so its sink pushes
-    // `{name, args}` onto the same observer-extension queue the text sink
-    // uses, and the extension calls pi's own APIs.
-    let command_link = CommandLink::new(pi_steer.clone().map(|handle| {
-        Arc::new(move |name: &str, args: &str| handle.push_command(name, args))
-            as steer::CommandSink
-    }));
-
-    let hooks = PublisherHooks {
-        write_input: write_input.clone(),
-        // The rest marshal to the foreground (they touch the gpui-held term).
-        kill: Arc::new(move |_signal| {
-            let _ = kill_tx.send(SteerUiEvent::Teardown);
-        }),
-        error: Arc::new(move |message| {
-            let _ = error_tx.send(SteerUiEvent::Error(message));
-        }),
-        // EXP-383/EXP-455: the semantic answer path drives the claude and
-        // codex TUIs by grid keystroke choreography (claude: plan/ask/login/
-        // permission pickers; codex: approval modals). Pi carries it ONLY
-        // for the plan gate (EXP-441) — its free text short-circuits into
-        // `text_sink` first, so the publisher's Enter-cascade/Esc-reroute
-        // logic stays inert (the pi emitter never sets the link flags).
-        answers: answers_remotely.then(|| answer_link.clone()),
-        agent: session_agent,
-        text_sink: pi_steer.map(|handle| {
-            Arc::new(move |text: String| handle.push(text)) as Arc<dyn Fn(String) + Send + Sync>
-        }),
-        // EXP-511: a steered message's image embeds are downloaded with this
-        // account's own auth into the worktree and handed to the agent as
-        // plain file paths.
-        attachments: Some(steer::image_localizer(
-            trpc.clone(),
-            worktree.join(coding::launcher::STEER_IMAGES_DIR),
-        )),
-        commands: Some(command_link.clone()),
-        config: None,
-    };
-
-    // EXP-214: the needs-input forwarder's own handle — cloned before the
-    // tickets take ownership of `trpc`.
-    let needs_input_trpc = trpc.clone();
-    let tickets: Arc<dyn PublisherTickets> = Arc::new(TrpcPublisherTickets {
-        trpc,
-        coding_session_id: session_id.to_string(),
-    });
-    let spec = PublishSpec {
-        session_id: session_id.to_string(),
-        // Batch sessions publish an issue-less room (the field is already
-        // Option): no issue page ever surfaces them, viewers reach them by
-        // session id only.
-        issue_id: match subject {
-            coding_flow::SessionSubject::Issue(issue_id) => Some(issue_id.clone()),
-            coding_flow::SessionSubject::Batch(_)
-            | coding_flow::SessionSubject::Action(_) => None,
-        },
-    };
-    let handle = steer::publish(&runtime, spec, tickets, hooks);
-
-    // §P7: start the activity emitter — the desktop emits scrubbed activity
-    // events over the publisher socket for authenticated team members on
-    // the relay's activity channel (the anonymous public audience was removed
-    // in EXP-90). The emitter tails the Claude transcript + worktree diffs
-    // and redacts before sending. Best-effort: a relay-disabled instance just
-    // drops the sends.
-    let activity_active = Arc::new(AtomicBool::new(true));
-    // EXP-637: the emitter flips it on every turn boundary; the graceful
-    // stop waits on it before tearing an agent-ended run down.
-    let turn_signal = Arc::new(steer::TurnSignal::new());
-    // EXP-214: forward the emitter's picker-pending flips to the synced
-    // `coding_sessions.needs_input` column so every client can badge
-    // "Needs input". Runs on the emitter thread (blocking HTTP is fine
-    // there); the return value tells the emitter whether the write landed so
-    // a failed one retries instead of sticking the badge (EXP-355) — a
-    // swept/ended row reports `updated: false`, which still counts as landed.
-    let needs_input_session = session_id.to_string();
-    // REV2-17: the `expu_` personal key from the account's secret store —
-    // codex/pi sessions carry it only in the spawn env (never a worktree
-    // file), so the redactor's exact-match layer needs it handed in here.
-    let extra_secrets: Vec<String> = personal_key(cx).into_iter().collect();
-    // EXP-249: this session's slice of the hooks sidecar — the structured
-    // plan/question/subagent/permission stream. Absent when the sidecar never
-    // came up; the emitter then runs grid-only, exactly as before. Claude
-    // only (EXP-383): the sidecar is fed by claude's `--settings` hooks, so
-    // a codex/pi subscription would just leak.
-    let hook_events = is_claude
-        .then(|| {
-            sidecars()
-                .hook_sidecar()
-                .map(|sidecar| sidecar.subscribe(&worktree, claude_session_id.as_deref()))
-        })
-        .flatten();
-    // EXP-444/EXP-432: a relay start whose requester is NOT this signed-in
-    // account runs on a shared host — the emitter suppresses the remote
-    // login flow for it.
-    let foreign_host = foreign_host(started_by_id.as_deref(), cx);
-    spawn_activity_emitter(
-        EmitterConfig {
-            agent: session_agent,
-            worktree,
-            base_ref,
-            extra_secrets,
-            // The live grid: the emitter watches it to confirm pickers the
-            // transcript can't show while PENDING (EXP-150) and to choreograph
-            // a remote answer's keystrokes (EXP-249).
-            term: Some(term),
-            on_needs_input: Some(Arc::new(move |pending| {
-                match api::coding_sessions::set_needs_input(
-                    &needs_input_trpc,
-                    &needs_input_session,
-                    pending,
-                ) {
-                    Ok(_) => true,
-                    Err(err) => {
-                        log::debug!("steer: setNeedsInput({pending}) failed: {err}");
-                        false
-                    }
-                }
-            })),
-            hooks: hook_events,
-            // EXP-383/EXP-455: the Steering seam drives the claude TUI's
-            // pickers and codex's approval modals by keystroke; pi rides it
-            // for the plan-approval confirm dialog only (EXP-441).
-            steering: answers_remotely.then(|| Steering {
-                answers,
-                link: answer_link,
-                write_input,
-                commands: Some(command_link),
-            }),
-            bypass_permissions,
-            plan_mode,
-            pi_events,
-            claude_session_id,
-            codex_originator,
-            codex_resume_id,
-            foreign_host,
-            turn_signal: Some(turn_signal.clone()),
-        },
-        handle.activity_sender(),
-        activity_active.clone(),
-    );
-
-    // Register the session (teardown bookkeeping).
-    let registry = PublisherRegistry::global(cx);
-    registry.update(cx, |registry, _| {
-        registry.entries.insert(
-            session_id.to_string(),
-            PublisherEntry {
-                handle,
-                activity_active,
-                turn_signal,
-            },
-        );
-    });
-
-    // §8.8 own-row kill-switch: end the session when the synced row flips to
-    // `ended` even if the relay is unreachable. The callback is cx-free, so it
-    // routes the teardown through the same foreground drain. The signed-in
-    // user's id pins the row's expected owner (EXP-105 F3): a swept-then-
-    // resurrected row carries the resurrector as owner, and its `ended` flip
-    // must never kill this run.
-    if let Some(kill_watch) = cx.try_global::<KillWatchGlobal>().map(|g| g.0.clone()) {
-        let own_user_id = queries::active_account(cx).map(|account| account.user_id);
-        let teardown_tx = ui_tx.clone();
-        kill_watch.update(cx, |watch, cx| {
-            watch.watch(
-                session_id.to_string(),
-                own_user_id,
-                Box::new(move |facts| {
-                    let _ = teardown_tx.send(SteerUiEvent::Ended(facts));
-                }),
-                cx,
-            );
-        });
-    }
-
-    // The per-session foreground drain: apply marshaled events with `cx`.
-    let session_id = session_id.to_string();
-    let manager_weak = manager.downgrade();
-    cx.spawn(async move |cx| {
-        while let Ok(event) = ui_rx.recv_async().await {
-            let torn_down =
-                cx.update(|cx| apply_steer_event(&session_id, &manager_weak, tab, event, cx));
-            if torn_down {
-                break;
-            }
-        }
-    })
-    .detach();
-}
-
-/// Apply one marshaled steer event on the gpui foreground. Returns `true` when
-/// it tore the session down (the drain then stops).
-fn apply_steer_event(
-    session_id: &str,
-    manager: &WeakEntity<TerminalManager>,
-    tab: TabId,
-    event: SteerUiEvent,
-    cx: &mut App,
-) -> bool {
-    match event {
-        SteerUiEvent::Error(message) => {
-            log::warn!("steer publisher [{session_id}]: {message}");
-            false
-        }
-        SteerUiEvent::Teardown => {
-            teardown_session(session_id, manager, tab, cx);
-            true
-        }
-        SteerUiEvent::Ended(facts) => apply_ended(session_id, manager, tab, facts, cx),
-    }
-}
-
-/// EXP-637/EXP-673 — what to do when a watched session's row flips to
-/// `ended`. Every ended row closes its tab: an open tab under a run the
-/// server already ended is a leftover (EXP-673), and there are many of them
-/// once automations run unattended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum EndPolicy {
     /// Tear the tab down at once — a kill, a client end, a merge, the sweep.
@@ -1688,232 +1037,9 @@ pub(crate) fn ended_policy(ended_by: Option<&str>) -> EndPolicy {
     }
 }
 
-/// Apply an ended row's [`EndPolicy`]. Returns `true` when the per-session
-/// drain should stop (every policy ends the session one way or another).
-fn apply_ended(
-    session_id: &str,
-    manager: &WeakEntity<TerminalManager>,
-    tab: TabId,
-    facts: sync::kill_watch::EndedFacts,
-    cx: &mut App,
-) -> bool {
-    let policy = ended_policy(facts.ended_by.as_deref());
-    log::info!("steer [{session_id}]: row ended ({:?}) → {policy:?}", facts.ended_by);
-    let signal = PublisherRegistry::global_ref(cx).and_then(|registry| {
-        registry
-            .read(cx)
-            .entries
-            .get(session_id)
-            .map(|entry| entry.turn_signal.clone())
-    });
-    match policy {
-        EndPolicy::CloseNow => {
-            teardown_session(session_id, manager, tab, cx);
-        }
-        EndPolicy::CloseAfterTurn => {
-            let session_id = session_id.to_string();
-            let manager = manager.clone();
-            crate::graceful_stop::after_turn(
-                &session_id.clone(),
-                signal,
-                move |cx| teardown_session(&session_id, &manager, tab, cx),
-                cx,
-            );
-        }
-    }
-    true
-}
-
-/// End a published session (relay `kill` or own-row Electric kill, §8.4/§8.8):
-/// close the WHOLE terminal tab (EXP-268 — a killed session must not leave a
-/// dead tab with an exit strip behind; `close_tab` kills the child and joins
-/// the PTY threads), stop the publisher, drop the kill-watch, and forget the
-/// session. The tab-close path also fires the `TabClosed` watcher, which
-/// handles the `codingSessions.end` bookkeeping and closes any undocked window
-/// hosting the tab.
-fn teardown_session(
-    session_id: &str,
-    manager: &WeakEntity<TerminalManager>,
-    tab: TabId,
-    cx: &mut App,
-) {
-    let Some(registry) = PublisherRegistry::global_ref(cx) else {
-        return;
-    };
-    if !registry.read(cx).entries.contains_key(session_id) {
-        return; // already torn down
-    }
-
-    // Close the tab — kill + join ride `close_tab`'s session shutdown. The
-    // relay never reaches this on the dead-relay path; this is the durable
-    // abort.
-    if let Some(manager) = manager.upgrade() {
-        manager.update(cx, |manager, cx| manager.close_tab(tab, cx));
-    }
-
-    detach_publisher(session_id, Some("killed".to_string()), cx);
-}
-
-/// Detach the steer side of a session WITHOUT touching its terminal tab
-/// (EXP-283): stop the publisher with a clean `bye {outcome}`, stop the §P7
-/// activity emitter, forget the registry entry, and drop the kill-watch
-/// registration. Idempotent — a no-op for sessions this process is not
-/// (or no longer) publishing.
-///
-/// This is the child-exit edge's steer cleanup: the exit hook's own
-/// `codingSessions.end` flips the synced row to `ended`, and without the
-/// unwatch here the §8.8 kill-watch would read our OWN end back from Electric
-/// as a remote kill and close the exited tab — which must stay open with the
-/// exit strip (§7.5 keep-tab-open semantics).
-pub fn detach_publisher(session_id: &str, outcome: Option<String>, cx: &mut App) {
-    if let Some(registry) = PublisherRegistry::global_ref(cx) {
-        registry.update(cx, |registry, cx| {
-            if let Some(entry) = registry.entries.remove(session_id) {
-                // Stop the publisher (idempotent).
-                entry.handle.shutdown(outcome);
-                // §P7: stop the activity emitter thread promptly.
-                entry.activity_active.store(false, Ordering::SeqCst);
-                cx.notify();
-            }
-        });
-    }
-
-    // Drop the kill-watch registration so a later row change can't re-fire.
-    unwatch_kill(session_id, cx);
-}
-
-
 #[cfg(test)]
 mod tests {
-    /// EXP-673: every ended row closes its tab. The agent's own close-out
-    /// waits out the turn (it is still writing); every other end is now.
-    #[test]
-    fn every_ended_row_closes_the_tab() {
-        use super::{ended_policy, EndPolicy};
-        assert_eq!(ended_policy(Some("agent")), EndPolicy::CloseAfterTurn);
-        for ended_by in [Some("user"), Some("client"), Some("merge"), Some("system"), None] {
-            assert_eq!(ended_policy(ended_by), EndPolicy::CloseNow, "{ended_by:?}");
-        }
-    }
-
-    /// EXP-746: the ACP engine waits out the same turn the PTY tab does. One
-    /// policy, two transports — a second table here would drift the moment
-    /// `ended_by` gains a value.
-    #[test]
-    fn ended_policy_maps_onto_kill_reason() {
-        use super::kill_reason;
-        assert_eq!(kill_reason(Some("agent")), engine::KillReason::AfterTurn);
-        for ended_by in [Some("user"), Some("client"), Some("merge"), Some("system"), None] {
-            assert_eq!(kill_reason(ended_by), engine::KillReason::Now, "{ended_by:?}");
-        }
-    }
-
     use super::*;
-
-    /// EXP-758/EXP-761: the two loopback sidecars used to bind in EVERY
-    /// desktop process, even when every run was ACP. They bind inside
-    /// `coding::prepare_with_hooks`, on its Terminal arm only — run here as
-    /// the launcher's real gate against a fresh host: an ACP launch of any
-    /// agent leaves both handles unset, subscribing never binds, and a PTY
-    /// claude launch binds its hooks server once and nothing else.
-    #[test]
-    fn an_acp_launch_leaves_the_sidecar_handles_unset() {
-        use coding::{CodingAgent, LaunchTransport};
-        let host = PtySidecars::new();
-        assert!(host.hooks.get().is_none() && host.observer.get().is_none());
-        let every_agent =
-            [Some(CodingAgent::Claude), Some(CodingAgent::Pi), Some(CodingAgent::Codex), None];
-        for agent in every_agent {
-            let wired = coding::resolve_pty_sidecars(&host, LaunchTransport::Acp, agent);
-            assert!(wired.0.is_none() && wired.1.is_none(), "{agent:?}");
-        }
-        assert!(host.hooks.get().is_none(), "an ACP launch must not bind hooks");
-        assert!(host.observer.get().is_none(), "…nor the observer");
-        // The emitter attach reads, never binds.
-        assert!(host.hook_sidecar().is_none() && host.observer_server().is_none());
-        assert!(host.hooks.get().is_none() && host.observer.get().is_none());
-        // A codex PTY launch wants neither.
-        let wired =
-            coding::resolve_pty_sidecars(&host, LaunchTransport::Terminal, Some(CodingAgent::Codex));
-        assert!(wired.0.is_none() && wired.1.is_none());
-        assert!(host.hooks.get().is_none() && host.observer.get().is_none());
-
-        // A claude PTY launch: hooks, once, and never pi's observer.
-        let claude = |host: &PtySidecars| {
-            coding::resolve_pty_sidecars(host, LaunchTransport::Terminal, Some(CodingAgent::Claude))
-        };
-        let first = claude(&host);
-        assert!(host.hooks.get().is_some(), "claude binds the hooks server");
-        assert!(host.observer.get().is_none(), "and only that one");
-        let second = claude(&host);
-        assert_eq!(
-            first.0.map(|setup| setup.port),
-            second.0.map(|setup| setup.port),
-            "the same server serves every claude launch"
-        );
-        assert!(host.hook_sidecar().is_some(), "now the attach finds it");
-    }
-
-    fn subscriber(
-        subscribers: &Arc<Mutex<Vec<HookSubscriber>>>,
-        worktree: &Path,
-        session_id: Option<&str>,
-    ) -> flume::Receiver<HookEvent> {
-        let (tx, rx) = flume::unbounded();
-        let mut guard = match subscribers.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        guard.push(HookSubscriber {
-            // Like the real `subscribe`: on macOS `temp_dir()` sits behind
-            // the `/var` → `/private/var` symlink, and the router compares
-            // CANONICAL paths — a raw path here fails every cwd match.
-            worktree: canonical(worktree),
-            tx,
-            bound: session_id
-                .map(|id| HashSet::from([id.to_string()]))
-                .unwrap_or_default(),
-        });
-        rx
-    }
-
-    fn event(session_id: Option<&str>, cwd: &Path) -> HookEvent {
-        steer::hooks::parse_hook_event(
-            serde_json::json!({
-                "hook_event_name": "Stop",
-                "session_id": session_id,
-                "cwd": cwd.to_string_lossy(),
-            })
-            .to_string()
-            .as_bytes(),
-        )
-        .expect("fixture parses")
-    }
-
-    /// EXP-443 (twin of `cli::sidecars`' router tests — the two bodies must
-    /// stay identical): a pre-seeded bound id wins over an earlier same-cwd
-    /// subscriber.
-    #[test]
-    fn router_prefers_the_bound_session_id() {
-        let subscribers: Arc<Mutex<Vec<HookSubscriber>>> = Arc::default();
-        let cwd = std::env::temp_dir();
-        let first = subscriber(&subscribers, &cwd, Some("sess-a"));
-        let second = subscriber(&subscribers, &cwd, Some("sess-b"));
-        route_hook_event(&subscribers, event(Some("sess-b"), &cwd));
-        assert!(second.try_recv().is_ok(), "bound id must win");
-        assert!(first.try_recv().is_err());
-    }
-
-    #[test]
-    fn router_gives_an_unknown_id_to_the_unbound_subscriber() {
-        let subscribers: Arc<Mutex<Vec<HookSubscriber>>> = Arc::default();
-        let cwd = std::env::temp_dir();
-        let seeded = subscriber(&subscribers, &cwd, Some("sess-a"));
-        let unseeded = subscriber(&subscribers, &cwd, None);
-        route_hook_event(&subscribers, event(Some("sess-c"), &cwd));
-        assert!(unseeded.try_recv().is_ok());
-        assert!(seeded.try_recv().is_err());
-    }
 
     /// EXP-505: a duplicate remote action frame must fail the claim while
     /// the first start is in flight; dropping the guard (the pipeline
@@ -1938,16 +1064,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn router_binds_a_rotated_id_by_cwd_as_last_resort() {
-        let subscribers: Arc<Mutex<Vec<HookSubscriber>>> = Arc::default();
-        let cwd = std::env::temp_dir();
-        let seeded = subscriber(&subscribers, &cwd, Some("sess-a"));
-        route_hook_event(&subscribers, event(Some("sess-rotated"), &cwd));
-        assert!(seeded.try_recv().is_ok(), "cwd fallback must deliver");
-        let unseeded = subscriber(&subscribers, &cwd, None);
-        route_hook_event(&subscribers, event(Some("sess-rotated"), &cwd));
-        assert!(seeded.try_recv().is_ok());
-        assert!(unseeded.try_recv().is_err());
-    }
 }

@@ -91,9 +91,9 @@ impl LaunchHost {
 ///
 /// `runtime` is this host's steer runtime (`None` = it failed to start): the
 /// ACP engine drives its connection on it, so a runtime-less process has
-/// nowhere to run a session and every launch must prepare the PTY argv
-/// instead (EXP-746 — the transport composes the argv, so the decision cannot
-/// wait until spawn time).
+/// nowhere to run a session at all (EXP-773 — `prepare` refuses the launch
+/// with [`coding::DisabledReason::AcpUnavailable`] rather than spawning
+/// something nothing can drive).
 pub fn coding_deps(
     ctx: &Ctx,
     seeds: HashMap<String, IssueSeed>,
@@ -457,9 +457,7 @@ mod tests {
     }
 
     /// EXP-746: a host that could not start a steer runtime has nowhere to
-    /// run the ACP engine, so `resolve_transport` must keep every launch on
-    /// the PTY path — the two transports compose different argv, and an
-    /// ACP-prepared launch has no TUI fallback to spawn.
+    /// run the ACP engine, so `prepare` refuses every launch on it.
     #[test]
     fn the_acp_transport_needs_this_hosts_steer_runtime() {
         let (_dir, ctx) = temp_ctx("launch-acp");

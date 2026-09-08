@@ -187,6 +187,17 @@ pub enum ActivityEvent {
             skip_serializing_if = "Option::is_none"
         )]
         before_question_id: Option<String>,
+        /// EXP-772: the agent's own message id (the mapper's coalescer key).
+        /// One message flushes in several pieces on a long turn, so clients
+        /// MERGE a narration row into the previous one when both carry the
+        /// same id instead of painting a new bubble per flush.
+        #[serde(rename = "messageId", default, skip_serializing_if = "Option::is_none")]
+        message_id: Option<String>,
+        /// EXP-773: the subagent this prose belongs to (same identity as
+        /// [`ActivityEvent::Tool::subagent_id`]). Set → the row belongs INSIDE
+        /// that subagent's card, never the main feed.
+        #[serde(rename = "subagentId", default, skip_serializing_if = "Option::is_none")]
+        subagent_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         at: Option<i64>,
     },
@@ -215,6 +226,10 @@ pub enum ActivityEvent {
     /// fanned to anonymous public viewers ("never steering input").
     UserMessage {
         text: String,
+        /// EXP-773: the subagent whose turn this is; set → the row renders
+        /// inside that subagent's card, never the main feed.
+        #[serde(rename = "subagentId", default, skip_serializing_if = "Option::is_none")]
+        subagent_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         at: Option<i64>,
     },
@@ -393,6 +408,8 @@ impl ActivityEvent {
         ActivityEvent::Narration {
             text: text.into(),
             before_question_id: None,
+            message_id: None,
+            subagent_id: None,
             at: None,
         }
     }
@@ -402,7 +419,7 @@ impl ActivityEvent {
     }
 
     pub fn user_message(text: impl Into<String>) -> Self {
-        ActivityEvent::UserMessage { text: text.into(), at: None }
+        ActivityEvent::UserMessage { text: text.into(), subagent_id: None, at: None }
     }
 
     pub fn tool(name: impl Into<String>, detail: Option<String>) -> Self {
@@ -780,6 +797,14 @@ pub enum ServerFrame {
         #[serde(default)]
         resume_session_id: Option<String>,
     },
+    /// EXP-773: a viewer asked for the transcript of a session that is no
+    /// longer live, and the relay routed the ask to THIS device (the ticket
+    /// named it). The host reads `{data_dir}/journal/<sessionId>.jsonl` back
+    /// and republishes it with [`crate::history::publish_history`]; there is
+    /// no reply frame, and a device with no such file simply says nothing
+    /// (the relay's own 20s timer answers the viewer).
+    #[serde(rename_all = "camelCase")]
+    HistoryRequest { session_id: String },
     /// EXP-481: fire-and-forget check-in nudge — the web server persisted
     /// new work for this device (a queued command, edited launch defaults);
     /// heartbeat NOW instead of on the next cadence. No reply frame exists;
@@ -1526,11 +1551,41 @@ mod tests {
         let anchored = ActivityEvent::Narration {
             text: "summary".into(),
             before_question_id: Some("toolu_01".into()),
+            message_id: None,
+            subagent_id: None,
             at: None,
         };
         assert!(serde_json::to_string(&anchored)
             .unwrap()
             .contains(r#""beforeQuestionId":"toolu_01""#));
+    }
+
+    #[test]
+    fn narration_identity_fields_serialize_camel_case_and_omit_none() {
+        // EXP-772 / EXP-773: the merge key and the subagent scope ride the
+        // wire as `messageId` / `subagentId`, absent on plain narration.
+        let plain = serde_json::to_string(&ActivityEvent::narration("hi")).unwrap();
+        assert!(!plain.contains("messageId"), "{plain}");
+        assert!(!plain.contains("subagentId"), "{plain}");
+        let scoped = ActivityEvent::Narration {
+            text: "inside".into(),
+            before_question_id: None,
+            message_id: Some("msg_01".into()),
+            subagent_id: Some("toolu_task".into()),
+            at: None,
+        };
+        let json = serde_json::to_string(&scoped).unwrap();
+        assert!(json.contains(r#""messageId":"msg_01""#), "{json}");
+        assert!(json.contains(r#""subagentId":"toolu_task""#), "{json}");
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&json).unwrap(), scoped);
+        let user = ActivityEvent::UserMessage {
+            text: "go".into(),
+            subagent_id: Some("toolu_task".into()),
+            at: None,
+        };
+        let json = serde_json::to_string(&user).unwrap();
+        assert!(json.contains(r#""subagentId":"toolu_task""#), "{json}");
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&json).unwrap(), user);
     }
 
     #[test]
@@ -1679,6 +1734,14 @@ mod tests {
             ServerFrame::parse(r#"{"t":"check_in"}"#).unwrap(),
             ServerFrame::CheckIn
         );
+        // EXP-773: the history ask names the session it wants back.
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"history_request","sessionId":"sess-1"}"#).unwrap(),
+            ServerFrame::HistoryRequest {
+                session_id: "sess-1".to_string()
+            }
+        );
+        assert_eq!(ServerFrame::parse(r#"{"t":"history_request"}"#), None);
         // Unknown future frames still drop silently, never kill the socket.
         assert_eq!(ServerFrame::parse(r#"{"t":"telepathy"}"#), None);
     }
@@ -2207,6 +2270,8 @@ mod tests {
             ActivityEvent::Narration {
                 text: "summary".into(),
                 before_question_id: Some("toolu_01".into()),
+                message_id: Some("msg_01".into()),
+                subagent_id: Some("toolu_task".into()),
                 at: Some(1_751_500_000_000),
             },
             ActivityEvent::narration("plain prose"),

@@ -30,6 +30,20 @@ export interface SteerTicketClaims {
   team: string
   /** coding_sessions.id (publisher/viewer tickets). */
   sessionId?: string
+  /** EXP-773: the steer deviceId of the machine that RAN the session
+   * (`coding_sessions.device_id`), on VIEWER tickets only. It is what lets
+   * the relay ask that device for a stored transcript when the room is not
+   * up; absent (an older session row, an older web build) keeps the old
+   * `no_such_session` answer. Never a grant of anything: the device is looked
+   * up under `deviceOwnerId` (`sub` when absent), an id the MINT decides, so a
+   * ticket can only ever reach the machine that ran its own session. */
+  deviceId?: string
+  /** EXP-432 + EXP-773: the account the `deviceId` above is registered under —
+   * the run's HOST (`coding_sessions.host_user_id`) for a shared-device run,
+   * the session owner otherwise. Presence is indexed by device OWNER, so a
+   * requester steering a run on someone else's machine would otherwise look
+   * the device up under themselves and never find it. Absent = `sub`. */
+  deviceOwnerId?: string
   role: SteerRole
   /** Unix seconds. */
   iat: number

@@ -240,14 +240,13 @@ internal fun LaunchOptionsSection(
         }
     }
 
-    // EXP-749: the picked machine runs this agent on a terminal tab rather
-    // than through the ACP session screen. A caption, never a filter — the run
-    // starts either way, and a surprise is only a surprise before the tap.
-    // Absent for the Device variant, which names its own machine and owns the
-    // "Start in terminal" toggle.
-    if (device != null && agent.isNotEmpty() && device.agentRunsInTerminal(agent)) {
+    // EXP-773: the picked agent is outside the machine's reported ACP set, so
+    // with the PTY path gone it cannot start there. A caption, never a filter
+    // — the agent stays pickable and the sheet disables its start button on
+    // the same predicate. Absent for the Device variant, which has no run.
+    if (device != null && agent.isNotEmpty() && device.agentNotReady(agent)) {
         Text(
-            "Runs in a terminal tab on ${device.deviceLabel.ifBlank { device.deviceId }}.",
+            "Not ready on ${device.deviceLabel.ifBlank { device.deviceId }}. Run the doctor there.",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),

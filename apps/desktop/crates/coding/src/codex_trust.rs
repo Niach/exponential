@@ -122,8 +122,7 @@ fn ensure_trusted_in_config(config: &Path, paths: &[PathBuf]) -> Result<usize, S
     }
     // Write-then-rename: config.toml is the user's own codex config and a
     // torn write would break every codex invocation, not just ours.
-    let temp = config.with_extension("toml.exp-tmp");
-    crate::atomic_config::replace_preserving_mode(config, &temp, &updated)?;
+    crate::atomic_config::replace_preserving_mode(config, &updated)?;
     Ok(missing.len())
 }
 
@@ -214,8 +213,7 @@ fn forget_in_config(config: &Path, paths: &[PathBuf]) -> Result<usize, String> {
     // Never leave behind something codex's own parser would reject.
     toml::from_str::<toml::Value>(&kept)
         .map_err(|err| format!("config would not parse after the removal: {err}"))?;
-    let temp = config.with_extension("toml.exp-tmp");
-    crate::atomic_config::replace_preserving_mode(config, &temp, &kept)?;
+    crate::atomic_config::replace_preserving_mode(config, &kept)?;
     dropped.sort();
     dropped.dedup();
     Ok(dropped.len())

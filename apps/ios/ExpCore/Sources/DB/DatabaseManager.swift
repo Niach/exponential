@@ -1282,7 +1282,7 @@ public final class DatabaseManager: @unchecked Sendable {
         }
 
         // v29 (EXP-749): a device reports WHICH of its runnable agents its ACP
-        // engine can drive — the rest start in a terminal tab there. Guarded
+        // engine can drive — the rest cannot start there (EXP-773). Guarded
         // additive ALTER so an older store converges on the schema a fresh
         // install gets from the v1 create above, then the devices offset
         // resets so the rows already synced re-arrive carrying it (the

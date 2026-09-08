@@ -29,9 +29,9 @@ export interface SteerDevice {
   unauthedAgents?: string[]
   /** EXP-749: the subset of `agents` the machine's ACP engine can drive.
    * `null`/absent = the build never reported (pre-EXP-749): assume every
-   * runnable agent is ACP-ready, the old behaviour. A runnable agent MISSING
-   * from this list still starts — on that machine it runs in a terminal tab,
-   * and pickers say so rather than filtering it away. */
+   * runnable agent is ACP-ready, the old behaviour. EXP-773 deleted the PTY
+   * fallback, so an agent MISSING from a reported list cannot start there at
+   * all — pickers say so and block the start. */
   acpAgents?: string[] | null
   /** EXP-253: launch capabilities beyond issue coding (e.g. `actions`);
    * absent = an older desktop with none. */
@@ -82,10 +82,6 @@ export interface SteerDevice {
  * contract `codingAgent` id, covering only the machine's RUNNABLE agents. */
 export interface DeviceLaunchDefaults {
   defaultAgent?: string
-  /** EXP-746: device-GLOBAL and agent-independent — the machine runs every
-   * agent in a terminal tab instead of the ACP session screen. Sits beside
-   * `agents`, never inside it. */
-  startInTerminal?: boolean
   agents?: Record<string, AgentLaunchDefaults>
 }
 
@@ -100,20 +96,9 @@ export function deviceDefaultAgent(
   return deviceAgentIds(device).includes(candidate) ? candidate : null
 }
 
-/** EXP-746: the machine starts coding sessions in a TERMINAL tab rather than
- * on the session screen. Absent (older build, never toggled) = false, the ACP
- * path. Device-global on purpose — it is a property of the machine's setup,
- * not of one agent. */
-export function deviceStartsInTerminal(
-  device: SteerDevice | undefined
-): boolean {
-  return device?.launchDefaults?.startInTerminal === true
-}
-
 /** EXP-746: the machine can host ACP sessions at all (the desktop app and the
- * CLI daemon advertise the cap once they ship the engine). An older build
- * without it runs every start on the terminal transport regardless of the
- * toggle above. */
+ * CLI daemon advertise the cap once they ship the engine). Every build above
+ * the version floor advertises it, so nothing gates on it anymore. */
 export function deviceSupportsAcp(device: Pick<SteerDevice, `caps`>): boolean {
   return (device.caps ?? []).includes(`acp`)
 }
@@ -158,8 +143,7 @@ export function deviceAgentIds(device: SteerDevice | undefined): string[] {
 /** EXP-749: the agents the device drives over ACP, contract-filtered like
  * `deviceAgentIds`. `null` = the machine never reported (an older build):
  * callers assume every runnable agent is ACP-ready. An EMPTY array is a real
- * answer — that machine drives nothing over ACP and runs every start on the
- * terminal transport. */
+ * answer — that machine can start nothing right now (EXP-773). */
 export function deviceAcpAgentIds(
   device: SteerDevice | undefined
 ): string[] | null {
@@ -168,18 +152,18 @@ export function deviceAcpAgentIds(
   return reported.filter((a) => contract.codingAgent.values.includes(a))
 }
 
-/** EXP-749: starting `agent` on this device lands in a TERMINAL tab rather
- * than on the session screen — it is runnable there but outside the machine's
- * ACP set. Unknown (older build) = false: assume the ACP path and say
- * nothing. */
-export function deviceAgentRunsInTerminal(
+/** EXP-773: `agent` cannot start on this device — the machine reported an ACP
+ * set and this agent is outside it (the PTY fallback is gone, so there is no
+ * other transport left). Unknown (an older build that never reported) =
+ * false: assume the ACP path and say nothing. */
+export function deviceAgentNotReady(
   device: SteerDevice | undefined,
   agent: string
 ): boolean {
   if (!agent) return false
   const acp = deviceAcpAgentIds(device)
   if (acp === null) return false
-  return deviceAgentIds(device).includes(agent) && !acp.includes(agent)
+  return !acp.includes(agent)
 }
 
 /** EXP-409: agents installed but signed out on the device. */

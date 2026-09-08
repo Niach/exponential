@@ -19,82 +19,6 @@
 //! plan/approval gate is NOT prompt text anymore: native plan mode
 //! (`--permission-mode plan`, [`crate::argv::permission_args`]) owns it.
 
-use crate::mcp_json::write_private;
-use std::fs;
-use std::io;
-use std::path::{Path, PathBuf};
-
-pub const PROMPT_FILE: &str = "PROMPT.md";
-
-/// The fallback seed instruction (§7.1 step 7) — the positional argv prompt
-/// when the rendered prompt itself is too big to ride argv (input written to
-/// the PTY before the TUI enters raw mode is swallowed, so the prompt must
-/// never ride stdin).
-pub const SEED_LINE: &str = "Please read PROMPT.md in this directory, then follow it.";
-
-/// Windows CreateProcess caps the whole command line at 32,767 chars —
-/// keep ~4KB headroom for program path + flags. This is the TOTAL text
-/// budget; the seed prompt gets what the run playbook leaves
-/// ([`prompt_argv_budget`]).
-pub const PROMPT_ARGV_MAX_BYTES: usize = 28 * 1024;
-
-/// EXP-763: the seed prompt's share of [`PROMPT_ARGV_MAX_BYTES`] — the run
-/// playbook ([`crate::skill::RUN_SKILL`]) rides the same argv on every
-/// agent (`--append-system-prompt` / `-c developer_instructions=…`), so it
-/// is subtracted before the prompt is sized.
-pub fn prompt_argv_budget() -> usize {
-    PROMPT_ARGV_MAX_BYTES.saturating_sub(crate::skill::RUN_SKILL.len())
-}
-
-/// How the rendered prompt reaches the spawned claude.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PromptDelivery {
-    /// The full rendered prompt rides argv as the positional prompt.
-    Direct(String),
-    /// The prompt lives in `PROMPT.md`; the positional is [`SEED_LINE`].
-    File,
-}
-
-impl PromptDelivery {
-    /// The positional argv prompt for this delivery.
-    pub fn positional(&self) -> &str {
-        match self {
-            PromptDelivery::Direct(rendered) => rendered,
-            PromptDelivery::File => SEED_LINE,
-        }
-    }
-}
-
-/// Size-gated delivery: a prompt within [`prompt_argv_budget`] goes
-/// [`PromptDelivery::Direct`] — any stale `PROMPT.md` from an earlier launch
-/// is best-effort removed so claude can never read an outdated copy. Bigger
-/// prompts fall back to [`deliver_prompt_file`].
-pub fn deliver_prompt(
-    worktree: &Path,
-    clone: &Path,
-    rendered: &str,
-) -> io::Result<PromptDelivery> {
-    if rendered.len() <= prompt_argv_budget() {
-        let _ = fs::remove_file(worktree.join(PROMPT_FILE));
-        return Ok(PromptDelivery::Direct(rendered.to_string()));
-    }
-    deliver_prompt_file(worktree, clone, rendered)
-}
-
-/// Unconditional file delivery — the oversized-prompt fallback. Writes the
-/// prompt and keeps it git-invisible via the clone's shared
-/// `.git/info/exclude` (best-effort by design — see
-/// [`crate::git_worktree::ensure_local_excludes`]).
-pub fn deliver_prompt_file(
-    worktree: &Path,
-    clone: &Path,
-    rendered: &str,
-) -> io::Result<PromptDelivery> {
-    write_rendered_prompt(worktree, rendered)?;
-    let _ = crate::git_worktree::ensure_local_excludes(clone, &[PROMPT_FILE]);
-    Ok(PromptDelivery::File)
-}
-
 /// EXP-637 — the clean-worktree half of the close-out EVERY launcher prompt
 /// ends with (issue, batch, action, chat and the two builtins): a run always
 /// leaves the tree the way it found it.
@@ -196,14 +120,6 @@ fn issue_body(description: Option<&str>) -> &str {
     }
 }
 
-/// Write an already-rendered prompt into the worktree root (overwritten
-/// every launch so a re-edited issue reseeds correctly).
-pub fn write_rendered_prompt(worktree: &Path, content: &str) -> io::Result<PathBuf> {
-    let path = worktree.join(PROMPT_FILE);
-    write_private(&path, content)?;
-    Ok(path)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -232,20 +148,6 @@ The login page flickers on slow connections.
 - Reproduce with network throttling
 - Fix the flash of unstyled content
 ";
-
-    fn temp_dir(tag: &str) -> PathBuf {
-        let mut dir = std::env::temp_dir();
-        dir.push(format!(
-            "exp-coding-prompt-{tag}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
-    }
 
     #[test]
     fn renders_the_exact_template() {
@@ -336,82 +238,4 @@ The login page flickers on slow connections.
         assert!(prompt.ends_with("body text\n"));
     }
 
-    #[test]
-    fn seed_line_matches_the_spec() {
-        assert_eq!(SEED_LINE, "Please read PROMPT.md in this directory, then follow it.");
-    }
-
-    /// A small prompt goes Direct — no `PROMPT.md` on disk, and a STALE copy
-    /// from an earlier (oversized or pre-rework) launch is removed.
-    #[test]
-    fn small_prompt_delivers_direct_and_removes_the_stale_file() {
-        let dir = temp_dir("direct");
-        std::fs::write(dir.join(PROMPT_FILE), "stale from an earlier launch").unwrap();
-        let delivery = deliver_prompt(&dir, &dir, "small prompt").unwrap();
-        assert_eq!(delivery, PromptDelivery::Direct("small prompt".to_string()));
-        assert_eq!(delivery.positional(), "small prompt");
-        assert!(!dir.join(PROMPT_FILE).exists(), "stale PROMPT.md must be removed");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// The size gate is exact: the prompt's share of PROMPT_ARGV_MAX_BYTES
-    /// (EXP-763: minus the run playbook, which rides the same argv) goes
-    /// argv, one byte more falls back to the file + seed-line pointer.
-    #[test]
-    fn delivery_flips_to_file_exactly_past_the_argv_budget() {
-        let dir = temp_dir("boundary");
-        let budget = prompt_argv_budget();
-        assert_eq!(budget, PROMPT_ARGV_MAX_BYTES - crate::skill::RUN_SKILL.len());
-        assert!(budget > 20 * 1024, "the playbook must leave the prompt most of the argv");
-        let at_limit = "x".repeat(budget);
-        match deliver_prompt(&dir, &dir, &at_limit).unwrap() {
-            PromptDelivery::Direct(rendered) => assert_eq!(rendered.len(), budget),
-            PromptDelivery::File => panic!("at-limit prompt must ride argv"),
-        }
-        assert!(!dir.join(PROMPT_FILE).exists());
-
-        let over_limit = "x".repeat(budget + 1);
-        let delivery = deliver_prompt(&dir, &dir, &over_limit).unwrap();
-        assert_eq!(delivery, PromptDelivery::File);
-        assert_eq!(delivery.positional(), SEED_LINE);
-        assert_eq!(
-            std::fs::read_to_string(dir.join(PROMPT_FILE)).unwrap(),
-            over_limit
-        );
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// Explicit file delivery lands even a tiny prompt in `PROMPT.md`, and
-    /// the clone's `.git/info/exclude` keeps it git-invisible.
-    #[test]
-    fn file_delivery_is_unconditional_and_excluded_from_git() {
-        let dir = temp_dir("file");
-        let clone = dir.join("clone");
-        std::fs::create_dir_all(clone.join(".git")).unwrap();
-        let worktree = dir.join("wt");
-        std::fs::create_dir_all(&worktree).unwrap();
-
-        let delivery = deliver_prompt_file(&worktree, &clone, "tiny").unwrap();
-        assert_eq!(delivery, PromptDelivery::File);
-        assert_eq!(delivery.positional(), SEED_LINE);
-        assert_eq!(
-            std::fs::read_to_string(worktree.join(PROMPT_FILE)).unwrap(),
-            "tiny"
-        );
-        let exclude = std::fs::read_to_string(clone.join(".git/info/exclude")).unwrap();
-        assert!(exclude.lines().any(|line| line == PROMPT_FILE), "exclude: {exclude}");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn writes_into_the_worktree_root() {
-        let dir = temp_dir("write");
-        let path =
-            write_rendered_prompt(&dir, &render_prompt("EXP-9", "Title", Some("Body"), false)).unwrap();
-        assert_eq!(path, dir.join("PROMPT.md"));
-        let content = std::fs::read_to_string(&path).unwrap();
-        assert!(content.contains("**EXP-9: Title**"));
-        assert!(content.contains("Body"));
-        let _ = std::fs::remove_dir_all(&dir);
-    }
 }

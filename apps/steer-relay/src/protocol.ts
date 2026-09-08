@@ -94,10 +94,10 @@ export const setModeFrame = z.object({
 // worktree diffs, ALREADY REDACTED (known-secret masking + gitleaks-style
 // patterns) — the relay stays a dumb pipe and fans them out to the activity
 // audience, never interpreting a field.
-//   narration:         assistant prose        { kind, text, beforeQuestionId? }
+//   narration:         assistant prose        { kind, text, beforeQuestionId?, messageId?, subagentId? }
 //   tool:              tool-call headline     { kind, name, detail?, subagentId? }
 //   diff:              worktree unified diff  { kind, diff }  (latest replaces prior)
-//   user_message:      a human turn           { kind, text }
+//   user_message:      a human turn           { kind, text, subagentId? }
 //   question:          interactive question   { kind, text, options[], id, askId?, … }
 //   question_resolved: retire a question card { kind, id?, askId?, answers?, dismissed? }
 //   answer_ack:        injection confirmed    { kind, id, askId? }
@@ -133,6 +133,13 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
     // (no match → append). Must be declared here — the relay re-serializes
     // the PARSED event, so an undeclared field would be stripped.
     beforeQuestionId: z.string().max(128).optional(),
+    // EXP-772: the agent's own message id. One message flushes in several
+    // pieces on a long turn, so clients MERGE a narration row into the
+    // previous one when both carry the same id.
+    messageId: z.string().max(128).optional(),
+    // EXP-773: set → the prose belongs INSIDE that subagent's card, never the
+    // main feed (same identity as `tool.subagentId`).
+    subagentId: z.string().max(128).optional(),
     at: z.number().optional(),
   }),
   z.object({
@@ -152,6 +159,9 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
   z.object({
     kind: z.literal(`user_message`),
     text: z.string().max(16 * 1024),
+    // EXP-773: the subagent whose turn this is; set → the row renders inside
+    // that subagent's card, never the main feed.
+    subagentId: z.string().max(128).optional(),
     at: z.number().optional(),
   }),
   z.object({
@@ -436,7 +446,23 @@ export type ServerFrame =
   // next cadence. No reply frame exists; the heartbeat pickup is the durable
   // path.
   | { t: `check_in` }
+  // EXP-773: relay → a DEVICE's control socket. A viewer asked to watch a
+  // session whose room is not up and its ticket names this device, so the
+  // device is asked to republish the transcript it stored on disk (it opens a
+  // publisher socket, replays, and says `bye {outcome:'history'}`). No reply
+  // frame: a device with no journal stays silent and the room's own 20s timer
+  // answers the viewer with `history_unavailable`.
+  | { t: `history_request`; sessionId: string }
+  // EXP-773: relay → the JOINING viewer, in place of `activity_synced`, when
+  // the room it joined is a PENDING history room. "The device is fetching the
+  // transcript" — events follow if it answers, `error history_unavailable` if
+  // it does not.
+  | { t: `history_pending` }
   | { t: `bye`; outcome?: string }
+  // Codes a viewer may see: `no_such_session` (the room is not up and the
+  // ticket names no device), and the EXP-773 history pair —
+  // `device_offline` (the machine that holds the transcript is not connected)
+  // and `history_unavailable` (it is, but it produced nothing in 20s).
   | { t: `error`; code: string; message?: string }
   | { t: `activity`; event: ActivityEvent } // relay → activity audience (authenticated members only)
   | { t: `activity_reset` } // relay → activity audience: drop everything rendered so far

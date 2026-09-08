@@ -267,22 +267,6 @@ describe(`devices.register`, () => {
     })
   })
 
-  // EXP-746: the device-global "Start in terminal" toggle. The clamp rebuilds
-  // launch defaults field by field, so without a passthrough line the toggle
-  // silently never persists.
-  it(`stores a device-global startInTerminal launch default`, async () => {
-    const result = await caller.register({
-      deviceId: `dev-1`,
-      label: `unraid-runner`,
-      kind: `server`,
-      launchDefaults: { startInTerminal: true, agents: { claude: {} } },
-    })
-    expect(result).toMatchObject({ ok: true })
-    expect(
-      (h.state.inserted[0] as { launchDefaults: unknown }).launchDefaults
-    ).toEqual({ startInTerminal: true })
-  })
-
   // EXP-749: `acpAgents` is the subset of the runnable agents this build can
   // drive over ACP, and register is its SOLE writer.
   it(`writes the ACP-capable subset on insert and on the conflict update`, async () => {
@@ -716,48 +700,6 @@ describe(`devices.setLaunchDefaults`, () => {
       defaultAgent: `pi`,
       agents: { pi: { model: ``, effort: ``, planMode: false } },
     })
-  })
-
-  // EXP-746: "Start in terminal" is device-global — it rides beside
-  // defaultAgent, never inside `agents`.
-  it(`keeps a device-global startInTerminal and drops an explicit null`, async () => {
-    h.state.selectQueue = deviceRow()
-    const result = await caller.setLaunchDefaults({
-      deviceId: `dev-1`,
-      launchDefaults: { defaultAgent: `claude`, startInTerminal: true },
-    })
-    expect(result.ok).toBe(true)
-    expect(result.launchDefaults).toEqual({
-      defaultAgent: `claude`,
-      startInTerminal: true,
-    })
-
-    // Explicit null is 0.14.10's capability-masked shape (EXP-495): the
-    // nullish schema lets it through, the clamp strips it, stored jsonb stays
-    // null-free.
-    h.state.selectQueue = deviceRow()
-    const nulled = await caller.setLaunchDefaults({
-      deviceId: `dev-1`,
-      launchDefaults: { defaultAgent: `claude`, startInTerminal: null },
-    })
-    expect(nulled.ok).toBe(true)
-    expect(nulled.launchDefaults).toEqual({ defaultAgent: `claude` })
-    expect(JSON.stringify(nulled.launchDefaults)).not.toContain(`null`)
-  })
-
-  it(`refuses a non-boolean startInTerminal, like every launch-default toggle`, async () => {
-    // A non-boolean never reaches the field-wise clamp — the input schema
-    // refuses it, the same posture ultracode/planMode already have.
-    h.state.selectQueue = deviceRow()
-    await expect(
-      caller.setLaunchDefaults({
-        deviceId: `dev-1`,
-        launchDefaults: {
-          startInTerminal: `yes`,
-        } as unknown as { startInTerminal: boolean },
-      })
-    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
-    expect(h.state.updates).toHaveLength(0)
   })
 
   it(`nudges regardless of registered caps (pre-EXP-481 frame parsers retired)`, async () => {

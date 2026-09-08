@@ -110,6 +110,13 @@ pub type FeedItemId = u64;
 pub enum FeedKind {
     Narration {
         text: String,
+        /// EXP-772: the ACP coalescer's flush key. Consecutive narration
+        /// events carrying the same id are ONE assistant message, so the
+        /// second appends to this row instead of opening its own.
+        message_id: Option<String>,
+        /// EXP-773: set when the prose came from a subagent's transcript —
+        /// the row is nested under that subagent's card, never the main feed.
+        subagent_id: Option<String>,
     },
     Tool {
         name: String,
@@ -120,6 +127,8 @@ pub enum FeedKind {
     },
     UserMessage {
         text: String,
+        /// EXP-773: a turn addressed to a SUBAGENT, shown inside its card.
+        subagent_id: Option<String>,
     },
     /// Informational only — a permission prompt is never answerable remotely.
     Permission {
@@ -196,11 +205,14 @@ impl FeedItem {
         }
     }
 
-    /// The subagent a row belongs to — a tool call attributed to one, or the
-    /// subagent's own lifecycle marker.
+    /// The subagent a row belongs to — a tool call attributed to one, the
+    /// subagent's own lifecycle marker, or (EXP-773) the prose and user turns
+    /// the ACP mapper stamped with its parent tool call. Web `subagentIdOf`.
     pub fn subagent_id(&self) -> Option<&str> {
         match &self.kind {
-            FeedKind::Tool { subagent_id, .. } => subagent_id.as_deref(),
+            FeedKind::Tool { subagent_id, .. }
+            | FeedKind::Narration { subagent_id, .. }
+            | FeedKind::UserMessage { subagent_id, .. } => subagent_id.as_deref(),
             FeedKind::Subagent { subagent_id, .. } => Some(subagent_id.as_str()),
             _ => None,
         }
@@ -441,6 +453,7 @@ impl SteerFeed {
         }
         self.push_item(FeedKind::UserMessage {
             text: text.to_string(),
+            subagent_id: None,
         })
     }
 
@@ -538,6 +551,8 @@ impl SteerFeed {
             ActivityEvent::Narration {
                 text,
                 before_question_id,
+                message_id,
+                subagent_id,
                 ..
             } => {
                 if text.trim().is_empty() {
@@ -552,14 +567,34 @@ impl SteerFeed {
                             at,
                             FeedItem {
                                 id,
-                                kind: FeedKind::Narration { text },
+                                kind: FeedKind::Narration {
+                                    text,
+                                    message_id,
+                                    subagent_id,
+                                },
                             },
                         );
                         self.trim();
                         return;
                     }
                 }
-                self.push_item(FeedKind::Narration { text });
+                // EXP-772: the engine flushes ONE assistant message in
+                // several narration events keyed by `message_id` — a fragment
+                // landing right behind its own message appends to that bubble
+                // instead of shredding the paragraph into rows.
+                if merge_narration_fragment(
+                    &mut self.items,
+                    message_id.as_deref(),
+                    subagent_id.as_deref(),
+                    &text,
+                ) {
+                    return;
+                }
+                self.push_item(FeedKind::Narration {
+                    text,
+                    message_id,
+                    subagent_id,
+                });
             }
             ActivityEvent::Tool {
                 name,
@@ -573,7 +608,9 @@ impl SteerFeed {
                     subagent_id,
                 });
             }
-            ActivityEvent::UserMessage { text, .. } => {
+            ActivityEvent::UserMessage {
+                text, subagent_id, ..
+            } => {
                 if text.trim().is_empty() {
                     return;
                 }
@@ -582,7 +619,7 @@ impl SteerFeed {
                 if self.consume_echo(&text) {
                     return;
                 }
-                self.push_item(FeedKind::UserMessage { text });
+                self.push_item(FeedKind::UserMessage { text, subagent_id });
             }
             ActivityEvent::Question {
                 text,
@@ -848,7 +885,10 @@ impl SteerFeed {
             // Not in the replay: re-show it, and re-arm the dedupe so its
             // transcript-derived twin doesn't render a second copy.
             self.push_echo(&text);
-            self.push_item(FeedKind::UserMessage { text });
+            self.push_item(FeedKind::UserMessage {
+                text,
+                subagent_id: None,
+            });
         }
         for (key, state) in carried {
             if self.carries_question(&key) {
@@ -867,7 +907,7 @@ impl SteerFeed {
             .rev()
             .take(ECHO_CAP)
             .any(|item| match &item.kind {
-                FeedKind::UserMessage { text } => text.trim() == needle,
+                FeedKind::UserMessage { text, .. } => text.trim() == needle,
                 _ => false,
             })
     }
@@ -894,6 +934,41 @@ impl SteerFeed {
     pub fn subagents(&self) -> Vec<SubagentSummary> {
         collect_subagents(&self.items)
     }
+}
+
+/// EXP-772 — append a narration fragment onto the feed's LAST row when both
+/// carry the same `message_id`: the ACP coalescer flushes one assistant
+/// message in several events, and a row per flush shredded a paragraph into
+/// bubbles. `true` = the fragment was merged and must not be pushed.
+///
+/// Nothing merges without an id, across a row that is not narration, or across
+/// a scope change (a fragment stamped with a subagent id is a different
+/// bubble). Web `mergeNarrationFragment`, mirrored ×4.
+fn merge_narration_fragment(
+    items: &mut [FeedItem],
+    message_id: Option<&str>,
+    subagent_id: Option<&str>,
+    fragment: &str,
+) -> bool {
+    let Some(message_id) = message_id.filter(|id| !id.is_empty()) else {
+        return false;
+    };
+    let Some(last) = items.last_mut() else {
+        return false;
+    };
+    let FeedKind::Narration {
+        text,
+        message_id: last_id,
+        subagent_id: last_subagent,
+    } = &mut last.kind
+    else {
+        return false;
+    };
+    if last_id.as_deref() != Some(message_id) || last_subagent.as_deref() != subagent_id {
+        return false;
+    }
+    text.push_str(fragment);
+    true
 }
 
 fn non_blank(value: Option<String>) -> Option<String> {
@@ -1176,7 +1251,9 @@ mod tests {
         feed.items()
             .iter()
             .map(|item| match &item.kind {
-                FeedKind::Narration { text } | FeedKind::UserMessage { text } => text.clone(),
+                FeedKind::Narration { text, .. } | FeedKind::UserMessage { text, .. } => {
+                    text.clone()
+                }
                 FeedKind::Tool { name, .. } => name.clone(),
                 FeedKind::Permission { tool, .. } => tool.clone(),
                 FeedKind::Subagent { subagent_id, .. } => subagent_id.clone(),
@@ -1633,6 +1710,8 @@ mod tests {
         feed.apply(ActivityEvent::Narration {
             text: "the prose that was withheld".into(),
             before_question_id: Some("toolu_01".into()),
+            message_id: None,
+            subagent_id: None,
             at: None,
         });
         assert_eq!(
@@ -1648,6 +1727,8 @@ mod tests {
         feed.apply(ActivityEvent::Narration {
             text: "orphan".into(),
             before_question_id: Some("evicted".into()),
+            message_id: None,
+            subagent_id: None,
             at: None,
         });
         assert_eq!(texts(&feed), vec!["before", "orphan"]);
@@ -2108,5 +2189,107 @@ mod tests {
             at: None,
         });
         assert!(!feed.active_question_ids().contains(&plan_id));
+    }
+
+    // ── EXP-772 / EXP-773: narration fragments and subagent scoping ───────
+
+    fn fragment(text: &str, message_id: Option<&str>, subagent_id: Option<&str>) -> ActivityEvent {
+        ActivityEvent::Narration {
+            text: text.into(),
+            before_question_id: None,
+            message_id: message_id.map(str::to_string),
+            subagent_id: subagent_id.map(str::to_string),
+            at: None,
+        }
+    }
+
+    /// EXP-772: the ACP coalescer flushes ONE assistant message in several
+    /// narration events. Same `message_id` behind the same row appends;
+    /// anything else opens a new bubble.
+    #[test]
+    fn narration_fragments_of_one_message_merge_into_one_row() {
+        let mut feed = SteerFeed::new();
+        feed.apply(fragment("Reading ", Some("msg_1"), None));
+        feed.apply(fragment("the file.", Some("msg_1"), None));
+        assert_eq!(texts(&feed), vec!["Reading the file."]);
+        assert_eq!(feed.len(), 1);
+
+        // A different message is a different bubble.
+        feed.apply(fragment("Next thought.", Some("msg_2"), None));
+        assert_eq!(texts(&feed), vec!["Reading the file.", "Next thought."]);
+
+        // A row in between blocks the merge — the fragment lands behind it.
+        feed.apply(ActivityEvent::tool("Read", None));
+        feed.apply(fragment(" More.", Some("msg_2"), None));
+        assert_eq!(
+            texts(&feed),
+            vec!["Reading the file.", "Next thought.", "Read", " More."]
+        );
+
+        // An id-less fragment never merges (every legacy publisher).
+        let mut plain = SteerFeed::new();
+        plain.apply(ActivityEvent::narration("one"));
+        plain.apply(ActivityEvent::narration("two"));
+        assert_eq!(plain.len(), 2);
+
+        // A fragment stamped for a SUBAGENT is a different bubble even under
+        // the same message id.
+        let mut scoped = SteerFeed::new();
+        scoped.apply(fragment("main", Some("msg_1"), None));
+        scoped.apply(fragment("nested", Some("msg_1"), Some("toolu_task")));
+        assert_eq!(texts(&scoped), vec!["main", "nested"]);
+    }
+
+    /// EXP-773: prose and user turns the mapper stamped with a subagent id
+    /// belong to that subagent's group row, interleaved with its tool calls in
+    /// feed order — never to the main line.
+    #[test]
+    fn a_subagents_prose_and_turns_fold_into_its_group() {
+        let mut feed = SteerFeed::new();
+        feed.apply(ActivityEvent::narration("main line"));
+        feed.apply(ActivityEvent::Subagent {
+            id: "toolu_task".into(),
+            agent_type: "explorer".into(),
+            status: SubagentStatus::Started,
+            detail: None,
+            tool_calls: None,
+            at: None,
+        });
+        feed.apply(fragment("looking around", Some("msg_9"), Some("toolu_task")));
+        feed.apply(ActivityEvent::Tool {
+            name: "Grep".into(),
+            detail: None,
+            subagent_id: Some("toolu_task".into()),
+            at: None,
+        });
+        feed.apply(ActivityEvent::UserMessage {
+            text: "keep going".into(),
+            subagent_id: Some("toolu_task".into()),
+            at: None,
+        });
+        feed.apply(ActivityEvent::narration("back on the main line"));
+
+        let rows = feed.rows();
+        assert_eq!(rows.len(), 3);
+        assert!(matches!(rows[0], FeedRow::Single(_)));
+        let FeedRow::Subagent { subagent_id, items, .. } = &rows[1] else {
+            panic!("the subagent's events group into one row");
+        };
+        assert_eq!(subagent_id, "toolu_task");
+        // The marker, then its prose, its call and its turn — in feed order.
+        assert_eq!(
+            items
+                .iter()
+                .map(|item| match &item.kind {
+                    FeedKind::Subagent { .. } => "marker",
+                    FeedKind::Narration { .. } => "narration",
+                    FeedKind::Tool { .. } => "tool",
+                    FeedKind::UserMessage { .. } => "user",
+                    _ => "other",
+                })
+                .collect::<Vec<_>>(),
+            vec!["marker", "narration", "tool", "user"]
+        );
+        assert!(matches!(rows[2], FeedRow::Single(_)));
     }
 }

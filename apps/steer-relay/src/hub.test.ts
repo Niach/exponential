@@ -926,18 +926,6 @@ describe(`activity event kinds`, () => {
     planMode: true,
     id: `toolu_plan`,
   }
-  // EXP-746: an ACP session's option keys are the agent's own option ids,
-  // which are words, not keystrokes.
-  const acpQuestion = {
-    kind: `question`,
-    text: `## The plan`,
-    options: [
-      { label: `Yes, clear context and auto-accept edits`, key: `exit-plan-clear-accept-edits` },
-      { label: `No, keep planning`, key: `exit-plan-default` },
-    ],
-    planMode: true,
-    id: `toolu_acp_plan`,
-  }
   // EXP-746: every declared field at once — the whole-object assertions below
   // are what catch a field the schema forgot (the relay re-serializes the
   // PARSED event, so an undeclared one is stripped in silence).
@@ -1802,6 +1790,9 @@ describe(`stats counters (EXP-553)`, () => {
       slowConsumerEvictions: 0,
       viewerJoins: 0,
       publisherIdleCloses: 0,
+      historyRequests: 0,
+      historyDeviceOffline: 0,
+      historyTimeouts: 0,
     })
 
     const desktop = new FakeSocket()
@@ -1949,5 +1940,224 @@ describe(`viewer keepalive (EXP-648)`, () => {
       globalThis.setInterval = realSet
       globalThis.clearInterval = realClear
     }
+  })
+})
+
+// EXP-773: a session's transcript lives on the DEVICE that ran it, never on
+// the relay. Joining an ended session therefore asks that machine to
+// republish: the room opens PENDING, the device hellos, replays, and says
+// `bye {outcome:'history'}`.
+describe(`session history on demand (EXP-773)`, () => {
+  /** A device's control socket, online under `sub`. */
+  function connectDevice(hub: Hub, sub = `user-1`, deviceId = `dev-1`) {
+    const sock = new FakeSocket()
+    hub.onOpen(sock, claims({ role: `control`, sub }))
+    hub.onMessage(sock, JSON.stringify({ t: `online`, deviceId }))
+    return sock
+  }
+
+  /** A viewer whose ticket names the machine that ran the session. */
+  function joinWithDevice(
+    hub: Hub,
+    opts: { sub?: string; sessionId?: string; deviceId?: string } = {}
+  ) {
+    const sock = new FakeSocket()
+    hub.onOpen(
+      sock,
+      claims({
+        role: `viewer`,
+        sub: opts.sub ?? `user-1`,
+        sessionId: opts.sessionId ?? `sess-past`,
+        deviceId: opts.deviceId ?? `dev-1`,
+      })
+    )
+    hub.onMessage(sock, JSON.stringify({ t: `join`, channel: `activity` }))
+    return sock
+  }
+
+  test(`a ticket with no deviceId keeps the old no_such_session answer`, () => {
+    const hub = new Hub()
+    connectDevice(hub)
+    const member = connectMember(hub, { sessionId: `sess-past` })
+    expect(member.lastFrame(`error`)).toMatchObject({ code: `no_such_session` })
+    expect(member.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    expect(hub.counters().historyRequests).toBe(0)
+    hub.destroy()
+  })
+
+  test(`the named device being offline says so and closes`, () => {
+    const hub = new Hub()
+    const member = joinWithDevice(hub)
+    expect(member.lastFrame(`error`)).toMatchObject({ code: `device_offline` })
+    expect(member.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    expect(hub.counters().historyDeviceOffline).toBe(1)
+    hub.destroy()
+  })
+
+  test(`a device is only reachable under its OWN owner`, () => {
+    const hub = new Hub()
+    connectDevice(hub, `someone-else`)
+    const member = joinWithDevice(hub, { sub: `user-1` })
+    expect(member.lastFrame(`error`)).toMatchObject({ code: `device_offline` })
+    hub.destroy()
+  })
+
+  test(`pending room → history_request → replay → activity_synced + bye`, () => {
+    const hub = new Hub()
+    const device = connectDevice(hub)
+    const member = joinWithDevice(hub)
+
+    // The ask goes down the device's control socket; the viewer parks.
+    expect(device.lastFrame(`history_request`)).toMatchObject({
+      sessionId: `sess-past`,
+    })
+    expect(member.frames().map((f) => f.t)).toEqual([
+      `activity_reset`,
+      `history_pending`,
+    ])
+    expect(member.closed).toBeNull()
+    expect(hub.counters().historyRequests).toBe(1)
+
+    // The device opens a publisher socket for the ENDED session and replays.
+    const pub = connectPublisher(hub, `sess-past`)
+    activity(hub, pub, { kind: `narration`, text: `what happened` })
+    activity(hub, pub, { kind: `diff`, diff: `--- a` })
+    hub.onMessage(pub, JSON.stringify({ t: `bye`, outcome: `history` }))
+
+    expect(member.frames().map((f) => f.t)).toEqual([
+      `activity_reset`,
+      `history_pending`,
+      `activity`,
+      `activity`,
+      `activity_synced`,
+      `bye`,
+    ])
+    expect(member.lastFrame(`bye`)).toMatchObject({ outcome: `history` })
+    expect(member.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    hub.destroy()
+  })
+
+  test(`a live bye still gets no activity_synced`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const member = connectMember(hub)
+    const before = member.framesOf(`activity_synced`).length
+    hub.onMessage(pub, JSON.stringify({ t: `bye`, outcome: `exit:0` }))
+    expect(member.framesOf(`activity_synced`)).toHaveLength(before)
+    hub.destroy()
+  })
+
+  test(`a second viewer parks on the pending room and gets what landed`, () => {
+    const hub = new Hub()
+    connectDevice(hub)
+    const first = joinWithDevice(hub)
+    const pub = connectPublisher(hub, `sess-past`)
+    activity(hub, pub, { kind: `narration`, text: `early` })
+
+    const second = joinWithDevice(hub, { sub: `user-1` })
+    expect(second.events()).toEqual([{ kind: `narration`, text: `early` }])
+    // The room is live again (the publisher hello'd), so the late joiner is
+    // told the picture is complete, not that a fetch is pending.
+    expect(second.frames().at(-1)).toMatchObject({ t: `activity_synced` })
+
+    hub.onMessage(pub, JSON.stringify({ t: `bye`, outcome: `history` }))
+    for (const sock of [first, second]) {
+      expect(sock.frames().at(-1)).toMatchObject({ t: `bye` })
+      expect(sock.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    }
+    hub.destroy()
+  })
+
+  test(`a device that never answers times the room out`, () => {
+    const hub = new Hub()
+    connectDevice(hub)
+    // Capture the room's 20s timer instead of waiting for it.
+    const pending: { ms?: number; fn: () => void }[] = []
+    const realSetTimeout = globalThis.setTimeout
+    globalThis.setTimeout = ((fn: () => void, ms?: number) => {
+      pending.push({ fn, ms })
+      return 0 as unknown as ReturnType<typeof setTimeout>
+    }) as typeof setTimeout
+    let member: ReturnType<typeof joinWithDevice>
+    try {
+      member = joinWithDevice(hub)
+    } finally {
+      globalThis.setTimeout = realSetTimeout
+    }
+    const timer = pending.find((t) => t.ms === 20_000)
+    expect(timer).toBeDefined()
+
+    timer!.fn()
+    expect(member!.lastFrame(`error`)).toMatchObject({
+      code: `history_unavailable`,
+    })
+    expect(member!.frames().at(-1)).toMatchObject({ t: `bye` })
+    expect(member!.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    expect(hub.counters().historyTimeouts).toBe(1)
+    // The room is gone: a fresh join asks the device again.
+    const again = joinWithDevice(hub)
+    expect(again.frames().map((f) => f.t)).toContain(`history_pending`)
+    hub.destroy()
+  })
+
+  test(`a shared-device run reaches the device under deviceOwnerId`, () => {
+    const hub = new Hub()
+    // EXP-432: the machine is registered by its HOST, and the run's row is
+    // owned by the requester who started it there.
+    const device = connectDevice(hub, `host-user`)
+    const sock = new FakeSocket()
+    hub.onOpen(
+      sock,
+      claims({
+        role: `viewer`,
+        sub: `requester`,
+        sessionId: `sess-past`,
+        deviceId: `dev-1`,
+        deviceOwnerId: `host-user`,
+      })
+    )
+    hub.onMessage(sock, JSON.stringify({ t: `join`, channel: `activity` }))
+    expect(device.lastFrame(`history_request`)).toMatchObject({
+      sessionId: `sess-past`,
+    })
+    expect(sock.frames().map((f) => f.t)).toEqual([
+      `activity_reset`,
+      `history_pending`,
+    ])
+    expect(sock.closed).toBeNull()
+    hub.destroy()
+  })
+
+  test(`a second replay into the same room does not duplicate the transcript`, () => {
+    const hub = new Hub()
+    connectDevice(hub)
+    const member = joinWithDevice(hub)
+    const first = connectPublisher(hub, `sess-past`)
+    activity(hub, first, { kind: `narration`, text: `what happened` })
+
+    // A second history publisher for the same room (a redial that raced the
+    // first one's bye): its hello starts from an EMPTY log, so the replay it
+    // is about to send is not appended behind the first one's copy.
+    const resets = member.framesOf(`activity_reset`).length
+    const second = connectPublisher(hub, `sess-past`)
+    expect(member.framesOf(`activity_reset`)).toHaveLength(resets + 1)
+    activity(hub, second, { kind: `narration`, text: `what happened` })
+
+    const late = joinWithDevice(hub)
+    expect(late.events()).toEqual([
+      { kind: `narration`, text: `what happened` },
+    ])
+    hub.destroy()
+  })
+
+  test(`a publisher hello clears the pending flag, so a rejoin syncs normally`, () => {
+    const hub = new Hub()
+    connectDevice(hub)
+    joinWithDevice(hub)
+    connectPublisher(hub, `sess-past`)
+    const late = joinWithDevice(hub)
+    expect(late.framesOf(`history_pending`)).toHaveLength(0)
+    expect(late.frames().at(-1)).toMatchObject({ t: `activity_synced` })
+    hub.destroy()
   })
 })

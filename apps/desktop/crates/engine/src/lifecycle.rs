@@ -296,6 +296,10 @@ fn attach_publisher(
         steer::PublishSpec {
             session_id: ctx.session_id.clone(),
             issue_id: ctx.issue_id.clone(),
+            // EXP-773: every event this run publishes is also appended to
+            // `{data_dir}/journal/<sessionId>.jsonl`, so the transcript
+            // outlives the process and can be served back on demand.
+            journal_dir: Some(ctx.data_dir.clone()),
         },
         tickets,
         hooks,
