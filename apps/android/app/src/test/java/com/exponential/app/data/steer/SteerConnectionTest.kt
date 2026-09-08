@@ -865,6 +865,24 @@ class SteerConnectionTest {
         }
     }
 
+    // ── EXP-790: the Stop glyph ──────────────────────────────────────────
+
+    @Test
+    fun interruptSendsTheFrameOnlyOverAnOpenSocket() = runBlocking {
+        val transport = FakeTransport()
+        val connection = connection(transport, stagingTimings)
+        try {
+            val socket = liveWithFeed(transport, connection)
+            connection.interrupt()
+            waitUntil("the interrupt frame") { socket.sent.contains("""{"t":"interrupt"}""") }
+            connection.park()
+            connection.interrupt()
+            assertEquals(1, socket.sent.count { it == """{"t":"interrupt"}""" })
+        } finally {
+            connection.close()
+        }
+    }
+
     // ── EXP-796: earlier pages need an open socket ───────────────────────
 
     @Test

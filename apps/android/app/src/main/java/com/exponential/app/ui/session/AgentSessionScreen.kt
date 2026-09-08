@@ -10,6 +10,11 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -32,6 +37,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -80,6 +87,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
@@ -106,6 +116,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
@@ -114,11 +126,7 @@ import com.exponential.app.domain.AgentFeedRow
 import com.exponential.app.domain.AgentPhase
 import com.exponential.app.domain.AgentRowClass
 import com.exponential.app.domain.AgentUsagePresentation
-import com.exponential.app.domain.CONFIG_MODE_LABEL
 import com.exponential.app.domain.ConfigCommand
-import com.exponential.app.domain.ModeChip
-import com.exponential.app.domain.PLAN_TOGGLE_LABEL
-import com.exponential.app.domain.modeChip
 import com.exponential.app.domain.ToolCallSummary
 import com.exponential.app.domain.ToolGroupSummary
 import com.exponential.app.domain.composerAnswerTarget
@@ -158,6 +166,7 @@ import com.exponential.app.ui.components.agentLabel
 import com.exponential.app.ui.components.ComposerSubmitButton
 import com.exponential.app.ui.components.ComposerToolButton
 import com.exponential.app.ui.components.GlassComposer
+import com.exponential.app.ui.components.GlassComposerDefaults
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassMenuSurface
@@ -199,6 +208,8 @@ import com.exponential.app.ui.steer.ActionRunState
 import com.exponential.app.ui.steer.SteerRunCaptionRow
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
+import com.exponential.app.ui.theme.LocalReduceMotion
+import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassCard
@@ -206,6 +217,7 @@ import com.exponential.app.ui.theme.glassGroup
 import com.exponential.app.ui.theme.glassRow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -333,7 +345,6 @@ fun AgentSessionScreen(
     // which publishes neither.
     val sessionConfig by viewModel.sessionConfig.collectAsStateWithLifecycle()
     val sessionUsage by viewModel.sessionUsage.collectAsStateWithLifecycle()
-    val modeChip = remember(sessionConfig) { modeChip(sessionConfig) }
     // EXP-746: the `/` hint counts the MERGED catalog — an agent that
     // advertises commands has a menu even if the contract had none for it.
     // An agent-less run that publishes a `config_state` is an EXTERNAL agent
@@ -416,6 +427,17 @@ fun AgentSessionScreen(
         remember(feed, answerStates) { composerAnswerTarget(feed, answerStates) }
     } else {
         null
+    }
+    // EXP-389: the agent is actively working — live and nothing waiting on
+    // the user (no active question card, synced needs_input clear; all three
+    // agents drive the flag). Drives the busy footer AND the composer's Stop
+    // glyph (EXP-790).
+    val agentWorking = phase == AgentPhase.Live && !sessionEnded &&
+        !awaitingInput && session?.needsInput != true
+    // EXP-790: the composer folds to a one-line pill while it is unfocused
+    // and empty (the issue's comment bar rule); a restored draft opens it.
+    var composerExpanded by rememberSaveable {
+        mutableStateOf(draft.isNotBlank() || pendingImages.isNotEmpty())
     }
 
     // FEED-26: a live run whose feed has gone quiet for a long time must not
@@ -704,12 +726,7 @@ fun AgentSessionScreen(
                             // page comes off the device's journal.
                             onCanLoadEarlier = { viewModel.canLoadEarlier() },
                             onLoadEarlier = { viewModel.loadEarlier() },
-                            // EXP-389: the agent is actively working — live and
-                            // nothing waiting on the user (no active question
-                            // card, synced needs_input clear; all three agents
-                            // drive the flag).
-                            working = phase == AgentPhase.Live && !sessionEnded &&
-                                !awaitingInput && session?.needsInput != true,
+                            working = agentWorking,
                             // Question cards are answerable while live (EXP-78;
                             // live implies ownership since EXP-312); the card
                             // itself also checks its own state.
@@ -1139,9 +1156,12 @@ fun AgentSessionScreen(
                     live = phase == AgentPhase.Live && connected,
                     pendingPlaceholder = pendingAnswer?.placeholder,
                     commandsAvailable = slashCatalogAvailable,
-                    // EXP-772: the run's mode, the one steering chip left.
-                    modeChip = modeChip,
-                    onSetMode = viewModel::setMode,
+                    // EXP-790: mid-turn, the empty field's send glyph is a
+                    // Stop that interrupts the agent.
+                    working = agentWorking,
+                    onInterrupt = viewModel::interrupt,
+                    expanded = composerExpanded,
+                    onExpandedChange = { composerExpanded = it },
                     onPickImages = {
                         imagePicker.launch(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
@@ -2913,8 +2933,15 @@ private fun middleTruncate(s: String, max: Int = 72): String {
  * The steering composer (EXP-511) restyled to the comment composer's chrome
  * (EXP-554): ONE rounded card — the near-opaque bottom-bar pill fill under a
  * hairline stroke — holding the pending-image strip, a transparent text field,
- * and the `[+] · spacer · send` row, with the send glyph tinted indigo the
- * moment there is something to send.
+ * and the `[+] · spacer · send` row.
+ *
+ * EXP-790: it folds to a one-line pill while it is unfocused and empty
+ * (the issue's comment bar rule, `IssueDetailBottomBar`), the send glyph is
+ * the shared `ui-submit` concept, and while the agent works with nothing
+ * typed that glyph is a Stop that interrupts the turn. The mode chip left
+ * the composer: model and effort are launch decisions, the plan/build switch
+ * is the desktop's. EXP-788: while a card waits, the placeholder says the
+ * field answers it.
  *
  * Chrome only: the image cap, the upload-on-send path and the frozen steer
  * message wire format are untouched.
@@ -2936,23 +2963,180 @@ private fun SteerComposer(
     sending: Boolean,
     /** The relay stream is up — only then can a message actually go out. */
     live: Boolean,
-    /** A plan-approval card is awaiting the human — the composer doubles as
-     *  the "tell Claude what to change" path (EXP-529 batch). */
-    planPending: Boolean,
+    /** EXP-788: what the field promises while a plan or a question waits on
+     *  the human — the typed message answers that card. Null otherwise. */
+    pendingPlaceholder: String?,
     /** EXP-724: this run's agent has catalog commands — the placeholder says
      *  so, since a `/` menu nothing hints at is a menu nobody finds. */
     commandsAvailable: Boolean,
-    /** EXP-772: the run's MODE, the one steering control left. Null when the
-     *  run advertises no modes, and the composer then draws exactly what it
-     *  always did. */
-    modeChip: ModeChip? = null,
-    /** Picking a mode on the mode chip. */
-    onSetMode: (String) -> Unit = {},
+    /** EXP-790: the agent is mid-turn — with nothing typed, the send glyph
+     *  is a Stop that interrupts it. */
+    working: Boolean,
+    onInterrupt: () -> Unit,
+    /** EXP-790: expanded (the card with its field) or folded to the pill. */
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    onPickImages: () -> Unit,
+    onRemoveImage: (Int) -> Unit,
+    onSend: () -> Unit,
+) {
+    val placeholder = when {
+        pendingPlaceholder != null -> pendingPlaceholder
+        // Typing is always allowed; the message just waits for the stream to
+        // come back (EXP-621).
+        !live -> "Message the agent (reconnecting…)"
+        commandsAvailable -> "Message the agent… (/ for commands)"
+        else -> "Message the agent…"
+    }
+    // A draft that arrives from outside — a restored one, a `/` menu pick, an
+    // image just attached — has to be seen, so it opens the card.
+    LaunchedEffect(value, pendingImages.size) {
+        if (!expanded && (value.isNotBlank() || pendingImages.isNotEmpty())) onExpandedChange(true)
+    }
+    // Collapse-on-blur (IssueDetailBottomBar's rule): only once the field has
+    // HAD focus and lost it with the keyboard fully down, after a ~200ms quiet
+    // period, only with an empty draft and no queued image (never lose one),
+    // and only while resumed (the photo picker backgrounds the activity).
+    var fieldFocused by remember { mutableStateOf(false) }
+    val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    val imeVisibleState = rememberUpdatedState(imeVisible)
+    val draftState = rememberUpdatedState(value)
+    val pendingState = rememberUpdatedState(pendingImages)
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(expanded) {
+        if (!expanded) return@LaunchedEffect
+        var hadFocus = false
+        snapshotFlow { fieldFocused to imeVisibleState.value }.collectLatest { (focused, ime) ->
+            if (focused) {
+                hadFocus = true
+                return@collectLatest
+            }
+            if (!hadFocus || ime) return@collectLatest
+            delay(200)
+            val empty = draftState.value.isBlank() && pendingState.value.isEmpty()
+            if (empty && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                onExpandedChange(false)
+            }
+        }
+    }
+    // EXP-523: `transitionSpec` is a plain lambda, not a composable one, so the
+    // reduce-motion flag is read here and captured.
+    val reduceMotion = LocalReduceMotion.current
+    AnimatedContent(
+        targetState = expanded,
+        transitionSpec = {
+            val spec = Motion.slow<Float>(reduceMotion)
+            (fadeIn(spec) togetherWith fadeOut(spec))
+                .using(SizeTransform(clip = false))
+        },
+        label = "steer-composer",
+        modifier = Modifier.fillMaxWidth(),
+    ) { isExpanded ->
+        if (isExpanded) {
+            ExpandedSteerComposer(
+                value = value,
+                onValueChange = onValueChange,
+                fieldModifier = fieldModifier.onFocusChanged { fieldFocused = it.isFocused },
+                placeholder = placeholder,
+                pendingImages = pendingImages,
+                canAttach = canAttach,
+                sending = sending,
+                live = live,
+                working = working,
+                onInterrupt = onInterrupt,
+                onPickImages = onPickImages,
+                onRemoveImage = onRemoveImage,
+                onSend = onSend,
+            )
+        } else {
+            CollapsedSteerBar(
+                placeholder = placeholder,
+                stop = working && live,
+                onInterrupt = onInterrupt,
+                onExpand = { onExpandedChange(true) },
+            )
+        }
+    }
+}
+
+/** The folded composer (EXP-790): the placeholder in a capsule that opens the
+ *  card, and — while the agent works — the Stop circle beside it, so a turn
+ *  can be interrupted without opening the keyboard first. */
+@Composable
+private fun CollapsedSteerBar(
+    placeholder: String,
+    stop: Boolean,
+    onInterrupt: () -> Unit,
+    onExpand: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        val capsule = RoundedCornerShape(percent = 50)
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .height(CollapsedComposerHeight)
+                .clip(capsule)
+                .background(GlassTokens.OpaqueCardFill)
+                .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, capsule)
+                .clickable(role = Role.Button, onClick = onExpand)
+                .padding(horizontal = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                placeholder,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White.copy(alpha = TextEmphasis.Tertiary),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (stop) {
+            Box(
+                modifier = Modifier
+                    .size(CollapsedComposerHeight)
+                    .clip(CircleShape)
+                    .background(GlassTokens.OpaqueCardFill)
+                    .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, CircleShape)
+                    .clickable(role = Role.Button, onClick = onInterrupt),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    ExpIcons.uiStop,
+                    contentDescription = "Stop",
+                    modifier = Modifier.size(GlassComposerDefaults.SubmitGlyphSize),
+                    tint = Color.White,
+                )
+            }
+        }
+    }
+}
+
+/** The folded pill's height — the issue bottom bar's 52dp rung. */
+private val CollapsedComposerHeight = 52.dp
+
+@Composable
+private fun ExpandedSteerComposer(
+    value: String,
+    onValueChange: (String) -> Unit,
+    fieldModifier: Modifier,
+    placeholder: String,
+    pendingImages: List<PendingAttachment>,
+    canAttach: Boolean,
+    sending: Boolean,
+    live: Boolean,
+    working: Boolean,
+    onInterrupt: () -> Unit,
     onPickImages: () -> Unit,
     onRemoveImage: (Int) -> Unit,
     onSend: () -> Unit,
 ) {
     val canSend = (value.isNotBlank() || pendingImages.isNotEmpty()) && !sending && live
+    // EXP-790: nothing to send and the agent mid-turn — the glyph is a Stop.
+    val stop = working && live && value.isBlank() && pendingImages.isEmpty()
     // EXP-698: the field tracks its SELECTION, because picking an image drops
     // an `[Image #k]` marker at the caret. The draft itself still lives in the
     // connection as a plain string (it has to survive a reconnect), so the
@@ -2992,20 +3176,13 @@ private fun SteerComposer(
         }
         markedImages = pendingImages.size
     }
+    // Opening the card is what a tap on the folded pill means: the field
+    // takes focus (and the keyboard) at once.
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
     GlassComposer(
         // The composer floats over the scrolling activity feed.
         opaque = true,
-        // EXP-746: the chip row sits ABOVE the pending-image strip, which
-        // keeps that strip exactly where it has always been.
-        leading = modeChip?.let { chip ->
-            {
-                ModeChipRow(
-                    chip = chip,
-                    enabled = live && !sending,
-                    onSetMode = onSetMode,
-                )
-            }
-        },
         strip = {
             PendingAttachmentStrip(
                 items = pendingImages,
@@ -3038,13 +3215,18 @@ private fun SteerComposer(
         },
         submit = {
             ComposerSubmitButton(
-                ExpIcons.uiSend,
-                contentDescription = "Send",
+                if (stop) ExpIcons.uiStop else ExpIcons.uiSubmit,
+                contentDescription = if (stop) "Stop" else "Send",
                 // The draft is cleared by the send itself, and only once the
                 // message is out (EXP-621) — a failed image upload leaves the
                 // whole composition intact to retry.
-                onClick = { if (canSend) onSend() },
-                enabled = canSend,
+                onClick = {
+                    when {
+                        stop -> onInterrupt()
+                        canSend -> onSend()
+                    }
+                },
+                enabled = stop || canSend,
                 sending = sending,
             )
         },
@@ -3052,15 +3234,11 @@ private fun SteerComposer(
         GlassTextField(
             value = field,
             onValueChange = ::setField,
-            modifier = Modifier.fillMaxWidth().then(fieldModifier),
-            placeholder = when {
-                planPending -> "Tell Claude what to change…"
-                // Typing is always allowed; the message just waits for
-                // the stream to come back (EXP-621).
-                !live -> "Message the agent (reconnecting…)"
-                commandsAvailable -> "Message the agent… (/ for commands)"
-                else -> "Message the agent…"
-            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(focusRequester)
+                .then(fieldModifier),
+            placeholder = placeholder,
             maxLines = 4,
             // The composer card owns the chrome; the field is just its text.
             bordered = false,
@@ -3203,69 +3381,6 @@ private fun EndedRunHeader(
  * two-entry dropdown for "Plan or Build" is a menu that can only ever say the
  * thing the pill already shows.
  */
-@Composable
-private fun ModeChipRow(
-    chip: ModeChip,
-    enabled: Boolean,
-    onSetMode: (String) -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(bottom = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        val toggle = chip.planToggle
-        if (toggle != null) {
-            GlassPill(
-                label = PLAN_TOGGLE_LABEL,
-                size = PillSize.Sm,
-                mode = PillMode.Select,
-                selected = toggle.on,
-                enabled = enabled,
-                onClick = { onSetMode(if (toggle.on) toggle.otherId else toggle.planId) },
-                modifier = Modifier.testTag("agent-mode-chip"),
-            )
-            return@Row
-        }
-        var open by remember { mutableStateOf(false) }
-        val pickable = enabled && !chip.readOnly
-        Box {
-            GlassPill(
-                label = chip.valueLabel,
-                size = PillSize.Sm,
-                mode = if (pickable) PillMode.Action else PillMode.Readonly,
-                enabled = enabled,
-                onClick = { open = true },
-                modifier = Modifier.testTag("agent-mode-chip"),
-                leading = {
-                    Text(
-                        CONFIG_MODE_LABEL,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(
-                            alpha = TextEmphasis.Tertiary,
-                        ),
-                        maxLines = 1,
-                    )
-                },
-            )
-            GlassDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                chip.values.forEach { value ->
-                    GlassMenuItem(
-                        text = { Text(value.label) },
-                        onClick = {
-                            open = false
-                            onSetMode(value.id)
-                        },
-                    )
-                }
-            }
-        }
-    }
-}
-
 /**
  * EXP-724: the curated slash-command menu above the composer — the same rows
  * the desktop can execute, filtered by this run's agent. It sits in the layout

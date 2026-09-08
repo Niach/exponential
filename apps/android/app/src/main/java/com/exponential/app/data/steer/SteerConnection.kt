@@ -1299,6 +1299,19 @@ class SteerConnection internal constructor(
         }
     }
 
+    /**
+     * EXP-790: stop the turn in flight without ending the run — the Stop glyph
+     * the composer's send button turns into while the agent works and the
+     * field is empty. Fire-and-forget like [setMode]: the engine cancels the
+     * turn and the feed shows the agent stopping; nothing locks or waits.
+     */
+    fun interrupt() {
+        val socket = ws ?: return
+        scope.launch {
+            runCatching { socket.send("""{"t":"interrupt"}""") }
+        }
+    }
+
     /** EXP-783 — whether there is transcript BELOW the oldest row on screen
      *  that this client can still ask the device for. Drives the transcript's
      *  "Load earlier" affordance together with the rendered window.
