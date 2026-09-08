@@ -947,8 +947,8 @@ struct AgentSessionView: View {
             switch item {
             case let .narration(_, text, _, _):
                 NarrationBubble(text: text, context: markdownContext)
-            case let .tool(_, name, detail, _, _, _, _, _, _):
-                ToolRow(name: name, detail: detail)
+            case let .tool(_, name, detail, _, _, _, _, failed, _):
+                ToolRow(name: name, detail: detail, failed: failed)
             case let .userMessage(_, text, _):
                 // EXP-724: a steered slash command is a control action, not
                 // prose — it renders as a compact pill instead of a bubble.
@@ -2583,6 +2583,9 @@ private struct QuestionCard: View {
 private struct ToolRow: View {
     let name: String
     let detail: String?
+    /// EXP-785: the call failed — the row tints red (web parity) so a
+    /// collapsed group's "1 failed" has a row to point at once expanded.
+    var failed: Bool = false
     /// EXP-787: a row INSIDE an expanded group keeps the compact inner rhythm
     /// this used to give every tool row; an outermost one is spaced by the
     /// transcript's gap ladder instead.
@@ -2591,10 +2594,12 @@ private struct ToolRow: View {
     var body: some View {
         HStack(spacing: 8) {
             AppIcon(AppIcons.codingTool, size: 11)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .foregroundStyle(
+                    failed ? DesignTokens.Semantic.red : .white.opacity(TextOpacity.tertiary)
+                )
             Text(name)
                 .transcriptToolText(.medium)
-                .foregroundStyle(.white)
+                .foregroundStyle(failed ? DesignTokens.Semantic.red : .white)
             if let detail {
                 Text(Self.middleTruncate(detail))
                     .font(.caption2.monospaced())
@@ -2628,6 +2633,16 @@ private struct ToolGroupRow: View {
 
     @State private var expanded = false
 
+    /// EXP-785: the collapsed caption is what the calls DID ("Ran 3 commands
+    /// · edited 2 files"), the one summary every client derives from the
+    /// contract fixture, not a bare count.
+    private var caption: String {
+        ToolGroupSummary.summarize(items.compactMap { item in
+            guard case let .tool(_, _, detail, _, _, kind, _, failed, _) = item else { return nil }
+            return ToolCallSummary(kind: kind ?? "other", detail: detail, failed: failed)
+        })
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
@@ -2638,9 +2653,10 @@ private struct ToolGroupRow: View {
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     AppIcon(AppIcons.codingTool, size: 11)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    Text("\(items.count) tool calls")
+                    Text(caption)
                         .transcriptToolText(.medium)
                         .foregroundStyle(.white)
+                        .lineLimit(1)
                     Spacer(minLength: 0)
                 }
                 .contentShape(Rectangle())
@@ -2650,15 +2666,15 @@ private struct ToolGroupRow: View {
             if expanded {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(items) { item in
-                        if case let .tool(_, name, detail, _, _, _, _, _, _) = item {
-                            ToolRow(name: name, detail: detail, nested: true)
+                        if case let .tool(_, name, detail, _, _, _, _, failed, _) = item {
+                            ToolRow(name: name, detail: detail, failed: failed, nested: true)
                         }
                     }
                 }
                 .padding(.leading, 20)
             } else if liveTail, let last = items.last,
-                      case let .tool(_, name, detail, _, _, _, _, _, _) = last {
-                ToolRow(name: name, detail: detail, nested: true)
+                      case let .tool(_, name, detail, _, _, _, _, failed, _) = last {
+                ToolRow(name: name, detail: detail, failed: failed, nested: true)
                     .padding(.leading, 20)
             }
         }
@@ -2761,8 +2777,8 @@ private struct SubagentItemRow: View {
     @ViewBuilder
     private var content: some View {
         switch item {
-        case let .tool(_, name, detail, _, _, _, _, _, _):
-            ToolRow(name: name, detail: detail)
+        case let .tool(_, name, detail, _, _, _, _, failed, _):
+            ToolRow(name: name, detail: detail, failed: failed)
         case let .narration(_, text, _, _):
             NarrationBubble(text: text, context: context)
         case let .userMessage(_, text, _):
