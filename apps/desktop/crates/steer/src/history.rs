@@ -197,6 +197,24 @@ pub fn read_journal(data_dir: &Path, session_id: &str) -> Option<Vec<ActivityEve
     Some(events)
 }
 
+/// EXP-764: drop ONE session's journal — the hosts call it when a repo-less
+/// run is purged whole. Returns whether a file went; a missing file is not
+/// an error, anything else is logged. The writer keeps one open append
+/// handle, so unlinking after the run ended never loses it a write.
+pub fn remove_journal(data_dir: &Path, session_id: &str) -> bool {
+    let Some(path) = journal_path(data_dir, session_id) else {
+        return false;
+    };
+    match fs::remove_file(&path) {
+        Ok(()) => true,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => false,
+        Err(err) => {
+            log::warn!("steer history: remove {}: {err}", path.display());
+            false
+        }
+    }
+}
+
 /// Remove journal files whose mtime is older than `max_age`. Called once at
 /// daemon/app boot; returns how many files went.
 pub fn prune_journals(data_dir: &Path, max_age: Duration) -> usize {
@@ -544,6 +562,25 @@ mod tests {
             before,
             "nothing more is recorded past the cap"
         );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-764: one session's journal goes on request; a missing one, or an
+    /// id that could escape the directory, is a quiet `false`.
+    #[test]
+    fn remove_journal_drops_exactly_one_session() {
+        let dir = temp_dir("remove-journal");
+        for id in ["keep", "gone"] {
+            let mut writer = JournalWriter::open(&dir, id).unwrap();
+            writer.append(&ActivityEvent::narration(id));
+            drop(writer);
+        }
+        assert!(remove_journal(&dir, "gone"));
+        assert!(read_journal(&dir, "gone").is_none());
+        assert!(read_journal(&dir, "keep").is_some());
+        assert!(!remove_journal(&dir, "gone"));
+        assert!(!remove_journal(&dir, "../keep"));
+        assert!(read_journal(&dir, "keep").is_some());
         let _ = fs::remove_dir_all(&dir);
     }
 

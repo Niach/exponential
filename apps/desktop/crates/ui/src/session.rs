@@ -71,10 +71,15 @@ fn sweep_scratch_dirs(cx: &mut App) {
         .spawn(async move {
             live.extend(crate::session_registry::live_ids(&data_dir));
             let report = coding::scratch::sweep(&data_dir, &live);
+            // EXP-764: the purged runs' steer journals go with their records.
+            for session_id in &report.purged {
+                steer::remove_journal(&data_dir, session_id);
+            }
             if !report.is_noop() {
                 log::info!(
-                    "scratch sweep: removed {} run dir(s), dropped {} trust entr(y/ies), kept {} live + {} young",
+                    "scratch sweep: removed {} run dir(s), purged {} run(s), dropped {} trust entr(y/ies), kept {} live + {} young",
                     report.removed.len(),
+                    report.purged.len(),
                     report.trust_dropped,
                     report.kept_live,
                     report.kept_young
@@ -116,11 +121,11 @@ pub fn connect_account(account: &api::Account, cx: &mut App) -> bool {
             // through, so orphans heal on the next connect instead of
             // blocking "coding now" for the server sweep's 2h window.
             crate::session_registry::reconcile_stale_sessions(account, cx);
-            // EXP-757: reclaim the scratch dirs (and claude trust entries)
-            // of repo-less runs nothing is running any more — crashes,
-            // older builds. Live runs, ours and a sibling daemon's, are the
-            // keep set. Background: a dir walk plus a `~/.claude.json`
-            // rewrite.
+            // EXP-757/764: purge the repo-less runs nothing is running any
+            // more — crashes, older builds: scratch dirs, claude trust
+            // entries, run records, journals. Live runs, ours and a sibling
+            // daemon's, are the keep set. Background: a dir walk plus a
+            // `~/.claude.json` rewrite.
             sweep_scratch_dirs(cx);
             // EXP-369: give the account a clock for its daily digest.
             claim_timezone(account, cx);

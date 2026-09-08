@@ -98,14 +98,18 @@ pub fn run(args: &[String]) -> CommandResult {
         println!("Session {} running — steer it from the web.", session.session_id);
         super::code::wait_with_signals(&session)
     };
-    // EXP-757 (daemon parity): a repo-less run's scratch dir goes with the
-    // run; the run record keeps it resumable.
+    // EXP-764 (daemon parity): a repo-less run is purged whole with the run
+    // — scratch dir, trust entries, pi session file, record, journal.
     if coding::scratch::is_scratch_dir(&ctx.data_dir, &session.worktree) {
-        coding::scratch::reclaim(
+        let purged = coding::scratch::purge(
             &ctx.data_dir,
+            &session.session_id,
             &session.worktree,
             std::time::SystemTime::now(),
         );
+        if purged {
+            steer::remove_journal(&ctx.data_dir, &session.session_id);
+        }
     }
     outcome
 }

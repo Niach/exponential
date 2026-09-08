@@ -1083,9 +1083,11 @@ fn end_on_error<T>(
 /// (`<data_dir>/pi-sessions/<row id>.jsonl`). pi opens a FRESH session when
 /// the file does not exist and RESUMES it when it does, so the same path
 /// serves both. `None` when the id has no usable path segment.
+pub(crate) const PI_SESSIONS_DIR: &str = "pi-sessions";
+
 fn pi_session_file(data_dir: &Path, session_id: &str) -> Option<PathBuf> {
     let segment = path_segment(session_id)?;
-    let dir = data_dir.join("pi-sessions");
+    let dir = data_dir.join(PI_SESSIONS_DIR);
     let _ = std::fs::create_dir_all(&dir);
     Some(dir.join(format!("{segment}.jsonl")))
 }
@@ -1937,8 +1939,9 @@ fn prepare_action(
             trunk_clone = Some(clone);
             (cwd, Some(repo.repository_id.clone()))
         }
-        // Repo-less: a scratch dir holding only the MCP config (+ PROMPT.md
-        // when the body is large). No git, no token. The id is a server
+        // Repo-less: a scratch dir meant to hold only the MCP config (+
+        // PROMPT.md when the body is large) — purged whole with the run
+        // (EXP-764, `crate::scratch`). No git, no token. The id is a server
         // UUID, but server data is untrusted here by design — sanitize the
         // path segment so a crafted id can never escape `<data_dir>/actions/`.
         None => {
@@ -2427,22 +2430,20 @@ fn prepare_resume_run(
         return Ok(Prepared::Disabled(reason));
     }
 
-    // Step 1 — the workspace. EXP-757: a repo-less run's scratch dir is
-    // disposable (reclaimed when the run ended, `crate::scratch`), so it is
-    // simply re-created at the recorded path — the agent's transcript is
-    // keyed by that path, not stored in it. A worktree the prune reclaimed
-    // is a hard stop: there is nothing to resume INTO (the callers filter on
-    // `resumable()` first; this is the backstop).
+    // Step 1 — the workspace. A worktree the prune reclaimed, or (EXP-764) a
+    // scratch dir the purge took with its ended run, is a hard stop: there is
+    // nothing to resume INTO (the callers filter on `resumable()` first; this
+    // is the backstop). A standing scratch dir is touched so a sweep racing
+    // this relaunch reads it as young (`crate::scratch`).
     let cwd = record.cwd.clone();
-    if record.clone.is_none() {
-        std::fs::create_dir_all(&cwd)
-            .map_err(|e| CodingError::Io(format!("re-create the run's scratch dir: {e}")))?;
-        crate::scratch::touch(&cwd);
-    } else if !cwd.is_dir() {
+    if !cwd.is_dir() {
         return Err(CodingError::Io(format!(
             "this run's workspace is gone ({})",
             cwd.display()
         )));
+    }
+    if record.clone.is_none() {
+        crate::scratch::touch(&cwd);
     }
 
     // §7.2 — the personal key, raced like every other launch.
@@ -5195,17 +5196,14 @@ mod tests {
         }
     }
 
-    /// EXP-757: a repo-LESS run's scratch dir was reclaimed when it ended.
-    /// The resume re-creates it at the recorded path and lands the MCP
-    /// config in it — the dir held nothing the resume needs.
+    /// EXP-764: a repo-LESS run's scratch dir was purged with the run when it
+    /// ended. The record no longer resumes it, and the backstop refuses
+    /// rather than re-creating an empty dir under a transcript that names
+    /// files which are gone.
     #[test]
-    fn prepare_resume_run_recreates_a_reclaimed_scratch_dir() {
-        let dir = temp_dir("resume-scratch-reclaimed");
-        let (base, _captured) = canned_server_recording(vec![(
-            200,
-            r#"{"result":{"data":{"session":{"id":"sess-new4","issueId":null,"teamId":"ws-1","actionId":"act-1","actionName":"Code review","status":"running"}}}}"#
-                .to_string(),
-        )]);
+    fn prepare_resume_run_refuses_a_purged_scratch_dir() {
+        let dir = temp_dir("resume-scratch-purged");
+        let (base, _captured) = canned_server_recording(vec![]);
         let worktrees = Arc::new(FakeWorktrees {
             worktree: dir.0.join("unused"),
             seen: Default::default(),
@@ -5215,17 +5213,12 @@ mod tests {
         let record = resume_record(&dir.0, "sess-old4");
         let scratch = record.cwd.clone();
         fs::remove_dir_all(&scratch).unwrap();
-        assert!(record.resumable(), "the record alone makes a repo-less run resumable");
+        assert!(!record.resumable(), "a purged scratch dir is not resumable");
 
-        let prepared =
-            match prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps).unwrap() {
-                Prepared::Ready(prepared) => prepared,
-                other => panic!("expected Ready, got {other:?}"),
-            };
-        assert_eq!(prepared.worktree, scratch);
-        assert!(scratch.is_dir());
-        assert!(prepared.run_cleanup.is_none());
-        assert_eq!(prepared.session_id, "sess-new4");
+        let err = prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps)
+            .expect_err("a purged scratch dir is a hard stop");
+        assert!(err.to_string().contains("workspace is gone"), "{err}");
+        assert!(!scratch.exists(), "the resume must not re-create it");
     }
 
     /// A fix-conflicts action request with the PR's repo group attached

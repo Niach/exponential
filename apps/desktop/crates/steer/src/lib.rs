@@ -106,7 +106,7 @@ pub use image_message::{
     renumber_image_markers, ParsedSteerMessage, MAX_STEER_IMAGES,
 };
 pub use history::{
-    journal_dir, journal_path, prune_journals, publish_history, read_journal,
+    journal_dir, journal_path, prune_journals, publish_history, read_journal, remove_journal,
     serve_history_request, HistoryInFlight, JournalWriter, JOURNAL_FILE_CAP, JOURNAL_MAX_AGE,
 };
 pub use journal::{ActivityJournal, JOURNAL_BYTE_CAP, JOURNAL_EVENT_CAP};

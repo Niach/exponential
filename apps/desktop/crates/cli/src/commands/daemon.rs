@@ -532,9 +532,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
         // EXP-637: a finished RUN reclaims its own worktree — but only when
         // it is provably clean and carries no commits. Blocking git on the
         // 1Hz loop is fine: it runs once per finished run, not per tick.
-        // EXP-757: a finished repo-LESS run has no worktree to judge — its
-        // scratch dir (and claude trust entries) simply go; the run record
-        // stays, since it is what keeps the run resumable.
+        // EXP-764: a finished repo-LESS run has no worktree to judge — it is
+        // purged whole: scratch dir, claude trust entries, pi session file,
+        // run record, steer journal. Nothing of it is resumable.
         {
             let mut guard = lock_sessions(&sessions);
             let reaped: Vec<(String, Option<coding::RunCleanup>, PathBuf)> = guard
@@ -552,7 +552,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
             drop(guard);
             // The moment the runs were seen to END: the git work below can
             // hold the loop for seconds, and a resume that re-enters a
-            // scratch dir in that window keeps it (`scratch::reclaim`).
+            // scratch dir in that window keeps it (`scratch::purge`).
             let reaped_at = std::time::SystemTime::now();
             for (session_id, cleanup, worktree) in reaped {
                 match cleanup {
@@ -567,10 +567,17 @@ fn run_daemon(args: &[String]) -> CommandResult {
                         );
                     }
                     None if coding::scratch::is_scratch_dir(&ctx.data_dir, &worktree) => {
-                        let removed =
-                            coding::scratch::reclaim(&ctx.data_dir, &worktree, reaped_at);
+                        let purged = coding::scratch::purge(
+                            &ctx.data_dir,
+                            &session_id,
+                            &worktree,
+                            reaped_at,
+                        );
+                        if purged {
+                            steer::remove_journal(&ctx.data_dir, &session_id);
+                        }
                         log::info!(
-                            "scratch reclaim [{session_id}] {}: removed={removed}",
+                            "scratch purge [{session_id}] {}: purged={purged}",
                             worktree.display()
                         );
                     }
@@ -1081,10 +1088,15 @@ fn sweep_scratch_dirs(ctx: &Arc<Ctx>) {
     std::thread::spawn(move || {
         let live = registry::live_ids(&ctx.data_dir);
         let report = coding::scratch::sweep(&ctx.data_dir, &live);
+        // EXP-764: the purged runs' steer journals go with their records.
+        for session_id in &report.purged {
+            steer::remove_journal(&ctx.data_dir, session_id);
+        }
         if !report.is_noop() {
             log::info!(
-                "scratch sweep: removed {} run dir(s), dropped {} trust entr(y/ies), kept {} live + {} young",
+                "scratch sweep: removed {} run dir(s), purged {} run(s), dropped {} trust entr(y/ies), kept {} live + {} young",
                 report.removed.len(),
+                report.purged.len(),
                 report.trust_dropped,
                 report.kept_live,
                 report.kept_young
@@ -1434,7 +1446,10 @@ fn remote_resume_start(
     session_id: String,
 ) -> anyhow::Result<()> {
     let Some(record) = coding::run_registry::get(&ctx.data_dir, &session_id) else {
-        anyhow::bail!("no local record for run {session_id} — it ran on another machine");
+        anyhow::bail!(
+            "no local record for run {session_id}: it ran on another machine, or it was a \
+repo-less run, which is purged when it ends"
+        );
     };
     if !record.resumable() {
         anyhow::bail!("run {session_id}'s workspace is gone");
