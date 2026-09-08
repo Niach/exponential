@@ -94,6 +94,37 @@ final class AgentSessionComposerTests: XCTestCase {
         )
     }
 
+    // MARK: - Rate-limit banner (EXP-784)
+
+    func testRateLimitCaptionCarriesTheMessageAndALocalResetClock() {
+        let utc = TimeZone(identifier: "UTC")!
+        let vienna = TimeZone(identifier: "Europe/Vienna")!
+        // 2026-09-09T10:05:00Z
+        let resetsAt = 1_788_948_300_000
+        let limit = AgentSessionRateLimit(
+            status: "rejected", resetsAt: resetsAt, message: "Weekly limit reached"
+        )
+        XCTAssertEqual(
+            AgentFeed.rateLimitCaption(limit, timeZone: utc),
+            "Weekly limit reached · resets 10:05"
+        )
+        XCTAssertEqual(
+            AgentFeed.rateLimitCaption(limit, timeZone: vienna),
+            "Weekly limit reached · resets 12:05"
+        )
+        XCTAssertEqual(
+            AgentFeed.rateLimitCaption(AgentSessionRateLimit(status: "rejected"), timeZone: utc),
+            "Rate limited"
+        )
+        XCTAssertEqual(
+            AgentFeed.rateLimitCaption(
+                AgentSessionRateLimit(status: "rejected", resetsAt: resetsAt, message: ""),
+                timeZone: utc
+            ),
+            "Rate limited · resets 10:05"
+        )
+    }
+
     // MARK: - Fixtures
 
     private func plan(_ id: Int) -> AgentQuestion {

@@ -926,6 +926,23 @@ public enum AgentFeed {
         )
     }
 
+    /// EXP-784: the ONE line the rate-limit banner prints — the agent's
+    /// message (or a plain "Rate limited" when it sent none) and, when the
+    /// window names its end, ` · resets HH:MM` in LOCAL time. Pure so the
+    /// clock format is testable against a pinned zone.
+    public static func rateLimitCaption(
+        _ limit: AgentSessionRateLimit, timeZone: TimeZone = .current
+    ) -> String {
+        let message = limit.message.flatMap { $0.isEmpty ? nil : $0 } ?? "Rate limited"
+        guard let resetsAt = limit.resetsAt else { return message }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "HH:mm"
+        let at = Date(timeIntervalSince1970: TimeInterval(resetsAt) / 1000)
+        return "\(message) · resets \(formatter.string(from: at))"
+    }
+
     // MARK: - Composer answer routing (EXP-788)
 
     /// The composer's placeholder while nothing is pending.

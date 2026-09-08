@@ -181,6 +181,7 @@ struct AgentSessionView: View {
                     endedHeader(model)
                     feedArea(model)
                     banners(model)
+                    rateLimitBanner(model)
                     compactionStrip(model)
                     bottomBar(model)
                 } else {
@@ -1205,6 +1206,35 @@ struct AgentSessionView: View {
             .padding(.horizontal, 14)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(AgentFeed.compactingLabel)
+        }
+    }
+
+    // MARK: - Rate-limit banner (EXP-784)
+
+    /// The agent's rate-limit window, in the compaction strip's slot: its own
+    /// message and when the window resets, local time. It stands only while
+    /// the slot holds a window — an `ok`/empty status, the replay swap and
+    /// the end of the run all clear it.
+    @ViewBuilder
+    private func rateLimitBanner(_ model: AgentSessionModel) -> some View {
+        if let limit = model.sessionRateLimit, !model.isOver {
+            let caption = AgentFeed.rateLimitCaption(limit)
+            HStack(spacing: 8) {
+                AppIcon(AppIcons.uiWarning, size: AppIcon.Size.small)
+                    .foregroundStyle(DesignTokens.Semantic.yellow)
+                Text(caption)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .glassRow()
+            .padding(.horizontal, 14)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(caption)
+            .accessibilityIdentifier("agent-rate-limit")
         }
     }
 
