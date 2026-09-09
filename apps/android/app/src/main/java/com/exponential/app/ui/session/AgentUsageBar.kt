@@ -198,7 +198,7 @@ private fun severityColor(severity: AgentUsageSeverity): Color = when (severity)
  * would be frozen at whatever it said when the screen opened.
  */
 @Composable
-private fun rememberUsageClock(): Long {
+internal fun rememberUsageClock(): Long {
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {

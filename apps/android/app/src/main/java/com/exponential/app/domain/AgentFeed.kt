@@ -1277,3 +1277,29 @@ sealed interface AgentPhase {
      *  false only for terminal states (steer disabled on this instance). */
     data class Closed(val detail: String? = null, val reconnecting: Boolean = false) : AgentPhase
 }
+
+// ── EXP-786: the per-call diff ───────────────────────────────────────────────
+
+/** [splitTruncatedDiff]'s two halves: the diff proper, and how many lines the
+ *  publisher dropped (null when it dropped none). */
+data class TruncatedDiff(val diff: String, val truncated: Int?)
+
+/** A publisher-cut diff ends in ONE metadata line saying how much it dropped
+ *  (`\ 120 more lines truncated`). Anchored with `\z`, never `$`, because
+ *  Java's `$` also matches before a FINAL line terminator and JS's does not —
+ *  the web regex (`lib/agent-feed.ts`) is the contract. */
+private val DIFF_TRUNCATION_LINE = Regex("""(?:^|\n)\\ (\d+) more lines? truncated\s*\z""")
+
+/** Split the trailing truncation note off: the diff proper renders as a diff,
+ *  the note as a muted footer. Mirrors web `splitTruncatedDiff`. */
+fun splitTruncatedDiff(diff: String): TruncatedDiff {
+    val match = DIFF_TRUNCATION_LINE.find(diff) ?: return TruncatedDiff(diff, null)
+    // A count too big for an Int is not a footer we can word — leave the diff
+    // whole rather than dropping its last line for an unrenderable number.
+    val truncated = match.groupValues[1].toIntOrNull() ?: return TruncatedDiff(diff, null)
+    return TruncatedDiff(diff.substring(0, match.range.first), truncated)
+}
+
+/** The footer's words. Locked x4 (web `diffTruncationNote`). */
+fun diffTruncationNote(lines: Int): String =
+    "$lines more line${if (lines == 1) "" else "s"} truncated"

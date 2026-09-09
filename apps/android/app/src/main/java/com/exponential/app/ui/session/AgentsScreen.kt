@@ -44,6 +44,7 @@ import com.exponential.app.data.api.deviceUpdateAvailable
 import com.exponential.app.data.db.AutomationEntity
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MergeFailure
@@ -931,6 +932,24 @@ private fun AgentSessionRow(
                     // 12dp gap now live inside the identity line above.
                     modifier = Modifier.padding(start = 20.dp),
                 )
+                // EXP-804: the agent's usage wall, on its OWN line under the
+                // state — never folded into the line above, because a walled
+                // run is still `running` and both facts have to survive. A
+                // run that is not blocked draws nothing at all.
+                val blockedLabel = AgentUsagePresentation.blockedBadgeLabel(
+                    AgentUsagePresentation.parseBlocked(session.blocked),
+                    rememberUsageClock(),
+                )
+                if (blockedLabel != null) {
+                    Text(
+                        blockedLabel,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NeedsInputAmber,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(start = 20.dp),
+                    )
+                }
             }
             // EXP-498: merging always closes the session too — confirm-gated,
             // and only while the PR is actually open. EXP-706: a

@@ -154,6 +154,8 @@ import com.exponential.app.domain.activeQuestionIds
 import com.exponential.app.domain.canOfferFixConflicts
 import com.exponential.app.domain.collectSubagents
 import com.exponential.app.domain.currentStepperStep
+import com.exponential.app.domain.diffTruncationNote
+import com.exponential.app.domain.splitTruncatedDiff
 import com.exponential.app.domain.FEED_WINDOW
 import com.exponential.app.domain.FEED_WINDOW_STEP
 import com.exponential.app.domain.groupFeedRows
@@ -1411,6 +1413,25 @@ private fun SessionHeaderTitle(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        // EXP-804: the PERSISTED usage wall off the session row, under the
+        // status line and never folded into it — a walled run is still
+        // running, and both facts have to survive. Deliberately not the same
+        // thing as the live `rate_limit` slot: this one is already there when
+        // a run's stream has not connected yet, which is exactly the moment a
+        // silently walled run looks healthy.
+        val blockedLabel = AgentUsagePresentation.blockedBadgeLabel(
+            AgentUsagePresentation.parseBlocked(session?.blocked),
+            rememberUsageClock(),
+        )
+        if (blockedLabel != null) {
+            Text(
+                blockedLabel,
+                style = MaterialTheme.typography.labelSmall,
+                color = NeedsInputAmber,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -1746,7 +1767,7 @@ private fun ActivityFeed(
                         )
                         is AgentFeedRow.Single -> when (val item = row.item) {
                             is AgentFeedItem.Narration -> NarrationBubble(item.text)
-                            is AgentFeedItem.Tool -> ToolRow(item.name, item.detail, failed = item.failed)
+                            is AgentFeedItem.Tool -> ToolRow(item.name, item.detail, failed = item.failed, diff = item.diff)
                             is AgentFeedItem.UserMessage -> {
                                 // EXP-724: a steered catalog command reads as one.
                                 val command =
@@ -2814,7 +2835,7 @@ private fun SubagentGroupRow(
 @Composable
 private fun SubagentItemRow(item: AgentFeedItem, nested: Boolean = false) {
     when (item) {
-        is AgentFeedItem.Tool -> ToolRow(item.name, item.detail, nested = nested, failed = item.failed)
+        is AgentFeedItem.Tool -> ToolRow(item.name, item.detail, nested = nested, failed = item.failed, diff = item.diff)
         is AgentFeedItem.Narration -> NarrationBubble(item.text, nested = nested)
         is AgentFeedItem.UserMessage -> UserMessageBubble(item.text, nested = nested)
         else -> Unit
@@ -2832,39 +2853,130 @@ private fun ToolRow(
     nested: Boolean = false,
     /** EXP-785: the call errored — the row tints rose, like the web. */
     failed: Boolean = false,
+    /** EXP-806: the per-call unified diff an `edit` published, already cut to
+     *  the contract's caps by the publisher. Folded away until the row is
+     *  tapped — a phone transcript is a column, not the web's wide page, so an
+     *  always-open patch under every edit buries the conversation. */
+    diff: String? = null,
 ) {
-    Row(
+    var diffOpen by remember(diff) { mutableStateOf(false) }
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .then(if (nested) Modifier.padding(vertical = 2.dp) else Modifier),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Icon(
-            ExpIcons.codingTool,
-            contentDescription = null,
-            modifier = Modifier.size(12.dp),
-            tint = if (failed) DiffDelColor else {
-                MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-            },
-        )
-        Text(
-            name,
-            style = transcriptToolStyle(),
-            color = if (failed) DiffDelColor else MaterialTheme.colorScheme.onSurface,
-        )
-        if (!detail.isNullOrBlank()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(
+                    if (diff != null) {
+                        Modifier.clickable { diffOpen = !diffOpen }
+                    } else {
+                        Modifier
+                    },
+                ),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                ExpIcons.codingTool,
+                contentDescription = null,
+                modifier = Modifier.size(12.dp),
+                tint = if (failed) DiffDelColor else {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+                },
+            )
             Text(
-                remember(detail) { middleTruncate(detail) },
-                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                name,
+                style = transcriptToolStyle(),
+                color = if (failed) DiffDelColor else MaterialTheme.colorScheme.onSurface,
+            )
+            if (!detail.isNullOrBlank()) {
+                Text(
+                    remember(detail) { middleTruncate(detail) },
+                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+            } else if (diff != null) {
+                Spacer(Modifier.weight(1f))
+            }
+            // The only affordance a folded diff has — the group row's chevron,
+            // trailing here because the leading slot is the tool glyph.
+            if (diff != null) {
+                Icon(
+                    if (diffOpen) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
+                    contentDescription = if (diffOpen) "Hide changes" else "Show changes",
+                    modifier = Modifier.size(12.dp),
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                )
+            }
+        }
+        if (diff != null && diffOpen) ToolDiff(diff)
+    }
+}
+
+/**
+ * EXP-806: one call's diff, through the same monospace renderer the "Latest
+ * changes" sheet uses, in a scroll box no taller than [ToolDiffMaxHeight] (web
+ * `ToolDiff`'s `max-h-72`). The publisher's cut note is a MUTED FOOTER outside
+ * the patch — inside it, `\ 120 more lines truncated` would render as a diff
+ * line, which it is not.
+ *
+ * Nothing here reads [failed]: a failed call keeps the ROW's rose tint and its
+ * diff renders in the ordinary +/− colors, exactly like the web.
+ */
+@Composable
+private fun ToolDiff(diff: String) {
+    val cut = remember(diff) { splitTruncatedDiff(diff) }
+    val sections = remember(cut.diff) { splitUnifiedDiff(cut.diff) }
+    if (sections.isEmpty() && cut.truncated == null) return
+    val contextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            // Aligned under the row's text, past the tool glyph and its gap.
+            .padding(start = 20.dp, top = 4.dp)
+            // Bounded FIRST, so the glass fill paints the capped box and the
+            // patch scrolls inside it rather than growing the transcript row.
+            .heightIn(max = ToolDiffMaxHeight)
+            .glassGroup()
+            .verticalScroll(rememberScrollState()),
+    ) {
+        sections.forEach { section ->
+            if (section.filename.isNotBlank()) {
+                Text(
+                    section.filename,
+                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                )
+            }
+            // Horizontal scrolling lives inside PatchLines; this box owns only
+            // the vertical one, so the two axes never fight.
+            PatchLines(
+                lines = section.lines,
+                contextColor = contextColor,
+                modifier = Modifier.padding(bottom = 6.dp),
+            )
+        }
+        cut.truncated?.let { lines ->
+            Text(
+                diffTruncationNote(lines),
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
             )
         }
     }
 }
+
+/** The folded-open diff's ceiling — web `ToolDiff`'s `max-h-72`. */
+private val ToolDiffMaxHeight = 288.dp
 
 // A run of ≥2 consecutive tool calls collapsed into one row (EXP-97),
 // expandable to the individual rows. EXP-785: the caption says what happened
@@ -2908,11 +3020,11 @@ private fun ToolGroupRow(items: List<AgentFeedItem.Tool>, liveTail: Boolean) {
         }
         when {
             expanded -> Column(modifier = Modifier.padding(start = 22.dp)) {
-                items.forEach { ToolRow(it.name, it.detail, nested = true, failed = it.failed) }
+                items.forEach { ToolRow(it.name, it.detail, nested = true, failed = it.failed, diff = it.diff) }
             }
             liveTail -> Column(modifier = Modifier.padding(start = 22.dp)) {
                 val latest = items.last()
-                ToolRow(latest.name, latest.detail, nested = true, failed = latest.failed)
+                ToolRow(latest.name, latest.detail, nested = true, failed = latest.failed, diff = latest.diff)
             }
         }
     }
