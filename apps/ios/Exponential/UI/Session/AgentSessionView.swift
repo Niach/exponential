@@ -294,10 +294,7 @@ struct AgentSessionView: View {
         // EXP-802: the composer's focus lives on its editor model now (a
         // UITextView owns first responder), not in a `@FocusState`.
         .onChange(of: model?.draftEditor.isEditing) { _, editing in
-            guard composerExpanded, editing == false, let model else { return }
-            guard !showPhotoPicker, photoItems.isEmpty else { return }
-            guard model.trimmedDraft.isEmpty, model.pendingImages.isEmpty else { return }
-            withAnimation(motion.standard) { composerExpanded = false }
+            draftEditingChanged(editing)
         }
         // EXP-696: leave the screen when the run finishes under the viewer
         // (kill, merge, the agent's own exit — the synced row edge covers every
@@ -309,17 +306,14 @@ struct AgentSessionView: View {
         // EXP-706: NOT while a recovery run is pushed on top of this screen —
         // that run's merge is what ends this one, and popping the parent would
         // yank the viewer out of the session they just started.
-        // Spelled out rather than one `ended == true && … && …` chain: the
-        // optional comparison inside a three-term condition is what tipped
-        // this body over the Release type-checker's budget (the app target is
-        // only compiled by the `ios-v*` tag build, so it fails nowhere else).
+        // The decision lives in `sessionEndedChanged` rather than inline: this
+        // body is a 200-line modifier chain, and every condition spelled out
+        // inside one of its closures is type-checked as part of it. Spelling
+        // this one out inline is what tipped the budget over twice already
+        // (the app target is only compiled by the `ios-v*` tag build and the
+        // staging archive, so it fails nowhere else).
         .onChange(of: model?.sessionEnded) { _, ended in
-            guard let ended else { return }
-            if !ended {
-                sawLiveSession = true
-            } else if sawLiveSession, fixSessionTarget == nil {
-                dismiss()
-            }
+            sessionEndedChanged(ended)
         }
         // No scenePhase handler here: foreground revival (EXP-243) is
         // app-scoped since EXP-621 — the root handler reconnects every retained
@@ -410,6 +404,37 @@ struct AgentSessionView: View {
     /// Everything an `AgentMarkdownText` needs to render embedded images —
     /// agent prose can carry `![](/api/attachments/{id})` and those fetches are
     /// authenticated (EXP-440).
+    // EXP-790: blur collapses the composer ONLY when nothing would be lost —
+    // empty draft, no pending images, no picker mid-flight (presenting one
+    // resigns first responder). Copied from IssueDetailBottomBar.
+    // EXP-802: the composer's focus lives on its editor model now (a UITextView
+    // owns first responder), not in a `@FocusState`.
+    private func draftEditingChanged(_ editing: Bool?) {
+        guard composerExpanded, editing == false, let model else { return }
+        guard !showPhotoPicker, photoItems.isEmpty else { return }
+        guard model.trimmedDraft.isEmpty, model.pendingImages.isEmpty else { return }
+        withAnimation(motion.standard) { composerExpanded = false }
+    }
+
+    // EXP-696: leave the screen when the run finishes under the viewer (kill,
+    // merge, the agent's own exit — the synced row edge covers every path).
+    // Gated on having SEEN the run live here first: the model attaches after
+    // onAppear, so a plain false→true change would also fire when opening an
+    // ALREADY-ended run's feed, which must stay put. Row status, not `isOver`:
+    // a relay `bye` alone shouldn't yank a screen the row still calls live.
+    // EXP-706: NOT while a recovery run is pushed on top of this screen — that
+    // run's merge is what ends this one, and popping the parent would yank the
+    // viewer out of the session they just started.
+    private func sessionEndedChanged(_ ended: Bool?) {
+        guard let ended else { return }
+        if !ended {
+            sawLiveSession = true
+            return
+        }
+        guard sawLiveSession, fixSessionTarget == nil else { return }
+        dismiss()
+    }
+
     private var markdownContext: AgentMarkdownContext {
         AgentMarkdownContext(
             baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
