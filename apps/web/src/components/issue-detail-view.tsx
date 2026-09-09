@@ -1,11 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import {
-  ChevronDown,
-  ChevronRight,
-  ChevronUp,
-  Files,
-  Link2,
-} from "lucide-react"
+import { ChevronRight, Files, Link2 } from "lucide-react"
 import { toast } from "sonner"
 import { conceptIcon } from "@/lib/icons.generated"
 import { Link, useNavigate } from "@tanstack/react-router"
@@ -40,7 +34,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Textarea } from "@/components/ui/textarea"
-import { Separator } from "@/components/ui/separator"
 import type { IssueFilterSearch } from "@/lib/filters"
 import { useDuplicateInterception } from "@/hooks/use-duplicate-interception"
 import { useIssueRefs } from "@/components/issue-ref-provider"
@@ -77,16 +70,6 @@ const RelationSectionIcon = conceptIcon(`relation-section`)
 const UiDeleteIcon = conceptIcon(`ui-delete`)
 const UiUndoIcon = conceptIcon(`ui-undo`)
 
-// Where the current issue sits in the board's filtered+sorted sequence — feeds
-// the header's "N / total" prev/next switcher. Null (or omitted) hides the
-// switcher, e.g. when the issue is filtered out of the carried board view.
-export interface IssueSwitcherPosition {
-  index: number
-  total: number
-  prevIdentifier: string | null
-  nextIdentifier: string | null
-}
-
 interface IssueDetailViewProps {
   issue: Issue
   issueLabelIds: string[]
@@ -95,10 +78,9 @@ interface IssueDetailViewProps {
   teamSlug: string
   teamId: string
   readOnly?: boolean
-  // Board filter params carried from the list view — preserved on prev/next
-  // navigation and on the breadcrumb's back-to-board link.
+  // Board filter params carried from the list view — preserved on the
+  // breadcrumb's back-to-board link.
   filterSearch?: IssueFilterSearch
-  position?: IssueSwitcherPosition | null
 }
 
 // Canonical-issue banner shown on a duplicate's detail view: "Duplicate of
@@ -157,80 +139,12 @@ export function IssueDetailView({
   teamId,
   readOnly = false,
   filterSearch,
-  position = null,
 }: IssueDetailViewProps) {
   const { data: session } = useSession()
   const currentUserId = session?.user?.id ?? null
   const isMobile = useIsMobile()
   const navigate = useNavigate()
 
-  // In-place hop to a sibling issue in the board sequence, preserving the
-  // carried filter params. Safe without unmount: the issue.id-keyed reset
-  // effect below re-seeds all local editor state, and IssueTimeline is keyed
-  // on issue.id so its composer draft resets too (REV-47).
-  const navigateToIssue = (identifier: string | null) => {
-    if (!identifier) return
-    void navigate({
-      to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
-      params: {
-        teamSlug,
-        boardSlug: board.slug,
-        issueIdentifier: identifier,
-      },
-      search: {
-        status: filterSearch?.status,
-        priority: filterSearch?.priority,
-        labels: filterSearch?.labels,
-      },
-    })
-  }
-
-  const prevIdentifier = position?.prevIdentifier ?? null
-  const nextIdentifier = position?.nextIdentifier ?? null
-
-  // J/K prev-next shortcuts (Linear parity), scoped to this view's lifetime.
-  // Ignored while typing (inputs / the TipTap contenteditable), while any
-  // dialog is open, or while a popper overlay (dropdown/popover/select) is up.
-  useEffect(() => {
-    if (!position) return
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey) return
-      const key = event.key.toLowerCase()
-      if (key !== `j` && key !== `k`) return
-      const target = event.target as HTMLElement | null
-      if (
-        target &&
-        (target.tagName === `INPUT` ||
-          target.tagName === `TEXTAREA` ||
-          target.isContentEditable ||
-          target.closest(`[contenteditable="true"]`))
-      ) {
-        return
-      }
-      if (
-        document.querySelector(
-          `[role="dialog"][data-state="open"], [data-radix-popper-content-wrapper]`
-        )
-      ) {
-        return
-      }
-      const identifier = key === `j` ? nextIdentifier : prevIdentifier
-      if (!identifier) return
-      event.preventDefault()
-      navigateToIssue(identifier)
-    }
-    window.addEventListener(`keydown`, handleKeyDown)
-    return () => window.removeEventListener(`keydown`, handleKeyDown)
-  }, [
-    Boolean(position),
-    prevIdentifier,
-    nextIdentifier,
-    board.slug,
-    teamSlug,
-    filterSearch?.status,
-    filterSearch?.priority,
-    filterSearch?.labels,
-  ])
 
   const editorRef = useRef<MarkdownEditorRef>(null)
   const descriptionRef = useRef(getIssueDescriptionText(issue.description))
@@ -726,39 +640,9 @@ export function IssueDetailView({
   )
 
   // Header actions shared by the desktop breadcrumb and the compact phone
-  // header below — one definition each, two arrangements.
-  // EXP-698 r5: bare chevrons — no circle, no fill. The switcher is a pair of
-  // glyphs beside the "N / total" counter (IDE parity, `issue_header.rs`);
-  // the copy-link / trash duo keeps its circles.
-  const switcherButtons = position ? (
-    <>
-      <IconTooltip label="Previous issue" shortcut="K">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="text-muted-foreground hover:text-foreground"
-          aria-label="Previous issue (K)"
-          disabled={!position.prevIdentifier}
-          onClick={() => navigateToIssue(position.prevIdentifier)}
-        >
-          <ChevronUp className="size-4" />
-        </Button>
-      </IconTooltip>
-      <IconTooltip label="Next issue" shortcut="J">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="text-muted-foreground hover:text-foreground"
-          aria-label="Next issue (J)"
-          disabled={!position.nextIdentifier}
-          onClick={() => navigateToIssue(position.nextIdentifier)}
-        >
-          <ChevronDown className="size-4" />
-        </Button>
-      </IconTooltip>
-    </>
-  ) : null
-
+  // header below — one definition each, two arrangements. EXP-791: the
+  // prev/next switcher and its "N / total" counter are gone (the IDE's
+  // `render_switcher` twin went with them); the round `…` is what remains.
   const issueUrl = `${typeof window === `undefined` ? `` : window.location.origin}/t/${teamSlug}/boards/${board.slug}/issues/${issue.identifier}`
 
   // EXP-760: ONE round `…` on the breadcrumb — Copy link · Add relation ▸ ·
@@ -897,15 +781,6 @@ export function IssueDetailView({
       <ChevronRight className="size-3 shrink-0 text-muted-foreground/50" />
       <span className="truncate text-foreground">{title}</span>
       <div className="ml-auto flex items-center gap-1 shrink-0">
-        {position && (
-          <>
-            <span className="hidden px-0.5 font-mono tabular-nums whitespace-nowrap sm:inline">
-              {position.index} / {position.total}
-            </span>
-            {switcherButtons}
-            <Separator orientation="vertical" className="mx-1 !h-3.5" />
-          </>
-        )}
         {actionsMenu}
       </div>
     </div>

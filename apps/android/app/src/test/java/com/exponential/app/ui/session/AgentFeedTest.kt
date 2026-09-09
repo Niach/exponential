@@ -18,7 +18,12 @@ import com.exponential.app.domain.ConfigMode
 import com.exponential.app.domain.ConfigOption
 import com.exponential.app.domain.ConfigValue
 import com.exponential.app.domain.SessionConfigState
+import com.exponential.app.domain.SessionRateLimitState
 import com.exponential.app.domain.SessionUsageState
+import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.parseToolKind
+import com.exponential.app.domain.rateLimitClears
+import com.exponential.app.domain.feedItemBytes
 import com.exponential.app.domain.TranscriptGap
 import com.exponential.app.domain.modeChip
 import com.exponential.app.domain.QuestionOption
@@ -925,6 +930,96 @@ class AgentFeedTest {
         )
     }
 
+    // EXP-785/786: `tool_update` folds into the tool row by call id.
+    @Test
+    fun `a tool row carries its callId and toolKind`() {
+        val state = ActivityFeedState()
+            .applying(toolWithId("tc-1", "edit"))
+            .applying(event("""{"kind":"tool","name":"X","id":"  ","toolKind":"teleport"}"""))
+        val first = state.feed[0] as AgentFeedItem.Tool
+        assertEquals("tc-1", first.callId)
+        assertEquals("edit", first.toolKind)
+        val second = state.feed[1] as AgentFeedItem.Tool
+        assertNull(second.callId)
+        assertNull(second.toolKind)
+        assertEquals("switch_mode", parseToolKind("switch_mode"))
+        assertNull(parseToolKind("teleport"))
+        assertTrue(DomainContract.toolKindValues.contains("edit"))
+    }
+
+    @Test
+    fun `a tool_update settles and diffs its row and never adds one`() {
+        val diff = "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-a\n+b\n"
+        val base = ActivityFeedState()
+            .applying(toolWithId("tc-1", "edit"))
+            .applying(event("""{"kind":"narration","text":"between"}"""))
+            .applying(toolWithId("tc-2", "execute"))
+        val settled = base.applying(
+            event("""{"kind":"tool_update","id":"tc-1","status":"completed","diff":"$diff"}"""),
+        )
+        assertEquals(3, settled.feed.size)
+        val row = settled.feed[0] as AgentFeedItem.Tool
+        assertTrue(row.settled)
+        assertFalse(row.failed)
+        assertEquals("--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-a\n+b\n", row.diff)
+        assertFalse((settled.feed[2] as AgentFeedItem.Tool).settled)
+        // The diff weighs against the budget.
+        assertEquals(base.feedBytes + row.diff!!.length, settled.feedBytes)
+        assertEquals(settled.feed.sumOf { feedItemBytes(it) }, settled.feedBytes)
+
+        // A failed settle wins over the completed one; the diff stays.
+        val failed = settled.applying(event("""{"kind":"tool_update","id":"tc-1","status":"failed"}"""))
+        val failedRow = failed.feed[0] as AgentFeedItem.Tool
+        assertTrue(failedRow.settled)
+        assertTrue(failedRow.failed)
+        assertEquals(row.diff, failedRow.diff)
+        // A status-less update carrying only a diff never settles.
+        val diffed = failed.applying(event("""{"kind":"tool_update","id":"tc-2","diff":"+x\n"}"""))
+        val diffedRow = diffed.feed[2] as AgentFeedItem.Tool
+        assertFalse(diffedRow.settled)
+        assertEquals("+x\n", diffedRow.diff)
+    }
+
+    @Test
+    fun `a tool_update for an unknown id is dropped and the newest row wins`() {
+        val base = ActivityFeedState()
+            .applying(toolWithId("tc-1", "read"))
+            .applying(event("""{"kind":"tool","name":"Grep"}"""))
+            .applying(toolWithId("tc-1", "read"))
+        val dropped = base
+            .applying(event("""{"kind":"tool_update","id":"tc-nope","status":"failed","diff":"+never\n"}"""))
+            .applying(event("""{"kind":"tool_update","id":"","status":"completed"}"""))
+        assertEquals(base, dropped)
+        val next = base.applying(event("""{"kind":"tool_update","id":"tc-1","status":"completed"}"""))
+        assertFalse((next.feed[0] as AgentFeedItem.Tool).settled)
+        assertFalse((next.feed[1] as AgentFeedItem.Tool).settled)
+        assertTrue((next.feed[2] as AgentFeedItem.Tool).settled)
+    }
+
+    // EXP-784: the rate-limit slot.
+    @Test
+    fun `rate_limit is a slot and an empty or ok status clears it`() {
+        val limited = ActivityFeedState().applying(
+            event(
+                """{"kind":"rate_limit","status":" allowed_warning ","resetsAt":1700000000000,""" +
+                    """"message":" 80% used "}""",
+            ),
+        )
+        assertTrue(limited.feed.isEmpty())
+        assertEquals(
+            SessionRateLimitState("allowed_warning", 1_700_000_000_000L, "80% used"),
+            limited.rateLimit,
+        )
+        val rejected = limited.applying(event("""{"kind":"rate_limit","status":"rejected","resetsAt":-1}"""))
+        assertEquals(SessionRateLimitState("rejected"), rejected.rateLimit)
+        assertNull(rejected.applying(event("""{"kind":"rate_limit","status":"ok"}""")).rateLimit)
+        assertNull(rejected.applying(event("""{"kind":"rate_limit","status":""}""")).rateLimit)
+        // Unreadable clears too: a stale banner beside a live run is worse.
+        assertNull(rejected.applying(event("""{"kind":"rate_limit"}""")).rateLimit)
+        assertTrue(rateLimitClears(" OK "))
+        assertFalse(rateLimitClears("allowed"))
+    }
+
     @Test
     fun `a zero context size clears the usage slot`() {
         // The engine reporting a zero window means "unknown", not "0%".
@@ -1176,6 +1271,10 @@ class AgentFeedTest {
     )
 
     private fun tool(id: Long) = AgentFeedItem.Tool(id, "Edit", "src/a.ts")
+
+    private fun toolWithId(callId: String, kind: String) = event(
+        """{"kind":"tool","name":"Edit","detail":"src/a.ts","id":"$callId","toolKind":"$kind"}""",
+    )
 
     private fun narrationItem(id: Long, text: String) = AgentFeedItem.Narration(id, text)
 

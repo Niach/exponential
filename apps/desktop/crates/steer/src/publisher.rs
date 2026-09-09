@@ -1125,24 +1125,9 @@ async fn send_history_page(
     request_id: &str,
     page: Vec<(u64, ActivityEvent)>,
 ) -> bool {
-    let (seqs, events): (Vec<u64>, Vec<ActivityEvent>) = page.into_iter().unzip();
-    let mut frame = ClientFrame::HistoryChunk {
-        request_id: request_id.to_string(),
-        events,
-        seqs,
-        done: true,
-    }
-    .to_json();
-    if frame.len() >= RELAY_MAX_PAYLOAD_BYTES {
-        log::warn!("steer publisher: history page {request_id} too large — answering empty");
-        frame = ClientFrame::HistoryChunk {
-            request_id: request_id.to_string(),
-            events: Vec::new(),
-            seqs: Vec::new(),
-            done: true,
-        }
-        .to_json();
-    }
+    // EXP-796: the page frame is built by `history` so the control-socket
+    // route answers with the SAME shape; a publisher names no session.
+    let frame = crate::history::history_chunk_frame(None, request_id, page);
     ws.send(Message::Text(frame)).await.is_ok()
 }
 

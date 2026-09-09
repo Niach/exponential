@@ -1,11 +1,19 @@
 //! EXP-746 — the LOCAL-only half of a session transcript.
 //!
 //! An in-process ACP run sees strictly more than the relay does: the exact
-//! patch of every edit, a command's output, the agent's plan, its thoughts.
-//! None of that may ride the wire — raw patch bodies and command strings are
-//! precisely what the redactor exists to keep off it — so it arrives as
-//! [`engine::LocalFeedEvent`]s and is rendered HERE, hung off the feed rows
-//! the matching [`steer::ActivityEvent`]s appended.
+//! patch of every edit and a command's output. Neither may ride the wire raw
+//! — patch bodies and command strings are precisely what the redactor exists
+//! to keep off it — so they arrive as [`engine::LocalFeedEvent`]s and are
+//! rendered HERE, hung off the feed rows the matching
+//! [`steer::ActivityEvent`]s appended. (EXP-791: the agent's plan and its
+//! thoughts used to be pinned here too; the plan now lives in the answer card
+//! and the transcript, and thoughts are the transcript's.)
+//!
+//! EXP-786: an edit card is cut to the SAME caps the wire applies
+//! ([`steer::truncate_unified_diff`] at `TOOL_DIFF_MAX_LINES`/`_BYTES`), so a
+//! local and a remote viewer of one run show the same prefix of one edit; the
+//! header says how many lines were dropped. A remote viewer renders the
+//! wire's own per-call diff through the same card ([`render_wire_diff`]).
 //!
 //! The join is the tricky part and is worth stating once: the wire `tool`
 //! event carries no id (`FeedKind::Tool` is `{name, detail, subagent_id}`),
@@ -21,13 +29,13 @@
 //!   and file list; one per edit in a long run is a lot of state for a
 //!   single-hunk card, and the run's FULL diff already has a DiffView in the
 //!   session screen's Changes rail.
-//! * the hunk is computed here, because ACP hands over `old_text`/`new_text`
-//!   and the scm model speaks unified diffs. [`edit_diff`] is that conversion
-//!   (a common prefix/suffix trim around one replacement block — the shape a
-//!   single edit actually has), pure and unit-tested.
+//! * the hunk is built by the shared [`steer::unified_diff`] (ACP hands over
+//!   `old_text`/`new_text`, the scm model speaks unified diffs) and read back
+//!   through `coding::scm::parse_unified_diff` — the exact bytes a remote
+//!   viewer gets, so the two cards cannot drift.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use gpui::{
     div, prelude::FluentBuilder as _, AnyElement, App, ClickEvent, InteractiveElement as _,
@@ -38,8 +46,9 @@ use gpui_component::{
     h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 
-use coding::scm::{DiffFile, DiffLine, DiffLineKind, FileStatus, UnifiedHunk};
+use coding::scm::{DiffFile, DiffLine, DiffLineKind};
 use steer::feed::FeedItemId;
+use steer::{truncate_unified_diff, unified_diff, TOOL_DIFF_MAX_BYTES, TOOL_DIFF_MAX_LINES};
 
 use crate::controls::WebText as _;
 use crate::icons::registry;
@@ -47,9 +56,6 @@ use crate::icons::registry;
 /// Lines of an output card kept — the tail, because a command's verdict is at
 /// the end. Same cap the CLI attach printer applies.
 pub(crate) const OUTPUT_LINES_MAX: usize = 200;
-
-/// Context lines drawn around an edit's replacement block.
-const EDIT_CONTEXT_LINES: usize = 3;
 
 /// Rows of a diff card shown before it folds behind "Show more".
 const DIFF_PREVIEW_ROWS: usize = 12;
@@ -66,6 +72,8 @@ pub(crate) struct ToolExtras {
 struct EditCard {
     path: PathBuf,
     file: DiffFile,
+    /// EXP-786: lines the contract cap dropped off the end of the patch.
+    omitted: usize,
 }
 
 #[derive(Default)]
@@ -83,8 +91,7 @@ struct OutputCard {
     terminal_id: Option<String>,
 }
 
-/// Everything local a transcript accumulated: the per-tool-call extras, the
-/// pinned plan, and the agent's latest thought.
+/// Everything local a transcript accumulated: the per-tool-call extras.
 #[derive(Default)]
 pub(crate) struct LocalExtras {
     by_tool_call: HashMap<String, ToolExtras>,
@@ -92,8 +99,6 @@ pub(crate) struct LocalExtras {
     by_item: HashMap<FeedItemId, String>,
     /// EXP-783: `by_item` in bind order, so the cap evicts the OLDEST rows.
     bound: std::collections::VecDeque<FeedItemId>,
-    plan: Vec<engine::PlanEntryView>,
-    thought: Option<String>,
 }
 
 /// EXP-783 — how many feed rows may carry extras at once.
@@ -129,12 +134,15 @@ impl LocalExtras {
                 old_text,
                 new_text,
             } => {
-                let file = edit_diff(&path, old_text.as_deref(), &new_text);
-                self.by_tool_call
-                    .entry(tool_call_id)
-                    .or_default()
-                    .edits
-                    .push(EditCard { path, file });
+                // A write that changed nothing (an agent rewriting a file
+                // byte for byte) is not a diff — no card at all.
+                if let Some(card) = tool_edit_card(path, old_text.as_deref(), &new_text) {
+                    self.by_tool_call
+                        .entry(tool_call_id)
+                        .or_default()
+                        .edits
+                        .push(card);
+                }
             }
             engine::LocalFeedEvent::Output {
                 tool_call_id,
@@ -169,12 +177,10 @@ impl LocalExtras {
                 card.live = card.exit_code.is_none();
                 card.terminal_id = Some(terminal_id);
             }
-            // The plan is replaced wholesale each time (ACP semantics).
-            engine::LocalFeedEvent::Plan { entries } => self.plan = entries,
-            engine::LocalFeedEvent::Thought { text, .. } => {
-                let text = text.trim();
-                self.thought = (!text.is_empty()).then(|| text.to_string());
-            }
+            // EXP-791: the plan reaches the reader through the answer card
+            // and the transcript, and a thought is transcript too — neither
+            // is pinned state here any more.
+            engine::LocalFeedEvent::Plan { .. } | engine::LocalFeedEvent::Thought { .. } => {}
             // The run is over, so nothing is coming to close a card that
             // never saw an exit code: a REPLAYED `TerminalBound` has no
             // terminal behind it at all, and a child that ignored the kill
@@ -203,16 +209,6 @@ impl LocalExtras {
                 output.live = false;
             }
         }
-    }
-
-    /// The pinned plan, newest wholesale replacement.
-    pub(crate) fn plan(&self) -> &[engine::PlanEntryView] {
-        &self.plan
-    }
-
-    /// The agent's latest thought, if it is still thinking out loud.
-    pub(crate) fn thought(&self) -> Option<&str> {
-        self.thought.as_deref()
     }
 
     /// Drop everything hanging off feed rows the feed itself has already
@@ -280,122 +276,52 @@ impl OutputCard {
 }
 
 // ---------------------------------------------------------------------------
-// old_text/new_text → one unified hunk (pure)
+// old_text/new_text → one cut patch → the card's DiffFile (pure)
 // ---------------------------------------------------------------------------
 
-/// The [`DiffFile`] for ONE edit: the changed block with up to
-/// [`EDIT_CONTEXT_LINES`] of context, exactly the shape a single tool call
-/// produces. Deliberately not a full diff algorithm — an edit replaces one
-/// contiguous region, and trimming the common prefix and suffix finds it
-/// without a dependency.
-pub(crate) fn edit_diff(path: &Path, old_text: Option<&str>, new_text: &str) -> DiffFile {
-    let status = if old_text.is_none() {
-        FileStatus::Added
-    } else {
-        FileStatus::Modified
-    };
-    let old: Vec<&str> = old_text.map(split_lines).unwrap_or_default();
-    let new: Vec<&str> = split_lines(new_text);
-
-    let mut prefix = 0;
-    while prefix < old.len() && prefix < new.len() && old[prefix] == new[prefix] {
-        prefix += 1;
-    }
-    let mut suffix = 0;
-    while suffix < old.len() - prefix
-        && suffix < new.len() - prefix
-        && old[old.len() - 1 - suffix] == new[new.len() - 1 - suffix]
-    {
-        suffix += 1;
-    }
-
-    let lead = prefix.saturating_sub(EDIT_CONTEXT_LINES);
-    let old_tail = (old.len() - suffix + EDIT_CONTEXT_LINES).min(old.len());
-    let new_tail = (new.len() - suffix + EDIT_CONTEXT_LINES).min(new.len());
-
-    let mut lines: Vec<DiffLine> = Vec::new();
-    let mut additions = 0;
-    let mut deletions = 0;
-    // Leading context.
-    for (ix, line) in old.iter().enumerate().take(prefix).skip(lead) {
-        lines.push(DiffLine {
-            kind: DiffLineKind::Context,
-            old_line: Some(ix as u32 + 1),
-            new_line: Some(ix as u32 + 1),
-            content: (*line).to_string(),
-        });
-    }
-    for (ix, line) in old.iter().enumerate().take(old.len() - suffix).skip(prefix) {
-        deletions += 1;
-        lines.push(DiffLine {
-            kind: DiffLineKind::Deletion,
-            old_line: Some(ix as u32 + 1),
-            new_line: None,
-            content: (*line).to_string(),
-        });
-    }
-    for (ix, line) in new.iter().enumerate().take(new.len() - suffix).skip(prefix) {
-        additions += 1;
-        lines.push(DiffLine {
-            kind: DiffLineKind::Addition,
-            old_line: None,
-            new_line: Some(ix as u32 + 1),
-            content: (*line).to_string(),
-        });
-    }
-    // Trailing context (numbered on both sides — the tail is common).
-    for offset in 0..(old_tail - (old.len() - suffix)) {
-        let old_ix = old.len() - suffix + offset;
-        let new_ix = new.len() - suffix + offset;
-        if old_ix >= old_tail || new_ix >= new_tail {
-            break;
-        }
-        lines.push(DiffLine {
-            kind: DiffLineKind::Context,
-            old_line: Some(old_ix as u32 + 1),
-            new_line: Some(new_ix as u32 + 1),
-            content: old[old_ix].to_string(),
-        });
-    }
-
-    let old_start = lead as u32 + 1;
-    let new_start = lead as u32 + 1;
-    let old_lines = (old_tail - lead) as u32;
-    let new_lines = (new_tail - lead) as u32;
-    // A write that changed nothing (an agent rewriting a file byte for byte)
-    // is not a diff — a card of pure context lines claims an edit that never
-    // happened.
-    let hunks = if lines.is_empty() || (additions == 0 && deletions == 0) {
-        Vec::new()
-    } else {
-        vec![UnifiedHunk {
-            old_start,
-            old_lines,
-            new_start,
-            new_lines,
-            header: format!("@@ -{old_start},{old_lines} +{new_start},{new_lines} @@"),
-            lines,
-        }]
-    };
-    DiffFile {
-        path: path.to_string_lossy().to_string(),
-        previous_path: None,
-        status,
-        additions,
-        deletions,
-        hunks,
-        binary: false,
-    }
+/// EXP-786 — the marker line the publisher appends to a cut wire patch
+/// (`\ N more lines truncated`): unified-diff metadata, so a parser skips it
+/// and this reads the count back.
+fn truncated_marker_count(line: &str) -> Option<usize> {
+    line.strip_prefix("\\ ")?
+        .strip_suffix(" more lines truncated")?
+        .parse()
+        .ok()
 }
 
-/// Lines WITHOUT their terminators, dropping the empty tail a trailing
-/// newline produces (`"a\n"` is one line, not two).
-fn split_lines(text: &str) -> Vec<&str> {
-    let mut lines: Vec<&str> = text.split('\n').collect();
-    if lines.last().is_some_and(|line| line.is_empty()) && lines.len() > 1 {
-        lines.pop();
+/// Read ONE per-call patch (the shape [`unified_diff`] emits: `---`/`+++`
+/// headers and hunks, no `diff --git` line) into the scm model, plus the
+/// lines a `\ N more lines truncated` marker says were dropped. `None` when
+/// the patch names no file or holds no hunk.
+pub(crate) fn parse_tool_diff(patch: &str) -> Option<(DiffFile, usize)> {
+    let path = patch
+        .lines()
+        .find_map(|line| line.strip_prefix("+++ b/"))
+        .or_else(|| patch.lines().find_map(|line| line.strip_prefix("--- a/")))?;
+    let omitted = patch.lines().find_map(truncated_marker_count).unwrap_or(0);
+    // The scm parser opens a file on `diff --git` only — synthesise the
+    // header a git patch would carry.
+    let framed = format!("diff --git a/{path} b/{path}\n{patch}");
+    let file = coding::scm::parse_unified_diff(&framed).into_iter().next()?;
+    (!file.hunks.is_empty()).then_some((file, omitted))
+}
+
+/// The edit card for ONE local edit: the shared patch, cut to the contract
+/// caps — the SAME bytes the publisher puts on the wire for a remote viewer —
+/// and read back into the scm model. `None` when the write changed nothing.
+fn tool_edit_card(path: PathBuf, old_text: Option<&str>, new_text: &str) -> Option<EditCard> {
+    let display = path.to_string_lossy();
+    let patch = unified_diff(&display, old_text, new_text);
+    if patch.is_empty() {
+        return None;
     }
-    lines.into_iter().map(|line| line.trim_end_matches('\r')).collect()
+    let (kept, omitted) = truncate_unified_diff(&patch, TOOL_DIFF_MAX_LINES, TOOL_DIFF_MAX_BYTES);
+    let (file, _) = parse_tool_diff(&kept)?;
+    Some(EditCard {
+        path,
+        file,
+        omitted,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -455,6 +381,11 @@ pub(crate) fn render_extras(
     Some(column.into_any_element())
 }
 
+/// EXP-786: "… N more lines" — the header's note for a cut patch.
+pub(crate) fn omitted_caption(omitted: usize) -> String {
+    format!("… {omitted} more line{}", if omitted == 1 { "" } else { "s" })
+}
+
 fn hunk_rows(file: &DiffFile) -> usize {
     file.hunks.iter().map(|hunk| hunk.lines.len()).sum()
 }
@@ -496,7 +427,16 @@ fn render_edit_card(edit: &EditCard, expanded: bool, cx: &App) -> AnyElement {
                         .font_family(theme::terminal::FONT_FAMILY)
                         .text_color(cx.theme().danger)
                         .child(SharedString::from(format!("-{}", edit.file.deletions))),
-                ),
+                )
+                // EXP-786: the contract cap cut the patch — say by how much,
+                // so the card never passes for the whole edit.
+                .when(edit.omitted > 0, |this| {
+                    this.child(
+                        div()
+                            .flex_shrink_0()
+                            .child(SharedString::from(omitted_caption(edit.omitted))),
+                    )
+                }),
         );
     let rows: Vec<&DiffLine> = edit
         .file
@@ -613,105 +553,47 @@ fn render_output_card(
     card.into_any_element()
 }
 
-/// The pinned plan card — one row per entry, the running one marked. Rendered
-/// above the composer, not in the feed: a plan is state, not an event, and it
-/// is replaced wholesale every time the agent revises it.
-pub(crate) fn render_plan_card(entries: &[engine::PlanEntryView], cx: &App) -> AnyElement {
+/// EXP-786 — a REMOTE row's per-call diff: the patch the publisher cut and
+/// put on the wire, rendered through the same edit card a local run gets.
+/// The cut is the publisher's (the trailing `\ N more lines truncated`
+/// marker carries the count); nothing is re-truncated here. An unparseable
+/// patch renders nothing rather than a broken card.
+pub(crate) fn render_wire_diff(
+    diff: &str,
+    item: FeedItemId,
+    expanded: bool,
+    on_toggle: Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>,
+    cx: &App,
+) -> AnyElement {
+    let Some((file, omitted)) = parse_tool_diff(diff) else {
+        return div().into_any_element();
+    };
     let muted = cx.theme().muted_foreground;
-    let mut column = v_flex().w_full().min_w_0().gap_0p5().child(
-        h_flex()
-            .gap_1p5()
-            .items_center()
-            .text_xs()
-            .text_color(muted)
-            .child(Icon::new(registry::CODING_PLAN).xsmall())
-            .child("Plan"),
-    );
-    for entry in entries {
-        let (glyph, tint) = match entry.status {
-            engine::PlanEntryStatusView::Completed => ("✓", muted),
-            engine::PlanEntryStatusView::InProgress => ("▸", cx.theme().foreground),
-            engine::PlanEntryStatusView::Pending => ("·", muted),
-        };
-        column = column.child(
-            h_flex()
-                .w_full()
-                .min_w_0()
-                .gap_1p5()
-                .items_start()
-                .text_xs()
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .text_color(muted)
-                        .font_family(theme::terminal::FONT_FAMILY)
-                        .child(glyph),
-                )
-                .child(
-                    div()
-                        .min_w_0()
-                        .text_color(tint)
-                        .child(SharedString::from(entry.content.clone())),
-                ),
-        );
-    }
-    div()
+    let edit = EditCard {
+        path: PathBuf::from(file.path.clone()),
+        file,
+        omitted,
+    };
+    let foldable = hunk_rows(&edit.file) > DIFF_PREVIEW_ROWS;
+    v_flex()
         .w_full()
-        .flex_shrink_0()
-        .px_3()
-        .py_2()
-        .border_t_1()
-        .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
-        .child(column)
-        .into_any_element()
-}
-
-/// The agent's latest thought, one clamped line above the composer. Thoughts
-/// are not feed rows on purpose: they are superseded constantly, and a
-/// transcript of every one of them would bury the work.
-/// A thought as one plain line: codex's reasoning headlines arrive as
-/// `**Bold markdown**` and the pinned line is not a markdown surface.
-pub(crate) fn plain_thought(text: &str) -> String {
-    let mut line = text.lines().find(|line| !line.trim().is_empty()).unwrap_or("").trim();
-    loop {
-        let trimmed = line
-            .strip_prefix("**")
-            .and_then(|rest| rest.strip_suffix("**"))
-            .or_else(|| line.strip_prefix('*').and_then(|rest| rest.strip_suffix('*')))
-            .or_else(|| line.strip_prefix('_').and_then(|rest| rest.strip_suffix('_')))
-            .or_else(|| line.strip_prefix('#').map(|rest| rest.trim_start_matches('#')))
-            .map(str::trim);
-        match trimmed {
-            Some(next) if next != line => line = next,
-            _ => break,
-        }
-    }
-    line.to_string()
-}
-
-pub(crate) fn render_thought(text: &str, cx: &App) -> AnyElement {
-    let muted = cx.theme().muted_foreground;
-    let text = plain_thought(text);
-    h_flex()
-        .w_full()
-        .flex_shrink_0()
-        .gap_1p5()
-        .items_center()
-        .px_3()
-        .py_1p5()
-        .child(
-            Icon::new(registry::CODING_ASSISTANT)
-                .xsmall()
-                .text_color(muted.opacity(0.6)),
-        )
-        .child(
-            div()
-                .min_w_0()
-                .truncate()
-                .text_xs()
-                .text_color(muted)
-                .child(SharedString::from(text)),
-        )
+        .min_w_0()
+        .gap_1()
+        .pl_5()
+        .pt_1()
+        .child(render_edit_card(&edit, expanded, cx))
+        .when(foldable, |column| {
+            column.child(
+                div()
+                    .id(("session-extras-toggle", item as usize))
+                    .mt_0p5()
+                    .cursor_pointer()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(if expanded { "Show less" } else { "Show more" })
+                    .on_click(on_toggle),
+            )
+        })
         .into_any_element()
 }
 
@@ -761,10 +643,11 @@ pub(crate) fn mode_chip(config: Option<&steer::SessionConfig>) -> Option<ConfigC
 /// The mode id every plan-capable agent advertises.
 pub(crate) const PLAN_MODE_ID: &str = "plan";
 
-/// EXP-772: the plan/build PAIR — exactly two modes, one of them `plan`. That
-/// shape (claude, and pi when it launched with the plan extension) draws a
-/// compact "Plan" toggle pill instead of a two-value chip; anything else falls
-/// back to the chip. Mirrored ×4 as `planModeToggle`.
+/// EXP-772: the plan/build PAIR — exactly two modes, one of them `plan`.
+/// Mirrored ×4 as `planModeToggle` and kept as that mirror (lock-tested
+/// below); EXP-790 retired the mid-session pill that drew it, so no view
+/// reads it any more — plan is a launch-time switch on the chat page.
+#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct PlanModeToggle {
     /// The mode to switch to when turning plan ON.
@@ -775,6 +658,7 @@ pub(crate) struct PlanModeToggle {
     pub(crate) active: bool,
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn plan_mode_toggle(config: Option<&steer::SessionConfig>) -> Option<PlanModeToggle> {
     let config = config?;
     if config.modes.len() != 2 {
@@ -800,15 +684,7 @@ pub(crate) fn context_summary(usage: Option<&steer::SessionUsage>) -> Option<Str
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_thought_headline_drops_its_markdown_emphasis() {
-        assert_eq!(plain_thought("**Preparing exact final question options**"), "Preparing exact final question options");
-        assert_eq!(plain_thought("*soft*"), "soft");
-        assert_eq!(plain_thought("## Heading\nbody"), "Heading");
-        assert_eq!(plain_thought("plain words"), "plain words");
-        assert_eq!(plain_thought("   "), "");
-    }
+    use coding::scm::FileStatus;
 
     /// The feed drops its oldest rows at `FEED_CAP`; the extras must follow,
     /// or a long run keeps every hunk it ever rendered. A tool call whose LAST
@@ -852,19 +728,21 @@ mod tests {
             .collect()
     }
 
+    fn card(old: Option<&str>, new: &str) -> Option<EditCard> {
+        tool_edit_card(PathBuf::from("src/lib.rs"), old, new)
+    }
+
     /// A one-line edit is a one-line diff, not a whole-file replacement — the
-    /// common prefix and suffix stay context.
+    /// shared patch keeps the common prefix and suffix as context.
     #[test]
     fn an_edit_diffs_only_the_block_that_changed() {
-        let file = edit_diff(
-            Path::new("src/lib.rs"),
-            Some("a\nb\nc\n"),
-            "a\nB\nc\n",
-        );
-        assert_eq!(file.status, FileStatus::Modified);
-        assert_eq!((file.additions, file.deletions), (1, 1));
+        let card = card(Some("a\nb\nc\n"), "a\nB\nc\n").expect("an edit");
+        assert_eq!(card.path, PathBuf::from("src/lib.rs"));
+        assert_eq!(card.file.status, FileStatus::Modified);
+        assert_eq!((card.file.additions, card.file.deletions), (1, 1));
+        assert_eq!(card.omitted, 0);
         assert_eq!(
-            rows(&file),
+            rows(&card.file),
             vec![
                 line(DiffLineKind::Context, "a"),
                 line(DiffLineKind::Deletion, "b"),
@@ -873,7 +751,7 @@ mod tests {
             ]
         );
         // The hunk header numbers both sides from the first context line.
-        let hunk = &file.hunks[0];
+        let hunk = &card.file.hunks[0];
         assert_eq!((hunk.old_start, hunk.new_start), (1, 1));
         assert_eq!((hunk.old_lines, hunk.new_lines), (3, 3));
     }
@@ -882,11 +760,11 @@ mod tests {
     /// status says Added (the card must not claim to have deleted nothing).
     #[test]
     fn a_created_file_is_all_additions() {
-        let file = edit_diff(Path::new("new.rs"), None, "one\ntwo\n");
-        assert_eq!(file.status, FileStatus::Added);
-        assert_eq!((file.additions, file.deletions), (2, 0));
+        let card = card(None, "one\ntwo\n").expect("a new file");
+        assert_eq!(card.file.status, FileStatus::Added);
+        assert_eq!((card.file.additions, card.file.deletions), (2, 0));
         assert_eq!(
-            rows(&file),
+            rows(&card.file),
             vec![
                 line(DiffLineKind::Addition, "one"),
                 line(DiffLineKind::Addition, "two"),
@@ -895,12 +773,61 @@ mod tests {
     }
 
     /// An unchanged write (an agent rewriting a file with the same bytes)
-    /// produces no hunk rather than a diff of nothing.
+    /// produces no card rather than a diff of nothing.
     #[test]
-    fn an_identical_write_produces_no_hunk() {
-        let file = edit_diff(Path::new("same.rs"), Some("a\nb\n"), "a\nb\n");
-        assert!(file.hunks.is_empty());
-        assert_eq!((file.additions, file.deletions), (0, 0));
+    fn an_identical_write_produces_no_card() {
+        assert!(card(Some("a\nb\n"), "a\nb\n").is_none());
+        let mut extras = LocalExtras::default();
+        extras.bind(1, "call-1".to_string());
+        extras.apply(engine::LocalFeedEvent::EditDiff {
+            tool_call_id: "call-1".to_string(),
+            path: PathBuf::from("same.rs"),
+            old_text: Some("a\nb\n".to_string()),
+            new_text: "a\nb\n".to_string(),
+        });
+        assert!(!extras.has_extras(1));
+    }
+
+    /// EXP-786: a local edit is cut to the SAME caps the wire applies, and
+    /// the card knows how many lines it lost — a local viewer and a remote
+    /// one show the same prefix of one edit.
+    #[test]
+    fn a_long_edit_is_cut_to_the_contract_caps() {
+        let new: String = (0..TOOL_DIFF_MAX_LINES * 2)
+            .map(|n| format!("line {n}\n"))
+            .collect();
+        let card = card(None, &new).expect("a big new file");
+        let shown = rows(&card.file).len();
+        assert!(shown < TOOL_DIFF_MAX_LINES * 2, "{shown} rows were kept");
+        // The patch is the headers + the hunk line + the kept rows; what was
+        // dropped is everything past the cap.
+        assert_eq!(shown + 3 + card.omitted, TOOL_DIFF_MAX_LINES * 2 + 3);
+        assert!(card.omitted > 0);
+        assert_eq!(omitted_caption(1), "… 1 more line");
+        assert_eq!(omitted_caption(card.omitted), format!("… {} more lines", card.omitted));
+        // A short edit loses nothing.
+        assert_eq!(self::card(None, "x\n").expect("tiny").omitted, 0);
+    }
+
+    /// EXP-786: the wire patch a publisher cut ends in its marker line; the
+    /// remote card reads the count off it and renders the hunk under it.
+    #[test]
+    fn a_wire_patch_parses_with_its_truncation_marker() {
+        let patch = "--- a/src/x.rs\n+++ b/src/x.rs\n@@ -1,2 +1,2 @@\n a\n-b\n+B\n\\ 7 more lines truncated\n";
+        let (file, omitted) = parse_tool_diff(patch).expect("a hunk");
+        assert_eq!(file.path, "src/x.rs");
+        assert_eq!(omitted, 7);
+        assert_eq!(
+            rows(&file),
+            vec![
+                line(DiffLineKind::Context, "a"),
+                line(DiffLineKind::Deletion, "b"),
+                line(DiffLineKind::Addition, "B"),
+            ]
+        );
+        // No file, no card; a hunk-less patch is no card either.
+        assert!(parse_tool_diff("nothing here").is_none());
+        assert!(parse_tool_diff("--- a/x\n+++ b/x\n").is_none());
     }
 
     /// The output card keeps the TAIL and folds partial chunks into lines —
@@ -1054,35 +981,6 @@ mod tests {
         extras.bind(7, "call-1".to_string());
         assert!(extras.has_extras(7));
         assert!(!extras.has_extras(8), "a different row keeps its own cards");
-    }
-
-    /// The plan is replaced wholesale, and a blank thought is no thought.
-    #[test]
-    fn the_plan_replaces_and_a_blank_thought_clears() {
-        let entry = |content: &str| engine::PlanEntryView {
-            content: content.to_string(),
-            priority: engine::PlanEntryPriorityView::Medium,
-            status: engine::PlanEntryStatusView::Pending,
-        };
-        let mut extras = LocalExtras::default();
-        extras.apply(engine::LocalFeedEvent::Plan {
-            entries: vec![entry("first"), entry("second")],
-        });
-        assert_eq!(extras.plan().len(), 2);
-        extras.apply(engine::LocalFeedEvent::Plan {
-            entries: vec![entry("only")],
-        });
-        assert_eq!(extras.plan().len(), 1);
-        extras.apply(engine::LocalFeedEvent::Thought {
-            message_id: None,
-            text: "  weighing options  ".to_string(),
-        });
-        assert_eq!(extras.thought(), Some("weighing options"));
-        extras.apply(engine::LocalFeedEvent::Thought {
-            message_id: None,
-            text: "   ".to_string(),
-        });
-        assert_eq!(extras.thought(), None);
     }
 
     // ── EXP-772: the composer's ONE chip (×4 `modeChip`) ──────────────────

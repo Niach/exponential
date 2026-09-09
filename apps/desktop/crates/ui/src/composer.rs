@@ -16,6 +16,12 @@
 //! └───────────────────────────────────────────┘
 //! ```
 //!
+//! EXP-790: the tool row may instead sit INLINE beside the field
+//! ([`GlassComposer::inline_tools`]) — the steer composer does that on a wide
+//! pane and drops the row under the field on a narrow one
+//! (`steer_viewer::tool_row_wraps`). The submit slot is one round button that
+//! is either Send or Stop ([`SubmitKind`]): same ring, the glyph swaps.
+//!
 //! Every slot is optional except the field; the caller owns all state and
 //! handlers, this only lays the card out.
 
@@ -34,6 +40,25 @@ pub(crate) struct GlassComposer {
     strip: Option<AnyElement>,
     tools: Vec<AnyElement>,
     submit: Option<AnyElement>,
+    inline_tools: bool,
+}
+
+/// EXP-790: what the composer's one round button does right now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SubmitKind {
+    /// Send the draft (`ui-submit`, the circled arrow).
+    Send,
+    /// Stop the agent's running turn (`ui-stop`, the circled square).
+    Stop,
+}
+
+impl SubmitKind {
+    pub(crate) fn icon(self) -> crate::icons::ExpIcon {
+        match self {
+            SubmitKind::Send => crate::icons::registry::UI_SUBMIT,
+            SubmitKind::Stop => crate::icons::registry::UI_STOP,
+        }
+    }
 }
 
 impl GlassComposer {
@@ -44,7 +69,16 @@ impl GlassComposer {
             strip: None,
             tools: Vec::new(),
             submit: None,
+            inline_tools: false,
         }
+    }
+
+    /// EXP-790: put the tool row on the FIELD's line (tools and submit at
+    /// its end, bottom-aligned) instead of under it. The caller decides per
+    /// frame from its measured width.
+    pub(crate) fn inline_tools(mut self, inline: bool) -> Self {
+        self.inline_tools = inline;
+        self
     }
 
     /// A row INSIDE the card, above everything else — the helpdesk composer's
@@ -84,8 +118,9 @@ pub(crate) fn glass_composer(composer: GlassComposer) -> Div {
         strip,
         tools,
         submit,
+        inline_tools,
     } = composer;
-    v_flex()
+    let card = v_flex()
         .w_full()
         .min_w_0()
         .gap_1p5()
@@ -95,24 +130,45 @@ pub(crate) fn glass_composer(composer: GlassComposer) -> Div {
         .border_color(t::glass::STROKE_CARD.to_hsla())
         .bg(t::glass::FILL_CARD.to_hsla())
         .children(leading)
-        .children(strip)
-        // EXP-525: a flex-COLUMN slot, not a nested row — the view child's
-        // percent width resolved against unclamped avail in a row hop
-        // (EXP-436 class) and the composer collapsed to placeholder width at
-        // some window sizes; a column stretches its child to the definite
-        // slot width instead.
-        .child(v_flex().w_full().min_w_0().child(field))
-        .child(
+        .children(strip);
+    // EXP-525: a flex-COLUMN slot, not a nested row — the view child's
+    // percent width resolved against unclamped avail in a row hop
+    // (EXP-436 class) and the composer collapsed to placeholder width at
+    // some window sizes; a column stretches its child to the definite
+    // slot width instead. Inline, the column is the row's `flex_1` half and
+    // still gives the field a definite width.
+    let field = v_flex().flex_1().w_full().min_w_0().child(field);
+    if inline_tools {
+        return card.child(
             h_flex()
                 .w_full()
+                .min_w_0()
                 .gap_1()
-                .px_1()
-                .pb_1()
-                .items_center()
-                .children(tools)
-                .child(div().flex_1())
-                .children(submit),
-        )
+                .items_end()
+                .child(field)
+                .child(
+                    h_flex()
+                        .flex_shrink_0()
+                        .gap_1()
+                        .pb_1()
+                        .pr_1()
+                        .items_center()
+                        .children(tools)
+                        .children(submit),
+                ),
+        );
+    }
+    card.child(field).child(
+        h_flex()
+            .w_full()
+            .gap_1()
+            .px_1()
+            .pb_1()
+            .items_center()
+            .children(tools)
+            .child(div().flex_1())
+            .children(submit),
+    )
 }
 
 /// One leading tool of the composer's bottom row: a muted 24px ghost glyph
@@ -134,6 +190,27 @@ pub(crate) fn composer_tool(
 /// it). `icon` differs by surface: `UI_SUBMIT` for comments, `UI_SEND` for
 /// steer and helpdesk replies — same shape, same tint, same 32px hit box.
 pub(crate) fn composer_submit(
+    id: impl Into<gpui::ElementId>,
+    icon: crate::icons::ExpIcon,
+    disabled: bool,
+    cx: &App,
+) -> Button {
+    composer_round(id, icon, disabled, cx)
+}
+
+/// EXP-790: the one round button as Send OR Stop — [`composer_submit`] with
+/// the glyph picked by [`SubmitKind`]. Stop is never dimmed by an empty
+/// draft (the caller passes `disabled` for its own reasons only).
+pub(crate) fn composer_submit_kind(
+    id: impl Into<gpui::ElementId>,
+    kind: SubmitKind,
+    disabled: bool,
+    cx: &App,
+) -> Button {
+    composer_round(id, kind.icon(), disabled, cx)
+}
+
+fn composer_round(
     id: impl Into<gpui::ElementId>,
     icon: crate::icons::ExpIcon,
     disabled: bool,

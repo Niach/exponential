@@ -50,7 +50,6 @@ import { cn } from "@/lib/utils"
 // so the tabs read the same here as in the desktop IDE.
 // EXP-698: the composer's send glyph is the shared concept, not a raw lucide
 // import — the natives draw the same one.
-const SendIcon = conceptIcon(`ui-send`)
 
 const TAB_ICON = {
   open: conceptIcon(`support-open`),
@@ -575,9 +574,7 @@ function ConversationPane({
               >
                 {sending ? (
                   <LoaderCircle className="size-5 animate-spin" />
-                ) : (
-                  <SendIcon className="!size-6" />
-                )}
+                ) : undefined}
               </ComposerSubmit>
             }
           >

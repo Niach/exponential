@@ -35,12 +35,12 @@ use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, App, AppContext as _, Entity, FocusHandle, Focusable as _, FontWeight,
-    InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
-    StatefulInteractiveElement as _, Styled, Subscription, Window,
+    div, px, AnyElement, App, AppContext as _, Bounds, Entity, FocusHandle, Focusable as _,
+    FontWeight, InteractiveElement as _, IntoElement, ParentElement, Pixels, Render,
+    SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
-    button::ButtonVariant,
+    button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
     input::{self, InputEvent, InputState, Textarea, TextareaState},
     notification::Notification,
@@ -279,7 +279,35 @@ pub struct IssueDetailView {
     /// sub-issues" affordance. Cleared on every issue switch — a half-typed
     /// child belongs to the issue it was opened under.
     sub_issue_composer: Option<(Entity<crate::issue_composer::IssueComposer>, Subscription)>,
+    /// EXP-791: the coding session slid in OVER the issue ("Watch" on the
+    /// coding-now card, a Sessions-rail row for an issue-bound run). The
+    /// header and its property rows stay put above it; only the scrolling
+    /// body is covered. `None` = the body shows. Cleared on every issue
+    /// switch (a run belongs to the issue it was opened under) and by the
+    /// panel's own back control.
+    steering: Option<SteeringPanel>,
+    /// EXP-791: the panel sliding back OUT — kept mounted for the length of
+    /// the slide so the transcript is what moves, not a blank; dropped (and
+    /// its feed shut) on the first render after the slide elapsed.
+    steering_exit: Option<(SteeringPanel, std::time::Instant)>,
+    /// EXP-791: bumped on every open/close so the slide's animation id
+    /// changes and the transition restarts from its new endpoints (the
+    /// `shell::left_anim_id` recipe).
+    steer_epoch: u64,
+    /// EXP-791: the body area's painted width — the slide is an absolute
+    /// two-panel strip offset in pixels, so it needs the real width, recorded
+    /// off a prepaint probe (the session bar's `chips_slot_width` recipe).
+    body_width: Option<f32>,
     _subscriptions: Vec<Subscription>,
+}
+
+/// EXP-791: one run slid in over the issue — the same screen a
+/// [`Screen::Session`] tab renders, built the same way
+/// (`session_screen::SessionScreenView::new` resolves the feed: the local
+/// engine, this device's journal, or the relay).
+struct SteeringPanel {
+    session_id: String,
+    view: Entity<crate::session_screen::SessionScreenView>,
 }
 
 impl IssueDetailView {
@@ -359,8 +387,235 @@ impl IssueDetailView {
             busy_files: HashSet::new(),
             widget_submission: None,
             sub_issue_composer: None,
+            steering: None,
+            steering_exit: None,
+            steer_epoch: 0,
+            body_width: None,
             _subscriptions: subscriptions,
         }
+    }
+
+    // ── EXP-791: the slid-in session ─────────────────────────────────────
+
+    /// Slide `session_id`'s transcript in over the issue (the screens panel
+    /// calls this right after `set_issue`, off the nav's one-shot marker).
+    /// Re-opening the run already up is a no-op; another run replaces it
+    /// without a slide-out (one panel, one feed).
+    pub(crate) fn open_steering(
+        &mut self,
+        session_id: String,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        if self
+            .steering
+            .as_ref()
+            .is_some_and(|panel| panel.session_id == session_id)
+        {
+            return;
+        }
+        let was_open = self.steering.is_some();
+        self.drop_steering(cx);
+        let view = cx.new(|cx| {
+            crate::session_screen::SessionScreenView::new(session_id.clone(), window, cx)
+        });
+        self.steering = Some(SteeringPanel { session_id, view });
+        // A swap while open keeps the strip where it is; a fresh open slides.
+        if !was_open {
+            self.steer_epoch += 1;
+        }
+        cx.notify();
+    }
+
+    /// The panel's back control: slide the transcript out again. The feed
+    /// stays alive for the length of the slide (see `steering_exit`).
+    fn close_steering(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some(panel) = self.steering.take() else {
+            return;
+        };
+        if let Some((stale, _)) = self.steering_exit.take() {
+            stale.view.update(cx, |view, cx| view.shutdown(cx));
+        }
+        self.steering_exit = Some((panel, std::time::Instant::now()));
+        self.steer_epoch += 1;
+        cx.notify();
+    }
+
+    /// Drop the slid-in run at once, no slide — an issue switch, a closing
+    /// tab. Shuts the feed (never the run: `SessionScreenView::shutdown`).
+    pub(crate) fn drop_steering(&mut self, cx: &mut gpui::Context<Self>) {
+        let mut changed = false;
+        if let Some(panel) = self.steering.take() {
+            panel.view.update(cx, |view, cx| view.shutdown(cx));
+            changed = true;
+        }
+        if let Some((panel, _)) = self.steering_exit.take() {
+            panel.view.update(cx, |view, cx| view.shutdown(cx));
+            changed = true;
+        }
+        if changed {
+            self.steer_epoch += 1;
+            cx.notify();
+        }
+    }
+
+    /// [`Self::drop_steering`] when the closing tab is the issue this view
+    /// shows — the screens panel's close path (a background issue's tab
+    /// closing must not touch the run over the one on screen).
+    pub(crate) fn drop_steering_for(&mut self, issue_id: &str, cx: &mut gpui::Context<Self>) {
+        if self.issue_id.as_deref() == Some(issue_id) {
+            self.drop_steering(cx);
+        }
+    }
+
+    /// The run slid in over the issue, if any.
+    pub(crate) fn steering_session_id(&self) -> Option<String> {
+        self.steering.as_ref().map(|panel| panel.session_id.clone())
+    }
+
+    /// The slid-in screen for `session_id`, when that is the run up here —
+    /// `screens::session_views`' second source, so the engine's exit edge
+    /// reaches a transcript that lives inside an issue.
+    pub(crate) fn steering_view(
+        &self,
+        session_id: &str,
+    ) -> Option<Entity<crate::session_screen::SessionScreenView>> {
+        self.steering
+            .as_ref()
+            .filter(|panel| panel.session_id == session_id)
+            .map(|panel| panel.view.clone())
+    }
+
+    /// The slid-in panel's chrome: a "back to issue" row over the session
+    /// screen (which paints its own identity header, summary and transcript).
+    fn render_steering_panel(&self, panel: &SteeringPanel, cx: &mut gpui::Context<Self>) -> AnyElement {
+        v_flex()
+            .size_full()
+            .min_w_0()
+            .min_h_0()
+            .child(
+                h_flex()
+                    .w_full()
+                    .flex_shrink_0()
+                    .px_2()
+                    .py_1()
+                    .border_b_1()
+                    .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+                    .child(
+                        Button::new("issue-steer-back")
+                            .ghost()
+                            .cursor_pointer()
+                            .xsmall()
+                            .icon(registry::UI_BACK)
+                            .label("Back to issue")
+                            .on_click(cx.listener(|this, _, _, cx| this.close_steering(cx))),
+                    ),
+            )
+            .child(div().flex_1().min_h_0().min_w_0().child(panel.view.clone()))
+            .into_any_element()
+    }
+
+    /// The area under the fixed header: the scrolling body, or — while a run
+    /// is slid in (or sliding out) — an absolute two-panel strip
+    /// [body | session] that slides left by the body's width
+    /// (`EffectTransition::slide_x`, the shell's left-column recipe). The
+    /// strip needs the area's real width, recorded off an absolute probe on
+    /// the first paint; until then (one frame, and only ever on first mount)
+    /// the body renders plainly.
+    fn render_center(
+        &mut self,
+        body: AnyElement,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        // An exit whose slide elapsed is over: shut its feed and let go. Until
+        // then keep frames coming — the animation's own last frame can land
+        // a hair before the duration, and nothing else would repaint.
+        if let Some((_, since)) = &self.steering_exit {
+            if since.elapsed() >= theme::motion::STANDARD {
+                if let Some((panel, _)) = self.steering_exit.take() {
+                    panel.view.update(cx, |view, cx| view.shutdown(cx));
+                }
+            } else {
+                window.request_animation_frame();
+            }
+        }
+        let scroll = div()
+            .id("issue-detail-scroll")
+            .size_full()
+            .min_h_0()
+            .min_w_0()
+            .overflow_y_scroll()
+            .track_scroll(&self.body_scroll)
+            .child(body);
+        let detail = cx.entity().downgrade();
+        let area = div()
+            .flex_1()
+            .min_h_0()
+            .min_w_0()
+            .w_full()
+            .relative()
+            .overflow_hidden()
+            // The probe is the FIRST child, so `bounds[0]` is the area's own
+            // size whatever the second child is. Change-gated: only a real
+            // width change repaints.
+            .on_children_prepainted(move |bounds: Vec<Bounds<Pixels>>, _window, cx| {
+                let Some(probe) = bounds.first() else {
+                    return;
+                };
+                let width = f32::from(probe.size.width);
+                let _ = detail.update(cx, |this, cx| {
+                    if this
+                        .body_width
+                        .is_none_or(|prev| (prev - width).abs() > 0.5)
+                    {
+                        this.body_width = Some(width);
+                        cx.notify();
+                    }
+                });
+            })
+            .child(div().absolute().inset_0());
+        let panel = self
+            .steering
+            .as_ref()
+            .or(self.steering_exit.as_ref().map(|(panel, _)| panel));
+        let (Some(panel), Some(width)) = (panel, self.body_width) else {
+            return area.child(scroll).into_any_element();
+        };
+        let opening = self.steering.is_some();
+        let (from, to) = if opening {
+            (0., -width)
+        } else {
+            (-width, 0.)
+        };
+        let strip = h_flex()
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .left_0()
+            .w(px(2. * width))
+            .child(
+                div()
+                    .w(px(width))
+                    .h_full()
+                    .flex_shrink_0()
+                    .child(scroll),
+            )
+            .child(
+                div()
+                    .w(px(width))
+                    .h_full()
+                    .flex_shrink_0()
+                    .child(self.render_steering_panel(panel, cx)),
+            );
+        let strip = gpui_component::animation::EffectTransition::new(theme::motion::STANDARD)
+            .ease(theme::motion::standard())
+            .slide_x(px(from), px(to))
+            .apply(
+                strip,
+                gpui::ElementId::NamedInteger("issue-steer-slide".into(), self.steer_epoch),
+            );
+        area.child(strip).into_any_element()
     }
 
     /// Point the view at an issue (the screens panel calls this on
@@ -384,6 +639,8 @@ impl IssueDetailView {
         // — the focused input just vanishes from the tree — so the text was
         // silently dropped with the editor below.
         self.flush_description(cx);
+        // EXP-791: a slid-in run belongs to the issue it was opened under.
+        self.drop_steering(cx);
         self.issue_id = Some(issue_id.clone());
         // Opening an issue clears its inbox notifications (EXP-92) — the
         // read-on-open safety net for list/search/deep-link navigation that
@@ -1913,19 +2170,11 @@ impl Render for IssueDetailView {
         }
 
         let header = self.render_header(&issue, window, cx);
-        let body = self.render_body(&issue, window, cx);
-        view.child(header)
-            .child(
-                div()
-                    .id("issue-detail-scroll")
-                    .flex_1()
-                    .min_h_0()
-                    .min_w_0()
-                    .overflow_y_scroll()
-                    .track_scroll(&self.body_scroll)
-                    .child(body),
-            )
-            .into_any_element()
+        let body = self.render_body(&issue, window, cx).into_any_element();
+        // EXP-791: the header stays; the body (or the run slid in over it)
+        // takes the rest.
+        let center = self.render_center(body, window, cx);
+        view.child(header).child(center).into_any_element()
     }
 }
 
@@ -2320,6 +2569,7 @@ pub(crate) fn coding_now_card(issue_id: &str, cx: &mut App) -> Option<gpui::Div>
     .child(crate::surface::pill_dot(tone))
     .child(SharedString::from(capitalize_first(verb)));
 
+    let watch_issue_id = issue_id.to_string();
     let watch = steer_target.map(|session_id| {
         crate::surface::glass_pill_button_primary("coding-now-watch", crate::surface::PillSize::Sm)
             .icon(
@@ -2333,7 +2583,14 @@ pub(crate) fn coding_now_card(issue_id: &str, cx: &mut App) -> Option<gpui::Div>
             .label("Watch")
             .tooltip("Open this run and steer it")
             .on_click(move |_, window, cx| {
-                crate::session_screen::open_session(&session_id, window, cx);
+                // EXP-791: the run slides in over THIS issue — never a
+                // navigation away from it.
+                crate::navigation::navigate_steering(
+                    window,
+                    cx,
+                    watch_issue_id.clone(),
+                    session_id.clone(),
+                );
             })
     });
 

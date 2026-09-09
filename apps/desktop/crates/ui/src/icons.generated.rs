@@ -140,6 +140,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "circle-dot" => ExpIcon::CircleDot,
         "circle-question-mark" => ExpIcon::CircleQuestionMark,
         "circle-slash" => ExpIcon::CircleSlash,
+        "circle-stop" => ExpIcon::CircleStop,
         "circle-user" => ExpIcon::CircleUser,
         "circle-x" => ExpIcon::CircleX,
         "clipboard-list" => ExpIcon::ClipboardList,
@@ -690,6 +691,8 @@ pub const UI_SHARE: ExpIcon = ExpIcon::Share2;
 pub const UI_SIGN_IN: ExpIcon = ExpIcon::LogIn;
 /// Registry concept `ui-staging` -> Lucide `flask-conical`.
 pub const UI_STAGING: ExpIcon = ExpIcon::FlaskConical;
+/// Registry concept `ui-stop` -> Lucide `circle-stop`.
+pub const UI_STOP: ExpIcon = ExpIcon::CircleStop;
 /// Registry concept `ui-submit` -> Lucide `circle-arrow-up`.
 pub const UI_SUBMIT: ExpIcon = ExpIcon::CircleArrowUp;
 /// Registry concept `ui-subscribe` -> Lucide `bell`.

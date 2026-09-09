@@ -23,6 +23,7 @@ import com.exponential.app.domain.MAX_IMAGE_UPLOAD_BYTES
 import com.exponential.app.domain.MAX_STEER_IMAGES
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.appendUserMessage
+import com.exponential.app.domain.composerAnswerTarget
 import com.exponential.app.domain.applyActivityEvent
 import com.exponential.app.domain.buildSteerImageMessage
 import com.exponential.app.domain.canonicalContentType
@@ -683,7 +684,15 @@ class SteerConnection internal constructor(
                     // there was one) is over — what arrives next IS the
                     // transcript.
                     _history.value = null
-                    if (_phase.value != AgentPhase.Live) {
+                    if (sessionIsOver()) {
+                        // EXP-796: the relay keeps a history room open for
+                        // minutes after the device's replay so pages can
+                        // still be asked for — an open socket on an ENDED
+                        // row is not a live run. The synced row decides;
+                        // the socket just stays up for paging.
+                        if (_phase.value !is AgentPhase.Ended) setPhase(AgentPhase.Ended(), "row ended")
+                        reconnectAttempts = 0
+                    } else if (_phase.value != AgentPhase.Live) {
                         setPhase(AgentPhase.Live, "joined")
                         reconnectAttempts = 0
                     }
@@ -1146,6 +1155,21 @@ class SteerConnection internal constructor(
         if (text.isBlank() && images.isEmpty()) return
         if (_steerSending.value) return
         if (images.isEmpty()) {
+            // EXP-788: while a plan or a question waits on the human, the
+            // typed text is that card's free answer — ONE `answer` frame on
+            // the card's free-text (or reject) key — not a new turn. Images
+            // cannot ride an answer frame, so a message carrying any stays a
+            // plain steer.
+            val state = _activity.value
+            val target = composerAnswerTarget(state.feed, state.answerLocks, text)
+            if (target != null) {
+                val wireId = target.question.wireId ?: return
+                val reply = text.trim()
+                if (sendQuestionAnswer(wireId, target.question.askId, target.keys, reply, listOf(reply))) {
+                    _draft.value = ""
+                }
+                return
+            }
             if (sendMessage(text)) _draft.value = ""
             return
         }
@@ -1204,7 +1228,8 @@ class SteerConnection internal constructor(
      * `answer` frame — the desktop owns the mapping onto its TUI and confirms
      * the injection with `answer_ack`. The card locks the moment the frame
      * goes out (no double-tap) and unlocks only if nothing comes back within
-     * [ANSWER_ACK_TIMEOUT_MS].
+     * [ANSWER_ACK_TIMEOUT_MS]. Returns whether the frame went out (a locked
+     * card or a dead socket sends nothing).
      */
     fun sendQuestionAnswer(
         questionId: String,
@@ -1215,10 +1240,10 @@ class SteerConnection internal constructor(
         /** EXP-588: the picked labels, shown for the step until the desktop
          *  resolves the ask. */
         labels: List<String> = emptyList(),
-    ) {
-        if (keys.isEmpty()) return
-        if (_activity.value.answerLocks[questionId].locksCard()) return
-        val socket = ws ?: return
+    ): Boolean {
+        if (keys.isEmpty()) return false
+        if (_activity.value.answerLocks[questionId].locksCard()) return false
+        val socket = ws ?: return false
         lockAnswer(questionId, labels)
         scope.launch {
             runCatching {
@@ -1232,6 +1257,7 @@ class SteerConnection internal constructor(
                 socket.send(json.encodeToString(JsonObject.serializer(), frame))
             }
         }
+        return true
     }
 
     /**
@@ -1281,10 +1307,27 @@ class SteerConnection internal constructor(
         }
     }
 
+    /**
+     * EXP-790: stop the turn in flight without ending the run — the Stop glyph
+     * the composer's send button turns into while the agent works and the
+     * field is empty. Fire-and-forget like [setMode]: the engine cancels the
+     * turn and the feed shows the agent stopping; nothing locks or waits.
+     */
+    fun interrupt() {
+        val socket = ws ?: return
+        scope.launch {
+            runCatching { socket.send("""{"t":"interrupt"}""") }
+        }
+    }
+
     /** EXP-783 — whether there is transcript BELOW the oldest row on screen
      *  that this client can still ask the device for. Drives the transcript's
-     *  "Load earlier" affordance together with the rendered window. */
-    fun canLoadEarlier(): Boolean = historyTruncated && !historyExhausted
+     *  "Load earlier" affordance together with the rendered window.
+     *
+     *  EXP-796: it also takes an OPEN viewer socket. The relay keeps a history
+     *  room open after the device's replay, so pages keep flowing until the
+     *  socket really closes — and once it has, there is nothing to ask. */
+    fun canLoadEarlier(): Boolean = historyTruncated && !historyExhausted && ws != null
 
     /** EXP-783 — one `history_page` ask, at most one in flight.
      *

@@ -51,7 +51,10 @@ interface Contract {
     window: number
     windowStep: number
     historyPageMax: number
+    toolDiffMaxLines: number
+    toolDiffMaxBytes: number
   }
+  toolKind: Section
   subscriberSource: Section
   issueEventType: Section
   issueRelationType: Section & { forwardLabels: string[]; inverseLabels: string[] }
@@ -107,8 +110,10 @@ const automationEventCatchupMs =
   contract.automation.eventCatchupHours * 60 * 60 * 1000
 
 // EXP-783: the steering transcript's budgets, window and page size — the
-// same seven numbers on every client, so the byte-budget trim and the
-// rendered window cannot drift apart per platform.
+// same numbers on every client, so the byte-budget trim and the rendered
+// window cannot drift apart per platform. EXP-786 adds the per-call diff
+// caps (`toolDiffMaxLines`/`toolDiffMaxBytes`) the publisher truncates a
+// `tool_update.diff` to before it rides the wire.
 const steerFeed = contract.steerFeed
 
 // The 7 locked builtin issue statuses (EXP-314) — emitted as parallel arrays
@@ -246,6 +251,7 @@ ${swiftStringArray("notificationTypeValues", contract.notificationType.values)}
 ${swiftStringArray("prStateValues", contract.prState.values)}
 ${swiftStringArray("codingSessionStatusValues", contract.codingSessionStatus.values)}
 ${swiftStringArray("codingSessionEndedByValues", contract.codingSessionEndedBy.values)}
+${swiftStringArray("toolKindValues", contract.toolKind.values)}
 ${swiftStringArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${swiftStringArray("issueEventTypeValues", contract.issueEventType.values)}
 ${swiftStringArray("issueRelationTypeValues", contract.issueRelationType.values)}
@@ -286,6 +292,8 @@ ${swiftBoolArray("steerCommandConfirm", steerCommandConfirm)}
     public static let steerFeedWindow: Int = ${steerFeed.window}
     public static let steerFeedWindowStep: Int = ${steerFeed.windowStep}
     public static let steerFeedHistoryPageMax: Int = ${steerFeed.historyPageMax}
+    public static let steerFeedToolDiffMaxLines: Int = ${steerFeed.toolDiffMaxLines}
+    public static let steerFeedToolDiffMaxBytes: Int = ${steerFeed.toolDiffMaxBytes}
 
 ${swiftNamedValues("issueStatusCategory", contract.issueStatusCategory.values)}
 ${swiftNamedValues("issueSource", contract.issueSource.values)}
@@ -326,6 +334,7 @@ ${kotlinStringArray("notificationTypeValues", contract.notificationType.values)}
 ${kotlinStringArray("prStateValues", contract.prState.values)}
 ${kotlinStringArray("codingSessionStatusValues", contract.codingSessionStatus.values)}
 ${kotlinStringArray("codingSessionEndedByValues", contract.codingSessionEndedBy.values)}
+${kotlinStringArray("toolKindValues", contract.toolKind.values)}
 ${kotlinStringArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${kotlinStringArray("issueEventTypeValues", contract.issueEventType.values)}
 ${kotlinStringArray("issueRelationTypeValues", contract.issueRelationType.values)}
@@ -366,6 +375,8 @@ ${kotlinBoolArray("steerCommandConfirm", steerCommandConfirm)}
     const val steerFeedWindow: Int = ${steerFeed.window}
     const val steerFeedWindowStep: Int = ${steerFeed.windowStep}
     const val steerFeedHistoryPageMax: Int = ${steerFeed.historyPageMax}
+    const val steerFeedToolDiffMaxLines: Int = ${steerFeed.toolDiffMaxLines}
+    const val steerFeedToolDiffMaxBytes: Int = ${steerFeed.toolDiffMaxBytes}
 
 ${kotlinNamedValues("issueStatusCategory", contract.issueStatusCategory.values)}
 ${kotlinNamedValues("issueSource", contract.issueSource.values)}
@@ -408,6 +419,7 @@ ${rustStrSlice("notificationTypeValues", contract.notificationType.values)}
 ${rustStrSlice("prStateValues", contract.prState.values)}
 ${rustStrSlice("codingSessionStatusValues", contract.codingSessionStatus.values)}
 ${rustStrSlice("codingSessionEndedByValues", contract.codingSessionEndedBy.values)}
+${rustStrSlice("toolKindValues", contract.toolKind.values)}
 ${rustStrSlice("subscriberSourceValues", contract.subscriberSource.values)}
 ${rustStrSlice("issueEventTypeValues", contract.issueEventType.values)}
 ${rustStrSlice("issueRelationTypeValues", contract.issueRelationType.values)}
@@ -448,6 +460,8 @@ pub const STEER_FEED_ITEM_OVERHEAD_BYTES: usize = ${steerFeed.itemOverheadBytes}
 pub const STEER_FEED_WINDOW: usize = ${steerFeed.window};
 pub const STEER_FEED_WINDOW_STEP: usize = ${steerFeed.windowStep};
 pub const STEER_FEED_HISTORY_PAGE_MAX: u32 = ${steerFeed.historyPageMax};
+pub const STEER_FEED_TOOL_DIFF_MAX_LINES: usize = ${steerFeed.toolDiffMaxLines};
+pub const STEER_FEED_TOOL_DIFF_MAX_BYTES: usize = ${steerFeed.toolDiffMaxBytes};
 
 ${rustNamedValues("issueStatusCategory", contract.issueStatusCategory.values)}
 ${rustNamedValues("issueSource", contract.issueSource.values)}

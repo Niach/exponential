@@ -75,7 +75,10 @@ export interface DomainContract {
    * weighs its text plus `itemOverheadBytes`; `window`/`windowStep` are how
    * many of the newest rows a transcript renders and how many one "Load
    * earlier" adds; `historyPageMax` is the most events one `history_page`
-   * may ask for.
+   * may ask for. EXP-786: `toolDiffMaxLines`/`toolDiffMaxBytes` cap the
+   * per-call unified diff a `tool_update` carries — the publisher truncates
+   * on line boundaries (`steer::truncate_unified_diff`) before it rides the
+   * wire, so every client sees the same patch.
    */
   steerFeed: {
     byteCap: number
@@ -85,7 +88,15 @@ export interface DomainContract {
     window: number
     windowStep: number
     historyPageMax: number
+    toolDiffMaxLines: number
+    toolDiffMaxBytes: number
   }
+  /**
+   * EXP-785: ACP's tool-call kinds, carried on the `tool` steer event so
+   * clients can bucket a call (an `edit` folds its diff, an `execute` is a
+   * command) without parsing its name. Byte-equal to ACP's `ToolKind`.
+   */
+  toolKind: { values: readonly string[] }
   subscriberSource: { values: readonly string[] }
   issueEventType: { values: readonly string[] }
   /**
@@ -165,3 +176,9 @@ export interface DomainContract {
 }
 
 export const contract = contractJson as unknown as DomainContract
+
+export {
+  toolGroupSummary,
+  TOOL_GROUP_SUMMARY_SEPARATOR,
+  type ToolCallSummary,
+} from "./tool-group-summary"

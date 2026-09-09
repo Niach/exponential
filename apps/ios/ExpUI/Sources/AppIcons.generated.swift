@@ -135,6 +135,7 @@ public enum AppIcons {
         "circle-dot",
         "circle-question-mark",
         "circle-slash",
+        "circle-stop",
         "circle-user",
         "circle-x",
         "clipboard-list",
@@ -688,6 +689,8 @@ public enum AppIcons {
     public static let uiSignIn: String = "log-in"
     /// Concept `ui-staging`.
     public static let uiStaging: String = "flask-conical"
+    /// Concept `ui-stop`.
+    public static let uiStop: String = "circle-stop"
     /// Concept `ui-submit`.
     public static let uiSubmit: String = "circle-arrow-up"
     /// Concept `ui-subscribe`.

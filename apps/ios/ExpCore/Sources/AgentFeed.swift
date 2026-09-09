@@ -227,6 +227,23 @@ public struct AgentSessionUsage: Equatable, Sendable {
     }
 }
 
+/// EXP-784: the agent's rate-limit window as it last reported it — the fourth
+/// latest-wins slot beside `AgentSessionUsage`. `status` is the agent's own
+/// word (`allowed_warning`, `rejected`, …); the slot is CLEARED by an
+/// empty/`ok` status (`AgentFeed.rateLimitClears`), never filled by one.
+public struct AgentSessionRateLimit: Equatable, Sendable {
+    public let status: String
+    /// Unix ms when the window resets, when the agent named one.
+    public let resetsAt: Int?
+    public let message: String?
+
+    public init(status: String, resetsAt: Int? = nil, message: String? = nil) {
+        self.status = status
+        self.resetsAt = resetsAt
+        self.message = message
+    }
+}
+
 /// EXP-772: the composer's ONE steering control — the agent's mode. Model,
 /// effort and every other option picker is gone from a running session: those
 /// are launch decisions, and a mid-run swap only ever confused a transcript.
@@ -271,6 +288,32 @@ public struct AgentModeChip: Equatable, Sendable {
 
 /// One rendered feed entry. Diffs never enter the feed — the latest one lives
 /// behind the pinned "Latest changes" chip.
+/// EXP-788: where the composer's typed text goes while a card is pending.
+public enum ComposerAnswerRoute: Equatable, Sendable {
+    /// A plan card: the text is feedback. The card is DENIED with `rejectKey`
+    /// ("No, keep planning" — the engine's deny interrupts the turn) and the
+    /// text follows as the next message, which is what the option's own
+    /// description promises.
+    case plan(question: AgentQuestion, rejectKey: String)
+    /// A question card with a free-text row: the text IS the answer, riding
+    /// the `answer` frame's `text` under that row's key (EXP-513).
+    case freeText(question: AgentQuestion, key: String)
+
+    public var question: AgentQuestion {
+        switch self {
+        case let .plan(question, _), let .freeText(question, _): return question
+        }
+    }
+
+    /// The composer placeholder for this route.
+    public var placeholder: String {
+        switch self {
+        case .plan: return AgentFeed.planPendingPlaceholder
+        case .freeText: return AgentFeed.questionPendingPlaceholder
+        }
+    }
+}
+
 public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     /// `messageId` (EXP-772) is the ACP id of the assistant message this prose
     /// came out of — the engine flushes a message in several events, and
@@ -280,7 +323,19 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     case narration(id: Int, text: String, messageId: String? = nil, subagentId: String? = nil)
     /// `subagentId` (protocol v2) tags the tool as a subagent's work — such
     /// runs collapse under their subagent row.
-    case tool(id: Int, name: String, detail: String?, subagentId: String?)
+    ///
+    /// EXP-785: `callId` is the ACP tool-call id a later `tool_update` folds
+    /// into this row by (nil on rows from a pre-EXP-785 publisher, which then
+    /// never settle); `toolKind` is ACP's kind bucket (a contract `toolKind`
+    /// value); `settled` = a status landed (the call ENDED), `failed` = that
+    /// status was `failed` (a later `completed` clears it). EXP-786: `diff`
+    /// is the per-call unified diff an `edit` published, already cut to the
+    /// contract's caps by the publisher.
+    case tool(
+        id: Int, name: String, detail: String?, subagentId: String?,
+        callId: String? = nil, toolKind: String? = nil,
+        settled: Bool = false, failed: Bool = false, diff: String? = nil
+    )
     /// A human turn: the initial prompt or a steered message. `subagentId`
     /// (EXP-773) tags a turn addressed to a subagent — same scoping rule as
     /// narration.
@@ -307,7 +362,7 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     public var id: Int {
         switch self {
         case let .narration(id, _, _, _): id
-        case let .tool(id, _, _, _): id
+        case let .tool(id, _, _, _, _, _, _, _, _): id
         case let .userMessage(id, _, _): id
         case let .question(value): value.id
         case let .subagent(id, _, _, _, _, _): id
@@ -324,8 +379,11 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
         switch self {
         case let .narration(_, text, messageId, subagentId):
             .narration(id: id, text: text, messageId: messageId, subagentId: subagentId)
-        case let .tool(_, name, detail, subagentId):
-            .tool(id: id, name: name, detail: detail, subagentId: subagentId)
+        case let .tool(_, name, detail, subagentId, callId, toolKind, settled, failed, diff):
+            .tool(
+                id: id, name: name, detail: detail, subagentId: subagentId,
+                callId: callId, toolKind: toolKind, settled: settled, failed: failed, diff: diff
+            )
         case let .userMessage(_, text, subagentId):
             .userMessage(id: id, text: text, subagentId: subagentId)
         case let .question(question):
@@ -367,7 +425,7 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     /// interleaving into the main thread.
     public var subagentKey: String? {
         switch self {
-        case let .tool(_, _, _, subagentId): return subagentId
+        case let .tool(_, _, _, subagentId, _, _, _, _, _): return subagentId
         case let .subagent(_, subagentId, _, _, _, _): return subagentId
         case let .narration(_, _, _, subagentId): return subagentId
         case let .userMessage(_, _, subagentId): return subagentId
@@ -637,8 +695,9 @@ public enum AgentFeed {
         switch item {
         case let .narration(_, text, _, _): return overhead + text.utf8.count
         case let .userMessage(_, text, _): return overhead + text.utf8.count
-        case let .tool(_, name, detail, _):
-            return overhead + name.utf8.count + (detail?.utf8.count ?? 0)
+        case let .tool(_, name, detail, _, _, _, _, _, diff):
+            // EXP-786: a folded per-call diff weighs too.
+            return overhead + name.utf8.count + (detail?.utf8.count ?? 0) + (diff?.utf8.count ?? 0)
         case let .permission(_, tool, detail):
             return overhead + tool.utf8.count + (detail?.utf8.count ?? 0)
         case let .subagent(_, subagentId, agentType, _, detail, _):
@@ -802,6 +861,147 @@ public enum AgentFeed {
             modes: modes,
             commands: commands
         )
+    }
+
+    /// EXP-785: ACP's tool-call kinds — the contract's `toolKind` list.
+    public static let toolKindValues = DomainContract.toolKindValues
+
+    /// A wire `toolKind`, or nil for anything this build does not know.
+    public static func toolKind(_ raw: Any?) -> String? {
+        guard let value = raw as? String, toolKindValues.contains(value) else { return nil }
+        return value
+    }
+
+    /// EXP-785/786: fold a `tool_update` into the NEWEST tool row whose
+    /// `callId` matches — a settle (`status`), a per-call `diff`, or both.
+    /// Never a row of its own. Nil = no row holds that id (evicted, or below
+    /// the window, or a pre-EXP-785 row), and the caller keeps the feed as
+    /// is. A `failed` after a `completed` wins; a status-less update carrying
+    /// only a diff never settles the call.
+    public static func applyToolUpdate(
+        feed: [AgentFeedItem], event: [String: Any]
+    ) -> [AgentFeedItem]? {
+        guard let id = string(event["id"]),
+              let at = feed.lastIndex(where: { item in
+                  if case let .tool(_, _, _, _, callId, _, _, _, _) = item { return callId == id }
+                  return false
+              }),
+              case let .tool(rowId, name, detail, subagentId, callId, toolKind, settled, failed, diff)
+                = feed[at]
+        else { return nil }
+        var nextSettled = settled
+        var nextFailed = failed
+        if let status = event["status"] as? String, status == "completed" || status == "failed" {
+            nextSettled = true
+            nextFailed = status == "failed"
+        }
+        let nextDiff = string(event["diff"]) ?? diff
+        var next = feed
+        next[at] = .tool(
+            id: rowId, name: name, detail: detail, subagentId: subagentId,
+            callId: callId, toolKind: toolKind,
+            settled: nextSettled, failed: nextFailed, diff: nextDiff
+        )
+        return next
+    }
+
+    /// EXP-784: the `rate_limit.status` values that CLEAR the slot.
+    public static func rateLimitClears(_ status: String) -> Bool {
+        let trimmed = status.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty || trimmed.lowercased() == "ok"
+    }
+
+    /// Fold a `rate_limit` activity event. Nil CLEARS the slot — for an
+    /// empty/`ok` status (the window lifted) AND for an unreadable payload: a
+    /// stale "rate limited" banner beside a live run is the worse error.
+    public static func applyRateLimit(
+        _ current: AgentSessionRateLimit?, event: [String: Any]
+    ) -> AgentSessionRateLimit? {
+        guard let status = event["status"] as? String, !rateLimitClears(status) else { return nil }
+        let resetsAt = (event["resetsAt"] as? NSNumber)?.intValue
+        return AgentSessionRateLimit(
+            status: status.trimmingCharacters(in: .whitespacesAndNewlines),
+            resetsAt: (resetsAt ?? -1) >= 0 ? resetsAt : nil,
+            message: string(event["message"])?.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
+
+    /// EXP-784: the ONE line the rate-limit banner prints — the agent's
+    /// message (or a plain "Rate limited" when it sent none) and, when the
+    /// window names its end, ` · resets HH:MM` in LOCAL time. Pure so the
+    /// clock format is testable against a pinned zone.
+    public static func rateLimitCaption(
+        _ limit: AgentSessionRateLimit, timeZone: TimeZone = .current
+    ) -> String {
+        let message = limit.message.flatMap { $0.isEmpty ? nil : $0 } ?? "Rate limited"
+        guard let resetsAt = limit.resetsAt else { return message }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "HH:mm"
+        let at = Date(timeIntervalSince1970: TimeInterval(resetsAt) / 1000)
+        return "\(message) · resets \(formatter.string(from: at))"
+    }
+
+    // MARK: - Load earlier (EXP-783/796)
+
+    /// EXP-796: whether the transcript offers "Load earlier". Rows the feed
+    /// already holds above the window are always pageable; a page that only
+    /// the DEVICE's journal has needs the relay to have said its replay was a
+    /// tail, not to have run dry on it, AND an open viewer socket to ask on —
+    /// the relay keeps a history room open after the device's replay, so
+    /// pages keep flowing until the socket really closes, and a closed one
+    /// can't carry the ask at all.
+    public static func canLoadEarlier(
+        windowStart: Int, historyTruncated: Bool, historyExhausted: Bool, connected: Bool
+    ) -> Bool {
+        windowStart > 0 || (historyTruncated && !historyExhausted && connected)
+    }
+
+    // MARK: - Composer answer routing (EXP-788)
+
+    /// The composer's placeholder while nothing is pending.
+    public static let composerPlaceholder = "Message the agent…"
+    /// EXP-788: the composer IS the free answer of a pending card, and the
+    /// placeholder says which. Byte-identical ×4 (web `agent-session.tsx`).
+    public static let planPendingPlaceholder = "Tell the agent what to change, or pick an option above"
+    public static let questionPendingPlaceholder = "Answer directly, or pick an option above"
+    /// The multi-select submit label, byte-identical ×4.
+    public static let submitLabel = "Submit"
+
+    /// The card the composer answers (EXP-788): the FIRST still-active,
+    /// unlocked question in feed order — an ask's current step, or the lone
+    /// plan/question card the run is blocked on. Feed order rather than the
+    /// newest card because a stepper's steps all stay active until the ask
+    /// resolves and only the earliest unanswered one is the current step.
+    public static func pendingCard(
+        _ feed: [AgentFeedItem], active: Set<Int>, isLocked: (String) -> Bool
+    ) -> AgentQuestion? {
+        for item in feed {
+            guard let question = item.question, active.contains(question.id) else { continue }
+            if isLocked(question.lockKey) { continue }
+            return question
+        }
+        return nil
+    }
+
+    /// How the composer's typed text answers `question` (EXP-788), or nil when
+    /// the card takes no free answer (a plain permission card with fixed
+    /// options): the text then goes out as an ordinary message.
+    public static func composerAnswerRoute(for question: AgentQuestion) -> ComposerAnswerRoute? {
+        guard !question.resolved, !question.options.isEmpty else { return nil }
+        if question.planMode {
+            // "No, keep planning" is last by contract ("Sends your next
+            // message back to planning"); `reject` is its wire id whenever
+            // the engine named one.
+            let reject = question.options.first(where: { $0.key == "reject" })
+                ?? question.options[question.options.count - 1]
+            return .plan(question: question, rejectKey: reject.key)
+        }
+        if let free = question.options.first(where: { $0.freeText }) {
+            return .freeText(question: question, key: free.key)
+        }
+        return nil
     }
 
     /// Fold a `usage` activity event. Nil CLEARS the slot — a run whose engine

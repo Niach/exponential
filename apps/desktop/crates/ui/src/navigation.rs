@@ -177,6 +177,16 @@ impl Screen {
                 | Screen::GettingStarted { .. }
         )
     }
+
+    /// EXP-791: whether the screen takes the WHOLE center — no tool column
+    /// beside it. The rail full-page screens always did; a coding session and
+    /// a PTY terminal join them: a transcript or a grid squeezed beside an
+    /// issue list was the desktop's worst layout, and neither has a list to
+    /// sit beside (their navigation is the rail's Sessions section and the
+    /// bottom bar). `shell::CenterPanel` keys its split on this.
+    pub(crate) fn is_full_width(&self) -> bool {
+        self.is_rail_full_page() || matches!(self, Screen::Session { .. } | Screen::Terminal { .. })
+    }
 }
 
 /// EXP-288: which sidebar entry a detail tab was opened from — clicking the
@@ -196,7 +206,7 @@ pub(crate) struct TabOrigin {
 }
 
 /// The pending origin marker a navigation leaves for the screens panel
-/// (consumed like [`Navigation::replaced_screen`]): `Capture` = read the
+/// (consumed like [`Navigation::pending_steer`]): `Capture` = read the
 /// CURRENT rail tool + active board at consume time (right for every
 /// sidebar-row click path); `Explicit` = the caller knows better (create
 /// dialog, deep links — the rail may point anywhere).
@@ -304,14 +314,16 @@ pub struct Navigation {
     /// scope for [`active_board_id`] so the picker / files / git / run
     /// surfaces stay populated on every screen.
     last_board_id: Option<String>,
-    /// The screen the last [`replace_screen`] displaced (EXP-48 prev/next):
-    /// a pending marker the screens panel consumes to swap that tab's
-    /// identity in place instead of opening a new tab. Cleared by every
-    /// ordinary navigation.
-    replaced_screen: Option<Screen>,
+    /// EXP-791: the coding session the issue detail must slide in over the
+    /// issue it just navigated to — a one-shot marker (the shape the retired
+    /// EXP-48 in-place-replacement marker had) consumed by the screens panel
+    /// right after it re-points the detail. Set ONLY by
+    /// [`navigate_steering`]; cleared by every other navigation so a stale
+    /// marker can never open a run over an unrelated issue.
+    pending_steer: Option<String>,
     /// EXP-288: the pending tab-origin marker the screens panel consumes
     /// when it opens/updates a tab for the navigated screen. Set by
-    /// [`navigate`]/[`navigate_from`]/[`replace_screen`]; cleared by
+    /// [`navigate`]/[`navigate_from`]; cleared by
     /// [`set_screen`]/[`go_back`]/[`switch_team`] so tab activation never
     /// rewrites a tab's remembered origin.
     pending_origin: Option<PendingOrigin>,
@@ -339,9 +351,15 @@ impl Navigation {
                 .ok()
                 .map(|id| id.trim().to_string())
                 .filter(|id| !id.is_empty()),
-            replaced_screen: None,
+            pending_steer: None,
             pending_origin: None,
         }
+    }
+
+    /// EXP-791: consume the pending steer marker (see [`Self::pending_steer`]).
+    /// One-shot: the second read is `None`.
+    fn take_steer_marker(&mut self) -> Option<String> {
+        self.pending_steer.take()
     }
 
     /// The current screen, `None` until first navigation (default applies).
@@ -626,49 +644,64 @@ fn navigate_inner(window: &Window, cx: &mut App, screen: Screen, origin: Pending
             nav.back_stack.push(previous);
         }
         nav.screen = Some(screen);
-        nav.replaced_screen = None;
+        nav.pending_steer = None;
         nav.pending_origin = Some(origin);
         cx.notify();
     });
 }
 
-/// Swap the current screen IN PLACE (EXP-48 prev/next issue switcher): no
-/// back-stack push, and the screens panel replaces the active tab's identity
-/// instead of opening a new tab (via the consumed [`take_replaced_screen`]
-/// marker). No-op when already on `screen`, and a REVEAL (EXP-771) when
-/// `screen` already has its own undocked window.
-pub fn replace_screen(window: &Window, cx: &mut App, screen: Screen) {
-    // EXP-771: the same reveal rule as `navigate_inner` — stepping onto an
-    // issue that already has its own undocked window raises THAT window and
-    // leaves this tab on the screen it was showing; swapping its identity
-    // here would re-create the undocked issue as a docked tab beside it.
-    if reveals_undocked_window(&screen) && crate::undock::reveal_screen(&screen, cx) {
+/// EXP-791: open `issue_id`'s detail with `session_id`'s transcript slid in
+/// over it — "Watch" on the issue's coding-now card, and every entry point
+/// of an issue-bound run (`session_screen::open_session`). A plain
+/// [`navigate`] to the issue, then the one-shot marker the screens panel
+/// hands to the detail (`IssueDetailView::open_steering`) right after
+/// re-pointing it.
+///
+/// Two windows have no panel to consume the marker, so they never get one:
+/// an UNDOCKED issue window forwards the whole gesture to the shell it came
+/// from (the [`forward_to_owner_shell`] shape, steering included), and when
+/// the issue lives in an undocked window elsewhere the navigate above is a
+/// REVEAL of that window — this window then opens the run on its own
+/// [`Screen::Session`] rather than parking a marker for the next unrelated
+/// issue to pick up.
+pub(crate) fn navigate_steering(
+    window: &Window,
+    cx: &mut App,
+    issue_id: String,
+    session_id: String,
+) {
+    if crate::screens::screens_for_window(window, cx).is_none() {
+        let window_id = window.window_handle().window_id();
+        if let Some(owner) = crate::undock::owner_shell_for_window(window_id, cx) {
+            cx.defer(move |cx| {
+                let _ = owner.update(cx, |_, window, cx| {
+                    navigate_steering(window, cx, issue_id.clone(), session_id.clone());
+                    window.activate_window();
+                });
+            });
+        }
         return;
     }
-    if forward_to_owner_shell(window, cx, &screen) {
-        return;
-    }
+    let screen = Screen::IssueDetail { issue_id };
+    navigate(window, cx, screen.clone());
     let Some(nav) = nav_for_window_readonly(window, cx) else {
         return;
     };
+    let landed = nav.read(cx).screen.as_ref() == Some(&screen);
+    if !landed {
+        navigate(window, cx, Screen::Session { session_id });
+        return;
+    }
     nav.update(cx, |nav, cx| {
-        if nav.screen.as_ref() == Some(&screen) {
-            return;
-        }
-        nav.replaced_screen = nav.screen.replace(screen);
-        // The swapped tab KEEPS its origin (the screens panel only reads
-        // this marker when it pushes a brand-new tab, i.e. the replaced
-        // screen's tab was already closed).
-        nav.pending_origin = Some(PendingOrigin::Capture);
+        nav.pending_steer = Some(session_id);
         cx.notify();
     });
 }
 
-/// Consume the pending in-place-replacement marker (the screen the last
-/// [`replace_screen`] displaced). The screens panel calls this from its nav
-/// observer to swap that tab's identity instead of pushing a new tab.
-pub fn take_replaced_screen(nav: &Entity<Navigation>, cx: &mut App) -> Option<Screen> {
-    nav.update(cx, |nav, _| nav.replaced_screen.take())
+/// Consume the pending steer marker (EXP-791) — the screens panel calls this
+/// from its nav observer beside [`take_pending_origin`].
+pub(crate) fn take_pending_steer(nav: &Entity<Navigation>, cx: &mut App) -> Option<String> {
+    nav.update(cx, |nav, _| nav.take_steer_marker())
 }
 
 /// Consume the pending tab-origin marker (EXP-288). `None` = the screen
@@ -691,7 +724,7 @@ pub fn set_screen(window: &Window, cx: &mut App, screen: Option<Screen>) {
     nav.update(cx, |nav, cx| {
         if nav.screen != screen {
             nav.screen = screen;
-            nav.replaced_screen = None;
+            nav.pending_steer = None;
             nav.pending_origin = None;
             cx.notify();
         }
@@ -746,7 +779,7 @@ pub fn go_back(window: &Window, cx: &mut App) {
     nav.update(cx, |nav, cx| {
         if let Some(previous) = nav.back_stack.pop() {
             nav.screen = Some(previous);
-            nav.replaced_screen = None;
+            nav.pending_steer = None;
             nav.pending_origin = None;
             cx.notify();
         }
@@ -768,7 +801,7 @@ pub fn switch_team(window: &Window, cx: &mut App, team_id: String) {
         nav.screen = None;
         nav.back_stack.clear();
         nav.last_board_id = None;
-        nav.replaced_screen = None;
+        nav.pending_steer = None;
         nav.pending_origin = None;
         cx.notify();
         true
@@ -1199,6 +1232,58 @@ mod tests {
         assert!(session.is_detail());
         assert!(!session.undockable());
         assert!(!session.is_rail_full_page());
+    }
+
+    /// EXP-791: exactly the rail full-page screens plus a session and a
+    /// terminal take the whole center; every list-driven detail keeps the
+    /// tool column beside it.
+    #[test]
+    fn full_width_is_the_rail_pages_plus_session_and_terminal() {
+        assert!(Screen::Session {
+            session_id: "s1".into()
+        }
+        .is_full_width());
+        // (`Screen::Terminal` is covered by the predicate's `matches!` arm —
+        // a `terminal::TabId` only ever comes from a spawned manager tab.)
+        for page in [
+            Screen::Devices,
+            Screen::Actions,
+            Screen::Automations,
+            Screen::Chat,
+            Screen::Reviews,
+            Screen::GettingStarted {
+                tab: GettingStartedTab::FirstSteps,
+            },
+        ] {
+            assert!(page.is_full_width(), "{page:?}");
+        }
+        assert!(!Screen::IssueDetail {
+            issue_id: "i1".into()
+        }
+        .is_full_width());
+        assert!(!Screen::PrDiff {
+            issue_id: "i1".into()
+        }
+        .is_full_width());
+        assert!(!Screen::SupportThread {
+            thread_id: "t1".into()
+        }
+        .is_full_width());
+        // Settings is full-page too, but it replaces the RAIL — the shell
+        // keys it separately, so it stays out of this predicate.
+        assert!(!Screen::Settings.is_full_width());
+    }
+
+    /// EXP-791: the steer marker is one-shot — the screens panel reads it
+    /// exactly once after re-pointing the detail, and nothing is left for the
+    /// next navigation to pick up.
+    #[test]
+    fn pending_steer_marker_is_one_shot() {
+        let mut nav = Navigation::new();
+        assert_eq!(nav.take_steer_marker(), None);
+        nav.pending_steer = Some("s1".into());
+        assert_eq!(nav.take_steer_marker(), Some("s1".to_string()));
+        assert_eq!(nav.take_steer_marker(), None);
     }
 
     /// EXP-771: which screens a navigation checks the undock registry for.

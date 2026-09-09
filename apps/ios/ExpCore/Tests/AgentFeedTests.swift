@@ -793,6 +793,85 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertEqual(partial?.options.map(\.id), ["effort"])
     }
 
+    // EXP-785/786: `tool_update` folds into the tool row by call id.
+    func testToolUpdateFoldsIntoItsRowAndNeverAddsOne() {
+        let feed: [AgentFeedItem] = [
+            .tool(id: 1, name: "Edit", detail: "a.ts", subagentId: nil, callId: "tc-1", toolKind: "edit"),
+            .narration(id: 2, text: "between"),
+            .tool(id: 3, name: "Bash", detail: "bun", subagentId: nil, callId: "tc-2", toolKind: "execute"),
+        ]
+        let settled = AgentFeed.applyToolUpdate(feed: feed, event: [
+            "id": "tc-1", "status": "completed", "diff": "--- a/a.ts\n+++ b/a.ts\n",
+        ])
+        XCTAssertEqual(settled?.count, 3)
+        XCTAssertEqual(
+            settled?[0],
+            .tool(
+                id: 1, name: "Edit", detail: "a.ts", subagentId: nil, callId: "tc-1",
+                toolKind: "edit", settled: true, failed: false, diff: "--- a/a.ts\n+++ b/a.ts\n"
+            )
+        )
+        XCTAssertEqual(settled?[2], feed[2])
+        // A failed settle wins over the completed one; the diff stays.
+        let failed = AgentFeed.applyToolUpdate(feed: settled!, event: ["id": "tc-1", "status": "failed"])
+        guard case let .tool(_, _, _, _, _, _, isSettled, isFailed, diff)? = failed?[0] else {
+            return XCTFail("not a tool row")
+        }
+        XCTAssertTrue(isSettled)
+        XCTAssertTrue(isFailed)
+        XCTAssertEqual(diff, "--- a/a.ts\n+++ b/a.ts\n")
+        // A status-less update carrying only a diff never settles.
+        let diffed = AgentFeed.applyToolUpdate(feed: feed, event: ["id": "tc-2", "diff": "+x\n"])
+        XCTAssertEqual(
+            diffed?[2],
+            .tool(id: 3, name: "Bash", detail: "bun", subagentId: nil, callId: "tc-2",
+                  toolKind: "execute", settled: false, failed: false, diff: "+x\n")
+        )
+        // The diff weighs against the budget.
+        XCTAssertEqual(
+            AgentFeed.itemBytes(diffed![2]) - AgentFeed.itemBytes(feed[2]), "+x\n".utf8.count
+        )
+    }
+
+    func testToolUpdateForAnUnknownIdIsDroppedAndTheNewestRowWins() {
+        let feed: [AgentFeedItem] = [
+            .tool(id: 1, name: "Edit", detail: nil, subagentId: nil, callId: "tc-1"),
+            .tool(id: 2, name: "Grep", detail: nil, subagentId: nil),
+            .tool(id: 3, name: "Edit", detail: nil, subagentId: nil, callId: "tc-1"),
+        ]
+        XCTAssertNil(AgentFeed.applyToolUpdate(feed: feed, event: ["id": "tc-nope", "status": "failed"]))
+        XCTAssertNil(AgentFeed.applyToolUpdate(feed: feed, event: ["status": "failed"]))
+        let next = AgentFeed.applyToolUpdate(feed: feed, event: ["id": "tc-1", "status": "completed"])
+        XCTAssertEqual(next?[0], feed[0], "the older twin is untouched")
+        XCTAssertEqual(
+            next?[2],
+            .tool(id: 3, name: "Edit", detail: nil, subagentId: nil, callId: "tc-1", settled: true)
+        )
+        XCTAssertEqual(AgentFeed.toolKind("switch_mode"), "switch_mode")
+        XCTAssertNil(AgentFeed.toolKind("teleport"))
+        XCTAssertEqual(AgentFeed.toolKindValues, DomainContract.toolKindValues)
+    }
+
+    // EXP-784: the rate-limit slot.
+    func testApplyRateLimitKeepsAWindowAndClearsOnOkOrEmpty() {
+        let limited = AgentFeed.applyRateLimit(nil, event: [
+            "status": " allowed_warning ", "resetsAt": 1_700_000_000_000, "message": " 80% used ",
+        ])
+        XCTAssertEqual(limited, AgentSessionRateLimit(
+            status: "allowed_warning", resetsAt: 1_700_000_000_000, message: "80% used"
+        ))
+        XCTAssertEqual(
+            AgentFeed.applyRateLimit(limited, event: ["status": "rejected", "resetsAt": -1]),
+            AgentSessionRateLimit(status: "rejected")
+        )
+        XCTAssertNil(AgentFeed.applyRateLimit(limited, event: ["status": "ok"]))
+        XCTAssertNil(AgentFeed.applyRateLimit(limited, event: ["status": ""]))
+        // Unreadable clears too: a stale banner beside a live run is worse.
+        XCTAssertNil(AgentFeed.applyRateLimit(limited, event: [:]))
+        XCTAssertTrue(AgentFeed.rateLimitClears(" OK "))
+        XCTAssertFalse(AgentFeed.rateLimitClears("allowed"))
+    }
+
     func testApplyUsageRefusesAZeroContextSize() {
         let usage = AgentFeed.applyUsage(nil, event: [
             "contextUsed": 124_000, "contextSize": 200_000, "costUsd": 1.24,

@@ -196,7 +196,23 @@
     "itemOverheadBytes": 96,
     "window": 1500,
     "windowStep": 500,
-    "historyPageMax": 200
+    "historyPageMax": 200,
+    "toolDiffMaxLines": 200,
+    "toolDiffMaxBytes": 16384
+  },
+  "toolKind": {
+    "values": [
+      "read",
+      "edit",
+      "delete",
+      "move",
+      "search",
+      "execute",
+      "think",
+      "fetch",
+      "switch_mode",
+      "other"
+    ]
   },
   "subscriberSource": {
     "values": [

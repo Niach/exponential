@@ -260,6 +260,33 @@ pub type CheckInFn = Arc<dyn Fn() + Send + Sync>;
 /// relay's own timer answers the viewer).
 pub type HistoryRequestFn = Arc<dyn Fn(String) + Send + Sync>;
 
+/// EXP-796: one inbound `history_page` on the CONTROL socket — a viewer of a
+/// finished run this machine already replayed scrolled past what it holds,
+/// and the relay's lingering history room (no publisher) routed the ask
+/// here. Answered on the SAME control socket through the reply the arm
+/// hands over, as ONE [`ClientFrame::HistoryChunk`] naming `session_id`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HistoryPageAsk {
+    pub session_id: String,
+    /// The RELAY-issued id; echoed verbatim on the chunk.
+    pub request_id: String,
+    pub before_seq: u64,
+    pub limit: u32,
+}
+
+/// EXP-796: sends one frame back down the control socket the ask came on.
+/// Queued, never awaited — the socket task writes it on its next select
+/// turn; a socket that dropped in between drops the frame with it (the
+/// relay's own page timeout frees the ask).
+pub type HistoryPageReply = Box<dyn Fn(ClientFrame<'_>) + Send>;
+
+/// EXP-796: an inbound `history_page` — "read the page below `before_seq` of
+/// session `<id>`'s journal and answer through `reply`". Same non-blocking
+/// contract as [`HistoryRequestFn`]: read on a task, never on the socket
+/// loop. A device with no journal answers an EMPTY done chunk (exactly what
+/// the live publisher does), so the viewer learns "nothing older".
+pub type HistoryPageFn = Arc<dyn Fn(HistoryPageAsk, HistoryPageReply) + Send + Sync>;
+
 /// Stop handle for the channel task. Dropping it does NOT stop the task —
 /// call [`ControlChannelHandle::stop`] (sign-out / account switch).
 pub struct ControlChannelHandle {
@@ -287,6 +314,7 @@ pub fn spawn_control_channel(
     on_start_session: StartSessionFn,
     on_check_in: CheckInFn,
     on_history_request: HistoryRequestFn,
+    on_history_page: HistoryPageFn,
 ) -> ControlChannelHandle {
     let stopped = Arc::new(AtomicBool::new(false));
     let (stop_tx, stop_rx) = flume::bounded::<()>(1);
@@ -300,6 +328,7 @@ pub fn spawn_control_channel(
         on_start_session,
         on_check_in,
         on_history_request,
+        on_history_page,
         stopped,
         stop_rx,
     ));
@@ -355,12 +384,14 @@ pub(crate) fn next_action(event: ControlEvent, backoff: &mut Backoff) -> Control
 // The IO loop
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)] // one closure per inbound frame kind (EXP-796 added history pages)
 async fn run_control_loop(
     device: DeviceIdentity,
     control_api: Arc<dyn ControlApi>,
     on_start_session: StartSessionFn,
     on_check_in: CheckInFn,
     on_history_request: HistoryRequestFn,
+    on_history_page: HistoryPageFn,
     stopped: Arc<AtomicBool>,
     stop_rx: flume::Receiver<()>,
 ) {
@@ -448,6 +479,7 @@ async fn run_control_loop(
                 &on_start_session,
                 &on_check_in,
                 &on_history_request,
+                &on_history_page,
                 &stop_rx,
             )
             .await
@@ -481,6 +513,7 @@ async fn connect_and_listen(
     on_start_session: &StartSessionFn,
     on_check_in: &CheckInFn,
     on_history_request: &HistoryRequestFn,
+    on_history_page: &HistoryPageFn,
     stop_rx: &flume::Receiver<()>,
 ) -> ConnectionOutcome {
     let mut ws = match dial(url).await {
@@ -515,12 +548,27 @@ async fn connect_and_listen(
     // they surface through `ws.next()`) proves the path; silence past
     // LIVENESS_TIMEOUT means it is gone.
     let mut last_rx = Instant::now();
+    // EXP-796: frames the host queues for THIS socket (history page answers)
+    // — the loop owns the sink, so replies come back through a channel and
+    // go out on the next turn. Per connection: a reply queued for a socket
+    // that has since dropped dies with it (the relay re-asks nobody; its
+    // page timeout frees the viewer's ask).
+    let (out_tx, out_rx) = flume::unbounded::<String>();
 
     loop {
         tokio::select! {
             _ = stop_rx.recv_async() => {
                 let _ = ws.close(None).await;
                 return ConnectionOutcome::Stopped;
+            }
+            outbound = out_rx.recv_async() => {
+                // `out_tx` lives in this frame, so the channel never closes
+                // while the loop runs.
+                if let Ok(text) = outbound {
+                    if ws.send(Message::Text(text)).await.is_err() {
+                        return ConnectionOutcome::Dropped { lived: established.elapsed() };
+                    }
+                }
             }
             // §8.3 #6 — keepalive: ping the relay, and reconnect when the
             // path has been silent past the watchdog window.
@@ -583,6 +631,27 @@ async fn connect_and_listen(
                         Some(ServerFrame::HistoryRequest { session_id }) => {
                             log::info!("steer control: history_request for {session_id}");
                             on_history_request(session_id);
+                        }
+                        // EXP-796: page a finished run this device already
+                        // replayed; the answer goes back down THIS socket.
+                        // Non-blocking by contract (see [`HistoryPageFn`]).
+                        Some(ServerFrame::HistoryPage {
+                            session_id,
+                            request_id,
+                            before_seq,
+                            limit,
+                        }) => {
+                            log::debug!(
+                                "steer control: history_page for {session_id} below {before_seq}"
+                            );
+                            let reply_tx = out_tx.clone();
+                            let reply: HistoryPageReply = Box::new(move |frame| {
+                                let _ = reply_tx.send(frame.to_json());
+                            });
+                            on_history_page(
+                                HistoryPageAsk { session_id, request_id, before_seq, limit },
+                                reply,
+                            );
                         }
                         Some(other) => {
                             // bye/error/kill here: logged; kill is not

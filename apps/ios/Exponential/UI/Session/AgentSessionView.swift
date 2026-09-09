@@ -116,6 +116,11 @@ struct AgentSessionView: View {
     /// A confirm-gated command waiting on its dialog (`/clear`).
     @State private var slashConfirm: SlashCommand?
     @FocusState private var inputFocused: Bool
+    /// EXP-790: the composer is a folded capsule until it is tapped, and
+    /// folds again on blur when nothing would be lost (IssueDetailBottomBar's
+    /// rule). A non-empty draft or a pending image keeps it open regardless.
+    @State private var composerExpanded = false
+    @Environment(\.motion) private var motion
 
     private static let bottomAnchor = "feed-bottom"
     private static let feedCoordSpace = "feed-scroll"
@@ -176,6 +181,7 @@ struct AgentSessionView: View {
                     endedHeader(model)
                     feedArea(model)
                     banners(model)
+                    rateLimitBanner(model)
                     compactionStrip(model)
                     bottomBar(model)
                 } else {
@@ -274,6 +280,16 @@ struct AgentSessionView: View {
         .onChange(of: photoItems) { _, newItems in
             guard !newItems.isEmpty else { return }
             Task { await ingestPhotos(newItems) }
+        }
+        // EXP-790: blur collapses the composer ONLY when nothing would be
+        // lost — empty draft, no pending images, no picker mid-flight
+        // (presenting one resigns first responder). Copied from
+        // IssueDetailBottomBar.
+        .onChange(of: inputFocused) { _, focused in
+            guard composerExpanded, !focused, let model else { return }
+            guard !showPhotoPicker, photoItems.isEmpty else { return }
+            guard model.trimmedDraft.isEmpty, model.pendingImages.isEmpty else { return }
+            withAnimation(motion.standard) { composerExpanded = false }
         }
         // EXP-696: leave the screen when the run finishes under the viewer
         // (kill, merge, the agent's own exit — the synced row edge covers every
@@ -947,8 +963,8 @@ struct AgentSessionView: View {
             switch item {
             case let .narration(_, text, _, _):
                 NarrationBubble(text: text, context: markdownContext)
-            case let .tool(_, name, detail, _):
-                ToolRow(name: name, detail: detail)
+            case let .tool(_, name, detail, _, _, _, _, failed, _):
+                ToolRow(name: name, detail: detail, failed: failed)
             case let .userMessage(_, text, _):
                 // EXP-724: a steered slash command is a control action, not
                 // prose — it renders as a compact pill instead of a bubble.
@@ -1193,6 +1209,35 @@ struct AgentSessionView: View {
         }
     }
 
+    // MARK: - Rate-limit banner (EXP-784)
+
+    /// The agent's rate-limit window, in the compaction strip's slot: its own
+    /// message and when the window resets, local time. It stands only while
+    /// the slot holds a window — an `ok`/empty status, the replay swap and
+    /// the end of the run all clear it.
+    @ViewBuilder
+    private func rateLimitBanner(_ model: AgentSessionModel) -> some View {
+        if let limit = model.sessionRateLimit, !model.isOver {
+            let caption = AgentFeed.rateLimitCaption(limit)
+            HStack(spacing: 8) {
+                AppIcon(AppIcons.uiWarning, size: AppIcon.Size.small)
+                    .foregroundStyle(DesignTokens.Semantic.yellow)
+                Text(caption)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .glassRow()
+            .padding(.horizontal, 14)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(caption)
+            .accessibilityIdentifier("agent-rate-limit")
+        }
+    }
+
     private func bannerRow(@ViewBuilder content: () -> some View) -> some View {
         HStack(spacing: 8) {
             content()
@@ -1226,10 +1271,85 @@ struct AgentSessionView: View {
                         applySlashCommand(command, model)
                     }
                 }
-                composerCard(model)
+                if composerOpen(model) {
+                    composerCard(model)
+                } else {
+                    collapsedComposerBar(model)
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
+            .animation(motion.standard, value: composerExpanded)
+        }
+    }
+
+    /// EXP-790: open while tapped open, and whenever folding would hide a
+    /// draft or a pending image (the model outlives this screen, so a draft
+    /// typed before navigating away reopens the field on return).
+    private func composerOpen(_ model: AgentSessionModel) -> Bool {
+        composerExpanded || !model.trimmedDraft.isEmpty || !model.pendingImages.isEmpty
+    }
+
+    /// EXP-790: the folded composer — the capsule IssueDetailBottomBar folds
+    /// its comment box into, wearing the placeholder the open field would
+    /// (so a pending card's "pick an option above" still reads folded), plus
+    /// a Stop circle while the agent works, so an interrupt never needs the
+    /// keyboard first.
+    private func collapsedComposerBar(_ model: AgentSessionModel) -> some View {
+        HStack(spacing: 12) {
+            Button {
+                expandComposer()
+            } label: {
+                HStack(spacing: 6) {
+                    Text(model.composerPlaceholder)
+                        .font(.subheadline)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .padding(.horizontal, 14)
+                .frame(height: 42)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(5)
+                .background(GlassTokens.opaqueCardFill, in: Capsule())
+                .overlay(
+                    Capsule().stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
+                )
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Message the agent")
+            .accessibilityIdentifier("agent-composer-collapsed")
+
+            if model.agentWorking {
+                Button {
+                    model.sendInterrupt()
+                } label: {
+                    AppIcon(AppIcons.uiStop, size: AppIcon.Size.medium, weight: .medium)
+                        .foregroundStyle(
+                            model.canSteer ? .white : .white.opacity(TextOpacity.quaternary)
+                        )
+                        .frame(width: 52, height: 52)
+                        .background(GlassTokens.opaqueCardFill, in: Circle())
+                        .overlay(
+                            Circle().stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
+                        )
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!model.canSteer)
+                .accessibilityLabel("Stop")
+            }
+        }
+    }
+
+    private func expandComposer() {
+        withAnimation(motion.standard) { composerExpanded = true }
+        // Programmatic focus needs the field mounted — one runloop hop, with
+        // a 150ms retry in case the first lands before layout.
+        DispatchQueue.main.async { inputFocused = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            if composerExpanded, !inputFocused { inputFocused = true }
         }
     }
 
@@ -1519,13 +1639,16 @@ struct AgentSessionView: View {
         // reconnect lands.
         let sendDisabled = !canSend || model.steerSending || !model.canSteer
         let attachDisabled = attachFull || model.steerSending
+        // EXP-790: an EMPTY field while the agent works offers Stop (the
+        // interrupt) in the send slot; the first typed character brings Send
+        // back.
+        let showsStop = model.agentWorking && !canSend
         return GlassComposer(isOpaque: true) {
             GlassTextField(
-                // A pending plan approval routes free text into the plan
-                // feedback flow (the desktop Esc's the picker and types the
-                // message) — say so instead of the generic prompt (EXP-529).
-                model.awaitingPlanApproval
-                    ? "Tell Claude what to change…" : "Message the agent…",
+                // EXP-788: the composer IS the free answer of a pending card
+                // — a plan's feedback or a question's typed reply — and the
+                // placeholder says which.
+                model.composerPlaceholder,
                 text: $model.draftText,
                 lines: 1...4,
                 bordered: false
@@ -1564,12 +1687,9 @@ struct AgentSessionView: View {
             .padding(.top, 12)
             .padding(.bottom, 4)
         } strip: {
-            // EXP-746: the live config chips ride the STRIP, above the pending
-            // images — three chips plus the `[+]` button do not fit on a
-            // phone's tool row, and the strip is already the composer's
-            // "extra state" band.
-            configChipRow(model)
-
+            // EXP-790 retired the mode chip that used to ride this strip:
+            // Plan/Build is the plan card's own business now, and a live
+            // toggle beside the field only ever raced the card.
             if !model.pendingImages.isEmpty {
                 PendingAttachmentStrip(items: model.pendingImages) { id in
                     removePendingImage(model, id: id)
@@ -1596,75 +1716,15 @@ struct AgentSessionView: View {
             }
         } submit: {
             GlassComposerSubmitButton(
-                AppIcons.uiSend,
-                accessibilityLabel: "Send",
-                enabled: !sendDisabled
+                showsStop ? AppIcons.uiStop : AppIcons.uiSubmit,
+                accessibilityLabel: showsStop ? "Stop" : "Send",
+                enabled: showsStop ? model.canSteer : !sendDisabled
             ) {
-                sendMessage(model)
-            }
-        }
-    }
-
-    // MARK: - Mode chip (EXP-746, narrowed by EXP-772)
-
-    /// The run's MODE, and nothing else. Model and effort pickers are gone
-    /// from a live session — they are launch decisions, and a mid-run swap
-    /// only ever muddied the transcript — so the strip carries one control.
-    ///
-    /// Picks are FIRE-AND-FORGET: the publisher re-emits `config_state` once
-    /// it applied and that repaint is the confirmation, so nothing here holds
-    /// a pending state. An agent that refuses simply re-emits the old mode and
-    /// the chip snaps back.
-    @ViewBuilder
-    private func configChipRow(_ model: AgentSessionModel) -> some View {
-        if let chip = model.modeChip {
-            HStack(spacing: 6) {
-                modeChipControl(chip, model)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 2)
-            .padding(.bottom, 4)
-        }
-    }
-
-    @ViewBuilder
-    private func modeChipControl(_ chip: AgentModeChip, _ model: AgentSessionModel) -> some View {
-        if let toggle = chip.planToggle {
-            // `plan` plus exactly one other mode is a yes/no question, so it
-            // draws as one — a two-entry dropdown for "Plan or Build" is a
-            // menu that can only ever say the thing the pill already shows.
-            GlassPill(
-                AgentFeed.planToggleLabel,
-                mode: .select(isSelected: toggle.on) {
-                    model.sendMode(id: toggle.on ? toggle.otherId : toggle.planId)
-                },
-                enabled: model.canSteer
-            )
-            .accessibilityIdentifier("agent-mode-chip")
-        } else {
-            let label = "\(AgentFeed.configModeLabel): \(chip.valueLabel)"
-            // A run that advertises modes it won't switch between is read-only,
-            // and so is every chip while the run can't be steered — the pill
-            // dims exactly like the send button rather than offering a tap
-            // that would no-op (EXP-621).
-            if chip.isReadOnly || !model.canSteer {
-                GlassPill(label, mode: .readonly, enabled: model.canSteer)
-                    .accessibilityIdentifier("agent-mode-chip")
-            } else {
-                GlassMenu {
-                    ForEach(chip.values) { value in
-                        GlassMenuItem(value.label) { model.sendMode(id: value.id) }
-                    }
-                } label: {
-                    GlassPill(label, mode: .readonly) {
-                        EmptyView()
-                    } trailing: {
-                        AppIcon(AppIcons.uiChevronDown, size: GlassPillSize.sm.glyphSize)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    }
+                if showsStop {
+                    model.sendInterrupt()
+                } else {
+                    sendMessage(model)
                 }
-                .accessibilityIdentifier("agent-mode-chip")
             }
         }
     }
@@ -2215,19 +2275,13 @@ private struct QuestionCard: View {
     @State private var expanded = false
     /// Tap order is the submit order of the semantic answer frame.
     @State private var picked: [String] = []
-    /// EXP-513: the freeText option whose inline input is open (its key).
-    @State private var freeTextKey: String?
-    @State private var freeTextValue = ""
-    @FocusState private var freeTextFocused: Bool
 
     private static let clampChars = 600
     private static let clampLines = 6
     private static let clampHeight: CGFloat = 160
-    /// The relay's answer frame rejects `text` past 4000 UTF-16 units WHOLE
-    /// (steer-relay protocol.ts — dropped, not truncated), so an oversize
-    /// reply would silently fail at the 8s lock and retry could never
-    /// succeed. Web caps via maxLength=4000, Android via .take(4000).
-    private static let freeTextMaxUtf16 = 4000
+    /// EXP-788: how many rows get a numbered chip — the desktop's keystrokes
+    /// are single digits.
+    private static let numberedRows = 9
 
     /// Plans are always fully rendered — never folded (EXP-197).
     private var clampable: Bool {
@@ -2254,7 +2308,13 @@ private struct QuestionCard: View {
     /// the option tap.
     private var needsExplicitSubmit: Bool { question.multiSelect }
 
-    private var submitTitle: String { "Submit" }
+    private var submitTitle: String { AgentFeed.submitLabel }
+
+    /// EXP-788: the rows drawn — a free-text row is gone (the composer IS the
+    /// free answer now, and its placeholder says so).
+    private var visibleOptions: [AgentQuestionOption] {
+        question.options.filter { !$0.freeText }
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -2377,46 +2437,36 @@ private struct QuestionCard: View {
         }
     }
 
+    /// EXP-788: every option is a real full-width button — a numbered chip
+    /// (1..9, the desktop's keystroke) or, on a multi-select, its checkbox,
+    /// then the label with the option's description under it. The wire's
+    /// first option of a plan is the primary action ("Yes" — the contract
+    /// puts it first) and wears the accent.
     @ViewBuilder
     private var optionList: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(question.options.enumerated()), id: \.element.key) { index, option in
+            ForEach(Array(visibleOptions.enumerated()), id: \.element.key) { index, option in
+                let primary = question.planMode && index == 0
                 if answerable {
-                    // The wire's first option of a plan is the primary approve
-                    // action ("Approve — auto-accept edits").
-                    let primary = question.planMode && index == 0
                     Button {
                         pick(option)
                     } label: {
-                        optionLabel(
+                        optionRow(
                             option,
-                            showKey: showsKeyBadge(option),
-                            checked: question.multiSelect
-                                ? picked.contains(option.key) : nil
+                            number: index + 1,
+                            primary: primary,
+                            checked: question.multiSelect ? picked.contains(option.key) : nil
                         )
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        // A plain-style button only hit-tests its drawn
-                        // content — the row's empty trailing space (most of
-                        // a short "Submit answers" option) ignored taps
-                        // (EXP-588). The shape makes the whole row the target.
-                        .contentShape(Rectangle())
                     }
-                    // glassRow, not glassButton: the capsule's height-derived
-                    // radius clipped multi-line option descriptions into an
-                    // ellipse (EXP-274).
-                    .glassRow(
-                        isActive: primary || picked.contains(option.key)
-                            || freeTextKey == option.key
-                    )
                     .buttonStyle(.plain)
                     .disabled(locked)
                     .opacity(locked ? 0.5 : 1)
+                    .accessibilityIdentifier("agent-question-option-\(index + 1)")
                 } else {
-                    optionLabel(
+                    optionRow(
                         option,
-                        showKey: showsKeyBadge(option),
+                        number: index + 1,
+                        primary: primary,
                         checked: question.multiSelect ? false : nil
                     )
                 }
@@ -2424,35 +2474,11 @@ private struct QuestionCard: View {
         }
     }
 
+    /// EXP-788: no in-card text field — the composer under the transcript is
+    /// the free answer (a plan's feedback, a question's typed reply). What is
+    /// left here is the multi-select Submit and the lock/retry captions.
     @ViewBuilder
     private var trailingActions: some View {
-        if answerable, freeTextKey != nil {
-            // EXP-513: the inline reply for the selected freeText row.
-            HStack(spacing: 6) {
-                TextField("Type your answer…", text: $freeTextValue)
-                    .textFieldStyle(.plain)
-                    .font(.caption)
-                    .foregroundStyle(.white)
-                    .focused($freeTextFocused)
-                    .onChange(of: freeTextValue) { _, newValue in
-                        freeTextValue = Self.capFreeText(newValue)
-                    }
-                    .onSubmit { submitFreeText() }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .glassRow(isActive: true)
-                let disabled = freeTextValue
-                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                GlassPill(
-                    "",
-                    mode: .select(isSelected: !disabled) { submitFreeText() },
-                    enabled: !disabled
-                ) {
-                    AppIcon(AppIcons.uiSend, size: GlassPillTokens.glyphSm)
-                }
-                .accessibilityLabel("Send")
-            }
-        }
         if answerable, needsExplicitSubmit {
             // Multi-select submits every picked key at once.
             let disabled = locked || picked.isEmpty
@@ -2485,14 +2511,6 @@ private struct QuestionCard: View {
         }
     }
 
-    /// The wire key doubles as the TUI hint badge — but only when it reads as
-    /// one: an ask's submit step carries `\r`, and a plan's approve action is
-    /// the primary button, not a keystroke.
-    private func showsKeyBadge(_ option: AgentQuestionOption) -> Bool {
-        guard !question.planMode else { return false }
-        return option.key.allSatisfy { $0.isLetter || $0.isNumber }
-    }
-
     private func pick(_ option: AgentQuestionOption) {
         guard !locked else { return }
         if question.multiSelect {
@@ -2504,38 +2522,8 @@ private struct QuestionCard: View {
             // The keys batch into the submit frame.
             return
         }
-        if option.freeText {
-            // EXP-513: collect the reply first — nothing is sent until it
-            // submits (the desktop types it into the TUI row).
-            freeTextKey = freeTextKey == option.key ? nil : option.key
-            freeTextFocused = freeTextKey != nil
-            return
-        }
         picked = [option.key]
         onAnswer([option.key], nil)
-    }
-
-    /// Truncate to the relay's 4000-UTF-16-unit answer cap, backing off one
-    /// unit rather than splitting a surrogate pair (4001 units would still
-    /// be dropped whole — same convention as `sendMessage`'s chunker).
-    private static func capFreeText(_ text: String) -> String {
-        let units = Array(text.utf16)
-        guard units.count > freeTextMaxUtf16 else { return text }
-        var end = freeTextMaxUtf16
-        if UTF16.isLeadSurrogate(units[end - 1]) { end -= 1 }
-        return String(decoding: units[0..<end], as: UTF16.self)
-    }
-
-    private func submitFreeText() {
-        guard !locked, let key = freeTextKey else { return }
-        let text = Self.capFreeText(
-            freeTextValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        )
-        guard !text.isEmpty else { return }
-        picked = [key]
-        onAnswer([key], text)
-        freeTextKey = nil
-        freeTextValue = ""
     }
 
     private func submit() {
@@ -2543,12 +2531,18 @@ private struct QuestionCard: View {
         onAnswer(picked, nil)
     }
 
-    private func optionLabel(
+    /// One option row (EXP-788): the whole width is the hit target (a
+    /// plain-style button only hit-tests what it draws, EXP-588), glassRow
+    /// rather than the capsule button whose height-derived radius clipped a
+    /// two-line description into an ellipse (EXP-274). The primary row is
+    /// stroked in the design-tokens blue.
+    private func optionRow(
         _ option: AgentQuestionOption,
-        showKey: Bool = true,
-        checked: Bool? = nil
+        number: Int,
+        primary: Bool,
+        checked: Bool?
     ) -> some View {
-        HStack(alignment: .top, spacing: 6) {
+        HStack(alignment: .top, spacing: 8) {
             if let checked {
                 // Multi-select rows carry an explicit checkbox (EXP-529) —
                 // the glassRow tint alone was too subtle to read the picked
@@ -2557,25 +2551,49 @@ private struct QuestionCard: View {
                     .foregroundStyle(
                         .white.opacity(checked ? TextOpacity.primary : TextOpacity.tertiary)
                     )
-                    .padding(.top, 1)
-            } else if showKey {
-                Text(option.key)
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .padding(.top, 2)
+            } else if number <= Self.numberedRows {
+                numberChip(number, primary: primary)
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(option.label)
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.leading)
-                if let description = option.description {
+                if let description = option.description, !description.isEmpty {
                     Text(description)
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .multilineTextAlignment(.leading)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
+        .glassRow(isActive: primary || checked == true)
+        .overlay(
+            RoundedRectangle(cornerRadius: GlassTokens.rowRadius)
+                .stroke(
+                    primary ? DesignTokens.Semantic.blue.opacity(0.6) : Color.clear,
+                    lineWidth: GlassTokens.hairline
+                )
+        )
+    }
+
+    /// The 1..9 chip — the keystroke the desktop would take. Filled with the
+    /// accent on the primary row, a quiet glass square elsewhere.
+    private func numberChip(_ number: Int, primary: Bool) -> some View {
+        Text("\(number)")
+            .font(.caption2.weight(.semibold).monospacedDigit())
+            .foregroundStyle(primary ? Color.white : .white.opacity(TextOpacity.secondary))
+            .frame(width: 18, height: 18)
+            .background(
+                primary ? DesignTokens.Semantic.blue : GlassTokens.fillActive,
+                in: RoundedRectangle(cornerRadius: 5)
+            )
+            .accessibilityHidden(true)
     }
 }
 
@@ -2583,6 +2601,9 @@ private struct QuestionCard: View {
 private struct ToolRow: View {
     let name: String
     let detail: String?
+    /// EXP-785: the call failed — the row tints red (web parity) so a
+    /// collapsed group's "1 failed" has a row to point at once expanded.
+    var failed: Bool = false
     /// EXP-787: a row INSIDE an expanded group keeps the compact inner rhythm
     /// this used to give every tool row; an outermost one is spaced by the
     /// transcript's gap ladder instead.
@@ -2591,10 +2612,12 @@ private struct ToolRow: View {
     var body: some View {
         HStack(spacing: 8) {
             AppIcon(AppIcons.codingTool, size: 11)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .foregroundStyle(
+                    failed ? DesignTokens.Semantic.red : .white.opacity(TextOpacity.tertiary)
+                )
             Text(name)
                 .transcriptToolText(.medium)
-                .foregroundStyle(.white)
+                .foregroundStyle(failed ? DesignTokens.Semantic.red : .white)
             if let detail {
                 Text(Self.middleTruncate(detail))
                     .font(.caption2.monospaced())
@@ -2628,6 +2651,16 @@ private struct ToolGroupRow: View {
 
     @State private var expanded = false
 
+    /// EXP-785: the collapsed caption is what the calls DID ("Ran 3 commands
+    /// · edited 2 files"), the one summary every client derives from the
+    /// contract fixture, not a bare count.
+    private var caption: String {
+        ToolGroupSummary.summarize(items.compactMap { item in
+            guard case let .tool(_, _, detail, _, _, kind, _, failed, _) = item else { return nil }
+            return ToolCallSummary(kind: kind ?? "other", detail: detail, failed: failed)
+        })
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
@@ -2638,9 +2671,10 @@ private struct ToolGroupRow: View {
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     AppIcon(AppIcons.codingTool, size: 11)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    Text("\(items.count) tool calls")
+                    Text(caption)
                         .transcriptToolText(.medium)
                         .foregroundStyle(.white)
+                        .lineLimit(1)
                     Spacer(minLength: 0)
                 }
                 .contentShape(Rectangle())
@@ -2650,15 +2684,15 @@ private struct ToolGroupRow: View {
             if expanded {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(items) { item in
-                        if case let .tool(_, name, detail, _) = item {
-                            ToolRow(name: name, detail: detail, nested: true)
+                        if case let .tool(_, name, detail, _, _, _, _, failed, _) = item {
+                            ToolRow(name: name, detail: detail, failed: failed, nested: true)
                         }
                     }
                 }
                 .padding(.leading, 20)
             } else if liveTail, let last = items.last,
-                      case let .tool(_, name, detail, _) = last {
-                ToolRow(name: name, detail: detail, nested: true)
+                      case let .tool(_, name, detail, _, _, _, _, failed, _) = last {
+                ToolRow(name: name, detail: detail, failed: failed, nested: true)
                     .padding(.leading, 20)
             }
         }
@@ -2761,8 +2795,8 @@ private struct SubagentItemRow: View {
     @ViewBuilder
     private var content: some View {
         switch item {
-        case let .tool(_, name, detail, _):
-            ToolRow(name: name, detail: detail)
+        case let .tool(_, name, detail, _, _, _, _, failed, _):
+            ToolRow(name: name, detail: detail, failed: failed)
         case let .narration(_, text, _, _):
             NarrationBubble(text: text, context: context)
         case let .userMessage(_, text, _):

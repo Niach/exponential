@@ -46,7 +46,7 @@ use agent_client_protocol::schema::v1::{
     RequestPermissionOutcome, RequestPermissionRequest, ResumeSessionRequest,
     ResumeSessionResponse, SessionCapabilities, SessionConfigId, SessionConfigOption,
     SessionConfigOptionValue, SessionId,
-    SessionInfo, SessionListCapabilities, SessionMode, SessionModeId, SessionModeState,
+    SessionInfo, SessionInfoUpdate, SessionListCapabilities, SessionMode, SessionModeId, SessionModeState,
     SessionNotification, SessionResumeCapabilities, SessionUpdate, SetSessionConfigOptionRequest,
     SetSessionConfigOptionResponse, SetSessionModeRequest, SetSessionModeResponse, StopReason,
     StringPropertySchema, TextContent, ToolCall, ToolCallContent, ToolCallId, ToolCallLocation,
@@ -61,6 +61,8 @@ use serde_json::{json, Map, Value};
 
 use super::claude_wire::{self as wire, ClaudeArgs, ClaudeOut, McpConfig, SystemSubtype, TurnOutcome};
 use super::AdapterSpec;
+use crate::host::{CANCEL_QUEUED_META_KEY, NATIVE_SESSION_META_KEY};
+use crate::mapper::{PERMISSION_OPTION_DESCRIPTION_META, RATE_LIMIT_META_KEY};
 use crate::session::{EngineError, ResumeHandle};
 use crate::transport::{spawn_lines, ChildLines, StderrPolicy};
 
@@ -181,7 +183,8 @@ impl ConnectTo<Client> for ClaudeAgent {
                                 Ok(()) => responder.respond(
                                     NewSessionResponse::new(session.session_id.clone())
                                         .modes(session.mode_state())
-                                        .config_options(session.config_options()),
+                                        .config_options(session.config_options())
+                                        .meta(session.native_id_meta()),
                                 ),
                                 Err(error) => responder.respond_with_error(error),
                             }
@@ -199,11 +202,34 @@ impl ConnectTo<Client> for ClaudeAgent {
                             // no turn, nothing to kill. The child is spawned
                             // lazily if the caller then prompts (D6's Replay
                             // tab never does).
-                            session.replay_history(&spawned, &request.session_id);
+                            //
+                            // EXP-784: the ACP id on the request is the
+                            // host's stable handle; the transcript is named
+                            // by claude's OWN id, which the host passes as a
+                            // `_meta` hint off the run record. Without one
+                            // (a pre-784 record) the two were the same uuid.
+                            let hinted = request
+                                .meta
+                                .as_ref()
+                                .and_then(|meta| meta.get(NATIVE_SESSION_META_KEY))
+                                .and_then(Value::as_str)
+                                .map(str::to_string);
+                            // No child has run yet, so the pin minted in
+                            // `new` names nothing on disk: the hint wins,
+                            // else the ACP id IS the transcript (pre-784).
+                            let transcript = {
+                                let mut state = session.lock();
+                                let transcript =
+                                    hinted.unwrap_or_else(|| request.session_id.0.to_string());
+                                state.native_session_id = Some(transcript.clone());
+                                transcript
+                            };
+                            session.replay_history(&spawned, &transcript);
                             responder.respond(
                                 LoadSessionResponse::new()
                                     .modes(session.mode_state())
-                                    .config_options(session.config_options()),
+                                    .config_options(session.config_options())
+                                    .meta(session.native_id_meta()),
                             )
                         })?;
                         Ok(())
@@ -215,7 +241,10 @@ impl ConnectTo<Client> for ClaudeAgent {
                         let session = on_resume.clone();
                         let spawned = cx.clone();
                         cx.spawn(async move {
-                            let resume = request.session_id.0.to_string();
+                            // EXP-784: our own ACP id names the native
+                            // transcript behind it; any other id is taken as
+                            // a claude session id verbatim.
+                            let resume = session.resume_handle_for(&request.session_id);
                             match session.start(&spawned, Some(&resume)).await {
                                 Ok(()) => responder.respond(
                                     ResumeSessionResponse::new()
@@ -293,8 +322,16 @@ impl ConnectTo<Client> for ClaudeAgent {
                     on_receive_request!(),
                 )
                 .on_receive_notification(
-                    async move |_notification: CancelNotification, _cx| {
-                        on_cancel.cancel();
+                    async move |notification: CancelNotification, _cx| {
+                        // EXP-784: absent = a Stop (the queued steers go
+                        // too); the stall watchdog's interrupt says `false`.
+                        let cancel_queued = notification
+                            .meta
+                            .as_ref()
+                            .and_then(|meta| meta.get(CANCEL_QUEUED_META_KEY))
+                            .and_then(Value::as_bool)
+                            .unwrap_or(true);
+                        on_cancel.cancel(cancel_queued);
                         Ok(())
                     },
                     on_receive_notification!(),
@@ -324,9 +361,13 @@ impl ConnectTo<Client> for ClaudeAgent {
 
 struct ClaudeSession {
     spec: AdapterSpec,
-    /// The ACP session id, which IS the uuid pinned on the argv as
-    /// `--session-id` — so `acp_session_id` and claude's own transcript name
-    /// are the same string and `--resume=<acp id>` reopens exactly this run.
+    /// The ACP session id: the host's STABLE handle for this run. EXP-784
+    /// decoupled it from claude's own session uuid (`State::native_session_id`,
+    /// the `--session-id` pin / `--resume` target): a `/clear` gives the CLI a
+    /// fresh transcript under a NEW uuid, and with the two ids being one
+    /// string the run record's resume handle silently pointed at the dead
+    /// conversation. Now the native id moves and is re-published
+    /// (`NATIVE_SESSION_META_KEY`) while this one never does.
     session_id: SessionId,
     /// The child's stdout EOF, as a future the connection's `main_fn` waits
     /// on. Held as the RECEIVER of a rendezvous channel whose sender the pump
@@ -425,7 +466,21 @@ struct State {
     /// live — settling at the `result` would strand their permission requests
     /// on an RPC nobody answers.
     deferred: Option<DeferredSettle>,
+    /// Claude's OWN session uuid: minted here for a fresh run (the
+    /// `--session-id` pin), the recorded handle for a resume, and re-read
+    /// from every `system/init` (a `/clear` changes it, EXP-784).
     native_session_id: Option<String>,
+    /// The native id last put on a response or notification `_meta`, so an
+    /// init that reports the same one publishes nothing.
+    published_native_id: Option<String>,
+    /// EXP-784: the rate-limit slot's adapter-side state.
+    rate_limit: RateLimitState,
+    /// EXP-784: message ids of `<synthetic>` messages seen at `message_start`,
+    /// whose text deltas must not stream as narration.
+    synthetic_messages: HashSet<String>,
+    /// EXP-784: whether the interrupt a deferred cancel will deliver also
+    /// drops the CLI's queued user messages.
+    interrupt_cancel_queued: bool,
     model: String,
     models: Vec<wire::ModelInfo>,
     custom_agents: Vec<String>,
@@ -478,6 +533,26 @@ struct State {
     /// cleared by it — the CLI's own prewait latch, ported.
     cancel_epoch: u64,
     closed: bool,
+}
+
+/// EXP-784: what the adapter knows about the plan window, from the CLI's
+/// `rate_limit_event`s and its synthetic "You've hit your…" notices.
+#[derive(Default)]
+struct RateLimitState {
+    /// The last LIMITED status a `rate_limit_event` reported
+    /// (`allowed_warning`, `rejected`); `None` after an `allowed`.
+    status: Option<String>,
+    /// Its `resetsAt`, already in unix ms.
+    resets_at: Option<i64>,
+    /// A synthetic limit notice is on the slot. Cleared by the next REAL
+    /// assistant text, never by the per-turn `allowed` event — that one
+    /// fires at the request, BEFORE the 429 that produces the notice, so
+    /// honouring it would flicker the slot clear-then-limited every turn.
+    notice_active: bool,
+    /// The slot as last published, so the CLI repeating its notice on
+    /// every request of a turn (measured: N identical frames) publishes
+    /// once. The mapper dedupes too; this keeps the ACP stream honest.
+    published: Option<Value>,
 }
 
 /// One `result`'s settlement, kept whole so a deferral (a live subagent)
@@ -585,15 +660,20 @@ struct PlanRestart {
 
 impl ClaudeSession {
     fn new(spec: AdapterSpec) -> ClaudeSession {
-        // The ACP session id is minted here rather than taken from the
-        // `coding_sessions` row: it doubles as claude's `--session-id`, which
-        // must be a uuid the CLI has never seen.
-        let session_id = match &spec.resume {
-            Some(ResumeHandle::Acp(id)) | Some(ResumeHandle::Native(id)) => id.clone(),
-            _ => uuid::Uuid::new_v4().to_string(),
+        // EXP-784: TWO uuids. The ACP session id is the host's handle (a
+        // recorded one on `session/load`, else fresh); claude's own is the
+        // `--session-id` pin, a uuid the CLI has never seen, or the recorded
+        // native handle on a resume. On `Acp(id)` the native one arrives
+        // later as the load request's hint (a pre-784 record has none, and
+        // then the two are the same string, as they always were).
+        let (session_id, native_session_id) = match &spec.resume {
+            Some(ResumeHandle::Acp(id)) => (id.clone(), None),
+            Some(ResumeHandle::Native(id)) => (uuid::Uuid::new_v4().to_string(), Some(id.clone())),
+            _ => (uuid::Uuid::new_v4().to_string(), Some(uuid::Uuid::new_v4().to_string())),
         };
         let options = &spec.options;
         let state = State {
+            native_session_id,
             model: options.model.trim().to_string(),
             effort: (!options.effort.trim().is_empty()).then(|| options.effort.trim().to_string()),
             ultracode: options.ultracode,
@@ -617,6 +697,45 @@ impl ClaudeSession {
 
     fn cwd(&self) -> &Path {
         &self.spec.cwd
+    }
+
+    /// EXP-784: the `_meta` naming claude's own session id, for the
+    /// `session/new` / `session/load` response — what the run record's
+    /// `agent_native_session_id` is written from. Empty when nothing is
+    /// known yet (an `Acp` load with no hint, before the first init).
+    fn native_id_meta(&self) -> Map<String, Value> {
+        let mut state = self.lock();
+        let mut meta = Map::new();
+        if let Some(native) = state.native_session_id.clone() {
+            state.published_native_id = Some(native.clone());
+            meta.insert(NATIVE_SESSION_META_KEY.to_string(), json!(native));
+        }
+        meta
+    }
+
+    /// EXP-784: the claude session id a `session/resume` for `session_id`
+    /// reopens — the native one behind OUR ACP id, any other id verbatim.
+    fn resume_handle_for(&self, session_id: &SessionId) -> String {
+        if *session_id == self.session_id {
+            self.lock()
+                .native_session_id
+                .clone()
+                .unwrap_or_else(|| self.session_id.0.to_string())
+        } else {
+            session_id.0.to_string()
+        }
+    }
+
+    /// EXP-784: the handle a lazy spawn (`prompt` on a loaded session)
+    /// resumes with: the native id, never the public one.
+    fn lazy_resume_handle(&self) -> Option<String> {
+        let state = self.lock();
+        state.child.is_none().then(|| {
+            state
+                .native_session_id
+                .clone()
+                .unwrap_or_else(|| self.session_id.0.to_string())
+        })
     }
 
     /// Resolves when the child's stdout ends — EOF, a crash, an external kill
@@ -723,6 +842,7 @@ impl ClaudeSession {
         };
         let mode = state.mode.clone();
         let disallow_ask = !state.client_supports_form_elicitation;
+        let native = state.native_session_id.clone();
         drop(state);
 
         let inline_mcp;
@@ -745,12 +865,25 @@ impl ClaudeSession {
         };
         // A launch that carries a resume seed reopens THAT conversation even
         // when the host called `session/new`: the recorded id is already taken,
-        // so pinning it as a fresh `--session-id` would be refused.
+        // so pinning it as a fresh `--session-id` would be refused. EXP-784:
+        // the conversation is the NATIVE id (the load hint, or the recorded
+        // handle); the ACP id is only ever the transcript name on a pre-784
+        // record, where the two were one uuid.
         let recorded = match &self.spec.resume {
-            Some(ResumeHandle::Acp(id)) | Some(ResumeHandle::Native(id)) => Some(id.as_str()),
+            Some(ResumeHandle::Acp(id)) | Some(ResumeHandle::Native(id)) => {
+                Some(native.clone().unwrap_or_else(|| id.clone()))
+            }
             Some(ResumeHandle::PiSessionFile(_)) | None => None,
         };
-        let resume = resume.or(recorded);
+        let resume = resume.map(str::to_string).or(recorded);
+        // The pin: claude's own uuid, minted in `new` and NEVER the ACP id.
+        let pin = native.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        {
+            // Whatever the child is told to be is what it is until an init
+            // says otherwise: a resume continues under the resumed id.
+            let mut state = self.lock();
+            state.native_session_id = Some(resume.clone().unwrap_or_else(|| pin.clone()));
+        }
         // Without `elicitation.form` the model must never pick
         // AskUserQuestion: there would be nothing to render its form with.
         let disallowed: &[&str] = if disallow_ask { &["AskUserQuestion"] } else { &[] };
@@ -767,8 +900,8 @@ impl ClaudeSession {
             // ("bypassPermissions") is only accepted when the flag was there
             // at spawn.
             allow_dangerous: true,
-            session_id: Some(self.session_id.0.as_ref()),
-            resume,
+            session_id: Some(pin.as_str()),
+            resume: resume.as_deref(),
             fork_session: false,
             mcp_config: mcp,
             strict_mcp_config: mcp.is_some(),
@@ -865,10 +998,16 @@ impl ClaudeSession {
         Ok(response)
     }
 
-    fn cancel(&self) {
+    /// `cancel_queued` (EXP-784): a user's Stop halts the whole session —
+    /// the running turn AND the user messages the CLI holds queued behind
+    /// it (`true`); the stall watchdog's interrupt unwinds the wedged turn
+    /// alone (`false`) so those queued steers flow, which is the promise
+    /// `stall.rs` makes.
+    fn cancel(&self, cancel_queued: bool) {
         let mut state = self.lock();
         state.cancelled = true;
         state.cancel_epoch = state.cancel_epoch.wrapping_add(1);
+        state.interrupt_cancel_queued = cancel_queued;
         let closed = state.closed;
         drop(state);
         if closed {
@@ -878,7 +1017,7 @@ impl ClaudeSession {
         }
         if let Err(error) = self.send(wire::control_request(
             &wire::new_request_id(),
-            wire::interrupt(true),
+            wire::interrupt(cancel_queued),
         )) {
             // EXP-758: the usual reason is that the child is not up YET (a
             // cancel racing a prompt's lazy spawn), and a cancel dropped
@@ -902,13 +1041,14 @@ impl ClaudeSession {
         let mut state = self.lock();
         let deferred = std::mem::take(&mut state.interrupt_pending);
         let deliver = deferred && state.cancelled && !state.closed;
+        let cancel_queued = state.interrupt_cancel_queued;
         drop(state);
         if !deliver {
             return;
         }
         if let Err(error) = self.send(wire::control_request(
             &wire::new_request_id(),
-            wire::interrupt(true),
+            wire::interrupt(cancel_queued),
         )) {
             log::warn!("engine: claude interrupt failed: {error}");
         }
@@ -929,7 +1069,8 @@ impl ClaudeSession {
         // replay that the user decided to continue. EXP-758: `/usage` takes
         // the SAME handle. Spawning it fresh with a new `--session-id` forked
         // the conversation, so the next real prompt landed in an empty one.
-        let resume = self.lock().child.is_none().then(|| self.session_id.0.to_string());
+        // EXP-784: the handle is claude's NATIVE id, never the ACP one.
+        let resume = self.lazy_resume_handle();
         // `/usage` is answered from the `get_usage` control request instead of
         // a turn; `get_context_usage` is never sent at all (it stalls ~15 s
         // before the first turn and serializes ahead of an awaited set_model).
@@ -1258,6 +1399,97 @@ impl ClaudeSession {
         );
     }
 
+    /// EXP-784: claude's session id changed mid-run (a `/clear`). Rides a
+    /// no-op `session_info_update` the mapper ignores; the host reads the
+    /// `_meta` and re-records the run's `agent_native_session_id`.
+    fn publish_native_id(&self, cx: &ConnectionTo<Client>, native: &str) {
+        let mut meta = Map::new();
+        meta.insert(NATIVE_SESSION_META_KEY.to_string(), json!(native));
+        self.notify_meta(cx, SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new()), meta);
+    }
+
+    /// EXP-784: the `rate_limit` slot, as `_meta` on a no-op
+    /// `session_info_update` (`RATE_LIMIT_META_KEY`, read by the mapper).
+    /// `status` empty/`ok` is the clear; the mapper dedupes identical
+    /// re-emits, so the adapter never has to.
+    fn publish_rate_limit(
+        &self,
+        cx: &ConnectionTo<Client>,
+        status: &str,
+        resets_at: Option<i64>,
+        message: Option<&str>,
+    ) {
+        let mut slot = Map::new();
+        slot.insert("status".to_string(), json!(status));
+        if let Some(at) = resets_at {
+            slot.insert("resetsAt".to_string(), json!(at));
+        }
+        if let Some(message) = message {
+            slot.insert("message".to_string(), json!(message));
+        }
+        let slot = Value::Object(slot);
+        {
+            let mut state = self.lock();
+            if state.rate_limit.published.as_ref() == Some(&slot) {
+                return;
+            }
+            state.rate_limit.published = Some(slot.clone());
+        }
+        let mut meta = Map::new();
+        meta.insert(RATE_LIMIT_META_KEY.to_string(), slot);
+        self.notify_meta(cx, SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new()), meta);
+    }
+
+    /// A `rate_limit_event`: a limited status goes on the slot (keeping a
+    /// notice's text if one is up); the ordinary `allowed` clears it only
+    /// while no notice is up — see [`RateLimitState::notice_active`].
+    fn on_rate_limit_event(&self, cx: &ConnectionTo<Client>, info: &wire::RateLimitInfo) {
+        let resets_at = wire::resets_at_millis(info.resets_at);
+        let mut state = self.lock();
+        if info.is_limited() {
+            let status = info.status.trim().to_string();
+            state.rate_limit.status = Some(status.clone());
+            state.rate_limit.resets_at = resets_at;
+            drop(state);
+            self.publish_rate_limit(cx, &status, resets_at, None);
+            return;
+        }
+        state.rate_limit.status = None;
+        state.rate_limit.resets_at = None;
+        let notice_active = state.rate_limit.notice_active;
+        drop(state);
+        if !notice_active {
+            self.publish_rate_limit(cx, "ok", None, None);
+        }
+    }
+
+    /// A synthetic limit notice (`You've hit your session limit · resets
+    /// 12:10pm`): ONTO the slot as its message, never a narration — the CLI
+    /// repeats it on every request of the turn, and each used to be a bubble.
+    fn on_rate_limit_notice(&self, cx: &ConnectionTo<Client>, text: &str) {
+        let mut state = self.lock();
+        state.rate_limit.notice_active = true;
+        let status = state
+            .rate_limit
+            .status
+            .clone()
+            .unwrap_or_else(|| wire::RATE_LIMIT_FALLBACK_STATUS.to_string());
+        let resets_at = state.rate_limit.resets_at;
+        drop(state);
+        self.publish_rate_limit(cx, &status, resets_at, Some(text.trim()));
+    }
+
+    /// Real assistant text after a notice: the window reopened, clear it.
+    fn clear_rate_limit_notice(&self, cx: &ConnectionTo<Client>) {
+        let mut state = self.lock();
+        if !state.rate_limit.notice_active {
+            return;
+        }
+        state.rate_limit = RateLimitState::default();
+        drop(state);
+        self.publish_rate_limit(cx, "ok", None, None);
+    }
+
     // -----------------------------------------------------------------------
     // the pump
     // -----------------------------------------------------------------------
@@ -1323,11 +1555,12 @@ impl ClaudeSession {
                     );
                 }
             }
+            // EXP-784: the plan window, onto the wire's `rate_limit` slot.
+            // (The upstream adapter re-emits its usage snapshot on it; the
+            // numbers are unchanged, so nothing of that is mirrored.)
+            ClaudeOut::RateLimitEvent(event) => self.on_rate_limit_event(cx, &event.rate_limit_info),
             // Answering a keep_alive is a protocol error; unknown frame types
-            // are how the CLI ships new features. `rate_limit_event` lands here
-            // deliberately: the upstream adapter re-emits its usage snapshot on
-            // it, but the numbers are unchanged and the plan windows ride
-            // `devices.agent_usage`, not the session feed.
+            // are how the CLI ships new features.
             ClaudeOut::KeepAlive | ClaudeOut::Unknown => {}
         }
     }
@@ -1336,8 +1569,16 @@ impl ClaudeSession {
         match SystemSubtype::classify(&system.subtype) {
             SystemSubtype::Init => {
                 let mut state = self.lock();
+                let mut republish = None;
                 if !system.session_id.is_empty() {
                     state.native_session_id = Some(system.session_id.clone());
+                    // EXP-784: a `/clear` re-inits under a NEW uuid. The run
+                    // record must follow it or a resume reopens the dead
+                    // conversation; the same id again is not news.
+                    if state.published_native_id.as_deref() != Some(system.session_id.as_str()) {
+                        state.published_native_id = Some(system.session_id.clone());
+                        republish = Some(system.session_id.clone());
+                    }
                 }
                 if !system.model.is_empty() {
                     state.model = system.model.clone();
@@ -1377,6 +1618,9 @@ impl ClaudeSession {
                 let raw = state.raw_commands.clone();
                 state.commands = wire::available_commands(&raw, &terminal);
                 drop(state);
+                if let Some(native) = republish {
+                    self.publish_native_id(cx, &native);
+                }
                 self.publish_commands(cx);
                 self.publish_config(cx);
                 if mode_changed {
@@ -1582,6 +1826,35 @@ impl ClaudeSession {
             Value::String(text) => vec![json!({ "type": "text", "text": text })],
             _ => Vec::new(),
         };
+
+        // EXP-784: claude's own limit notice is a `<synthetic>` frame (or
+        // opens with the measured prefix). It is STATE, not prose: the slot
+        // gets its text and no bubble is emitted; a real message afterwards
+        // clears the slot.
+        let model = message.message.get("model").and_then(Value::as_str);
+        let text: String = blocks
+            .iter()
+            .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))
+            .filter_map(|block| block.get("text").and_then(Value::as_str))
+            .collect::<Vec<_>>()
+            .join("\n");
+        if let Some(id) = &message_id {
+            let mut state = self.lock();
+            state.synthetic_messages.remove(id);
+        }
+        if wire::is_rate_limit_notice(model, &text) {
+            if let Some(id) = &message_id {
+                self.lock().streamed.remove(id);
+            }
+            // Counts as delivered: the turn's `result` repeats the notice
+            // and must not forward it as a narration either.
+            self.lock().delivered_text = true;
+            self.on_rate_limit_notice(cx, &text);
+            return;
+        }
+        if !text.trim().is_empty() && model != Some(wire::SYNTHETIC_MODEL) {
+            self.clear_rate_limit_notice(cx);
+        }
 
         // Each text/thinking block may already have streamed as deltas: diff
         // it against what streamed (in document order) and forward only the
@@ -1830,22 +2103,42 @@ impl ClaudeSession {
         );
     }
 
+    /// EXP-784: whether the message now streaming for `parent_key` is a
+    /// `<synthetic>` one, whose text is the limit notice the consolidated
+    /// `assistant` frame puts on the slot — never streamed as prose.
+    fn streaming_synthetic(&self, parent_key: &str) -> bool {
+        let state = self.lock();
+        state
+            .current_message
+            .get(parent_key)
+            .is_some_and(|id| state.synthetic_messages.contains(id))
+    }
+
     fn on_stream_event(self: &Arc<Self>, cx: &ConnectionTo<Client>, event: wire::StreamEventMsg) {
         let parent = event.parent_tool_use_id.clone();
         let parent_key = parent.clone().unwrap_or_default();
         match event.event_type() {
             "message_start" => {
                 let message = &event.event["message"];
+                let model = message.get("model").and_then(Value::as_str);
                 if let Some(id) = message.get("id").and_then(Value::as_str) {
-                    self.lock().current_message.insert(parent_key, id.to_string());
+                    let mut state = self.lock();
+                    state.current_message.insert(parent_key.clone(), id.to_string());
+                    // EXP-784: a synthetic message's deltas are not prose.
+                    if model == Some(wire::SYNTHETIC_MODEL) {
+                        state.synthetic_messages.insert(id.to_string());
+                    }
                 }
-                if let Some(model) = message.get("model").and_then(Value::as_str) {
+                if let Some(model) = model.filter(|model| *model != wire::SYNTHETIC_MODEL) {
                     self.lock().context_window.infer(model);
                 }
                 self.merge_usage(cx, &message["usage"], None);
             }
             "message_delta" => self.merge_usage(cx, &event.event["usage"], None),
             "content_block_start" => {
+                if self.streaming_synthetic(&parent_key) {
+                    return;
+                }
                 let block = &event.event["content_block"];
                 let index = event.event.get("index").and_then(Value::as_u64).unwrap_or(0);
                 match block.get("type").and_then(Value::as_str) {
@@ -1881,6 +2174,9 @@ impl ClaudeSession {
                 }
             }
             "content_block_delta" => {
+                if self.streaming_synthetic(&parent_key) {
+                    return;
+                }
                 let index = event.event.get("index").and_then(Value::as_u64).unwrap_or(0);
                 let delta = &event.event["delta"];
                 match event.delta_type() {
@@ -1993,7 +2289,11 @@ impl ClaudeSession {
             let state = self.lock();
             (state.local_only_command, state.delivered_text)
         };
-        if wire::should_forward_result(local_only, delivered, &result) {
+        // EXP-784: a limited turn's result REPEATS the notice; the slot has
+        // it (or gets it here, for a CLI that sent no assistant frame).
+        if wire::is_rate_limit_notice(None, &result.result) {
+            self.on_rate_limit_notice(cx, &result.result);
+        } else if wire::should_forward_result(local_only, delivered, &result) {
             self.notify(
                 cx,
                 SessionUpdate::AgentMessageChunk(ContentChunk::new(ContentBlock::Text(
@@ -2427,9 +2727,11 @@ impl ClaudeSession {
     /// session takes, with no child process and no hooks — so a Past run
     /// renders exactly like the run did (minus the per-edit diffs, which only
     /// the PostToolUse hook can produce).
-    fn replay_history(self: &Arc<Self>, cx: &ConnectionTo<Client>, session_id: &SessionId) {
-        let Some(path) = transcript_path(&self.spec.spawn.env, session_id.0.as_ref()) else {
-            log::warn!("engine: no claude transcript for {}", session_id.0);
+    /// `session_id` is claude's OWN (the transcript name), not the ACP id
+    /// (EXP-784).
+    fn replay_history(self: &Arc<Self>, cx: &ConnectionTo<Client>, session_id: &str) {
+        let Some(path) = transcript_path(&self.spec.spawn.env, session_id) else {
+            log::warn!("engine: no claude transcript for {session_id}");
             return;
         };
         let Ok(text) = std::fs::read_to_string(&path) else { return };
@@ -3223,10 +3525,17 @@ fn permission_answer(
 /// The plan-approval menu. EXP-772: permissions are bypassed in every mode,
 /// so "manually approve edits" is no longer an answer that means anything —
 /// what is left is code it, code it in a FRESH context (only when there is a
-/// plan to carry), or keep planning.
+/// plan to carry), or keep planning. EXP-788: the plain "Yes" is FIRST (every
+/// client promotes index 0 as the primary), the fresh-context variant second,
+/// and "No, keep planning" LAST, carrying a description that says what it
+/// does — it is a deny that sends the next message back to planning.
 fn exit_plan_options(input: &Value) -> Vec<PermissionOption> {
     let plan = input.get("plan").and_then(Value::as_str).unwrap_or_default();
-    let mut options = Vec::new();
+    let mut options = vec![PermissionOption::new(
+        PermissionOptionId::new("exit-plan-bypass"),
+        "Yes",
+        PermissionOptionKind::AllowAlways,
+    )];
     if !plan.trim().is_empty() {
         options.push(PermissionOption::new(
             PermissionOptionId::new("exit-plan-clear-bypass"),
@@ -3234,17 +3543,28 @@ fn exit_plan_options(input: &Value) -> Vec<PermissionOption> {
             PermissionOptionKind::AllowAlways,
         ));
     }
-    options.push(PermissionOption::new(
-        PermissionOptionId::new("exit-plan-bypass"),
-        "Yes",
-        PermissionOptionKind::AllowAlways,
-    ));
-    options.push(PermissionOption::new(
-        PermissionOptionId::new("reject"),
-        "No, keep planning",
-        PermissionOptionKind::RejectOnce,
-    ));
+    options.push(
+        PermissionOption::new(
+            PermissionOptionId::new("reject"),
+            "No, keep planning",
+            PermissionOptionKind::RejectOnce,
+        )
+        .meta(option_description("Sends your next message back to planning")),
+    );
     options
+}
+
+/// ACP's `PermissionOption` has no description of its own; the mapper reads
+/// the option's second line from `_meta` under
+/// [`PERMISSION_OPTION_DESCRIPTION_META`] and publishes it as
+/// `QuestionOption.description`.
+fn option_description(text: &str) -> Map<String, Value> {
+    let mut meta = Map::new();
+    meta.insert(
+        PERMISSION_OPTION_DESCRIPTION_META.to_string(),
+        Value::String(text.to_string()),
+    );
+    meta
 }
 
 /// The mode a plan option approves into, or `None` when it is a clear-context
@@ -3890,20 +4210,37 @@ mod tests {
     }
 
     /// EXP-772: approving a plan means coding it, in this context or a fresh
-    /// one — every answer lands on `bypassPermissions`.
+    /// one — every answer lands on `bypassPermissions`. EXP-788: the plain
+    /// "Yes" is index 0 (the primary on every client), the reject is last and
+    /// explains itself.
     #[test]
-    fn the_plan_menu_offers_the_clear_context_option_first() {
+    fn the_plan_menu_offers_the_plain_yes_first() {
         let options = exit_plan_options(&json!({ "plan": "# Plan" }));
         let ids: Vec<String> =
             options.iter().map(|option| option.option_id.0.to_string()).collect();
         assert_eq!(
             ids,
             vec![
-                "exit-plan-clear-bypass".to_string(),
                 "exit-plan-bypass".to_string(),
+                "exit-plan-clear-bypass".to_string(),
                 "reject".to_string(),
             ]
         );
+        let labels: Vec<&str> = options.iter().map(|option| option.name.as_str()).collect();
+        assert_eq!(
+            labels,
+            vec!["Yes", "Yes, and start with a fresh context", "No, keep planning"]
+        );
+        let reject = options.last().expect("the reject option");
+        assert_eq!(
+            reject
+                .meta
+                .as_ref()
+                .and_then(|meta| meta.get(PERMISSION_OPTION_DESCRIPTION_META))
+                .and_then(Value::as_str),
+            Some("Sends your next message back to planning")
+        );
+        assert!(options[0].meta.is_none());
         // A plan-less approval has nothing to carry into a fresh context.
         let ids: Vec<String> = exit_plan_options(&json!({}))
             .iter()

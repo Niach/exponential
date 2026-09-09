@@ -52,7 +52,9 @@ fun feedItemBytes(item: AgentFeedItem): Long {
     return overhead + when (item) {
         is AgentFeedItem.Narration -> item.text.length.toLong()
         is AgentFeedItem.UserMessage -> item.text.length.toLong()
-        is AgentFeedItem.Tool -> (item.name.length + (item.detail?.length ?: 0)).toLong()
+        // EXP-786: a folded per-call diff weighs too.
+        is AgentFeedItem.Tool ->
+            (item.name.length + (item.detail?.length ?: 0) + (item.diff?.length ?: 0)).toLong()
         is AgentFeedItem.Permission -> (item.tool.length + (item.detail?.length ?: 0)).toLong()
         is AgentFeedItem.Subagent ->
             (item.subagentId.length + item.agentType.length + (item.detail?.length ?: 0)).toLong()
@@ -113,6 +115,13 @@ sealed interface AgentFeedItem {
         override val seq: Long? = null,
     ) : AgentFeedItem
 
+    /** EXP-785: [callId] is the ACP tool-call id a later `tool_update` folds
+     *  into this row by (null on rows from a pre-EXP-785 publisher, which
+     *  then never settle); [toolKind] is ACP's kind bucket (a contract
+     *  `toolKind` value); [settled] = a status landed (the call ENDED),
+     *  [failed] = that status was `failed` (a later `completed` clears it).
+     *  EXP-786: [diff] is the per-call unified diff an `edit` published,
+     *  already cut to the contract's caps by the publisher. */
     data class Tool(
         override val id: Long,
         val name: String,
@@ -121,6 +130,11 @@ sealed interface AgentFeedItem {
          *  inside that subagent's group, not in the main feed. */
         val subagentId: String? = null,
         override val seq: Long? = null,
+        val callId: String? = null,
+        val toolKind: String? = null,
+        val settled: Boolean = false,
+        val failed: Boolean = false,
+        val diff: String? = null,
     ) : AgentFeedItem
 
     /** A human turn (EXP-78): the initial prompt or a steered message.
@@ -291,6 +305,24 @@ data class SessionUsageState(
     val contextSize: Int,
     val costUsd: Double? = null,
 )
+
+/** EXP-784: the agent's rate-limit window as it last reported it — the
+ *  fourth latest-wins slot beside [SessionUsageState]. [status] is the
+ *  agent's own word (`allowed_warning`, `rejected`, …); the slot is CLEARED
+ *  by an empty/`ok` status ([rateLimitClears]), never filled by one. */
+data class SessionRateLimitState(
+    val status: String,
+    /** Unix ms when the window resets, when the agent named one. */
+    val resetsAt: Long? = null,
+    val message: String? = null,
+)
+
+/** EXP-784: the `rate_limit.status` values that CLEAR the slot. */
+fun rateLimitClears(status: String): Boolean =
+    status.trim().let { it.isEmpty() || it.equals("ok", ignoreCase = true) }
+
+/** EXP-785: a wire `toolKind`, or null for anything this build does not know. */
+fun parseToolKind(raw: String?): String? = raw?.takeIf { it in DomainContract.toolKindValues }
 
 /** A chip whose value is blank — the CLI's own default. Byte-identical ×4. */
 const val CONFIG_DEFAULT_VALUE_LABEL = "CLI default"
@@ -793,6 +825,9 @@ data class ActivityFeedState(
     val config: SessionConfigState? = null,
     /** EXP-746: this run's context + spend meter, same latest-wins rule. */
     val usage: SessionUsageState? = null,
+    /** EXP-784: the agent's rate-limit window, the fourth slot. Null = not
+     *  limited (or cleared by an empty/`ok` status). */
+    val rateLimit: SessionRateLimitState? = null,
     /** Per-card answer locks, keyed by the card's wire id (EXP-249). */
     val answerLocks: Map<String, AnswerState> = emptyMap(),
     /** What THIS client picked per locked card — the option labels (a typed
@@ -862,8 +897,32 @@ fun ActivityFeedState.applyActivityEvent(
                     detail = event.str("detail")?.takeIf { it.isNotBlank() },
                     subagentId = event.str("subagentId")?.takeIf { it.isNotBlank() },
                     seq = seq,
+                    callId = event.str("id")?.takeIf { it.isNotBlank() },
+                    toolKind = parseToolKind(event.str("toolKind")),
                 ),
             )
+        }
+    }
+    // EXP-785/786: folded INTO the newest tool row with that call id — a
+    // settle, a per-call diff, or both. Never a row of its own; an id this
+    // feed does not hold (evicted, below the window, a pre-EXP-785 row) is
+    // dropped. A `failed` after a `completed` wins; a status-less update
+    // carrying only a diff never settles the call.
+    "tool_update" -> {
+        val id = event.str("id")?.takeIf { it.isNotBlank() }
+        val at = if (id == null) -1 else feed.indexOfLast { it is AgentFeedItem.Tool && it.callId == id }
+        if (at < 0) {
+            this
+        } else {
+            val row = feed[at] as AgentFeedItem.Tool
+            val status = event.str("status")
+            val settles = status == "completed" || status == "failed"
+            val next = row.copy(
+                settled = row.settled || settles,
+                failed = if (settles) status == "failed" else row.failed,
+                diff = event.str("diff")?.takeIf { it.isNotBlank() } ?: row.diff,
+            )
+            withFeed(feed.toMutableList().also { it[at] = next })
         }
     }
     // Diffs never enter the feed — the latest replaces the previous one behind
@@ -1060,6 +1119,23 @@ fun ActivityFeedState.applyActivityEvent(
                 ),
             )
         }
+    }
+    // EXP-784: the fourth slot. Null clears — an empty/`ok` status says the
+    // window lifted, and an unreadable payload must not leave a stale "rate
+    // limited" banner beside a live run.
+    "rate_limit" -> {
+        val status = event.str("status")
+        copy(
+            rateLimit = if (status == null || rateLimitClears(status)) {
+                null
+            } else {
+                SessionRateLimitState(
+                    status = status.trim(),
+                    resetsAt = event.long("resetsAt")?.takeIf { it >= 0L },
+                    message = event.str("message")?.trim()?.takeIf { it.isNotEmpty() },
+                )
+            },
+        )
     }
     else -> this
 }

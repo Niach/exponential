@@ -8,7 +8,6 @@ import {
   buildIssueLabelMap,
   buildVisibleIssueGroups as buildGroups,
   compareIssuesForGroup,
-  findIssuePosition,
 } from "@/lib/board-view"
 import {
   buildStatusOptions,
@@ -41,7 +40,7 @@ function buildVisibleIssueGroups(
   }))
 }
 
-// The un-mapped form, for findIssuePosition (which takes real IssueGroups).
+// The un-mapped form (real IssueGroups).
 function rawGroups(issues: Issue[], statusTokens: string[] = []) {
   return buildGroups(
     issues,
@@ -334,80 +333,6 @@ describe(`board-view helpers`, () => {
 
   // EXP-48: the detail header's prev/next switcher walks the flattened
   // visible-group sequence — group order first, then the in-group sort.
-  it(`locates an issue across the flattened group sequence`, () => {
-    const startedUrgent = makeIssue({
-      id: `started-urgent`,
-      identifier: `APP-2`,
-      number: 2,
-      status: `in_progress`,
-      priority: `urgent`,
-    })
-    const startedLow = makeIssue({
-      id: `started-low`,
-      identifier: `APP-3`,
-      number: 3,
-      status: `in_progress`,
-      priority: `low`,
-    })
-    const backlog = makeIssue({
-      id: `backlog-1`,
-      identifier: `APP-1`,
-      number: 1,
-      status: `backlog`,
-    })
-
-    // Flattened sequence: [backlog-1, started-urgent, started-low] (the
-    // backlog group precedes started in the category display order).
-    const groups = rawGroups([backlog, startedLow, startedUrgent])
-
-    expect(findIssuePosition(groups, `backlog-1`)).toEqual({
-      index: 1,
-      total: 3,
-      prev: null,
-      next: startedUrgent,
-    })
-    expect(findIssuePosition(groups, `started-urgent`)).toEqual({
-      index: 2,
-      total: 3,
-      prev: backlog,
-      next: startedLow,
-    })
-    expect(findIssuePosition(groups, `started-low`)).toEqual({
-      index: 3,
-      total: 3,
-      prev: startedUrgent,
-      next: null,
-    })
-  })
-
-  it(`returns null when the issue is filtered out of the visible groups`, () => {
-    const done = makeIssue({ id: `done-1`, status: `done` })
-    const started = makeIssue({ id: `started-1`, status: `in_progress` })
-
-    // Status filter hides the done issue from the sequence entirely.
-    const groups = rawGroups([started], [`in_progress`])
-
-    expect(findIssuePosition(groups, done.id)).toBeNull()
-    expect(findIssuePosition(groups, started.id)).toEqual({
-      index: 1,
-      total: 1,
-      prev: null,
-      next: null,
-    })
-  })
-
-  it(`handles a single-issue and empty sequence`, () => {
-    expect(findIssuePosition([], `missing`)).toBeNull()
-
-    const only = makeIssue({ id: `only`, status: `backlog` })
-    const groups = rawGroups([only])
-    expect(findIssuePosition(groups, `only`)).toEqual({
-      index: 1,
-      total: 1,
-      prev: null,
-      next: null,
-    })
-  })
 })
 
 // EXP-314: grouping is per TEAM STATUS ROW, keyed by row id, with the

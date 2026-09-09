@@ -31,7 +31,7 @@
 //! Start-coding pickers only offer those.
 //!
 //! Every probe runs with the terminal layer's augmented login `PATH`
-//! ([`terminal::pty::login_path`], §6.12) — the SAME environment the PTY
+//! ([`terminal::pty::login_path`], §6.12) — the SAME environment the engine
 //! spawns the agent into. A `.app`/`.desktop` launch carries a minimal PATH
 //! without Homebrew/npm-global, so probing with the process PATH reported
 //! codex/pi as "not found" on machines where every launch worked (EXP-206).
@@ -62,10 +62,10 @@ pub const MIN_CLAUDE_VERSION: (u32, u32, u32) = (2, 1, 215);
 
 /// EXP-746: the minimum Claude Code that speaks the ACP engine's control
 /// protocol (`--input-format stream-json` + `--permission-prompt-tool
-/// stdio`). Deliberately SEPARATE from [`MIN_CLAUDE_VERSION`] and NON-FATAL:
-/// an older claude still launches, on the PTY path
-/// ([`crate::launcher::resolve_transport`] falls back when
-/// [`ToolCheck::acp`] is not `Some(true)`).
+/// stdio`). Deliberately SEPARATE from [`MIN_CLAUDE_VERSION`]: it never
+/// turns the doctor row red, but a coding launch below it is REFUSED with
+/// [`ToolCheck::acp_note`] saying why (EXP-773: the engine is the one
+/// transport, there is no terminal fallback).
 pub const MIN_CLAUDE_ACP_VERSION: (u32, u32, u32) = (2, 1, 263);
 
 /// EXP-758: the same floor for codex, and for the same reason — an older
@@ -79,7 +79,8 @@ pub const MIN_CLAUDE_ACP_VERSION: (u32, u32, u32) = (2, 1, 263);
 /// version this build claims. Pinned at `.0` rather than `.5` because the
 /// patch releases inside that minor share the app-server shape; anything
 /// below it is unverified, not known-broken, which is exactly why the check
-/// is NON-FATAL: an older codex still launches, on the PTY path.
+/// never turns the doctor row red — but a coding launch below it is refused
+/// with the note (EXP-773), the same as claude's.
 pub const MIN_CODEX_ACP_VERSION: (u32, u32, u32) = (0, 144, 0);
 
 /// EXP-746 (D9): the BUILD capabilities every host advertises to
@@ -221,11 +222,11 @@ pub struct ToolCheck {
     /// (codex answers over its app-server, pi over its own credential).
     pub usage_eligible: bool,
     /// EXP-746: whether this agent can run on the ACP engine.
-    /// **Non-fatal** — it never touches `ok`, [`DoctorReport::any_agent_ok`]
-    /// or the launch gate ([`DoctorReport::first_failure_for`]); a
-    /// `Some(false)` agent simply launches on the PTY path
-    /// ([`crate::launcher::resolve_transport`]). `None` = not applicable
-    /// (git) or never probed.
+    /// **Non-fatal for the doctor** — it never touches `ok`,
+    /// [`DoctorReport::any_agent_ok`] or [`DoctorReport::first_failure_for`]
+    /// — but it IS the coding gate (EXP-773): anything but `Some(true)`
+    /// refuses a launch with `acp_note`, there being no terminal path to
+    /// fall back to. `None` = not applicable (git) or never probed.
     pub acp: Option<bool>,
     /// Why `acp` is not `Some(true)` — one short line, rendered under the
     /// agent's doctor row ("not supported (…)").
@@ -512,9 +513,10 @@ Update to {acp_major}.{acp_minor}.{acp_patch}+ to run coding sessions."
 /// EXP-758: with a VERSION FLOOR ([`MIN_CODEX_ACP_VERSION`]) — claude has one
 /// and pi has its probe, so codex was the one agent an unusably old build of
 /// which still resolved to the engine and then died in the handshake. Like
-/// claude's, the floor is non-fatal (the run falls back to the PTY) and an
-/// unparseable version stays ready: never falsely demote a nonstandard build.
-/// EXP-773: a launch below the floor is REFUSED (there is no PTY left).
+/// claude's, the floor never reddens the doctor row, and an unparseable
+/// version stays ready: never falsely demote a nonstandard build.
+/// EXP-773: a launch below the floor is REFUSED with the note (there is no
+/// terminal path left to fall back to).
 fn apply_codex_acp(check: &mut ToolCheck) {
     check.acp = Some(check.ok);
     if !check.ok {
@@ -660,9 +662,10 @@ fn cached_pi_rpc(stamp: &PiRpcStamp) -> Option<PiRpcVerdict> {
 ///
 /// `None` = INDETERMINATE (no spawn, no stdio, a wedged child). The caller
 /// still fails open on it — the engine's own handshake is the authoritative
-/// one and a false negative here silently demotes a working install to the
-/// terminal transport — but a `None` is never CACHED (EXP-766), so the next
-/// pass probes again instead of trusting an answer nobody gave.
+/// one and a false negative here would refuse every coding launch on a
+/// working install (EXP-773: there is no terminal transport to demote to) —
+/// but a `None` is never CACHED (EXP-766), so the next pass probes again
+/// instead of trusting an answer nobody gave.
 fn pi_rpc_handshake(program: &str) -> Option<bool> {
     use std::io::{Read as _, Write as _};
     use std::process::Stdio;
@@ -990,8 +993,8 @@ pub fn parse_codex_version(line: &str) -> Option<(u32, u32, u32)> {
 }
 
 /// `<program> --version`, capturing stdout/stderr — never a shell. Resolves
-/// `program` against the augmented login PATH (§6.12), matching the PTY
-/// spawn environment the agent will actually run in.
+/// `program` against the augmented login PATH (§6.12), matching the spawn
+/// environment the agent will actually run in.
 pub fn check_tool(tool: Tool, program: &str) -> ToolCheck {
     check_tool_with_path(tool, program, &terminal::pty::login_path())
 }
@@ -1594,16 +1597,17 @@ mod tests {
         assert!(!old.ok);
         assert_eq!(old.acp, Some(false));
 
-        // Unparseable stays green and unknown (→ the PTY path).
+        // Unparseable stays green and unknown (→ the launch gate refuses it,
+        // EXP-773; the doctor row itself never falsely blocks).
         let mut odd = green(Tool::Claude, "nightly (Claude Code)");
         apply_version_gate(&mut odd);
         assert!(odd.ok);
         assert_eq!(odd.acp, None);
     }
 
-    /// EXP-758: codex gets the same non-fatal version floor claude has. Below
-    /// it the app-server handshake the adapter is written against is
-    /// unverified, so the run belongs on the PTY — with a note saying why.
+    /// EXP-758: codex gets the same version floor claude has. Below it the
+    /// app-server handshake the adapter is written against is unverified,
+    /// so the launch is refused (EXP-773) — with a note saying why.
     #[test]
     fn codex_acp_gate_has_a_version_floor() {
         let mut old = green(Tool::Codex, "0.143.9");

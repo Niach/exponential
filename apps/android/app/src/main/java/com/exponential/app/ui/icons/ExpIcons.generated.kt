@@ -1396,6 +1396,31 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `circle-stop`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "circle-stop",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M10 9H14A1 1 0 0 1 15 10V14A1 1 0 0 1 14 15H10A1 1 0 0 1 9 14V10A1 1 0 0 1 10 9Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `circle-user`: ImageVector by lazy {
         ImageVector.Builder(
             name = "circle-user",
@@ -6225,6 +6250,7 @@ public object ExpIcons {
         "circle-dot" -> `circle-dot`
         "circle-question-mark" -> `circle-question-mark`
         "circle-slash" -> `circle-slash`
+        "circle-stop" -> `circle-stop`
         "circle-user" -> `circle-user`
         "circle-x" -> `circle-x`
         "clipboard-list" -> `clipboard-list`
@@ -6774,6 +6800,8 @@ public object ExpIcons {
     public val uiSignIn: ImageVector get() = `log-in`
     /** Concept `ui-staging`. */
     public val uiStaging: ImageVector get() = `flask-conical`
+    /** Concept `ui-stop`. */
+    public val uiStop: ImageVector get() = `circle-stop`
     /** Concept `ui-submit`. */
     public val uiSubmit: ImageVector get() = `circle-arrow-up`
     /** Concept `ui-subscribe`. */

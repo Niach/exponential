@@ -331,17 +331,162 @@ describe(`connection lifecycle`, () => {
       detail: `Fetching the transcript from buildbox…`,
     })
     // The republish streams like any replay — and never claims to be live.
+    // EXP-796: the marker ends the loading phase on its own; the room
+    // lingers open (no bye) so the reader can page.
     socket.frame({ t: `activity_reset` })
     socket.frame({ t: `activity`, event: { kind: `narration`, text: `did it` } })
     socket.frame({ t: `activity_synced` })
     await vi.advanceTimersByTimeAsync(100)
-    expect(store.getSnapshot().phase.kind).toBe(`history_pending`)
+    expect(store.getSnapshot().phase).toEqual({ kind: `ended` })
+    expect(store.getSnapshot().connected).toBe(true)
     expect(store.getSnapshot().feed).toHaveLength(1)
     socket.frame({ t: `bye`, outcome: `history` })
     socket.serverClose(4001)
     expect(store.getSnapshot().phase).toEqual({ kind: `ended`, detail: undefined })
     // The transcript stays on screen, read-only.
     expect(store.getSnapshot().feed).toHaveLength(1)
+    store.dispose()
+  })
+
+  // EXP-796: the relay keeps a served history room open for minutes so
+  // "Load earlier" pages keep flowing down the device's control socket; the
+  // late `bye {history}` + 4001 is the linger expiring — terminal, never a
+  // drop to redial from.
+  it(`a served history room lingers for pages until its late history bye`, async () => {
+    const { store, sockets } = makeStore()
+    // A watched store: an UNWATCHED ended store frees its socket after the
+    // ended grace, which is the last viewer leaving the room.
+    const unsubscribe = store.subscribe(() => {})
+    store.noteSessionStatus(`ended`)
+    store.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    const socket = sockets[0]
+    socket.open()
+    socket.frame({ t: `history_pending` })
+    socket.frame({ t: `activity_reset` })
+    socket.frame({ t: `activity`, event: { kind: `narration`, text: `tail` }, seq: 40 })
+    socket.frame({ t: `activity_synced`, firstSeq: 40, lastSeq: 40, truncated: true })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().phase.kind).toBe(`ended`)
+    expect(store.getSnapshot().canLoadEarlier).toBe(true)
+    // Minutes of keepalives: still ended, still pageable, no redial, and a
+    // wakeup leaves the open socket alone.
+    for (let i = 0; i < 8; i++) {
+      await vi.advanceTimersByTimeAsync(15_000)
+      socket.frame({ t: `keepalive` })
+    }
+    store.kick(`visible`)
+    await vi.advanceTimersByTimeAsync(100)
+    expect(sockets).toHaveLength(1)
+    expect(store.getSnapshot().phase.kind).toBe(`ended`)
+    expect(store.getSnapshot().connected).toBe(true)
+    socket.sent.length = 0
+    expect(store.loadEarlier()).toBe(true)
+    expect(JSON.parse(socket.sent[0])).toMatchObject({ t: `history_page`, beforeSeq: 40 })
+    socket.frame({
+      t: `history_chunk`,
+      requestId: `p1`,
+      events: [{ kind: `narration`, text: `earlier` }],
+      seqs: [39],
+      done: true,
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().feed.map((i) => (i as { text: string }).text)).toEqual([
+      `earlier`,
+      `tail`,
+    ])
+    // The linger expires.
+    socket.frame({ t: `bye`, outcome: `history` })
+    socket.serverClose(4001)
+    await vi.advanceTimersByTimeAsync(60_000)
+    const snapshot = store.getSnapshot()
+    expect(snapshot.phase).toEqual({ kind: `ended`, detail: undefined })
+    expect(snapshot.feed).toHaveLength(2)
+    expect(snapshot.canLoadEarlier).toBe(false)
+    expect(store.loadEarlier()).toBe(false)
+    expect(sockets).toHaveLength(1)
+    unsubscribe()
+    store.dispose()
+  })
+
+  it(`an unwatched served history store frees its socket after the ended grace`, async () => {
+    const { store, sockets } = makeStore()
+    store.noteSessionStatus(`ended`)
+    store.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    const socket = sockets[0]
+    socket.open()
+    socket.frame({ t: `history_pending` })
+    socket.frame({ t: `activity_reset` })
+    socket.frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().phase.kind).toBe(`ended`)
+    expect(socket.closed).toBe(false)
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(socket.closed).toBe(true)
+  })
+
+  it(`a device going offline mid-page ends the lingering room, terminally`, async () => {
+    const { store, sockets } = makeStore()
+    store.noteSessionStatus(`ended`)
+    store.noteDeviceLabel(`buildbox`)
+    store.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    const socket = sockets[0]
+    socket.open()
+    socket.frame({ t: `history_pending` })
+    socket.frame({ t: `activity_reset` })
+    socket.frame({ t: `activity`, event: { kind: `narration`, text: `tail` }, seq: 40 })
+    socket.frame({ t: `activity_synced`, firstSeq: 40, lastSeq: 40, truncated: true })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.loadEarlier()).toBe(true)
+    socket.frame({ t: `error`, code: `device_offline` })
+    socket.frame({ t: `bye`, outcome: `device_offline` })
+    socket.serverClose(4001)
+    expect(store.getSnapshot().phase).toEqual({
+      kind: `ended`,
+      detail: `buildbox is offline. The transcript lives on that machine.`,
+    })
+    expect(store.getSnapshot().feed).toHaveLength(1)
+    expect(store.getSnapshot().canLoadEarlier).toBe(false)
+    store.kick(`test`)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(sockets).toHaveLength(1)
+    store.dispose()
+  })
+
+  // A run the synced row still calls alive: the served history is not an
+  // ending, the publisher's takeover of the lingering room lands on the SAME
+  // socket as an ordinary replay, and only then is the viewer live.
+  it(`a served history on a live run waits in starting for the publisher's takeover`, async () => {
+    const { store, sockets } = makeStore()
+    store.noteSessionStatus(`running`)
+    store.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    const socket = sockets[0]
+    socket.open()
+    socket.frame({ t: `history_pending` })
+    socket.frame({ t: `activity_reset` })
+    socket.frame({ t: `activity`, event: { kind: `narration`, text: `journal` } })
+    socket.frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().phase.kind).toBe(`starting`)
+    expect(store.getSnapshot().connected).toBe(true)
+    // No redial while the socket talks — a wakeup included.
+    await vi.advanceTimersByTimeAsync(15_000)
+    socket.frame({ t: `keepalive` })
+    store.kick(`visible`)
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(sockets).toHaveLength(1)
+    // The publisher arrives: the room replays from scratch and goes live.
+    socket.frame({ t: `activity_reset` })
+    socket.frame({ t: `activity`, event: { kind: `narration`, text: `live now` } })
+    socket.frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().phase.kind).toBe(`live`)
+    expect(store.getSnapshot().feed.map((i) => (i as { text: string }).text)).toEqual([
+      `live now`,
+    ])
     store.dispose()
   })
 
@@ -1145,6 +1290,181 @@ describe(`compaction`, () => {
   })
 })
 
+// EXP-785/786: `tool_update` folds INTO its tool row by call id — settle
+// state and the per-call diff — and is never a row of its own.
+describe(`tool_update folds into the tool row (EXP-785/786)`, () => {
+  const toolEvent = (id: string, over: Record<string, unknown> = {}) => ({
+    t: `activity`,
+    event: {
+      kind: `tool`,
+      name: `Edit`,
+      detail: `src/a.ts`,
+      id,
+      toolKind: `edit`,
+      ...over,
+    },
+  })
+  const updateEvent = (id: string, over: Record<string, unknown> = {}) => ({
+    t: `activity`,
+    event: { kind: `tool_update`, id, ...over },
+  })
+
+  it(`a tool row carries its callId and toolKind`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(toolEvent(`tc-1`))
+    socket.frame(toolEvent(`tc-2`, { toolKind: `teleport`, id: `  ` }))
+    await vi.advanceTimersByTimeAsync(100)
+    const feed = store.getSnapshot().feed
+    expect(feed[0]).toMatchObject({
+      kind: `tool`,
+      name: `Edit`,
+      callId: `tc-1`,
+      toolKind: `edit`,
+    })
+    // An unknown kind and a blank id are dropped, not kept as junk.
+    expect(feed[1]).toMatchObject({ kind: `tool`, name: `Edit` })
+    expect((feed[1] as { callId?: string }).callId).toBeUndefined()
+    expect((feed[1] as { toolKind?: string }).toolKind).toBeUndefined()
+    store.dispose()
+  })
+
+  it(`a settle and a diff fold into the row; a failed settle wins`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(toolEvent(`tc-1`))
+    socket.frame({ t: `activity`, event: { kind: `narration`, text: `between` } })
+    socket.frame(toolEvent(`tc-2`, { toolKind: `execute`, name: `Bash` }))
+    socket.frame(
+      updateEvent(`tc-1`, {
+        status: `completed`,
+        diff: `--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-a\n+b\n`,
+      })
+    )
+    await vi.advanceTimersByTimeAsync(100)
+    let feed = store.getSnapshot().feed
+    expect(feed).toHaveLength(3)
+    expect(feed[0]).toMatchObject({
+      kind: `tool`,
+      callId: `tc-1`,
+      settled: true,
+      failed: false,
+      diff: `--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-a\n+b\n`,
+    })
+    expect((feed[2] as { settled?: boolean }).settled).toBeUndefined()
+
+    socket.frame(updateEvent(`tc-1`, { status: `failed` }))
+    // A status-less update carrying only a diff never settles.
+    socket.frame(updateEvent(`tc-2`, { diff: `+x\n` }))
+    await vi.advanceTimersByTimeAsync(100)
+    feed = store.getSnapshot().feed
+    expect(feed[0]).toMatchObject({ settled: true, failed: true })
+    expect((feed[0] as { diff?: string }).diff).toContain(`+b`)
+    expect(feed[2]).toMatchObject({ diff: `+x\n` })
+    expect((feed[2] as { settled?: boolean }).settled).toBeUndefined()
+    store.dispose()
+  })
+
+  it(`an update for an unknown or evicted id is dropped`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(toolEvent(`tc-1`))
+    socket.frame({ t: `activity`, event: { kind: `tool`, name: `Grep` } })
+    socket.frame(updateEvent(`tc-nope`, { status: `failed`, diff: `+never\n` }))
+    socket.frame(updateEvent(``, { status: `completed` }))
+    await vi.advanceTimersByTimeAsync(100)
+    const feed = store.getSnapshot().feed
+    expect(feed).toHaveLength(2)
+    expect((feed[0] as { settled?: boolean }).settled).toBeUndefined()
+    expect((feed[1] as { settled?: boolean }).settled).toBeUndefined()
+    store.dispose()
+  })
+
+  it(`folds into the NEWEST row with that id`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(toolEvent(`tc-1`))
+    socket.frame(toolEvent(`tc-1`))
+    socket.frame(updateEvent(`tc-1`, { status: `completed` }))
+    await vi.advanceTimersByTimeAsync(100)
+    const feed = store.getSnapshot().feed
+    expect((feed[0] as { settled?: boolean }).settled).toBeUndefined()
+    expect(feed[1]).toMatchObject({ settled: true, failed: false })
+    store.dispose()
+  })
+
+  it(`a replayed update still folds after the staged commit`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({ t: `activity_reset` })
+    socket.frame(toolEvent(`tc-1`))
+    socket.frame(updateEvent(`tc-1`, { status: `failed` }))
+    socket.frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().feed).toHaveLength(1)
+    expect(store.getSnapshot().feed[0]).toMatchObject({ callId: `tc-1`, failed: true })
+    store.dispose()
+  })
+})
+
+// EXP-784: `rate_limit` is the fourth latest-wins slot; an empty/`ok` status
+// clears it.
+describe(`rate_limit slot (EXP-784)`, () => {
+  const rateLimitEvent = (over: Record<string, unknown> = {}) => ({
+    t: `activity`,
+    event: {
+      kind: `rate_limit`,
+      status: `allowed_warning`,
+      resetsAt: 1_700_000_000_000,
+      message: `80% of the 5-hour window`,
+      ...over,
+    },
+  })
+
+  it(`lands in the snapshot as a slot, never a feed row, and clears on ok or empty`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(rateLimitEvent())
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().feed).toEqual([])
+    expect(store.getSnapshot().rateLimit).toEqual({
+      status: `allowed_warning`,
+      resetsAt: 1_700_000_000_000,
+      message: `80% of the 5-hour window`,
+    })
+    socket.frame(rateLimitEvent({ status: `rejected`, resetsAt: undefined, message: `  ` }))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().rateLimit).toEqual({ status: `rejected` })
+    socket.frame(rateLimitEvent({ status: `ok` }))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().rateLimit).toBeNull()
+    socket.frame(rateLimitEvent({ status: `rejected` }))
+    socket.frame(rateLimitEvent({ status: `` }))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().rateLimit).toBeNull()
+    store.dispose()
+  })
+
+  it(`a committed replay repaints the slot from the staged events, or drops it`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(rateLimitEvent({ status: `rejected` }))
+    await vi.advanceTimersByTimeAsync(100)
+    socket.frame({ t: `activity_reset` })
+    socket.frame({ t: `activity`, event: { kind: `narration`, text: `replayed` } })
+    socket.frame(rateLimitEvent())
+    socket.frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().rateLimit?.status).toBe(`allowed_warning`)
+    socket.frame({ t: `activity_reset` })
+    socket.frame({ t: `activity`, event: { kind: `narration`, text: `again` } })
+    socket.frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().rateLimit).toBeNull()
+    store.dispose()
+  })
+})
+
 // EXP-746: `config_state` and `usage` are latest-wins SLOTS on the snapshot,
 // and the two outbound frames that change them are fire-and-forget.
 describe(`live config + usage (EXP-746)`, () => {
@@ -1265,6 +1585,28 @@ describe(`live config + usage (EXP-746)`, () => {
     ])
     // Fire-and-forget: no optimistic slot write, the re-emission repaints.
     expect(store.getSnapshot().config).toBeNull()
+    store.dispose()
+  })
+
+  // EXP-790: the composer's Stop glyph — one bare `interrupt` frame, no
+  // local state (the publisher cancels the turn and the feed shows it).
+  it(`interrupt sends one interrupt frame and nothing else`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    const before = socket.sent.length
+    expect(store.interrupt()).toBe(true)
+    expect(socket.sent.slice(before)).toEqual([JSON.stringify({ t: `interrupt` })])
+    expect(store.getSnapshot().feed).toEqual([])
+    store.dispose()
+  })
+
+  it(`interrupt on a closed socket returns false and sends nothing`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.serverClose(1006)
+    const before = socket.sent.length
+    expect(store.interrupt()).toBe(false)
+    expect(socket.sent).toHaveLength(before)
     store.dispose()
   })
 
@@ -1631,6 +1973,38 @@ describe(`replay staging (EXP-751)`, () => {
     socket.frame({ t: `activity_synced` })
     await vi.advanceTimersByTimeAsync(100)
     expect(store.getSnapshot().compacting).toBeNull()
+    store.dispose()
+  })
+})
+
+// EXP-796: "Load earlier" only while there is a socket to ask over — the relay
+// keeps a history room lingering after the device's replay so pages keep
+// flowing, and once that room really closes the button goes.
+describe(`canLoadEarlier needs an open socket (EXP-796)`, () => {
+  it(`is true on a truncated live replay and false once the socket closed`, async () => {
+    const { store, sockets } = makeStore()
+    store.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    const socket = sockets[0]
+    socket.open()
+    socket.frame({ t: `activity_reset` })
+    socket.frame({ t: `activity`, event: { kind: `narration`, text: `tail` }, seq: 9 })
+    socket.frame({ t: `activity_synced`, firstSeq: 9, lastSeq: 9, truncated: true })
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(store.getSnapshot().canLoadEarlier).toBe(true)
+
+    // The relay's `bye {outcome:'history'}` then the close: the feed stays,
+    // the phase is ended, and there is no socket left to page over.
+    store.noteSessionStatus(`ended`)
+    socket.frame({ t: `bye`, outcome: `history` })
+    socket.serverClose(1000)
+    await vi.advanceTimersByTimeAsync(0)
+    const snapshot = store.getSnapshot()
+    expect(snapshot.phase.kind).toBe(`ended`)
+    expect(snapshot.feed).toHaveLength(1)
+    expect(snapshot.connected).toBe(false)
+    expect(snapshot.canLoadEarlier).toBe(false)
+    expect(store.loadEarlier()).toBe(false)
     store.dispose()
   })
 })

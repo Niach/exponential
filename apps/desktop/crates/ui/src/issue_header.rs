@@ -44,25 +44,12 @@ use domain::options::get_issue_priority_config;
 use domain::rows::{Issue, Label, Board, User};
 
 use crate::coding_flow::{LocalSessions, StartCodingControl};
-use crate::controls::WebControl as _;
 use crate::icons::{option_icon, registry, ExpIcon};
 use crate::pickers::{chip_button, PICKER_MENU_MIN_WIDTH, PICKER_SEARCH_WIDTH};
 use crate::issue_detail::{issue_web_url, set_duplicate_of, DETAIL_GUTTER};
-use crate::issue_list::IssueQuery;
-use crate::navigation::{go_back, replace_screen, Screen};
+use crate::navigation::go_back;
 use crate::queries;
 use crate::surface::{glass_pill, glass_pill_button, PillMode, PillSize};
-
-/// EXP-48 switcher position: where the displayed issue sits in the active
-/// issue list's flattened visible ordering. (Moved here with the toolbar
-/// cluster — EXP-277.)
-struct SwitcherState {
-    /// 0-based index in the flattened list.
-    position: usize,
-    total: usize,
-    prev_id: Option<String>,
-    next_id: Option<String>,
-}
 
 pub struct IssueHeader {
     issue_id: Option<String>,
@@ -74,16 +61,6 @@ pub struct IssueHeader {
     /// Search query of the move-to-board popover (EXP-316 — web
     /// `BoardPicker` parity, same host-owned-InputState recipe as labels).
     board_query: Entity<InputState>,
-    /// The window's shared rail state — the EXP-48 switcher reads the active
-    /// issue board's query + filters from it (EXP-277: the switcher lives in
-    /// this header's top row now).
-    rail_shared: Entity<crate::sidebar::RailShared>,
-    /// The owning window (EXP-426) — resolves the screens panel so the
-    /// switcher can follow the ACTIVE TAB's remembered origin list.
-    window_id: gpui::WindowId,
-    /// Copy-link feedback: the toolbar button shows a check for ~1.5s after a
-    /// copy (web `linkCopied`). The seq guards the disarm timer against a
-    /// re-click racing an older timer (the merge-confirm pattern).
     /// The detail view's Start-coding control, rendered here as the "Agent"
     /// group (EXP-256, web parity — the entity stays owned by the detail
     /// view, which also reads its `resolved_repo` for the actions menu).
@@ -154,31 +131,19 @@ impl IssueHeader {
         ] {
             subscriptions.push(subscription);
         }
-        // EXP-48 switcher (EXP-277: now in this header's top row): the counter
-        // follows the ACTIVE issue list — tool swaps notify the shared rail
-        // state, filter changes notify the boards (issue reorders already
-        // ride the issues observer above).
-        let rail_shared = crate::sidebar::rail_shared_for_window(window, cx);
-        subscriptions.push(cx.observe(&rail_shared, |_, _, cx| cx.notify()));
         // EXP-698: the coding-now card's Watch pill is gated on the steer
         // config, which is fetched ONCE and lands after this header mounts —
         // without an observer the header renders on the "no relay" default
         // and never asks again, so the pill never appears.
         let steer_config = crate::queries::steer_config(cx);
         subscriptions.push(cx.observe(&steer_config, |_, _, cx| cx.notify()));
-        let boards = rail_shared.read(cx).issue_boards().map(Clone::clone);
-        for board in boards {
-            subscriptions.push(cx.observe(&board, |_, _, cx| cx.notify()));
-        }
 
         Self {
             issue_id: None,
             due_calendar,
             label_query,
             board_query,
-            rail_shared,
             start_coding,
-            window_id: window.window_handle().window_id(),
             _subscriptions: subscriptions,
         }
     }
@@ -753,136 +718,8 @@ impl IssueHeader {
     }
 
     // -- EXP-277: the former issue-detail header cluster ---------------------
-
-    /// The (query, filters) pair the switcher steps through (EXP-426): the
-    /// ACTIVE TAB's remembered origin first — an issue opened from My Issues
-    /// keeps stepping My Issues even after the rail moved elsewhere — with
-    /// the rail's current list as the fallback (undocked windows, tabs with
-    /// no usable origin, notification-opened issues).
-    fn switcher_scope(&self, cx: &App) -> (IssueQuery, domain::IssueFilters) {
-        use crate::sidebar::{InboxTab, ToolWindow};
-        let shared = self.rail_shared.read(cx);
-        let origin = crate::screens::screens_for_window_id(self.window_id, cx)
-            .and_then(|panel| panel.read(cx).active_tab_origin(cx));
-        if let Some(origin) = origin {
-            match (origin.tool, origin.inbox_tab, origin.board_id) {
-                (ToolWindow::Inbox, Some(InboxTab::MyIssues), _) => {
-                    let board = shared.board_my().read(cx);
-                    return (board.query().clone(), board.filters().clone());
-                }
-                (ToolWindow::BoardIssues, _, Some(board_id)) => {
-                    let board = shared.board_active().read(cx);
-                    let query = IssueQuery::Board { board_id };
-                    // The live filters carry over only while the active list
-                    // still IS this board; a re-pointed rail leaves the
-                    // origin board unfiltered.
-                    let filters = if board.query() == &query {
-                        board.filters().clone()
-                    } else {
-                        domain::IssueFilters::empty()
-                    };
-                    return (query, filters);
-                }
-                _ => {}
-            }
-        }
-        let board = shared.active_issue_board().read(cx);
-        (board.query().clone(), board.filters().clone())
-    }
-
-    /// Where this issue sits in the origin issue list's flattened visible
-    /// ordering (see [`Self::switcher_scope`]) — same grouping, same EXP-38
-    /// comparator, same filters the list applies. `None` (hide the switcher)
-    /// when no list scope resolves or the issue isn't in the filtered list.
-    fn switcher_state(&self, issue: &Issue, cx: &App) -> Option<SwitcherState> {
-        let (query, filters) = self.switcher_scope(cx);
-        let data = match &query {
-            IssueQuery::None => return None,
-            IssueQuery::Board { board_id } => {
-                queries::board_board(cx, board_id, &filters)
-            }
-            IssueQuery::MyIssues {
-                team_id,
-                user_id,
-            } => queries::my_issues(cx, team_id, user_id, &filters),
-        };
-        let ids = data.flatten_issue_ids();
-        let position = ids.iter().position(|id| *id == issue.id)?;
-        Some(SwitcherState {
-            position,
-            total: ids.len(),
-            prev_id: position.checked_sub(1).map(|ix| ids[ix].clone()),
-            next_id: ids.get(position + 1).cloned(),
-        })
-    }
-
-    /// Swap the displayed issue in place: `+1` = next in list order, `-1` =
-    /// previous. No wrap at the ends; a no-op when the current issue isn't
-    /// in the filtered list (matching the hidden switcher).
-    fn step_issue(&mut self, delta: i32, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some(issue) = self.issue(cx) else {
-            return;
-        };
-        let Some(state) = self.switcher_state(&issue, cx) else {
-            return;
-        };
-        let target = if delta < 0 { state.prev_id } else { state.next_id };
-        if let Some(issue_id) = target {
-            replace_screen(window, cx, Screen::IssueDetail { issue_id });
-        }
-    }
-
-    /// The "N / total" counter + up/down chevrons. `None` hides the segment.
-    fn render_switcher(
-        &mut self,
-        issue: &Issue,
-        cx: &mut gpui::Context<Self>,
-    ) -> Option<impl IntoElement> {
-        let state = self.switcher_state(issue, cx)?;
-        Some(
-            h_flex()
-                .flex_shrink_0()
-                .gap_0p5()
-                .items_center()
-                .text_xs()
-                .child(
-                    div()
-                        .whitespace_nowrap()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(SharedString::from(format!(
-                            "{} / {}",
-                            state.position + 1,
-                            state.total
-                        ))),
-                )
-                .child(
-                    // EXP-698 round 5: prev/next are NAVIGATION, not actions
-                    // — bare ghost glyphs on every client (web
-                    // `Button variant="ghost" size="icon-sm"`). The circles
-                    // stay on copy-link / trash beside them.
-                    Button::new("issue-switch-prev")
-                        .ghost()
-                        .web_icon_sm()
-                        .icon(Icon::new(registry::UI_CHEVRON_UP))
-                        .disabled(state.prev_id.is_none())
-                        .tooltip("Previous issue")
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.step_issue(-1, window, cx)
-                        })),
-                )
-                .child(
-                    Button::new("issue-switch-next")
-                        .ghost()
-                        .web_icon_sm()
-                        .icon(Icon::new(registry::UI_CHEVRON_DOWN))
-                        .disabled(state.next_id.is_none())
-                        .tooltip("Next issue")
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.step_issue(1, window, cx)
-                        })),
-                ),
-        )
-    }
+    // (EXP-791 retired the EXP-48 prev/next switcher that opened it: the
+    // issue's tab is the one place it lives, and the rail's lists step it.)
 
     /// EXP-760: the ONE `…` menu on the issue header (web parity). The
     /// copy-link and delete icon buttons that used to sit beside it are gone
@@ -963,10 +800,13 @@ impl IssueHeader {
             })
     }
 
-    /// EXP-277/EXP-417: the header's top row — switcher left, the `…` actions
-    /// menu right. (EXP-723 retired the Subscribe toggle on every client;
+    /// EXP-277/EXP-417: the header's top row — the `…` actions menu, right.
+    /// (EXP-723 retired the Subscribe toggle on every client;
     /// auto-subscription and the `issue_subscribers` shape stay. EXP-760
-    /// folded copy-link and delete into the menu.)
+    /// folded copy-link and delete into the menu. EXP-791 retired the
+    /// prev/next switcher on the left; the row's leading slot is the detail
+    /// view's — it puts the "back to issue" control there while a run is
+    /// slid in over the issue.)
     pub(crate) fn top_row(
         &mut self,
         issue: &Issue,
@@ -979,7 +819,6 @@ impl IssueHeader {
             .min_w_0()
             .px(px(DETAIL_GUTTER))
             .pt_2()
-            .children(self.render_switcher(issue, cx))
             .child(div().flex_1().min_w_0())
             .child(self.render_actions_menu(issue, cx))
             .into_any_element()

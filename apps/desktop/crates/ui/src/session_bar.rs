@@ -1,7 +1,10 @@
-//! The bottom **session bar** (EXP-769) — the desktop twin of the web
-//! `AgentDock` (`apps/web/src/components/agent-dock/agent-dock.tsx`): ONE
-//! fixed strip under the working panel carrying the tabs of the user's coding
-//! sessions and PTY terminals, then the Chat and `+` buttons. Nothing else.
+//! The bottom **session bar** (EXP-769) — ONE fixed strip under the working
+//! panel carrying the tabs of the user's PTY terminals, then the `+` button.
+//! Nothing else. EXP-791: it used to be the desktop twin of the web
+//! `AgentDock` and carried the coding-session tabs too; those are rows of
+//! the rail's Sessions section now, the Chat button became the rail's Agent
+//! entry, and the bar takes NO height while no terminal is open (the shell
+//! keeps it mounted — its manager, key bindings and registry live on).
 //!
 //! What it replaced: the JetBrains-style sliding bottom terminal dock — its
 //! open/close slide, its header row (undock / collapsed-form switch / hide),
@@ -25,11 +28,10 @@
 //!   open their tabs through it (`coding_flow::window_terminal_manager`) —
 //!   plus the terminal-scoped key bindings (cmd-t / cmd-w / ctrl-tab), the
 //!   Latest-changes poll for the active terminal, and the two buttons.
-//! - The TABS are the `ScreensPanel`'s: a session or terminal screen is an
-//!   ordinary detail tab of its one tab list, and the bar is the second VIEW
-//!   of that list (`Screen::is_dock_tab`), rendered by
-//!   `ScreensPanel::render_session_bar_tabs`. Web parity adds the caller's
-//!   live runs that have no tab yet; clicking one opens it.
+//! - The TABS are the `ScreensPanel`'s: a terminal screen is an ordinary
+//!   detail tab of its one tab list, and the bar is the second VIEW of that
+//!   list's terminal entries, rendered by
+//!   `ScreensPanel::render_session_bar_tabs`.
 //! - A terminal's CONTENT (grid, exit strip, Latest changes) renders in the
 //!   center through [`SessionBar::render_terminal_screen`], so the key
 //!   context wraps the grid wherever it paints.
@@ -112,6 +114,22 @@ impl gpui::Global for SessionBarRegistry {}
 /// undocked window has none).
 pub(crate) fn host_for_window(window: &Window, cx: &App) -> Option<Entity<SessionBar>> {
     host_for_window_id(window.window_handle().window_id(), cx)
+}
+
+/// EXP-791: whether the bar has anything to show — a terminal tab in this
+/// window's screens panel. The shell folds the bar's band to zero height
+/// otherwise (the panel then takes the plain bottom margin).
+pub(crate) fn bar_visible(window: &Window, cx: &App) -> bool {
+    crate::screens::screens_for_window(window, cx)
+        .is_some_and(|screens| screens.read(cx).has_terminal_tabs())
+}
+
+/// EXP-791: open a plain shell tab in this window — the rail footer's
+/// terminal button (the bar's own `+` and cmd-t take the same path).
+pub(crate) fn open_new_shell(window: &mut Window, cx: &mut App) {
+    if let Some(host) = host_for_window(window, cx) {
+        host.update(cx, |host, cx| host.new_shell_tab(window, cx));
+    }
 }
 
 /// [`host_for_window`] by id.
@@ -594,27 +612,9 @@ impl SessionBar {
         self.activate_visible_step(false, window, cx);
     }
 
-    /// EXP-772: the bar's "Chat" — it OPENS the Chat page rather than
-    /// launching on the spot. A chat used to start promptless the moment the
-    /// glyph was clicked, on whatever agent the settings named; the page lets
-    /// the person type the first message and see (and change) the agent,
-    /// model, effort and plan mode before anything spawns.
-    fn chat_button(&self) -> AnyElement {
-        Button::new("session-bar-chat")
-            .ghost()
-            .web_icon_xs()
-            .icon(Icon::new(registry::ACTION_CHAT))
-            .tooltip("Chat")
-            .on_click(|_, window, cx| {
-                cx.stop_propagation();
-                navigation::navigate(window, cx, navigation::Screen::Chat);
-            })
-            .into_any_element()
-    }
-
     /// The `+`: a plain shell, straight away (cmd-t's click twin). The
     /// agent launches the old dropdown carried belong to the Start-coding
-    /// dialog and the Chat button now.
+    /// dialog and the rail's Agent entry now.
     fn new_terminal_button(&self, cx: &gpui::Context<Self>) -> AnyElement {
         Button::new("session-bar-new-terminal")
             .ghost()
@@ -916,29 +916,31 @@ fn hint(glyph: crate::icons::ExpIcon, copy: &'static str, cx: &App) -> AnyElemen
 }
 
 impl Render for SessionBar {
-    /// The bar: the screens panel's session/terminal tabs with the Chat and
-    /// `+` buttons riding right after the last one — the web strip's `h-9
-    /// px-2 gap-1`. EXP-771: it renders OUTSIDE the cutout panel, on the
-    /// window's bare ground under the card (`shell::Shell::render` owns the
-    /// band's 10px horizontal margins), so it carries no fill and no
-    /// hairline of its own — the head toolbar's twin at the bottom, chips
-    /// inset 8px from the card's left edge by the `px_2` below.
-    /// Always rendered, even with nothing open: Chat and `+` stay one click
-    /// away.
+    /// The bar: the screens panel's terminal tabs with the `+` button riding
+    /// right after the last one — the web strip's `h-9 px-2 gap-1`. EXP-771:
+    /// it renders OUTSIDE the cutout panel, on the window's bare ground under
+    /// the card (`shell::Shell::render` owns the band's 10px horizontal
+    /// margins), so it carries no fill and no hairline of its own — the head
+    /// toolbar's twin at the bottom, chips inset 8px from the card's left
+    /// edge by the `px_2` below. EXP-791: ZERO height without a terminal tab
+    /// (the rail footer's terminal button opens the first one); the entity
+    /// stays mounted so the screens observer below is always armed.
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         if self._observe_screens.is_none() {
             if let Some(screens) = crate::screens::screens_for_window(window, cx) {
                 self._observe_screens = Some(cx.observe(&screens, |_, _, cx| cx.notify()));
             }
         }
-        // EXP-497: the two buttons ride INSIDE the slot after the chips — two
-        // 24px circles plus their gaps come off the partition budget.
-        let button_reserve =
-            2. * (theme::tokens::size::CONTROL_SM + crate::screens::chip_gap(window));
+        if !bar_visible(window, cx) {
+            return h_flex().id("session-bar").w_full().h_0().into_any_element();
+        }
+        // EXP-497: the `+` rides INSIDE the slot after the chips — one 24px
+        // circle plus its gap comes off the partition budget.
+        let button_reserve = theme::tokens::size::CONTROL_SM + crate::screens::chip_gap(window);
         let available = self
             .chips_slot_width
             .map_or(f32::MAX, |slot| (slot - button_reserve).max(0.));
-        let trailing = vec![self.chat_button(), self.new_terminal_button(cx)];
+        let trailing = vec![self.new_terminal_button(cx)];
         let tabs = crate::screens::screens_for_window(window, cx).map(|screens| {
             screens.update(cx, |screens, cx| {
                 screens.render_session_bar_tabs(available, trailing, window, cx)
@@ -987,6 +989,7 @@ impl Render for SessionBar {
                     .overflow_x_hidden()
                     .children(tabs),
             )
+            .into_any_element()
     }
 }
 
@@ -1014,11 +1017,11 @@ pub(crate) fn exit_strip(code: i32, cx: &App) -> impl IntoElement {
         )))
 }
 
-/// EXP-688: the Latest-changes snapshot for ONE terminal tab.
-/// EXP-769: the caller's LIVE runs the session bar lists (the web
-/// `useAgentsData(...).running`): every live row of the caller's on OTHER
-/// machines (`queries::remote_session_rows`, when a relay exists to open them
-/// through) plus the runs THIS process hosts. Newest start first.
+/// EXP-769: the caller's LIVE runs the rail's Sessions section lists (the
+/// web `useAgentsData(...).running`; they were session-bar entries before
+/// EXP-791): every live row of the caller's on OTHER machines
+/// (`queries::remote_session_rows`, when a relay exists to open them through)
+/// plus the runs THIS process hosts. Newest start first.
 pub(crate) fn running_session_ids(cx: &mut App) -> Vec<String> {
     let Some(me) = queries::active_account(cx).map(|account| account.user_id) else {
         return Vec::new();
@@ -1053,7 +1056,7 @@ pub(crate) fn running_session_ids(cx: &mut App) -> Vec<String> {
     rows.into_iter().map(|session| session.id.clone()).collect()
 }
 
-/// EXP-769: a live run the session bar's × can kill (web `useKillSession`'s
+/// EXP-769: a live run a close affordance can kill (web `useKillSession`'s
 /// `canKill`): the caller's, still live, its host not paused. `None` means
 /// the × closes the tab instead.
 #[derive(Clone)]
@@ -1145,7 +1148,7 @@ mod tests {
     use super::*;
 
     /// EXP-769: the bar is the web strip's height, and the button reserve it
-    /// takes off the chip budget is two `size-6` circles — the pill ladder's
+    /// takes off the chip budget is a `size-6` circle — the pill ladder's
     /// small rung, not a hand-typed 24.
     #[test]
     fn bar_geometry_is_the_web_strips() {

@@ -1,10 +1,11 @@
 import { describe, expect, spyOn, test } from "bun:test"
 import type { SteerTicketClaims } from "@exp/steer-ticket"
-import { Hub, type RelaySocket } from "./hub"
+import { HISTORY_ROOM_LINGER_MS, Hub, type RelaySocket } from "./hub"
 import {
   CLOSE_PUBLISHER_IDLE,
   CLOSE_SESSION_ENDED,
   CLOSE_SLOW_CONSUMER,
+  TOOL_DIFF_MAX_WIRE_BYTES,
 } from "./protocol"
 
 class FakeSocket implements RelaySocket {
@@ -1316,6 +1317,108 @@ describe(`activity event kinds`, () => {
     expect(room(hub).activityLog.length).toBe(1)
   })
 
+  // EXP-784: rate_limit is the fourth latest-wins slot, replayed between
+  // usage and the diff; an empty/`ok` status is a frame like any other here
+  // (the CLEAR is the clients' rule — the relay just keeps the newest).
+  test(`rate_limit is latest-wins, replayed after usage and before the diff`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    activity(hub, pub, { kind: `narration`, text: `working` })
+    activity(hub, pub, { kind: `diff`, diff: `+ line` })
+    activity(hub, pub, {
+      kind: `rate_limit`,
+      status: `allowed_warning`,
+      resetsAt: 1_700_000_000_000,
+      message: `80% of the 5-hour window`,
+    })
+    activity(hub, pub, usage)
+    activity(hub, pub, configState)
+    const cleared = { kind: `rate_limit`, status: `` }
+    activity(hub, pub, cleared)
+
+    const member = connectMember(hub)
+    expect(member.events().map((e) => e.kind)).toEqual([
+      `narration`,
+      `config_state`,
+      `usage`,
+      `rate_limit`,
+      `diff`,
+    ])
+    expect(member.events()[3]).toEqual(cleared as never)
+    expect(room(hub).activityLog.length).toBe(1)
+    expect(room(hub).lastByKind.size).toBe(4)
+    // Every declared field survives the re-serialize.
+    activity(hub, pub, {
+      kind: `rate_limit`,
+      status: `rejected`,
+      resetsAt: 1_700_000_000_000,
+      message: `limit reached`,
+      at: 5,
+    })
+    expect(slot(hub, `rate_limit`)).toEqual({
+      kind: `rate_limit`,
+      status: `rejected`,
+      resetsAt: 1_700_000_000_000,
+      message: `limit reached`,
+      at: 5,
+    })
+    // Out of bounds → dropped whole, the slot keeps the last good one.
+    activity(hub, pub, { kind: `rate_limit` })
+    activity(hub, pub, { kind: `rate_limit`, status: `x`, resetsAt: -1 })
+    expect(slot(hub, `rate_limit`)?.status).toBe(`rejected`)
+  })
+
+  // EXP-785/786: `tool` carries its ACP id + kind bucket, and `tool_update`
+  // is a plain LOG row (never a slot) — appended and budgeted like `tool`.
+  test(`tool carries id and toolKind, and tool_update is a log row`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const tool = {
+      kind: `tool`,
+      name: `Edit`,
+      detail: `src/a.ts`,
+      id: `tc-1`,
+      toolKind: `edit`,
+    }
+    const update = {
+      kind: `tool_update`,
+      id: `tc-1`,
+      status: `completed`,
+      diff: `--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-a\n+b\n`,
+    }
+    activity(hub, pub, tool)
+    activity(hub, pub, update)
+    activity(hub, pub, { kind: `tool_update`, id: `tc-1`, status: `failed` })
+    activity(hub, pub, { kind: `tool_update`, id: `tc-1`, diff: `+x\n` })
+    expect(room(hub).activityLog.length).toBe(4)
+    expect(room(hub).lastByKind.size).toBe(0)
+
+    const member = connectMember(hub)
+    expect(member.events()[0]).toEqual(tool as never)
+    expect(member.events()[1]).toEqual(update as never)
+    expect(member.events().map((e) => e.kind)).toEqual([
+      `tool`,
+      `tool_update`,
+      `tool_update`,
+      `tool_update`,
+    ])
+
+    // Schema bounds: an unknown toolKind, a blank id, a bad status, and an
+    // over-cap diff each drop the WHOLE frame.
+    activity(hub, pub, { kind: `tool`, name: `X`, toolKind: `teleport` })
+    activity(hub, pub, { kind: `tool_update`, id: `` })
+    activity(hub, pub, { kind: `tool_update`, id: `tc-1`, status: `pending` })
+    activity(hub, pub, {
+      kind: `tool_update`,
+      id: `tc-1`,
+      diff: `x`.repeat(TOOL_DIFF_MAX_WIRE_BYTES + 1),
+    })
+    expect(room(hub).activityLog.length).toBe(4)
+    // A pre-EXP-785 tool row (no id, no kind) still fans out untouched.
+    activity(hub, pub, { kind: `tool`, name: `Grep` })
+    expect(member.events().at(-1)).toEqual({ kind: `tool`, name: `Grep` } as never)
+  })
+
   test(`the latest config_state and usage are exempt from the log budget`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub)
@@ -1348,11 +1451,13 @@ describe(`activity event kinds`, () => {
     const pub = connectPublisher(hub)
     activity(hub, pub, configState)
     activity(hub, pub, usage)
+    activity(hub, pub, { kind: `rate_limit`, status: `rejected` })
     activity(hub, pub, { kind: `diff`, diff: `+ line` })
 
     hub.onMessage(pub, JSON.stringify({ t: `activity_reset` }))
     expect(room(hub).lastByKind.size).toBe(0)
     expect(slot(hub, `config_state`)).toBeUndefined()
+    expect(slot(hub, `rate_limit`)).toBeUndefined()
 
     const late = connectMember(hub)
     expect(late.events()).toEqual([])
@@ -2029,6 +2134,9 @@ describe(`stats counters (EXP-553)`, () => {
       historyTimeouts: 0,
       historyPageRequests: 0,
       historyPageTimeouts: 0,
+      historyPagesViaDevice: 0,
+      historyRoomLingerExpiries: 0,
+      historyRoomDeviceLost: 0,
     })
 
     const desktop = new FakeSocket()
@@ -2262,7 +2370,7 @@ describe(`session history on demand (EXP-773)`, () => {
     hub.destroy()
   })
 
-  test(`pending room → history_request → replay → activity_synced + bye`, () => {
+  test(`pending room → history_request → replay → activity_synced, then the room lingers`, () => {
     const hub = new Hub()
     const device = connectDevice(hub)
     const member = joinWithDevice(hub)
@@ -2284,16 +2392,20 @@ describe(`session history on demand (EXP-773)`, () => {
     activity(hub, pub, { kind: `diff`, diff: `--- a` })
     hub.onMessage(pub, JSON.stringify({ t: `bye`, outcome: `history` }))
 
+    // EXP-796: no `bye` — the viewer keeps its socket and the room lingers
+    // (publisher-less) so "Load earlier" can page through the device.
     expect(member.frames().map((f) => f.t)).toEqual([
       `activity_reset`,
       `history_pending`,
       `activity`,
       `activity`,
       `activity_synced`,
-      `bye`,
     ])
-    expect(member.lastFrame(`bye`)).toMatchObject({ outcome: `history` })
-    expect(member.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    expect(member.closed).toBeNull()
+    expect(hub.sessionInfo(`sess-past`)).toMatchObject({ live: false, viewers: 1 })
+    // The replay socket closing is not a viewer leaving: the room stays.
+    hub.onClose(pub)
+    expect(hub.stats().rooms).toBe(1)
     hub.destroy()
   })
 
@@ -2321,9 +2433,11 @@ describe(`session history on demand (EXP-773)`, () => {
     expect(second.frames().at(-1)).toMatchObject({ t: `activity_synced` })
 
     hub.onMessage(pub, JSON.stringify({ t: `bye`, outcome: `history` }))
+    // EXP-796: both stay parked on the lingering room, both told the
+    // picture is whole.
     for (const sock of [first, second]) {
-      expect(sock.frames().at(-1)).toMatchObject({ t: `bye` })
-      expect(sock.closed?.code).toBe(CLOSE_SESSION_ENDED)
+      expect(sock.frames().at(-1)).toMatchObject({ t: `activity_synced` })
+      expect(sock.closed).toBeNull()
     }
     hub.destroy()
   })
@@ -2487,6 +2601,348 @@ describe(`session history on demand (EXP-773)`, () => {
     const late = joinWithDevice(hub)
     expect(late.framesOf(`history_pending`)).toHaveLength(0)
     expect(late.frames().at(-1)).toMatchObject({ t: `activity_synced` })
+    hub.destroy()
+  })
+})
+
+// EXP-796: after the device replayed a finished run and said `bye
+// {outcome:'history'}`, the room LINGERS (no publisher, viewers keep their
+// sockets) for HISTORY_ROOM_LINGER_MS or until the last viewer leaves, and a
+// viewer's `history_page` is routed down the owning device's CONTROL socket,
+// whose `history_chunk` names the session. Viewers never re-dial to page.
+describe(`history pages after the replay (EXP-796)`, () => {
+  function connectDevice(hub: Hub, sub = `user-1`, deviceId = `dev-1`) {
+    const sock = new FakeSocket()
+    hub.onOpen(sock, claims({ role: `control`, sub }))
+    hub.onMessage(sock, JSON.stringify({ t: `online`, deviceId }))
+    return sock
+  }
+
+  function joinWithDevice(
+    hub: Hub,
+    opts: { sub?: string; sessionId?: string; deviceId?: string } = {}
+  ) {
+    const sock = new FakeSocket()
+    hub.onOpen(
+      sock,
+      claims({
+        role: `viewer`,
+        sub: opts.sub ?? `user-1`,
+        sessionId: opts.sessionId ?? `sess-past`,
+        deviceId: opts.deviceId ?? `dev-1`,
+      })
+    )
+    hub.onMessage(sock, JSON.stringify({ t: `join`, channel: `activity` }))
+    return sock
+  }
+
+  /** Every `setTimeout` armed while `fn` runs, captured instead of scheduled. */
+  function capturingTimers<T>(fn: () => T): {
+    value: T
+    timers: { ms?: number; fn: () => void }[]
+  } {
+    const timers: { ms?: number; fn: () => void }[] = []
+    const realSetTimeout = globalThis.setTimeout
+    globalThis.setTimeout = ((cb: () => void, ms?: number) => {
+      timers.push({ fn: cb, ms })
+      return 0 as unknown as ReturnType<typeof setTimeout>
+    }) as typeof setTimeout
+    try {
+      return { value: fn(), timers }
+    } finally {
+      globalThis.setTimeout = realSetTimeout
+    }
+  }
+
+  /** A device online, a viewer parked, the replay done: a lingering room.
+   *  Returns the linger timer too, captured rather than scheduled. */
+  function lingeringRoom(hub: Hub) {
+    const device = connectDevice(hub)
+    const viewer = joinWithDevice(hub)
+    const pub = connectPublisher(hub, `sess-past`)
+    activity(hub, pub, { kind: `narration`, text: `tail` }, 40)
+    const { timers } = capturingTimers(() =>
+      hub.onMessage(pub, JSON.stringify({ t: `bye`, outcome: `history` }))
+    )
+    const linger = timers.find((t) => t.ms === HISTORY_ROOM_LINGER_MS)
+    expect(linger).toBeDefined()
+    hub.onClose(pub)
+    return { device, viewer, linger: linger! }
+  }
+
+  test(`the room lingers after the replay's bye and a late viewer joins it synced`, () => {
+    const hub = new Hub()
+    const { viewer } = lingeringRoom(hub)
+    expect(viewer.closed).toBeNull()
+    expect(viewer.frames().at(-1)).toMatchObject({
+      t: `activity_synced`,
+      firstSeq: 40,
+      lastSeq: 40,
+      truncated: true,
+    })
+    // A second viewer finds the room up: replay + synced, no new ask to the
+    // device and no pending marker.
+    const late = joinWithDevice(hub)
+    expect(late.events().map((e) => e.text)).toEqual([`tail`])
+    expect(late.frames().at(-1)).toMatchObject({ t: `activity_synced` })
+    expect(late.framesOf(`history_pending`)).toHaveLength(0)
+    expect(hub.counters().historyRequests).toBe(1)
+    hub.destroy()
+  })
+
+  test(`a page ask in a lingering room goes down the device's control socket`, () => {
+    const hub = new Hub()
+    const { device, viewer } = lingeringRoom(hub)
+    hub.onMessage(
+      viewer,
+      JSON.stringify({ t: `history_page`, requestId: `p1`, beforeSeq: 40, limit: 20 })
+    )
+    const ask = device.lastFrame(`history_page`)
+    expect(ask).toMatchObject({
+      sessionId: `sess-past`,
+      beforeSeq: 40,
+      limit: 20,
+    })
+    expect(ask!.requestId).not.toBe(`p1`)
+    expect(hub.counters().historyPagesViaDevice).toBe(1)
+    expect(hub.counters().historyPageRequests).toBe(1)
+
+    // The device answers on the SAME control socket, naming the session.
+    hub.onMessage(
+      device,
+      JSON.stringify({
+        t: `history_chunk`,
+        sessionId: `sess-past`,
+        requestId: ask!.requestId,
+        events: [{ kind: `narration`, text: `older` }],
+        seqs: [39],
+        done: true,
+      })
+    )
+    expect(viewer.framesOf(`history_chunk`)).toHaveLength(1)
+    expect(viewer.lastFrame(`history_chunk`)).toMatchObject({
+      requestId: `p1`,
+      seqs: [39],
+      done: true,
+    })
+    expect(viewer.closed).toBeNull()
+    // Retired: a duplicate goes nowhere, and the viewer may ask again.
+    hub.onMessage(
+      device,
+      JSON.stringify({
+        t: `history_chunk`,
+        sessionId: `sess-past`,
+        requestId: ask!.requestId,
+        events: [],
+        done: true,
+      })
+    )
+    expect(viewer.framesOf(`history_chunk`)).toHaveLength(1)
+    hub.onMessage(
+      viewer,
+      JSON.stringify({ t: `history_page`, requestId: `p2`, beforeSeq: 39, limit: 20 })
+    )
+    expect(device.framesOf(`history_page`)).toHaveLength(2)
+    hub.destroy()
+  })
+
+  test(`a control chunk needs the session, the right device and a lingering room`, () => {
+    const hub = new Hub()
+    const { device, viewer } = lingeringRoom(hub)
+    hub.onMessage(
+      viewer,
+      JSON.stringify({ t: `history_page`, requestId: `p1`, beforeSeq: 40, limit: 20 })
+    )
+    const relayId = device.lastFrame(`history_page`)!.requestId as string
+    const chunk = (overrides: Record<string, unknown>) =>
+      JSON.stringify({
+        t: `history_chunk`,
+        sessionId: `sess-past`,
+        requestId: relayId,
+        events: [{ kind: `narration`, text: `older` }],
+        seqs: [39],
+        done: true,
+        ...overrides,
+      })
+    // No session named: a control socket serves many rooms, so it cannot be
+    // routed.
+    hub.onMessage(device, chunk({ sessionId: undefined }))
+    // The wrong session.
+    hub.onMessage(device, chunk({ sessionId: `sess-other` }))
+    // Another device of the same user, and the same deviceId under another
+    // user, are not the machine the room was opened against.
+    const stranger = connectDevice(hub, `user-1`, `dev-2`)
+    hub.onMessage(stranger, chunk({}))
+    const impostor = connectDevice(hub, `someone-else`, `dev-1`)
+    hub.onMessage(impostor, chunk({}))
+    expect(viewer.framesOf(`history_chunk`)).toHaveLength(0)
+    // The ask is still open: the right device answers it.
+    hub.onMessage(device, chunk({}))
+    expect(viewer.framesOf(`history_chunk`)).toHaveLength(1)
+    hub.destroy()
+  })
+
+  test(`a live room still routes pages to its publisher, never the device`, () => {
+    const hub = new Hub()
+    const device = connectDevice(hub)
+    const viewer = joinWithDevice(hub)
+    const pub = connectPublisher(hub, `sess-past`)
+    activity(hub, pub, { kind: `narration`, text: `tail` }, 40)
+    hub.onMessage(
+      viewer,
+      JSON.stringify({ t: `history_page`, requestId: `p1`, beforeSeq: 40, limit: 20 })
+    )
+    expect(pub.framesOf(`history_page`)).toHaveLength(1)
+    expect(device.framesOf(`history_page`)).toHaveLength(0)
+    expect(hub.counters().historyPagesViaDevice).toBe(0)
+    hub.destroy()
+  })
+
+  test(`the last viewer leaving closes the lingering room`, () => {
+    const hub = new Hub()
+    const { device, viewer } = lingeringRoom(hub)
+    const second = joinWithDevice(hub)
+    hub.onClose(viewer)
+    expect(hub.stats().rooms).toBe(1)
+    hub.onClose(second)
+    expect(hub.stats().rooms).toBe(0)
+    // Gone for real: the next join asks the device afresh.
+    const again = joinWithDevice(hub)
+    expect(again.frames().map((f) => f.t)).toEqual([
+      `activity_reset`,
+      `history_pending`,
+    ])
+    expect(device.framesOf(`history_request`)).toHaveLength(2)
+    hub.destroy()
+  })
+
+  test(`the linger timer closes the room with the history bye`, () => {
+    const hub = new Hub()
+    const { viewer, linger } = lingeringRoom(hub)
+    linger.fn()
+    expect(viewer.frames().at(-1)).toMatchObject({ t: `bye`, outcome: `history` })
+    expect(viewer.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    expect(hub.stats().rooms).toBe(0)
+    expect(hub.counters().historyRoomLingerExpiries).toBe(1)
+    hub.destroy()
+  })
+
+  test(`a page ask with the device gone answers device_offline, terminally`, () => {
+    const hub = new Hub()
+    const { device, viewer } = lingeringRoom(hub)
+    const second = joinWithDevice(hub)
+    hub.onClose(device)
+    // Nothing in flight when it left: the room is still up…
+    expect(hub.stats().rooms).toBe(1)
+    expect(viewer.closed).toBeNull()
+    // …until someone asks for a page nothing can serve. Same shape as a join
+    // finding the device offline: error, then a terminal bye, then the close
+    // — for EVERY viewer, since no page can ever come.
+    hub.onMessage(
+      viewer,
+      JSON.stringify({ t: `history_page`, requestId: `p1`, beforeSeq: 40, limit: 20 })
+    )
+    for (const sock of [viewer, second]) {
+      expect(sock.frames().slice(-2).map((f) => f.t)).toEqual([`error`, `bye`])
+      expect(sock.lastFrame(`error`)).toMatchObject({ code: `device_offline` })
+      expect(sock.lastFrame(`bye`)).toMatchObject({ outcome: `device_offline` })
+      expect(sock.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    }
+    expect(hub.stats().rooms).toBe(0)
+    expect(hub.counters().historyRoomDeviceLost).toBe(1)
+    hub.destroy()
+  })
+
+  test(`the device going offline mid-page answers the pending ask device_offline`, () => {
+    const hub = new Hub()
+    const { device, viewer } = lingeringRoom(hub)
+    hub.onMessage(
+      viewer,
+      JSON.stringify({ t: `history_page`, requestId: `p1`, beforeSeq: 40, limit: 20 })
+    )
+    expect(device.framesOf(`history_page`)).toHaveLength(1)
+    hub.onClose(device)
+    expect(viewer.frames().slice(-2).map((f) => f.t)).toEqual([`error`, `bye`])
+    expect(viewer.lastFrame(`error`)).toMatchObject({ code: `device_offline` })
+    expect(viewer.lastFrame(`bye`)).toMatchObject({ outcome: `device_offline` })
+    expect(viewer.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    expect(hub.stats().rooms).toBe(0)
+    expect(hub.counters().historyRoomDeviceLost).toBe(1)
+    hub.destroy()
+  })
+
+  test(`a control socket merely REPLACED by a redial keeps the page in flight`, () => {
+    const hub = new Hub()
+    const { device, viewer } = lingeringRoom(hub)
+    hub.onMessage(
+      viewer,
+      JSON.stringify({ t: `history_page`, requestId: `p1`, beforeSeq: 40, limit: 20 })
+    )
+    const relayId = device.lastFrame(`history_page`)!.requestId as string
+    // Same device re-announces on a fresh socket; the old one is replaced,
+    // not evicted — the device is still here and may answer on the new one.
+    const fresh = connectDevice(hub)
+    hub.onClose(device)
+    expect(viewer.closed).toBeNull()
+    hub.onMessage(
+      fresh,
+      JSON.stringify({
+        t: `history_chunk`,
+        sessionId: `sess-past`,
+        requestId: relayId,
+        events: [{ kind: `narration`, text: `older` }],
+        seqs: [39],
+        done: true,
+      })
+    )
+    expect(viewer.lastFrame(`history_chunk`)).toMatchObject({ requestId: `p1` })
+    hub.destroy()
+  })
+
+  test(`a second replay into a lingering room takes it back and starts empty`, () => {
+    const hub = new Hub()
+    const { viewer, linger } = lingeringRoom(hub)
+    const resets = viewer.framesOf(`activity_reset`).length
+    const again = connectPublisher(hub, `sess-past`)
+    expect(viewer.framesOf(`activity_reset`)).toHaveLength(resets + 1)
+    activity(hub, again, { kind: `narration`, text: `tail` }, 40)
+    const late = joinWithDevice(hub)
+    expect(late.events().map((e) => e.text)).toEqual([`tail`])
+    // The old linger is disarmed: firing it is a no-op on the live room.
+    linger.fn()
+    expect(viewer.closed).toBeNull()
+    expect(hub.stats().rooms).toBe(1)
+    // …and its bye lingers the room afresh.
+    hub.onMessage(again, JSON.stringify({ t: `bye`, outcome: `history` }))
+    expect(viewer.closed).toBeNull()
+    expect(viewer.frames().at(-1)).toMatchObject({ t: `activity_synced` })
+    hub.destroy()
+  })
+
+  test(`a replay nobody stayed for does not leave a room behind`, () => {
+    const hub = new Hub()
+    connectDevice(hub)
+    const viewer = joinWithDevice(hub)
+    const pub = connectPublisher(hub, `sess-past`)
+    hub.onClose(viewer)
+    hub.onMessage(pub, JSON.stringify({ t: `bye`, outcome: `history` }))
+    expect(hub.stats().rooms).toBe(0)
+    hub.destroy()
+  })
+
+  test(`a publisher-opened room still closes on its history bye`, () => {
+    const hub = new Hub()
+    // No viewer opened this room against a device: there is nothing to page
+    // through, so the pre-EXP-796 close stands.
+    const pub = connectPublisher(hub)
+    const member = connectMember(hub)
+    hub.onMessage(pub, JSON.stringify({ t: `bye`, outcome: `history` }))
+    expect(member.frames().slice(-2).map((f) => f.t)).toEqual([
+      `activity_synced`,
+      `bye`,
+    ])
+    expect(member.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    expect(hub.stats().rooms).toBe(0)
     hub.destroy()
   })
 })

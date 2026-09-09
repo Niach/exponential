@@ -1,0 +1,6 @@
+{"sessionId":"acp-1","update":{"sessionUpdate":"session_info_update"},"_meta":{"exponentialRateLimit":{"status":"rejected","resetsAt":1788703200000}}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"session_info_update"},"_meta":{"exponentialRateLimit":{"status":"rejected","resetsAt":1788703200000,"message":"You've hit your session limit · resets 12:10pm (Europe/Berlin)"}}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"session_info_update"},"_meta":{"exponentialRateLimit":{"status":"rejected","resetsAt":1788703200000,"message":"You've hit your session limit · resets 12:10pm (Europe/Berlin)"}}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"session_info_update"}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Back to work."},"messageId":"m9"}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"session_info_update"},"_meta":{"exponentialRateLimit":{"status":"ok"}}}

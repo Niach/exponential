@@ -56,7 +56,60 @@ impl Run {
     /// One short label per notification, so a test asserts the whole stream in
     /// one readable vector instead of index arithmetic.
     fn shape(&self) -> Vec<String> {
-        self.updates.iter().map(|notification| shape(&notification.update)).collect()
+        self.updates
+            .iter()
+            // EXP-784: the native-id / rate-limit `_meta` carriers are not
+            // feed rows; `rate_limits()` and `native_ids()` read those.
+            .filter(|notification| {
+                !matches!(notification.update, SessionUpdate::SessionInfoUpdate(_))
+            })
+            .map(|notification| shape(&notification.update))
+            .collect()
+    }
+
+    /// EXP-784: the rate-limit slots the adapter published, in order.
+    fn rate_limits(&self) -> Vec<Value> {
+        self.updates
+            .iter()
+            .filter_map(|notification| {
+                notification.meta.as_ref()?.get(engine::mapper::RATE_LIMIT_META_KEY).cloned()
+            })
+            .collect()
+    }
+
+    /// EXP-784: the native session ids re-published mid-run, in order.
+    fn native_ids(&self) -> Vec<String> {
+        self.updates
+            .iter()
+            .filter_map(|notification| {
+                notification
+                    .meta
+                    .as_ref()?
+                    .get(engine::NATIVE_SESSION_META_KEY)?
+                    .as_str()
+                    .map(str::to_string)
+            })
+            .collect()
+    }
+
+    /// The adapter's notifications through the ONE mapper: what the relay
+    /// would have seen.
+    fn wire(&self) -> Vec<Value> {
+        let mut mapper = engine::Mapper::new(engine::MapperConfig {
+            redactor: Arc::new(steer::Redactor::new(Vec::new())),
+            cwd: PathBuf::from("/tmp/worktree"),
+            agent: steer::SessionAgent::Claude,
+            session_seed: "sess-1".to_string(),
+        });
+        let mut out = engine::MapOut::default();
+        for notification in &self.updates {
+            mapper.on_update(notification, &mut out);
+        }
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        out.wire
+            .iter()
+            .map(|event| serde_json::to_value(event).expect("an activity event serializes"))
+            .collect()
     }
 
     fn argv_value(&self, flag: &str) -> Option<&str> {
@@ -245,6 +298,107 @@ fn spec_at(scenario_dir: &Path, work: &Path, plan_mode: bool) -> AdapterSpec {
     }
 }
 
+/// [`drive`] over several sequential prompts (`turn1.jsonl`, `turn2.jsonl`,
+/// …); `stop_reason` and `updates_at_settle` are the LAST turn's.
+async fn drive_turns(
+    scenario: &str,
+    work: &Path,
+    prompts: &[&str],
+    permission: PermissionAnswer,
+    elicitation: ElicitationAnswer,
+) -> Run {
+    let scenario_dir = Path::new(FIXTURES).join(scenario);
+    let adapter =
+        ClaudeAgent::new(spec_at(&scenario_dir, work, false)).expect("the adapter builds");
+    let updates: Arc<Mutex<Vec<SessionNotification>>> = Arc::new(Mutex::new(Vec::new()));
+    let permissions: Arc<Mutex<Vec<RequestPermissionRequest>>> = Arc::new(Mutex::new(Vec::new()));
+    let elicitations: Arc<Mutex<Vec<CreateElicitationRequest>>> = Arc::new(Mutex::new(Vec::new()));
+    let seen_updates = updates.clone();
+    let seen_permissions = permissions.clone();
+    let seen_elicitations = elicitations.clone();
+    let settled_at: Arc<Mutex<usize>> = Arc::new(Mutex::new(0));
+    let counted_updates = updates.clone();
+    let count_at_settle = settled_at.clone();
+    let prompts: Vec<String> = prompts.iter().map(|prompt| prompt.to_string()).collect();
+
+    let driven = Client
+        .builder()
+        .name("exp746-test-client")
+        .on_receive_notification(
+            async move |notification: SessionNotification, _cx| {
+                seen_updates.lock().expect("updates").push(notification);
+                Ok(())
+            },
+            on_receive_notification!(),
+        )
+        .on_receive_request(
+            async move |request: RequestPermissionRequest, responder, _cx| {
+                seen_permissions.lock().expect("permissions").push(request.clone());
+                let outcome = permission(&request);
+                responder.respond(RequestPermissionResponse::new(outcome))
+            },
+            on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |request: CreateElicitationRequest, responder, _cx| {
+                seen_elicitations.lock().expect("elicitations").push(request.clone());
+                let action = elicitation(&request);
+                responder.respond(CreateElicitationResponse::new(action))
+            },
+            on_receive_request!(),
+        )
+        .connect_with(adapter, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(engine::client_capabilities()),
+            )
+            .block_task()
+            .await?;
+            let session = cx
+                .send_request(NewSessionRequest::new(std::env::temp_dir()))
+                .block_task()
+                .await?;
+            let mut stop_reason = StopReason::EndTurn;
+            for prompt in prompts {
+                let response = cx
+                    .send_request(PromptRequest::new(
+                        session.session_id.clone(),
+                        vec![ContentBlock::Text(TextContent::new(prompt))],
+                    ))
+                    .block_task()
+                    .await?;
+                stop_reason = response.stop_reason;
+            }
+            *count_at_settle.lock().expect("the settle count") =
+                counted_updates.lock().expect("updates").len();
+            Ok::<_, Error>((session, stop_reason))
+        });
+    let (session, stop_reason) = tokio::time::timeout(Duration::from_secs(30), driven)
+        .await
+        .expect("the turns settle inside the budget")
+        .expect("the connection runs cleanly");
+    let argv = std::fs::read_to_string(work.join("argv.txt"))
+        .map(|text| text.lines().map(str::to_string).collect())
+        .unwrap_or_default();
+    let stdin = std::fs::read_to_string(work.join("stdin.jsonl"))
+        .map(|text| text.lines().filter_map(|line| serde_json::from_str(line).ok()).collect())
+        .unwrap_or_default();
+    let updates = updates.lock().expect("updates").clone();
+    let permissions = permissions.lock().expect("permissions").clone();
+    let elicitations = elicitations.lock().expect("elicitations").clone();
+    let updates_at_settle = *settled_at.lock().expect("the settle count");
+    Run {
+        stop_reason,
+        session,
+        updates,
+        permissions,
+        elicitations,
+        argv,
+        stdin,
+        updates_at_settle,
+    }
+}
+
 async fn drive(
     scenario: &str,
     work: &Path,
@@ -405,7 +559,15 @@ async fn a_plain_turn_streams_once_and_settles_on_end_turn() {
     // The catalog is filtered twice over: `doctor` is terminal-only (the init
     // frame says so, which is why the catalog is re-filtered when it lands)
     // and `clear` is on the hard-coded unsupported list.
-    match &run.updates[0].update {
+    // EXP-784: the init frame's session id differs from the pinned one in a
+    // replayed capture, so a native-id re-record (a no-op
+    // `session_info_update`) may precede the catalog.
+    let first_catalog = run
+        .updates
+        .iter()
+        .find(|notification| !matches!(notification.update, SessionUpdate::SessionInfoUpdate(_)))
+        .expect("an update past the id re-record");
+    match &first_catalog.update {
         SessionUpdate::AvailableCommandsUpdate(update) => {
             let names: Vec<&str> = update
                 .available_commands
@@ -461,14 +623,22 @@ async fn the_argv_pins_the_permission_mode_and_the_reaper_anchor() {
         run.argv_value("--append-system-prompt"),
         coding::skill::RUN_SKILL.lines().next()
     );
-    // The session id pin doubles as the ACP session id, so `--resume=<acp id>`
-    // reopens exactly this conversation.
+    // EXP-784: the `--session-id` pin is claude's OWN uuid, decoupled from
+    // the ACP session id (a `/clear` moves the former, never the latter);
+    // it reaches the run record through the response's `_meta`.
     let pinned = run
         .argv
         .iter()
         .find_map(|arg| arg.strip_prefix("--session-id="))
         .expect("--session-id= is pinned");
-    assert_eq!(pinned, run.session.session_id.0.as_ref());
+    assert_ne!(pinned, run.session.session_id.0.as_ref());
+    assert!(uuid::Uuid::parse_str(pinned).is_ok(), "{pinned}");
+    assert_eq!(
+        run.session.meta.as_ref().and_then(|meta| meta.get(engine::NATIVE_SESSION_META_KEY)),
+        Some(&serde_json::json!(pinned))
+    );
+    // EXP-784: subagent prose reaches stdout only with this flag.
+    assert!(run.argv.iter().any(|arg| arg == "--forward-subagent-text"));
     // Env: the session-state backstop on, the entrypoint label never claimed.
     assert!(run.argv.iter().any(|arg| arg == "env:CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1"));
     // Never SET by the adapter (the SDK claims `sdk-ts`; we do not): whatever
@@ -683,12 +853,13 @@ async fn the_plan_approval_is_a_switch_mode_card_with_the_plan_and_its_options()
     }
     let options: Vec<String> =
         request.options.iter().map(|option| option.option_id.0.to_string()).collect();
-    // EXP-772: coding the plan is the only elevated answer left.
+    // EXP-772: coding the plan is the only elevated answer left; EXP-788:
+    // the plain "Yes" is index 0, the primary on every client.
     assert_eq!(
         options,
         vec![
-            "exit-plan-clear-bypass".to_string(),
             "exit-plan-bypass".to_string(),
+            "exit-plan-clear-bypass".to_string(),
             "reject".to_string(),
         ]
     );
@@ -957,6 +1128,143 @@ async fn a_cancel_interrupts_the_running_turn_and_settles_it_cancelled() {
     assert_eq!(interrupt["request"]["cancel_queued"], serde_json::json!(true));
 }
 
+/// EXP-784: the stall watchdog's interrupt says `cancel_queued: false` on
+/// the notification, and that reaches the CLI's `interrupt` verbatim — the
+/// steers queued behind the wedged turn are what it is rescuing.
+#[tokio::test]
+async fn a_stall_interrupt_keeps_the_queued_steers() {
+    let work = workdir("stall");
+    let adapter = ClaudeAgent::new(spec("cancel", &work.0, false)).expect("the adapter builds");
+    let stop_reason = Client
+        .builder()
+        .name("exp746-test-client")
+        .on_receive_notification(
+            async move |_notification: SessionNotification, _cx| Ok(()),
+            on_receive_notification!(),
+        )
+        .connect_with(adapter, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(engine::client_capabilities()),
+            )
+            .block_task()
+            .await?;
+            let session = cx
+                .send_request(NewSessionRequest::new(std::env::temp_dir()))
+                .block_task()
+                .await?;
+            let turn = cx.send_request(PromptRequest::new(
+                session.session_id.clone(),
+                vec![ContentBlock::Text(TextContent::new("Work on something long."))],
+            ));
+            let mut meta = serde_json::Map::new();
+            meta.insert(
+                engine::host::CANCEL_QUEUED_META_KEY.to_string(),
+                serde_json::json!(false),
+            );
+            cx.send_notification(CancelNotification::new(session.session_id.clone()).meta(meta))?;
+            let response = turn.block_task().await?;
+            Ok::<_, Error>(response.stop_reason)
+        })
+        .await
+        .expect("the connection runs cleanly");
+    assert_eq!(stop_reason, StopReason::Cancelled);
+    let stdin: Vec<Value> = std::fs::read_to_string(work.0.join("stdin.jsonl"))
+        .expect("the fake logged stdin")
+        .lines()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect();
+    let interrupt = stdin
+        .iter()
+        .find(|line| line["request"]["subtype"] == serde_json::json!("interrupt"))
+        .expect("the interrupt reached the CLI");
+    assert_eq!(interrupt["request"]["cancel_queued"], serde_json::json!(false));
+}
+
+/// EXP-784: claude's rate-limit notice is STATE, not prose. The recorded
+/// shape: a `rate_limit_event` (`rejected`), then the CLI's `<synthetic>`
+/// assistant frame repeated per request (`You've hit your session limit ·
+/// resets 12:10pm (Europe/Berlin)`), then a `result` that repeats it once
+/// more — which used to be three identical bubbles. Now: ONE slot with the
+/// message, ZERO narration rows, and the next real answer clears it.
+#[tokio::test]
+async fn a_rate_limit_notice_is_a_slot_and_never_a_bubble() {
+    let work = workdir("rate-limit");
+    let run = drive_turns(
+        "rate-limit",
+        &work.0,
+        &["Do the thing.", "Try again."],
+        reject_all(),
+        cancel_elicitations(),
+    )
+    .await;
+    let notice = "You've hit your session limit · resets 12:10pm (Europe/Berlin)";
+
+    let narrations: Vec<&String> = run.shape().into_iter().collect::<Vec<_>>().leak().iter()
+        .filter(|shape| shape.starts_with("agent:"))
+        .collect();
+    assert_eq!(narrations, vec!["agent:Back to work."], "no bubble for the notice");
+
+    assert_eq!(
+        run.rate_limits(),
+        vec![
+            serde_json::json!({"status": "rejected", "resetsAt": 1_788_703_200_000i64}),
+            serde_json::json!({"status": "rejected", "resetsAt": 1_788_703_200_000i64, "message": notice}),
+            serde_json::json!({"status": "ok"}),
+        ],
+        "the event, the notice once, the clear on the next real answer"
+    );
+
+    // On the wire: exactly one `rate_limit` with the message, then the clear.
+    let wire: Vec<Value> =
+        run.wire().into_iter().filter(|event| event["kind"] == "rate_limit").collect();
+    assert_eq!(wire.len(), 3, "{wire:?}");
+    assert_eq!(wire[1]["message"], serde_json::json!(notice));
+    assert_eq!(wire[1]["status"], serde_json::json!("rejected"));
+    assert_eq!(wire[2], serde_json::json!({"kind": "rate_limit", "status": ""}));
+    let with_message = wire.iter().filter(|event| event.get("message").is_some()).count();
+    assert_eq!(with_message, 1);
+}
+
+/// EXP-784: the ACP session id is the host's STABLE handle; claude's own
+/// moves. Two `system/init`s (a `/clear` re-inits under a fresh uuid): the
+/// ACP id on every notification stays put, the `--session-id` pin was a
+/// different uuid to begin with, and each init that reports a NEW native id
+/// re-publishes it so `runs.json` follows the live conversation.
+#[tokio::test]
+async fn a_clear_moves_the_native_id_but_never_the_acp_id() {
+    let work = workdir("clear-reset");
+    let run = drive_turns(
+        "clear-reset",
+        &work.0,
+        &["First.", "/clear then second."],
+        reject_all(),
+        cancel_elicitations(),
+    )
+    .await;
+    let acp = run.session.session_id.0.to_string();
+    assert!(run.updates.iter().all(|notification| notification.session_id.0.as_ref() == acp));
+    let pinned = run
+        .argv
+        .iter()
+        .find_map(|arg| arg.strip_prefix("--session-id="))
+        .expect("--session-id= is pinned");
+    assert_ne!(pinned, acp);
+    assert_eq!(
+        run.native_ids(),
+        vec![
+            "11111111-2222-3333-4444-555555555555".to_string(),
+            "22222222-3333-4444-5555-666666666666".to_string(),
+        ]
+    );
+    assert_eq!(
+        run.shape().iter().filter(|shape| shape.starts_with("agent:")).count(),
+        2,
+        "{:?}",
+        run.shape()
+    );
+}
+
 /// EXP-746: a mid-turn steer is a second `session/prompt`, and the CLI may
 /// FOLD it into the running turn instead of queueing it — one `result` for
 /// both, `queued_turn_count: 0`. The fixture answers only after both user
@@ -1149,9 +1457,10 @@ async fn the_child_going_away_closes_the_connection_with_its_exit_code() {
 ///    the id resolves to the task, and the task carries the `tool_use_id` of
 ///    the Task call every nested row already names.
 /// 2. The terminal `task_updated`/`task_notification` pair arrives BEFORE the
-///    turn's `result`, and the CLI streams no prose of its own for a
-///    subagent (its report rides `task_notification.summary`), so the only
-///    nested rows here are the prompt it was handed and its Bash call.
+///    turn's `result`. The nested rows are the prompt it was handed, its
+///    Bash call and (EXP-784, `--forward-subagent-text`) the one line of
+///    prose it wrote — an `assistant` frame carrying `parent_tool_use_id`,
+///    which lands as a narration scoped to the subagent.
 #[tokio::test]
 async fn a_subagents_permission_chunks_and_edges_carry_the_parent_tool_use() {
     let work = workdir("subagent");
@@ -1192,10 +1501,18 @@ async fn a_subagents_permission_chunks_and_edges_carry_the_parent_tool_use() {
         .collect();
     assert!(nested.iter().all(|(_, id)| id == parent), "{nested:?}");
     let shapes: Vec<&str> = nested.iter().map(|(shape, _)| shape.as_str()).collect();
-    assert_eq!(shapes.len(), 3, "{nested:?}");
+    assert_eq!(shapes.len(), 4, "{nested:?}");
     assert!(shapes[0].starts_with("user:Your only job"), "{shapes:?}");
     assert_eq!(shapes[1], "tool:echo probe >> probe.txt");
     assert_eq!(shapes[2], "tool_update:Completed");
+    assert_eq!(shapes[3], "agent:Done: probe appended.");
+    // ... and through the mapper it is a narration row with `subagentId`.
+    let prose = run
+        .wire()
+        .into_iter()
+        .find(|event| event["kind"] == "narration" && event["text"] == "Done: probe appended.")
+        .expect("the subagent's prose is a narration");
+    assert_eq!(prose["subagentId"], serde_json::json!(parent));
 
     // EXP-772: the permission the subagent raised is allowed without a card,
     // keyed by ITS tool use — nothing reaches the client to attribute.

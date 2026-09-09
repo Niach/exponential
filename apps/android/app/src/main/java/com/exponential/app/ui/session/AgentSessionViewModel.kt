@@ -506,6 +506,10 @@ class AgentSessionViewModel @Inject constructor(
      *  pickers beside it: model and effort are launch decisions now. */
     fun setMode(id: String) = connection.setMode(id)
 
+    /** EXP-790: interrupt the turn in flight — the composer's Stop glyph.
+     *  Fire-and-forget like [setMode]; the feed shows the agent stopping. */
+    fun interrupt() = connection.interrupt()
+
     /** EXP-783: whether the DEVICE still holds transcript below the oldest row
      *  this client has, and the ask that fetches the next page of it. */
     fun canLoadEarlier(): Boolean = connection.canLoadEarlier()

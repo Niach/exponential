@@ -88,7 +88,10 @@ fn a_recorded_turn_maps_to_the_wire_vector() {
                 "messageId": "t1#thought"
             }),
             // The detail is the location path, relative to the worktree.
-            json!({"kind": "tool", "name": "Read", "detail": "src/main.rs"}),
+            // EXP-785: the row carries the ACP id and kind bucket, and its
+            // settle follows as a `tool_update` the clients fold in by id.
+            json!({"kind": "tool", "name": "Read", "detail": "src/main.rs", "id": "tc-1", "toolKind": "read"}),
+            json!({"kind": "tool_update", "id": "tc-1", "status": "completed"}),
             json!({
                 "kind": "usage",
                 "contextUsed": 12000,
@@ -101,8 +104,37 @@ fn a_recorded_turn_maps_to_the_wire_vector() {
     );
 }
 
+/// EXP-784: the rate-limit slot rides `_meta` on a no-op
+/// `session_info_update` (`engine::mapper::RATE_LIMIT_META_KEY`): a plain
+/// one publishes nothing, identical re-emits collapse, and `ok` is the one
+/// clear frame.
 #[test]
-fn a_tool_call_update_is_a_local_card_and_never_a_wire_row() {
+fn a_rate_limit_meta_maps_to_the_slot_once_and_clears_on_ok() {
+    let events: Vec<Value> = wire("rate_limit.jsonl")
+        .into_iter()
+        .filter(|event| event["kind"] == "rate_limit")
+        .collect();
+    assert_eq!(
+        events,
+        vec![
+            json!({"kind": "rate_limit", "status": "rejected", "resetsAt": 1_788_703_200_000i64}),
+            json!({
+                "kind": "rate_limit",
+                "status": "rejected",
+                "resetsAt": 1_788_703_200_000i64,
+                "message": "You've hit your session limit · resets 12:10pm (Europe/Berlin)"
+            }),
+            json!({"kind": "rate_limit", "status": ""}),
+        ]
+    );
+    // The narration between them is untouched by the slot.
+    assert!(wire("rate_limit.jsonl")
+        .iter()
+        .any(|event| event["kind"] == "narration" && event["text"] == "Back to work."));
+}
+
+#[test]
+fn a_tool_call_update_is_a_local_card_and_only_its_settle_a_wire_row() {
     let local = local("turn.jsonl");
     let cards: Vec<&engine::LocalFeedEvent> = local
         .iter()
@@ -128,7 +160,12 @@ fn a_command_never_reaches_the_wire_and_a_secret_never_reaches_a_detail() {
     let wire = wire("execute.jsonl");
     assert_eq!(
         wire,
-        vec![json!({"kind": "tool", "name": "Bash", "detail": "bun"})]
+        vec![
+            json!({"kind": "tool", "name": "Bash", "detail": "bun", "id": "tc-9", "toolKind": "execute"}),
+            json!({"kind": "tool_update", "id": "tc-9", "status": "completed"}),
+            // tc-2 was never announced: its settle AND its diff (an `other`
+            // kind besides) stay off the wire.
+        ]
     );
     let serialized = serde_json::to_string(&wire).expect("the vector serializes");
     assert!(
@@ -179,6 +216,105 @@ fn command_output_and_edit_diffs_stay_local() {
     );
 }
 
+/// EXP-785/786: a settle rides the wire as a `tool_update` (completed AND
+/// failed), and an `edit` call's diff rides with it — built from old/new
+/// text, redacted, worktree-relative. An update for a call the mapper never
+/// announced is dropped.
+#[test]
+fn settles_and_edit_diffs_ride_the_wire_as_tool_updates() {
+    let wire = wire("tool_update.jsonl");
+    assert_eq!(wire.len(), 6, "{wire:#?}");
+    assert_eq!(
+        wire[0],
+        json!({"kind": "tool", "name": "Read", "detail": "src/main.rs", "id": "tc-ok", "toolKind": "read"})
+    );
+    assert_eq!(wire[1], json!({"kind": "tool_update", "id": "tc-ok", "status": "completed"}));
+    assert_eq!(
+        wire[2],
+        json!({"kind": "tool", "name": "Bash", "detail": "bun", "id": "tc-bad", "toolKind": "execute"})
+    );
+    assert_eq!(wire[3], json!({"kind": "tool_update", "id": "tc-bad", "status": "failed"}));
+    assert_eq!(
+        wire[4],
+        json!({"kind": "tool", "name": "Edit", "detail": "src/lib.rs", "id": "tc-edit", "toolKind": "edit"})
+    );
+    assert_eq!(wire[5]["kind"], "tool_update");
+    assert_eq!(wire[5]["id"], "tc-edit");
+    assert_eq!(wire[5]["status"], "completed");
+    let diff = wire[5]["diff"].as_str().expect("the edit carries its diff");
+    assert!(
+        diff.starts_with("--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1,2 +1,2 @@\n fn a() {}\n-fn b() {}\n+fn b() { "),
+        "{diff}"
+    );
+    let serialized = serde_json::to_string(&wire).expect("the vector serializes");
+    assert!(!serialized.contains("expu_"), "no secret may reach the relay: {serialized}");
+    assert!(!serialized.contains("--token"), "no raw command may reach the relay: {serialized}");
+    // The local feed still carries the whole (unredacted) edit for its card.
+    assert!(local("tool_update.jsonl").iter().any(|event| matches!(
+        event,
+        engine::LocalFeedEvent::EditDiff { tool_call_id, .. } if tool_call_id == "tc-edit"
+    )));
+}
+
+/// EXP-786: a long edit is cut on LINE boundaries to the contract's caps and
+/// ends in the `\ N more lines truncated` marker; a non-edit kind's diff
+/// never rides at all; an edit that changed nothing sends no diff.
+#[test]
+fn a_long_edit_diff_is_truncated_on_line_boundaries_and_non_edits_send_none() {
+    use agent_client_protocol::schema::v1::{
+        Diff, SessionId, SessionNotification, SessionUpdate, ToolCall, ToolCallContent,
+        ToolCallId, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, ToolKind,
+    };
+    let old: String = (0..1000).map(|n| format!("line {n}\n")).collect();
+    let new: String = (0..1000).map(|n| format!("LINE {n}\n")).collect();
+    let call = |id: &str, kind: ToolKind| {
+        SessionNotification::new(
+            SessionId::new("acp-1"),
+            SessionUpdate::ToolCall(ToolCall::new(ToolCallId::new(id), "Edit big.txt").kind(kind)),
+        )
+    };
+    let update = |id: &str, old_text: Option<&str>, new_text: &str| {
+        SessionNotification::new(
+            SessionId::new("acp-1"),
+            SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
+                ToolCallId::new(id),
+                ToolCallUpdateFields::new()
+                    .status(ToolCallStatus::Completed)
+                    .content(vec![ToolCallContent::Diff(
+                        Diff::new("/tmp/worktree/big.txt", new_text)
+                            .old_text(old_text.map(str::to_string)),
+                    )]),
+            )),
+        )
+    };
+    let mut mapper = mapper();
+    let mut out = MapOut::default();
+    mapper.on_update(&call("tc-big", ToolKind::Edit), &mut out);
+    mapper.on_update(&update("tc-big", Some(&old), &new), &mut out);
+    mapper.on_update(&call("tc-other", ToolKind::Other), &mut out);
+    mapper.on_update(&update("tc-other", Some(&old), &new), &mut out);
+    mapper.on_update(&call("tc-same", ToolKind::Edit), &mut out);
+    mapper.on_update(&update("tc-same", Some("x\n"), "x\n"), &mut out);
+    mapper.on_stop(StopReason::EndTurn, &mut out);
+
+    let updates: Vec<Value> = out
+        .wire
+        .iter()
+        .filter(|event| matches!(event, steer::ActivityEvent::ToolUpdate { .. }))
+        .map(|event| serde_json::to_value(event).unwrap())
+        .collect();
+    assert_eq!(updates.len(), 3);
+    let diff = updates[0]["diff"].as_str().expect("the big edit carries a diff");
+    let lines: Vec<&str> = diff.lines().collect();
+    assert_eq!(lines.len(), steer::TOOL_DIFF_MAX_LINES + 1, "the cap plus the marker");
+    assert!(diff.len() <= steer::TOOL_DIFF_MAX_BYTES + 64, "{}", diff.len());
+    assert!(lines.last().unwrap().starts_with("\\ "), "{:?}", lines.last());
+    assert!(lines.last().unwrap().ends_with(" more lines truncated"));
+    assert!(lines[..lines.len() - 1].iter().all(|line| !line.is_empty()));
+    assert_eq!(updates[1], json!({"kind": "tool_update", "id": "tc-other", "status": "completed"}));
+    assert_eq!(updates[2], json!({"kind": "tool_update", "id": "tc-same", "status": "completed"}));
+}
+
 /// EXP-750: a `ToolCallContent::Terminal` is a LOCAL binding edge — the
 /// terminal id names the live command the card renders, and neither the id
 /// nor the command line it came from may reach the relay.
@@ -207,7 +343,10 @@ fn a_terminal_tool_call_binds_locally_and_never_reaches_the_wire() {
     let wire = wire("terminal.jsonl");
     assert_eq!(
         wire,
-        vec![json!({"kind": "tool", "name": "Bash", "detail": "bun"})]
+        vec![
+            json!({"kind": "tool", "name": "Bash", "detail": "bun", "id": "tc-7", "toolKind": "execute"}),
+            json!({"kind": "tool_update", "id": "tc-7", "status": "completed"}),
+        ]
     );
     let serialized = serde_json::to_string(&wire).expect("the vector serializes");
     assert!(
@@ -244,21 +383,29 @@ fn the_plan_approval_card_is_byte_exact() {
                     TextContent::new("## Plan\n\n1. Write the mapper\n2. Test it"),
                 ))]),
         ),
+        // The claude adapter's EXP-788 order: the plain "Yes" first, the
+        // fresh-context variant second, the reject LAST with its description
+        // riding in `_meta`.
         vec![
+            PermissionOption::new(
+                PermissionOptionId::new("exit-plan-bypass"),
+                "Yes",
+                PermissionOptionKind::AllowAlways,
+            ),
+            PermissionOption::new(
+                PermissionOptionId::new("exit-plan-clear-bypass"),
+                "Yes, and start with a fresh context",
+                PermissionOptionKind::AllowAlways,
+            ),
             PermissionOption::new(
                 PermissionOptionId::new("reject"),
                 "No, keep planning",
                 PermissionOptionKind::RejectOnce,
-            ),
-            PermissionOption::new(
-                PermissionOptionId::new("accept_edits"),
-                "Yes, and auto-accept edits",
-                PermissionOptionKind::AllowAlways,
-            ),
-            PermissionOption::new(
-                PermissionOptionId::new("accept"),
-                "Yes",
-                PermissionOptionKind::AllowOnce,
+            )
+            .meta(
+                json!({"description": "Sends your next message back to planning"})
+                    .as_object()
+                    .cloned(),
             ),
         ],
     );
@@ -270,9 +417,13 @@ fn the_plan_approval_card_is_byte_exact() {
             "kind": "question",
             "text": "## Plan\n\n1. Write the mapper\n2. Test it",
             "options": [
-                {"label": "Yes", "key": "accept"},
-                {"label": "Yes, and auto-accept edits", "key": "accept_edits"},
-                {"label": "No, keep planning", "key": "reject"}
+                {"label": "Yes", "key": "exit-plan-bypass"},
+                {"label": "Yes, and start with a fresh context", "key": "exit-plan-clear-bypass"},
+                {
+                    "label": "No, keep planning",
+                    "key": "reject",
+                    "description": "Sends your next message back to planning"
+                }
             ],
             "planMode": true,
             "id": "toolu_01plan"
@@ -523,7 +674,7 @@ fn every_wire_string_is_capped() {
             steer::ActivityEvent::Narration { text, .. } => {
                 assert!(text.len() <= steer::activity::NARRATION_MAX, "{}", text.len())
             }
-            steer::ActivityEvent::Tool { name, detail, .. } => {
+            steer::ActivityEvent::Tool { name, detail, id, .. } => {
                 assert!(name.len() <= steer::activity::TOOL_NAME_MAX, "{}", name.len());
                 let detail = detail.as_deref().unwrap_or_default();
                 assert!(
@@ -531,6 +682,7 @@ fn every_wire_string_is_capped() {
                     "{}",
                     detail.len()
                 );
+                assert!(id.as_deref().unwrap_or_default().len() <= steer::activity::ID_MAX);
             }
             other => panic!("unexpected event {other:?}"),
         }
@@ -619,11 +771,12 @@ fn subagent_edges_and_their_tool_rows_carry_the_parent_id() {
         vec![
             // The Task call itself is an ordinary tool row: the edge that
             // follows is what turns it into a subagent card.
-            json!({"kind": "tool", "name": "Find the failing test"}),
+            json!({"kind": "tool", "name": "Find the failing test", "id": "tc-parent", "toolKind": "think"}),
             json!({"kind": "subagent", "id": "tc-parent", "agentType": "explore", "status": "started"}),
             // What the subagent ran, attributed to the card, never a top-level
-            // row of its own.
-            json!({"kind": "tool", "name": "Bash", "detail": "bun", "subagentId": "tc-parent"}),
+            // row of its own; its settle folds into that row by id.
+            json!({"kind": "tool", "name": "Bash", "detail": "bun", "id": "tc-child", "toolKind": "execute", "subagentId": "tc-parent"}),
+            json!({"kind": "tool_update", "id": "tc-child", "status": "completed"}),
             // EXP-748: the completed edge carries the tool-call count — the
             // mapper's own count of attributed calls, or the adapter's
             // `toolCalls` meta when that is larger.

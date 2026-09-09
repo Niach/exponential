@@ -23,7 +23,12 @@
 //!   events driving a real [`steer::SteerFeed`], so transport and feed model
 //!   are checked against the relay rather than against a fake;
 //! * a severed publisher socket (TCP proxy dropped) → re-mint → re-`hello`
-//!   resumes the SAME room and REBUILDS the joined viewer's feed (§8.6).
+//!   resumes the SAME room and REBUILDS the joined viewer's feed (§8.6);
+//! * EXP-773/796: a viewer of a FINISHED run whose ticket names this device →
+//!   `history_request` down the control socket → the production journal
+//!   replay → `activity_synced` with the room LINGERING (no `bye`) → a
+//!   `history_page` routed back down the control socket and answered with
+//!   a session-naming `history_chunk` that reaches the viewer.
 //!
 //! Skips (passes) when `bun` is unavailable so plain `cargo test` stays green
 //! on machines without the JS toolchain. The relay child is killed on drop.
@@ -230,6 +235,27 @@ impl ViewerTickets for BunViewerTickets {
     }
 }
 
+/// EXP-773: publisher tickets for the SESSION the history replay is for —
+/// the production `TrpcPublisherTickets` mints per coding session too.
+struct BunTicketsFor {
+    relay_port: u16,
+    session_id: String,
+}
+
+impl PublisherTickets for BunTicketsFor {
+    fn mint(&self) -> Result<Option<MintedTicket>, ApiError> {
+        let claims = format!(
+            r#"{{"sub":"user-int","team":"team-int","sessionId":"{}","role":"publisher"}}"#,
+            self.session_id
+        );
+        let ticket = mint_ticket(&claims);
+        Ok(Some(MintedTicket {
+            url: ws_url(self.relay_port, &ticket),
+            ticket,
+        }))
+    }
+}
+
 struct BunControlApi {
     relay_port: u16,
 }
@@ -379,8 +405,14 @@ fn connect_viewer(runtime: &SteerRuntime, port: u16) -> Viewer {
 }
 
 fn connect_viewer_on(runtime: &SteerRuntime, port: u16, join: &str) -> Viewer {
+    connect_viewer_with(runtime, port, join, &viewer_claims())
+}
+
+/// [`connect_viewer_on`] under arbitrary viewer claims (EXP-796: a ticket
+/// that names the device holding a finished run's transcript).
+fn connect_viewer_with(runtime: &SteerRuntime, port: u16, join: &str, claims: &str) -> Viewer {
     let join = join.to_string();
-    let ticket = mint_ticket(&viewer_claims());
+    let ticket = mint_ticket(claims);
     let url = ws_url(port, &ticket);
     let (tx, rx) = flume::unbounded::<Message>();
     let log = Arc::new(ViewerLog::default());
@@ -448,6 +480,8 @@ fn full_protocol_flow_against_the_real_relay() {
         // EXP-773: no stored transcript in this fixture — the relay never
         // asks, and an ask would be a no-op anyway.
         Arc::new(|_session_id| {}),
+        // EXP-796: nor a page of one.
+        Arc::new(|_ask, _reply| {}),
     );
 
     // EXP-481: the check-in nudge rides the same control socket. EXP-672
@@ -1026,4 +1060,161 @@ fn feed_occurrences(feed: &SteerFeed, needle: &str) -> usize {
             _ => false,
         })
         .count()
+}
+
+// ---------------------------------------------------------------------------
+// EXP-773 + EXP-796: a finished run's transcript, served by the device
+// ---------------------------------------------------------------------------
+
+/// A viewer opens a room for a session that is NOT live; its ticket names
+/// this device, so the relay asks the control socket, the production
+/// `serve_history_request` replays the journal file, and — EXP-796 — the room
+/// LINGERS afterwards: the viewer keeps its socket and "Load earlier"
+/// (`history_page`) is routed down the control socket, answered by the
+/// production `serve_history_page` with a `history_chunk` naming the session,
+/// which the relay translates back to the viewer's own request id.
+#[test]
+fn a_finished_run_replays_from_the_device_and_then_pages_through_its_control_socket() {
+    if !bun_available() {
+        eprintln!("skipping relay integration test: bun not on PATH");
+        return;
+    }
+    let relay = start_relay();
+    let runtime = SteerRuntime::new().unwrap();
+    const PAST_SESSION: &str = "66666666-7777-8888-9999-000000000000";
+    const DEVICE_ID: &str = "device-hist-1";
+
+    // The transcript this machine holds for the finished run: six rows plus
+    // a state slot the page route must leave out.
+    let data_dir = std::env::temp_dir().join(format!(
+        "exp-steer-relay-history-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&data_dir).unwrap();
+    {
+        let mut writer = steer::JournalWriter::open(&data_dir, PAST_SESSION).unwrap();
+        for i in 0..6 {
+            writer.append(&ActivityEvent::narration(&format!("row {i}")));
+        }
+        writer.append(&ActivityEvent::diff("the last diff"));
+    }
+
+    // The production device half, both handlers exactly as the IDE and the
+    // CLI daemon wire them.
+    let tickets: Arc<dyn PublisherTickets> = Arc::new(BunTicketsFor {
+        relay_port: relay.port,
+        session_id: PAST_SESSION.to_string(),
+    });
+    let in_flight = steer::HistoryInFlight::new();
+    let (request_runtime, request_dir) = (runtime.clone(), data_dir.clone());
+    let (page_runtime, page_dir) = (runtime.clone(), data_dir.clone());
+    let control = spawn_control_channel(
+        &runtime,
+        DeviceIdentity {
+            device_id: DEVICE_ID.to_string(),
+            device_label: "HistoryBox".to_string(),
+        },
+        Arc::new(BunControlApi {
+            relay_port: relay.port,
+        }),
+        Arc::new(|_start| {}),
+        Arc::new(|| {}),
+        Arc::new(move |session_id| {
+            steer::serve_history_request(
+                &request_runtime,
+                tickets.clone(),
+                request_dir.clone(),
+                session_id,
+                in_flight.clone(),
+            );
+        }),
+        Arc::new(move |ask, reply| {
+            steer::serve_history_page(&page_runtime, page_dir.clone(), ask, reply);
+        }),
+    );
+    wait_for("device presence (nudge delivered)", || {
+        http_request(
+            relay.port,
+            "POST",
+            &format!("/devices/user-int/{DEVICE_ID}/nudge"),
+            &[("x-relay-secret", SECRET)],
+            None,
+        )
+        .is_some_and(|body| body.contains("\"delivered\":true"))
+    });
+
+    // A viewer whose ticket names the device (EXP-773 mint shape).
+    let claims = format!(
+        r#"{{"sub":"user-int","team":"team-int","sessionId":"{PAST_SESSION}","role":"viewer","deviceId":"{DEVICE_ID}"}}"#
+    );
+    let viewer = connect_viewer_with(
+        &runtime,
+        relay.port,
+        r#"{"t":"join","channel":"activity"}"#,
+        &claims,
+    );
+    wait_for("the replayed transcript to sync", || {
+        viewer
+            .texts()
+            .iter()
+            .any(|text| text.contains(r#""t":"activity_synced""#))
+    });
+    let texts = viewer.texts();
+    assert!(
+        texts.iter().any(|text| text.contains(r#""t":"history_pending""#)),
+        "the join parked on a pending room: {texts:?}"
+    );
+    for i in 0..6 {
+        assert!(viewer.saw_activity(&format!("row {i}")), "row {i} replayed");
+    }
+    // EXP-796: no `bye`, no close — the room lingers for the viewer.
+    assert!(
+        !texts.iter().any(|text| text.contains(r#""t":"bye""#)),
+        "the replay's bye must not reach the viewer: {texts:?}"
+    );
+    assert_eq!(*viewer.log.close.lock().unwrap(), None);
+    let info = http_request(
+        relay.port,
+        "GET",
+        &format!("/sessions/{PAST_SESSION}"),
+        &[("x-relay-secret", SECRET)],
+        None,
+    )
+    .expect("GET /sessions/:id");
+    assert!(
+        info.contains("\"live\":false") && info.contains("\"viewers\":1"),
+        "a lingering room is up, not live, with its viewer: {info}"
+    );
+
+    // "Load earlier": the page below row 3 → rows 1 and 2, via the control
+    // socket, back under the viewer's own request id and without the
+    // session the device named (the relay strips it — the viewer's socket
+    // already belongs to the room).
+    viewer.send_text(r#"{"t":"history_page","requestId":"p1","beforeSeq":3,"limit":2}"#);
+    wait_for("the page to come back through the device", || {
+        viewer
+            .texts()
+            .iter()
+            .any(|text| text.contains(r#""t":"history_chunk""#))
+    });
+    let chunk = viewer
+        .texts()
+        .into_iter()
+        .find(|text| text.contains(r#""t":"history_chunk""#))
+        .unwrap();
+    assert!(chunk.contains(r#""requestId":"p1""#), "{chunk}");
+    assert!(chunk.contains(r#""seqs":[1,2]"#), "{chunk}");
+    assert!(chunk.contains("row 1") && chunk.contains("row 2"), "{chunk}");
+    assert!(!chunk.contains("row 0") && !chunk.contains("row 3"), "{chunk}");
+    assert!(!chunk.contains("the last diff"), "a state slot is never a page row: {chunk}");
+    assert!(chunk.contains(r#""done":true"#), "{chunk}");
+    assert!(!chunk.contains("sessionId"), "{chunk}");
+    assert_eq!(*viewer.log.close.lock().unwrap(), None, "still parked after the page");
+
+    control.stop();
+    let _ = std::fs::remove_dir_all(&data_dir);
 }

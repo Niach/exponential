@@ -46,16 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-whole-transcripts",
-    date: "2026-09-08",
-    title: "The whole transcript, and steering that stops wedging",
-    summary: "Sessions keep every event instead of the last 2000, scroll back through a long run, and a dropped subagent no longer leaves the agent stuck on \"Working…\".",
-    body: r#"- **The whole transcript**: a session keeps every event it produced instead of the newest 2000, on web, desktop, iOS and Android. Each client renders a window of it and pulls the rest in as you scroll to the top, so a long run stays as smooth as a short one.
-- **Load earlier**: past what your client already holds, the transcript is fetched a page at a time from the machine that ran the session.
-- **No more stuck on Working**: a claude session whose background subagent stopped reporting back used to hold every later turn open forever. Tasks now only hold back their own turn, and one that goes quiet is retired instead of wedging the run.
-- **Subagents finish once**: a subagent that completed no longer appears twice, and a subagent that never reported back stops spinning.
-- **Images in the transcript**: an image you send an agent renders in the transcript instead of an "Image unavailable" placeholder.
-- **Interrupt markers**: cancelling a tool call no longer prints "[Request interrupted by user]" as though you had typed it."#,
+    id: "2026-09-session-page-restructure",
+    date: "2026-09-09",
+    title: "A session page you can read, and a rail you can find it in",
+    summary: "Tool groups say what happened, edits show their diff inline, plan approval reads top to bottom, and every live run sits in the desktop rail.",
+    body: r#"- **Tool groups that say what happened**: a collapsed run of tool calls reads "Ran 4 commands · edited 2 files · 1 failed" instead of "12 tool calls", with failures last, on web, desktop, iOS and Android.
+- **Edits inline**: an edit's diff renders under its row in the web transcript, capped so a big rewrite stays scrollable; failed calls tint the row.
+- **Plan approval, top to bottom**: the primary choice is "Yes", the fresh-context choice comes second and "No, keep planning" sits last with a line saying your next message goes back to planning. Options are numbered buttons; keys 1 to 9 and Enter pick them, and typing in the composer answers the card. The extra text field inside the card is gone.
+- **One composer**: the mention-capable field from issues is the session field too, the send glyph is the same everywhere, and it turns into Stop while the agent is working. The plan-mode pill left the composer; the Plan switch stays on the chat page, model and effort are picked at start.
+- **Subagent tabs on desktop**: a subagent gets its own tab above the transcript, like the other clients, and the collapsed row opens it.
+- **Rate limits in the transcript**: a claude session that hits its limit shows one banner with the reset time instead of a run of identical messages.
+- **The desktop rail**: sessions and terminals fill the window on their own, every live run is a rail row under Sessions with an amber dot when it needs you, Agent opens chat, and the machine's Files and Source Control sit under a This device heading. Watch slides the run in over the issue instead of leaving the page.
+- **Transcripts stay loadable**: after a device has replayed a finished run, scrolling to the top still fetches earlier pages from that device instead of stalling.
+- **Session ids survive /clear**: a claude session that clears its context keeps its page, its tab and its resume record."#,
 };
 
 /// Whether the rail's "What's new" card renders, given the stored

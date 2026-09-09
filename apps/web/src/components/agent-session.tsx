@@ -47,22 +47,30 @@ import {
   answerKey,
   askStepperView,
   collectSubagents,
+  diffTruncationNote,
+  freeAnswerFor,
   groupFeedRows,
   FEED_WINDOW,
   FEED_WINDOW_STEP,
   isAnswerLocked,
   looksLikeMarkdown,
-  modeChip,
-  planModeToggle,
+  optionForHotkey,
+  optionHotkey,
+  pendingAnswerable,
+  pendingPlaceholder,
+  rateLimitBanner,
   rowClass,
+  splitTruncatedDiff,
   subagentIdOf,
   summarizeSubagentRow,
+  toolGroupCaption,
   transcriptGapToken,
   visibleSubagentTabs,
   type AnswerState,
   type AnswerStates,
   type RowClass,
   type SessionConfigState,
+  type SessionRateLimitState,
   type SubagentSummary,
   type TranscriptGapToken,
 } from "@/lib/agent-feed"
@@ -86,6 +94,7 @@ import {
   type QuestionItem,
   type QuestionOption,
   type SteerSessionStore,
+  type ToolItem,
   type ViewerPhase,
 } from "@/lib/steer-session-store"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
@@ -104,7 +113,6 @@ import { splitUnifiedDiff } from "@/lib/unified-diff"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Pill } from "@/components/ui/pill"
-import { Input } from "@/components/ui/input"
 import {
   Composer,
   ComposerSubmit,
@@ -156,7 +164,6 @@ const UiLoadingIcon = conceptIcon(`ui-loading`)
 const UiMoreIcon = conceptIcon(`ui-more`)
 const UiPermissionIcon = conceptIcon(`ui-permission`)
 const UiRefreshIcon = conceptIcon(`ui-refresh`)
-const UiSendIcon = conceptIcon(`ui-send`)
 const UiUsageIcon = conceptIcon(`ui-usage`)
 // EXP-529: multi-select options carry an explicit checkbox state (Android
 // parity) — the amber tint alone read as "nothing selected".
@@ -303,6 +310,7 @@ export function AgentSessionView({
     compacting,
     config,
     usage: sessionUsage,
+    rateLimit,
     answerStates,
     connected,
     canLoadEarlier: snapshotCanLoadEarlier,
@@ -506,19 +514,23 @@ export function AgentSessionView({
   /** A trailing question/plan means the session is blocked on a human — the
    *  header flips to "Needs your input" so it never looks silently stuck. */
   const awaitingInput = live && questionIds.size > 0
-  /** An active plan-approval card: the composer's free text IS the "tell
-   *  Claude what to change" path (the desktop Escs the picker and types the
-   *  message), so the placeholder says so instead of a dead option button. */
-  const planPending = useMemo(
+  /** EXP-788: the card the composer answers — the newest active plan or
+   *  question whose answer is not in flight. The composer's free text IS its
+   *  typed reply (the placeholder says so), the card's number chips are live
+   *  on that card alone, and there is no in-card input any more. */
+  const pendingCard = useMemo(
     () =>
-      live &&
-      feed.some(
-        (item) =>
-          item.kind === `question` &&
-          item.planMode === true &&
-          questionIds.has(item.id)
-      ),
-    [live, feed, questionIds]
+      live && canAnswer
+        ? pendingAnswerable(feed, questionIds, answerStates)
+        : null,
+    [live, canAnswer, feed, questionIds, answerStates]
+  )
+  /** The number keys select an option only while the composer is EMPTY —
+   *  read at keypress time off the draft snapshot, so the feed never
+   *  re-renders per keystroke. */
+  const composerEmpty = useCallback(
+    () => store.getDraftSnapshot().text.length === 0,
+    [store]
   )
   /** EXP-724: the slash commands THIS session's agent can run (an agent-less
    *  row is a claude run). Empty catalog = no menu, no hint, no "…" entry.
@@ -942,6 +954,8 @@ export function AgentSessionView({
                           canAnswer={canAnswer}
                           answerStates={answerStates}
                           onAnswer={answerQuestion}
+                          pendingId={pendingCard?.id ?? null}
+                          composerEmpty={composerEmpty}
                         />
                       )
                     }
@@ -950,9 +964,7 @@ export function AgentSessionView({
                       case `narration`:
                         return wrap(<NarrationBubble text={item.text} />)
                       case `tool`:
-                        return wrap(
-                          <ToolRow name={item.name} detail={item.detail} flush />
-                        )
+                        return wrap(<ToolRow item={item} flush />)
                       case `user_message`: {
                         // EXP-724: a steered slash command renders as a
                         // compact pill, not as a chat bubble of prose.
@@ -993,6 +1005,8 @@ export function AgentSessionView({
                             canAnswer={canAnswer}
                             answerState={answerStates[answerKey(item)]}
                             onAnswer={answerQuestion}
+                            hotkeys={pendingCard?.id === item.id}
+                            composerEmpty={composerEmpty}
                           />
                         )
                     }
@@ -1071,6 +1085,9 @@ export function AgentSessionView({
               <Progress value={null} className="mt-1 h-1" />
             </div>
           )}
+          {/* EXP-784: the agent's rate-limit window, while it reports one —
+              the slot clears on an empty/`ok` status and the banner goes. */}
+          {rateLimit && <RateLimitBanner state={rateLimit} />}
           {phase.kind === `starting` && !paused && feed.length > 0 && (
             <div className="flex items-center gap-1.5 border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
               <UiLoadingIcon className="size-3 animate-spin" />
@@ -1094,6 +1111,12 @@ export function AgentSessionView({
                 // the send button should dim honestly for that gap.
                 live={live && connected}
                 onSend={sendMessage}
+                // EXP-788: typed text answers the pending card; EXP-790: the
+                // send glyph is Stop while the agent works and nothing is
+                // typed.
+                pending={pendingCard}
+                onAnswer={answerQuestion}
+                working={working}
                 sessionId={session.id}
                 users={teamUsers}
                 agent={session.agent}
@@ -1103,7 +1126,7 @@ export function AgentSessionView({
                 // already holds the full one.
                 config={config}
                 placeholder={
-                  planPending ? `Tell Claude what to change…` : undefined
+                  pendingCard ? pendingPlaceholder(pendingCard) : undefined
                 }
               />
             </div>
@@ -1623,7 +1646,12 @@ type AnswerHandler = (
  *  the card's wire id rides the semantic `answer` frame and the desktop
  *  confirms with `answer_ack`. A card WITHOUT an id comes from a desktop too
  *  old to publish one — it renders read-only with an update hint rather than a
- *  dead control (the raw-keystroke fallback is gone). */
+ *  dead control (the raw-keystroke fallback is gone).
+ *
+ *  EXP-788: ONE panel on all four clients — a vertical list of full-width
+ *  option buttons wearing number chips, `1`-`9` and Enter selecting while the
+ *  composer is empty, and NO in-card text input: the composer IS the free-text
+ *  path (its placeholder says so). A free-text option only moves focus there. */
 function QuestionPrompt({
   item,
   active,
@@ -1631,6 +1659,8 @@ function QuestionPrompt({
   answerState,
   onAnswer,
   variant = `default`,
+  hotkeys = false,
+  composerEmpty,
 }: {
   item: QuestionItem
   /** Still answerable per the feed — the session is blocked on this card. */
@@ -1641,16 +1671,99 @@ function QuestionPrompt({
   onAnswer: AnswerHandler
   /** `plan`/`submit` promote the first option to the primary action. */
   variant?: `default` | `plan` | `submit`
+  /** This is THE pending card: the number keys and Enter act on it. */
+  hotkeys?: boolean
+  /** Whether the composer holds nothing typed — the keys only fire then. */
+  composerEmpty?: () => boolean
 }) {
   const [picked, setPicked] = useState<string[]>([])
-  /** EXP-513: the `freeText` option whose inline input is open (its key). */
-  const [freeTextKey, setFreeTextKey] = useState<string | null>(null)
-  const [freeTextValue, setFreeTextValue] = useState(``)
   const locked = isAnswerLocked(answerState)
   /** A card an old desktop published without a wire id — unanswerable here. */
   const unanswerable = item.questionId === undefined
   const answerable =
     active && canAnswer && !locked && !unanswerable && item.resolved !== true
+
+  const labelsFor = (keys: string[]) =>
+    item.options.filter((o) => keys.includes(o.key)).map((o) => o.label)
+
+  const choose = (option: QuestionOption) => {
+    if (!answerable) return
+    if (item.multiSelect) {
+      // The picks stay local until the answer frame goes out.
+      setPicked((prev) =>
+        prev.includes(option.key)
+          ? prev.filter((k) => k !== option.key)
+          : [...prev, option.key]
+      )
+      return
+    }
+    // EXP-788: the typed reply lives in the composer — the row just puts
+    // the caret there.
+    if (option.freeText === true) {
+      focusSteerField()
+      return
+    }
+    onAnswer(item, [option.key], [option.label])
+  }
+
+  const submitPicked = () => {
+    if (!answerable || picked.length === 0) return
+    onAnswer(item, picked, labelsFor(picked))
+  }
+
+  // EXP-788: `1`-`9` pick the option with that chip, Enter takes the primary
+  // (or submits the multi-select picks) — only while the composer is empty,
+  // so a typed reply never has its first digit eaten, and never with a
+  // modifier, a dialog or a popover in the way. The listener is window-wide:
+  // the composer field has focus most of the time, and its own Enter handler
+  // sends nothing when the field is empty.
+  const hot = answerable && hotkeys
+  const chooseRef = useRef({ choose, submitPicked })
+  chooseRef.current = { choose, submitPicked }
+  useEffect(() => {
+    if (!hot) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.isComposing) return
+      const target = event.target as HTMLElement | null
+      if (
+        target &&
+        (target.tagName === `INPUT` ||
+          target.isContentEditable ||
+          (target.tagName === `TEXTAREA` &&
+            (target as HTMLTextAreaElement).value.length > 0))
+      ) {
+        return
+      }
+      if (composerEmpty && !composerEmpty()) return
+      if (
+        document.querySelector(
+          `[role="dialog"][data-state="open"], [data-radix-popper-content-wrapper]`
+        )
+      ) {
+        return
+      }
+      if (event.key === `Enter`) {
+        if (event.shiftKey) return
+        if (item.multiSelect) {
+          chooseRef.current.submitPicked()
+          event.preventDefault()
+          return
+        }
+        const primary = item.options[0]
+        if (!primary) return
+        event.preventDefault()
+        chooseRef.current.choose(primary)
+        return
+      }
+      const option = optionForHotkey(item.options, event.key)
+      if (!option) return
+      event.preventDefault()
+      chooseRef.current.choose(option)
+    }
+    window.addEventListener(`keydown`, onKeyDown)
+    return () => window.removeEventListener(`keydown`, onKeyDown)
+  }, [hot, item, composerEmpty])
 
   if (item.resolved === true) {
     return (
@@ -1671,130 +1784,76 @@ function QuestionPrompt({
     )
   }
 
-  const labelsFor = (keys: string[]) =>
-    item.options.filter((o) => keys.includes(o.key)).map((o) => o.label)
-
-  const choose = (option: QuestionOption) => {
-    if (!answerable) return
-    if (item.multiSelect) {
-      // The picks stay local until the answer frame goes out.
-      setPicked((prev) =>
-        prev.includes(option.key)
-          ? prev.filter((k) => k !== option.key)
-          : [...prev, option.key]
-      )
-      return
-    }
-    // EXP-513: a free-text row collects the reply first — nothing is sent
-    // until the input submits (the desktop types it into the TUI row).
-    if (option.freeText === true) {
-      setFreeTextKey((prev) => (prev === option.key ? null : option.key))
-      return
-    }
-    onAnswer(item, [option.key], [option.label])
-  }
-
-  const submitPicked = () => {
-    if (!answerable) return
-    onAnswer(item, picked, labelsFor(picked))
-  }
-
-  const submitFreeText = () => {
-    if (!answerable || freeTextKey === null) return
-    const text = freeTextValue.trim()
-    if (text.length === 0) return
-    onAnswer(item, [freeTextKey], [text], text)
-    setFreeTextKey(null)
-    setFreeTextValue(``)
-  }
-
   return (
     <>
-      <div
-        className={cn(
-          `mt-2 flex items-start gap-1`,
-          variant === `default`
-            ? `flex-col`
-            : `flex-row flex-wrap items-center gap-1.5`
-        )}
-      >
-        {item.options.map((option, index) =>
-          answerable ? (
+      <div className="mt-2 flex flex-col items-stretch gap-1">
+        {item.options.map((option, index) => {
+          const primary = variant !== `default` && index === 0
+          const selected = picked.includes(option.key)
+          const chip = optionHotkey(index)
+          const label =
+            variant === `submit` && index === 0 ? `Submit answers` : option.label
+          if (!answerable) {
+            return (
+              <span
+                key={option.key}
+                className="flex items-baseline gap-1.5 text-xs text-muted-foreground"
+              >
+                {chip && <span className="font-mono">{chip}</span>}
+                <span>{label}</span>
+              </span>
+            )
+          }
+          return (
             <Button
               key={option.key}
-              variant={variant !== `default` && index === 0 ? `default` : `outline`}
+              variant={primary ? `default` : `outline`}
               size="sm"
               className={cn(
-                `h-auto min-h-7 justify-start whitespace-normal py-1 text-left text-xs`,
-                (picked.includes(option.key) || freeTextKey === option.key) &&
-                  (variant === `default`
-                    ? `border-amber-500/60 bg-amber-500/15`
-                    : `border-primary/60 bg-primary/15`)
+                `h-auto min-h-8 w-full justify-start whitespace-normal py-1.5 text-left text-xs`,
+                primary &&
+                  `border-transparent bg-blue-500 text-white hover:bg-blue-500/90`,
+                selected && `border-blue-500/60 bg-blue-500/15`
               )}
+              aria-pressed={item.multiSelect ? selected : undefined}
               onClick={() => choose(option)}
             >
-              {variant === `default` &&
-                (item.multiSelect ? (
-                  picked.includes(option.key) ? (
-                    <UiSelectedIcon className="size-3.5 shrink-0 text-foreground" />
-                  ) : (
-                    <UiUnselectedIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                  )
+              {item.multiSelect ? (
+                selected ? (
+                  <UiSelectedIcon className="size-3.5 shrink-0 text-foreground" />
                 ) : (
-                  <span className="font-mono text-muted-foreground">
-                    {option.key}
-                  </span>
-                ))}
-              <span className="flex min-w-0 flex-col items-start gap-0.5">
-                <span>
-                  {variant === `submit` && index === 0
-                    ? `Submit answers`
-                    : option.label}
-                </span>
+                  <UiUnselectedIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                )
+              ) : null}
+              <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
+                <span>{label}</span>
                 {option.description && (
-                  <span className="font-normal text-[0.6875rem] text-muted-foreground">
+                  <span
+                    className={cn(
+                      `font-normal text-[0.6875rem]`,
+                      primary ? `text-white/80` : `text-muted-foreground`
+                    )}
+                  >
                     {option.description}
                   </span>
                 )}
               </span>
+              {chip && (
+                <kbd
+                  className={cn(
+                    `ml-auto shrink-0 rounded border px-1 font-mono text-[0.625rem] font-normal leading-4`,
+                    primary
+                      ? `border-white/30 text-white/80`
+                      : `border-glass-stroke-card text-muted-foreground`
+                  )}
+                >
+                  {chip}
+                </kbd>
+              )}
             </Button>
-          ) : (
-            <span key={option.key} className="text-xs text-muted-foreground">
-              <span className="font-mono">{option.key}</span>
-              {` · ${option.label}`}
-            </span>
           )
-        )}
+        })}
       </div>
-      {answerable && freeTextKey !== null && (
-        <div className="mt-2 flex w-full items-center gap-1.5">
-          <Input
-            autoFocus
-            value={freeTextValue}
-            maxLength={4000}
-            placeholder="Type your answer…"
-            className="h-6 flex-1 text-xs"
-            onChange={(e) => setFreeTextValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === `Enter`) {
-                e.preventDefault()
-                submitFreeText()
-              } else if (e.key === `Escape`) {
-                e.preventDefault()
-                setFreeTextKey(null)
-              }
-            }}
-          />
-          <Pill
-            size="sm"
-            mode="action"
-            disabled={freeTextValue.trim().length === 0}
-            onClick={submitFreeText}
-          >
-            Answer
-          </Pill>
-        </div>
-      )}
       {answerable && item.multiSelect && (
         <Pill
           size="sm"
@@ -1803,7 +1862,7 @@ function QuestionPrompt({
           disabled={picked.length === 0}
           onClick={submitPicked}
         >
-          Answer
+          Submit
         </Pill>
       )}
       {answerState?.status === `error` && (
@@ -1824,6 +1883,32 @@ function QuestionPrompt({
         </div>
       )}
     </>
+  )
+}
+
+/** EXP-788: the steer composer's field, so a free-text option row can put
+ *  the caret there — the card has no input of its own any more. */
+const STEER_FIELD_ATTR = `data-steer-field`
+
+function focusSteerField() {
+  document
+    .querySelector<HTMLTextAreaElement>(`[${STEER_FIELD_ATTR}]`)
+    ?.focus()
+}
+
+/** EXP-784: the agent's rate-limit window, in the status stack beside the
+ *  compaction strip — its own message (else a status fallback) and the local
+ *  reset time when it named one. Hand-mirrored copy ×4 (`rateLimitBanner`). */
+function RateLimitBanner({ state }: { state: SessionRateLimitState }) {
+  const { text, resets } = rateLimitBanner(state)
+  return (
+    <div className="flex items-center gap-1.5 border-t border-border/60 px-3 py-2 text-xs text-amber-400">
+      <UiUsageIcon className="size-3 shrink-0" />
+      <span className="min-w-0 truncate">{text}</span>
+      {resets && (
+        <span className="ml-auto shrink-0 text-muted-foreground">{resets}</span>
+      )}
+    </div>
   )
 }
 
@@ -1849,12 +1934,12 @@ function AnsweredLine({
   )
 }
 
-/** The chrome BOTH ask cards wear (EXP-698): a NEUTRAL glass card. The accent
- *  — primary for a plan, amber for a question — lives on the glyph and the
- *  label only; a tinted border or fill made the feed read as an alert stack.
- *  The two cards below stay separate components (a single-question card and a
- *  multi-step stepper have almost no body in common) but cannot drift apart on
- *  chrome. */
+/** The chrome BOTH ask cards wear (EXP-698): a glass card under ONE accent —
+ *  EXP-788: blue (tokens.json `semantic.blue`, Tailwind's `blue-500`) on the
+ *  hairline, the glyph, the label and the primary option, plan and question
+ *  alike, so the card is the same colour on every client. The two cards below
+ *  stay separate components (a single-question card and a multi-step stepper
+ *  have almost no body in common) but cannot drift apart on chrome. */
 function AskCard({
   plan,
   label,
@@ -1868,23 +1953,18 @@ function AskCard({
   children: ReactNode
 }) {
   return (
-    <div className="rounded-xl border border-glass-stroke-card bg-glass-card p-3">
+    <div className="rounded-xl border border-blue-500/40 bg-glass-card p-3">
       <div className="flex items-start gap-2">
         {plan ? (
-          <CodingPlanIcon className="mt-0.5 size-3.5 shrink-0 text-primary" />
+          <CodingPlanIcon className="mt-0.5 size-3.5 shrink-0 text-blue-500" />
         ) : (
-          <UiHelpIcon className="mt-0.5 size-3.5 shrink-0 text-amber-400" />
+          <UiHelpIcon className="mt-0.5 size-3.5 shrink-0 text-blue-500" />
         )}
         <div className="min-w-0 flex-1">
           {(label !== undefined || meta !== undefined) && (
             <div className="mb-1 flex items-center gap-2">
               {label !== undefined && (
-                <span
-                  className={cn(
-                    `truncate text-xs font-medium`,
-                    plan ? `text-primary` : `text-amber-400`
-                  )}
-                >
+                <span className="truncate text-xs font-medium text-blue-500">
                   {label}
                 </span>
               )}
@@ -1911,12 +1991,17 @@ function QuestionCard({
   canAnswer,
   answerState,
   onAnswer,
+  hotkeys,
+  composerEmpty,
 }: {
   item: QuestionItem
   active: boolean
   canAnswer: boolean
   answerState?: AnswerState
   onAnswer: AnswerHandler
+  /** EXP-788: this is the card the composer (and the number keys) answer. */
+  hotkeys: boolean
+  composerEmpty: () => boolean
 }) {
   const plan = item.planMode
   const clamp = useClampToggle(item.text)
@@ -1960,6 +2045,8 @@ function QuestionCard({
             answerState={answerState}
             onAnswer={onAnswer}
             variant={plan ? `plan` : `default`}
+            hotkeys={hotkeys}
+            composerEmpty={composerEmpty}
           />
       </>
     </AskCard>
@@ -1977,12 +2064,17 @@ function AskStepperCard({
   canAnswer,
   answerStates,
   onAnswer,
+  pendingId,
+  composerEmpty,
 }: {
   items: QuestionItem[]
   activeIds: Set<number>
   canAnswer: boolean
   answerStates: AnswerStates
   onAnswer: AnswerHandler
+  /** EXP-788: the id of the card the composer answers, if it is one of ours. */
+  pendingId: number | null
+  composerEmpty: () => boolean
 }) {
   const view = askStepperView(items, answerStates)
   const current =
@@ -2029,6 +2121,8 @@ function AskStepperCard({
                 answerState={answerStates[answerKey(current.item)]}
                 onAnswer={onAnswer}
                 variant={submitStep ? `submit` : `default`}
+                hotkeys={pendingId === current.item.id}
+                composerEmpty={composerEmpty}
               />
             </div>
           ) : (
@@ -2174,7 +2268,7 @@ function SubagentGroupRow({ items }: { items: FeedItem[] }) {
       {expanded && (
         <div className="ml-5">
           {tools.map((tool) => (
-            <ToolRow key={tool.id} name={tool.name} detail={tool.detail} />
+            <ToolRow key={tool.id} item={tool} />
           ))}
         </div>
       )}
@@ -2281,7 +2375,7 @@ function AgentConversation({
               ) : item.kind === `user_message` ? (
                 <UserMessageBubble text={item.text} />
               ) : (
-                <ToolRow name={item.name} detail={item.detail} />
+                <ToolRow item={item} />
               )}
             </div>
           )
@@ -2294,51 +2388,84 @@ function AgentConversation({
 /** Tool-call headline — compact single line, consecutive rows visually tight.
  *  `flush` drops the row's own padding: in the main transcript the gap ladder
  *  (EXP-787) supplies the rhythm, while the rows NESTED in an expanded tool
- *  group or a subagent conversation keep their tighter inner one. */
-function ToolRow({
-  name,
-  detail,
-  flush = false,
-}: {
-  name: string
-  detail?: string
-  flush?: boolean
-}) {
+ *  group or a subagent conversation keep their tighter inner one.
+ *  EXP-786: an `edit` call's own unified diff renders under the headline in a
+ *  bounded box (the publisher already cut it to the contract's caps; the cut
+ *  note becomes a muted footer, never a diff line); a `failed` call is tinted
+ *  rose. The pinned "Latest changes" bar is untouched — that is the whole
+ *  worktree, this is the one call. */
+function ToolRow({ item, flush = false }: { item: ToolItem; flush?: boolean }) {
+  const failed = item.failed === true
   return (
-    <div
-      className={cn(
-        `flex min-w-0 items-center gap-2 pl-0.5`,
-        TRANSCRIPT_TOOL_TEXT,
-        !flush && `py-0.5`
-      )}
-    >
-      <CodingToolIcon className="size-3 shrink-0 text-muted-foreground/60" />
-      <span className="shrink-0 font-medium">{name}</span>
-      {detail && (
-        <span
-          className="truncate font-mono text-[0.6875rem] text-muted-foreground"
-          title={detail}
-        >
-          {detail}
-        </span>
-      )}
+    <div className={cn(`min-w-0 pl-0.5`, !flush && `py-0.5`)}>
+      <div
+        className={cn(
+          `flex min-w-0 items-center gap-2`,
+          TRANSCRIPT_TOOL_TEXT,
+          failed && `text-rose-400`
+        )}
+      >
+        <CodingToolIcon
+          className={cn(
+            `size-3 shrink-0`,
+            failed ? `text-rose-400/70` : `text-muted-foreground/60`
+          )}
+        />
+        <span className="shrink-0 font-medium">{item.name}</span>
+        {item.detail && (
+          <span
+            className={cn(
+              `truncate font-mono text-[0.6875rem]`,
+              failed ? `text-rose-400/80` : `text-muted-foreground`
+            )}
+            title={item.detail}
+          >
+            {item.detail}
+          </span>
+        )}
+        {failed && <span className="shrink-0 text-[0.6875rem]">failed</span>}
+      </div>
+      {item.diff && <ToolDiff diff={item.diff} />}
     </div>
   )
 }
 
-/** A run of ≥2 consecutive tool calls collapsed into one "N tool calls" row
- *  (EXP-97), expandable to the individual rows. While the run is the trailing
- *  row of a live session, the latest call stays visible under the count so
- *  the viewer still sees live progress. */
+/** EXP-786: one call's diff, through the same file renderer the "Latest
+ *  changes" bar uses, in a scroll box no taller than that bar. */
+const ToolDiff = memo(function ToolDiff({ diff }: { diff: string }) {
+  const { files, truncated } = useMemo(() => {
+    const split = splitTruncatedDiff(diff)
+    return { files: splitUnifiedDiff(split.diff), truncated: split.truncated }
+  }, [diff])
+  if (files.length === 0 && truncated === null) return null
+  return (
+    <div className="mt-1 max-h-72 overflow-auto overscroll-contain rounded-md border border-border/60">
+      {files.length > 0 && <FileDiffList files={files} showFileNav={false} />}
+      {truncated !== null && (
+        <div className="px-3 py-1.5 text-[0.6875rem] text-muted-foreground/70">
+          {diffTruncationNote(truncated)}
+        </div>
+      )}
+    </div>
+  )
+})
+
+/** A run of ≥2 consecutive tool calls collapsed into one row (EXP-97),
+ *  expandable to the individual rows. EXP-785: the caption is the contract's
+ *  `toolGroupSummary` over the rows' kinds ("Ran 4 commands · edited 2 files
+ *  · 1 failed"), byte-identical on every client. While the run is the
+ *  trailing row of a live session, the latest call stays visible under the
+ *  caption so the viewer still sees live progress. */
 function ToolGroupRow({
   items,
   liveTail,
 }: {
-  items: Extract<FeedItem, { kind: `tool` }>[]
+  items: ToolItem[]
   liveTail: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
   const latest = items[items.length - 1]
+  const caption = useMemo(() => toolGroupCaption(items), [items])
   return (
     <div className="min-w-0">
       <button
@@ -2355,20 +2482,20 @@ function ToolGroupRow({
           <ChevronRight className="size-3 shrink-0" />
         )}
         <CodingToolIcon className="size-3 shrink-0 text-muted-foreground/60" />
-        <span className="shrink-0 font-medium">
-          {items.length} tool calls
+        <span className="min-w-0 truncate font-medium" title={caption}>
+          {caption}
         </span>
       </button>
       {expanded ? (
         <div className="ml-5">
           {items.map((item) => (
-            <ToolRow key={item.id} name={item.name} detail={item.detail} />
+            <ToolRow key={item.id} item={item} />
           ))}
         </div>
       ) : (
         liveTail && (
           <div className="ml-5">
-            <ToolRow name={latest.name} detail={latest.detail} />
+            <ToolRow item={latest} />
           </div>
         )
       )}
@@ -2376,79 +2503,13 @@ function ToolGroupRow({
   )
 }
 
-/** EXP-772: the composer's ONE live control — the session MODE. Model,
- *  effort and every other option picker left the mid-session UI: an agent is
- *  configured when it starts, and the only thing worth flipping mid-run is
- *  plan on/off.
- *
- *  The claude/pi shape (exactly two modes, one of them `plan`) draws a "Plan"
- *  toggle pill; any other mode list falls back to a two-value chip. Switching
- *  is fire-and-forget: the publisher's re-emitted `config_state` repaints it,
- *  so there is no pending state to draw. */
-function SessionModeControl({
-  config,
-  live,
-  onPickMode,
-}: {
-  config: SessionConfigState | null
-  live: boolean
-  onPickMode: (modeId: string) => void
-}) {
-  const plan = planModeToggle(config)
-  const chip = modeChip(config)
-  if (plan) {
-    return (
-      <Pill
-        size="sm"
-        mode="select"
-        selected={plan.active}
-        disabled={!live}
-        title="Plan mode"
-        aria-pressed={plan.active}
-        onClick={() => onPickMode(plan.active ? plan.buildId : plan.planId)}
-      >
-        Plan
-      </Pill>
-    )
-  }
-  if (!chip) return null
-  if (chip.values.length < 2) {
-    return (
-      <Pill key={chip.id} size="sm" title={chip.label}>
-        <span className="text-muted-foreground">{chip.label}</span>
-        <span>{chip.valueLabel}</span>
-      </Pill>
-    )
-  }
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Pill size="sm" mode="action" disabled={!live} title={chip.label}>
-          <span className="text-muted-foreground">{chip.label}</span>
-          <span>{chip.valueLabel}</span>
-        </Pill>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
-        {chip.values.map((value) => (
-          <DropdownMenuItem
-            key={value.id}
-            onSelect={() => onPickMode(value.id)}
-          >
-            {value.label}
-            {value.id === chip.value && (
-              <Check className="ml-auto size-3.5 shrink-0 text-emerald-500" />
-            )}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
-
 function MessageComposer({
   store,
   live,
   onSend,
+  pending,
+  onAnswer,
+  working,
   sessionId,
   agent,
   config,
@@ -2460,6 +2521,13 @@ function MessageComposer({
    *  (EXP-621), so a connection flap never eats the draft. */
   live: boolean
   onSend: (text: string) => boolean
+  /** EXP-788: the card the typed text answers instead of opening a turn —
+   *  null when nothing is pending. */
+  pending: QuestionItem | null
+  onAnswer: AnswerHandler
+  /** EXP-790: the agent is busy — with nothing typed, the send glyph is Stop
+   *  and interrupts the turn. */
+  working: boolean
   /** Every steer image uploads to the session's own server-only store
    *  (EXP-702) — issue runs included, so steering screenshots never clutter
    *  the issue's Files section. */
@@ -2481,7 +2549,7 @@ function MessageComposer({
   // EXP-621: the draft lives in the per-session store, so it survives
   // reconnects, dock collapse/reopen and navigation. Blob URLs are the
   // store's to revoke — no unmount cleanup here.
-  const { text, images: pending } = useSyncExternalStore(
+  const { text, images: pendingImages } = useSyncExternalStore(
     store.subscribe,
     store.getDraftSnapshot
   )
@@ -2507,6 +2575,9 @@ function MessageComposer({
     commands,
     onAccept: (next) => store.setDraftText(next),
   })
+  /** EXP-790: Stop shows while the agent is working and the field is empty
+   *  (no text, no image) — the moment something is typed, it is Send again. */
+  const stop = working && !text.trim() && pendingImages.length === 0
   const fileInputRef = useRef<HTMLInputElement>(null)
   const fieldRef = useRef<MentionTextareaHandle>(null)
   // A file chooser steals focus without moving it anywhere in the document
@@ -2527,7 +2598,7 @@ function MessageComposer({
     // EXP-698: an attached image also drops its POSITIONAL reference at the
     // caret, so "crop [Image #2]" names one of several embeds. The strip
     // length before the add IS the numbering base.
-    const base = pending.length
+    const base = pendingImages.length
     const { rejected, overflow, added } = store.addDraftImages(files)
     if (added > 0) {
       let next = text
@@ -2551,21 +2622,21 @@ function MessageComposer({
   /** Dropping a pending image takes its markers with it and slides the
    *  higher ones down, so the numbers keep matching the strip. */
   const removeImage = (url: string) => {
-    const index = pending.findIndex((image) => image.url === url)
+    const index = pendingImages.findIndex((image) => image.url === url)
     if (index >= 0) store.setDraftText(renumberImageMarkers(text, index + 1))
     store.removeDraftImage(url)
   }
 
   const send = async (confirmed = false) => {
     if (sending || !live) return
-    if (!text.trim() && pending.length === 0) return
+    if (!text.trim() && pendingImages.length === 0) return
     // EXP-724: a slash command is the WHOLE message. It rides the ordinary
     // input frames (the desktop recognizes it by its first token), so the only
     // client-side rules are: no image payload to wrap it in, and a
     // context-discarding command asks first.
     const command = parseSteerCommand(text, commands)
     if (command) {
-      if (pending.length > 0) {
+      if (pendingImages.length > 0) {
         toast.error(`Remove the images to send a command`)
         return
       }
@@ -2574,7 +2645,19 @@ function MessageComposer({
         return
       }
     }
-    if (pending.length === 0) {
+    // EXP-788: a pending card takes the typed text as its answer (a plan
+    // card rejects and forwards the text as the next message). A command or
+    // an image message is never an answer — those open a turn as before.
+    if (pending && !command && pendingImages.length === 0) {
+      const answer = freeAnswerFor(pending, text)
+      if (answer) {
+        onAnswer(pending, answer.keys, answer.labels, answer.text)
+        if (answer.followUp !== undefined && !onSend(answer.followUp)) return
+        store.clearDraftAfterSend()
+        return
+      }
+    }
+    if (pendingImages.length === 0) {
       if (onSend(text)) store.clearDraftAfterSend()
       return
     }
@@ -2583,7 +2666,7 @@ function MessageComposer({
       // Upload sequentially, persisting each id as it lands — a mid-batch
       // failure keeps the composer intact and a retry only uploads the rest.
       const ids: string[] = []
-      for (const image of pending) {
+      for (const image of pendingImages) {
         let uploadedId = image.uploadedId
         if (!uploadedId) {
           const uploaded = await uploadSessionImageFile(sessionId, image.file)
@@ -2614,9 +2697,9 @@ function MessageComposer({
     <>
       <Composer
         strip={
-          pending.length > 0 && (
+          pendingImages.length > 0 && (
             <div className="flex flex-wrap gap-2 px-3 pt-3">
-              {pending.map((image) => (
+              {pendingImages.map((image) => (
                 <div key={image.url} className="relative">
                   <img
                     src={image.url}
@@ -2662,24 +2745,31 @@ function MessageComposer({
             >
               <UiAddIcon />
             </ComposerTool>
-            {/* EXP-772: the run's MODE, and nothing else — a "Plan" toggle
-                on claude/pi, a two-value chip on anything else. */}
-            <SessionModeControl
-              config={config}
-              live={live}
-              onPickMode={(modeId) => store.setMode(modeId)}
-            />
           </>
         }
         submit={
-          <ComposerSubmit
-            aria-label="Send"
-            title="Send"
-            disabled={sending || !live || (!text.trim() && pending.length === 0)}
-            onClick={() => void send()}
-          >
-            <UiSendIcon className="!size-6" />
-          </ComposerSubmit>
+          // EXP-790: nothing typed while the agent works = Stop; otherwise
+          // the send glyph (`ui-submit`), dimmed until there is something to
+          // send. The plan-mode pill left this row (EXP-790): the mode is set
+          // at launch and the plan card itself is where a plan is answered.
+          stop ? (
+            <ComposerSubmit
+              stop
+              disabled={!live}
+              onClick={() => {
+                if (!store.interrupt()) {
+                  toast.error(`The session is no longer connected`)
+                }
+              }}
+            />
+          ) : (
+            <ComposerSubmit
+              disabled={
+                sending || !live || (!text.trim() && pendingImages.length === 0)
+              }
+              onClick={() => void send()}
+            />
+          )
         }
         onDrop={(event) => {
           if (event.dataTransfer.files.length === 0) return
@@ -2697,6 +2787,7 @@ function MessageComposer({
         <div className="relative">
           <MentionTextarea
             ref={fieldRef}
+            {...{ [STEER_FIELD_ATTR]: `` }}
             value={text}
             onValueChange={(next) => store.setDraftText(next)}
             users={users}

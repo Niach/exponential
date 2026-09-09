@@ -117,6 +117,13 @@ export const MentionTextarea = forwardRef<
 
   const sync = (next: string, caret: number) => {
     onValueChange(next)
+    detect(next, caret)
+  }
+
+  /** Which autocomplete (if any) the text before `caret` is in the middle
+   *  of. Runs on every keystroke, and (EXP-790) after a programmatic insert,
+   *  so a chip that drops a trailing `#` opens the issue picker at once. */
+  const detect = (next: string, caret: number) => {
     const before = next.slice(0, caret)
     const mention = before.match(MENTION_AT_CARET)
     const issueRef = issueRefs ? before.match(ISSUE_REF_AT_CARET) : null
@@ -155,7 +162,7 @@ export const MentionTextarea = forwardRef<
     const next = `${value.slice(0, start)}${text}${value.slice(end)}`
     const nextCaret = start + text.length
     onValueChange(next)
-    setMenu(null)
+    detect(next, nextCaret)
     requestAnimationFrame(() => {
       if (el) {
         el.focus()

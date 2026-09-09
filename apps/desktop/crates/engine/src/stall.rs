@@ -13,9 +13,14 @@
 //!
 //! 1. A LIVE session with a turn in flight (`TurnSignal` not idle) that is
 //!    not waiting on a person (`needs_input` false) and has produced no event
-//!    for [`STALL_AFTER`] is stalled → `session/cancel` (the same interrupt
-//!    Escape sends). A CLI whose promise is merely lost unwinds on the abort,
-//!    answers the prompt with `Cancelled`, and the queued user messages flow.
+//!    for [`STALL_AFTER`] is stalled → `session/cancel` — as
+//!    `EngineCommand::Interrupt`, NOT the user's Stop (EXP-784): the
+//!    notification carries `CANCEL_QUEUED_META_KEY: false`, which claude maps
+//!    onto `interrupt.cancel_queued = false`, so only the wedged turn is
+//!    aborted. A CLI whose promise is merely lost unwinds on the abort,
+//!    answers the prompt with `Cancelled`, and the user messages that queued
+//!    up behind it FLOW — a Stop (`cancel_queued = true`) would have thrown
+//!    those away, which is the opposite of rescuing the run.
 //! 2. A stalled turn that stays silent for another [`STALL_KILL_GRACE`] after
 //!    the interrupt is dead → the run ends with a
 //!    [`crate::local::EnginePhase::Failed`] banner that says why, so the

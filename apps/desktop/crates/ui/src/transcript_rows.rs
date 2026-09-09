@@ -59,8 +59,11 @@ pub(crate) mod facet {
     pub const EXTRAS_EXPANDED: u32 = 1 << 2;
     /// The question card's answer is in flight (renders its labels, locked).
     pub const ANSWER_LOCKED: u32 = 1 << 3;
-    /// The card's free-text row is open.
-    pub const FREE_TEXT_OPEN: u32 = 1 << 4;
+    /// EXP-788: the card is THE pending one — the keyboard's target, which
+    /// paints its promoted option and key chips.
+    pub const CARD_PENDING: u32 = 1 << 4;
+    /// EXP-788: a multi-select card has picks (its Submit is enabled).
+    pub const PICKS_MADE: u32 = 1 << 5;
 }
 
 /// The height heuristic behind [`RowKey::fingerprint`]. `group_expanded` is
@@ -89,9 +92,22 @@ pub(crate) fn row_fingerprint(
             FeedKind::Narration { text, .. } | FeedKind::UserMessage { text, .. } => {
                 text.len().hash(&mut hasher);
             }
-            FeedKind::Tool { name, detail, .. } => {
+            FeedKind::Tool {
+                name,
+                detail,
+                tool_kind,
+                failed,
+                diff,
+                ..
+            } => {
                 name.len().hash(&mut hasher);
                 detail.as_ref().map(String::len).hash(&mut hasher);
+                // EXP-785/786/789: a settled `tool_update` rewrites the
+                // group caption and the row's tint, and a wire diff adds a
+                // card under the row.
+                tool_kind.map(|kind| kind.as_str()).hash(&mut hasher);
+                failed.hash(&mut hasher);
+                diff.as_ref().map(String::len).hash(&mut hasher);
             }
             FeedKind::Permission { tool, detail } => {
                 tool.len().hash(&mut hasher);
@@ -110,6 +126,11 @@ pub(crate) fn row_fingerprint(
             FeedKind::Question(card) => {
                 card.text.len().hash(&mut hasher);
                 card.options.len().hash(&mut hasher);
+                // EXP-788: an option's description is a second line under
+                // its label.
+                for option in &card.options {
+                    option.description.as_ref().map(String::len).hash(&mut hasher);
+                }
                 card.resolved.hash(&mut hasher);
                 card.dismissed.hash(&mut hasher);
                 card.answer.as_ref().map(String::len).hash(&mut hasher);
@@ -581,6 +602,11 @@ mod tests {
                 name: name.to_string(),
                 detail: None,
                 subagent_id: None,
+                call_id: None,
+                tool_kind: None,
+                settled: false,
+                failed: false,
+                diff: None,
             },
             seq: None,
         }

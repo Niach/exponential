@@ -9,10 +9,12 @@
 //! center too (`Screen::Terminal`), and both kinds tab in the bottom session
 //! bar.
 //!
-//! [`open_session`] is the ONE entry point (the start dialog, the issue
-//! header's "coding now" pill, Devices → Running / Past, a session bar
-//! chip): a run still hosted on a PTY shows its terminal screen, everything
-//! else navigates here.
+//! [`open_session`] is the ONE entry point (the start dialog, the issue's
+//! coding-now card, Devices → Running / Past, a Sessions row in the rail).
+//! EXP-791: an ISSUE-bound run opens INSIDE its issue's detail — the
+//! transcript slides in over the issue (`navigation::navigate_steering`,
+//! `IssueDetailView::open_steering`) instead of leaving the page; every
+//! other run (batch, action, chat) navigates here.
 //!
 //! Three feed sources, one renderer ([`SteerSessionView`]): the in-process
 //! engine (`Local`), the relay viewer (`Remote` — another machine, or another
@@ -35,7 +37,8 @@
 
 use gpui::{
     div, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, Entity, FocusHandle,
-    Focusable, InteractiveElement as _, IntoElement, ParentElement, Render, SharedString, Styled,
+    Focusable, InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
+    StatefulInteractiveElement as _, Styled,
     Subscription, Window,
 };
 use gpui_component::{
@@ -48,8 +51,9 @@ use crate::icons::registry;
 use crate::navigation::Screen;
 use crate::steer_viewer::{FeedSource, SteerSessionView};
 
-/// Open `session_id`'s surface in this window — always a session screen
-/// (EXP-773: a coding run has no terminal tab).
+/// Open `session_id`'s surface in this window (EXP-773: a coding run has no
+/// terminal tab): its issue's detail with the transcript slid in when the
+/// run is issue-bound (EXP-791), else its own session screen.
 pub(crate) fn open_session(session_id: &str, window: &mut Window, cx: &mut App) {
     // EXP-746 D5: a resume mints a NEW row id, so opening it plainly would put
     // a second tab beside the run it continues. `screens::sync_session_tabs`
@@ -61,6 +65,10 @@ pub(crate) fn open_session(session_id: &str, window: &mut Window, cx: &mut App) 
     if let Some(resumed_from) = resumed_from_id(session_id, cx) {
         crate::screens::take_over_session_tab(&resumed_from, session_id, window, cx);
     }
+    if let Some(issue_id) = issue_of_session(session_id, cx) {
+        crate::navigation::navigate_steering(window, cx, issue_id, session_id.to_string());
+        return;
+    }
     crate::navigation::navigate(
         window,
         cx,
@@ -68,6 +76,15 @@ pub(crate) fn open_session(session_id: &str, window: &mut Window, cx: &mut App) 
             session_id: session_id.to_string(),
         },
     );
+}
+
+/// EXP-791: the issue `session_id` is bound to, off its synced row — the
+/// surface an issue-bound run opens on. `None` for a batch/action/chat run
+/// and for a row that has not synced yet (it then opens on its own screen).
+fn issue_of_session(session_id: &str, cx: &App) -> Option<String> {
+    let store = sync::Store::try_global(cx)?;
+    let sessions = store.collections().coding_sessions.read(cx);
+    sessions.get(session_id)?.issue_id.clone()
 }
 
 /// The run `session_id` continues (EXP-662 `resumed_from_id`), read off this
@@ -246,6 +263,9 @@ fn row_ended(session_id: &str, cx: &App) -> bool {
         .is_some_and(|status| status == domain::contract::CODING_SESSION_STATUS_ENDED)
 }
 
+/// EXP-791: the finished-run summary's height cap (scrolls inside).
+const SUMMARY_MAX_H: f32 = 160.;
+
 /// One coding session's center screen.
 pub(crate) struct SessionScreenView {
     session_id: String,
@@ -388,7 +408,9 @@ impl SessionScreenView {
     /// EXP-773 — the agent's own summary of a finished run, as a small muted
     /// block above the transcript. It used to unfold inside the Past list; a
     /// run is described in ONE place now, and this is it. `None` for a live
-    /// run and for one that left no summary.
+    /// run and for one that left no summary. EXP-791: clamped to
+    /// [`SUMMARY_MAX_H`] and scrollable inside — a long summary used to push
+    /// the whole transcript below the fold.
     fn render_summary(&mut self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         if !self.run_over(cx) {
             return None;
@@ -402,9 +424,12 @@ impl SessionScreenView {
             .filter(|text| !text.trim().is_empty())?;
         Some(
             div()
+                .id(SharedString::from(format!("session-summary-scroll-{}", self.session_id)))
                 .w_full()
                 .flex_shrink_0()
                 .min_w_0()
+                .max_h(px(SUMMARY_MAX_H))
+                .overflow_y_scroll()
                 .px_3()
                 .py_2()
                 .border_b_1()
@@ -433,7 +458,6 @@ impl SessionScreenView {
         let inner = self.inner.read(cx);
         let (tone, caption) = inner.header_status(cx);
         let (identifier, subject) = inner.header_identity(cx);
-        let agent_label = inner.agent_display_label();
         let device = inner.device_label(cx);
         let can_kill = inner.killable(cx);
         let usage = inner.usage();
@@ -490,21 +514,9 @@ impl SessionScreenView {
                         .child(identifier),
                 )
             })
+            // EXP-791: no agent pill — the agent is the byline's business
+            // (an ended run names it there), and the live caption's.
             .child(div().min_w_0().max_w(px(360.)).truncate().text_sm().child(subject))
-            .child(
-                crate::surface::glass_pill(
-                    "session-agent",
-                    crate::surface::PillSize::Sm,
-                    crate::surface::PillMode::Readonly,
-                    cx,
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(muted)
-                        .child(SharedString::from(agent_label)),
-                ),
-            )
             .child(
                 div()
                     .flex_1()
@@ -674,7 +686,14 @@ impl Render for SessionScreenView {
 
 #[cfg(test)]
 mod tests {
-    use super::{feed_source_for, SessionFeed};
+    use super::{feed_source_for, SessionFeed, SUMMARY_MAX_H};
+
+    /// EXP-791: the summary block is clamped (and scrolls inside) — it used to
+    /// take whatever height the agent's prose needed.
+    #[test]
+    fn summary_is_clamped() {
+        assert_eq!(SUMMARY_MAX_H, 160.);
+    }
 
     /// The source decision in one table: a live local engine always wins, a
     /// replay needs BOTH a transcript on this machine and an ended run, and

@@ -9,7 +9,6 @@ import {
   parseIssueFilterSearch,
   type IssueFilterSearch,
 } from "@/lib/filters"
-import { findIssuePosition } from "@/lib/board-view"
 import type { Issue, IssueLabel } from "@/db/schema"
 import { BoardNotFound } from "@/components/board-not-found"
 import { IssueDetailView } from "@/components/issue-detail-view"
@@ -24,11 +23,9 @@ export const Route = createFileRoute(
   // beforeLoad.
   //
   // Optional ?status/priority/labels mirror the board route's filter params —
-  // navigating from a filtered board carries them here so the header's
-  // prev/next switcher walks the board's exact filtered+sorted sequence, and
-  // the board breadcrumb links back to the same filtered view. All params
-  // are optional: links from the inbox (either tab) / search arrive bare and
-  // fall back to the unfiltered board ordering.
+  // navigating from a filtered board carries them here so the board
+  // breadcrumb links back to the same filtered view. All params are
+  // optional: links from the inbox (either tab) / search arrive bare.
   validateSearch: (search: Record<string, unknown>): IssueFilterSearch =>
     parseIssueFilterSearch(search),
   component: IssueDetailPage,
@@ -38,15 +35,13 @@ function IssueDetailPage() {
   const { teamSlug, boardSlug, issueIdentifier } = Route.useParams()
   const search = Route.useSearch()
 
-  // Same pipeline the board renders from (buildFilteredIssues →
-  // buildVisibleIssueGroups over locally-synced rows — cheap), so the
-  // switcher's ordering can never drift from the list the user came from —
-  // and the team/board/users lookups are the board view's, not a second copy.
+  // The team/board/users lookups are the board view's, not a second copy
+  // (EXP-791: the prev/next switcher that walked its sequence is gone).
   const filters = useMemo(
     () => issueFiltersFromSearch(search),
     [search.status, search.priority, search.labels]
   )
-  const { board, boardReady, team, users, visibleGroups } = useBoardViewData({
+  const { board, boardReady, team, users } = useBoardViewData({
     filters,
     boardSlug,
     teamSlug,
@@ -84,16 +79,6 @@ function IssueDetailPage() {
   const issueLabelIds = ((issueLabels ?? []) as IssueLabel[]).map(
     (row) => row.labelId
   )
-
-  const position = issue ? findIssuePosition(visibleGroups, issue.id) : null
-  const switcher = position
-    ? {
-        index: position.index,
-        total: position.total,
-        prevIdentifier: position.prev?.identifier ?? null,
-        nextIdentifier: position.next?.identifier ?? null,
-      }
-    : null
 
   const permissions = useTeamPermissions(team)
 
@@ -143,7 +128,6 @@ function IssueDetailPage() {
       teamId={team.id}
       readOnly={!permissions.canMutateIssue(issue)}
       filterSearch={search}
-      position={switcher}
     />
   )
 }

@@ -4,7 +4,9 @@ import {
   ackAnswer,
   answerKey,
   parseConfigState,
+  parseRateLimit,
   parseSessionUsage,
+  parseToolKind,
   applyQuestionResolved,
   beginAnswer,
   clearAnswer,
@@ -25,7 +27,9 @@ import {
   type AnswerStates,
   type EchoEntry,
   type SessionConfigState,
+  type SessionRateLimitState,
   type SessionUsageState,
+  type ToolKind,
 } from "@/lib/agent-feed"
 import {
   isAcceptedImageContentType,
@@ -144,7 +148,27 @@ export type ActivityEvent =
       at?: number
     }
   // `subagentId` (protocol v2) nests the call under its subagent group.
-  | { kind: `tool`; name: string; detail?: string; subagentId?: string; at?: number }
+  // EXP-785: `id` is the ACP tool-call id a later `tool_update` folds in by;
+  // `toolKind` is ACP's kind bucket (the wire key is never `kind`).
+  | {
+      kind: `tool`
+      name: string
+      detail?: string
+      id?: string
+      toolKind?: string
+      subagentId?: string
+      at?: number
+    }
+  // EXP-785/786: a call settled and/or an edit's per-call diff — a LOG row
+  // on the wire that folds INTO the tool row with that `id`, never a row of
+  // its own; an id this feed does not hold is dropped.
+  | {
+      kind: `tool_update`
+      id: string
+      status?: `completed` | `failed`
+      diff?: string
+      at?: number
+    }
   | { kind: `diff`; diff: string; at?: number }
   // EXP-78 (member-only on the relay): a human turn from the transcript…
   // `subagentId` (EXP-773): a turn addressed to a subagent, shown in that
@@ -225,6 +249,15 @@ export type ActivityEvent =
       contextUsed: number
       contextSize: number
       costUsd?: number
+      at?: number
+    }
+  // EXP-784: the rate-limit window, the fourth latest-wins slot. An empty or
+  // `ok` status CLEARS it.
+  | {
+      kind: `rate_limit`
+      status: string
+      resetsAt?: number
+      message?: string
       at?: number
     }
 
@@ -325,7 +358,26 @@ export type FeedItem = FeedSeq &
   // EXP-724: the quiet "Context compacted" hairline a finished compaction
   // leaves in the transcript. Carries nothing — the copy is a constant.
   | { id: number; kind: `compaction` }
-  | { id: number; kind: `tool`; name: string; detail?: string; subagentId?: string }
+  | {
+      id: number
+      kind: `tool`
+      name: string
+      detail?: string
+      subagentId?: string
+      /** EXP-785: the ACP tool-call id — the `tool_update` fold key. Absent
+       *  on rows from a pre-EXP-785 publisher, which never settle. */
+      callId?: string
+      /** EXP-785: ACP's kind bucket, when the publisher sent one. */
+      toolKind?: ToolKind
+      /** EXP-785: a `tool_update` with a status landed — the call ENDED. */
+      settled?: boolean
+      /** EXP-785: that status was `failed` (a later `completed` clears it).
+       *  Group captions list these last. */
+      failed?: boolean
+      /** EXP-786: the per-call unified diff an `edit` published, already cut
+       *  to the contract's caps by the publisher. */
+      diff?: string
+    }
   | { id: number; kind: `user_message`; text: string; subagentId?: string }
   | { id: number; kind: `permission`; tool: string; detail?: string }
   | {
@@ -363,6 +415,7 @@ export type FeedItem = FeedSeq &
   )
 
 export type QuestionItem = Extract<FeedItem, { kind: `question` }>
+export type ToolItem = Extract<FeedItem, { kind: `tool` }>
 
 /** `Omit` that distributes over the FeedItem union (plain `Omit` collapses a
  *  union to its common keys, losing the per-kind fields). */
@@ -404,6 +457,9 @@ export interface SteerSessionSnapshot {
   config: SessionConfigState | null
   /** EXP-746: the run's own context/spend meter, same latest-wins rule. */
   usage: SessionUsageState | null
+  /** EXP-784: the agent's rate-limit window, the fourth slot. Null = not
+   *  limited (or cleared by an empty/`ok` status). */
+  rateLimit: SessionRateLimitState | null
   answerStates: AnswerStates
   /** The socket is actually open. Distinct from the phase: a silent
    *  slow-consumer redial keeps `phase: live` while the socket is briefly
@@ -483,6 +539,11 @@ export interface SteerSessionStore {
   /** EXP-746: switch the session mode — the composer's ONE live control
    *  since EXP-772. False = the socket is down and nothing went out. */
   setMode(id: string): boolean
+  /** EXP-790: stop the agent's current turn (the composer's Stop glyph, shown
+   *  while it works and the field is empty). Fire-and-forget like `setMode`:
+   *  the publisher cancels the turn and the feed shows the outcome. False =
+   *  the socket is down and nothing went out. */
+  interrupt(): boolean
   setDraftText(text: string): void
   addDraftImages(files: File[]): AddDraftImagesResult
   removeDraftImage(url: string): void
@@ -535,6 +596,7 @@ export function createSteerSessionStore(
   let compacting: CompactionState | null = null
   let config: SessionConfigState | null = null
   let usage: SessionUsageState | null = null
+  let rateLimit: SessionRateLimitState | null = null
   let compactionTimer: ReturnType<typeof setTimeout> | null = null
   let answerStates: AnswerStates = {}
   let connected = false
@@ -587,6 +649,7 @@ export function createSteerSessionStore(
     compacting,
     config,
     usage,
+    rateLimit,
     answerStates,
     connected,
     canLoadEarlier: false,
@@ -604,9 +667,12 @@ export function createSteerSessionStore(
       compacting,
       config,
       usage,
+      rateLimit,
       answerStates,
       connected,
-      canLoadEarlier: historyTruncated && !historyExhausted,
+      // EXP-796: a page can only be asked for over an OPEN socket — once the
+      // relay closed the (lingering) history room, the button goes.
+      canLoadEarlier: historyTruncated && !historyExhausted && connected,
     }
     notify()
   }
@@ -679,9 +745,27 @@ export function createSteerSessionStore(
     retries = 0
     if (phase.kind === `live`) return false
     // EXP-773: a history republish streams the same frames a live room does,
-    // but the run is over — the caption keeps saying so until the `bye`.
+    // but the run is over — the caption keeps saying so until the marker.
     if (phase.kind === `history_pending`) return false
+    // EXP-796: an ended phase never lifts back to live on the same dial — a
+    // lingering history room's keepalives and pages are not a run, and the
+    // synced row stays the source of truth (a redial resets the phase).
+    if (phase.kind === `ended`) return false
     phase = { kind: `live` }
+    return true
+  }
+
+  /** EXP-796: the device's replay is fully in. The relay keeps the history
+   *  room OPEN for a while (no `bye`, keepalives, "Load earlier" pages down
+   *  the device's control socket), so the phase moves off "loading" here
+   *  rather than at a close: an ENDED row is over — the transcript is on
+   *  screen, read-only, the socket lingers only for pages — while a row the
+   *  server still calls alive waits for its publisher, whose takeover of the
+   *  lingering room lands on this same socket as an ordinary replay. */
+  const markHistoryServed = (): boolean => {
+    if (phase.kind !== `history_pending`) return false
+    retries = 0
+    phase = sessionStatus === `ended` ? { kind: `ended` } : { kind: `starting` }
     return true
   }
 
@@ -756,7 +840,36 @@ export function createSteerSessionStore(
           name: event.name,
           detail,
           subagentId: event.subagentId,
+          callId: event.id?.trim() ? event.id : undefined,
+          toolKind: parseToolKind(event.toolKind),
         })
+        return
+      }
+      case `tool_update`: {
+        // EXP-785/786: folded INTO the newest tool row with that call id —
+        // never a row of its own. An id this feed does not hold (evicted, or
+        // below the window) is dropped.
+        if (!event.id) return
+        let at = -1
+        for (let i = feed.length - 1; i >= 0; i--) {
+          const item = feed[i]
+          if (item.kind === `tool` && item.callId === event.id) {
+            at = i
+            break
+          }
+        }
+        if (at < 0) return
+        const current = feed[at] as ToolItem
+        const next: ToolItem = { ...current }
+        if (event.status === `completed` || event.status === `failed`) {
+          next.settled = true
+          next.failed = event.status === `failed`
+        }
+        if (typeof event.diff === `string` && event.diff.trim()) next.diff = event.diff
+        feedBytes += feedItemBytes(next) - feedItemBytes(current)
+        const updated = feed.slice()
+        updated[at] = next
+        setFeed(updated, [])
         return
       }
       case `user_message`: {
@@ -875,6 +988,13 @@ export function createSteerSessionStore(
         // context window included) CLEARS the meter — a stale used/size beside
         // a live run reads as current, and "unknown" is what a zero size says.
         usage = parseSessionUsage(event)
+        return
+      }
+      case `rate_limit`: {
+        // EXP-784: the fourth slot. Null clears — an empty/`ok` status says
+        // the window lifted, and an unreadable payload must not leave a
+        // stale "rate limited" banner beside a live run.
+        rateLimit = parseRateLimit(event)
         return
       }
       default:
@@ -1019,6 +1139,7 @@ export function createSteerSessionStore(
     latestDiff = null
     config = null
     usage = null
+    rateLimit = null
     clearCompaction()
     // Seeded BEFORE the fold so a replayed `answer_ack`/`question_resolved`
     // for a carried lock lands on it; locks whose card the replay did not
@@ -1364,7 +1485,12 @@ export function createSteerSessionStore(
             const f = frame as Extract<ServerFrame, { t: `activity_synced` }>
             historyTruncated = f.truncated === true
             activityQueue.enqueue({ t: `synced`, firstSeq: f.firstSeq })
-            if (markLive()) commit()
+            if (markHistoryServed()) {
+              commit()
+              if (phase.kind === `ended`) onEnded()
+            } else if (markLive()) {
+              commit()
+            }
             return
           }
           // EXP-783: one page of older transcript. It goes in FRONT of
@@ -1576,6 +1702,15 @@ export function createSteerSessionStore(
     return true
   }
 
+  /** EXP-790: cancel the agent's current turn. The relay forwards the frame
+   *  to the publisher verbatim; the engine's `session/cancel` dismisses every
+   *  open card and the feed shows the interrupted turn. */
+  const sendInterruptFrame = (): boolean => {
+    if (ws?.readyState !== WebSocket.OPEN) return false
+    ws.send(JSON.stringify({ t: `interrupt` }))
+    return true
+  }
+
   // ── Ended/retention lifecycle (driven by the registry below) ─────────────
 
   let endedTimer: ReturnType<typeof setTimeout> | null = null
@@ -1658,6 +1793,17 @@ export function createSteerSessionStore(
           // The desktop's publisher may well have arrived while we were
           // away, so retry NOW instead of waiting out a 30s backoff step.
           // The phase holds, so nothing flickers.
+          // EXP-796: unless a socket is OPEN and talking — a served history
+          // room lingers for the publisher's takeover, which arrives on it;
+          // redialing would only throw the transcript away and re-ask.
+          // An in-flight dial (open, nothing heard yet) is still retried:
+          // only a socket that has answered THIS dial recently is left be.
+          if (
+            connected &&
+            lastFrameAt >= dialStartedAt &&
+            Date.now() - lastFrameAt <= LIVE_STALE_MS
+          )
+            return
           clearRetryTimer()
           void dial(true)
           return
@@ -1738,6 +1884,9 @@ export function createSteerSessionStore(
      *  agent kept it). */
     setMode(id) {
       return sendModeFrame(id)
+    },
+    interrupt() {
+      return sendInterruptFrame()
     },
     setDraftText(text) {
       draftText = text
