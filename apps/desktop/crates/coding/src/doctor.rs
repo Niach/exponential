@@ -128,8 +128,13 @@ pub const ACTION_CAPS: [&str; 6] = [
     "fix-conflicts",
     "automations",
     "chat",
-    "resume-run",
+    RESUME_RUN_CAP,
 ];
+
+/// EXP-637's resume cap, by name: the ONE place the literal lives, so a
+/// client deciding whether another machine can take a resume (EXP-800) never
+/// repeats the string.
+pub const RESUME_RUN_CAP: &str = "resume-run";
 
 /// The caps to advertise for a doctor snapshot: the build caps always, plus
 /// the action caps while anything is runnable.
