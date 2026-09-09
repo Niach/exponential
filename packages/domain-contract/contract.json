@@ -279,6 +279,12 @@
   "actionInputType": {
     "values": ["text", "repo", "board", "pr", "icon", "textarea"]
   },
+  "mcpTransport": {
+    "values": ["http", "stdio"]
+  },
+  "mcpAuth": {
+    "values": ["none", "oauth", "secret"]
+  },
   "actionTrigger": {
     "eventValues": [
       "created",

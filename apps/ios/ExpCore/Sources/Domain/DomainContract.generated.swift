@@ -39,6 +39,8 @@ public enum DomainContract {
     public static let piModelValues: [String] = ["fable", "opus", "sonnet", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "grok-4.5"]
     public static let piThinkingValues: [String] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
     public static let actionInputTypeValues: [String] = ["text", "repo", "board", "pr", "icon", "textarea"]
+    public static let mcpTransportValues: [String] = ["http", "stdio"]
+    public static let mcpAuthValues: [String] = ["none", "oauth", "secret"]
     public static let actionTriggerEventValues: [String] = ["created", "status_changed", "assignee_changed", "label_added", "priority_changed", "pr_opened", "pr_merged"]
     public static let actionScheduleIntervalValues: [String] = ["daily", "weekly", "monthly"]
     public static let steerCommandNames: [String] = ["compact", "clear"]

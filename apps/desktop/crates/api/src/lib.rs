@@ -70,6 +70,7 @@ pub mod http;
 pub mod issues;
 pub mod labels;
 pub mod login;
+pub mod mcp_servers;
 pub mod notifications;
 pub mod onboarding;
 pub mod opener;

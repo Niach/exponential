@@ -58,6 +58,7 @@ pub mod launch_defaults_sync;
 pub mod launch_gate;
 pub mod launcher;
 pub mod mcp_json;
+pub mod mcp_servers;
 pub mod pi_bridge;
 pub mod process;
 pub mod prompt;
@@ -81,7 +82,8 @@ pub mod worktree_agents;
 
 pub use agent::{AgentKind, CodingAgent};
 pub use argv::{
-    permission_args, shell_args, AgentMcp, LaunchOptions, MCP_SESSION_ID_ENV, MCP_TOKEN_ENV,
+    permission_args, shell_args, AgentMcp, LaunchOptions, McpServerWire, McpWireTransport,
+    MCP_SESSION_ID_ENV, MCP_TOKEN_ENV,
     MCP_URL_ENV,
 };
 pub use batch_launcher::{

@@ -159,6 +159,11 @@ pub struct RemoteStart {
     pub effort: Option<String>,
     pub ultracode: Option<bool>,
     pub plan_mode: Option<bool>,
+    /// EXP-792: the team MCP servers (`mcp_servers` row ids) to connect
+    /// beside `exponential`; absent = none.
+    pub mcp_server_ids: Option<Vec<String>>,
+    /// EXP-792 (EXP-747 B7): the agent account profile; absent = ambient.
+    pub account: Option<String>,
     /// EXP-481: resume the issue's existing worktree/agent session. Only
     /// meaningful on the Issue subject (the server rejects it elsewhere);
     /// absent on the wire = `false`, a fresh start (the pre-481 wire).
@@ -189,6 +194,8 @@ pub(crate) fn remote_start_from_frame(
     plan_mode: Option<bool>,
     resume: bool,
     resume_session_id: Option<String>,
+    mcp_server_ids: Option<Vec<String>>,
+    account: Option<String>,
 ) -> Option<RemoteStart> {
     // EXP-637: a resume is its OWN subject — the recorded run supplies the
     // rest. The web server rides `issueId` / `actionId` / `actionName` /
@@ -208,6 +215,8 @@ pub(crate) fn remote_start_from_frame(
             effort: None,
             ultracode: None,
             plan_mode: None,
+            mcp_server_ids: None,
+            account: None,
             resume: false,
         });
     }
@@ -238,6 +247,8 @@ pub(crate) fn remote_start_from_frame(
         effort,
         ultracode,
         plan_mode,
+        mcp_server_ids,
+        account,
         resume,
     })
 }
@@ -608,10 +619,12 @@ async fn connect_and_listen(
                             plan_mode,
                             resume,
                             resume_session_id,
+                            mcp_server_ids,
+                            account,
                         }) => match remote_start_from_frame(
                             issue_id, issue_ids, action_id, action_name, team_id, repo, inputs,
                             started_by, started_reason, agent, model, effort, ultracode,
-                            plan_mode, resume, resume_session_id,
+                            plan_mode, resume, resume_session_id, mcp_server_ids, account,
                         ) {
                             Some(start) => {
                                 log::info!("steer control: remote start_session ({:?})", start.subject);
@@ -727,6 +740,8 @@ mod tests {
             None,
             false,
             Some("sess-old".into()),
+            None,
+            None,
         )
         .expect("resume frame");
         assert_eq!(
@@ -767,6 +782,8 @@ mod tests {
                 None,
                 false,
                 Some("sess-old".into()),
+                None,
+                None,
             )
             .expect("hinted resume frame");
             assert_eq!(
@@ -795,6 +812,8 @@ mod tests {
                 None,
                 false,
                 Some("sess-old".into()),
+                None,
+                None,
             ),
             None
         );
@@ -821,6 +840,8 @@ mod tests {
                 None,
                 false,
                 None,
+                None,
+                None,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Issue("issue-9".into()),
@@ -831,6 +852,8 @@ mod tests {
                 effort: None,
                 ultracode: Some(true),
                 plan_mode: None,
+                mcp_server_ids: None,
+                account: None,
                 resume: false,
             })
         );
@@ -854,6 +877,8 @@ mod tests {
                 Some(false),
                 false,
                 None,
+                None,
+                None,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Batch {
@@ -868,6 +893,8 @@ mod tests {
                 effort: None,
                 ultracode: None,
                 plan_mode: Some(false),
+                mcp_server_ids: None,
+                account: None,
                 resume: false,
             })
         );
@@ -903,6 +930,8 @@ mod tests {
                 None,
                 false,
                 None,
+                None,
+                None,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Action {
@@ -925,6 +954,8 @@ mod tests {
                 effort: None,
                 ultracode: None,
                 plan_mode: None,
+                mcp_server_ids: None,
+                account: None,
                 resume: false,
             })
         );
@@ -951,6 +982,8 @@ mod tests {
                 None,
                 false,
                 None,
+                None,
+                None,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Issue("issue-9".into()),
@@ -961,6 +994,8 @@ mod tests {
                 effort: None,
                 ultracode: None,
                 plan_mode: None,
+                mcp_server_ids: None,
+                account: None,
                 resume: false,
             })
         );
@@ -988,6 +1023,8 @@ mod tests {
             None,
             false,
             None,
+            None,
+            None,
         )
         .expect("issue frame");
         assert_eq!(issue.started_reason.as_deref(), Some("agent"));
@@ -1009,6 +1046,8 @@ mod tests {
             None,
             false,
             Some("sess-old".into()),
+            None,
+            None,
         )
         .expect("resume frame");
         assert_eq!(resumed.started_reason.as_deref(), Some("agent"));
@@ -1035,6 +1074,8 @@ mod tests {
                 None,
                 false,
                 None,
+                None,
+                None,
             ),
             None
         );
@@ -1042,6 +1083,8 @@ mod tests {
         assert_eq!(
             remote_start_from_frame(
                 None, None, None, None, None, None, None, None, None, None, None, None, None, None, false, None,
+                None,
+                None,
             ),
             None
         );
@@ -1063,6 +1106,8 @@ mod tests {
                 None,
                 None,
                 false,
+                None,
+                None,
                 None,
             ),
             None
@@ -1086,6 +1131,8 @@ mod tests {
                 None,
                 false,
                 None,
+                None,
+                None,
             ),
             None
         );
@@ -1107,6 +1154,8 @@ mod tests {
                 None,
                 None,
                 false,
+                None,
+                None,
                 None,
             ),
             None
@@ -1134,6 +1183,8 @@ mod tests {
                 None,
                 false,
                 None,
+                None,
+                None,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Action {
@@ -1150,6 +1201,8 @@ mod tests {
                 effort: Some("high".into()),
                 ultracode: None,
                 plan_mode: None,
+                mcp_server_ids: None,
+                account: None,
                 resume: false,
             })
         );
@@ -1171,6 +1224,8 @@ mod tests {
                 None,
                 None,
                 false,
+                None,
+                None,
                 None,
             )
             .map(|start| start.subject),
@@ -1222,6 +1277,8 @@ mod tests {
                 None,
                 false,
                 None,
+                None,
+                None,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Action {
@@ -1238,6 +1295,8 @@ mod tests {
                 effort: None,
                 ultracode: None,
                 plan_mode: None,
+                mcp_server_ids: None,
+                account: None,
                 resume: false,
             })
         );
@@ -1264,6 +1323,8 @@ mod tests {
                 None,
                 false,
                 None,
+                None,
+                None,
             ),
             None
         );
@@ -1286,6 +1347,8 @@ mod tests {
                 None,
                 false,
                 None,
+                None,
+                None,
             ),
             None
         );
@@ -1307,6 +1370,8 @@ mod tests {
                 None,
                 None,
                 false,
+                None,
+                None,
                 None,
             ),
             None

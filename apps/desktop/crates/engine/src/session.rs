@@ -159,6 +159,8 @@ impl EngineSession {
                 effort: String::new(),
                 ultracode: false,
                 plan_mode: false,
+                mcp_server_ids: Vec::new(),
+                account: None,
                 external: match &agent {
                     coding::AgentKind::External(spec) => Some(spec.clone()),
                     coding::AgentKind::Builtin(_) => None,

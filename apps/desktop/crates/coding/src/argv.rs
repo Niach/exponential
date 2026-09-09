@@ -198,6 +198,65 @@ pub enum AgentMcp {
     },
 }
 
+/// EXP-792: ONE team MCP server resolved for a launch — the non-secret
+/// config from `mcpServers.listForDevice` joined with the ENV VAR NAMES the
+/// launcher minted for its device-held secrets. Every credential position is
+/// a `${VAR}` REFERENCE the agent expands from the child's own environment
+/// (claude header values, codex `bearer_token_env_var`/`env_http_headers`,
+/// the pi bridge's `process.env`), so no generated config ever carries a
+/// value. `exponential` itself is NOT one of these — it keeps its dedicated
+/// [`AgentMcp`] posture (the `expu_` key + the session header); these are the
+/// user-declared servers appended beside it.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct McpServerWire {
+    /// The `mcp_servers` row id (recorded in `runs.json` for resume).
+    pub id: String,
+    /// The config key (`mcpServers.<name>` / `mcp_servers.<name>`): the
+    /// row's name lowercased with non-alphanumerics folded to `_`.
+    pub name: String,
+    pub transport: McpWireTransport,
+    /// Header name → value, where a device-held value is the literal
+    /// `${VAR}` reference (`Authorization` → `Bearer ${EXP_MCP_TOKEN_1}` for
+    /// an OAuth server). `http` only.
+    pub headers: Vec<(String, String)>,
+    /// The env var (in the spawn env) carrying a bearer token, when the
+    /// server authenticates with one — codex's `bearer_token_env_var`.
+    pub token_env: Option<String>,
+    /// Env NAME → `${VAR}` reference for a `stdio` server's env.
+    pub env: Vec<(String, String)>,
+}
+
+/// Where a [`McpServerWire`] lives.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum McpWireTransport {
+    Http { url: String },
+    Stdio { command: String, args: Vec<String> },
+}
+
+impl McpServerWire {
+    /// The config key a server row's `name` becomes: lowercase ASCII
+    /// alphanumerics, everything else folded to `_`, never empty.
+    pub fn config_key(name: &str) -> String {
+        let key: String = name
+            .trim()
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() {
+                    c.to_ascii_lowercase()
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        if key.is_empty() {
+            "server".to_string()
+        } else {
+            key
+        }
+    }
+}
+
 /// The Start-coding dialog's choices — ONE shape for both run modes (a
 /// single-issue session and a multi-issue batch session differ only in their
 /// settings DEFAULTS, not in the flags they can carry).
@@ -224,6 +283,15 @@ pub struct LaunchOptions {
     /// agent is never remotely startable and has no TUI argv, so it always
     /// resolves to [`crate::launcher::LaunchTransport::Acp`].
     pub external: Option<crate::settings::ExternalAgentSpec>,
+    /// EXP-792: the team MCP servers (`mcp_servers` row ids) this run
+    /// connects to beside `exponential`. Empty = none. The launcher resolves
+    /// them against the device's secret store and REFUSES the launch with a
+    /// named blocker when one has no credential here.
+    pub mcp_server_ids: Vec<String>,
+    /// EXP-792 (EXP-747 B7): the agent ACCOUNT PROFILE to run on — `None` or
+    /// `system` = the ambient login; else a device-local profile id under
+    /// `{data_dir}/agents/<agent>/<id>/` (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`).
+    pub account: Option<String>,
 }
 
 impl LaunchOptions {
@@ -248,6 +316,8 @@ impl LaunchOptions {
             plan_mode: settings.plan_mode_for(agent) && agent.supports_plan_mode(),
             // EXP-746: the settings defaults always name a BUILTIN agent —
             // an external one is only ever an explicit local pick.
+            mcp_server_ids: Vec::new(),
+            account: None,
             external: None,
         }
     }
@@ -314,7 +384,33 @@ impl LaunchOptions {
             // EXP-746 (D13): external agents are LOCAL-only — a relay start
             // can never name one.
             external: None,
+            mcp_server_ids: Vec::new(),
+            account: None,
         }
+    }
+
+    /// EXP-792: the remote frame's MCP server picks. Deduplicated, blanks
+    /// dropped, capped at 16 (the web server's own bound).
+    pub fn with_mcp_servers(mut self, ids: Option<Vec<String>>) -> Self {
+        let mut out: Vec<String> = Vec::new();
+        for id in ids.unwrap_or_default() {
+            let id = id.trim().to_string();
+            if !id.is_empty() && !out.contains(&id) && out.len() < 16 {
+                out.push(id);
+            }
+        }
+        self.mcp_server_ids = out;
+        self
+    }
+
+    /// EXP-792 (EXP-747 B7): the remote frame's account profile pick. Blank
+    /// and `system` both mean the ambient login (`None`).
+    pub fn with_account(mut self, account: Option<&str>) -> Self {
+        self.account = account
+            .map(str::trim)
+            .filter(|a| !a.is_empty() && *a != "system")
+            .map(str::to_string);
+        self
     }
 }
 
@@ -471,6 +567,8 @@ mod tests {
             effort: "".to_string(),
             ultracode: false,
             plan_mode: false,
+            mcp_server_ids: Vec::new(),
+            account: None,
             external: None,
         }
     }

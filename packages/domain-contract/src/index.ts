@@ -127,6 +127,10 @@ export interface DomainContract {
   piThinking: { values: readonly string[] }
   /** Typed action-input kinds (EXP-257; EXP-259 adds `pr`): text | repo | board | pr. */
   actionInputType: { values: readonly string[] }
+  /** EXP-792: how a team MCP server is reached — a remote `http` endpoint or a local `stdio` command. */
+  mcpTransport: { values: readonly string[] }
+  /** EXP-792: how the device authenticates to it — `none`, an `oauth` sign-in, or a typed `secret`. */
+  mcpAuth: { values: readonly string[] }
   /** Server-defined virtual actions injected into actions.list (EXP-257/EXP-259). */
   builtinAction: {
     createActionId: string

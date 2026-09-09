@@ -350,6 +350,8 @@ pub(crate) fn chat_options(
         effort: effort.to_string(),
         ultracode: false,
         plan_mode: plan && agent.supports_plan_mode(),
+        mcp_server_ids: Vec::new(),
+        account: None,
         external: None,
     }
 }

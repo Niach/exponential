@@ -281,6 +281,8 @@ fn spec_at(scenario_dir: &Path, work: &Path, plan_mode: bool) -> AdapterSpec {
             effort: String::new(),
             ultracode: false,
             plan_mode,
+            mcp_server_ids: Vec::new(),
+            account: None,
             external: None,
         },
         mcp: coding::AgentMcp::ClaudeInline {

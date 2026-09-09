@@ -27,6 +27,8 @@ import {
   issueStatusOrder,
   CODING_SESSION_STALE_HOURS,
   actionInputTypeValues,
+  mcpAuthValues,
+  mcpTransportValues,
   MAX_ACTION_INPUTS,
   MAX_ACTION_INPUT_TEXT,
   actionTriggerEventValues,
@@ -210,6 +212,11 @@ describe(`domain-contract parity`, () => {
     expect(
       issueRelationTypeValues.map((type) => ISSUE_RELATION_LABELS[type].inverse)
     ).toEqual([...contract.issueRelationType.inverseLabels])
+  })
+
+  it(`mcp server transport + auth match the contract (EXP-792)`, () => {
+    expect([...mcpTransportValues]).toEqual([...contract.mcpTransport.values])
+    expect([...mcpAuthValues]).toEqual([...contract.mcpAuth.values])
   })
 
   it(`action input types + limits + builtin id match the contract (EXP-257)`, () => {

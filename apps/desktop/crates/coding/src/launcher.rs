@@ -2401,6 +2401,8 @@ fn prepare_resume_run(
         // ACP session id. The recorded command and args are the pin; the
         // spawn env comes from the CURRENT settings entry, never from the
         // record (which never carried one).
+        mcp_server_ids: Vec::new(),
+        account: None,
         external: record.resolved_external_agent(&deps.settings.external_agents),
     };
     let agent_kind = agent_kind(&options);
@@ -3198,6 +3200,8 @@ mod tests {
                 effort: "".to_string(),
                 ultracode: false,
                 plan_mode: true,
+                mcp_server_ids: Vec::new(),
+                account: None,
                 external: None,
             },
             resume_prompt: false,
@@ -3848,6 +3852,8 @@ mod tests {
             effort: "high".to_string(),
             ultracode: true,
             plan_mode: false,
+            mcp_server_ids: Vec::new(),
+            account: None,
             external: None,
         }
     }
@@ -4018,6 +4024,8 @@ mod tests {
                 effort: String::new(),
                 ultracode: false,
                 plan_mode: false,
+                mcp_server_ids: Vec::new(),
+                account: None,
                 external: None,
             },
         }
@@ -4228,6 +4236,8 @@ mod tests {
             effort: "high".to_string(),
             ultracode: false,
             plan_mode: false,
+            mcp_server_ids: Vec::new(),
+            account: None,
             external: None,
         };
 
@@ -4280,6 +4290,8 @@ mod tests {
             effort: String::new(),
             ultracode: false,
             plan_mode: false,
+            mcp_server_ids: Vec::new(),
+            account: None,
             external: None,
         };
 
@@ -6027,6 +6039,8 @@ mod tests {
             effort: "high".to_string(),
             ultracode: false,
             plan_mode: false,
+            mcp_server_ids: Vec::new(),
+            account: None,
             external: None,
         };
 
@@ -6101,6 +6115,8 @@ mod tests {
             effort: "high".to_string(),
             ultracode: false,
             plan_mode: false,
+            mcp_server_ids: Vec::new(),
+            account: None,
             external: None,
         };
 
@@ -6418,6 +6434,8 @@ mod tests {
                 effort: String::new(),
                 ultracode: false,
                 plan_mode: false,
+                mcp_server_ids: Vec::new(),
+                account: None,
                 external: None,
             },
             repository_id: "repo-1".to_string(),

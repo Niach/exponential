@@ -275,6 +275,8 @@ fn spec() -> engine::adapters::AdapterSpec {
             effort: String::new(),
             ultracode: false,
             plan_mode: false,
+            mcp_server_ids: Vec::new(),
+            account: None,
             external: None,
         },
         mcp: coding::AgentMcp::CodexOverrides {

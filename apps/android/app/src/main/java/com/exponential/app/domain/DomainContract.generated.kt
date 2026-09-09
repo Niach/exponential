@@ -38,6 +38,8 @@ object DomainContract {
     val piModelValues: List<String> = listOf("fable", "opus", "sonnet", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "grok-4.5")
     val piThinkingValues: List<String> = listOf("off", "minimal", "low", "medium", "high", "xhigh", "max")
     val actionInputTypeValues: List<String> = listOf("text", "repo", "board", "pr", "icon", "textarea")
+    val mcpTransportValues: List<String> = listOf("http", "stdio")
+    val mcpAuthValues: List<String> = listOf("none", "oauth", "secret")
     val actionTriggerEventValues: List<String> = listOf("created", "status_changed", "assignee_changed", "label_added", "priority_changed", "pr_opened", "pr_merged")
     val actionScheduleIntervalValues: List<String> = listOf("daily", "weekly", "monthly")
     val steerCommandNames: List<String> = listOf("compact", "clear")
