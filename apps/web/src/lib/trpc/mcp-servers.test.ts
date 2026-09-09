@@ -628,6 +628,46 @@ describe(`mcpServers.getOAuthFlow / cancelOAuth`, () => {
     await callerFor().cancelOAuth({ flowId: FLOW })
     expect(db.rows(`mcp_oauth_flows`)[0]!.status).toBe(`done`)
   })
+
+  it(`closes the pending command so no browser opens for a cancelled sign-in`, async () => {
+    // Commands are only ever picked up, never expired: a cancel that left the
+    // row pending would still start a sign-in on the machine minutes later.
+    db = createFakeDb({
+      mcp_oauth_flows: [flowRow()],
+      device_commands: [
+        {
+          id: `cmd-1`,
+          deviceRowId: DEVICE_ROW,
+          userId: `actor`,
+          kind: `mcp_oauth_start`,
+          payload: { serverId: SERVER, state: `st-1`, redirectUri: `loopback` },
+          status: `pending`,
+          result: null,
+          completedAt: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        {
+          id: `cmd-other`,
+          deviceRowId: DEVICE_ROW,
+          userId: `actor`,
+          kind: `mcp_oauth_start`,
+          payload: { serverId: SERVER, state: `another-flow` },
+          status: `pending`,
+          result: null,
+          completedAt: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ],
+    })
+    await callerFor().cancelOAuth({ flowId: FLOW })
+    const rows = db.rows(`device_commands`)
+    expect(rows.find((row) => row.id === `cmd-1`)).toMatchObject({
+      status: `failed`,
+    })
+    expect(rows.find((row) => row.id === `cmd-other`)!.status).toBe(`pending`)
+  })
 })
 
 describe(`mcpServers.finishOAuth`, () => {

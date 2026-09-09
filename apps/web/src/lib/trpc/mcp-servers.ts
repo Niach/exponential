@@ -465,6 +465,38 @@ export const mcpServersRouter = router({
     .mutation(async ({ ctx, input }) => {
       const flow = await loadOwnFlow(ctx.db, ctx.session.user.id, input.flowId)
       await finishFlow(ctx.db, flow.id, { ok: false, error: `cancelled` })
+      // The queued command outlives the flow row otherwise, and the device
+      // would open a browser for a sign-in nobody is waiting for any more:
+      // commands are only ever picked up, never expired. Terminal rows are
+      // history, so this closes them rather than deleting them. The state
+      // match happens here rather than in the predicate because the payload
+      // is a jsonb column and this list is at most a couple of rows.
+      const queued = await ctx.db
+        .select()
+        .from(deviceCommands)
+        .where(
+          and(
+            eq(deviceCommands.deviceRowId, flow.deviceRowId),
+            eq(deviceCommands.status, `pending`),
+            inArray(deviceCommands.kind, [`mcp_oauth_start`, `mcp_oauth_code`])
+          )
+        )
+      const mine = queued.filter((row) => row.payload?.state === flow.state)
+      if (mine.length > 0) {
+        await ctx.db
+          .update(deviceCommands)
+          .set({
+            status: `failed`,
+            result: `The sign-in was cancelled.`,
+            completedAt: new Date(),
+          })
+          .where(
+            inArray(
+              deviceCommands.id,
+              mine.map((row) => row.id)
+            )
+          )
+      }
       return { ok: true as const }
     }),
 
