@@ -53,10 +53,13 @@ function seed(flowOver: Record<string, unknown> = {}): FakeDb {
   })
 }
 
-function request(query: Record<string, string>, ip = `203.0.113.7`): Request {
+function request(
+  query: Record<string, string | undefined>,
+  ip = `203.0.113.7`
+): Request {
   const url = new URL(`https://app.exponential.dev/api/mcp-oauth/callback`)
   for (const [key, value] of Object.entries(query)) {
-    url.searchParams.set(key, value)
+    if (value !== undefined) url.searchParams.set(key, value)
   }
   return new Request(url, { headers: { "x-forwarded-for": ip } })
 }

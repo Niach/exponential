@@ -1548,7 +1548,7 @@ describe(`clampAgentAccounts — profiles (EXP-792)`, () => {
           // Explicit nulls (the EXP-495 shape) degrade field-wise.
           { id: `work`, label: null, signedIn: null, email: null, plan: null },
           // No id: nothing could address it — dropped.
-          { label: `ghost`, signedIn: true },
+          { label: `ghost`, signedIn: true } as never,
           null,
           { id: `p3`, signedIn: false },
           { id: `p4`, signedIn: false },
