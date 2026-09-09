@@ -14,8 +14,12 @@
 //!   desktop settings pane).
 //! - `mcpServers.reportReadiness` — **mutation** — this device's readiness
 //!   per server (also folded into `devices.heartbeat` as `mcpReadiness`).
-//! - `mcpServers.completeOAuth` is NOT here: the device answers an OAuth
-//!   command through `devices.completeCommand` like every other command.
+//! - `mcpServers.finishOAuth` — **mutation** — the LOOPBACK sign-in's
+//!   completion: no `mcp_oauth_code` command exists on that path (the code
+//!   lands on the device's own listener), so the device reports the flow's
+//!   outcome by `state`. The hosted path completes through
+//!   `devices.completeCommand` like every other command (and may call this
+//!   too; it is idempotent).
 
 use serde::{Deserialize, Serialize};
 
@@ -174,9 +178,85 @@ pub fn report_readiness(
     Ok(())
 }
 
+/// `mcpServers.finishOAuth` — mark the flow identified by `state` done
+/// (`ok`, with the token's expiry) or failed (`error`). On success the server
+/// also upserts this device's readiness `ready=true` for the flow's server.
+pub fn finish_oauth(
+    trpc: &TrpcClient,
+    state: &str,
+    ok: bool,
+    expires_at: Option<&str>,
+    error: Option<&str>,
+) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        state: &'a str,
+        ok: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        expires_at: Option<&'a str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error: Option<&'a str>,
+    }
+    #[derive(Deserialize)]
+    struct Ok {
+        #[serde(default)]
+        #[allow(dead_code)]
+        ok: bool,
+    }
+    let _: Ok = trpc.mutation(
+        "mcpServers.finishOAuth",
+        &Input {
+            state,
+            ok,
+            expires_at,
+            error,
+        },
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::trpc::tests::one_shot_server;
+    use crate::StaticToken;
+    use std::sync::Arc;
+
+    fn client(base: &str) -> TrpcClient {
+        TrpcClient::new(base, Arc::new(StaticToken("tok".to_string())))
+    }
+
+    #[test]
+    fn finish_oauth_posts_state_and_skips_absent_optionals() {
+        let (base, rx) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        finish_oauth(&client(&base), "st-1", true, Some("2026-09-09T10:00:00.000Z"), None)
+            .expect("ok");
+        let request = rx.recv().unwrap();
+        assert!(request.contains("POST /api/trpc/mcpServers.finishOAuth"));
+        assert!(request.contains(r#"{"state":"st-1","ok":true,"expiresAt":"2026-09-09T10:00:00.000Z"}"#));
+    }
+
+    #[test]
+    fn report_readiness_sends_the_entries_under_the_device_id() {
+        let (base, rx) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        report_readiness(
+            &client(&base),
+            "dev-1",
+            &[McpReadinessReport {
+                server_id: "s1".into(),
+                ready: false,
+                expires_at: None,
+                error: Some("not signed in on this machine".into()),
+            }],
+        )
+        .expect("ok");
+        let request = rx.recv().unwrap();
+        assert!(request.contains("POST /api/trpc/mcpServers.reportReadiness"));
+        assert!(request.contains(
+            r#"{"deviceId":"dev-1","entries":[{"serverId":"s1","ready":false,"error":"not signed in on this machine"}]}"#
+        ));
+    }
 
     #[test]
     fn config_parses_a_thin_row_with_defaults() {
