@@ -461,6 +461,13 @@ export interface StartSessionOptions {
    * starting fresh. Single-issue starts only; the web server gates it on the
    * device's `resume` cap — the relay passes it through untouched. */
   resume?: boolean
+  /** EXP-792: team MCP server row ids the run connects to beside
+   * `exponential` (≤16; the web server validated them against the subject's
+   * team). Pass-through — the device resolves ids to its held secrets. */
+  mcpServerIds?: string[]
+  /** EXP-792 (EXP-747 B7): the agent account profile to launch on; absent
+   * or `system` = the ambient login. Pass-through. */
+  account?: string
 }
 
 /** Server-resolved repo group for a BATCH or ACTION remote start — the

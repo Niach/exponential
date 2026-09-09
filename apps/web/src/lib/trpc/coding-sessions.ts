@@ -345,6 +345,10 @@ export const codingSessionsRouter = router({
           // client can name it (and pair the run with the host device's usage
           // windows). Absent on rows from clients that predate it.
           agent: z.enum(codingAgentValues).optional(),
+          // EXP-792 (EXP-747 B7): the agent account profile the run launched
+          // on (`system` = the ambient login). Server-only column, read back
+          // over tRPC for the usage page — never on the shape.
+          agentAccount: z.string().min(1).max(64).optional(),
         })
         .refine((value) => !(value.branch && value.issueId), {
           message: `branch excludes issueId — an issue session's branch lives on the issue`,
@@ -426,6 +430,7 @@ export const codingSessionsRouter = router({
             hostUserId: attribution.hostUserId,
             ...device,
             agent: input.agent ?? null,
+            agentAccount: input.agentAccount ?? null,
             branch: input.branch ?? null,
             resumedFromId,
             status: `running`,
@@ -482,6 +487,7 @@ export const codingSessionsRouter = router({
             hostUserId: attribution.hostUserId,
             ...device,
             agent: input.agent ?? null,
+            agentAccount: input.agentAccount ?? null,
             branch: input.branch ?? null,
             resumedFromId,
             status: `running`,
@@ -521,6 +527,7 @@ export const codingSessionsRouter = router({
             hostUserId: attribution.hostUserId,
             ...device,
             agent: input.agent ?? null,
+            agentAccount: input.agentAccount ?? null,
             resumedFromId,
             status: `running`,
           })
@@ -556,6 +563,7 @@ export const codingSessionsRouter = router({
           hostUserId: attribution.hostUserId,
           ...device,
           agent: input.agent ?? null,
+          agentAccount: input.agentAccount ?? null,
           branch: input.branch ?? null,
           resumedFromId,
           status: `running`,

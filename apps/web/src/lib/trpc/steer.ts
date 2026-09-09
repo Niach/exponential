@@ -16,6 +16,7 @@ import {
   codingSessions,
   devices as devicesTable,
   issues,
+  mcpServers,
   repositories,
   teamMembers,
 } from "@/db/schema"
@@ -249,6 +250,13 @@ export const steerRouter = router({
           // Single-issue starts only; gated below on the device's persisted
           // `resume` cap.
           resume: z.boolean().optional(),
+          // EXP-792: team MCP servers the run connects to beside
+          // `exponential` — row ids, each verified below to belong to the
+          // subject's team (a foreign id would otherwise ride to the device,
+          // which resolves ids against every team it can see).
+          mcpServerIds: z.array(z.string().uuid()).max(16).optional(),
+          // EXP-792 (EXP-747 B7): the agent account profile to launch on.
+          account: z.string().min(1).max(64).optional(),
           // EXP-637: relaunch an ENDED run in its own worktree, continuing
           // the agent's transcript where it stopped. A subject of its own —
           // the device's run registry already holds the agent, options and
@@ -289,6 +297,8 @@ export const steerRouter = router({
                 `effort`,
                 `ultracode`,
                 `planMode`,
+                `mcpServerIds`,
+                `account`,
               ] as const
             ).filter((key) => value[key] !== undefined)
             for (const key of conflicting) {
@@ -467,6 +477,34 @@ export const steerRouter = router({
           code: `PRECONDITION_FAILED`,
           message: `That machine is offline (last seen ${age} ago). Starts are delivered live, never queued — bring the device back online and try again.`,
         })
+      }
+
+      // EXP-792: every picked MCP server must be a row of the subject's team.
+      // Duplicates collapse; the count check refuses a foreign or vanished
+      // id without naming which (the caller's own picker rendered the list).
+      const assertMcpServersInTeam = async (
+        teamId: string
+      ): Promise<string[] | undefined> => {
+        if (!input.mcpServerIds || input.mcpServerIds.length === 0) {
+          return undefined
+        }
+        const ids = [...new Set(input.mcpServerIds)]
+        const { db } = await import(`@/db/connection`)
+        const rows = await db
+          .select({ id: mcpServers.id })
+          .from(mcpServers)
+          .where(
+            and(inArray(mcpServers.id, ids), eq(mcpServers.teamId, teamId))
+          )
+          .limit(ids.length)
+        const found = new Set(rows.map((row) => row.id))
+        if (ids.some((id) => !found.has(id))) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `One of the picked MCP servers is not in this team (removed?)`,
+          })
+        }
+        return ids
       }
 
       const targetDeviceColumns = {
@@ -842,6 +880,7 @@ export const steerRouter = router({
           }
         }
 
+        const mcpServerIds = await assertMcpServersInTeam(action.teamId)
         const { ownerId, device, shared } = await resolveTargetDevice(
           action.teamId
         )
@@ -880,6 +919,8 @@ export const steerRouter = router({
           effort: input.effort,
           ultracode: input.ultracode,
           planMode: input.planMode,
+          mcpServerIds,
+          account: input.account,
         })
         if (!result.ok) {
           if (result.status === 404) {
@@ -958,6 +999,7 @@ export const steerRouter = router({
       // fallback since EXP-542. A signed-out agent gets the sign-in message,
       // not "not installed".
       const agent = input.agent ?? `claude`
+      const mcpServerIds = await assertMcpServersInTeam(teamId)
       const { ownerId, device, shared } = await resolveTargetDevice(teamId)
       if (!device.agents.includes(agent)) {
         const signedOut = device.unauthedAgents.includes(agent)
@@ -976,6 +1018,8 @@ export const steerRouter = router({
         ultracode: input.ultracode,
         planMode: input.planMode,
         resume: input.resume,
+        mcpServerIds,
+        account: input.account,
       }
       const result = input.issueId
         ? await relayPostStart(config, {

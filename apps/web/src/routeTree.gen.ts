@@ -43,6 +43,8 @@ import { Route as TTeamSlugChatRouteImport } from './routes/t/$teamSlug/chat'
 import { Route as TTeamSlugAutomationsRouteImport } from './routes/t/$teamSlug/automations'
 import { Route as TTeamSlugActionsRouteImport } from './routes/t/$teamSlug/actions'
 import { Route as ApiWidgetSubmitRouteImport } from './routes/api/widget/submit'
+import { Route as ApiMcpOauthCallbackRouteImport } from './routes/api/mcp-oauth/callback'
+import { Route as ApiMcpOauthClientChar91DotChar93jsonRouteImport } from './routes/api/mcp-oauth/client[.]json'
 import { Route as ApiWidgetConfigRouteImport } from './routes/api/widget/config'
 import { Route as ApiWebhooksSesRouteImport } from './routes/api/webhooks/ses'
 import { Route as ApiWebhooksGithubRouteImport } from './routes/api/webhooks/github'
@@ -283,6 +285,18 @@ const ApiWidgetSubmitRoute = ApiWidgetSubmitRouteImport.update({
   path: '/api/widget/submit',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiMcpOauthCallbackRoute =
+  ApiMcpOauthCallbackRouteImport.update({
+    id: '/api/mcp-oauth/callback',
+    path: '/api/mcp-oauth/callback',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiMcpOauthClientChar91DotChar93jsonRoute =
+  ApiMcpOauthClientChar91DotChar93jsonRouteImport.update({
+    id: '/api/mcp-oauth/client.json',
+    path: '/api/mcp-oauth/client.json',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiWidgetConfigRoute = ApiWidgetConfigRouteImport.update({
   id: '/api/widget/config',
   path: '/api/widget/config',
@@ -706,6 +720,8 @@ export interface FileRoutesByFullPath {
   '/api/webhooks/ses': typeof ApiWebhooksSesRoute
   '/api/widget/config': typeof ApiWidgetConfigRoute
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
+  '/api/mcp-oauth/callback': typeof ApiMcpOauthCallbackRoute
+  '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientChar91DotChar93jsonRoute
   '/t/$teamSlug/actions': typeof TTeamSlugActionsRoute
   '/t/$teamSlug/automations': typeof TTeamSlugAutomationsRoute
   '/t/$teamSlug/chat': typeof TTeamSlugChatRoute
@@ -804,6 +820,8 @@ export interface FileRoutesByTo {
   '/api/webhooks/ses': typeof ApiWebhooksSesRoute
   '/api/widget/config': typeof ApiWidgetConfigRoute
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
+  '/api/mcp-oauth/callback': typeof ApiMcpOauthCallbackRoute
+  '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientChar91DotChar93jsonRoute
   '/t/$teamSlug/actions': typeof TTeamSlugActionsRoute
   '/t/$teamSlug/automations': typeof TTeamSlugAutomationsRoute
   '/t/$teamSlug/chat': typeof TTeamSlugChatRoute
@@ -907,6 +925,8 @@ export interface FileRoutesById {
   '/api/webhooks/ses': typeof ApiWebhooksSesRoute
   '/api/widget/config': typeof ApiWidgetConfigRoute
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
+  '/api/mcp-oauth/callback': typeof ApiMcpOauthCallbackRoute
+  '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientChar91DotChar93jsonRoute
   '/t/$teamSlug/actions': typeof TTeamSlugActionsRoute
   '/t/$teamSlug/automations': typeof TTeamSlugAutomationsRoute
   '/t/$teamSlug/chat': typeof TTeamSlugChatRoute
@@ -1010,6 +1030,8 @@ export interface FileRouteTypes {
     | '/api/webhooks/ses'
     | '/api/widget/config'
     | '/api/widget/submit'
+    | '/api/mcp-oauth/callback'
+    | '/api/mcp-oauth/client.json'
     | '/t/$teamSlug/actions'
     | '/t/$teamSlug/automations'
     | '/t/$teamSlug/chat'
@@ -1108,6 +1130,8 @@ export interface FileRouteTypes {
     | '/api/webhooks/ses'
     | '/api/widget/config'
     | '/api/widget/submit'
+    | '/api/mcp-oauth/callback'
+    | '/api/mcp-oauth/client.json'
     | '/t/$teamSlug/actions'
     | '/t/$teamSlug/automations'
     | '/t/$teamSlug/chat'
@@ -1210,6 +1234,8 @@ export interface FileRouteTypes {
     | '/api/webhooks/ses'
     | '/api/widget/config'
     | '/api/widget/submit'
+    | '/api/mcp-oauth/callback'
+    | '/api/mcp-oauth/client.json'
     | '/t/$teamSlug/actions'
     | '/t/$teamSlug/automations'
     | '/t/$teamSlug/chat'
@@ -1304,6 +1330,8 @@ export interface RootRouteChildren {
   ApiWebhooksSesRoute: typeof ApiWebhooksSesRoute
   ApiWidgetConfigRoute: typeof ApiWidgetConfigRoute
   ApiWidgetSubmitRoute: typeof ApiWidgetSubmitRoute
+  ApiMcpOauthCallbackRoute: typeof ApiMcpOauthCallbackRoute
+  ApiMcpOauthClientChar91DotChar93jsonRoute: typeof ApiMcpOauthClientChar91DotChar93jsonRoute
   ApiIntegrationsGithubCallbackRoute: typeof ApiIntegrationsGithubCallbackRoute
   ApiIntegrationsGithubSetupRoute: typeof ApiIntegrationsGithubSetupRoute
   ApiIssuesIssueIdFilesRoute: typeof ApiIssuesIssueIdFilesRoute
@@ -1548,6 +1576,20 @@ declare module '@tanstack/react-router' {
       path: '/api/widget/submit'
       fullPath: '/api/widget/submit'
       preLoaderRoute: typeof ApiWidgetSubmitRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mcp-oauth/callback': {
+      id: '/api/mcp-oauth/callback'
+      path: '/api/mcp-oauth/callback'
+      fullPath: '/api/mcp-oauth/callback'
+      preLoaderRoute: typeof ApiMcpOauthCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mcp-oauth/client.json': {
+      id: '/api/mcp-oauth/client.json'
+      path: '/api/mcp-oauth/client.json'
+      fullPath: '/api/mcp-oauth/client.json'
+      preLoaderRoute: typeof ApiMcpOauthClientChar91DotChar93jsonRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/widget/config': {
@@ -2204,6 +2246,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiWebhooksSesRoute: ApiWebhooksSesRoute,
   ApiWidgetConfigRoute: ApiWidgetConfigRoute,
   ApiWidgetSubmitRoute: ApiWidgetSubmitRoute,
+  ApiMcpOauthCallbackRoute: ApiMcpOauthCallbackRoute,
+  ApiMcpOauthClientChar91DotChar93jsonRoute: ApiMcpOauthClientChar91DotChar93jsonRoute,
   ApiIntegrationsGithubCallbackRoute: ApiIntegrationsGithubCallbackRoute,
   ApiIntegrationsGithubSetupRoute: ApiIntegrationsGithubSetupRoute,
   ApiIssuesIssueIdFilesRoute: ApiIssuesIssueIdFilesRoute,
