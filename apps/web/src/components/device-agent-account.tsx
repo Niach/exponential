@@ -177,7 +177,7 @@ export function AgentAccountBlock({
  * machine. A link WITHOUT a code is claude's: the browser hands one back
  * instead, and (EXP-765) the field below the link returns it to the machine.
  * Anything unparsable renders as the raw text the device sent. */
-function AgentLoginOutcome({
+export function AgentLoginOutcome({
   result,
   canEnterCode,
   codePending,

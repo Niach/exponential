@@ -164,6 +164,10 @@ pub fn start_device_sync(account: &api::Account, cx: &mut App) {
         // never re-stamps `agent_usage_at` (a write every beat would make
         // the row churn for nothing).
         let sent_status = Arc::new(Mutex::new(AgentStatusSent::default()));
+        // EXP-792: the cached `listForDevice` copy the MCP readiness sweep
+        // and the token refresh run from (shared with a loopback sign-in
+        // thread, which invalidates it when a token lands).
+        let mcp_state = Arc::new(Mutex::new(coding::McpReadinessState::new()));
         loop {
             cx.background_executor().timer(TICK).await;
             if stop.load(Ordering::SeqCst) {
@@ -188,19 +192,32 @@ pub fn start_device_sync(account: &api::Account, cx: &mut App) {
 
             let worker_busy = worker_busy.clone();
             let sent_status = sent_status.clone();
+            let mcp_state = mcp_state.clone();
             let previous_fp = last_inventory_fp;
             let outcome = cx
                 .background_executor()
                 .spawn({
                     let snapshot = snapshot.clone();
                     async move {
-                        beat(&snapshot, scan_due, previous_fp, &worker_busy, &sent_status)
+                        beat(
+                            &snapshot,
+                            scan_due,
+                            previous_fp,
+                            &worker_busy,
+                            &sent_status,
+                            &mcp_state,
+                        )
                     }
                 })
                 .await;
             last_inventory_fp = outcome.inventory_fp;
             if scan_due {
                 beats_since_inventory = 0;
+            }
+            if outcome.beat_again {
+                // EXP-792: a forced usage refresh produced numbers AFTER this
+                // beat's body was built — send them on the next tick.
+                check_in.store(true, Ordering::SeqCst);
             }
             if let Some(status) = outcome.agent_status {
                 // EXP-484: the toolbar and the device dialog read the OWN
@@ -323,6 +340,8 @@ fn watch_devices_shape(
 struct BeatSnapshot {
     trpc: Arc<api::TrpcClient>,
     device_id: String,
+    /// EXP-792: the account whose secret store holds the MCP credentials.
+    account_id: String,
     /// The app data dir — EXP-637's `runs.json` lives here, and the remote
     /// prune command nominates its recorded run branches.
     data_dir: PathBuf,
@@ -355,6 +374,9 @@ struct BeatSnapshot {
 struct AgentStatusSent {
     accounts_key: Option<String>,
     usage: Option<String>,
+    /// EXP-792: the MCP readiness key last accepted
+    /// (`coding::mcp_servers::readiness_key`).
+    mcp_key: Option<String>,
 }
 
 /// What one beat has to write, with the accounts identity key that decides
@@ -364,6 +386,19 @@ struct StatusWrites {
     accounts: Option<serde_json::Value>,
     accounts_key: Option<String>,
     usage: Option<serde_json::Value>,
+    /// EXP-792: the readiness snapshot to attach (key ≠ last accepted).
+    mcp: Option<coding::mcp_servers::ReadinessSnapshot>,
+}
+
+/// EXP-792: the readiness snapshot rides only when its key moved since the
+/// last accepted beat, and never as an empty list.
+fn pending_mcp_write(
+    snapshot: Option<&coding::mcp_servers::ReadinessSnapshot>,
+    sent: &Mutex<AgentStatusSent>,
+) -> Option<coding::mcp_servers::ReadinessSnapshot> {
+    let snapshot = snapshot.filter(|snap| !snap.entries.is_empty())?;
+    let sent = sent.lock().ok()?;
+    (sent.mcp_key.as_deref() != Some(snapshot.key.as_str())).then(|| snapshot.clone())
 }
 
 fn snapshot_for(account_id: &str, cx: &mut App) -> Option<BeatSnapshot> {
@@ -389,6 +424,7 @@ fn snapshot_for(account_id: &str, cx: &mut App) -> Option<BeatSnapshot> {
     Some(BeatSnapshot {
         trpc,
         device_id,
+        account_id: account.id.clone(),
         data_dir,
         repos_root: settings.repos_root_path(),
         branch_prefix: settings.branch_prefix.clone(),
@@ -411,12 +447,18 @@ struct BeatOutcome {
     /// EXP-484 (D): commands that must run on the FOREGROUND (an
     /// `agent_login` opens a terminal tab), already claimed.
     deferred: Vec<api::devices::PendingCommand>,
+    /// EXP-792: a command produced state this beat's body predates (a
+    /// forced usage refresh) — nudge the next beat.
+    beat_again: bool,
 }
 
 /// What [`run_device_command`] did with one command.
 enum CommandDisposition {
     /// Ran (or refused) it and reported back.
     Completed,
+    /// EXP-792: ran a forced usage refresh — reported back, and these are
+    /// the numbers the hub and the next beat should carry.
+    Refreshed(coding::agent_usage::AgentStatusPayload),
     /// Claimed it for the foreground — nothing has been reported yet.
     Deferred(api::devices::PendingCommand),
     /// A redelivery of a command this process is already running: do
@@ -431,10 +473,12 @@ fn beat(
     last_fp: Option<u64>,
     worker_busy: &Arc<AtomicBool>,
     sent_status: &Mutex<AgentStatusSent>,
+    mcp_state: &Arc<Mutex<coding::McpReadinessState>>,
 ) -> BeatOutcome {
     let mut last_fp = last_fp;
     let mut defaults_changed = false;
     let mut deferred = Vec::new();
+    let mut beat_again = false;
     let synced_at = coding::read_marker(&snapshot.settings_path, &snapshot.device_id).synced_at;
 
     // EXP-484: refresh whatever the poll policy says is due (keychain reads,
@@ -442,7 +486,7 @@ fn beat(
     // which is why this only ever runs here, on the background executor) and
     // attach the result only when it CHANGED. `agent_usage_at` is stamped on
     // every accepted write, and that column is synced to every client.
-    let agent_status = snapshot.doctor.as_ref().map(|report| {
+    let mut agent_status = snapshot.doctor.as_ref().map(|report| {
         coding::agent_usage::collect_if_due(
             &snapshot.data_dir,
             &snapshot.settings,
@@ -450,7 +494,14 @@ fn beat(
             now_unix_secs(),
         )
     });
-    let writes = pending_status_writes(agent_status.as_ref(), sent_status);
+    let mut writes = pending_status_writes(agent_status.as_ref(), sent_status);
+    // EXP-792: the MCP readiness sweep (a `listForDevice` copy every 5 min,
+    // local secret reads otherwise, a refresh for tokens inside the margin)
+    // — attached only when its key moved, like the two maps above.
+    let mcp_snapshot = mcp_state.lock().ok().and_then(|mut state| {
+        state.sweep(&snapshot.data_dir, &snapshot.account_id, &snapshot.trpc)
+    });
+    writes.mcp = pending_mcp_write(mcp_snapshot.as_ref(), sent_status);
 
     match api::devices::heartbeat(
         &snapshot.trpc,
@@ -462,6 +513,7 @@ fn beat(
             // say, which keeps the historic body byte-for-byte.
             agent_accounts: writes.accounts.as_ref(),
             agent_usage: writes.usage.as_ref(),
+            mcp_readiness: writes.mcp.as_ref().map(|snap| snap.entries.as_slice()),
         },
     ) {
         Ok(result) => {
@@ -489,8 +541,12 @@ fn beat(
                     .is_ok()
                 {
                     for command in &result.commands {
-                        match run_device_command(snapshot, command) {
+                        match run_device_command(snapshot, command, mcp_state) {
                             CommandDisposition::Deferred(command) => deferred.push(command),
+                            CommandDisposition::Refreshed(status) => {
+                                agent_status = Some(status);
+                                beat_again = true;
+                            }
                             CommandDisposition::Completed
                             | CommandDisposition::AlreadyRunning => {}
                         }
@@ -514,6 +570,7 @@ fn beat(
         defaults_changed,
         agent_status,
         deferred,
+        beat_again,
     }
 }
 
@@ -545,6 +602,7 @@ fn pending_status_writes(
         accounts_key: accounts.is_some().then_some(key),
         accounts,
         usage,
+        mcp: None,
     }
 }
 
@@ -559,6 +617,9 @@ fn record_status_sent(writes: &StatusWrites, sent: &Mutex<AgentStatusSent>) {
     }
     if let Some(usage) = &writes.usage {
         sent.usage = Some(usage.to_string());
+    }
+    if let Some(snapshot) = &writes.mcp {
+        sent.mcp_key = Some(snapshot.key.clone());
     }
 }
 
@@ -714,6 +775,7 @@ pub(crate) fn push_local_defaults_if_changed(
     let snapshot = BeatSnapshot {
         trpc: Arc::new(trpc),
         device_id,
+        account_id: String::new(),
         data_dir: data_dir.clone(),
         settings_path,
         repos_root: settings.repos_root_path(),
@@ -737,6 +799,7 @@ pub(crate) fn push_local_defaults_if_changed(
 fn run_device_command(
     snapshot: &BeatSnapshot,
     command: &api::devices::PendingCommand,
+    mcp_state: &Arc<Mutex<coding::McpReadinessState>>,
 ) -> CommandDisposition {
     // EXP-484 (D): a login is not a background job — it opens a terminal
     // tab and is answered the moment its URL is on the grid, so it is
@@ -821,6 +884,91 @@ fn run_device_command(
             message.push('.');
             (true, message)
         }
+        // EXP-792: an MCP OAuth sign-in on this machine, requested from the
+        // web. Completes EARLY with the authorize URL (the requester's page
+        // opens it); the loopback variant then waits for the browser on its
+        // own thread and reports through `finishOAuth`. Same body as the
+        // daemon's (`coding::mcp_servers`).
+        "mcp_oauth_start" => {
+            let host = mcp_host(snapshot);
+            match coding::mcp_servers::oauth_start(&host, &command.payload) {
+                Ok(start) => {
+                    let message = start.message();
+                    if let coding::mcp_servers::OauthStart::Loopback {
+                        loopback, pending, ..
+                    } = start
+                    {
+                        let snapshot = snapshot.clone();
+                        let mcp_state = Arc::clone(mcp_state);
+                        std::thread::spawn(move || {
+                            let host = mcp_host(&snapshot);
+                            match coding::mcp_servers::oauth_finish_loopback(&host, pending, loopback) {
+                                Ok(_) => log::info!("[device-sync] MCP sign-in finished on the loopback listener"),
+                                Err(error) => log::info!("[device-sync] MCP sign-in failed: {error}"),
+                            }
+                            if let Ok(mut state) = mcp_state.lock() {
+                                state.invalidate();
+                            }
+                        });
+                    }
+                    (true, message)
+                }
+                Err(error) => (false, error),
+            }
+        }
+        // EXP-792: the hosted callback relayed the code — exchange it with
+        // the verifier this machine kept, store the token, re-report.
+        "mcp_oauth_code" => {
+            let host = mcp_host(snapshot);
+            let outcome = coding::mcp_servers::oauth_code(&host, &command.payload);
+            if let Ok(mut state) = mcp_state.lock() {
+                state.invalidate();
+            }
+            match outcome {
+                Ok(expires_at) => (true, coding::mcp_servers::done_message(expires_at.as_deref())),
+                Err(error) => (false, error),
+            }
+        }
+        // EXP-792: force one agent's usage re-read past the shared TTL
+        // (never past the 429 floor — a hot refusal names when).
+        "agent_usage_refresh" => {
+            let agent = command.payload["agent"].as_str().unwrap_or_default();
+            let profile = command.payload["profileId"].as_str().unwrap_or("system");
+            match coding::CodingAgent::parse(agent) {
+                None => (false, "Malformed command payload.".to_string()),
+                Some(_) if !matches!(profile, "" | "system") => (
+                    false,
+                    "This build refreshes only the default agent profile.".to_string(),
+                ),
+                Some(agent) => {
+                    let report = match &snapshot.doctor {
+                        Some(report) => report.clone(),
+                        None => coding::run_doctor(&snapshot.settings),
+                    };
+                    match coding::force_collect(
+                        &snapshot.data_dir,
+                        &snapshot.settings,
+                        &report,
+                        agent,
+                        now_unix_secs(),
+                    ) {
+                        Ok(payload) => {
+                            complete(snapshot, &command.id, true, &format!("Refreshed {} usage.", agent.id()));
+                            return CommandDisposition::Refreshed(payload);
+                        }
+                        Err(until) => (
+                            false,
+                            format!(
+                                "{} is rate-limited; try again after {}.",
+                                agent.id(),
+                                coding::agent_accounts::iso_from_unix_secs(until as i64)
+                                    .unwrap_or_else(|| until.to_string())
+                            ),
+                        ),
+                    }
+                }
+            }
+        }
         other => {
             log::info!("[device-sync] command {other:?} unsupported — reported back");
             (
@@ -831,6 +979,16 @@ fn run_device_command(
     };
     complete(snapshot, &command.id, ok, &message);
     CommandDisposition::Completed
+}
+
+/// EXP-792: the MCP command bodies' view of this beat.
+fn mcp_host(snapshot: &BeatSnapshot) -> coding::mcp_servers::HostContext<'_> {
+    coding::mcp_servers::HostContext {
+        data_dir: &snapshot.data_dir,
+        account_id: &snapshot.account_id,
+        trpc: &snapshot.trpc,
+        device_id: &snapshot.device_id,
+    }
 }
 
 fn complete(snapshot: &BeatSnapshot, command_id: &str, ok: bool, message: &str) {
@@ -963,6 +1121,7 @@ mod tests {
                 email: Some("dev@acme.test".to_string()),
                 plan: Some("max".to_string()),
                 checked_at: "2026-08-28T10:00:00.000Z".to_string(),
+                profiles: Vec::new(),
             },
         );
         status.usage.insert(

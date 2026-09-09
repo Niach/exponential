@@ -67,6 +67,8 @@ interface Contract {
   piModel: Section
   piThinking: Section
   actionInputType: Section
+  mcpTransport: Section
+  mcpAuth: Section
   builtinAction: {
     createActionId: string
     fixConflictsId: string
@@ -266,6 +268,8 @@ ${swiftStringArray("codexEffortValues", contract.codexEffort.values)}
 ${swiftStringArray("piModelValues", contract.piModel.values)}
 ${swiftStringArray("piThinkingValues", contract.piThinking.values)}
 ${swiftStringArray("actionInputTypeValues", contract.actionInputType.values)}
+${swiftStringArray("mcpTransportValues", contract.mcpTransport.values)}
+${swiftStringArray("mcpAuthValues", contract.mcpAuth.values)}
 ${swiftStringArray("actionTriggerEventValues", contract.actionTrigger.eventValues)}
 ${swiftStringArray("actionScheduleIntervalValues", contract.actionTrigger.scheduleIntervalValues)}
 ${swiftStringArray("steerCommandNames", steerCommandNames)}
@@ -349,6 +353,8 @@ ${kotlinStringArray("codexEffortValues", contract.codexEffort.values)}
 ${kotlinStringArray("piModelValues", contract.piModel.values)}
 ${kotlinStringArray("piThinkingValues", contract.piThinking.values)}
 ${kotlinStringArray("actionInputTypeValues", contract.actionInputType.values)}
+${kotlinStringArray("mcpTransportValues", contract.mcpTransport.values)}
+${kotlinStringArray("mcpAuthValues", contract.mcpAuth.values)}
 ${kotlinStringArray("actionTriggerEventValues", contract.actionTrigger.eventValues)}
 ${kotlinStringArray("actionScheduleIntervalValues", contract.actionTrigger.scheduleIntervalValues)}
 ${kotlinStringArray("steerCommandNames", steerCommandNames)}
@@ -434,6 +440,8 @@ ${rustStrSlice("codexEffortValues", contract.codexEffort.values)}
 ${rustStrSlice("piModelValues", contract.piModel.values)}
 ${rustStrSlice("piThinkingValues", contract.piThinking.values)}
 ${rustStrSlice("actionInputTypeValues", contract.actionInputType.values)}
+${rustStrSlice("mcpTransportValues", contract.mcpTransport.values)}
+${rustStrSlice("mcpAuthValues", contract.mcpAuth.values)}
 ${rustStrSlice("actionTriggerEventValues", contract.actionTrigger.eventValues)}
 ${rustStrSlice("actionScheduleIntervalValues", contract.actionTrigger.scheduleIntervalValues)}
 ${rustStrSlice("steerCommandNames", steerCommandNames)}

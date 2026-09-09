@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
-import { trpcErrorMessage } from "@/lib/trpc-error"
+import { trpcErrorCode, trpcErrorMessage } from "@/lib/trpc-error"
 import { useLiveQuery } from "@tanstack/react-db"
 import type { CodingSession, Device, User } from "@/db/schema"
 import {
@@ -12,7 +12,13 @@ import { useNow } from "@/hooks/use-now"
 import { trpc } from "@/lib/trpc-client"
 import { isBuiltinActionId } from "@/lib/builtin-actions"
 import type { CodingLaunchPrefs } from "@/lib/coding-launch-prefs"
-import { composeDeviceList, type SteerDevice } from "@/lib/steer-devices"
+import {
+  composeDeviceList,
+  deviceCanAgentLogin,
+  deviceIsMine,
+  type SteerDevice,
+} from "@/lib/steer-devices"
+import { requestAgentLogin } from "@/components/agent-login-dialog"
 import { useOpenSession } from "@/hooks/use-open-session"
 import {
   findStartedRun,
@@ -43,6 +49,41 @@ import {
 /** The resolved launch-dialog choices sent with `steer.startSession` — the
  * same shape the prefs module persists. */
 export type StartCodingOptions = CodingLaunchPrefs
+
+/** EXP-792 (EXP-747 A2): the failure toast, with a "Sign in" action when the
+ * refusal is one a remote sign-in can fix — the agent signed out on the
+ * machine, not installed there, or any other precondition the desktop
+ * refuses on — and the machine can run `agent_login` for the caller: one of
+ * their OWN devices with the cap, and an agent with a device-code flow (pi
+ * has none). Everything else stays a plain toast. */
+function startFailureToast(
+  title: string,
+  error: unknown,
+  device: SteerDevice,
+  agent: string
+) {
+  const description = trpcErrorMessage(
+    error,
+    `The start command could not be delivered`
+  )
+  const precondition = trpcErrorCode(error) === `PRECONDITION_FAILED`
+  const canSignIn =
+    precondition &&
+    deviceIsMine(device) &&
+    deviceCanAgentLogin(device) &&
+    agent !== `pi`
+  if (!canSignIn) {
+    toast.error(title, { description })
+    return
+  }
+  toast.error(title, {
+    description,
+    action: {
+      label: `Sign in`,
+      onClick: () => requestAgentLogin({ device, agent }),
+    },
+  })
+}
 
 /** The minimal action identity a run needs: `teamId` rides the mutation only
  * for the builtin (there is no DB row to derive the team from), and `name`
@@ -224,12 +265,12 @@ export function useRemoteStart({
       )
       markSent(device.deviceLabel, key)
     } catch (error) {
-      toast.error(`Couldn't start on your desktop`, {
-        description: trpcErrorMessage(
-          error,
-          `The start command could not be delivered`
-        ),
-      })
+      startFailureToast(
+        `Couldn't start on your desktop`,
+        error,
+        device,
+        options.agent
+      )
       throw error
     } finally {
       setStarting(false)
@@ -260,12 +301,12 @@ export function useRemoteStart({
       )
       markSent(device.deviceLabel, { kind: `action`, actionName: action.name })
     } catch (error) {
-      toast.error(`Couldn't run the action on your desktop`, {
-        description: trpcErrorMessage(
-          error,
-          `The start command could not be delivered`
-        ),
-      })
+      startFailureToast(
+        `Couldn't run the action on your desktop`,
+        error,
+        device,
+        options.agent
+      )
       throw error
     } finally {
       setStarting(false)

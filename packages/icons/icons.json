@@ -109,6 +109,7 @@
     "settings-notifications": "bell",
     "settings-api": "key",
     "settings-servers": "server",
+    "settings-mcp": "plug",
     "settings-sync": "refresh-cw",
     "settings-rate": "star",
     "settings-about": "info",

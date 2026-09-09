@@ -1625,3 +1625,114 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 })
+
+// EXP-792: team MCP servers + the agent account profile ride the start.
+describe(`steer.startSession — MCP servers + account (EXP-792)`, () => {
+  const MCP_A = `55555555-5555-4555-8555-555555555555`
+
+  it(`forwards team-validated mcpServerIds and the account on an issue start`, async () => {
+    h.dbQueue.push([{ id: MCP_A, teamId: `ws-1` }])
+    queueOwnDevice()
+    await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      mcpServerIds: [MCP_A, MCP_A],
+      account: `work`,
+    })
+    expect(lastStartBody()).toMatchObject({
+      issueId: ISSUE_A,
+      mcpServerIds: [MCP_A],
+      account: `work`,
+    })
+  })
+
+  it(`refuses a server that is not the subject team's`, async () => {
+    // The row exists but belongs to another team: the team-scoped select
+    // misses it, so the count check refuses before the device is touched.
+    h.dbQueue.push([{ id: MCP_A, teamId: `ws-2` }])
+    const error = await rejectionOf(
+      caller.startSession({
+        issueId: ISSUE_A,
+        deviceId: `dev-1`,
+        mcpServerIds: [MCP_A],
+      })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toContain(`MCP server`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`rides the batch and action bodies too`, async () => {
+    h.dbQueue.push([{ id: MCP_A, teamId: `ws-1` }])
+    queueOwnDevice()
+    await caller.startSession({
+      issueIds: [ISSUE_A, ISSUE_B],
+      deviceId: `dev-1`,
+      mcpServerIds: [MCP_A],
+    })
+    expect(lastStartBody()).toMatchObject({
+      issueIds: [ISSUE_A, ISSUE_B],
+      mcpServerIds: [MCP_A],
+    })
+
+    h.relayPostStart.mockClear()
+    queueAction()
+    h.dbQueue.push([{ id: MCP_A, teamId: `ws-1` }])
+    queueOwnDevice()
+    await caller.startSession({
+      actionId: ACTION_ID,
+      deviceId: `dev-1`,
+      mcpServerIds: [MCP_A],
+      account: `system`,
+    })
+    expect(lastStartBody()).toMatchObject({
+      actionId: ACTION_ID,
+      mcpServerIds: [MCP_A],
+      account: `system`,
+    })
+  })
+
+  it(`an empty list means no servers and no lookup`, async () => {
+    queueOwnDevice()
+    await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      mcpServerIds: [],
+    })
+    expect(lastStartBody().mcpServerIds).toBeUndefined()
+    expect(lastStartBody().account).toBeUndefined()
+  })
+
+  it(`caps the list at 16 uuids and the account at 64 chars`, async () => {
+    for (const extra of [
+      { mcpServerIds: Array.from({ length: 17 }, (_, i) => uuid(i)) },
+      { mcpServerIds: [`not-a-uuid`] },
+      { account: `x`.repeat(65) },
+    ]) {
+      const error = await rejectionOf(
+        caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, ...extra })
+      )
+      expect((error as TRPCError).code, JSON.stringify(extra)).toBe(
+        `BAD_REQUEST`
+      )
+    }
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`are forbidden beside resumeSessionId — a resumed run keeps its recorded options`, async () => {
+    const RESUME = `77777777-7777-4777-8777-777777777777`
+    for (const extra of [{ mcpServerIds: [MCP_A] }, { account: `work` }]) {
+      const error = await rejectionOf(
+        caller.startSession({
+          resumeSessionId: RESUME,
+          deviceId: `dev-1`,
+          ...extra,
+        })
+      )
+      expect((error as TRPCError).code, JSON.stringify(extra)).toBe(
+        `BAD_REQUEST`
+      )
+    }
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+})

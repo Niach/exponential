@@ -122,6 +122,7 @@ fn adapter(
             spawn,
             options,
             mcp: coding::AgentMcp::PiExtension,
+            servers: Vec::new(),
             cwd: cwd.to_path_buf(),
             session_id: "sess-1".to_string(),
             prompt: None,

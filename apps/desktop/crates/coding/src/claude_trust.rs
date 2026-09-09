@@ -32,9 +32,14 @@
 
 use std::path::{Path, PathBuf};
 
+/// `<config_dir>/.claude.json` for an explicit dir (EXP-792: a profile's
+/// `CLAUDE_CONFIG_DIR`, the launcher passes it), else
 /// `$CLAUDE_CONFIG_DIR/.claude.json` when set, else `$HOME/.claude.json`
 /// (claude relocates all of its state under `CLAUDE_CONFIG_DIR`).
-fn claude_config_path() -> Option<PathBuf> {
+fn claude_config_path(config_dir: Option<&Path>) -> Option<PathBuf> {
+    if let Some(dir) = config_dir {
+        return Some(dir.join(".claude.json"));
+    }
     match std::env::var_os("CLAUDE_CONFIG_DIR") {
         Some(dir) if !dir.is_empty() => Some(PathBuf::from(dir).join(".claude.json")),
         _ => Some(dirs::home_dir()?.join(".claude.json")),
@@ -44,22 +49,27 @@ fn claude_config_path() -> Option<PathBuf> {
 /// Ensure `cwd` (and its canonicalized twin, when different — claude keys
 /// `projects` by the resolved process cwd) is onboarded + trusted in the
 /// user's claude config. Best-effort: failures are logged, never returned.
-pub fn ensure_onboarded(cwd: &Path, seed_bypass: bool) {
+///
+/// EXP-792: `config_dir` is the run's account PROFILE dir (the
+/// `CLAUDE_CONFIG_DIR` its spawn carries) — the flags must land in the
+/// config the run will read, not the ambient one; `None` = the ambient
+/// login.
+pub fn ensure_onboarded(cwd: &Path, seed_bypass: bool, config_dir: Option<&Path>) {
     // The launcher unit tests run prepare end-to-end with temp worktrees —
     // they must never seed those throwaway paths into the developer's REAL
     // claude config (the tests below exercise [`ensure_onboarded_in_config`]
     // against explicit temp files instead).
     #[cfg(test)]
     {
-        let _ = (cwd, seed_bypass);
+        let _ = (cwd, seed_bypass, config_dir);
     }
     #[cfg(not(test))]
-    ensure_onboarded_live(cwd, seed_bypass);
+    ensure_onboarded_live(cwd, seed_bypass, config_dir);
 }
 
 #[cfg_attr(test, allow(dead_code))]
-fn ensure_onboarded_live(cwd: &Path, seed_bypass: bool) {
-    let Some(config) = claude_config_path() else {
+fn ensure_onboarded_live(cwd: &Path, seed_bypass: bool, config_dir: Option<&Path>) {
+    let Some(config) = claude_config_path(config_dir) else {
         return;
     };
     let mut paths = vec![cwd.to_path_buf()];
@@ -168,7 +178,7 @@ pub fn forget(paths: &[PathBuf]) {
 
 #[cfg_attr(test, allow(dead_code))]
 fn forget_live(paths: &[PathBuf]) {
-    let Some(config) = claude_config_path() else {
+    let Some(config) = claude_config_path(None) else {
         return;
     };
     match forget_in_config(&config, paths) {
@@ -193,7 +203,7 @@ pub fn forget_missing_under(root: &Path) -> usize {
 
 #[cfg_attr(test, allow(dead_code))]
 fn forget_missing_under_live(root: &Path) -> usize {
-    let Some(config) = claude_config_path() else {
+    let Some(config) = claude_config_path(None) else {
         return 0;
     };
     let mut roots = vec![root.to_path_buf()];

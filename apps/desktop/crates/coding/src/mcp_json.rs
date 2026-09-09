@@ -32,9 +32,12 @@
 //! `--mcp-config` and connects trusted, prompt-free.
 
 use serde::Serialize;
+use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+
+use crate::argv::{McpServerWire, McpWireTransport};
 
 pub const MCP_JSON_FILE: &str = ".exp-mcp.json";
 
@@ -51,9 +54,15 @@ struct McpFile<'a> {
     mcp_servers: McpServers<'a>,
 }
 
+/// `exponential` FIRST (a declared field), then (EXP-792) every team server
+/// under its config key. The flattened map is sorted, but that only orders
+/// the servers among THEMSELVES; `exponential` always leads, and an empty
+/// map flattens to nothing, so the no-extra-servers document is byte-stable.
 #[derive(Serialize)]
 struct McpServers<'a> {
     exponential: McpServer<'a>,
+    #[serde(flatten)]
+    servers: BTreeMap<String, McpServerEntry>,
 }
 
 #[derive(Serialize)]
@@ -62,6 +71,39 @@ struct McpServer<'a> {
     kind: &'a str,
     url: String,
     headers: Headers<'a>,
+}
+
+/// EXP-792: a team server in claude's `mcpServers` vocabulary. Header and
+/// env VALUES are the launcher's `${VAR}` references — claude expands them
+/// from the child env, so this document carries no credential either.
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+enum McpServerEntry {
+    Http {
+        url: String,
+        headers: BTreeMap<String, String>,
+    },
+    Stdio {
+        command: String,
+        args: Vec<String>,
+        env: BTreeMap<String, String>,
+    },
+}
+
+impl From<&McpServerWire> for McpServerEntry {
+    fn from(server: &McpServerWire) -> Self {
+        match &server.transport {
+            McpWireTransport::Http { url } => McpServerEntry::Http {
+                url: url.clone(),
+                headers: server.headers.iter().cloned().collect(),
+            },
+            McpWireTransport::Stdio { command, args } => McpServerEntry::Stdio {
+                command: command.clone(),
+                args: args.clone(),
+                env: server.env.iter().cloned().collect(),
+            },
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -80,6 +122,19 @@ struct Headers<'a> {
 /// `base_url` tolerates a trailing slash. `session_id` (EXP-637) adds the
 /// `X-Exp-Session-Id` header; `None` renders the legacy document unchanged.
 pub fn render_mcp_json(base_url: &str, personal_key: &str, session_id: Option<&str>) -> String {
+    render_mcp_json_with(base_url, personal_key, session_id, &[])
+}
+
+/// [`render_mcp_json`] plus (EXP-792) the launch's team servers after
+/// `exponential`. The agent SHELL (this file's only consumer) never carries
+/// any, so the launcher always renders the bare document; the parameter
+/// keeps this renderer in step with the engine's inline one.
+pub fn render_mcp_json_with(
+    base_url: &str,
+    personal_key: &str,
+    session_id: Option<&str>,
+    servers: &[McpServerWire],
+) -> String {
     let origin = base_url.trim_end_matches('/');
     let file = McpFile {
         mcp_servers: McpServers {
@@ -91,6 +146,13 @@ pub fn render_mcp_json(base_url: &str, personal_key: &str, session_id: Option<&s
                     session_id,
                 },
             },
+            servers: servers
+                .iter()
+                // A server that folded to our own key would shadow the
+                // tracker's tools; the resolver refuses it, this is the belt.
+                .filter(|server| server.name != "exponential")
+                .map(|server| (server.name.clone(), McpServerEntry::from(server)))
+                .collect(),
         },
     };
     let mut rendered = serde_json::to_string_pretty(&file).expect("mcp json serialize");
@@ -223,6 +285,88 @@ mod tests {
             render_mcp_json("https://app.exponential.at/", "expu_rawkey123", None),
             EXPECTED
         );
+    }
+
+    /// EXP-792: team servers follow `exponential` under their config keys
+    /// with `${VAR}` references verbatim; an empty pick is the exact legacy
+    /// document, and a server that folded to our own key is dropped.
+    #[test]
+    fn team_servers_follow_exponential_and_an_empty_pick_is_byte_identical() {
+        use crate::argv::{McpServerWire, McpWireTransport};
+        assert_eq!(
+            render_mcp_json_with("https://app.exponential.at", "expu_rawkey123", None, &[]),
+            EXPECTED
+        );
+        let servers = vec![
+            McpServerWire {
+                id: "srv-1".to_string(),
+                name: "linear".to_string(),
+                transport: McpWireTransport::Http {
+                    url: "https://mcp.linear.app/mcp".to_string(),
+                },
+                headers: vec![("Authorization".to_string(), "Bearer ${EXP_MCP_TOKEN_1}".to_string())],
+                token_env: Some("EXP_MCP_TOKEN_1".to_string()),
+                env: Vec::new(),
+            },
+            McpServerWire {
+                id: "srv-2".to_string(),
+                name: "github".to_string(),
+                transport: McpWireTransport::Stdio {
+                    command: "npx".to_string(),
+                    args: vec!["-y".to_string(), "@acme/github-mcp".to_string()],
+                },
+                headers: Vec::new(),
+                token_env: None,
+                env: vec![("GITHUB_TOKEN".to_string(), "${GITHUB_TOKEN}".to_string())],
+            },
+            McpServerWire {
+                id: "srv-3".to_string(),
+                name: "exponential".to_string(),
+                transport: McpWireTransport::Http {
+                    url: "https://evil.example/mcp".to_string(),
+                },
+                headers: Vec::new(),
+                token_env: None,
+                env: Vec::new(),
+            },
+        ];
+        let rendered =
+            render_mcp_json_with("https://app.exponential.at", "expu_rawkey123", Some("sess-1"), &servers);
+        assert_eq!(
+            rendered,
+            r#"{
+  "mcpServers": {
+    "exponential": {
+      "type": "http",
+      "url": "https://app.exponential.at/api/mcp",
+      "headers": {
+        "Authorization": "Bearer expu_rawkey123",
+        "X-Exp-Session-Id": "sess-1"
+      }
+    },
+    "github": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@acme/github-mcp"
+      ],
+      "env": {
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}"
+      }
+    },
+    "linear": {
+      "type": "http",
+      "url": "https://mcp.linear.app/mcp",
+      "headers": {
+        "Authorization": "Bearer ${EXP_MCP_TOKEN_1}"
+      }
+    }
+  }
+}
+"#
+        );
+        assert!(!rendered.contains("evil.example"));
     }
 
     #[test]

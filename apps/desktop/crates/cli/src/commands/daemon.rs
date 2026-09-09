@@ -362,6 +362,11 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // heartbeat. `collect_if_due` can block for ~10s (a codex app-server
     // spawn) — it must never sit on this loop.
     let agent_status: Arc<Mutex<Option<coding::AgentStatusPayload>>> = Arc::new(Mutex::new(None));
+    // EXP-792: this machine's MCP readiness, swept by the worker on the same
+    // cadence (a `listForDevice` copy every 5 min + local secret reads) and
+    // attached to the beat only when its key moved.
+    let mcp_readiness: Arc<Mutex<Option<coding::mcp_servers::ReadinessSnapshot>>> =
+        Arc::new(Mutex::new(None));
     // EXP-484: raised by a finished `agent_login` — the doctor re-probe (and
     // with it the accounts map) must not wait out a full DOCTOR_RECHECK
     // before the machine rows learn who just signed in.
@@ -374,6 +379,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
         Arc::clone(&sessions),
         device_id.clone(),
         Arc::clone(&agent_status),
+        Arc::clone(&mcp_readiness),
         Arc::clone(&doctor_soon),
     );
     let check_in = Arc::new(AtomicBool::new(false));
@@ -411,6 +417,8 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // would call an unchanged map "changed" on every single beat.
     let mut sent_accounts: Option<String> = None;
     let mut sent_usage: Option<String> = None;
+    // EXP-792: the readiness key last accepted (same idea as the accounts).
+    let mut sent_mcp: Option<String> = None;
     // EXP-414: a failed register (network not up yet at boot) is retried on
     // the heartbeat cadence — otherwise the registry row goes stale (old
     // version/agents, a never-cleared update request) until the next restart.
@@ -615,6 +623,12 @@ fn run_daemon(args: &[String]) -> CommandResult {
             let usage_text = usage_json.as_ref().map(|value| value.to_string());
             let send_accounts = accounts_key.is_some() && accounts_key != sent_accounts;
             let send_usage = usage_text.is_some() && usage_text != sent_usage;
+            // EXP-792: the readiness snapshot rides only when its key moved
+            // (an empty list is never worth a write).
+            let mcp_snapshot = mcp_readiness.lock().ok().and_then(|slot| slot.clone());
+            let send_mcp = mcp_snapshot
+                .as_ref()
+                .is_some_and(|snap| !snap.entries.is_empty() && Some(&snap.key) != sent_mcp.as_ref());
             match api::devices::heartbeat(
                 &ctx.trpc,
                 &api::devices::HeartbeatInput {
@@ -623,6 +637,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
                     defaults_synced_at: synced_at.as_deref(),
                     agent_accounts: send_accounts.then_some(accounts_json.as_ref()).flatten(),
                     agent_usage: send_usage.then_some(usage_json.as_ref()).flatten(),
+                    mcp_readiness: send_mcp
+                        .then(|| mcp_snapshot.as_ref().map(|snap| snap.entries.as_slice()))
+                        .flatten(),
                 },
             ) {
                 Ok(result) => {
@@ -633,6 +650,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
                     }
                     if send_usage {
                         sent_usage = usage_text.clone();
+                    }
+                    if send_mcp {
+                        sent_mcp = mcp_snapshot.as_ref().map(|snap| snap.key.clone());
                     }
                     // EXP-641: a beat the server ACCEPTS means the gate is
                     // gone (a rolled-back floor, or we already updated past
@@ -969,7 +989,8 @@ fn register_device(
     let settings = coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir));
     let launch_defaults = serde_json::to_value(coding::defaults_wire(&settings))
         .expect("defaults serialize cannot fail");
-    let accounts = doctor.agent_accounts(&coding::now_iso());
+    let accounts =
+        doctor.agent_accounts_with_profiles(&settings, &ctx.data_dir, &coding::now_iso());
     let agent_accounts = (!accounts.is_empty())
         .then(|| serde_json::to_value(&accounts).ok())
         .flatten();
@@ -1615,11 +1636,17 @@ fn spawn_device_worker(
     sessions: Sessions,
     device_id: String,
     agent_status: Arc<Mutex<Option<coding::AgentStatusPayload>>>,
+    mcp_readiness: Arc<Mutex<Option<coding::mcp_servers::ReadinessSnapshot>>>,
     doctor_soon: Arc<AtomicBool>,
 ) -> flume::Sender<DeviceWork> {
     let (tx, rx) = flume::unbounded::<DeviceWork>();
     std::thread::spawn(move || {
         let mut last_inventory_fp: Option<u64> = None;
+        // EXP-792: the cached `listForDevice` copy the readiness sweep and
+        // the token refresh run from. Shared with the loopback sign-in
+        // thread, which invalidates it when a token lands.
+        let mcp_state: Arc<Mutex<coding::McpReadinessState>> =
+            Arc::new(Mutex::new(coding::McpReadinessState::new()));
         // EXP-484: `agent_login` runs on its own thread (a PTY that lives
         // for minutes must not block this worker) — the set is what makes a
         // REDELIVERED command id a no-op instead of a second sign-in.
@@ -1657,6 +1684,11 @@ fn spawn_device_worker(
                             &logins_inflight,
                             &login_codes,
                             &doctor_soon,
+                            &CommandSlots {
+                                device_id: &device_id,
+                                agent_status: &agent_status,
+                                mcp_state: &mcp_state,
+                            },
                         );
                     }
                     report_worktrees(&ctx, &sessions, &device_id, &mut last_inventory_fp);
@@ -1676,11 +1708,28 @@ fn spawn_device_worker(
                     if let Ok(mut slot) = agent_status.lock() {
                         *slot = Some(payload);
                     }
+                    // EXP-792: the MCP readiness sweep rides the same pass
+                    // (a query every 5 min, local reads otherwise, a token
+                    // refresh for anything inside the 10-min margin).
+                    let snapshot = mcp_state.lock().ok().and_then(|mut state| {
+                        state.sweep(&ctx.data_dir, &ctx.account.id, &ctx.trpc)
+                    });
+                    if let (Some(snapshot), Ok(mut slot)) = (snapshot, mcp_readiness.lock()) {
+                        *slot = Some(snapshot);
+                    }
                 }
             }
         }
     });
     tx
+}
+
+/// EXP-792: the worker-owned slots a command may write (the forced usage
+/// refresh fills the status slot; the MCP arms invalidate the sweep state).
+struct CommandSlots<'a> {
+    device_id: &'a str,
+    agent_status: &'a Arc<Mutex<Option<coding::AgentStatusPayload>>>,
+    mcp_state: &'a Arc<Mutex<coding::McpReadinessState>>,
 }
 
 /// Reconcile against an OBSERVED server copy.
@@ -1809,12 +1858,13 @@ fn push_local_defaults(
 /// Execute one pulled command and report its outcome. `ok: false` from
 /// completeCommand means a redelivered duplicate raced us — fine.
 fn run_device_command(
-    ctx: &Ctx,
+    ctx: &Arc<Ctx>,
     sessions: &Sessions,
     command: &api::devices::PendingCommand,
     logins_inflight: &Arc<Mutex<HashSet<String>>>,
     login_codes: &crate::agent_login_host::CodeInbox,
     doctor_soon: &Arc<AtomicBool>,
+    slots: &CommandSlots<'_>,
 ) {
     let settings = coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir));
     let repos_root = settings.repos_root_path();
@@ -1858,6 +1908,90 @@ fn run_device_command(
             crate::agent_login_host::enter_code(ctx, command, login_codes);
             return;
         }
+        // EXP-792: an MCP OAuth sign-in on this machine, requested from the
+        // web. Completes EARLY with the authorize URL (the requester's page
+        // opens it); the loopback variant then waits for the browser on its
+        // own thread and reports through `finishOAuth`.
+        "mcp_oauth_start" => {
+            let host = mcp_host(ctx, slots.device_id);
+            match coding::mcp_servers::oauth_start(&host, &command.payload) {
+                Ok(start) => {
+                    let message = start.message();
+                    if let coding::mcp_servers::OauthStart::Loopback {
+                        loopback, pending, ..
+                    } = start
+                    {
+                        let ctx = Arc::clone(ctx);
+                        let device_id = slots.device_id.to_string();
+                        let mcp_state = Arc::clone(slots.mcp_state);
+                        std::thread::spawn(move || {
+                            let host = mcp_host(&ctx, &device_id);
+                            match coding::mcp_servers::oauth_finish_loopback(&host, pending, loopback) {
+                                Ok(_) => log::info!("MCP sign-in finished on the loopback listener"),
+                                Err(error) => log::info!("MCP sign-in failed: {error}"),
+                            }
+                            if let Ok(mut state) = mcp_state.lock() {
+                                state.invalidate();
+                            }
+                        });
+                    }
+                    (true, message)
+                }
+                Err(error) => (false, error),
+            }
+        }
+        // EXP-792: the hosted callback relayed the code — exchange it with
+        // the verifier this machine kept, store the token, re-report.
+        "mcp_oauth_code" => {
+            let host = mcp_host(ctx, slots.device_id);
+            let outcome = coding::mcp_servers::oauth_code(&host, &command.payload);
+            if let Ok(mut state) = slots.mcp_state.lock() {
+                state.invalidate();
+            }
+            match outcome {
+                Ok(expires_at) => (true, coding::mcp_servers::done_message(expires_at.as_deref())),
+                Err(error) => (false, error),
+            }
+        }
+        // EXP-792: force one agent's usage re-read past the shared TTL
+        // (never past the 429 floor — a hot refusal names when).
+        "agent_usage_refresh" => {
+            let agent = command.payload["agent"].as_str().unwrap_or_default();
+            let profile = command.payload["profileId"].as_str().unwrap_or("system");
+            match coding::CodingAgent::parse(agent) {
+                None => (false, "Malformed command payload.".to_string()),
+                Some(_) if !matches!(profile, "" | "system") => (
+                    false,
+                    "This build refreshes only the default agent profile.".to_string(),
+                ),
+                Some(agent) => {
+                    let report = coding::run_doctor(&settings);
+                    match coding::force_collect(
+                        &ctx.data_dir,
+                        &settings,
+                        &report,
+                        agent,
+                        coding::run_registry::now_secs(),
+                    ) {
+                        Ok(payload) => {
+                            if let Ok(mut slot) = slots.agent_status.lock() {
+                                *slot = Some(payload);
+                            }
+                            (true, format!("Refreshed {} usage.", agent.id()))
+                        }
+                        Err(until) => (
+                            false,
+                            format!(
+                                "{} is rate-limited; try again after {}.",
+                                agent.id(),
+                                coding::agent_accounts::iso_from_unix_secs(until as i64)
+                                    .unwrap_or_else(|| until.to_string())
+                            ),
+                        ),
+                    }
+                }
+            }
+        }
         other => {
             log::info!("device command {other:?} unsupported — reported back");
             (false, "This machine's app doesn't support that command yet.".to_string())
@@ -1865,6 +1999,16 @@ fn run_device_command(
     };
     if let Err(err) = api::devices::complete_command(&ctx.trpc, &command.id, ok, Some(&message)) {
         log::debug!("completeCommand failed (redelivery will retry): {err}");
+    }
+}
+
+/// EXP-792: the MCP command bodies' view of this daemon.
+fn mcp_host<'a>(ctx: &'a Ctx, device_id: &'a str) -> coding::mcp_servers::HostContext<'a> {
+    coding::mcp_servers::HostContext {
+        data_dir: &ctx.data_dir,
+        account_id: &ctx.account.id,
+        trpc: &ctx.trpc,
+        device_id,
     }
 }
 

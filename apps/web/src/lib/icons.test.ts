@@ -339,12 +339,15 @@ describe(`icon call sites`, () => {
     expect(web).not.toMatch(/icon: [A-Z]\w+,/)
     // EXP-238: + the Personal group (Account, Notifications, API keys).
     // EXP-771: + Helpdesk as its own Features entry beside Feedback widget.
-    expect(webNav.size).toBe(13)
+    // EXP-792: + MCP servers (Features), web-only for now.
+    expect(webNav.size).toBe(14)
     // EXP-262: + About (desktop-only in the settings nav, like Tools/Agents).
     // EXP-500: + Archived boards, also desktop-only in the NAV — web keeps the
     // same list as a card on its single Boards settings page, which desktop
     // flattened into per-board panes (EXP-288), so it needs its own entry.
     // EXP-771: + Feedback widget and Helpdesk, now on both clients.
+    // EXP-792 added MCP servers on the WEB only: the IDE pane follows in the
+    // desktop sub-issue, and this count moves to 18 with it.
     expect(desktopNav.size).toBe(17)
 
     // The sections both clients render, web label → desktop variant.

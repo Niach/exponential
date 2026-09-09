@@ -13,6 +13,7 @@ import { trpc } from "@/lib/trpc-client"
 import { SidebarProvider } from "@/components/ui/sidebar"
 import { TeamMobileTopbar } from "@/components/team/mobile-topbar"
 import { MobileTabBar } from "@/components/team/mobile-tab-bar"
+import { AgentLoginDialogHost } from "@/components/agent-login-dialog"
 import { TeamSidebar } from "@/components/team/sidebar"
 import {
   MAIN_COLUMN_CLASS,
@@ -219,6 +220,9 @@ function TeamLayout() {
             {/* Native-style bottom navigation (EXP-189) — fixed-position,
                 so JSX placement only affects stacking. */}
             <MobileTabBar teamSlug={teamSlug} team={team} boards={boards} />
+            {/* EXP-792 (EXP-747 A2): the one "Sign in to <agent>" dialog a
+                failed remote start's toast or a machine row opens. */}
+            <AgentLoginDialogHost />
 
             {team && (
               <IssueSearchSheet

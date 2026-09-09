@@ -108,6 +108,10 @@ const h = vi.hoisted(() => {
     assertTeamMember: vi.fn(),
     getTeamMember: vi.fn(async () => ({ role: `member` }) as unknown),
     endForeignHostedSessions: vi.fn(async () => [] as string[]),
+    // EXP-792: the OAuth-command hook and the readiness upsert are unit
+    // tested on their own (lib/mcp-oauth); here only the wiring is asserted.
+    applyMcpOauthCommandCompletion: vi.fn(async () => undefined),
+    applyReadinessReport: vi.fn(async () => undefined),
   }
 })
 
@@ -124,6 +128,25 @@ vi.mock(`@/lib/team-membership`, () => ({
 vi.mock(`@/lib/coding-session-kill`, () => ({
   endForeignHostedSessions: h.endForeignHostedSessions,
 }))
+vi.mock(`@/lib/mcp-oauth/flows`, () => ({
+  applyMcpOauthCommandCompletion: h.applyMcpOauthCommandCompletion,
+}))
+vi.mock(`@/lib/mcp-oauth/readiness`, async () => {
+  const { z } = await import(`zod`)
+  return {
+    applyReadinessReport: h.applyReadinessReport,
+    mcpReadinessEntriesSchema: z
+      .array(
+        z.object({
+          serverId: z.string().uuid(),
+          ready: z.boolean(),
+          expiresAt: z.string().optional(),
+          error: z.string().optional(),
+        })
+      )
+      .max(64),
+  }
+})
 vi.mock(`@/lib/client-version`, () => ({
   versionPayload: () => ({
     android: { min: null, latest: null },
@@ -1288,5 +1311,287 @@ describe(`devices.createCommand — agent_login_code`, () => {
       message: `That device does not declare the agent-login-code capability`,
     })
     expect(h.state.inserted).toHaveLength(0)
+  })
+})
+
+// EXP-792: MCP server support on the devices router — the two new caps, the
+// agent_usage_refresh command, the completeCommand flow hook, the heartbeat
+// readiness field and the agent-account profiles clamp.
+describe(`devices.register — EXP-792 caps`, () => {
+  it(`stores the mcp and agent-usage-refresh caps like any other`, async () => {
+    await caller.register({
+      deviceId: `dev-1`,
+      label: `MacBook`,
+      kind: `desktop`,
+      caps: [`resume`, `agent-login`, `mcp`, `agent-usage-refresh`],
+    })
+    expect(h.state.inserted[0]).toMatchObject({
+      caps: [`resume`, `agent-login`, `mcp`, `agent-usage-refresh`],
+    })
+  })
+
+  it(`keeps the 16-cap ceiling`, async () => {
+    await expect(
+      caller.register({
+        deviceId: `dev-1`,
+        label: `MacBook`,
+        kind: `desktop`,
+        caps: Array.from({ length: 17 }, (_, i) => `cap-${i}`),
+      })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+  })
+})
+
+describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
+  const capableProbe = () => [
+    [{ id: `row-1`, caps: [`agent-login`, `agent-usage-refresh`] }],
+  ]
+
+  it(`queues the agent and the profile id`, async () => {
+    h.state.selectQueue = [...capableProbe(), []]
+    h.state.insertReturning = [[{ id: `cmd-7` }]]
+    const result = await caller.createCommand({
+      deviceId: `dev-1`,
+      kind: `agent_usage_refresh`,
+      agent: `claude`,
+      profileId: `system`,
+    })
+    expect(result).toEqual({ id: `cmd-7` })
+    expect(h.state.inserted[0]).toMatchObject({
+      deviceRowId: `row-1`,
+      kind: `agent_usage_refresh`,
+      payload: { agent: `claude`, profileId: `system` },
+    })
+    expect(h.relayPostNudge).toHaveBeenCalled()
+  })
+
+  it(`needs an agent and a profile id`, async () => {
+    h.state.selectQueue = capableProbe()
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_usage_refresh`,
+        agent: `claude`,
+      })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    h.state.selectQueue = capableProbe()
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_usage_refresh`,
+        profileId: `system`,
+      })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+  })
+
+  it(`refuses a machine without the agent-usage-refresh cap`, async () => {
+    h.state.selectQueue = [[{ id: `row-1`, caps: [`agent-login`] }]]
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_usage_refresh`,
+        agent: `claude`,
+        profileId: `system`,
+      })
+    ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
+    expect(h.state.inserted).toHaveLength(0)
+  })
+
+  it(`never accepts the internal mcp_oauth_* kinds`, async () => {
+    for (const kind of [`mcp_oauth_start`, `mcp_oauth_code`]) {
+      h.state.selectQueue = capableProbe()
+      await expect(
+        caller.createCommand({ deviceId: `dev-1`, kind } as never)
+      ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    }
+    expect(h.state.inserted).toHaveLength(0)
+  })
+})
+
+describe(`devices.completeCommand — mcp_oauth_* flow hook (EXP-792)`, () => {
+  const COMMAND = `33333333-3333-4333-8333-333333333333`
+
+  it(`advances the flow after an mcp_oauth_start completion`, async () => {
+    const payload = { serverId: `s-1`, state: `st-1`, redirectUri: `loopback` }
+    h.state.updateReturning = [
+      [{ id: `cmd-1`, kind: `mcp_oauth_start`, payload }],
+    ]
+    const message = JSON.stringify({ phase: `authorize`, url: `https://as/x` })
+    await expect(
+      caller.completeCommand({ commandId: COMMAND, ok: true, message })
+    ).resolves.toEqual({ ok: true })
+    expect(h.applyMcpOauthCommandCompletion).toHaveBeenCalledWith(h.db, {
+      kind: `mcp_oauth_start`,
+      payload,
+      ok: true,
+      message,
+    })
+  })
+
+  it(`passes a failed mcp_oauth_code completion through`, async () => {
+    const payload = { serverId: `s-1`, state: `st-1`, code: `c` }
+    h.state.updateReturning = [
+      [{ id: `cmd-2`, kind: `mcp_oauth_code`, payload }],
+    ]
+    await caller.completeCommand({
+      commandId: COMMAND,
+      ok: false,
+      message: `token endpoint answered 400`,
+    })
+    expect(h.applyMcpOauthCommandCompletion).toHaveBeenCalledWith(h.db, {
+      kind: `mcp_oauth_code`,
+      payload,
+      ok: false,
+      message: `token endpoint answered 400`,
+    })
+  })
+
+  it(`leaves other kinds and already-completed rows alone`, async () => {
+    h.state.updateReturning = [
+      [{ id: `cmd-3`, kind: `worktree_prune`, payload: {} }],
+      [],
+    ]
+    await caller.completeCommand({ commandId: COMMAND, ok: true })
+    await expect(
+      caller.completeCommand({ commandId: COMMAND, ok: true })
+    ).resolves.toEqual({ ok: false })
+    expect(h.applyMcpOauthCommandCompletion).not.toHaveBeenCalled()
+  })
+})
+
+describe(`devices.heartbeat — mcpReadiness (EXP-792)`, () => {
+  const SERVER = `11111111-1111-4111-8111-111111111111`
+  const heartbeatRow = () => [
+    [
+      {
+        id: `row-1`,
+        updateRequestedAt: null,
+        launchDefaults: null,
+        launchDefaultsUpdatedAt: null,
+      },
+    ],
+  ]
+
+  it(`upserts the reported readiness against the device row`, async () => {
+    h.state.updateReturning = heartbeatRow()
+    await caller.heartbeat({
+      deviceId: `dev-1`,
+      activeSessions: 0,
+      defaultsSyncedAt: null,
+      mcpReadiness: [
+        { serverId: SERVER, ready: true, expiresAt: `2026-09-09T13:00:00Z` },
+      ],
+    })
+    expect(h.applyReadinessReport).toHaveBeenCalledWith(
+      h.db,
+      {
+        userId: `actor`,
+        deviceRowId: `row-1`,
+        entries: [
+          { serverId: SERVER, ready: true, expiresAt: `2026-09-09T13:00:00Z` },
+        ],
+      },
+      expect.any(Date)
+    )
+  })
+
+  it(`absent means unchanged — no upsert`, async () => {
+    h.state.updateReturning = heartbeatRow()
+    await caller.heartbeat({
+      deviceId: `dev-1`,
+      activeSessions: 0,
+      defaultsSyncedAt: null,
+    })
+    expect(h.applyReadinessReport).not.toHaveBeenCalled()
+  })
+
+  it(`bounds the report at 64 entries`, async () => {
+    h.state.updateReturning = heartbeatRow()
+    await expect(
+      caller.heartbeat({
+        deviceId: `dev-1`,
+        activeSessions: 0,
+        defaultsSyncedAt: null,
+        mcpReadiness: Array.from({ length: 65 }, () => ({
+          serverId: SERVER,
+          ready: true,
+        })),
+      })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+  })
+})
+
+describe(`clampAgentAccounts — profiles (EXP-792)`, () => {
+  it(`keeps at most 5 profiles, clamps every field and stays null-free`, () => {
+    const out = clampAgentAccounts({
+      claude: {
+        signedIn: true,
+        email: `danny@example.com`,
+        profiles: [
+          {
+            id: `system`,
+            label: `Default`,
+            signedIn: true,
+            email: `danny@example.com`,
+            plan: `Max`,
+            active: true,
+            checkedAt: `2026-09-09T11:59:00Z`,
+            usage: {
+              fetchedAt: `2026-09-09T11:58:00Z`,
+              windows: [
+                { key: `session`, label: `5h`, percent: 137.4 },
+                { key: ``, label: `dropped` },
+                null,
+              ],
+            },
+          },
+          // Explicit nulls (the EXP-495 shape) degrade field-wise.
+          { id: `work`, label: null, signedIn: null, email: null, plan: null },
+          // No id: nothing could address it — dropped.
+          { label: `ghost`, signedIn: true } as never,
+          null,
+          { id: `p3`, signedIn: false },
+          { id: `p4`, signedIn: false },
+          { id: `p5`, signedIn: false },
+          { id: `p6-over-the-cap`, signedIn: false },
+          { id: `x`.repeat(80), signedIn: false },
+        ],
+      },
+    })
+    expect(out.claude).toMatchObject({ signedIn: true, email: `danny@example.com` })
+    expect(out.claude!.profiles).toHaveLength(5)
+    expect(out.claude!.profiles![0]).toEqual({
+      id: `system`,
+      label: `Default`,
+      signedIn: true,
+      email: `danny@example.com`,
+      plan: `Max`,
+      active: true,
+      checkedAt: `2026-09-09T11:59:00.000Z`,
+      usage: {
+        fetchedAt: `2026-09-09T11:58:00.000Z`,
+        stale: false,
+        windows: [{ key: `session`, label: `5h`, percent: 100, resetsAt: null }],
+      },
+    })
+    expect(out.claude!.profiles![1]).toEqual({ id: `work`, signedIn: false })
+    expect(out.claude!.profiles!.map((p) => p.id)).toEqual([
+      `system`,
+      `work`,
+      `p3`,
+      `p4`,
+      `p5`,
+    ])
+    // Null-free apart from the usage windows' `resetsAt`, which the EXP-484
+    // window shape carries as an explicit null on every client.
+    expect(JSON.stringify(out).replace(/"resetsAt":null/g, ``)).not.toContain(
+      `null`
+    )
+  })
+
+  it(`omits the profiles key when the device reports none`, () => {
+    expect(clampAgentAccounts({ codex: { signedIn: true, profiles: [] } })).toEqual(
+      { codex: { signedIn: true } }
+    )
   })
 })

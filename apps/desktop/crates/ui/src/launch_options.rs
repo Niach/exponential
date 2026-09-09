@@ -738,6 +738,8 @@ impl LaunchOptionsSection {
             // launch paths (model/effort seeds, the wire's closed vocabulary)
             // are keyed on it.
             external,
+            mcp_server_ids: Vec::new(),
+            account: None,
         }
     }
 

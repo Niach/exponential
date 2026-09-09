@@ -345,6 +345,11 @@ mod tests {
             ("EXP_MCP_URL".to_string(), "http://127.0.0.1/api/mcp".to_string()),
             // The spec's own entry must win over the launcher's.
             ("ACME_TOKEN".to_string(), "from-launcher".to_string()),
+            // EXP-792: the team server list, references verbatim.
+            (
+                coding::argv::MCP_SERVERS_ENV.to_string(),
+                r#"[{"name":"linear","kind":"http","url":"https://mcp.linear.app/mcp","headers":{"Authorization":"Bearer ${EXP_MCP_TOKEN_1}"}}]"#.to_string(),
+            ),
         ];
         let agent = external_adapter(&spec(&program.display().to_string()), &cwd, &launch_env)
             .expect("an absolute command needs no PATH lookup");
@@ -360,6 +365,12 @@ mod tests {
             config.environment().get("EXP_MCP_URL").map(String::as_str),
             Some("http://127.0.0.1/api/mcp")
         );
+        // EXP-792: so does the team server list, `${VAR}` untouched — the
+        // agent resolves it from this same environment.
+        assert!(config
+            .environment()
+            .get(coding::argv::MCP_SERVERS_ENV)
+            .is_some_and(|json| json.contains("${EXP_MCP_TOKEN_1}")));
         // The worktree is never silently dropped: `session/new { cwd }` names
         // it and PWD carries it to wrapper scripts.
         assert_eq!(
@@ -422,6 +433,7 @@ mod tests {
             spawn: terminal::pty::SpawnSpec::new("claude"),
             options: coding::LaunchOptions::defaults(&coding::Settings::default()),
             mcp: coding::AgentMcp::ClaudeFile,
+            servers: Vec::new(),
             cwd: PathBuf::from("/tmp"),
             session_id: "sess-1".to_string(),
             prompt: None,

@@ -48,6 +48,7 @@ import { ActionsPane } from "@/components/launch-dialog/actions-pane"
 import { ChatPane } from "@/components/launch-dialog/chat-pane"
 import { LaunchOptionsPane } from "@/components/launch-dialog/launch-options-pane"
 import { useLaunchOptions } from "@/components/launch-dialog/use-launch-options"
+import { useMcpServers } from "@/hooks/use-mcp-servers"
 import { byCreatedAtDesc } from "@/lib/ordering"
 
 // The unified launch dialog (EXP-257) — Issues | Actions | Chat tabs over ONE
@@ -373,12 +374,18 @@ export function LaunchDialog({
 
   // The shared device-settle + device-seeded agent/model/effort cluster
   // (EXP-437/EXP-201), identical to the create-action dialog's.
+  // EXP-792: the team's MCP servers (server-only tRPC, fetched per open) seed
+  // the multiselect's pick; the readiness matrix greys unready rows.
+  const mcp = useMcpServers(teamId, open)
   const launch = useLaunchOptions({
     open,
     devices: candidateDevices,
     initialDeviceId,
+    teamId,
+    mcpServers: mcp.servers,
   })
   const { agent, device } = launch
+  const mcpNow = useNow(30_000)
 
   const toggleIssue = (id: string) => {
     const next = new Set(selected)
@@ -585,6 +592,16 @@ export function LaunchDialog({
                     onChange: setResume,
                     identifier: soleIssue!.identifier,
                     branch: resumeCandidate.branch,
+                  }
+                : null
+            }
+            mcpRow={
+              mcp.servers && mcp.servers.length > 0
+                ? {
+                    servers: mcp.servers,
+                    selectedIds: launch.mcpServerIds,
+                    onToggle: launch.toggleMcpServer,
+                    now: mcpNow,
                   }
                 : null
             }

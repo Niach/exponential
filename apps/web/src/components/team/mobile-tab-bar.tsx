@@ -13,6 +13,7 @@ import {
 import {
   useReviewsOpenPrCount,
   useAgentsRunningCount,
+  useDevicesNeedSignIn,
 } from "@/hooks/use-nav-counts"
 
 // EXP-317: the cross-client nav glyphs come from the shared registry
@@ -115,10 +116,15 @@ function ReviewsDot({
 
 // Amber while any live session waits on a plan approval / question
 // (EXP-214), live green otherwise.
+// EXP-792 (EXP-747 A4): with nothing running, amber when one of MY online
+// machines has an agent signed out — the running colours keep precedence.
 function DevicesDot({ teamId }: { teamId?: string }) {
   const { data: session } = useSession()
   const { count, needsInput } = useAgentsRunningCount(teamId, session?.user?.id)
-  if (count === 0) return null
+  const needsSignIn = useDevicesNeedSignIn(session?.user?.id)
+  if (count === 0) {
+    return needsSignIn ? <TabDot className="bg-amber-500" /> : null
+  }
   return <TabDot className={needsInput ? `bg-yellow-400` : `bg-green-500`} />
 }
 

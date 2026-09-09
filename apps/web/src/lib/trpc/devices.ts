@@ -31,11 +31,13 @@ import {
   deviceLaunchDefaultsSchema,
   devices,
   deviceWorktrees,
+  MAX_AGENT_PROFILES,
   teamMembers,
   users,
   type DeviceAgentAccount,
   type DeviceAgentAccounts,
   type DeviceAgentLaunchDefaults,
+  type DeviceAgentProfileEntry,
   type DeviceAgentUsage,
   type DeviceAgentUsageMap,
   type DeviceLaunchDefaults,
@@ -52,9 +54,18 @@ import {
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
+import { applyMcpOauthCommandCompletion } from "@/lib/mcp-oauth/flows"
+import {
+  applyReadinessReport,
+  mcpReadinessEntriesSchema,
+} from "@/lib/mcp-oauth/readiness"
 
 // Mirrors the relay's online-frame bounds (steer-relay protocol.ts): the
-// relay is a dumb pipe and the same strings land here via `register`.
+// relay is a dumb pipe and the same strings land here via `register`. Caps
+// are free strings the executor names (coding doctor.rs DEVICE_CAPS +
+// ACTION_CAPS); the ones this router gates on: `agent-login`,
+// `agent-login-code`, `mcp` (EXP-792: runs `mcp_oauth_*` and reports
+// readiness) and `agent-usage-refresh` (EXP-747 C4). Ceiling stays 16.
 const agentsInput = z.array(z.string().min(1).max(32)).max(16)
 const capsInput = z.array(z.string().min(1).max(32)).max(16)
 
@@ -124,6 +135,8 @@ const MAX_USAGE_KEY = 64
 const MAX_USAGE_LABEL = 32
 const MAX_ACCOUNT_EMAIL = 320
 const MAX_ACCOUNT_PLAN = 64
+const MAX_PROFILE_ID = 64
+const MAX_PROFILE_LABEL = 64
 
 // ISO-normalize a device-reported timestamp; anything unparsable degrades to
 // null (the presentation layer treats a missing stamp as unknown, never as
@@ -155,6 +168,35 @@ export function clampAgentAccounts(
     }
     const checkedAt = isoStampOrNull(account.checkedAt)
     if (checkedAt) entry.checkedAt = checkedAt
+    // EXP-792 (EXP-747 B5): the device's profiles for this agent, ≤5. A
+    // profile without an id is dropped (nothing could address it); the
+    // top-level fields above stay the ACTIVE profile for older clients.
+    const profiles: DeviceAgentProfileEntry[] = []
+    for (const profile of account.profiles ?? []) {
+      if (!profile || typeof profile.id !== `string` || !profile.id) continue
+      if (profiles.length >= MAX_AGENT_PROFILES) break
+      const item: DeviceAgentProfileEntry = {
+        id: profile.id.slice(0, MAX_PROFILE_ID),
+        signedIn: profile.signedIn === true,
+      }
+      if (typeof profile.label === `string` && profile.label.length > 0) {
+        item.label = profile.label.slice(0, MAX_PROFILE_LABEL)
+      }
+      if (typeof profile.email === `string` && profile.email.length > 0) {
+        item.email = profile.email.slice(0, MAX_ACCOUNT_EMAIL)
+      }
+      if (typeof profile.plan === `string` && profile.plan.length > 0) {
+        item.plan = profile.plan.slice(0, MAX_ACCOUNT_PLAN)
+      }
+      if (profile.active === true) item.active = true
+      const profileCheckedAt = isoStampOrNull(profile.checkedAt)
+      if (profileCheckedAt) item.checkedAt = profileCheckedAt
+      if (profile.usage) {
+        item.usage = clampUsageEntry(profile.usage, new Date())
+      }
+      profiles.push(item)
+    }
+    if (profiles.length > 0) entry.profiles = profiles
     out[agent] = entry
   }
   return out
@@ -174,41 +216,50 @@ export function clampAgentUsage(
   for (const [agent, usage] of Object.entries(input)) {
     if (!agentIds.includes(agent) || !usage) continue
     if (Object.keys(out).length >= MAX_STATUS_AGENTS) break
-    const windows: DeviceUsageWindow[] = []
-    for (const window of usage.windows ?? []) {
-      if (!window) continue
-      if (windows.length >= MAX_USAGE_WINDOWS) break
-      const key =
-        typeof window.key === `string` ? window.key.slice(0, MAX_USAGE_KEY) : ``
-      const label =
-        typeof window.label === `string`
-          ? window.label.slice(0, MAX_USAGE_LABEL)
-          : ``
-      if (key.length === 0 || label.length === 0) continue
-      const raw = typeof window.percent === `number` ? window.percent : 0
-      const percent = Number.isFinite(raw)
-        ? Math.min(100, Math.max(0, Math.round(raw)))
-        : 0
-      windows.push({
-        key,
-        label,
-        percent,
-        resetsAt: isoStampOrNull(window.resetsAt),
-      })
-    }
-    const entry: DeviceAgentUsage = {
-      fetchedAt: isoStampOrNull(usage.fetchedAt) ?? now.toISOString(),
-      stale: usage.stale === true,
-      windows,
-    }
-    out[agent] = entry
+    out[agent] = clampUsageEntry(usage, now)
   }
   return out
 }
 
+// One agent's usage read, the same bounds whether it rides the top-level
+// `agent_usage` map or a profile entry (EXP-792).
+function clampUsageEntry(
+  usage: NonNullable<z.infer<typeof deviceAgentUsageSchema>[string]>,
+  now: Date
+): DeviceAgentUsage {
+  const windows: DeviceUsageWindow[] = []
+  for (const window of usage.windows ?? []) {
+    if (!window) continue
+    if (windows.length >= MAX_USAGE_WINDOWS) break
+    const key =
+      typeof window.key === `string` ? window.key.slice(0, MAX_USAGE_KEY) : ``
+    const label =
+      typeof window.label === `string`
+        ? window.label.slice(0, MAX_USAGE_LABEL)
+        : ``
+    if (key.length === 0 || label.length === 0) continue
+    const raw = typeof window.percent === `number` ? window.percent : 0
+    const percent = Number.isFinite(raw)
+      ? Math.min(100, Math.max(0, Math.round(raw)))
+      : 0
+    windows.push({
+      key,
+      label,
+      percent,
+      resetsAt: isoStampOrNull(window.resetsAt),
+    })
+  }
+  return {
+    fetchedAt: isoStampOrNull(usage.fetchedAt) ?? now.toISOString(),
+    stale: usage.stale === true,
+    windows,
+  }
+}
+
 // Best-effort, fire-and-forget: persisted state is the durable path, the
-// nudge only kills heartbeat-pickup latency for online devices.
-function nudgeDevice(ownerId: string, deviceId: string): void {
+// nudge only kills heartbeat-pickup latency for online devices. Exported for
+// the EXP-792 MCP OAuth relays (mcp-servers.ts, the anonymous callback).
+export function nudgeDevice(ownerId: string, deviceId: string): void {
   const config = getSteerRelayConfig()
   if (!config) return
   void relayPostNudge(config, ownerId, deviceId).catch(() => {})
@@ -400,6 +451,9 @@ export const devicesRouter = router({
         // deliberately not a convergence trigger for anything.
         agentAccounts: deviceAgentAccountsSchema.optional(),
         agentUsage: deviceAgentUsageSchema.optional(),
+        // EXP-792: the device's MCP readiness per server, sent only when it
+        // CHANGED (same absent-means-unchanged contract as the two above).
+        mcpReadiness: mcpReadinessEntriesSchema.optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -434,6 +488,18 @@ export const devicesRouter = router({
         })
       const row = updated[0]
       if (!row) return { ok: false, updateRequested: false }
+
+      if (input.mcpReadiness) {
+        await applyReadinessReport(
+          ctx.db,
+          {
+            userId: ctx.session.user.id,
+            deviceRowId: row.id,
+            entries: input.mcpReadiness,
+          },
+          now
+        )
+      }
 
       const pending = await ctx.db
         .select({
@@ -673,6 +739,11 @@ export const devicesRouter = router({
   // adds `agent_login_code`: claude's link hands the browser an authorization
   // code the CLI on the machine is still waiting for, and this is how the
   // requester hands it back — the device types it into that login PTY.
+  // EXP-747 C4 adds `agent_usage_refresh`: force one profile's usage
+  // collection past the shared TTL (never past the rate-limit floor). The
+  // EXP-792 `mcp_oauth_start`/`mcp_oauth_code` kinds are queued INTERNALLY
+  // only (mcpServers.beginOAuth, the anonymous callback) and never accepted
+  // here — a caller could otherwise relay an arbitrary code to a device.
   createCommand: authedProcedure
     .input(
       z.object({
@@ -682,6 +753,7 @@ export const devicesRouter = router({
           `worktree_prune`,
           `agent_login`,
           `agent_login_code`,
+          `agent_usage_refresh`,
         ]),
         repoFullName: z.string().min(1).max(255).optional(),
         branch: z.string().min(1).max(255).optional(),
@@ -694,6 +766,9 @@ export const devicesRouter = router({
         // the cap is generous because it is opaque to us, and one line
         // because it is typed into a PTY as one line.
         code: z.string().trim().min(1).max(AGENT_LOGIN_CODE_MAX).optional(),
+        // EXP-747 C4 `agent_usage_refresh`: which profile to re-read
+        // (`system` = the ambient login).
+        profileId: z.string().min(1).max(64).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -808,6 +883,22 @@ export const devicesRouter = router({
         payload = { agent: input.agent, code: input.code }
       }
 
+      if (input.kind === `agent_usage_refresh`) {
+        if (!input.agent || !input.profileId) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `agent_usage_refresh needs an agent and a profileId`,
+          })
+        }
+        if (!(row.caps ?? []).includes(`agent-usage-refresh`)) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `That device does not declare the agent-usage-refresh capability`,
+          })
+        }
+        payload = { agent: input.agent, profileId: input.profileId }
+      }
+
       // One pending command per (device, kind, payload) — a double-click must
       // not queue the same prune twice.
       const [dup] = await ctx.db
@@ -844,7 +935,10 @@ export const devicesRouter = router({
 
   // EXP-481: the device reports a command's outcome. Only pending rows
   // transition; a duplicate complete (heartbeat redelivery races the first
-  // completion) is tolerated with ok:false rather than an error.
+  // completion) is tolerated with ok:false rather than an error. EXP-792:
+  // an `mcp_oauth_*` completion additionally advances the flow row the
+  // command belongs to (lib/mcp-oauth/flows.ts) — the web dialog polls the
+  // flow, never the command.
   completeCommand: authedProcedure
     .input(
       z.object({
@@ -868,7 +962,20 @@ export const devicesRouter = router({
             eq(deviceCommands.status, `pending`)
           )
         )
-        .returning({ id: deviceCommands.id })
+        .returning({
+          id: deviceCommands.id,
+          kind: deviceCommands.kind,
+          payload: deviceCommands.payload,
+        })
+      const command = updated[0]
+      if (command?.kind?.startsWith(`mcp_oauth_`)) {
+        await applyMcpOauthCommandCompletion(ctx.db, {
+          kind: command.kind,
+          payload: command.payload ?? {},
+          ok: input.ok,
+          message: input.message,
+        })
+      }
       return { ok: updated.length > 0 }
     }),
 

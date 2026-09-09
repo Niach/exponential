@@ -982,6 +982,14 @@ pub enum ServerFrame {
         /// agent and options). Absent on every pre-EXP-637 sender.
         #[serde(default)]
         resume_session_id: Option<String>,
+        /// EXP-792: the team MCP servers (`mcp_servers` row ids) the run
+        /// connects to beside `exponential`. Absent = none.
+        #[serde(default)]
+        mcp_server_ids: Option<Vec<String>>,
+        /// EXP-792 (EXP-747 B7): the agent account profile to run on.
+        /// Absent/`system` = the ambient login.
+        #[serde(default)]
+        account: Option<String>,
     },
     /// EXP-773: a viewer asked for the transcript of a session that is no
     /// longer live, and the relay routed the ask to THIS device (the ticket
@@ -2053,6 +2061,8 @@ mod tests {
                 effort: None,
                 ultracode: None,
                 plan_mode: None,
+                mcp_server_ids: None,
+                account: None,
                 resume: false,
                 resume_session_id: None,
             }
@@ -2196,6 +2206,8 @@ mod tests {
                 effort: None,
                 ultracode: None,
                 plan_mode: None,
+                mcp_server_ids: None,
+                account: None,
                 resume: false,
                 resume_session_id: None,
             }
@@ -2227,6 +2239,8 @@ mod tests {
                 effort: None,
                 ultracode: None,
                 plan_mode: None,
+                mcp_server_ids: None,
+                account: None,
                 resume: false,
                 resume_session_id: None,
             }
@@ -2265,6 +2279,8 @@ mod tests {
                 effort: Some(String::new()),
                 ultracode: Some(true),
                 plan_mode: Some(false),
+                mcp_server_ids: None,
+                account: None,
                 resume: false,
                 resume_session_id: None,
             }
@@ -2298,6 +2314,8 @@ mod tests {
                 effort: Some("high".into()),
                 ultracode: Some(true),
                 plan_mode: Some(false),
+                mcp_server_ids: None,
+                account: None,
                 resume: false,
                 resume_session_id: None,
             }
@@ -2332,6 +2350,8 @@ mod tests {
                 effort: Some("high".into()),
                 ultracode: None,
                 plan_mode: None,
+                mcp_server_ids: None,
+                account: None,
                 resume: false,
                 resume_session_id: None,
             }
@@ -2380,6 +2400,8 @@ mod tests {
                 effort: None,
                 ultracode: None,
                 plan_mode: None,
+                mcp_server_ids: None,
+                account: None,
                 resume: false,
                 resume_session_id: None,
             }
@@ -2414,6 +2436,8 @@ mod tests {
                 effort: None,
                 ultracode: None,
                 plan_mode: None,
+                mcp_server_ids: None,
+                account: None,
                 resume: false,
                 resume_session_id: None,
             }

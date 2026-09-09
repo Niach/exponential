@@ -123,6 +123,12 @@ pub struct HeartbeatInput<'a> {
     /// rides along — which is why hosts only send it when it CHANGED.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_usage: Option<&'a serde_json::Value>,
+    /// EXP-792: this device's per-server MCP readiness (≤64 entries),
+    /// upserted like `mcpServers.reportReadiness`. Sent only when the
+    /// readiness KEY moved (`coding::mcp_servers::readiness_key`), for the
+    /// same reason as the two maps above.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mcp_readiness: Option<&'a [crate::mcp_servers::McpReadinessReport]>,
 }
 
 /// EXP-481: one pending owner→device command riding the heartbeat response.
@@ -133,14 +139,23 @@ pub struct HeartbeatInput<'a> {
 pub struct PendingCommand {
     pub id: String,
     /// `worktree_remove` | `worktree_prune` | `agent_login` |
-    /// `agent_login_code`; unknown kinds are completed
-    /// `ok: false` ("unsupported") by the executor, never dropped silently.
+    /// `agent_login_code` | `mcp_oauth_start` | `mcp_oauth_code` |
+    /// `agent_usage_refresh`; unknown kinds are completed `ok: false`
+    /// ("unsupported") by the executor, never dropped silently.
     #[serde(default)]
     pub kind: String,
     /// `worktree_remove`: `{repoFullName, branch}`; `worktree_prune`: `{}`;
     /// `agent_login`: `{agent, switch}` (both STRINGS — the payload column is
     /// a `Record<string,string>`); `agent_login_code`: `{agent, code}`
-    /// (EXP-765).
+    /// (EXP-765). EXP-792: `mcp_oauth_start`: `{serverId, state,
+    /// redirectUri}` (`redirectUri` = the hosted callback URL, or the literal
+    /// `loopback` — the device then binds its own listener); the executor
+    /// completes EARLY with `ok: true` + the JSON `{"phase":"authorize",
+    /// "url":…}` and keeps working. `mcp_oauth_code`: `{serverId, state,
+    /// code}` (the hosted callback relayed the code) → `{"phase":"done",
+    /// "expiresAt"?}`. `agent_usage_refresh`: `{agent, profileId}` — force
+    /// the usage collector past its shared TTL (never past the rate-limit
+    /// floor; the reply names the next allowed time when hot).
     #[serde(default)]
     pub payload: serde_json::Value,
 }
@@ -561,6 +576,37 @@ pub fn create_agent_login_code_command(
     )
 }
 
+/// `devices.createCommand` for an `agent_usage_refresh` (EXP-792) — ask one
+/// of the CALLER's own machines to re-read `agent`'s usage windows NOW
+/// instead of on the poll cadence (`profile_id` = the agent profile, `system`
+/// for the ambient one). The device forces the collector past its shared
+/// TTL but never past the 429 floor; a hot refusal completes `ok: false` with
+/// the next allowed time. Gated server-side on the `agent-usage-refresh` cap.
+pub fn create_agent_usage_refresh_command(
+    trpc: &TrpcClient,
+    device_id: &str,
+    agent: &str,
+    profile_id: &str,
+) -> Result<CreatedCommand, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        device_id: &'a str,
+        kind: &'a str,
+        agent: &'a str,
+        profile_id: &'a str,
+    }
+    trpc.mutation(
+        "devices.createCommand",
+        &Input {
+            device_id,
+            kind: "agent_usage_refresh",
+            agent,
+            profile_id,
+        },
+    )
+}
+
 /// One `device_commands` row (`devices.getCommand` / `devices.listCommands`).
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -710,6 +756,7 @@ mod tests {
                 defaults_synced_at: None,
                 agent_accounts: Some(&accounts),
                 agent_usage: Some(&usage),
+                mcp_readiness: None,
             },
         )
         .unwrap();
@@ -734,6 +781,33 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(!request.contains("agentAccounts"), "{request}");
         assert!(request.contains(r#""agentUsage""#));
+    }
+
+    /// EXP-792: the readiness entries ride the beat only when attached,
+    /// under `mcpReadiness`, in the reportReadiness entry shape.
+    #[test]
+    fn heartbeat_posts_mcp_readiness_when_present() {
+        let entries = [crate::mcp_servers::McpReadinessReport {
+            server_id: "s1".into(),
+            ready: true,
+            expires_at: Some("2026-09-09T10:00:00.000Z".into()),
+            error: None,
+        }];
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        heartbeat(
+            &client(&base),
+            &HeartbeatInput {
+                device_id: "dev-1",
+                active_sessions: 0,
+                mcp_readiness: Some(&entries),
+                ..HeartbeatInput::default()
+            },
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(
+            r#"{"deviceId":"dev-1","activeSessions":0,"defaultsSyncedAt":null,"mcpReadiness":[{"serverId":"s1","ready":true,"expiresAt":"2026-09-09T10:00:00.000Z"}]}"#
+        ), "{request}");
     }
 
     /// EXP-484: registration carries the accounts (never the usage — the

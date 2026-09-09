@@ -14,6 +14,7 @@ import { conceptIcon } from "@/lib/icons.generated"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"
 import { useNow } from "@/hooks/use-now"
+import { useAgentLogin } from "@/hooks/use-agent-login"
 import { deviceCollection, deviceWorktreeCollection, teamCollection } from "@/lib/collections"
 import {
   agentSeed,
@@ -26,12 +27,7 @@ import {
   deviceRowIsOnline,
   type SteerDevice,
 } from "@/lib/steer-devices"
-import {
-  AgentAccountBlock,
-  agentLoginCodeKey,
-  agentLoginKey,
-  agentOfLoginCodeKey,
-} from "@/components/device-agent-account"
+import { AgentAccountBlock } from "@/components/device-agent-account"
 import { Button } from "@/components/ui/button"
 import {
   AlertDialog,
@@ -232,7 +228,6 @@ export function DeviceSettingsDialog({
     sentDefaultsStampRef.current = 0
     setSectionErrors({})
     setTracked([])
-    setCommandResults({})
     setSwitchTarget(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, row?.id])
@@ -471,12 +466,9 @@ export function DeviceSettingsDialog({
   const [tracked, setTracked] = useState<TrackedCommand[]>([])
   const [removeTarget, setRemoveTarget] =
     useState<SyncedDeviceWorktree | null>(null)
-  // EXP-484: a finished command's `result`, kept per key AFTER the tracked
-  // entry is dropped — `agent_login` completes EARLY with the sign-in URL,
-  // which is the whole point of the round trip.
-  const [commandResults, setCommandResults] = useState<Record<string, string>>(
-    {}
-  )
+  // EXP-792 (EXP-747 A1): the agent sign-in round trip lives in its own
+  // hook now, shared with the launch-failure toasts and the machine rows.
+  const login = useAgentLogin({ deviceId, online, active: open })
   const [switchTarget, setSwitchTarget] = useState<string | null>(null)
 
   const commandKey = (worktree: SyncedDeviceWorktree) =>
@@ -487,17 +479,9 @@ export function DeviceSettingsDialog({
     input:
       | { kind: `worktree_prune` }
       | { kind: `worktree_remove`; repoFullName: string; branch: string }
-      | { kind: `agent_login`; agent: string; switch: boolean }
-      | { kind: `agent_login_code`; agent: string; code: string }
   ) => {
     if (!deviceId) return
     setSectionErrors((current) => ({ ...current, [key]: `` }))
-    setCommandResults((current) => {
-      if (!(key in current)) return current
-      const next = { ...current }
-      delete next[key]
-      return next
-    })
     try {
       const { id } = await trpc.devices.createCommand.mutate({
         deviceId,
@@ -525,21 +509,6 @@ export function DeviceSettingsDialog({
             commandId: command.id,
           })
           if (cancelled || result.status === `pending`) continue
-          // EXP-484: capture the payload BEFORE the tracked entry goes — a
-          // login's whole answer (the sign-in URL) lives in `result`, and
-          // only a `done` row ever carries one. Failures keep travelling
-          // through `sectionErrors` like every other command.
-          if (result.status === `done` && result.result) {
-            const text = result.result
-            setCommandResults((current) => {
-              const next = { ...current, [command.key]: text }
-              // EXP-765: the code went in — the link has served its purpose
-              // and the row flips signed-in on the machine's re-probe.
-              const codeAgent = agentOfLoginCodeKey(command.key)
-              if (codeAgent) delete next[agentLoginKey(codeAgent)]
-              return next
-            })
-          }
           setTracked((current) => current.filter((c) => c.id !== command.id))
           if (result.status === `failed`) {
             setSectionErrors((current) => ({
@@ -581,31 +550,6 @@ export function DeviceSettingsDialog({
   const pendingKey = (key: string) =>
     tracked.some((command) => command.key === key)
 
-  const queueAgentLogin = (agent: string, switchAccount: boolean) => {
-    // A fresh login supersedes whatever its code round trip last said.
-    const codeKey = agentLoginCodeKey(agent)
-    setCommandResults((current) => {
-      if (!(codeKey in current)) return current
-      const next = { ...current }
-      delete next[codeKey]
-      return next
-    })
-    setSectionErrors((current) => ({ ...current, [codeKey]: `` }))
-    void queueCommand(agentLoginKey(agent), {
-      kind: `agent_login`,
-      agent,
-      switch: switchAccount,
-    })
-  }
-
-  // EXP-765: hand claude's authorization code back to the waiting login.
-  const queueAgentLoginCode = (agent: string, code: string) =>
-    void queueCommand(agentLoginCodeKey(agent), {
-      kind: `agent_login_code`,
-      agent,
-      code,
-    })
-
   const startAgentLogin = (agent: string, switchAccount: boolean) => {
     // `codex logout` revokes the token SERVER-side — switching accounts is
     // not a local-only act, so it asks first. Claude's is local.
@@ -613,7 +557,7 @@ export function DeviceSettingsDialog({
       setSwitchTarget(agent)
       return
     }
-    queueAgentLogin(agent, switchAccount)
+    login.queueLogin(agent, switchAccount)
   }
 
   const dirtyLabel = (dirty: string): string | null =>
@@ -793,26 +737,29 @@ export function DeviceSettingsDialog({
               /* EXP-688: who this agent is signed in as on this machine, and
                  what it has spent — under its OWN tab, not a section apart.
                  EXP-694: rendered as that card's closing rows. */
-              renderAgentFooter={(agent) => (
-                <AgentAccountBlock
-                  agent={agent}
-                  row={row}
-                  online={online}
-                  canAgentLogin={deviceCanAgentLogin({ caps: row?.caps ?? [] })}
-                  now={now}
-                  error={sectionErrors[agentLoginKey(agent)] ?? ``}
-                  pending={pendingKey(agentLoginKey(agent))}
-                  result={commandResults[agentLoginKey(agent)] ?? null}
-                  onLogin={startAgentLogin}
-                  canEnterCode={deviceCanAgentLoginCode({
-                    caps: row?.caps ?? [],
-                  })}
-                  codeError={sectionErrors[agentLoginCodeKey(agent)] ?? ``}
-                  codePending={pendingKey(agentLoginCodeKey(agent))}
-                  codeResult={commandResults[agentLoginCodeKey(agent)] ?? null}
-                  onEnterCode={queueAgentLoginCode}
-                />
-              )}
+              renderAgentFooter={(agent) => {
+                const state = login.stateFor(agent)
+                return (
+                  <AgentAccountBlock
+                    agent={agent}
+                    row={row}
+                    online={online}
+                    canAgentLogin={deviceCanAgentLogin({ caps: row?.caps ?? [] })}
+                    now={now}
+                    error={state.error}
+                    pending={state.pending}
+                    result={state.result}
+                    onLogin={startAgentLogin}
+                    canEnterCode={deviceCanAgentLoginCode({
+                      caps: row?.caps ?? [],
+                    })}
+                    codeError={state.codeError}
+                    codePending={state.codePending}
+                    codeResult={state.codeResult}
+                    onEnterCode={login.queueLoginCode}
+                  />
+                )
+              }}
             />
             {sectionErrors.defaults && (
               <p className="px-1 text-xs text-destructive">
@@ -991,7 +938,7 @@ export function DeviceSettingsDialog({
                 onClick={() => {
                   const target = switchTarget
                   setSwitchTarget(null)
-                  if (target) queueAgentLogin(target, true)
+                  if (target) login.queueLogin(target, true)
                 }}
               >
                 Sign out and sign in

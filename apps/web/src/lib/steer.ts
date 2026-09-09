@@ -215,6 +215,13 @@ export interface SteerStartOptions {
    * device's `resume` cap, and the device-side launcher degrades a missing/
    * foreign worktree to a fresh session seeded with a resume prompt. */
   resume?: boolean
+  /** EXP-792: the team MCP servers (`mcp_servers` row ids, validated
+   * against the subject's team in steer.startSession) the run connects to
+   * beside `exponential`. The device resolves ids to its held secrets. */
+  mcpServerIds?: string[]
+  /** EXP-792 (EXP-747 B7): the agent account profile to run on; absent or
+   * `system` = the ambient login. */
+  account?: string
 }
 
 /**

@@ -21,7 +21,15 @@
 //! loads extensions through jiti (plain TypeScript is fine), but `typebox`
 //! may not resolve from an arbitrary worktree — and MCP `inputSchema` values
 //! are plain JSON Schema objects, which is exactly what TypeBox schemas are
-//! at runtime, so they pass through verbatim.
+//! at runtime, so they pass through verbatim. (EXP-792: the ONE exception
+//! is a dynamic `import("node:child_process")` for a stdio team server — a
+//! Node builtin, never a package.)
+//!
+//! EXP-792: the launcher's team MCP servers ride `EXP_MCP_SERVERS` (a JSON
+//! array, every credential a `${VAR}` reference the bridge expands from
+//! `process.env` at connect time); their tools register as `<name>_<tool>`
+//! beside the `exponential_*` set, http over the same streamable-HTTP wire,
+//! stdio over newline-delimited JSON-RPC to a spawned child.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -154,6 +162,153 @@ export default async function (pi: any) {
       return { content: [{ type: "text", text }], details: {} }
     },
   })
+  // EXP-792 — the run's team MCP servers, declared by the launcher in
+  // EXP_MCP_SERVERS as a JSON array of {name, kind:"http", url, headers} |
+  // {name, kind:"stdio", command, args, env}. Every header/env VALUE may be a
+  // ${VAR} reference resolved from this process's own environment at connect
+  // time (the launcher put the device-held secrets there); nothing in this
+  // file or in that JSON is a credential. Each server's tools register under
+  // <name>_<tool>; a server that fails to connect is skipped, never fatal.
+  const teamServers = (() => {
+    try {
+      const parsed = JSON.parse(process.env.EXP_MCP_SERVERS ?? "[]")
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  })()
+  const expand = (value: unknown): string =>
+    String(value ?? "").replace(/\$\{([A-Za-z0-9_]+)\}/g, (_m: string, name: string) => process.env[name] ?? "")
+  const CALL_TIMEOUT_MS = 60000
+  const withTimeout = (promise: Promise<any>, label: string): Promise<any> =>
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`${label} timed out`)), CALL_TIMEOUT_MS)
+      promise.then(
+        (value) => { clearTimeout(timer); resolve(value) },
+        (error) => { clearTimeout(timer); reject(error) },
+      )
+    })
+  // Streamable-HTTP client — the same wire as the exponential one above,
+  // with the server's own headers (expanded) instead of ours.
+  const httpClient = (server: any) => {
+    let serverSession: string | undefined
+    return async (method: string, params?: unknown): Promise<any> => {
+      const headers: Record<string, string> = {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      }
+      for (const [name, value] of Object.entries(server.headers ?? {})) {
+        headers[String(name).toLowerCase()] = expand(value)
+      }
+      if (serverSession) headers["mcp-session-id"] = serverSession
+      const body: Record<string, unknown> = { jsonrpc: "2.0", method }
+      if (params !== undefined) body.params = params
+      const notification = method.startsWith("notifications/")
+      if (!notification) body.id = nextId++
+      const res = await fetch(String(server.url), { method: "POST", headers, body: JSON.stringify(body) })
+      serverSession = res.headers.get("mcp-session-id") ?? serverSession
+      if (notification) return undefined
+      if (!res.ok) throw new Error(`${server.name} ${method} failed: HTTP ${res.status}`)
+      const contentType = res.headers.get("content-type") ?? ""
+      let payload: any
+      if (contentType.includes("text/event-stream")) {
+        for (const line of (await res.text()).split("\n")) {
+          const trimmed = line.trim()
+          if (trimmed.startsWith("data:")) {
+            try {
+              payload = JSON.parse(trimmed.slice(5).trim())
+            } catch {}
+          }
+        }
+      } else {
+        payload = await res.json()
+      }
+      if (!payload) throw new Error(`${server.name} ${method} returned no response`)
+      if (payload.error) throw new Error(payload.error.message ?? `${server.name} ${method} error`)
+      return payload.result
+    }
+  }
+  // stdio client — newline-delimited JSON-RPC over the child's stdin/stdout;
+  // stderr is dropped (a chatty server must not leak into pi's own output).
+  const stdioClient = async (server: any) => {
+    const { spawn } = await import("node:child_process")
+    const env: Record<string, string | undefined> = { ...process.env }
+    for (const [name, value] of Object.entries(server.env ?? {})) env[String(name)] = expand(value)
+    const child = spawn(String(server.command), (server.args ?? []).map(String), {
+      env,
+      stdio: ["pipe", "pipe", "ignore"],
+    })
+    const pending = new Map<number, { resolve: (v: any) => void; reject: (e: any) => void }>()
+    let buffer = ""
+    child.stdout?.on("data", (chunk: any) => {
+      buffer += chunk.toString()
+      let newline = buffer.indexOf("\n")
+      while (newline >= 0) {
+        const line = buffer.slice(0, newline).trim()
+        buffer = buffer.slice(newline + 1)
+        newline = buffer.indexOf("\n")
+        if (!line) continue
+        try {
+          const message = JSON.parse(line)
+          const waiting = message?.id !== undefined ? pending.get(message.id) : undefined
+          if (!waiting) continue
+          pending.delete(message.id)
+          if (message.error) waiting.reject(new Error(message.error.message ?? `${server.name} error`))
+          else waiting.resolve(message.result)
+        } catch {}
+      }
+    })
+    child.on("exit", () => {
+      for (const waiting of pending.values()) waiting.reject(new Error(`${server.name} exited`))
+      pending.clear()
+    })
+    return (method: string, params?: unknown): Promise<any> => {
+      const body: Record<string, unknown> = { jsonrpc: "2.0", method }
+      if (params !== undefined) body.params = params
+      if (method.startsWith("notifications/")) {
+        child.stdin?.write(`${JSON.stringify(body)}\n`)
+        return Promise.resolve(undefined)
+      }
+      const id = nextId++
+      body.id = id
+      const answer = new Promise<any>((resolve, reject) => pending.set(id, { resolve, reject }))
+      child.stdin?.write(`${JSON.stringify(body)}\n`)
+      return withTimeout(answer, `${server.name} ${method}`)
+    }
+  }
+  for (const server of teamServers) {
+    try {
+      if (!server || typeof server.name !== "string") continue
+      const call = server.kind === "stdio" ? await stdioClient(server) : httpClient(server)
+      const timed = (method: string, params?: unknown) => withTimeout(call(method, params), `${server.name} ${method}`)
+      await timed("initialize", {
+        protocolVersion: "2025-03-26",
+        capabilities: {},
+        clientInfo: { name: "exponential-pi-bridge", version: "1.0.0" },
+      })
+      await timed("notifications/initialized")
+      const listed = await timed("tools/list")
+      for (const tool of listed?.tools ?? []) {
+        const name = `${server.name}_${tool.name}`
+        pi.registerTool({
+          name,
+          label: name,
+          description: tool.description ?? name,
+          parameters: tool.inputSchema ?? { type: "object", properties: {} },
+          async execute(_toolCallId: string, params: any) {
+            const result = await timed("tools/call", { name: tool.name, arguments: params ?? {} })
+            const text = (result?.content ?? [])
+              .filter((block: any) => block?.type === "text")
+              .map((block: any) => block.text)
+              .join("\n")
+            if (result?.isError) throw new Error(text || `${name} failed`)
+            return { content: [{ type: "text", text }], details: {} }
+          },
+        })
+      }
+    } catch {}
+  }
+
   const activateCore = () => {
     try {
       const active = pi.getActiveTools?.()
@@ -418,6 +573,33 @@ mod tests {
         // Degrading OPEN matters more than deferring: every registry call is
         // wrapped, so a pi without the API keeps all tools active.
         assert!(PI_BRIDGE_SOURCE.contains("} catch {}"));
+    }
+
+    /// EXP-792: the team servers ride `EXP_MCP_SERVERS`; the bridge expands
+    /// `${VAR}` from its own env, speaks both transports, and registers
+    /// `<name>_<tool>` — still with no value-like literal anywhere in it.
+    #[test]
+    fn bridge_connects_the_team_servers_from_the_env_without_a_secret() {
+        assert!(PI_BRIDGE_SOURCE.contains("EXP_MCP_SERVERS"));
+        // `${VAR}` expansion from process.env, never a baked value.
+        assert!(PI_BRIDGE_SOURCE.contains(r"/\$\{([A-Za-z0-9_]+)\}/g"));
+        assert!(PI_BRIDGE_SOURCE.contains("process.env[name]"));
+        // Both transports: fetch for http, a spawned child on newline JSON-RPC
+        // for stdio (a Node BUILTIN via dynamic import — still package-free).
+        assert!(PI_BRIDGE_SOURCE.contains(r#"import("node:child_process")"#));
+        assert!(PI_BRIDGE_SOURCE.contains(r#"stdio: ["pipe", "pipe", "ignore"]"#));
+        assert!(PI_BRIDGE_SOURCE.contains(r#"`${JSON.stringify(body)}\n`"#));
+        // Tool namespacing + the per-call bound.
+        assert!(PI_BRIDGE_SOURCE.contains("`${server.name}_${tool.name}`"));
+        assert!(PI_BRIDGE_SOURCE.contains("CALL_TIMEOUT_MS = 60000"));
+        // A failed server is skipped, never fatal to the run.
+        assert!(PI_BRIDGE_SOURCE.contains("for (const server of teamServers) {\n    try {"));
+        // Secret-free: no key prefix, no numbered launcher var, no value.
+        for needle in ["expu_", "ghs_", "ghp_", "EXP_MCP_TOKEN_1", "EXP_MCP_ENV_"] {
+            assert!(!PI_BRIDGE_SOURCE.contains(needle), "value-like literal: {needle}");
+        }
+        assert!(!PI_BRIDGE_SOURCE.contains("import "));
+        assert!(!PI_BRIDGE_SOURCE.contains("console."));
     }
 
     #[test]

@@ -310,6 +310,23 @@ app.post(`/start`, async (c) => {
     startedReason = `agent`
   }
 
+  // EXP-792: mcpServerIds / account are OPTIONAL pass-throughs, but a
+  // PRESENT key must be well-formed (≤16 ids / ≤64 chars), else 400 — the
+  // startedBy stance: a mistyped field would drop the frame desktop-side
+  // after /start already answered ok.
+  let mcpServerIds: string[] | undefined
+  if (body && `mcpServerIds` in body) {
+    mcpServerIds = asIdList(body.mcpServerIds, 16)
+    if (!mcpServerIds) return c.json({ error: `Bad request` }, 400)
+  }
+  let account: string | undefined
+  if (body && `account` in body) {
+    account = asString(body.account)
+    if (!account || account.length > 64) {
+      return c.json({ error: `Bad request` }, 400)
+    }
+  }
+
   const options: StartSessionOptions = {
     ...(startedBy ? { startedBy } : {}),
     ...(startedReason ? { startedReason } : {}),
@@ -319,6 +336,8 @@ app.post(`/start`, async (c) => {
     ultracode: asBoolean(body?.ultracode),
     planMode: asBoolean(body?.planMode),
     resume: asBoolean(body?.resume),
+    ...(mcpServerIds ? { mcpServerIds } : {}),
+    ...(account ? { account } : {}),
   }
   const result = hub.startSession(userId, deviceId, subject, options)
   if (!result.ok) return c.json({ error: result.reason }, 404)
@@ -343,6 +362,20 @@ function asString(value: unknown): string | undefined {
 
 function asBoolean(value: unknown): boolean | undefined {
   return typeof value === `boolean` ? value : undefined
+}
+
+// EXP-792: an id list that may be EMPTY (0..max members, each a non-empty
+// string ≤128 chars). Any deviation ⇒ undefined (⇒ 400 upstream).
+function asIdList(value: unknown, max: number): string[] | undefined {
+  if (!Array.isArray(value) || value.length > max) return undefined
+  const out: string[] = []
+  for (const entry of value) {
+    if (typeof entry !== `string` || entry.length < 1 || entry.length > 128) {
+      return undefined
+    }
+    out.push(entry)
+  }
+  return out
 }
 
 // A batch issue-id array: 1..30 members, each a non-empty string ≤128 chars.

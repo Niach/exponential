@@ -488,6 +488,29 @@ export const actionInputTypeValues = [
 ] as const
 export type ActionInputType = (typeof actionInputTypeValues)[number]
 
+// EXP-792: team MCP servers (server-only `mcp_servers` rows, never synced).
+// `transport` = how the agent reaches the server; `auth` = how the DEVICE
+// authenticates to it: `none`, an OAuth sign-in the device executes, or a
+// `secret` typed on the device (a header value for http, an env value for
+// stdio). Documented varchars mirrored in contract.json (`mcpTransport`,
+// `mcpAuth`); the server never stores a credential either way.
+export const mcpTransportValues = [`http`, `stdio`] as const
+export type McpTransport = (typeof mcpTransportValues)[number]
+export const mcpAuthValues = [`none`, `oauth`, `secret`] as const
+export type McpAuth = (typeof mcpAuthValues)[number]
+export const mcpTransportSchema = z.enum(mcpTransportValues)
+export const mcpAuthSchema = z.enum(mcpAuthValues)
+/** Team MCP server names: ≤64 chars, unique per team. */
+export const MAX_MCP_SERVER_NAME = 64
+/** Header/env NAMES (never values) an MCP server row may declare. */
+export const MAX_MCP_SERVER_NAMES = 16
+/** A header or env-var NAME — the only shape the server accepts (values live on the device). */
+export const mcpVariableNameSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[A-Za-z_][A-Za-z0-9_-]*$/, `must be a header or variable name`)
+
 export const MAX_ACTION_INPUTS = 10
 export const MAX_ACTION_INPUT_KEY = 32
 export const MAX_ACTION_INPUT_LABEL = 100

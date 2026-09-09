@@ -216,6 +216,33 @@ export function deviceCanAgentLoginCode(
   return (device.caps ?? []).includes(`agent-login-code`)
 }
 
+/** EXP-792: the machine runs the `mcp_oauth_*` device commands and reports
+ * MCP readiness on its heartbeat. Without the cap a queued sign-in would sit
+ * pending forever, so the settings pane hides "Sign in on <device>". */
+export function deviceSupportsMcp(device: Pick<SteerDevice, `caps`>): boolean {
+  return (device.caps ?? []).includes(`mcp`)
+}
+
+/** EXP-747 C4: the machine runs `agent_usage_refresh` — a forced re-read of
+ * one profile's usage windows. The usage page shows Refresh only behind it. */
+export function deviceCanRefreshUsage(
+  device: Pick<SteerDevice, `caps`>
+): boolean {
+  return (device.caps ?? []).includes(`agent-usage-refresh`)
+}
+
+/** EXP-747 A4: one of MY online machines has an agent installed but signed
+ * out — the Devices nav entry falls through to an amber dot for it (behind
+ * the running/needs-input colours). Offline rows never count: nothing can be
+ * signed in there until the machine is back. */
+export function deviceNeedsSignIn(device: SteerDevice): boolean {
+  return (
+    deviceIsMine(device) &&
+    deviceIsOnline(device) &&
+    deviceUnauthedAgentIds(device).length > 0
+  )
+}
+
 /** EXP-481: whether a devices row reads "online" — `last_seen_at` within the
  * contract window of `now` (devices heartbeat ~30s; the window is three
  * missed beats). A negative age (server stamp ahead of the client clock)

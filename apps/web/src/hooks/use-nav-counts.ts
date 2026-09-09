@@ -2,12 +2,14 @@ import { useMemo } from "react"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import {
   codingSessionCollection,
+  deviceCollection,
   issueCollection,
 } from "@/lib/collections"
-import type { CodingSession, Board } from "@/db/schema"
+import type { CodingSession, Board, Device } from "@/db/schema"
 import { isCodingSessionStale } from "@exp/db-schema/domain"
 import { sessionDisplayState } from "@/lib/coding-session-display"
 import { useNow } from "@/hooks/use-now"
+import { deviceNeedsSignIn, steerDeviceFromRow } from "@/lib/steer-devices"
 
 // Shared nav-count hooks for the sidebar badges (desktop) and the mobile
 // tab bar dots. Both count purely client-side over already-synced shapes.
@@ -107,4 +109,42 @@ export function useAgentsRunningCount(
       (s) => sessionDisplayState(s, null) === `needs_input`
     ),
   }
+}
+
+// EXP-792 (EXP-747 A4): one of MY online machines has an agent installed but
+// signed out — the Devices badge falls through to amber for it, BEHIND the
+// running-green / needs-input-yellow states above (a live run is always the
+// more urgent thing). Own rows only: a teammate's shared server is theirs to
+// sign in. Pure selector + hook, so the rule is testable without a collection.
+export function devicesNeedSignIn(
+  rows: readonly Device[],
+  currentUserId: string,
+  now: Date
+): boolean {
+  return rows.some(
+    (row) =>
+      row.userId === currentUserId &&
+      deviceNeedsSignIn(steerDeviceFromRow(row, { now, currentUserId }))
+  )
+}
+
+export function useDevicesNeedSignIn(currentUserId?: string): boolean {
+  const { data } = useLiveQuery(
+    (query) =>
+      currentUserId
+        ? query
+            .from({ devices: deviceCollection })
+            .where(({ devices }) => eq(devices.userId, currentUserId))
+        : undefined,
+    [currentUserId]
+  )
+  // 30s tick against the 90s online window (the device-list idiom).
+  const now = useNow(30_000)
+  return useMemo(
+    () =>
+      currentUserId
+        ? devicesNeedSignIn((data ?? []) as Device[], currentUserId, now)
+        : false,
+    [data, currentUserId, now]
+  )
 }

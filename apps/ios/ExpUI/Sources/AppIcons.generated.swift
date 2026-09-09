@@ -513,6 +513,8 @@ public enum AppIcons {
     public static let settingsLicenses: String = "scale"
     /// Concept `settings-local-repos`.
     public static let settingsLocalRepos: String = "hard-drive"
+    /// Concept `settings-mcp`.
+    public static let settingsMcp: String = "plug"
     /// Concept `settings-members`.
     public static let settingsMembers: String = "users"
     /// Concept `settings-notifications`.

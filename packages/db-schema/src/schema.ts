@@ -43,6 +43,8 @@ import {
   issueStatusCategoryValues,
   issueStatusSchema,
   type IssueStatus,
+  mcpAuthSchema,
+  mcpTransportSchema,
   type NotificationType,
   notificationTypeValues,
   prStateSchema,
@@ -799,6 +801,11 @@ export const codingSessions = pgTable(
     // from clients that predate it. Synced, so every client can show which
     // agent a run uses and pair it with the device's usage windows.
     agent: varchar({ length: 16 }),
+    // EXP-792 (EXP-747 B7): the agent ACCOUNT PROFILE the run was launched
+    // on (`system` = the ambient login, else a device-local profile id).
+    // SERVER-ONLY — never in the shape allowlist (an unknown column bricks
+    // older native sync); read back through tRPC for the usage page.
+    agentAccount: varchar(`agent_account`, { length: 64 }),
     status: codingSessionStatusEnum().notNull().default(`running`),
     // EXP-545: the batch↔PR linkage. Stamped with the PR's head branch
     // (`exp/batch-<id8>`) when the MCP pr_open batch flip parks the row in
@@ -1061,6 +1068,19 @@ export interface DeviceAgentAccount {
   email?: string
   plan?: string
   checkedAt?: string
+  /** EXP-792 (EXP-747 B5): every profile on the device, ≤5; absent on
+   * pre-profile clients. The top-level fields stay the ACTIVE profile. */
+  profiles?: DeviceAgentProfileEntry[]
+}
+export interface DeviceAgentProfileEntry {
+  id: string
+  label?: string
+  signedIn: boolean
+  email?: string
+  plan?: string
+  active?: boolean
+  checkedAt?: string
+  usage?: DeviceAgentUsage
 }
 export type DeviceAgentAccounts = Record<string, DeviceAgentAccount>
 
@@ -1083,6 +1103,40 @@ export type DeviceAgentUsageMap = Record<string, DeviceAgentUsage>
 // invisible. Structural bounds only — `clampAgentAccounts`/`clampAgentUsage`
 // (lib/trpc/devices.ts) own the vocabulary and the stored copies stay
 // null-free.
+// EXP-792 (EXP-747 B5): N accounts per agent ride the SAME jsonb value —
+// `signedIn`/`email`/`plan`/`checkedAt` stay the ACTIVE profile (old clients
+// see exactly the pre-profile payload), `profiles` lists every profile the
+// device holds (≤5, `system` = the ambient login). No new column: an unknown
+// devices column bricks older native sync.
+export const deviceAgentProfileSchema = z.object({
+  id: z.string().max(64),
+  label: z.string().max(64).nullish(),
+  signedIn: z.boolean().nullish(),
+  email: z.string().max(320).nullish(),
+  plan: z.string().max(64).nullish(),
+  active: z.boolean().nullish(),
+  checkedAt: z.string().max(64).nullish(),
+  usage: z
+    .object({
+      fetchedAt: z.string().max(64).nullish(),
+      stale: z.boolean().nullish(),
+      windows: z
+        .array(
+          z
+            .object({
+              key: z.string().max(64).nullish(),
+              label: z.string().max(64).nullish(),
+              percent: z.number().nullish(),
+              resetsAt: z.string().max(64).nullish(),
+            })
+            .nullish()
+        )
+        .nullish(),
+    })
+    .nullish(),
+})
+export const MAX_AGENT_PROFILES = 5
+
 export const deviceAgentAccountsSchema = z.record(
   z.string(),
   z
@@ -1091,6 +1145,7 @@ export const deviceAgentAccountsSchema = z.record(
       email: z.string().max(320).nullish(),
       plan: z.string().max(64).nullish(),
       checkedAt: z.string().max(64).nullish(),
+      profiles: z.array(deviceAgentProfileSchema.nullish()).nullish(),
     })
     .nullish()
 )
@@ -1280,7 +1335,14 @@ export const deviceWorktrees = pgTable(
 // {repoFullName, branch}) | `worktree_prune` (payload {}) | `agent_login`
 // (EXP-484, payload {agent, switch: "true"|"false"} — the device runs the
 // agent CLI's own login flow and completes the command EARLY, as soon as the
-// sign-in URL is on screen, with the JSON progress in `result`).
+// sign-in URL is on screen, with the JSON progress in `result`) |
+// `agent_login_code` (payload {agent, code} — the typed device code for a
+// pending login) | `mcp_oauth_start` (EXP-792, payload {serverId, state,
+// redirectUri} — the device runs discovery + PKCE and completes EARLY with
+// `{phase:"authorize", url}`) | `mcp_oauth_code` (payload {serverId, state,
+// code} — the callback-relayed authorization code the device exchanges) |
+// `agent_usage_refresh` (EXP-747 C4, payload {agent, profileId} — force a
+// usage collection past the shared TTL, never past the rate-limit floor).
 export const deviceCommands = pgTable(
   `device_commands`,
   {
@@ -1678,6 +1740,126 @@ export const repositories = pgTable(
     unique().on(table.teamId, table.fullName),
     index(`idx_repositories_team`).on(table.teamId),
   ]
+)
+
+// EXP-792: team MCP servers a coding run may connect to besides Exponential's
+// own `/api/mcp`. SERVER-ONLY (tRPC `mcpServers`, never a shape — the natives
+// have no decode) and NON-SECRET by construction: a row carries the NAMES of
+// the headers / env variables a device must supply, never their values. The
+// values (an OAuth token set, a typed header or env secret) live in the
+// device's 0600 secret store; the server only learns per-device READINESS
+// through `mcp_server_readiness`. `auth`: `none` (connect as-is), `oauth`
+// (the device runs discovery + PKCE, the web relays the code over
+// `device_commands`), `secret` (a value typed on the device for the ONE
+// declared header/env name). `transport`: `http` (url + header names) or
+// `stdio` (command + args + env names). `scopes` is advisory (the OAuth
+// scope request); `enabled_by_default` preselects the server in the launch
+// multiselects.
+export const mcpServers = pgTable(
+  `mcp_servers`,
+  {
+    id: uuidPk(),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    name: varchar({ length: 64 }).notNull(),
+    // Documented varchar (mcpTransportValues in domain.ts).
+    transport: varchar({ length: 16 }).notNull().default(`http`),
+    url: text(),
+    headerNames: jsonb(`header_names`)
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    command: text(),
+    args: jsonb().$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    envNames: jsonb(`env_names`)
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    scopes: jsonb().$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    // Documented varchar (mcpAuthValues in domain.ts).
+    auth: varchar({ length: 16 }).notNull().default(`none`),
+    enabledByDefault: boolean(`enabled_by_default`).notNull().default(false),
+    createdById: text(`created_by_id`).references(() => users.id, {
+      onDelete: `set null`,
+    }),
+    ...timestamps,
+  },
+  (table) => [
+    unique().on(table.teamId, table.name),
+    index(`idx_mcp_servers_team`).on(table.teamId),
+  ]
+)
+
+// EXP-792: the per-device readiness matrix — "signed in on the MacBook, not
+// on the mini". Upserted by the device (heartbeat `mcpReadiness` +
+// `mcpServers.reportReadiness`) from what its secret store holds; `ready`
+// false + `error` names why (no secret, refresh failed, ...). `expires_at`
+// is the OAuth access token's expiry so the UI can warn before a launch.
+// `user_id` denormalizes the device owner (the readiness is theirs).
+export const mcpServerReadiness = pgTable(
+  `mcp_server_readiness`,
+  {
+    id: uuidPk(),
+    serverId: uuid(`server_id`)
+      .notNull()
+      .references(() => mcpServers.id, { onDelete: `cascade` }),
+    deviceRowId: uuid(`device_row_id`)
+      .notNull()
+      .references(() => devices.id, { onDelete: `cascade` }),
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    ready: boolean().notNull().default(false),
+    expiresAt: timestamp(`expires_at`, { withTimezone: true }),
+    error: text(),
+    checkedAt: timestamp(`checked_at`, { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    ...timestamps,
+  },
+  (table) => [
+    unique().on(table.serverId, table.deviceRowId),
+    index(`idx_mcp_server_readiness_device`).on(table.deviceRowId),
+  ]
+)
+
+// EXP-792: one web-initiated, device-executed OAuth sign-in. Created by
+// `mcpServers.beginOAuth` (state = 32 random bytes, base64url; 10-minute
+// TTL), advanced by the device's command completions (`authorize_url` once
+// the device built the PKCE authorize URL, `code_relayed` when the anonymous
+// callback matched `state` and queued the code back, `done`/`failed` when
+// the device reports the exchange). `redirect`: `hosted` (our HTTPS callback)
+// or `loopback` (the device's own 127.0.0.1 listener). The PKCE verifier
+// never leaves the device, so the relayed code is useless to the server.
+export const mcpOauthFlows = pgTable(
+  `mcp_oauth_flows`,
+  {
+    id: uuidPk(),
+    state: varchar({ length: 64 }).notNull().unique(),
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    serverId: uuid(`server_id`)
+      .notNull()
+      .references(() => mcpServers.id, { onDelete: `cascade` }),
+    deviceRowId: uuid(`device_row_id`)
+      .notNull()
+      .references(() => devices.id, { onDelete: `cascade` }),
+    redirect: varchar({ length: 16 }).notNull().default(`hosted`),
+    // pending → authorize_url → code_relayed → done | failed.
+    status: varchar({ length: 16 }).notNull().default(`pending`),
+    authorizeUrl: text(`authorize_url`),
+    error: text(),
+    createdAt: timestamp(`created_at`, { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    completedAt: timestamp(`completed_at`, { withTimezone: true }),
+  },
+  (table) => [index(`idx_mcp_oauth_flows_device`).on(table.deviceRowId)]
 )
 
 // Team action prompts. An action is a named markdown prompt the desktop runs
@@ -2250,6 +2432,15 @@ export const selectCodingSessionSchema = createSelectSchema(codingSessions, {
 
 export const selectRepositorySchema = createSelectSchema(repositories)
 
+export const selectMcpServerSchema = createSelectSchema(mcpServers, {
+  transport: mcpTransportSchema,
+  auth: mcpAuthSchema,
+  headerNames: z.array(z.string()),
+  args: z.array(z.string()),
+  envNames: z.array(z.string()),
+  scopes: z.array(z.string()),
+})
+
 export const selectActionSchema = createSelectSchema(actions, {
   inputs: actionInputsSchema,
 })
@@ -2329,6 +2520,10 @@ export type IssueSubscriber = InferSelectModel<typeof issueSubscribers>
 export type IssueEvent = InferSelectModel<typeof issueEvents>
 export type CodingSession = InferSelectModel<typeof codingSessions>
 export type Repository = InferSelectModel<typeof repositories>
+export type McpServer = InferSelectModel<typeof mcpServers>
+export type McpServerReadiness = InferSelectModel<typeof mcpServerReadiness>
+export type McpOauthFlow = InferSelectModel<typeof mcpOauthFlows>
+export type DeviceAgentProfile = z.infer<typeof deviceAgentProfileSchema>
 export type Action = InferSelectModel<typeof actions>
 export type Automation = InferSelectModel<typeof automations>
 export type SyncedAction = Omit<Action, `body`>

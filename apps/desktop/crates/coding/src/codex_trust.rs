@@ -31,8 +31,12 @@
 
 use std::path::{Path, PathBuf};
 
-/// `$CODEX_HOME|~/.codex` (mirrors `codex_sessions::default_codex_sessions_root`).
-fn codex_home() -> Option<PathBuf> {
+/// An explicit home (EXP-792: a profile's `CODEX_HOME`), else
+/// `$CODEX_HOME|~/.codex` (mirrors `codex_sessions::codex_sessions_root`).
+fn codex_home(home: Option<&Path>) -> Option<PathBuf> {
+    if let Some(home) = home {
+        return Some(home.to_path_buf());
+    }
     match std::env::var_os("CODEX_HOME") {
         Some(dir) if !dir.is_empty() => Some(PathBuf::from(dir)),
         _ => Some(dirs::home_dir()?.join(".codex")),
@@ -42,22 +46,26 @@ fn codex_home() -> Option<PathBuf> {
 /// Ensure `root` (and its canonicalized twin, when different — codex
 /// resolves the cwd before the trust lookup) is a trusted project in the
 /// user's codex config. Best-effort: failures are logged, never returned.
-pub fn ensure_trusted(root: &Path) {
+///
+/// EXP-792: `home` is the run's account PROFILE dir (the `CODEX_HOME` its
+/// spawn carries) so the entry lands in the config the run will read;
+/// `None` = the ambient login.
+pub fn ensure_trusted(root: &Path, home: Option<&Path>) {
     // The launcher unit tests run prepare end-to-end with temp clones — they
     // must never append those throwaway paths to the developer's REAL codex
     // config (the tests below exercise [`ensure_trusted_in_config`] against
     // explicit temp files instead).
     #[cfg(test)]
     {
-        let _ = root;
+        let _ = (root, home);
     }
     #[cfg(not(test))]
-    ensure_trusted_live(root);
+    ensure_trusted_live(root, home);
 }
 
 #[cfg_attr(test, allow(dead_code))]
-fn ensure_trusted_live(root: &Path) {
-    let Some(home) = codex_home() else {
+fn ensure_trusted_live(root: &Path, home: Option<&Path>) {
+    let Some(home) = codex_home(home) else {
         return;
     };
     let mut paths = vec![root.to_path_buf()];
@@ -147,7 +155,7 @@ pub fn forget(paths: &[PathBuf]) {
 
 #[cfg_attr(test, allow(dead_code))]
 fn forget_live(paths: &[PathBuf]) {
-    let Some(home) = codex_home() else {
+    let Some(home) = codex_home(None) else {
         return;
     };
     match forget_in_config(&home.join("config.toml"), paths) {

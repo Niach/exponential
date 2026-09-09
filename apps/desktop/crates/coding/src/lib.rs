@@ -39,6 +39,7 @@ pub mod action_prompt;
 pub mod agent;
 pub mod agent_accounts;
 pub mod agent_login;
+pub mod agent_profiles;
 pub mod agent_usage;
 pub mod atomic_config;
 pub mod argv;
@@ -58,6 +59,8 @@ pub mod launch_defaults_sync;
 pub mod launch_gate;
 pub mod launcher;
 pub mod mcp_json;
+pub mod mcp_oauth;
+pub mod mcp_servers;
 pub mod pi_bridge;
 pub mod process;
 pub mod prompt;
@@ -81,7 +84,8 @@ pub mod worktree_agents;
 
 pub use agent::{AgentKind, CodingAgent};
 pub use argv::{
-    permission_args, shell_args, AgentMcp, LaunchOptions, MCP_SESSION_ID_ENV, MCP_TOKEN_ENV,
+    permission_args, shell_args, AgentMcp, LaunchOptions, McpServerWire, McpWireTransport,
+    MCP_SESSION_ID_ENV, MCP_TOKEN_ENV,
     MCP_URL_ENV,
 };
 pub use batch_launcher::{
@@ -102,11 +106,13 @@ pub use doctor::{
     ToolCheck, ACTION_CAPS, DEVICE_CAPS, MIN_CLAUDE_ACP_VERSION, MIN_CLAUDE_VERSION,
     MIN_CODEX_ACP_VERSION,
 };
-pub use agent_accounts::{now_iso, AgentAccount, AgentAccounts};
+pub use agent_accounts::{now_iso, AgentAccount, AgentAccounts, AgentProfileEntry};
+pub use agent_profiles::{AgentProfile, SYSTEM_PROFILE};
 pub use agent_login::{login_plan, LoginPhase, LoginPlan, LoginProgress};
 pub use agent_usage::{
-    collect_if_due, AgentStatusPayload, AgentUsage, AgentUsageMap, UsageWindow,
+    collect_if_due, force_collect, AgentStatusPayload, AgentUsage, AgentUsageMap, UsageWindow,
 };
+pub use mcp_servers::{McpBlocker, McpReadinessState, ResolvedMcp};
 pub use scm::{
     CommitInfo, ConflictKind, ConflictState, DiffFile, DiffLine, DiffLineKind, FileChange,
     FileStatus, StatusSummary, UnifiedHunk,
@@ -119,7 +125,7 @@ pub use git_worktree::{
     branch_name, clone_path, shell_cwd, worktree_path, GitError, TokenUrl,
 };
 pub use launch_gate::LaunchHold;
-pub use launcher::{set_session_end_observer, start_heartbeat, HeartbeatStop};
+pub use launcher::{apply_account_env, set_session_end_observer, start_heartbeat, HeartbeatStop};
 pub use launcher::SESSION_HEARTBEAT_INTERVAL;
 pub use launcher::{
     claude_projects_root, claude_transcript_exists, default_device_label, end_session,

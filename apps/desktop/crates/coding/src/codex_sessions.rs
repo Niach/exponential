@@ -25,9 +25,18 @@ use std::path::{Path, PathBuf};
 /// `None` when no home directory resolves (headless oddity); the caller
 /// falls back to the resume prompt.
 pub fn default_codex_sessions_root() -> Option<PathBuf> {
-    let home = match std::env::var_os("CODEX_HOME") {
-        Some(dir) if !dir.is_empty() => PathBuf::from(dir),
-        _ => dirs::home_dir()?.join(".codex"),
+    codex_sessions_root(None)
+}
+
+/// [`default_codex_sessions_root`] under an explicit home — EXP-792: a
+/// profile run's `CODEX_HOME`, whose rollouts live there and nowhere else.
+pub fn codex_sessions_root(home: Option<&Path>) -> Option<PathBuf> {
+    let home = match home {
+        Some(home) => home.to_path_buf(),
+        None => match std::env::var_os("CODEX_HOME") {
+            Some(dir) if !dir.is_empty() => PathBuf::from(dir),
+            _ => dirs::home_dir()?.join(".codex"),
+        },
     };
     Some(home.join("sessions"))
 }

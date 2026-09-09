@@ -993,8 +993,8 @@
         "lane": "store"
       },
       "notes": {
-        "web": "EXP-740 gave a session its own full-page route \u2014 the dock below is the tab strip alone, so there is no recipe to expand: `$sessionId` resolves to DEMO_STEERED_SESSION_ID (apps/web/scripts/screenshot-demo.ts), the id the seed stamps on the demo user's running showcase run. Needs `bun run screenshots:desktop` running: the feed is relay-fed, and an unreachable relay photographs a Reconnecting state instead. The anchor is the tail fragment of DEMO_FEED_QUESTION.",
-        "desktop": "A session is a `Screen::Session` tab in the center panel since EXP-746, not a dock, and `session:$steeredSession` opens the seeded showcase run in it. With no engine of its own the tab dials the relay as a VIEWER (owner-only ticket via `steer.mintTicket`), so it renders the same relay-fed feed the web shot photographs \u2014 which makes `bun run screenshots:desktop` and the steer-relay container prerequisites here too, exactly as they are for web. Without them the tab photographs a Reconnecting / steering-unavailable state, so `--skip-relay` skips this view instead."
+        "web": "EXP-740 gave a session its own full-page route — the dock below is the tab strip alone, so there is no recipe to expand: `$sessionId` resolves to DEMO_STEERED_SESSION_ID (apps/web/scripts/screenshot-demo.ts), the id the seed stamps on the demo user's running showcase run. Needs `bun run screenshots:desktop` running: the feed is relay-fed, and an unreachable relay photographs a Reconnecting state instead. The anchor is the tail fragment of DEMO_FEED_QUESTION.",
+        "desktop": "A session is a `Screen::Session` tab in the center panel since EXP-746, not a dock, and `session:$steeredSession` opens the seeded showcase run in it. With no engine of its own the tab dials the relay as a VIEWER (owner-only ticket via `steer.mintTicket`), so it renders the same relay-fed feed the web shot photographs — which makes `bun run screenshots:desktop` and the steer-relay container prerequisites here too, exactly as they are for web. Without them the tab photographs a Reconnecting / steering-unavailable state, so `--skip-relay` skips this view instead."
       },
       "desktop": {
         "drive": {
@@ -1008,7 +1008,7 @@
       "id": "chat",
       "group": "coding",
       "title": "Chat",
-      "blurb": "A conversation with the agent that is bound to no issue and needs no repository \u2014 start card, agent options, and the past chats you can resume.",
+      "blurb": "A conversation with the agent that is bound to no issue and needs no repository — start card, agent options, and the past chats you can resume.",
       "order": 7,
       "web": {
         "route": "/t/$teamSlug/chat",
@@ -1094,6 +1094,32 @@
         "env": {
           "EXP_DEV_SCREEN": "devices"
         }
+      }
+    },
+    {
+      "id": "usage",
+      "group": "coding",
+      "title": "Usage",
+      "blurb": "Every machine's agent usage on one page: one row per device and profile, the signed-out and nearly spent ones first, with a per-row refresh.",
+      "order": 10,
+      "web": {
+        "route": "/t/$teamSlug/usage",
+        "anchor": {
+          "text": "Usage",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1200
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "usage"
+        }
+      },
+      "notes": {
+        "ios": "No native page: the mobile Usage sheet beside a running session shows the same cards; the web shot is the reference.",
+        "android": "No native page: the mobile Usage sheet beside a running session shows the same cards; the web shot is the reference."
       }
     },
     {
@@ -1882,6 +1908,32 @@
         "web-mobile": "See web.",
         "ios": "Folded into the one native Team settings screen: see settings-team.",
         "android": "Folded into the one native Team settings screen: see settings-team."
+      }
+    },
+    {
+      "id": "settings-mcp-servers",
+      "group": "settings",
+      "title": "Settings · MCP servers",
+      "blurb": "The team's MCP server registry: names, transport, the header and variable names a machine must supply, and the per-device readiness strip. Member-visible, owner-edited.",
+      "order": 20,
+      "web": {
+        "route": "/t/$teamSlug/settings/mcp-servers",
+        "anchor": {
+          "text": "MCP servers",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "mcp-servers"
+        }
+      },
+      "notes": {
+        "ios": "No native section: MCP servers are configured on the web and the desktop IDE (SettingsSection::McpServers).",
+        "android": "No native section: MCP servers are configured on the web and the desktop IDE (SettingsSection::McpServers)."
       }
     },
     {

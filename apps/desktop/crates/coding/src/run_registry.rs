@@ -328,7 +328,103 @@ where
     }
 }
 
+/// EXP-792: the [`RunRecord::extra`] key carrying the launch's team MCP
+/// server picks (`mcp_servers` row ids, pick order) — a resume re-resolves
+/// them against the CURRENT secret store, so a rotated token is picked up
+/// and a server that lost its credential refuses the resume by name. Rides
+/// `extra` rather than a declared field so an older host round-trips it
+/// untouched.
+pub const MCP_SERVER_IDS_KEY: &str = "mcpServerIds";
+
 impl RunRecord {
+    /// EXP-792: the recorded team MCP server ids (empty when none, or when
+    /// the entry is not the string array this build writes).
+    pub fn mcp_server_ids(&self) -> Vec<String> {
+        self.extra
+            .get(MCP_SERVER_IDS_KEY)
+            .and_then(|value| value.as_array())
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(|id| id.as_str())
+                    .filter(|id| !id.is_empty())
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// EXP-792: record the pick. An empty pick REMOVES the key, so a run
+    /// without servers serializes exactly as before.
+    pub fn set_mcp_server_ids(&mut self, ids: &[String]) {
+        self.extra.remove(MCP_SERVER_IDS_KEY);
+        self.extra.extend(mcp_server_ids_extra(ids));
+    }
+}
+
+/// EXP-792: the [`RunRecord::extra`] entries a pick writes — empty for an
+/// empty pick. The ONE writer of [`MCP_SERVER_IDS_KEY`]; the launcher seeds a
+/// fresh record's `extra` from it.
+pub fn mcp_server_ids_extra(ids: &[String]) -> BTreeMap<String, serde_json::Value> {
+    let mut extra = BTreeMap::new();
+    if !ids.is_empty() {
+        extra.insert(
+            MCP_SERVER_IDS_KEY.to_string(),
+            serde_json::Value::Array(
+                ids.iter().map(|id| serde_json::Value::String(id.clone())).collect(),
+            ),
+        );
+    }
+    extra
+}
+
+/// EXP-792 (EXP-747 B7): the [`RunRecord::extra`] key carrying the run's
+/// agent ACCOUNT PROFILE id — a resume must reopen the SAME config dir
+/// (credentials, trust flags, codex rollouts). Absent for the ambient
+/// login, so a profile-less run serializes exactly as before.
+pub const ACCOUNT_KEY: &str = "account";
+
+impl RunRecord {
+    /// EXP-792: the recorded account profile; `None` = the ambient login.
+    pub fn account(&self) -> Option<String> {
+        self.extra
+            .get(ACCOUNT_KEY)
+            .and_then(|value| value.as_str())
+            .filter(|id| !crate::agent_profiles::is_system(Some(id)))
+            .map(str::to_string)
+    }
+
+    /// EXP-792: record (or, for `None`/`system`, clear) the profile.
+    pub fn set_account(&mut self, account: Option<&str>) {
+        self.extra.remove(ACCOUNT_KEY);
+        self.extra.extend(account_extra(account));
+    }
+}
+
+/// EXP-792: the `extra` entry an account pick writes — empty for the
+/// ambient login.
+pub fn account_extra(account: Option<&str>) -> BTreeMap<String, serde_json::Value> {
+    let mut extra = BTreeMap::new();
+    if !crate::agent_profiles::is_system(account) {
+        if let Some(id) = account {
+            extra.insert(
+                ACCOUNT_KEY.to_string(),
+                serde_json::Value::String(id.trim().to_string()),
+            );
+        }
+    }
+    extra
+}
+
+/// EXP-792: everything a fresh record's `extra` carries off the launch
+/// options — the team server pick and the account profile.
+pub fn launch_extra(ids: &[String], account: Option<&str>) -> BTreeMap<String, serde_json::Value> {
+    let mut extra = mcp_server_ids_extra(ids);
+    extra.extend(account_extra(account));
+    extra
+}
+
+impl RunRecord {
+
     /// EXP-746: the external agent this run ran under, with its `env` taken
     /// from the CURRENT settings (`configured`) instead of from disk — the
     /// record carries none. `None` for every builtin run.
@@ -1314,6 +1410,61 @@ mod tests {
             .expect("the neighbour");
         assert_eq!(plain.get("extra"), None);
         assert_eq!(plain.get("worktreeMode"), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-792 (EXP-747 B7): the account profile rides `extra["account"]`;
+    /// the ambient login writes nothing.
+    #[test]
+    fn account_round_trips_through_extra_and_system_writes_nothing() {
+        let dir = temp_dir("account-extra");
+        let mut picked = sample("sess-1");
+        picked.set_account(Some("0a1b2c3d"));
+        let mut plain = sample("sess-2");
+        plain.set_account(Some("system"));
+        record(&dir, picked.clone());
+        record(&dir, plain.clone());
+        assert_eq!(get(&dir, "sess-1").unwrap().account().as_deref(), Some("0a1b2c3d"));
+        assert_eq!(get(&dir, "sess-2").unwrap().account(), None);
+        assert!(!get(&dir, "sess-2").unwrap().extra.contains_key(ACCOUNT_KEY));
+        let extra = launch_extra(&["srv-1".to_string()], Some("0a1b2c3d"));
+        assert_eq!(extra.len(), 2);
+        assert!(launch_extra(&[], None).is_empty());
+        assert!(launch_extra(&[], Some("system")).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-792: the MCP server pick rides `extra["mcpServerIds"]` through a
+    /// write+load, an empty pick leaves no key, and a foreign shape reads as
+    /// none instead of failing the record.
+    #[test]
+    fn mcp_server_ids_round_trip_through_extra() {
+        let dir = temp_dir("mcp-ids");
+        let mut picked = sample("sess-1");
+        picked.set_mcp_server_ids(&["srv-1".to_string(), "srv-2".to_string()]);
+        let mut plain = sample("sess-2");
+        plain.set_mcp_server_ids(&[]);
+        record(&dir, picked);
+        record(&dir, plain);
+
+        let loaded = get(&dir, "sess-1").expect("recorded");
+        assert_eq!(loaded.mcp_server_ids(), vec!["srv-1", "srv-2"]);
+        assert_eq!(get(&dir, "sess-2").unwrap().mcp_server_ids(), Vec::<String>::new());
+        let entries: Vec<serde_json::Value> =
+            serde_json::from_str(&std::fs::read_to_string(registry_path(&dir)).unwrap()).unwrap();
+        let on_disk = entries.iter().find(|entry| entry["sessionId"] == "sess-1").unwrap();
+        assert_eq!(on_disk[MCP_SERVER_IDS_KEY], serde_json::json!(["srv-1", "srv-2"]));
+        let bare = entries.iter().find(|entry| entry["sessionId"] == "sess-2").unwrap();
+        assert!(bare.get(MCP_SERVER_IDS_KEY).is_none());
+
+        // Clearing the pick removes the key again.
+        let mut cleared = loaded.clone();
+        cleared.set_mcp_server_ids(&[]);
+        assert!(cleared.extra.get(MCP_SERVER_IDS_KEY).is_none());
+        // A shape this build never wrote (an object) is not a pick.
+        let mut foreign = sample("sess-3");
+        foreign.extra.insert(MCP_SERVER_IDS_KEY.to_string(), serde_json::json!({ "a": 1 }));
+        assert!(foreign.mcp_server_ids().is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

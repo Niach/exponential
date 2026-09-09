@@ -689,6 +689,52 @@ describe(`steer relay end-to-end`, () => {
     desktop.close()
   })
 
+  test(`mcpServerIds + account ride /start; malformed ones are 400 (EXP-792)`, async () => {
+    const desktop = await connect(ticket({ role: `control`, sub: `owner-7` }))
+    const desktopIn = collector(desktop)
+    desktop.send(JSON.stringify({ t: `online`, deviceId: `dev-7` }))
+
+    const start = await startWhenOnline({
+      userId: `owner-7`,
+      deviceId: `dev-7`,
+      issueId: `issue-70`,
+      mcpServerIds: [`srv-1`],
+      account: `work`,
+    })
+    expect(start.ok).toBe(true)
+    expect(await desktopIn.nextJson()).toEqual({
+      t: `start_session`,
+      issueId: `issue-70`,
+      mcpServerIds: [`srv-1`],
+      account: `work`,
+    })
+
+    for (const bad of [
+      { mcpServerIds: `srv-1` },
+      { mcpServerIds: [42] },
+      { mcpServerIds: Array.from({ length: 17 }, (_, i) => `srv-${i}`) },
+      { account: 7 },
+      { account: `x`.repeat(65) },
+    ]) {
+      const res = await fetch(`${base}/start`, {
+        method: `POST`,
+        headers: {
+          "x-relay-secret": `integration-secret`,
+          "content-type": `application/json`,
+        },
+        body: JSON.stringify({
+          userId: `owner-7`,
+          deviceId: `dev-7`,
+          issueId: `issue-71`,
+          ...bad,
+        }),
+      })
+      expect(res.status, JSON.stringify(bad)).toBe(400)
+      await res.text()
+    }
+    desktop.close()
+  })
+
   test(`batch remote start routes a fat frame; bad shapes are 400`, async () => {
     const desktop = await connect(
       ticket({ role: `control`, sub: `owner-2` })

@@ -38,6 +38,7 @@ import { Route as TTeamSlugRouteRouteImport } from './routes/t/$teamSlug/route'
 import { Route as AuthenticatedAdminRouteRouteImport } from './routes/_authenticated/admin/route'
 import { Route as TTeamSlugIndexRouteImport } from './routes/t/$teamSlug/index'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin/index'
+import { Route as TTeamSlugUsageRouteImport } from './routes/t/$teamSlug/usage'
 import { Route as TTeamSlugDevicesRouteImport } from './routes/t/$teamSlug/devices'
 import { Route as TTeamSlugChatRouteImport } from './routes/t/$teamSlug/chat'
 import { Route as TTeamSlugAutomationsRouteImport } from './routes/t/$teamSlug/automations'
@@ -70,6 +71,8 @@ import { Route as ApiShapesBoardsRouteImport } from './routes/api/shapes/boards'
 import { Route as ApiShapesAutomationsRouteImport } from './routes/api/shapes/automations'
 import { Route as ApiShapesAttachmentsRouteImport } from './routes/api/shapes/attachments'
 import { Route as ApiShapesActionsRouteImport } from './routes/api/shapes/actions'
+import { Route as ApiMcpOauthClientDotjsonRouteImport } from './routes/api/mcp-oauth/client[.]json'
+import { Route as ApiMcpOauthCallbackRouteImport } from './routes/api/mcp-oauth/callback'
 import { Route as ApiEmailUnsubscribeRouteImport } from './routes/api/email/unsubscribe'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/attachments/$attachmentId'
@@ -90,6 +93,7 @@ import { Route as TTeamSlugSettingsStatusesRouteImport } from './routes/t/$teamS
 import { Route as TTeamSlugSettingsRepositoriesRouteImport } from './routes/t/$teamSlug/settings/repositories'
 import { Route as TTeamSlugSettingsNotificationsRouteImport } from './routes/t/$teamSlug/settings/notifications'
 import { Route as TTeamSlugSettingsMembersRouteImport } from './routes/t/$teamSlug/settings/members'
+import { Route as TTeamSlugSettingsMcpServersRouteImport } from './routes/t/$teamSlug/settings/mcp-servers'
 import { Route as TTeamSlugSettingsLabelsRouteImport } from './routes/t/$teamSlug/settings/labels'
 import { Route as TTeamSlugSettingsHelpdeskRouteImport } from './routes/t/$teamSlug/settings/helpdesk'
 import { Route as TTeamSlugSettingsGeneralRouteImport } from './routes/t/$teamSlug/settings/general'
@@ -258,6 +262,11 @@ const AuthenticatedAdminIndexRoute = AuthenticatedAdminIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthenticatedAdminRouteRoute,
 } as any)
+const TTeamSlugUsageRoute = TTeamSlugUsageRouteImport.update({
+  id: '/usage',
+  path: '/usage',
+  getParentRoute: () => TTeamSlugRouteRoute,
+} as any)
 const TTeamSlugDevicesRoute = TTeamSlugDevicesRouteImport.update({
   id: '/devices',
   path: '/devices',
@@ -420,6 +429,17 @@ const ApiShapesActionsRoute = ApiShapesActionsRouteImport.update({
   path: '/api/shapes/actions',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiMcpOauthClientDotjsonRoute =
+  ApiMcpOauthClientDotjsonRouteImport.update({
+    id: '/api/mcp-oauth/client.json',
+    path: '/api/mcp-oauth/client.json',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiMcpOauthCallbackRoute = ApiMcpOauthCallbackRouteImport.update({
+  id: '/api/mcp-oauth/callback',
+  path: '/api/mcp-oauth/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiEmailUnsubscribeRoute = ApiEmailUnsubscribeRouteImport.update({
   id: '/api/email/unsubscribe',
   path: '/api/email/unsubscribe',
@@ -527,6 +547,12 @@ const TTeamSlugSettingsMembersRoute =
   TTeamSlugSettingsMembersRouteImport.update({
     id: '/members',
     path: '/members',
+    getParentRoute: () => TTeamSlugSettingsRouteRoute,
+  } as any)
+const TTeamSlugSettingsMcpServersRoute =
+  TTeamSlugSettingsMcpServersRouteImport.update({
+    id: '/mcp-servers',
+    path: '/mcp-servers',
     getParentRoute: () => TTeamSlugSettingsRouteRoute,
   } as any)
 const TTeamSlugSettingsLabelsRoute = TTeamSlugSettingsLabelsRouteImport.update({
@@ -678,6 +704,8 @@ export interface FileRoutesByFullPath {
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/email/unsubscribe': typeof ApiEmailUnsubscribeRoute
+  '/api/mcp-oauth/callback': typeof ApiMcpOauthCallbackRoute
+  '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientDotjsonRoute
   '/api/shapes/actions': typeof ApiShapesActionsRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
   '/api/shapes/automations': typeof ApiShapesAutomationsRoute
@@ -710,6 +738,7 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/automations': typeof TTeamSlugAutomationsRoute
   '/t/$teamSlug/chat': typeof TTeamSlugChatRoute
   '/t/$teamSlug/devices': typeof TTeamSlugDevicesRoute
+  '/t/$teamSlug/usage': typeof TTeamSlugUsageRoute
   '/admin/': typeof AuthenticatedAdminIndexRoute
   '/t/$teamSlug/': typeof TTeamSlugIndexRoute
   '/admin/teams/$teamId': typeof AuthenticatedAdminTeamsTeamIdRoute
@@ -729,6 +758,7 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/settings/general': typeof TTeamSlugSettingsGeneralRoute
   '/t/$teamSlug/settings/helpdesk': typeof TTeamSlugSettingsHelpdeskRoute
   '/t/$teamSlug/settings/labels': typeof TTeamSlugSettingsLabelsRoute
+  '/t/$teamSlug/settings/mcp-servers': typeof TTeamSlugSettingsMcpServersRoute
   '/t/$teamSlug/settings/members': typeof TTeamSlugSettingsMembersRoute
   '/t/$teamSlug/settings/notifications': typeof TTeamSlugSettingsNotificationsRoute
   '/t/$teamSlug/settings/repositories': typeof TTeamSlugSettingsRepositoriesRoute
@@ -776,6 +806,8 @@ export interface FileRoutesByTo {
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/email/unsubscribe': typeof ApiEmailUnsubscribeRoute
+  '/api/mcp-oauth/callback': typeof ApiMcpOauthCallbackRoute
+  '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientDotjsonRoute
   '/api/shapes/actions': typeof ApiShapesActionsRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
   '/api/shapes/automations': typeof ApiShapesAutomationsRoute
@@ -808,6 +840,7 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/automations': typeof TTeamSlugAutomationsRoute
   '/t/$teamSlug/chat': typeof TTeamSlugChatRoute
   '/t/$teamSlug/devices': typeof TTeamSlugDevicesRoute
+  '/t/$teamSlug/usage': typeof TTeamSlugUsageRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
   '/t/$teamSlug': typeof TTeamSlugIndexRoute
   '/admin/teams/$teamId': typeof AuthenticatedAdminTeamsTeamIdRoute
@@ -827,6 +860,7 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/settings/general': typeof TTeamSlugSettingsGeneralRoute
   '/t/$teamSlug/settings/helpdesk': typeof TTeamSlugSettingsHelpdeskRoute
   '/t/$teamSlug/settings/labels': typeof TTeamSlugSettingsLabelsRoute
+  '/t/$teamSlug/settings/mcp-servers': typeof TTeamSlugSettingsMcpServersRoute
   '/t/$teamSlug/settings/members': typeof TTeamSlugSettingsMembersRoute
   '/t/$teamSlug/settings/notifications': typeof TTeamSlugSettingsNotificationsRoute
   '/t/$teamSlug/settings/repositories': typeof TTeamSlugSettingsRepositoriesRoute
@@ -879,6 +913,8 @@ export interface FileRoutesById {
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/email/unsubscribe': typeof ApiEmailUnsubscribeRoute
+  '/api/mcp-oauth/callback': typeof ApiMcpOauthCallbackRoute
+  '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientDotjsonRoute
   '/api/shapes/actions': typeof ApiShapesActionsRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
   '/api/shapes/automations': typeof ApiShapesAutomationsRoute
@@ -911,6 +947,7 @@ export interface FileRoutesById {
   '/t/$teamSlug/automations': typeof TTeamSlugAutomationsRoute
   '/t/$teamSlug/chat': typeof TTeamSlugChatRoute
   '/t/$teamSlug/devices': typeof TTeamSlugDevicesRoute
+  '/t/$teamSlug/usage': typeof TTeamSlugUsageRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/t/$teamSlug/': typeof TTeamSlugIndexRoute
   '/_authenticated/admin/teams_/$teamId': typeof AuthenticatedAdminTeamsTeamIdRoute
@@ -930,6 +967,7 @@ export interface FileRoutesById {
   '/t/$teamSlug/settings/general': typeof TTeamSlugSettingsGeneralRoute
   '/t/$teamSlug/settings/helpdesk': typeof TTeamSlugSettingsHelpdeskRoute
   '/t/$teamSlug/settings/labels': typeof TTeamSlugSettingsLabelsRoute
+  '/t/$teamSlug/settings/mcp-servers': typeof TTeamSlugSettingsMcpServersRoute
   '/t/$teamSlug/settings/members': typeof TTeamSlugSettingsMembersRoute
   '/t/$teamSlug/settings/notifications': typeof TTeamSlugSettingsNotificationsRoute
   '/t/$teamSlug/settings/repositories': typeof TTeamSlugSettingsRepositoriesRoute
@@ -982,6 +1020,8 @@ export interface FileRouteTypes {
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
     | '/api/email/unsubscribe'
+    | '/api/mcp-oauth/callback'
+    | '/api/mcp-oauth/client.json'
     | '/api/shapes/actions'
     | '/api/shapes/attachments'
     | '/api/shapes/automations'
@@ -1014,6 +1054,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/automations'
     | '/t/$teamSlug/chat'
     | '/t/$teamSlug/devices'
+    | '/t/$teamSlug/usage'
     | '/admin/'
     | '/t/$teamSlug/'
     | '/admin/teams/$teamId'
@@ -1033,6 +1074,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/general'
     | '/t/$teamSlug/settings/helpdesk'
     | '/t/$teamSlug/settings/labels'
+    | '/t/$teamSlug/settings/mcp-servers'
     | '/t/$teamSlug/settings/members'
     | '/t/$teamSlug/settings/notifications'
     | '/t/$teamSlug/settings/repositories'
@@ -1080,6 +1122,8 @@ export interface FileRouteTypes {
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
     | '/api/email/unsubscribe'
+    | '/api/mcp-oauth/callback'
+    | '/api/mcp-oauth/client.json'
     | '/api/shapes/actions'
     | '/api/shapes/attachments'
     | '/api/shapes/automations'
@@ -1112,6 +1156,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/automations'
     | '/t/$teamSlug/chat'
     | '/t/$teamSlug/devices'
+    | '/t/$teamSlug/usage'
     | '/admin'
     | '/t/$teamSlug'
     | '/admin/teams/$teamId'
@@ -1131,6 +1176,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/general'
     | '/t/$teamSlug/settings/helpdesk'
     | '/t/$teamSlug/settings/labels'
+    | '/t/$teamSlug/settings/mcp-servers'
     | '/t/$teamSlug/settings/members'
     | '/t/$teamSlug/settings/notifications'
     | '/t/$teamSlug/settings/repositories'
@@ -1182,6 +1228,8 @@ export interface FileRouteTypes {
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
     | '/api/email/unsubscribe'
+    | '/api/mcp-oauth/callback'
+    | '/api/mcp-oauth/client.json'
     | '/api/shapes/actions'
     | '/api/shapes/attachments'
     | '/api/shapes/automations'
@@ -1214,6 +1262,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/automations'
     | '/t/$teamSlug/chat'
     | '/t/$teamSlug/devices'
+    | '/t/$teamSlug/usage'
     | '/_authenticated/admin/'
     | '/t/$teamSlug/'
     | '/_authenticated/admin/teams_/$teamId'
@@ -1233,6 +1282,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/general'
     | '/t/$teamSlug/settings/helpdesk'
     | '/t/$teamSlug/settings/labels'
+    | '/t/$teamSlug/settings/mcp-servers'
     | '/t/$teamSlug/settings/members'
     | '/t/$teamSlug/settings/notifications'
     | '/t/$teamSlug/settings/repositories'
@@ -1276,6 +1326,8 @@ export interface RootRouteChildren {
   ApiAttachmentsAttachmentIdRoute: typeof ApiAttachmentsAttachmentIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiEmailUnsubscribeRoute: typeof ApiEmailUnsubscribeRoute
+  ApiMcpOauthCallbackRoute: typeof ApiMcpOauthCallbackRoute
+  ApiMcpOauthClientDotjsonRoute: typeof ApiMcpOauthClientDotjsonRoute
   ApiShapesActionsRoute: typeof ApiShapesActionsRoute
   ApiShapesAttachmentsRoute: typeof ApiShapesAttachmentsRoute
   ApiShapesAutomationsRoute: typeof ApiShapesAutomationsRoute
@@ -1515,6 +1567,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminIndexRouteImport
       parentRoute: typeof AuthenticatedAdminRouteRoute
     }
+    '/t/$teamSlug/usage': {
+      id: '/t/$teamSlug/usage'
+      path: '/usage'
+      fullPath: '/t/$teamSlug/usage'
+      preLoaderRoute: typeof TTeamSlugUsageRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
+    }
     '/t/$teamSlug/devices': {
       id: '/t/$teamSlug/devices'
       path: '/devices'
@@ -1739,6 +1798,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiShapesActionsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/mcp-oauth/client.json': {
+      id: '/api/mcp-oauth/client.json'
+      path: '/api/mcp-oauth/client.json'
+      fullPath: '/api/mcp-oauth/client.json'
+      preLoaderRoute: typeof ApiMcpOauthClientDotjsonRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mcp-oauth/callback': {
+      id: '/api/mcp-oauth/callback'
+      path: '/api/mcp-oauth/callback'
+      fullPath: '/api/mcp-oauth/callback'
+      preLoaderRoute: typeof ApiMcpOauthCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/email/unsubscribe': {
       id: '/api/email/unsubscribe'
       path: '/api/email/unsubscribe'
@@ -1877,6 +1950,13 @@ declare module '@tanstack/react-router' {
       path: '/members'
       fullPath: '/t/$teamSlug/settings/members'
       preLoaderRoute: typeof TTeamSlugSettingsMembersRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
+    '/t/$teamSlug/settings/mcp-servers': {
+      id: '/t/$teamSlug/settings/mcp-servers'
+      path: '/mcp-servers'
+      fullPath: '/t/$teamSlug/settings/mcp-servers'
+      preLoaderRoute: typeof TTeamSlugSettingsMcpServersRouteImport
       parentRoute: typeof TTeamSlugSettingsRouteRoute
     }
     '/t/$teamSlug/settings/labels': {
@@ -2074,6 +2154,7 @@ interface TTeamSlugSettingsRouteRouteChildren {
   TTeamSlugSettingsGeneralRoute: typeof TTeamSlugSettingsGeneralRoute
   TTeamSlugSettingsHelpdeskRoute: typeof TTeamSlugSettingsHelpdeskRoute
   TTeamSlugSettingsLabelsRoute: typeof TTeamSlugSettingsLabelsRoute
+  TTeamSlugSettingsMcpServersRoute: typeof TTeamSlugSettingsMcpServersRoute
   TTeamSlugSettingsMembersRoute: typeof TTeamSlugSettingsMembersRoute
   TTeamSlugSettingsNotificationsRoute: typeof TTeamSlugSettingsNotificationsRoute
   TTeamSlugSettingsRepositoriesRoute: typeof TTeamSlugSettingsRepositoriesRoute
@@ -2092,6 +2173,7 @@ const TTeamSlugSettingsRouteRouteChildren: TTeamSlugSettingsRouteRouteChildren =
     TTeamSlugSettingsGeneralRoute: TTeamSlugSettingsGeneralRoute,
     TTeamSlugSettingsHelpdeskRoute: TTeamSlugSettingsHelpdeskRoute,
     TTeamSlugSettingsLabelsRoute: TTeamSlugSettingsLabelsRoute,
+    TTeamSlugSettingsMcpServersRoute: TTeamSlugSettingsMcpServersRoute,
     TTeamSlugSettingsMembersRoute: TTeamSlugSettingsMembersRoute,
     TTeamSlugSettingsNotificationsRoute: TTeamSlugSettingsNotificationsRoute,
     TTeamSlugSettingsRepositoriesRoute: TTeamSlugSettingsRepositoriesRoute,
@@ -2112,6 +2194,7 @@ interface TTeamSlugRouteRouteChildren {
   TTeamSlugAutomationsRoute: typeof TTeamSlugAutomationsRoute
   TTeamSlugChatRoute: typeof TTeamSlugChatRoute
   TTeamSlugDevicesRoute: typeof TTeamSlugDevicesRoute
+  TTeamSlugUsageRoute: typeof TTeamSlugUsageRoute
   TTeamSlugIndexRoute: typeof TTeamSlugIndexRoute
   TTeamSlugReviewsIssueIdentifierRoute: typeof TTeamSlugReviewsIssueIdentifierRoute
   TTeamSlugSessionsSessionIdRoute: typeof TTeamSlugSessionsSessionIdRoute
@@ -2128,6 +2211,7 @@ const TTeamSlugRouteRouteChildren: TTeamSlugRouteRouteChildren = {
   TTeamSlugAutomationsRoute: TTeamSlugAutomationsRoute,
   TTeamSlugChatRoute: TTeamSlugChatRoute,
   TTeamSlugDevicesRoute: TTeamSlugDevicesRoute,
+  TTeamSlugUsageRoute: TTeamSlugUsageRoute,
   TTeamSlugIndexRoute: TTeamSlugIndexRoute,
   TTeamSlugReviewsIssueIdentifierRoute: TTeamSlugReviewsIssueIdentifierRoute,
   TTeamSlugSessionsSessionIdRoute: TTeamSlugSessionsSessionIdRoute,
@@ -2176,6 +2260,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAttachmentsAttachmentIdRoute: ApiAttachmentsAttachmentIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiEmailUnsubscribeRoute: ApiEmailUnsubscribeRoute,
+  ApiMcpOauthCallbackRoute: ApiMcpOauthCallbackRoute,
+  ApiMcpOauthClientDotjsonRoute: ApiMcpOauthClientDotjsonRoute,
   ApiShapesActionsRoute: ApiShapesActionsRoute,
   ApiShapesAttachmentsRoute: ApiShapesAttachmentsRoute,
   ApiShapesAutomationsRoute: ApiShapesAutomationsRoute,

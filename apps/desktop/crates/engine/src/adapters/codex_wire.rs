@@ -467,28 +467,30 @@ pub fn thread_start_params(
     params
 }
 
-/// The `config` blob for [`thread_start_params`]: the exponential MCP server,
-/// project trust for every directory the turn may touch, and the writable
-/// roots of the workspace sandbox.
+/// The `config` blob for [`thread_start_params`]: the WHOLE `mcp_servers`
+/// table (EXP-792: `exponential` plus every team server, from the same
+/// [`coding::argv::codex_mcp_entries`] model the shell's `-c` flag renders,
+/// so the two spellings can never drift), project trust for every directory
+/// the turn may touch, and the writable roots of the workspace sandbox.
+///
+/// Codex expands no `${VAR}` of its own: a bearer rides
+/// `bearer_token_env_var`, a `${VAR}` header `env_http_headers`
+/// (`Header-Name → VAR`), a stdio server's typed env `env_vars: [NAME…]` —
+/// all env NAMES the app-server resolves from the child's own environment,
+/// where the launcher put the values. The key itself never lands here.
 pub fn thread_config(
     mcp_url: Option<&str>,
     session_id: &str,
+    servers: &[coding::McpServerWire],
     trusted_roots: &[std::path::PathBuf],
 ) -> Value {
     let mut config = serde_json::Map::new();
     if let Some(url) = mcp_url {
-        config.insert(
-            "mcp_servers".to_string(),
-            json!({
-                "exponential": {
-                    "url": url,
-                    // The key itself never lands in the config: the app-server
-                    // reads it out of the child's own environment.
-                    "bearer_token_env_var": "EXP_MCP_TOKEN",
-                    "http_headers": { "X-Exp-Session-Id": session_id },
-                },
-            }),
-        );
+        let mut table = serde_json::Map::new();
+        for (key, entry) in coding::argv::codex_mcp_entries(url, Some(session_id), servers) {
+            table.insert(key, codex_mcp_entry_json(&entry));
+        }
+        config.insert("mcp_servers".to_string(), Value::Object(table));
         config.insert("experimental_use_rmcp_client".to_string(), json!(true));
     }
     let mut projects = serde_json::Map::new();
@@ -511,6 +513,42 @@ pub fn thread_config(
         );
     }
     Value::Object(config)
+}
+
+/// One `mcp_servers.<key>` value, field order = codex's documented order;
+/// empty collections are omitted so the `exponential` entry keeps its
+/// pre-792 shape.
+fn codex_mcp_entry_json(entry: &coding::argv::CodexMcpEntry) -> Value {
+    let mut out = serde_json::Map::new();
+    if let Some(url) = &entry.url {
+        out.insert("url".to_string(), json!(url));
+    }
+    if let Some(var) = &entry.bearer_token_env_var {
+        out.insert("bearer_token_env_var".to_string(), json!(var));
+    }
+    if !entry.http_headers.is_empty() {
+        out.insert("http_headers".to_string(), string_map(&entry.http_headers));
+    }
+    if !entry.env_http_headers.is_empty() {
+        out.insert("env_http_headers".to_string(), string_map(&entry.env_http_headers));
+    }
+    if let Some(command) = &entry.command {
+        out.insert("command".to_string(), json!(command));
+        out.insert("args".to_string(), json!(entry.args));
+    }
+    if !entry.env_vars.is_empty() {
+        out.insert("env_vars".to_string(), json!(entry.env_vars));
+    }
+    Value::Object(out)
+}
+
+fn string_map(pairs: &[(String, String)]) -> Value {
+    Value::Object(
+        pairs
+            .iter()
+            .map(|(name, value)| (name.clone(), Value::String(value.clone())))
+            .collect(),
+    )
 }
 
 /// The three approval × sandbox presets, copied from codex-acp's `AgentMode`.
@@ -1434,7 +1472,7 @@ mod tests {
     #[test]
     fn the_thread_config_carries_mcp_and_project_trust() {
         let roots = vec![std::path::PathBuf::from("/work/tree")];
-        let config = thread_config(Some("https://x/api/mcp"), "sess-1", &roots);
+        let config = thread_config(Some("https://x/api/mcp"), "sess-1", &[], &roots);
         assert_eq!(
             config["mcp_servers"]["exponential"],
             json!({
@@ -1449,6 +1487,76 @@ mod tests {
             config["sandbox_workspace_write"]["writable_roots"],
             json!(["/work/tree"])
         );
+        // No MCP url (an agent shell) = no table at all, servers or not.
+        let none = thread_config(None, "sess-1", &[], &roots);
+        assert!(none.get("mcp_servers").is_none());
+    }
+
+    /// EXP-792: the WHOLE table — `exponential` first, then each team server
+    /// with its references as codex's env-NAMED fields: `bearer_token_env_var`
+    /// for the OAuth bearer, `env_http_headers` for a `${VAR}` header,
+    /// `env_vars` for a stdio server's typed env. Never a `${…}` codex could
+    /// not expand, never a value.
+    #[test]
+    fn the_thread_config_carries_every_team_server_as_env_named_fields() {
+        let servers = vec![
+            coding::McpServerWire {
+                id: "srv-1".to_string(),
+                name: "linear".to_string(),
+                transport: coding::McpWireTransport::Http {
+                    url: "https://mcp.linear.app/mcp".to_string(),
+                },
+                headers: vec![
+                    ("Authorization".to_string(), "Bearer ${EXP_MCP_TOKEN_1}".to_string()),
+                    ("X-Api-Key".to_string(), "${EXP_MCP_ENV_1_X_API_KEY}".to_string()),
+                    ("X-Client".to_string(), "exponential".to_string()),
+                ],
+                token_env: Some("EXP_MCP_TOKEN_1".to_string()),
+                env: Vec::new(),
+            },
+            coding::McpServerWire {
+                id: "srv-2".to_string(),
+                name: "github".to_string(),
+                transport: coding::McpWireTransport::Stdio {
+                    command: "npx".to_string(),
+                    args: vec!["-y".to_string(), "@acme/github-mcp".to_string()],
+                },
+                headers: Vec::new(),
+                token_env: None,
+                env: vec![("GITHUB_TOKEN".to_string(), "${GITHUB_TOKEN}".to_string())],
+            },
+        ];
+        let config = thread_config(Some("https://x/api/mcp"), "sess-1", &servers, &[]);
+        let table = config["mcp_servers"].as_object().unwrap();
+        assert_eq!(
+            table.keys().collect::<Vec<_>>(),
+            vec!["exponential", "linear", "github"]
+        );
+        assert_eq!(
+            table["linear"],
+            json!({
+                "url": "https://mcp.linear.app/mcp",
+                "bearer_token_env_var": "EXP_MCP_TOKEN_1",
+                "http_headers": { "X-Client": "exponential" },
+                "env_http_headers": { "X-Api-Key": "EXP_MCP_ENV_1_X_API_KEY" },
+            })
+        );
+        assert_eq!(
+            table["github"],
+            json!({
+                "command": "npx",
+                "args": ["-y", "@acme/github-mcp"],
+                "env_vars": ["GITHUB_TOKEN"],
+            })
+        );
+        let rendered = config.to_string();
+        assert!(!rendered.contains("${"));
+        assert!(!rendered.contains("expu_"));
+        // Same model as the shell's `-c mcp_servers=` flag: the two render
+        // identical field sets.
+        let toml = coding::argv::codex_mcp_servers_toml("https://x/api/mcp", Some("sess-1"), &servers);
+        assert!(toml.contains("env_http_headers={X-Api-Key=\"EXP_MCP_ENV_1_X_API_KEY\"}"));
+        assert!(toml.contains("env_vars=[\"GITHUB_TOKEN\"]"));
     }
 
     /// EXP-763: the playbook is codex's developer message on BOTH thread
