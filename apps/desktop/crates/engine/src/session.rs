@@ -495,6 +495,21 @@ struct CtxSpec {
     child_exit: ChildExitLink,
 }
 
+/// The redactor's exact-match set: the worktree's launcher secrets, the
+/// `expu_` key and (EXP-792) every team-MCP value the launcher put in the
+/// spawn env — an OAuth bearer, a typed header or env value. Same posture as
+/// the key: a tool result that echoes one must never reach the relay.
+fn session_secrets(
+    worktree: &Path,
+    personal_key: Option<String>,
+    mcp_secrets: Vec<String>,
+) -> Vec<String> {
+    let mut secrets = steer::activity::secrets_from_worktree(worktree);
+    secrets.extend(personal_key);
+    secrets.extend(mcp_secrets);
+    secrets
+}
+
 fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
     // REV2-17: the session's own launcher secrets (the EXP-73 credential
     // file, a token in a remote URL, the `.exp-mcp.json` key) plus the
@@ -502,13 +517,11 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
     // the mapper's strings and the lifecycle's `diff` ticker are two
     // publishers of the same run and must mask the same set, or the weaker
     // one becomes the leak.
-    let mut secrets = steer::activity::secrets_from_worktree(&spec.run.worktree);
-    secrets.extend(spec.personal_key);
-    // EXP-792: a team server's OAuth bearer / typed header or env value —
-    // the same exact-match posture as the key; a tool result that echoes one
-    // must never reach the relay.
-    secrets.extend(spec.mcp_secrets);
-    let redactor = Arc::new(steer::Redactor::new(secrets));
+    let redactor = Arc::new(steer::Redactor::new(session_secrets(
+        &spec.run.worktree,
+        spec.personal_key,
+        spec.mcp_secrets,
+    )));
     // EXP-766: a host with a local sink (the desktop) reattaches a view
     // mid-run and keeps the full row backlog; a headless host keeps only the
     // small attach-window ring (`BacklogMode::Headless`).
@@ -794,6 +807,31 @@ mod tests {
         guard.disarm();
         drop(guard);
         assert!(!ended.is_done());
+    }
+
+    /// EXP-792: the team servers' device-held values mask like the key.
+    #[test]
+    fn the_team_mcp_secrets_join_the_redactor_set() {
+        let dir = std::env::temp_dir().join(format!("exp792-secrets-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let redactor = steer::Redactor::new(session_secrets(
+            &dir,
+            Some("expu_personalkey1234".to_string()),
+            vec![
+                "oauth-access-token-value-1".to_string(),
+                "ghp_typed_value_2".to_string(),
+            ],
+        ));
+        let masked = redactor.redact(
+            "curl -H 'Authorization: Bearer oauth-access-token-value-1' GITHUB_TOKEN=ghp_typed_value_2 expu_personalkey1234",
+        );
+        assert!(!masked.contains("oauth-access-token-value-1"), "{masked}");
+        assert!(!masked.contains("ghp_typed_value_2"), "{masked}");
+        assert!(!masked.contains("expu_personalkey1234"), "{masked}");
+        // Nothing extra is masked when there is nothing to mask.
+        let bare = steer::Redactor::new(session_secrets(&dir, None, Vec::new()));
+        assert_eq!(bare.redact_exact_only("plain text"), "plain text");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

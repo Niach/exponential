@@ -6588,4 +6588,180 @@ mod tests {
             "codex · exp-EXP-42"
         );
     }
+
+    // ---- EXP-792: team MCP servers ----
+
+    /// The two-server pick: an OAuth http server whose bearer rides
+    /// `${EXP_MCP_TOKEN_1}` and a stdio server with a typed env value.
+    fn two_servers() -> Vec<McpServerWire> {
+        use crate::argv::McpWireTransport;
+        vec![
+            McpServerWire {
+                id: "srv-1".to_string(),
+                name: "linear".to_string(),
+                transport: McpWireTransport::Http {
+                    url: "https://mcp.linear.app/mcp".to_string(),
+                },
+                headers: vec![("Authorization".to_string(), "Bearer ${EXP_MCP_TOKEN_1}".to_string())],
+                token_env: Some("EXP_MCP_TOKEN_1".to_string()),
+                env: Vec::new(),
+            },
+            McpServerWire {
+                id: "srv-2".to_string(),
+                name: "github".to_string(),
+                transport: McpWireTransport::Stdio {
+                    command: "npx".to_string(),
+                    args: vec!["-y".to_string(), "@acme/github-mcp".to_string()],
+                },
+                headers: Vec::new(),
+                token_env: None,
+                env: vec![("GITHUB_TOKEN".to_string(), "${GITHUB_TOKEN}".to_string())],
+            },
+        ]
+    }
+
+    fn resolved_two() -> ResolvedMcp {
+        ResolvedMcp {
+            servers: two_servers(),
+            env: vec![
+                ("EXP_MCP_TOKEN_1".to_string(), "oauth-access-token-value-1".to_string()),
+                ("GITHUB_TOKEN".to_string(), "ghp_typed_value_2".to_string()),
+            ],
+        }
+    }
+
+    /// The blocker's own sentence is the launch's disabled copy.
+    #[test]
+    fn mcp_blocked_renders_the_blockers_own_text() {
+        let reason = DisabledReason::McpBlocked(McpBlocker {
+            server: "linear".to_string(),
+            reason: "not signed in on this machine".to_string(),
+        });
+        assert_eq!(reason.message(), "MCP server linear: not signed in on this machine");
+    }
+
+    /// Every resolved pair lands in the spawn env for every agent; the
+    /// server LIST rides the env only for pi and an external agent (claude
+    /// and codex carry it in their configs), and it never carries a value.
+    #[test]
+    fn apply_mcp_server_env_lands_every_pair_and_the_list_only_where_the_env_carries_it() {
+        let resolved = resolved_two();
+        let cases = [
+            (AgentKind::Builtin(CodingAgent::Claude), false),
+            (AgentKind::Builtin(CodingAgent::Codex), false),
+            (AgentKind::Builtin(CodingAgent::Pi), true),
+            (AgentKind::External(external_spec()), true),
+        ];
+        for (agent, list_expected) in cases {
+            let spawn = apply_mcp_server_env(SpawnSpec::new("agent"), &agent, &resolved);
+            let env = |name: &str| {
+                spawn
+                    .env
+                    .iter()
+                    .find(|(key, _)| key == name)
+                    .map(|(_, value)| value.as_str())
+            };
+            assert_eq!(env("EXP_MCP_TOKEN_1"), Some("oauth-access-token-value-1"), "{agent:?}");
+            assert_eq!(env("GITHUB_TOKEN"), Some("ghp_typed_value_2"), "{agent:?}");
+            let listed = env(MCP_SERVERS_ENV);
+            assert_eq!(listed.is_some(), list_expected, "{agent:?}");
+            if let Some(json) = listed {
+                assert!(json.contains("${EXP_MCP_TOKEN_1}"));
+                assert!(json.contains("\"github\""));
+                assert!(!json.contains("oauth-access-token-value-1"));
+                assert!(!json.contains("ghp_typed_value_2"));
+            }
+        }
+        // An empty pick adds nothing at all — the pre-792 env, byte for byte.
+        let bare = apply_mcp_server_env(
+            SpawnSpec::new("agent"),
+            &AgentKind::Builtin(CodingAgent::Pi),
+            &ResolvedMcp::default(),
+        );
+        assert!(bare.env.is_empty());
+    }
+
+    /// The launch's secret set reaches the engine as a value that never
+    /// prints, and comes back out as the redactor's exact-match entries.
+    #[test]
+    fn mcp_secrets_never_print_but_round_trip() {
+        let secrets = McpSecrets::new(resolved_two().secret_values());
+        assert_eq!(format!("{secrets:?}"), "McpSecrets(<2 redacted>)");
+        assert_eq!(secrets.len(), 2);
+        assert!(!secrets.is_empty());
+        assert_eq!(
+            secrets.into_vec(),
+            vec!["oauth-access-token-value-1".to_string(), "ghp_typed_value_2".to_string()]
+        );
+        assert!(McpSecrets::default().is_empty());
+    }
+
+    /// A picked server this machine cannot authenticate to (or that no
+    /// longer exists) refuses the launch BY NAME before any repo, git or
+    /// server-side step — the resolver's one config read is all that
+    /// happens.
+    #[test]
+    fn a_picked_mcp_server_this_machine_cannot_authenticate_to_refuses_the_launch_by_name() {
+        let dir = temp_dir("mcp-blocked");
+        let (base, captured) =
+            canned_server_recording(vec![(200, r#"{"result":{"data":[]}}"#.to_string())]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+        let mut req = request("EXP-42");
+        req.options.mcp_server_ids = vec!["srv-9".to_string()];
+        match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
+            Prepared::Disabled(DisabledReason::McpBlocked(blocker)) => {
+                assert_eq!(blocker.server, "srv-9");
+                assert!(
+                    blocker.to_string().starts_with("MCP server srv-9: "),
+                    "{blocker}"
+                );
+            }
+            other => panic!("expected the MCP blocker, got {other:?}"),
+        }
+        let requests = captured.lock().unwrap();
+        assert!(
+            !requests.iter().any(|request| {
+                request.contains("repositories.forIssue")
+                    || request.contains("installationToken")
+                    || request.contains("codingSessions.start")
+            }),
+            "a refused pick creates nothing: {requests:?}"
+        );
+    }
+
+    /// EXP-792: a resume re-resolves the RECORDED pick against the store as
+    /// it is now — a server that lost its credential refuses the resume the
+    /// same way, before a new row exists.
+    #[test]
+    fn a_resume_re_resolves_the_recorded_mcp_pick() {
+        let dir = temp_dir("mcp-resume");
+        let (base, captured) =
+            canned_server_recording(vec![(200, r#"{"result":{"data":[]}}"#.to_string())]);
+        let deps = make_deps(
+            &base,
+            &dir.0,
+            Arc::new(FakeWorktrees {
+                worktree: dir.0.join("unused"),
+                seen: Default::default(),
+            }),
+        );
+        let mut record = resume_record(&dir.0, "sess-old");
+        record.set_mcp_server_ids(&["srv-9".to_string()]);
+        assert_eq!(record.mcp_server_ids(), vec!["srv-9".to_string()]);
+        match prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps).unwrap() {
+            Prepared::Disabled(DisabledReason::McpBlocked(blocker)) => {
+                assert_eq!(blocker.server, "srv-9");
+            }
+            other => panic!("expected the MCP blocker, got {other:?}"),
+        }
+        assert!(!captured
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|request| request.contains("codingSessions.start")));
+    }
 }

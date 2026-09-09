@@ -862,11 +862,12 @@ mod tests {
         let full = codex_mcp_servers_toml("http://x/api/mcp", Some("sess-1"), &two_servers());
         let doc: toml::Value = format!("mcp_servers={full}").parse().expect("valid TOML");
         let table = doc["mcp_servers"].as_table().unwrap();
-        assert_eq!(
-            table.keys().collect::<Vec<_>>(),
-            vec!["exponential", "linear", "github"],
-            "exponential first, then pick order"
-        );
+        assert_eq!(table.len(), 3);
+        // `exponential` first, then pick order — on the RENDERED text (the
+        // parsed table sorts its keys).
+        let position = |key: &str| full.find(&format!("{key}={{")).expect(key);
+        assert!(position("exponential") < position("linear"));
+        assert!(position("linear") < position("github"));
         let linear = &table["linear"];
         assert_eq!(linear["url"].as_str(), Some("https://mcp.linear.app/mcp"));
         assert_eq!(linear["bearer_token_env_var"].as_str(), Some("EXP_MCP_TOKEN_1"));

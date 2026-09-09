@@ -888,6 +888,7 @@ fn run_codex(checkpoint: &str) -> bool {
     let config = codex_wire::thread_config(
         std::env::var("EXP_MCP_URL").ok().as_deref(),
         "spike-session",
+        &[],
         std::slice::from_ref(&cwd),
     );
     let thread = server.request_blocking(
@@ -1266,7 +1267,7 @@ fn codex_interrupt() -> bool {
     let _ = server.notify("initialized", json!({}));
     let thread = server.request_blocking(
         "thread/start",
-        codex_wire::thread_start_params(&cwd, codex_wire::thread_config(None, "spike", std::slice::from_ref(&cwd)), None),
+        codex_wire::thread_start_params(&cwd, codex_wire::thread_config(None, "spike", &[], std::slice::from_ref(&cwd)), None),
         Duration::from_secs(60),
     );
     let Ok(thread) = thread else { return false };
