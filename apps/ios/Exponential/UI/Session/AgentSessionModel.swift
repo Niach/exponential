@@ -1,4 +1,5 @@
 import ExpCore
+import ExpUI
 import Foundation
 import GRDB
 import os
@@ -216,7 +217,21 @@ final class AgentSessionModel {
     /// stays up while the socket is down, so a message typed mid-drop goes out
     /// when it returns) and navigating away and back, and the model is the only
     /// thing that outlives the screen (SteerSessionStore).
-    var draftText = ""
+    ///
+    /// EXP-802: the draft is an EDITOR, not a String, so the composer gets the
+    /// `@` member / `#` issue / `:` emoji typeahead the comment composer has —
+    /// all three need a caret to splice at, and a `TextField` binding has none.
+    /// Exactly one text block (`MarkdownComposerField` keeps it that way).
+    let draftEditor = IssueEditorModel()
+
+    /// The draft as text. Every existing reader and writer of the draft goes
+    /// through here unchanged — including `sendMessage`, which puts THIS on the
+    /// wire: `plainText`, never the markdown serializer, because a steer
+    /// message is chat prose and must go out exactly as typed.
+    var draftText: String {
+        get { draftEditor.plainText }
+        set { draftEditor.setPlainText(newValue) }
+    }
     /// EXP-511: images picked for the next steer message, shown as a strip
     /// above the input row until they are sent or removed.
     var pendingImages: [PendingSteerImage] = []
@@ -616,6 +631,11 @@ final class AgentSessionModel {
     private var mergeObservationTask: Task<Void, Never>?
     private var mergeIssueRows: [IssueEntity] = []
     private var mergeBoardRows: [BoardEntity] = []
+    /// EXP-802: the rows behind the composer's @-mention vocabulary — every
+    /// synced user plus the membership rows that scope them to THIS run's team.
+    private var mentionObservationTask: Task<Void, Never>?
+    private var mentionUserRows: [UserEntity] = []
+    private var mentionMemberRows: [TeamMemberEntity] = []
     /// One expiry timer PER locked card (EXP-334) — a single shared task used
     /// to be cancelled by every newer lock, so several pending locks then all
     /// expired together and the stepper rolled back more than one step.
@@ -728,6 +748,8 @@ final class AgentSessionModel {
         startObservingSession()
         startObservingHostDevice()
         startObservingMergeIssue()
+        startObservingMentionMembers()
+        configureDraftEditor()
         startActivityClock()
         if phase == .idle { connect() }
     }
@@ -864,6 +886,8 @@ final class AgentSessionModel {
         activityClockTask = nil
         mergeObservationTask?.cancel()
         mergeObservationTask = nil
+        mentionObservationTask?.cancel()
+        mentionObservationTask = nil
         connected = false
         pendingFrames = []
         discardStaging()
@@ -1249,6 +1273,90 @@ final class AgentSessionModel {
             },
             currentUserId: currentUserId
         )
+    }
+
+    // MARK: - Composer autocomplete (EXP-802)
+
+    /// Point the draft editor's three typeaheads at this run's team.
+    ///
+    /// `#` refs resolve through the `.team` scope the steering feed's chips
+    /// already use (EXP-760) — a run may be issue-less (batch, action, chat),
+    /// so there is no issue or board to derive a team from. `:` emoji need
+    /// nothing scoped: the catalog is process-global. The `@` vocabulary is
+    /// membership, so it arrives on the observation below instead.
+    private func configureDraftEditor() {
+        guard draftEditor.issueRefSearch == nil, let teamId = session?.teamId else { return }
+        let scope = IssueRefLookup.Scope.team(id: teamId)
+        let database = db
+        let account = accountId
+        draftEditor.issueRefResolver = { identifier in
+            IssueRefChipCache.chip(identifier, scope: scope, db: database, accountId: account)?
+                .issueId
+        }
+        draftEditor.issueRefTitleResolver = { identifier in
+            IssueRefChipCache.chip(identifier, scope: scope, db: database, accountId: account)?
+                .title
+        }
+        draftEditor.issueRefStatusResolver = { identifier in
+            IssueRefChipCache.statusInfo(
+                identifier, scope: scope, db: database, accountId: account)
+        }
+        draftEditor.issueRefSearch = { query in
+            IssueRefLookup.search(query, scope: scope, db: database, accountId: account)
+        }
+        // EXP-551: decode the bundled dataset off-main once, exactly as the
+        // markdown editor does on mount.
+        EmojiCatalog.shared.preload()
+        draftEditor.emojiSearch = { query in
+            EmojiCatalog.shared.search(query, limit: EmojiCatalog.typeaheadLimit)
+        }
+        draftEditor.onEmojiInserted = { record in
+            EmojiPreferences().recordRecent(record.unicode)
+        }
+    }
+
+    /// The @-mention vocabulary, on the same two tables `IssueDetailViewModel`
+    /// watches. Both are synced whole and small, so the team filter runs IN
+    /// MEMORY (`rebuildMentionMembers`) rather than in SQL — the alternative is
+    /// re-querying on a predicate whose input, the session row, arrives on a
+    /// different observation.
+    private func startObservingMentionMembers() {
+        guard mentionObservationTask == nil else { return }
+        guard let pool = try? db.pool(forAccountId: accountId) else { return }
+        let observation = ValueObservation.tracking { db -> ([UserEntity], [TeamMemberEntity]) in
+            (try UserEntity.fetchAll(db), try TeamMemberEntity.fetchAll(db))
+        }
+        mentionObservationTask = Task { [weak self] in
+            // Same one-shot re-subscribe loop as the session observation
+            // (EXP-410): a dead stream would freeze the vocabulary at whatever
+            // had synced when the screen opened.
+            while !Task.isCancelled {
+                do {
+                    for try await (users, members) in observation.values(in: pool) {
+                        guard let self else { return }
+                        self.mentionUserRows = users
+                        self.mentionMemberRows = members
+                        self.rebuildMentionMembers()
+                    }
+                    return
+                } catch is CancellationError {
+                    return
+                } catch {
+                    try? await Task.sleep(for: .seconds(1))
+                }
+            }
+        }
+    }
+
+    /// EXP-487's rule, session-scoped: the user rows stay account-wide (an
+    /// ex-member still renders elsewhere), and membership is what an `@` may
+    /// name.
+    private func rebuildMentionMembers() {
+        guard let teamId = session?.teamId else { return }
+        let memberIds = Set(mentionMemberRows.filter { $0.teamId == teamId }.map(\.userId))
+        draftEditor.mentionMembers = mentionUserRows
+            .filter { memberIds.contains($0.id) }
+            .map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
     }
 
     // MARK: - Merge target (EXP-678)

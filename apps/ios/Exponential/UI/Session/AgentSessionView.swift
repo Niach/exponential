@@ -115,7 +115,6 @@ struct AgentSessionView: View {
     @State private var slashHighlight = 0
     /// A confirm-gated command waiting on its dialog (`/clear`).
     @State private var slashConfirm: SlashCommand?
-    @FocusState private var inputFocused: Bool
     /// EXP-790: the composer is a folded capsule until it is tapped, and
     /// folds again on blur when nothing would be lost (IssueDetailBottomBar's
     /// rule). A non-empty draft or a pending image keeps it open regardless.
@@ -292,8 +291,10 @@ struct AgentSessionView: View {
         // lost — empty draft, no pending images, no picker mid-flight
         // (presenting one resigns first responder). Copied from
         // IssueDetailBottomBar.
-        .onChange(of: inputFocused) { _, focused in
-            guard composerExpanded, !focused, let model else { return }
+        // EXP-802: the composer's focus lives on its editor model now (a
+        // UITextView owns first responder), not in a `@FocusState`.
+        .onChange(of: model?.draftEditor.isEditing) { _, editing in
+            guard composerExpanded, editing == false, let model else { return }
             guard !showPhotoPicker, photoItems.isEmpty else { return }
             guard model.trimmedDraft.isEmpty, model.pendingImages.isEmpty else { return }
             withAnimation(motion.standard) { composerExpanded = false }
@@ -344,6 +345,11 @@ struct AgentSessionView: View {
             // runs and retires it once it is over (or falls off the cap).
             deps.steerSessions.detach(accountId: accountId, sessionId: session.id)
             startWatcher.stop()
+            // EXP-802: the DRAFT outlives this screen, its focus must not —
+            // the editor model would otherwise hand first responder straight
+            // back on return and pop the keyboard over a screen nobody typed
+            // into. (The text is untouched; only the caret's claim goes.)
+            model?.draftEditor.setFocused(nil)
         }
         // EXP-706: the "Fix conflicts" launcher — the machines it can run on
         // resolve off the synced devices shape, once steering is known on.
@@ -1267,16 +1273,34 @@ struct AgentSessionView: View {
             // Steering is fully seamless (EXP-312) — no captions, no
             // operator state; input just sends.
             VStack(spacing: 8) {
-                // EXP-724: the `/` menu rides ABOVE the composer, inside the
+                // EXP-724: the composer's menu rides ABOVE it, inside the
                 // same bottom band, so it sits over the feed and above the
-                // keyboard instead of being clipped by the field.
-                if slashMenuVisible(model) {
+                // keyboard instead of being clipped by the field. EXP-802:
+                // the `@`/`#`/`:` one is mounted here for the same reason,
+                // and `composerMenu` is what keeps them to one at a time.
+                switch composerMenu(model) {
+                case .slash:
                     SlashCommandMenu(
                         commands: model.slashMatches,
                         highlighted: slashHighlight
                     ) { command in
                         applySlashCommand(command, model)
                     }
+                case .autocomplete:
+                    // EXP-802: the same `@`/`#`/`:` menu the comment composer
+                    // mounts, over the same rows — picks route through the
+                    // draft editor, which keeps first responder, so the
+                    // keyboard never drops mid-message.
+                    EditorAutocompleteMenu(
+                        mentions: model.draftEditor.mentionCandidates,
+                        issueRefs: model.draftEditor.issueRefCandidates,
+                        emoji: model.draftEditor.emojiCandidates,
+                        onPickMention: { model.draftEditor.applyMention($0) },
+                        onPickIssueRef: { model.draftEditor.applyIssueRef($0) },
+                        onPickEmoji: { model.draftEditor.applyEmoji($0) }
+                    )
+                case .none:
+                    EmptyView()
                 }
                 if composerOpen(model) {
                     composerCard(model)
@@ -1353,11 +1377,45 @@ struct AgentSessionView: View {
     private func expandComposer() {
         withAnimation(motion.standard) { composerExpanded = true }
         // Programmatic focus needs the field mounted — one runloop hop, with
-        // a 150ms retry in case the first lands before layout.
-        DispatchQueue.main.async { inputFocused = true }
+        // a 150ms retry in case the first lands before layout. EXP-802: the
+        // same shape as IssueDetailBottomBar's, driven off the editor model.
+        DispatchQueue.main.async { focusComposer() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            if composerExpanded, !inputFocused { inputFocused = true }
+            if composerExpanded, model?.draftEditor.isEditing == false { focusComposer() }
         }
+    }
+
+    /// Hand first responder to the composer's one text block.
+    private func focusComposer() {
+        guard let editor = model?.draftEditor else { return }
+        editor.setFocused(editor.blocks.first?.id)
+    }
+
+    // MARK: - Composer menus (EXP-724, EXP-802)
+
+    /// What rides ABOVE the composer in the bottom band. ONE value, because
+    /// the band has room for ONE menu.
+    ///
+    /// The two can never both have content — `SlashCommands.partialName`
+    /// rejects whitespace, so a `/` menu needs a draft that is one bare word
+    /// starting with `/`, while every `@`/`#`/`:` trigger has to follow
+    /// start-of-text or whitespace and carry its own sigil. So this is DEFENCE
+    /// against two menus stacking (and against the ↑/↓/Return keys being
+    /// claimed twice), not arbitration logic: there is nothing to arbitrate.
+    private enum ComposerMenu {
+        case none
+        case slash
+        case autocomplete
+    }
+
+    private func composerMenu(_ model: AgentSessionModel) -> ComposerMenu {
+        // A folded composer has no field to complete into. Both menus need
+        // focus already, but the editor's focus outlives the text view it was
+        // handed to, so say it here rather than trust that.
+        guard composerOpen(model) else { return .none }
+        if slashMenuVisible(model) { return .slash }
+        if model.draftEditor.showsAutocompleteMenu { return .autocomplete }
+        return .none
     }
 
     // MARK: - Slash commands (EXP-724)
@@ -1365,7 +1423,7 @@ struct AgentSessionView: View {
     /// The menu is up while the field has focus, the draft matches something,
     /// and it hasn't been dismissed at exactly this draft.
     private func slashMenuVisible(_ model: AgentSessionModel) -> Bool {
-        inputFocused && !model.slashMatches.isEmpty
+        model.draftEditor.isEditing && !model.slashMatches.isEmpty
             && slashDismissedFor != model.draftText
     }
 
@@ -1376,7 +1434,7 @@ struct AgentSessionView: View {
         model.draftText = command.insertion
         slashDismissedFor = command.insertion
         slashHighlight = 0
-        inputFocused = true
+        focusComposer()
     }
 
     /// The row a hardware Return would accept.
@@ -1636,7 +1694,6 @@ struct AgentSessionView: View {
     /// images max, the same `sendSteerImages` upload, the same frozen
     /// `SteerImageMessage` wire format.
     private func composerCard(_ model: AgentSessionModel) -> some View {
-        @Bindable var model = model
         // EXP-702: images attach to the SESSION, so every run can carry them —
         // a batch or action run no longer has "nowhere to put them".
         let attachFull = model.pendingImages.count >= SteerImageMessage.maxImages
@@ -1651,48 +1708,53 @@ struct AgentSessionView: View {
         // back.
         let showsStop = model.agentWorking && !canSend
         return GlassComposer(isOpaque: true) {
-            GlassTextField(
+            // EXP-802: a caret-bearing field, so `@` members, `#` issues and
+            // `:` emoji complete here exactly as they do in a comment. The
+            // return key SENDS (the field is one message, never a document),
+            // which is also how Return accepts an open menu below.
+            MarkdownComposerField(
+                model: model.draftEditor,
                 // EXP-788: the composer IS the free answer of a pending card
                 // — a plan's feedback or a question's typed reply — and the
                 // placeholder says which.
-                model.composerPlaceholder,
-                text: $model.draftText,
-                lines: 1...4,
-                bordered: false
+                placeholder: model.composerPlaceholder,
+                onReturn: { handleComposerReturn(model) },
+                onPasteImage: { image in ingestPastedImage(model, image) },
+                onIssueRefTap: { issueId in
+                    deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
+                },
+                // One line of body text plus the field's own 12pt inset,
+                // growing to about five before it scrolls inside itself.
+                minHeight: 34,
+                maxHeight: 120
             )
-            .font(.subheadline)
-            .focused($inputFocused)
             // EXP-724: hardware-keyboard driving of the `/` menu. Every
-            // handler returns `.ignored` while the menu is closed, so a
-            // Bluetooth keyboard behaves exactly as it did before.
+            // handler returns `.ignored` while no menu is open, so a
+            // Bluetooth keyboard behaves exactly as it did before. (Return is
+            // NOT here: the text view intercepts it itself, so it works for
+            // the soft keyboard too — see `handleComposerReturn`.)
             .onKeyPress(.upArrow) {
-                guard slashMenuVisible(model) else { return .ignored }
+                guard composerMenu(model) == .slash else { return .ignored }
                 moveSlashHighlight(-1, model)
                 return .handled
             }
             .onKeyPress(.downArrow) {
-                guard slashMenuVisible(model) else { return .ignored }
+                guard composerMenu(model) == .slash else { return .ignored }
                 moveSlashHighlight(1, model)
                 return .handled
             }
-            .onKeyPress(.return) {
-                // Return with an open menu ACCEPTS — it never sends.
-                guard slashMenuVisible(model),
-                      let command = highlightedSlashCommand(model) else { return .ignored }
-                applySlashCommand(command, model)
-                return .handled
-            }
             .onKeyPress(.escape) {
-                guard slashMenuVisible(model) else { return .ignored }
+                guard composerMenu(model) == .slash else { return .ignored }
                 slashDismissedFor = model.draftText
                 return .handled
             }
             .onChange(of: model.draftText) { _, _ in
                 slashHighlight = 0
             }
-            .padding(.horizontal, 12)
-            .padding(.top, 12)
-            .padding(.bottom, 4)
+            // The text view carries a 6pt inset of its own (`singleLine`), so
+            // the card's 12/12/6 band is spelled 6/6/0 here.
+            .padding(.horizontal, 6)
+            .padding(.top, 6)
         } strip: {
             // EXP-790 retired the mode chip that used to ride this strip:
             // Plan/Build is the plan card's own business now, and a live
@@ -1733,6 +1795,29 @@ struct AgentSessionView: View {
                     sendMessage(model)
                 }
             }
+        }
+    }
+
+    /// The return key. With a menu open it ACCEPTS the top row and never
+    /// sends — the `/` menu's highlighted command (↑/↓ move it), or the
+    /// candidate the `@`/`#`/`:` list is showing first, which is the row every
+    /// other client's Enter takes.
+    private func handleComposerReturn(_ model: AgentSessionModel) {
+        switch composerMenu(model) {
+        case .slash:
+            guard let command = highlightedSlashCommand(model) else { return }
+            applySlashCommand(command, model)
+        case .autocomplete:
+            let editor = model.draftEditor
+            if let member = editor.mentionCandidates.first {
+                editor.applyMention(member)
+            } else if let candidate = editor.issueRefCandidates.first {
+                editor.applyIssueRef(candidate)
+            } else if let record = editor.emojiCandidates.first {
+                editor.applyEmoji(record)
+            }
+        case .none:
+            sendMessage(model)
         }
     }
 
@@ -1795,24 +1880,50 @@ struct AgentSessionView: View {
                 model.steerImageError = outcome.failure
                 continue
             }
-            model.pendingImages.append(PendingSteerImage(
-                data: normalized.data,
-                filename: normalized.filename,
-                contentType: normalized.contentType,
-                uploadedId: nil
-            ))
-            // EXP-698: the k-th image drops its positional `[Image #k]` into
-            // the draft, so a sentence can name the picture it means. The
-            // composer's field is a SwiftUI `TextField` bound to `draftText`
-            // with no selection API, so the marker lands at the END of the
-            // draft (spaced off whatever is there) rather than at the caret.
-            let inserted = SteerImageMessage.insertImageMarker(
-                text: model.draftText,
-                caret: (model.draftText as NSString).length,
-                index: model.pendingImages.count
-            )
-            model.draftText = inserted.text
+            queuePendingImage(model, normalized)
         }
+    }
+
+    /// EXP-802: a PASTED image joins the strip like a picked one — the field
+    /// is a text view now, so an image paste actually reaches the composer. It
+    /// can never become an image BLOCK: the draft is exactly one text block.
+    private func ingestPastedImage(_ model: AgentSessionModel, _ image: UIImage) {
+        guard model.pendingImages.count < SteerImageMessage.maxImages else { return }
+        guard let data = image.jpegData(compressionQuality: 0.85) else { return }
+        model.steerImageError = nil
+        let outcome = AttachmentPicks.normalizedPhoto(
+            data: data, contentTypeHint: "image/jpeg", filenameExtensionHint: "jpg"
+        )
+        guard let normalized = outcome.attachment else {
+            model.steerImageError = outcome.failure
+            return
+        }
+        queuePendingImage(model, normalized)
+    }
+
+    /// Queue one normalized image and drop its positional `[Image #k]` marker
+    /// into the draft, so a sentence can name the picture it means (EXP-698).
+    ///
+    /// The marker lands at the END of the draft, not at the caret: the draft
+    /// now HAS a caret (EXP-802), but it is an offset into the DECORATED text,
+    /// where a resolved `#EXP-1` chip carries a title character that the sent
+    /// text does not. Mapping it back is not worth it for a token that names
+    /// the k-th of at most four images.
+    private func queuePendingImage(
+        _ model: AgentSessionModel, _ normalized: PendingCommentAttachment
+    ) {
+        model.pendingImages.append(PendingSteerImage(
+            data: normalized.data,
+            filename: normalized.filename,
+            contentType: normalized.contentType,
+            uploadedId: nil
+        ))
+        let inserted = SteerImageMessage.insertImageMarker(
+            text: model.draftText,
+            caret: (model.draftText as NSString).length,
+            index: model.pendingImages.count
+        )
+        model.draftText = inserted.text
     }
 
     /// Dropping a pending image renumbers the draft's markers: the removed

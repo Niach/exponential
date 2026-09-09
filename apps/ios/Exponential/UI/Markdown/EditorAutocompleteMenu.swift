@@ -22,8 +22,46 @@ import SwiftUI
 /// It is up to 208pt tall and the editors it serves live inside scrollers
 /// that clip, so anywhere inside the editor's own layout is off-screen for a
 /// caret anywhere but the top of a short document (EXP-592).
+///
+/// EXP-802: the rows are handed in, not read off a model, so a host that
+/// drives its editor through a wrapper (the steer composer) can route a pick
+/// through its own handler. `init(model:)` is the shorthand every issue editor
+/// uses — candidates straight off the model, picks straight back into it.
 struct EditorAutocompleteMenu: View {
-    let model: IssueEditorModel
+    let mentions: [MentionMember]
+    let issueRefs: [IssueRefCandidate]
+    let emoji: [EmojiRecord]
+    let onPickMention: (MentionMember) -> Void
+    let onPickIssueRef: (IssueRefCandidate) -> Void
+    let onPickEmoji: (EmojiRecord) -> Void
+
+    init(
+        mentions: [MentionMember],
+        issueRefs: [IssueRefCandidate],
+        emoji: [EmojiRecord],
+        onPickMention: @escaping (MentionMember) -> Void,
+        onPickIssueRef: @escaping (IssueRefCandidate) -> Void,
+        onPickEmoji: @escaping (EmojiRecord) -> Void
+    ) {
+        self.mentions = mentions
+        self.issueRefs = issueRefs
+        self.emoji = emoji
+        self.onPickMention = onPickMention
+        self.onPickIssueRef = onPickIssueRef
+        self.onPickEmoji = onPickEmoji
+    }
+
+    /// The candidates a model is offering, applied back to that same model.
+    init(model: IssueEditorModel) {
+        self.init(
+            mentions: model.mentionCandidates,
+            issueRefs: model.issueRefCandidates,
+            emoji: model.emojiCandidates,
+            onPickMention: { model.applyMention($0) },
+            onPickIssueRef: { model.applyIssueRef($0) },
+            onPickEmoji: { model.applyEmoji($0) }
+        )
+    }
 
     /// Rows visible before the list scrolls.
     private static let visibleRows: CGFloat = 5
@@ -40,9 +78,9 @@ struct EditorAutocompleteMenu: View {
     private var list: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
-                if !model.mentionCandidates.isEmpty {
-                    ForEach(model.mentionCandidates) { member in
-                        row { model.applyMention(member) } label: {
+                if !mentions.isEmpty {
+                    ForEach(mentions) { member in
+                        row { onPickMention(member) } label: {
                             Text(member.name)
                                 .font(.subheadline)
                                 .foregroundStyle(.white)
@@ -56,9 +94,9 @@ struct EditorAutocompleteMenu: View {
                             }
                         }
                     }
-                } else if !model.issueRefCandidates.isEmpty {
-                    ForEach(model.issueRefCandidates) { candidate in
-                        row { model.applyIssueRef(candidate) } label: {
+                } else if !issueRefs.isEmpty {
+                    ForEach(issueRefs) { candidate in
+                        row { onPickIssueRef(candidate) } label: {
                             if let status = candidate.status {
                                 AppIcon(status.iconName, size: 16)
                                     .foregroundStyle(status.color)
@@ -80,8 +118,8 @@ struct EditorAutocompleteMenu: View {
                         }
                     }
                 } else {
-                    ForEach(model.emojiCandidates) { record in
-                        row { model.applyEmoji(record) } label: {
+                    ForEach(emoji) { record in
+                        row { onPickEmoji(record) } label: {
                             Text(record.unicode)
                                 .font(.system(size: 18))
                                 .frame(width: 24)
