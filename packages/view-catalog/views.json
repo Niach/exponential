@@ -1013,7 +1013,7 @@
       "web": {
         "route": "/t/$teamSlug/chat",
         "anchor": {
-          "text": "Start a chat",
+          "text": "Past chats",
           "timeoutMs": 30000
         },
         "settleMs": 800
