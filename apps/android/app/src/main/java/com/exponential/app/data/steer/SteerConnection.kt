@@ -684,7 +684,15 @@ class SteerConnection internal constructor(
                     // there was one) is over — what arrives next IS the
                     // transcript.
                     _history.value = null
-                    if (_phase.value != AgentPhase.Live) {
+                    if (sessionIsOver()) {
+                        // EXP-796: the relay keeps a history room open for
+                        // minutes after the device's replay so pages can
+                        // still be asked for — an open socket on an ENDED
+                        // row is not a live run. The synced row decides;
+                        // the socket just stays up for paging.
+                        if (_phase.value !is AgentPhase.Ended) setPhase(AgentPhase.Ended(), "row ended")
+                        reconnectAttempts = 0
+                    } else if (_phase.value != AgentPhase.Live) {
                         setPhase(AgentPhase.Live, "joined")
                         reconnectAttempts = 0
                     }

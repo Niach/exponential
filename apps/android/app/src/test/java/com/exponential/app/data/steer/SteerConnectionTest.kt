@@ -913,6 +913,73 @@ class SteerConnectionTest {
     }
 
     @Test
+    fun aHistoryRoomOnAnEndedRunPagesWithoutReadingAsLive() = runBlocking {
+        val transport = FakeTransport()
+        val row = MutableStateFlow<CodingSessionEntity?>(
+            runningRow().copy(status = DomainContract.codingSessionStatusEnded),
+        )
+        val connection = connection(transport, stagingTimings, row)
+        try {
+            connection.connect()
+            val socket = transport.awaitOpen()
+            // The device republished its journal; the relay keeps the room
+            // open afterwards (no bye) so pages can still be asked for.
+            socket.emit("""{"t":"activity_reset"}""")
+            socket.emit("""{"t":"activity","seq":40,"event":{"kind":"narration","text":"tail"}}""")
+            socket.emit("""{"t":"activity_synced","truncated":true,"firstSeq":40}""")
+            waitUntil("the truncated tail") { connection.activity.value.feed.size == 1 }
+            // An open socket on an ended row is NOT a live run.
+            assertEquals(AgentPhase.Ended(null), connection.phase.value)
+            assertTrue(connection.canLoadEarlier())
+            assertTrue(connection.loadEarlier())
+            waitUntil("the page ask") { socket.sent.any { it.contains(""""t":"history_page"""") } }
+            socket.emit("""{"t":"keepalive"}""")
+            // The linger expired minutes later: terminal, never a drop.
+            socket.emit("""{"t":"bye","outcome":"history"}""")
+            socket.hangUp(withCode = CLOSE_SESSION_ENDED)
+            waitUntil("the socket to go") { !connection.canLoadEarlier() }
+            delay(150)
+            assertEquals(AgentPhase.Ended(null), connection.phase.value)
+            assertFalse(connection.loadEarlier())
+            // No redial to page.
+            assertNull(withTimeoutOrNull(100) { transport.opens.receive() })
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
+    fun aDeviceGoingOfflineMidPageIsTerminal() = runBlocking {
+        val transport = FakeTransport()
+        val row = MutableStateFlow<CodingSessionEntity?>(
+            runningRow().copy(status = DomainContract.codingSessionStatusEnded),
+        )
+        val connection = connection(transport, stagingTimings, row)
+        try {
+            connection.connect()
+            val socket = transport.awaitOpen()
+            socket.emit("""{"t":"activity_reset"}""")
+            socket.emit("""{"t":"activity","seq":40,"event":{"kind":"narration","text":"tail"}}""")
+            socket.emit("""{"t":"activity_synced","truncated":true,"firstSeq":40}""")
+            waitUntil("the truncated tail") { connection.activity.value.feed.size == 1 }
+            assertTrue(connection.loadEarlier())
+            waitUntil("the page ask") { socket.sent.any { it.contains(""""t":"history_page"""") } }
+            socket.emit("""{"t":"error","code":"device_offline"}""")
+            // The client hangs up on a terminal error itself; the relay's
+            // trailing bye never reaches it.
+            socket.hangUp(withCode = CLOSE_SESSION_ENDED)
+            waitUntil("the socket to go") { !connection.canLoadEarlier() }
+            delay(150)
+            assertEquals(AgentPhase.Ended(null), connection.phase.value)
+            // The transcript it already had stays; nothing redials.
+            assertEquals(1, connection.activity.value.feed.size)
+            assertNull(withTimeoutOrNull(100) { transport.opens.receive() })
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
     fun anUntruncatedReplayNeverOffersEarlierPages() = runBlocking {
         val transport = FakeTransport()
         val connection = connection(transport, stagingTimings)
