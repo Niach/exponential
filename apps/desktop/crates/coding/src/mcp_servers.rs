@@ -11,6 +11,19 @@
 //! Nothing here logs a value, and every value that reaches a child process
 //! does so through its environment, never argv or a config file
 //! ([`ResolvedMcp::env`] → the spawn env + the steer redactor).
+//!
+//! **Mid-run expiry is ACCEPTED and SURFACED, never brokered (EXP-808 —
+//! decided, do not reopen).** An OAuth token is resolved ONCE, at spawn, and
+//! handed to the agent as an env value; there is no broker sitting between
+//! the agent and its MCP server, so nothing can rotate that value while the
+//! run is alive. Spawn-time refresh ([`fresh_token`]) and the heartbeat sweep
+//! ([`refresh_expiring`], both on [`REFRESH_MARGIN_SECS`]) make a mid-run
+//! death rare; when it happens the run loses that ONE server's tools and
+//! nothing else. The answer is copy, not machinery: a launch whose token
+//! cannot outlive a plausible run warns ([`RUN_HORIZON_SECS`] →
+//! [`ResolvedMcp::warnings`]), and an expired sign-in reads as
+//! [`sign_in_expired`], which names the server and the fix. No broker
+//! process, no per-agent refresh hook.
 
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -32,6 +45,12 @@ pub const MCP_SERVER_ENV_PREFIX: &str = "EXP_MCP";
 /// resolver) and by the heartbeat sweep.
 pub const REFRESH_MARGIN_SECS: u64 = 10 * 60;
 
+/// EXP-808 — a plausible coding run. A token that expires inside this window
+/// will very likely die MID-RUN, where nothing can rotate it (see the module
+/// note), so the resolver says so at launch instead of letting the agent
+/// discover it as a 401 an hour in.
+pub const RUN_HORIZON_SECS: u64 = 4 * 60 * 60;
+
 /// `devices.heartbeat.mcpReadiness` / `mcpServers.reportReadiness` cap.
 pub const MAX_READINESS_ENTRIES: usize = 64;
 
@@ -44,6 +63,21 @@ pub const CONFIG_REFRESH: Duration = Duration::from_secs(5 * 60);
 /// desktop's blocker read alike.
 pub const NOT_SIGNED_IN: &str = "not signed in on this machine";
 pub const SIGN_IN_EXPIRED: &str = "sign-in expired on this machine";
+
+/// The full expired-sign-in sentence (EXP-808). The bare
+/// [`SIGN_IN_EXPIRED`] stem left the reader with a state and no move — and
+/// this is text a run hits MID-flight, where "which of my servers went
+/// quiet, and what do I do about it" is the whole question. So it NAMES the
+/// server and the fix, in the readiness rows and in the launch blocker
+/// alike. `detail` is the refresh failure, when there is one.
+pub fn sign_in_expired(server: &str, detail: Option<&str>) -> String {
+    match detail {
+        Some(detail) => format!(
+            "{SIGN_IN_EXPIRED} ({detail}). Sign in to {server} again, then resume the run."
+        ),
+        None => format!("{SIGN_IN_EXPIRED}. Sign in to {server} again, then resume the run."),
+    }
+}
 
 /// The config key the launcher's own MCP entry owns (`mcpServers.exponential`
 /// / `mcp_servers.exponential`); a team server may not fold to it.
@@ -58,6 +92,11 @@ pub struct ResolvedMcp {
     /// is a SECRET: it goes into the child env and the steer redactor, and
     /// nowhere else (never argv, never a config file, never a log).
     pub env: Vec<(String, String)>,
+    /// EXP-808: launch-time notes, in pick order — today, the servers whose
+    /// sign-in cannot outlive a plausible run ([`RUN_HORIZON_SECS`]). Never
+    /// a secret and never a blocker: the run starts, and the user is told
+    /// which server will go quiet and roughly when.
+    pub warnings: Vec<String>,
 }
 
 impl ResolvedMcp {
@@ -216,6 +255,13 @@ pub fn resolve_with(
                 let set = TokenSet::load(&store, account_id, &config.id)
                     .ok_or_else(|| blocker(NOT_SIGNED_IN.to_string()))?;
                 let set = fresh_token(&store, account_id, config, set, now).map_err(blocker)?;
+                // EXP-808: the expiry is KNOWN here and the value is about to
+                // be frozen into a child's env, so this is the last moment
+                // anyone can be told it will not last the run.
+                if let Some(warning) = expiry_warning(&config.name, &set, now) {
+                    log::warn!("{warning}");
+                    resolved.warnings.push(warning);
+                }
                 let var = token_env_name(position);
                 wire.headers
                     .push(("Authorization".to_string(), format!("Bearer ${{{var}}}")));
@@ -279,7 +325,35 @@ fn fresh_token(
             log::debug!("MCP token refresh for {} failed (still valid): {error}", config.name);
             Ok(set)
         }
-        Err(error) => Err(format!("{SIGN_IN_EXPIRED} ({error}); sign in again")),
+        Err(error) => Err(sign_in_expired(&config.name, Some(&error.to_string()))),
+    }
+}
+
+/// EXP-808 — the launch-time note for a token that will not outlive a
+/// plausible run ([`RUN_HORIZON_SECS`]). `None` when it lasts longer than
+/// that, and for a set whose provider named no expiry at all.
+///
+/// It says "resume the run" rather than "we will refresh it": the value is
+/// already on its way into a child's environment, and refreshing the stored
+/// copy afterwards does not reach that child (the module note).
+fn expiry_warning(server: &str, set: &TokenSet, now: u64) -> Option<String> {
+    let left = set.seconds_left(now)?;
+    if left >= RUN_HORIZON_SECS {
+        return None;
+    }
+    Some(format!(
+        "MCP server {server}: this run's sign-in expires in {}. {server}'s tools stop working then; sign in again and resume the run to pick up a fresh token.",
+        humanize_remaining(left)
+    ))
+}
+
+/// `"6 min"` / `"2 h 05 min"` — short enough for a one-line launch note.
+fn humanize_remaining(secs: u64) -> String {
+    let minutes = secs / 60;
+    if minutes < 60 {
+        format!("{minutes} min")
+    } else {
+        format!("{} h {:02} min", minutes / 60, minutes % 60)
     }
 }
 
@@ -310,7 +384,7 @@ pub fn readiness(
                 "oauth" => match TokenSet::load(&store, account_id, &config.id) {
                     Some(set) if set.is_expired(now) => {
                         entry.ready = false;
-                        entry.error = Some(SIGN_IN_EXPIRED.to_string());
+                        entry.error = Some(sign_in_expired(&config.name, None));
                         entry.expires_at = set.expires_at_iso();
                     }
                     Some(set) => entry.expires_at = set.expires_at_iso(),
@@ -1061,7 +1135,62 @@ mod tests {
         assert_eq!(resolved.env[0].1, "at-1", "still valid: the old token serves");
         let blocked = resolve_with(&dir.0, "acct", &configs, &ids, 2_000).unwrap_err();
         assert!(blocked.reason.starts_with("sign-in expired on this machine"), "{blocked}");
+        // EXP-808: and it says which server, and what to do about it.
+        assert!(
+            blocked.reason.ends_with("Sign in to Linear again, then resume the run."),
+            "{blocked}"
+        );
         assert!(!blocked.reason.contains("rt-1") && !blocked.reason.contains("at-1"));
+    }
+
+    /// EXP-808 — mid-run expiry is ACCEPTED, so a launch that cannot outlive
+    /// its token says so instead of failing anonymously an hour in: the note
+    /// names the server and the time left, it never blocks the run, and it
+    /// never carries the token.
+    #[test]
+    fn a_token_that_cannot_outlive_the_run_warns_without_blocking_it() {
+        let dir = temp_dir("resolve-expiry-warning");
+        let configs = vec![oauth_config("s", "Sentry")];
+        let ids = ["s".to_string()];
+        let endpoint = "https://auth.example.com/token";
+
+        // Comfortably past the horizon: nothing worth saying.
+        store_token(
+            &dir.0,
+            "s",
+            &token("at-long", Some(1_000 + RUN_HORIZON_SECS + 60), None, endpoint),
+        );
+        let resolved = resolve_with(&dir.0, "acct", &configs, &ids, 1_000).unwrap();
+        assert!(resolved.warnings.is_empty(), "{:?}", resolved.warnings);
+
+        // Inside it, and unrefreshable — exactly the gap the decision
+        // accepts. The run still starts.
+        store_token(
+            &dir.0,
+            "s",
+            &token("at-short", Some(1_000 + 90 * 60), None, endpoint),
+        );
+        let resolved = resolve_with(&dir.0, "acct", &configs, &ids, 1_000).unwrap();
+        assert_eq!(resolved.env[0].1, "at-short", "a warning is not a blocker");
+        let warning = &resolved.warnings[0];
+        assert_eq!(resolved.warnings.len(), 1);
+        assert!(warning.starts_with("MCP server Sentry:"), "{warning}");
+        assert!(warning.contains("1 h 30 min"), "{warning}");
+        assert!(warning.contains("resume the run"), "{warning}");
+        assert!(!warning.contains("at-short"), "never a secret: {warning}");
+
+        // A provider that named no expiry is not guessed at.
+        store_token(&dir.0, "s", &token("at-forever", None, None, endpoint));
+        let resolved = resolve_with(&dir.0, "acct", &configs, &ids, 1_000).unwrap();
+        assert!(resolved.warnings.is_empty(), "{:?}", resolved.warnings);
+
+        assert_eq!(humanize_remaining(59), "0 min");
+        assert_eq!(humanize_remaining(6 * 60), "6 min");
+        assert_eq!(humanize_remaining(2 * 3_600 + 5 * 60), "2 h 05 min");
+        assert_eq!(
+            sign_in_expired("Notion", None),
+            "sign-in expired on this machine. Sign in to Notion again, then resume the run."
+        );
     }
 
     #[test]
@@ -1099,7 +1228,12 @@ mod tests {
         assert!(entries[0].ready);
         assert_eq!(entries[0].expires_at.as_deref(), Some("1970-01-01T01:23:20.000Z"));
         assert!(!entries[1].ready);
-        assert_eq!(entries[1].error.as_deref(), Some(SIGN_IN_EXPIRED));
+        // EXP-808: the expired row NAMES its server and the move, so the
+        // reader is not left holding a state with no next step.
+        assert_eq!(
+            entries[1].error.as_deref(),
+            Some("sign-in expired on this machine. Sign in to Notion again, then resume the run.")
+        );
         assert_eq!(entries[2].error.as_deref(), Some(NOT_SIGNED_IN));
         assert_eq!(
             entries[3].error.as_deref(),

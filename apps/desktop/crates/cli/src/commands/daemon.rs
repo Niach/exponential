@@ -1960,17 +1960,16 @@ fn run_device_command(
             let profile = command.payload["profileId"].as_str().unwrap_or("system");
             match coding::CodingAgent::parse(agent) {
                 None => (false, "Malformed command payload.".to_string()),
-                Some(_) if !matches!(profile, "" | "system") => (
-                    false,
-                    "This build refreshes only the default agent profile.".to_string(),
-                ),
                 Some(agent) => {
                     let report = coding::run_doctor(&settings);
+                    // EXP-808: every account PROFILE refreshes, not just the
+                    // device's default one.
                     match coding::force_collect(
                         &ctx.data_dir,
                         &settings,
                         &report,
                         agent,
+                        profile,
                         coding::run_registry::now_secs(),
                     ) {
                         Ok(payload) => {
