@@ -3,7 +3,7 @@
 // bare ground, nothing else), ExpandedRail (the ONE always-open 208px rail —
 // web-style header, nav rows, boards inline, the What's new card, pinned
 // account row), CutoutPanel (EXP-723's rounded working surface every
-// content-column surface renders INTO), DockCollapsedStrip, CenterEmptyState.
+// content-column surface renders INTO) and CenterEmptyState.
 // Pixel truth: the EXP-359 real-app reference screenshot + the desktop crates —
 // crates/ui/src/surface.rs (tab_chip: h24, radius 10, FILL_ACTIVE when active),
 // crates/ui/src/sidebar.rs (rail rows: FILL_ACTIVE pill, hover FILL_ROW, no
@@ -18,7 +18,6 @@ import React from "react"
 import { interpolate, spring } from "remotion"
 import { C, EASE, MONO_FONT, POP, R, UI_FONT, WIN } from "../theme"
 import { IDENTITY } from "../fixtures"
-import { DockStrip, type DockTab } from "./terminal"
 
 const CLAMP = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const
 
@@ -117,6 +116,28 @@ const MonitorIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
     <rect x="2" y="3" width="20" height="14" rx="2" />
     <path d="M8 21h8" />
     <path d="M12 17v4" />
+  </Svg>
+)
+
+// action-chat = message-circle, coding-running = play, nav-terminal =
+// square-terminal (packages/icons/icons.json).
+const MessageCircleIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
+  <Svg size={size} sw={1.7}>
+    <path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.412-.961a2 2 0 0 1 1.099.092 10 10 0 1 0-4.776-4.756" />
+  </Svg>
+)
+
+const PlayIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
+  <Svg size={size} sw={1.7}>
+    <path d="M5 5.27a1 1 0 0 1 1.5-.87l11 6.73a1 1 0 0 1 0 1.74l-11 6.73A1 1 0 0 1 5 18.73z" />
+  </Svg>
+)
+
+const SquareTerminalIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
+  <Svg size={size} sw={1.7}>
+    <path d="m7 11 2-2-2-2" />
+    <path d="M11 13h4" />
+    <rect x="3" y="3" width="18" height="18" rx="2" />
   </Svg>
 )
 
@@ -420,8 +441,8 @@ export const TitleBar: React.FC<TitleBarProps> = ({
 // ── CutoutPanel (EXP-723, shell.rs) ──────────────────────────────────────────
 // The working surface: a rounded card inset 6px under the band and 10px on
 // the other sides, radius::LG, the card hairline, the translucent FILL_PANEL
-// wash, overflow hidden so the dock strip takes the two bottom corners. Every
-// content-column surface (issue list, center, dock, strip) keeps its
+// wash, overflow hidden so its corners clip whatever it holds. Every
+// content-column surface (the issue list and the center screen) keeps its
 // window-local coordinates and renders INTO it — the inner box is the whole
 // window, offset back, so the panel simply clips.
 export const CutoutPanel: React.FC<{ children: React.ReactNode }> = ({
@@ -477,6 +498,7 @@ export type RailRowId =
   | "actions"
   | "automations"
   | "reviews"
+  | "agent"
   | "board"
   | "board1"
   | "board2"
@@ -500,28 +522,44 @@ const WHATS_NEW_H = 62
 // Files centre 440.5). The bottom rows are pinned up from the window's edge.
 const NAV_TOP = HEADER_Y + HEADER_H + GAP + 1 + 2 * GAP + GAP // 92.5
 const PITCH = ROW_H + GAP
-const BOARDS_LABEL_Y = NAV_TOP + 6 * PITCH + 1 + 2 * GAP + GAP // 293
-const BOARDS_TOP = BOARDS_LABEL_Y + 24 + GAP // 320.5
-const FILES_TOP = BOARDS_TOP + 3 * PITCH + 1 + 2 * GAP + GAP // 426.5
-const RAIL_ROW_Y: Record<RailRowId, number> = {
+const SECTION_LABEL_H = 24
+// EXP-791 added Agent to the nav block and the Sessions section between the
+// boards and "This device", so everything below the boards moves with the
+// number of live sessions the rail is showing.
+const NAV_ROWS = 7
+const BOARDS_LABEL_Y = NAV_TOP + NAV_ROWS * PITCH + 1 + 2 * GAP + GAP
+const BOARDS_TOP = BOARDS_LABEL_Y + SECTION_LABEL_H + GAP
+const SESSIONS_LABEL_Y = BOARDS_TOP + 3 * PITCH + 1 + 2 * GAP + GAP
+const sessionsBlockH = (sessions: number) =>
+  sessions === 0
+    ? 0
+    : 1 + 2 * GAP + GAP + SECTION_LABEL_H + GAP + sessions * PITCH
+const deviceLabelY = (sessions: number) =>
+  BOARDS_TOP + 3 * PITCH + sessionsBlockH(sessions) + 1 + 2 * GAP + GAP
+const filesTop = (sessions: number) =>
+  deviceLabelY(sessions) + SECTION_LABEL_H + GAP
+const railRowY = (sessions: number): Record<RailRowId, number> => ({
   inbox: NAV_TOP,
   support: NAV_TOP + PITCH,
   devices: NAV_TOP + 2 * PITCH,
   actions: NAV_TOP + 3 * PITCH,
   automations: NAV_TOP + 4 * PITCH,
   reviews: NAV_TOP + 5 * PITCH,
+  agent: NAV_TOP + 6 * PITCH,
   board: BOARDS_TOP,
   board1: BOARDS_TOP + PITCH,
   board2: BOARDS_TOP + 2 * PITCH,
-  files: FILES_TOP,
-  "source-control": FILES_TOP + PITCH,
+  files: filesTop(sessions),
+  "source-control": filesTop(sessions) + PITCH,
   "getting-started": WIN.h - 7 - ACCOUNT_H - GAP - ROW_H,
   user: WIN.h - 7 - ACCOUNT_H,
-}
-const RAIL_DIVIDERS = [
-  HEADER_Y + HEADER_H + 2 * GAP, // 84.5
-  NAV_TOP + 6 * PITCH + GAP, // 285
-  BOARDS_TOP + 3 * PITCH + GAP, // 418.5
+})
+const RAIL_ROW_Y = railRowY(0)
+const railDividers = (sessions: number) => [
+  HEADER_Y + HEADER_H + 2 * GAP,
+  NAV_TOP + NAV_ROWS * PITCH + GAP,
+  ...(sessions > 0 ? [BOARDS_TOP + 3 * PITCH + GAP] : []),
+  deviceLabelY(sessions) - 2 * GAP - GAP,
 ]
 const WHATS_NEW_Y = RAIL_ROW_Y["getting-started"] - GAP - WHATS_NEW_H
 
@@ -540,6 +578,7 @@ const RAIL_ICON: Record<NavRowId, React.FC<{ size?: number }>> = {
   actions: BotIcon,
   automations: ZapIcon,
   reviews: GitPullRequestIcon,
+  agent: MessageCircleIcon,
   files: FolderIcon,
   "source-control": GitMergeIcon,
   "getting-started": SparklesIcon,
@@ -552,6 +591,7 @@ const RAIL_LABEL: Record<NavRowId, string> = {
   actions: "Actions",
   automations: "Automations",
   reviews: "Reviews",
+  agent: "Agent",
   files: "Files",
   "source-control": "Source Control",
   "getting-started": "Getting started",
@@ -568,6 +608,17 @@ const BOARD_GLYPH: Record<BoardGlyph, React.FC<{ size?: number }>> = {
 
 export type RailBoard = { name: string; glyph: BoardGlyph; color: string }
 
+// EXP-791: a row of the rail's Sessions section — one per open session tab or
+// live run of the caller's. `waiting` swaps the working spinner for the amber
+// dot the real row carries while the agent holds for an answer.
+export type RailSession = {
+  identifier?: string
+  label: string
+  waiting?: boolean
+  /** Global frame the row pops in on (spring), like a tab chip. */
+  popAt?: number
+}
+
 // The two companion boards every rail shows beside the film's own board — the
 // product's Boards group is never a single row.
 const COMPANION_BOARDS: RailBoard[] = [
@@ -578,7 +629,7 @@ const COMPANION_BOARDS: RailBoard[] = [
 // crate::changelog::LATEST.summary — the What's new card's teaser line is the
 // head changelog entry's summary (apps/web/src/lib/changelog.ts).
 const WHATS_NEW_SUMMARY =
-  "Reply under a comment on web, desktop, iOS and Android, and see when an agent posted a comment over MCP."
+  "A rate-limited run is marked everywhere instead of going quiet, mobile gets mentions and inline diffs, and the IDE gets a Usage page and MCP servers."
 
 // Text sizes at the 14px rem, scaled to the 1568-wide window like the rest of
 // the ship (text_sm 12.25 → 13.5, text_xs 10.5 → 11.5).
@@ -597,6 +648,7 @@ export type ExpandedRailProps = {
   boardName?: string
   boardGlyph?: BoardGlyph
   boards?: RailBoard[] // full override of the Boards group
+  sessions?: RailSession[] // the Sessions section; hidden while empty
   userName?: string
   userInitial?: string
 }
@@ -611,9 +663,12 @@ export const ExpandedRail: React.FC<ExpandedRailProps> = ({
   boardName = IDENTITY.project,
   boardGlyph = "code",
   boards,
+  sessions = [],
   userName = IDENTITY.user,
   userInitial = IDENTITY.initials,
 }) => {
+  const RAIL_ROW_Y = railRowY(sessions.length)
+  const RAIL_DIVIDERS = railDividers(sessions.length)
   const boardRows: RailBoard[] = boards ?? [
     { name: boardName, glyph: boardGlyph, color: "#818cf8" },
     ...COMPANION_BOARDS,
@@ -699,7 +754,9 @@ export const ExpandedRail: React.FC<ExpandedRailProps> = ({
         bottom: 0,
         width: WIN.rail,
         boxSizing: "border-box",
-        backgroundColor: C.fillSection,
+        // EXP-767: the rail paints NOTHING of its own — it sits on the one
+        // page gradient the shell root paints, and the cutout panel is the
+        // window's only brightness step.
         fontFamily: UI_FONT,
         zIndex: 10,
       }}
@@ -836,6 +893,7 @@ export const ExpandedRail: React.FC<ExpandedRailProps> = ({
             "actions",
             "automations",
             "reviews",
+            "agent",
             "files",
             "source-control",
             "getting-started",
@@ -879,6 +937,105 @@ export const ExpandedRail: React.FC<ExpandedRailProps> = ({
             </div>
           )
         })}
+        {/* EXP-791: the Sessions section — a muted label over one row per
+            live run, the working spinner (or the amber needs-you dot) at the
+            row's right edge. Hidden while nothing is up. */}
+        {sessions.length > 0 ? (
+          <>
+            <div
+              style={{
+                position: "absolute",
+                left: ROW_X,
+                top: SESSIONS_LABEL_Y,
+                width: ROW_W,
+                height: SECTION_LABEL_H,
+                boxSizing: "border-box",
+                display: "flex",
+                alignItems: "center",
+                padding: "0 5.25px",
+                color: C.dim,
+                fontSize: TEXT_XS,
+                fontWeight: 500,
+              }}
+            >
+              Sessions
+            </div>
+            {sessions.map((session, i) => {
+              const pop =
+                session.popAt === undefined
+                  ? 1
+                  : spring({
+                      frame: frame - session.popAt,
+                      fps: 30,
+                      config: POP,
+                    })
+              return (
+                <div
+                  key={session.label}
+                  style={{
+                    ...rowStyle(
+                      SESSIONS_LABEL_Y + SECTION_LABEL_H + GAP + i * PITCH
+                    ),
+                    color: C.text,
+                    opacity: pop,
+                    scale: 0.94 + 0.06 * pop,
+                  }}
+                >
+                  <span style={{ color: C.muted, display: "flex", flex: "none" }}>
+                    <PlayIcon size={12} />
+                  </span>
+                  <span style={labelStyle}>
+                    {session.identifier
+                      ? `${session.identifier} · ${session.label}`
+                      : session.label}
+                  </span>
+                  {session.waiting ? (
+                    <span
+                      style={{
+                        width: 6,
+                        height: 6,
+                        flex: "none",
+                        borderRadius: 999,
+                        backgroundColor: C.statusInProgress,
+                      }}
+                    />
+                  ) : (
+                    <span
+                      style={{
+                        width: 10,
+                        height: 10,
+                        flex: "none",
+                        borderRadius: 999,
+                        border: `1.4px solid rgba(250,250,250,0.25)`,
+                        borderTopColor: "rgba(250,250,250,0.75)",
+                        rotate: `${(frame * 12) % 360}deg`,
+                      }}
+                    />
+                  )}
+                </div>
+              )
+            })}
+          </>
+        ) : null}
+        {/* "This device" — the machine's own tool windows (EXP-791). */}
+        <div
+          style={{
+            position: "absolute",
+            left: ROW_X,
+            top: deviceLabelY(sessions.length),
+            width: ROW_W,
+            height: SECTION_LABEL_H,
+            boxSizing: "border-box",
+            display: "flex",
+            alignItems: "center",
+            padding: "0 5.25px",
+            color: C.dim,
+            fontSize: TEXT_XS,
+            fontWeight: 500,
+          }}
+        >
+          This device
+        </div>
         {/* render_whats_new_card (EXP-723): radius 12, card hairline + fill,
             p_3 — megaphone · text_sm medium title · ghost ✕, then the muted
             text_xs summary of the head changelog entry */}
@@ -1001,6 +1158,22 @@ export const ExpandedRail: React.FC<ExpandedRailProps> = ({
             </span>
             <ChevronsUpDownIcon size={11} />
           </div>
+          {/* EXP-340/769: the new-terminal button and the gear ride the
+              account row's right edge. */}
+          <span
+            style={{
+              width: 24,
+              height: 24,
+              flex: "none",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: 8,
+              color: C.muted,
+            }}
+          >
+            <SquareTerminalIcon size={14} />
+          </span>
           <span
             style={{
               width: 24,
@@ -1021,39 +1194,10 @@ export const ExpandedRail: React.FC<ExpandedRailProps> = ({
   )
 }
 
-// ── DockCollapsedStrip (the 29px tabs strip, collapsed form — EXP-723) ───────
-// The strip IS the collapsed dock: rich-tab chips + the `+`, pinned to the
-// panel's bottom edge (render inside CutoutPanel). No window controls live
-// here any more — they sit on the open dock's header row.
-export type DockCollapsedStripProps = {
-  frame: number
-  tabs?: DockTab[]
-  activeTab?: string
-}
-
-export const DockCollapsedStrip: React.FC<DockCollapsedStripProps> = ({
-  frame,
-  tabs = [],
-  activeTab,
-}) => (
-  <div
-    style={{
-      position: "absolute",
-      left: WIN.panel.x,
-      right: WIN.w - WIN.panel.right,
-      bottom: WIN.h - WIN.panel.bottom,
-      height: WIN.dockStrip,
-      zIndex: 10,
-    }}
-  >
-    <DockStrip frame={frame} tabs={tabs} activeTab={activeTab} />
-  </div>
-)
-
 // ── CenterEmptyState ("Nothing open") ────────────────────────────────────────
 export type CenterEmptyStateProps = {
   frame: number
-  bottom?: number // window-local inset from the window's bottom edge (default: the panel margin + the collapsed dock strip)
+  bottom?: number // window-local inset from the window's bottom edge (default: the panel margin)
   // WINDOW-LOCAL point to center the icon+text block on. A zoomed-in camera
   // crops the pane, so pane-centering can land the block half off-frame
   // (EXP-217) — callers pass the visible region's center instead.
@@ -1061,7 +1205,7 @@ export type CenterEmptyStateProps = {
 }
 
 export const CenterEmptyState: React.FC<CenterEmptyStateProps> = ({
-  bottom = WIN.h - WIN.panel.bottom + WIN.dockStrip,
+  bottom = WIN.h - WIN.panel.bottom,
   contentCenter,
 }) => {
   const content = (
@@ -1121,8 +1265,4 @@ export const CenterEmptyState: React.FC<CenterEmptyStateProps> = ({
 export const CHROME_ANCHORS = {
   trafficLights: { x: 40, y: 17 },
   tabStripStart: { x: TAB_STRIP_LEFT + 40, y: WIN.titleBar / 2 },
-  dockStripStart: {
-    x: WIN.panel.x + 40,
-    y: WIN.panel.bottom - WIN.dockStrip / 2,
-  },
 } as const

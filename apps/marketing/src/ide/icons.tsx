@@ -82,6 +82,10 @@ import {
   Link2,
   MessageCircle,
   Terminal,
+  Wrench,
+  CircleArrowUp,
+  CircleQuestionMark,
+  CircleStop,
   type LucideProps,
 } from "lucide-react"
 
@@ -216,6 +220,13 @@ const clock = (d: string): IdeIcon =>
 export const IcProgress24 = clock(`M12 12 L12 6 A6 6 0 0 1 12 18 Z`)
 export const IcProgress34 = clock(`M12 12 L12 6 A6 6 0 1 1 6 12 Z`)
 // EXP-723/742 rail + dock chrome and the relations card
-export const IcMessageCircle = wrap(MessageCircle) // the dock's collapsed-form switch
+export const IcMessageCircle = wrap(MessageCircle) // action-chat
 export const IcLink2 = wrap(Link2) // relation-section
 export const IcTerminal = wrap(Terminal) // session-shell
+/* The session transcript (EXP-746/787): narration wears `coding-assistant`
+   (sparkles, IcSparkles above), a tool row `coding-tool`, an answerable card
+   `ui-help`, the composer `ui-submit` and the header's kill `coding-stop`. */
+export const IcWrench = wrap(Wrench) // coding-tool
+export const IcCircleQuestion = wrap(CircleQuestionMark) // ui-help
+export const IcCircleArrowUp = wrap(CircleArrowUp) // ui-submit
+export const IcCircleStop = wrap(CircleStop) // coding-stop

@@ -47,8 +47,7 @@ export const C = {
   strokeCard: "rgba(255,255,255,0.10)",
   strokeStrong: "rgba(255,255,255,0.12)",
   strokeActive: "rgba(255,255,255,0.14)",
-  // cx.theme().popover — the OPAQUE floor the terminal dock and its strip sit
-  // on (terminal_dock.rs, EXP-723).
+  // cx.theme().popover — the OPAQUE floor a floating menu sits on.
   popover: "#252525",
   // Floating panels (popovers / dialogs): 95% #171717 over 16px blur, glass
   // shadow with the inset top highlight (web --glass-panel-bg / --glass-shadow).
@@ -83,14 +82,14 @@ export const C = {
   diffDel: "#ef4444",
   hunkBg: "rgba(59,130,246,0.10)",
   hunkFg: "#60a5fa",
-  // syntax tints (matched to ref diff/terminal shots)
+  // syntax tints (matched to the committed diff shots)
   synKeyword: "#60a5fa",
   synString: "#4ade80",
   synNumber: "#facc15",
   synComment: "#737373",
   synType: "#5eead4",
-  // terminal (real claude CLI grammar); the dock blends with the gradient's
-  // bottom stop (theme/src/terminal.rs — EXP-277)
+  // shell terminal grid (theme/src/terminal.rs — EXP-277); a terminal is a
+  // full center screen since EXP-769
   termBg: "#111114",
   termToolDot: "#22c55e", // ● before tool names
   termProseDot: "#fafafa", // ● before Claude prose
@@ -128,7 +127,7 @@ export const R = {
 // ground, and the working surface as EXP-723's CUTOUT PANEL: a rounded card
 // inset 6px under the band and 10px on the other three sides (shell.rs
 // PANEL_MARGIN / PANEL_MARGIN_TOP) holding the issue-list tool window (520),
-// the center and the terminal dock. The detail pane has no properties
+// the center. The detail pane has no properties
 // sidebar since EXP-471 — its properties are the pill bar under the title
 // (shots/issue-detail/desktop.webp).
 const WIN_W = 1568
@@ -147,9 +146,6 @@ export const WIN = {
   rail: RAIL_W,
   sidebar: 520, // issue-list tool window (sidebar.rs DEFAULT_DOCK_WIDTH)
   row: 28, // board row height
-  dockExpanded: 240, // TERMINAL_DOCK_HEIGHT
-  dockHeader: 28, // DOCK_HEADER_H — the open dock's own window-controls row
-  dockStrip: 29, // DOCK_STRIP_H — the tabs strip, open or collapsed
   // The cutout panel rect, window-local. `right`/`bottom` are the panel's
   // far edges, so a surface pinned inside it uses `WIN.w - WIN.panel.right`
   // as its CSS `right` inset.
@@ -167,4 +163,4 @@ export const WIN = {
 export const EASE = Easing.bezier(0.16, 1, 0.3, 1)
 // Named spring configs (use with remotion spring()):
 export const POP = { damping: 12, stiffness: 200 } as const // pills, badges, tabs
-export const SETTLE = { damping: 16, stiffness: 140 } as const // dock resize, dialogs
+export const SETTLE = { damping: 16, stiffness: 140 } as const // panes, dialogs

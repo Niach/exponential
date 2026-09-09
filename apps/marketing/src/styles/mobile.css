@@ -1024,16 +1024,11 @@ button.mob-backbtn {
   flex: none;
 }
 
-/* ── Section header + grouped cards ── */
-.mss-header {
-  height: 22px;
-  margin: 33.5px 0 0 39px;
-  font-size: 15px;
-  font-weight: 500;
-  line-height: 22px;
-  letter-spacing: -0.015em;
-  color: rgba(255, 255, 255, 0.7);
-  flex: none;
+/* ── Grouped cards ── */
+/* EXP-768: no section header between the capsule and the picker card —
+   the Form's own section spacing is the whole gap. */
+.mss-seg + .mss-card {
+  margin-top: 15.5px;
 }
 
 .mss-card {

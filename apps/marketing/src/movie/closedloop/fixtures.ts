@@ -29,6 +29,9 @@ export const CL = {
   runConfig: "Storefront",
   user: "Riley Chen",
   initials: "RC",
+  // The machine the run rides on — the session header's phase caption names
+  // it ("Working · Riley's MacBook Pro").
+  machine: "Riley's MacBook Pro",
   sessionTab: "Fix the dead checkout button",
 } as const
 

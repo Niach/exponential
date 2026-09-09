@@ -16,7 +16,7 @@ import {
 } from "./state"
 import { SUPPORT_THREADS } from "./data"
 import { WebSidebar } from "./Sidebar"
-import { WebBoard } from "./Board"
+import { WebAgentDock, WebBoard } from "./Board"
 import { WebIssueDetail } from "./IssueDetail"
 import { WebInbox } from "./Inbox"
 import { WebSupportInbox } from "./SupportInbox"
@@ -122,7 +122,12 @@ export function WebDemo({
           style={scale < 1 ? { width: BASE_W, transform: `scale(${scale})` } : undefined}
         >
           <WebSidebar />
-          <div className="web-main">{main}</div>
+          {/* team/app-shell.ts: the content COLUMN — the cutout card, and
+              under it the agent dock's band on the bare page ground. */}
+          <div className="web-col">
+            <div className="web-main">{main}</div>
+            <WebAgentDock />
+          </div>
         </div>
       </WebContext.Provider>
     </div>

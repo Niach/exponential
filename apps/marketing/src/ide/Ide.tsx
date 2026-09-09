@@ -18,7 +18,6 @@ import {
   useIde,
   type CodingState,
   type CodingTarget,
-  type DockTab,
   type IdeApi,
   type IdeView,
   type ScriptPos,
@@ -31,7 +30,7 @@ import { ReviewsScreen, SidebarPanel } from "./Sidebar"
 import { IssueDetail } from "./IssueDetail"
 import { FileTab } from "./Files"
 import { ScTab } from "./SourceControl"
-import { TerminalDock } from "./Terminal"
+import { SessionScreen } from "./Session"
 import { StartCodingDialog } from "./StartCodingDialog"
 import { IcInbox } from "./icons"
 import { useDemoScale } from "../lib/use-demo-scale"
@@ -140,11 +139,9 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
   const [coding, setCoding] = useState<CodingState>(`idle`)
   const [codingTarget, setCodingTarget] = useState<CodingTarget | null>(null)
   const [pendingCoding, setPendingCoding] = useState<CodingTarget | null>(null)
-  const [codedIssues, setCodedIssues] = useState<Set<string>>(new Set())
   const [runId, setRunId] = useState(0)
   const [scriptPos, setScriptPos] = useState<ScriptPos>({ done: 0, chars: 0 })
-  const [dockOpen, setDockOpen] = useState(false)
-  const [dockTab, setDockTab] = useState<DockTab>(`shell`)
+  const [sessionOpen, setSessionOpen] = useState(false)
   const [inboxRead, setInboxRead] = useState<Set<string>>(new Set())
   const [mergedReviews, setMergedReviews] = useState<Set<string>>(new Set())
   const [goneReviews, setGoneReviews] = useState<Set<string>>(new Set())
@@ -166,22 +163,15 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
       : batchCodingScriptFor(codingTarget.issueIds.map(getIssue))
   }, [codingTarget])
 
-  /* Typed-out Claude session. Instant when prefers-reduced-motion. */
+  /* The transcript streams in the way a run's does: prose types out, tool
+     rows land whole. The run does not "finish" — its turn ends on the
+     question card and it holds for a reply (EXP-674). Instant when
+     prefers-reduced-motion. */
   useEffect(() => {
-    if (coding !== `running` || !codingTarget) return undefined
-    const finish = () => {
-      setCoding(`ended`)
-      /* A batch run ships every checked issue in its one combined PR. */
-      const finished = codingTarget.kind === `issue` ? [codingTarget.id] : codingTarget.issueIds
-      setCodedIssues((prev) => {
-        const next = new Set(prev)
-        finished.forEach((id) => next.add(id))
-        return next
-      })
-    }
+    if (coding !== `running`) return undefined
     if (prefersReducedMotion()) {
       setScriptPos({ done: codingScript.length, chars: 0 })
-      const t = window.setTimeout(finish, 500)
+      const t = window.setTimeout(() => setCoding(`waiting`), 500)
       return () => window.clearTimeout(t)
     }
     let done = 0
@@ -189,27 +179,27 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
     let t: number
     const tick = () => {
       if (done >= codingScript.length) {
-        finish()
+        setCoding(`waiting`)
         return
       }
-      const line = codingScript[done]
-      if (line.kind === `cmd` && chars < line.text.length) {
-        chars += 1
-        setScriptPos({ done, chars })
-        t = window.setTimeout(tick, 18)
+      const row = codingScript[done]
+      if (row.kind === `narration` && chars < row.text.length) {
+        chars += Math.max(2, Math.round(row.text.length / 60))
+        setScriptPos({ done, chars: Math.min(chars, row.text.length) })
+        t = window.setTimeout(tick, 22)
         return
       }
       done += 1
       chars = 0
       setScriptPos({ done, chars: 0 })
       const next = codingScript[done]
-      const delay = !next ? 700 : next.kind === `cmd` ? 500 : next.kind === `claude` ? 550 : 420
+      const delay = !next ? 700 : next.kind === `narration` ? 520 : 380
       t = window.setTimeout(tick, delay)
     }
     setScriptPos({ done: 0, chars: 0 })
     t = window.setTimeout(tick, 450)
     return () => window.clearTimeout(t)
-  }, [coding, runId, codingTarget, codingScript])
+  }, [coding, runId, codingScript])
 
   const openTab = (tab: Tab) => {
     setTabs((prev) => (prev.some((t) => t.key === tab.key) ? prev : [...prev, tab]))
@@ -271,7 +261,6 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
     coding,
     codingTarget,
     codingScript,
-    codedIssues,
     pendingCoding,
     requestCoding: (target) => setPendingCoding(target),
     cancelStartCoding: () => setPendingCoding(null),
@@ -280,15 +269,14 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
       setPendingCoding(null)
       setCoding(`running`)
       setRunId((n) => n + 1)
-      setDockOpen(true)
-      setDockTab(`claude`)
+      /* A start opens the run's screen, the way a launch navigates to it. */
+      setSessionOpen(true)
     },
     stopCoding: () => setCoding(`ended`),
     scriptPos,
-    dockOpen,
-    setDockOpen,
-    dockTab,
-    setDockTab,
+    sessionOpen,
+    openSession: () => setSessionOpen(true),
+    closeSession: () => setSessionOpen(false),
   }
 
   const { ref, scale } = useDemoScale(BASE_W)
@@ -305,18 +293,27 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
           style={scale < 1 ? { width: BASE_W, transform: `scale(${scale})` } : undefined}
         >
           {/* The labelled rail is the ONE full-height column (it carries
-              its own titlebar strip); the decoration band, the cutout panel
-              with its panes and the terminal dock all live in the content
-              column right of it (shell.rs, EXP-723). */}
+              its own titlebar strip); the decoration band and the cutout
+              panel with its panes live in the content column right of it
+              (shell.rs, EXP-723). The bottom session bar (EXP-769/791)
+              carries terminal tabs alone and takes no height while none is
+              open, which is this demo's whole story: it never draws. */}
           <Rail />
           <div className="ide-main">
             <Topbar />
             <div className="ide-panel">
               <div className="ide-main-top">
-                {tool !== `reviews` && <SidebarPanel />}
-                <CenterArea />
+                {sessionOpen ? (
+                  /* EXP-791: a session fills the center — no tool window
+                     beside it, exactly like Reviews. */
+                  <SessionScreen />
+                ) : (
+                  <>
+                    {tool !== `reviews` && <SidebarPanel />}
+                    <CenterArea />
+                  </>
+                )}
               </div>
-              <TerminalDock />
             </div>
           </div>
           {pendingCoding && <StartCodingDialog />}

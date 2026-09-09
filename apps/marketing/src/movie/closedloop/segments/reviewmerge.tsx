@@ -32,12 +32,11 @@ import {
 } from "../../ships/surfaces/board"
 import {
   CutoutPanel,
-  DockCollapsedStrip,
   ExpandedRail,
   TitleBar,
   type ChromeTab,
+  type RailSession,
 } from "../../ships/surfaces/chrome"
-import type { DockTab } from "../../ships/surfaces/terminal"
 import {
   PrDiffPane,
   prDiffMergeCenter,
@@ -135,11 +134,10 @@ const TAB_151: ChromeTab = {
 // Phone placement in COMP coordinates inside the camera layer.
 const PHONE_POS = { x: 1490, y: 280, scale: 1 } as const
 
-// The strip's chips: the shell tab (named by its cwd) and EXP-151's session
-// chip — its run is still up, in review, while the PR merges.
-const DOCK_TABS: DockTab[] = [
-  { id: "shell", label: "acme-shop", shell: true },
-  { id: "cl", identifier: NEW_ISSUE_ID, label: CL_ISSUE.title, dot: C.green },
+// EXP-791: EXP-151's run is still up while the PR merges, so the rail keeps
+// its Sessions row.
+const RAIL_SESSIONS: RailSession[] = [
+  { identifier: NEW_ISSUE_ID, label: CL_ISSUE.title },
 ]
 
 // ── The clip ──────────────────────────────────────────────────────────────────
@@ -147,8 +145,9 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
   frame,
   portrait,
 }) => {
-  const dockH = WIN.dockStrip
-  const paneH = WIN.panel.h - dockH
+  // EXP-769/791: no dock inside the panel — the bottom bar carries terminal
+  // tabs alone, and none is open here, so the panel runs to its own edge.
+  const paneH = WIN.panel.h
   const capSize = captionSize(portrait)
 
   const heroStatus =
@@ -186,6 +185,7 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
               dots={["reviews"]}
               dotColor={C.green}
               boardName={CL.project}
+              sessions={RAIL_SESSIONS}
               userName={CL.user}
               userInitial={CL.initials}
             />
@@ -194,7 +194,7 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
             <CutoutPanel>
               {/* sidebar: the board's issue list — the PrDiff is a CENTER
                   screen, so the list pane behind it stays put (EXP-706) */}
-              <SidebarPane actions={<BoardActions />} bottomInset={dockH}>
+              <SidebarPane actions={<BoardActions />}>
                 <BoardTool
                   frame={frame}
                   rows={CL_BOARD}
@@ -233,7 +233,6 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
                 />
               </div>
 
-              <DockCollapsedStrip frame={frame} tabs={DOCK_TABS} activeTab="cl" />
             </CutoutPanel>
 
             <CursorLayer

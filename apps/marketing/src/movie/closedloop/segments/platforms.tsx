@@ -19,7 +19,6 @@ import {
 } from "../../ships/surfaces/board"
 import {
   CutoutPanel,
-  DockCollapsedStrip,
   ExpandedRail,
   TitleBar,
   type ChromeTab,
@@ -102,8 +101,9 @@ const TAB_151: ChromeTab = {
 }
 
 const MacScreenFrozen: React.FC = () => {
-  const dockH = WIN.dockStrip
-  const paneH = WIN.panel.h - dockH
+  // EXP-769/791: no dock inside the panel — the bottom bar carries terminal
+  // tabs alone, and none is open here, so the panel runs to its own edge.
+  const paneH = WIN.panel.h
   return (
     <div
       style={{
@@ -124,7 +124,7 @@ const MacScreenFrozen: React.FC = () => {
           userInitial={CL.initials}
         />
         <CutoutPanel>
-          <SidebarPane actions={<BoardActions />} bottomInset={dockH}>
+          <SidebarPane actions={<BoardActions />}>
             <BoardTool
               frame={FROZEN}
               rows={CL_BOARD}
@@ -156,11 +156,6 @@ const MacScreenFrozen: React.FC = () => {
               height={paneH}
             />
           </div>
-          <DockCollapsedStrip
-            frame={FROZEN}
-            tabs={[{ id: "shell", label: "acme-shop", shell: true }]}
-            activeTab="shell"
-          />
         </CutoutPanel>
       </WindowChassis>
     </div>

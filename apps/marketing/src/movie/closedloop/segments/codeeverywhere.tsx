@@ -4,16 +4,20 @@
 // chip box, the icon-only play circle), the real start sheet slides up
 // (Issues · agent pills · Model · Effort — a long dwell, this IS the film's
 // start-coding dialog) and on Start the desktop reacts SIMULTANEOUSLY — the
-// dock springs open with the session tab, EXP-151 FLIPs Backlog → In Progress
-// and the coding-now pill pops in the properties panel. The "Start sent"
+// run's SESSION slides in over the issue body (EXP-791), a Sessions row
+// appears in the rail, EXP-151 FLIPs Backlog → In Progress. The "Start sent"
 // toast confirms, the phone flips to the session screen, mirrors the feed,
-// and a typed steer lands highlighted in the terminal. ONE static framing —
-// no camera moves (EXP-388). No local desktop cursor: the hands are on the
+// and a typed steer lands in the transcript as a message. ONE static framing
+// — no camera moves (EXP-388). No local desktop cursor: the hands are on the
 // phone. All beats are LOCAL frames.
+//
+// EXP-769/773/791: there is no terminal dock in this shell any more — a run
+// is a screen, and the bottom bar carries terminal tabs alone (none here, so
+// it takes no height).
 
 import React from "react"
-import { AbsoluteFill, interpolate, spring } from "remotion"
-import { C, PAGE_FONT, SETTLE, WIN } from "../../ships/theme"
+import { AbsoluteFill, interpolate } from "remotion"
+import { PAGE_FONT, WIN } from "../../ships/theme"
 import {
   Camera,
   Caption,
@@ -28,13 +32,13 @@ import {
 } from "../../ships/surfaces/board"
 import {
   CutoutPanel,
-  DockCollapsedStrip,
   ExpandedRail,
   TitleBar,
   type ChromeTab,
+  type RailSession,
 } from "../../ships/surfaces/chrome"
 import { IssueDetailPane } from "../../ships/surfaces/detail"
-import { TerminalDock, type DockTab } from "../../ships/surfaces/terminal"
+import { SessionScreen } from "../../ships/surfaces/session"
 import type { SessionEvent } from "../../ships/fixtures"
 import { StartPhone } from "../surfaces/startphone"
 import { SteerPhone } from "../surfaces/steerphone"
@@ -73,14 +77,14 @@ const B = {
   startAt: 104, // toolbar Start-coding press → spinner
   simul: 112, // the desktop reacts: dock springs, tab pops, board FLIPs
   sheetOut: 112, // sheet collapses; the "Start sent" toast confirms
-  sessionTab: 118,
+  sessionSlide: 118, // the transcript slides in over the issue body
   feed: [124, 134, 146, 158, 168] as const, // first 5 CL_SESSION events
   phoneSwap: 136, // the phone flips to the session screen
   phoneFeed: [142, 152, 162] as const, // CL_PHONE_FEED mirror rows
   typeAt: 172, // steer typing on the phone (2 cpf)
   sendAt: 210, // send tap → user bubble
-  steerGlow: 214, // prompt-box white pulse in the dock
-  steerLand: 218, // the steer lands as a highlighted terminal line
+  steerGlow: 214, // the composer pulses as the steer arrives
+  steerLand: 218, // the steer lands in the transcript as your message
   reply: [226, 238, 250] as const, // CL_STEER_REPLY events
 } as const
 
@@ -90,11 +94,8 @@ const CAPTIONS = {
   ce3: { in: 214, out: 250 },
 } as const
 
-// The dock feed: the spawned session, then the landed steer, then the reply.
-const STEER_EVENT: SessionEvent = {
-  kind: "flash",
-  text: `Steer from phone: ${CL_STEER_MSG}`,
-}
+// The transcript: the run's first events, your steer, then the reply.
+const STEER_EVENT: SessionEvent = { kind: "user", text: CL_STEER_MSG }
 const FEED_EVENTS: SessionEvent[] = [
   ...CL_SESSION.slice(0, B.feed.length),
   STEER_EVENT,
@@ -127,24 +128,15 @@ const TAB_151 = (frame: number): ChromeTab => ({
   label: CL_ISSUE.title,
   status: frame >= B.simul ? "in_progress" : "backlog",
 })
-// The strip's chips (surface::rich_tab): the shell tab named by its cwd,
-// then the session chip — status dot · mono identifier · the issue title.
-const DOCK_TABS: DockTab[] = [
-  { id: "shell", label: "acme-shop", shell: true },
+// EXP-791: the rail is the ONE navigation for coding runs — the started run
+// appears as a Sessions row while it works.
+const RAIL_SESSIONS: RailSession[] = [
   {
-    id: "cl",
     identifier: NEW_ISSUE_ID,
     label: CL_ISSUE.title,
-    dot: C.green,
-    popAt: B.sessionTab,
+    popAt: B.simul,
   },
 ]
-
-const dockHeightAt = (frame: number): number => {
-  if (frame < B.simul) return WIN.dockStrip
-  const t = spring({ frame: frame - B.simul, fps: 30, config: SETTLE })
-  return WIN.dockStrip + (WIN.dockExpanded - WIN.dockStrip) * t
-}
 
 // Phone placement in COMP coordinates inside the camera layer — over the
 // window's LEFT edge (the board is carried context; the detail pane and its
@@ -156,8 +148,16 @@ export const CodeEverywhereSegment: React.FC<SegmentProps> = ({
   frame,
   portrait,
 }) => {
-  const dockH = dockHeightAt(frame)
-  const paneH = WIN.panel.h - dockH
+  // The panel runs to its own bottom edge: no dock, and no terminal open.
+  const paneH = WIN.panel.h
+  // EXP-791: the run slides in over the issue body — [detail | session]
+  // moving left by the pane's width, the shell's own slide recipe.
+  const slide = interpolate(
+    frame,
+    [B.sessionSlide, B.sessionSlide + 14],
+    [0, 1],
+    CLAMP_EASE
+  )
   const capSize = captionSize(portrait)
 
   const heroStatus =
@@ -201,13 +201,14 @@ export const CodeEverywhereSegment: React.FC<SegmentProps> = ({
               frame={frame}
               active="board"
               boardName={CL.project}
+              sessions={frame >= B.simul ? RAIL_SESSIONS : []}
               userName={CL.user}
               userInitial={CL.initials}
             />
 
             {/* EXP-723: everything below the band lives in the cutout panel */}
             <CutoutPanel>
-              <SidebarPane actions={<BoardActions />} bottomInset={dockH}>
+              <SidebarPane actions={<BoardActions />}>
                 <BoardTool
                   frame={frame}
                   rows={CL_BOARD}
@@ -227,34 +228,45 @@ export const CodeEverywhereSegment: React.FC<SegmentProps> = ({
                   overflow: "hidden",
                 }}
               >
-                <IssueDetailPane
-                  frame={frame}
-                  codingNow={{ at: B.sessionTab, out: DUR + 30 }}
-                  status={heroStatus}
-                  priority="none"
-                  issue={CL_ISSUE}
-                  width={CENTER_W}
-                  height={paneH}
-                />
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    translate: `${-slide * CENTER_W}px 0px`,
+                  }}
+                >
+                  <IssueDetailPane
+                    frame={frame}
+                    status={heroStatus}
+                    priority="none"
+                    issue={CL_ISSUE}
+                    width={CENTER_W}
+                    height={paneH}
+                  />
+                </div>
+                {slide > 0 ? (
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      translate: `${(1 - slide) * CENTER_W}px 0px`,
+                    }}
+                  >
+                    <SessionScreen
+                      frame={frame}
+                      width={CENTER_W}
+                      height={paneH}
+                      identifier={NEW_ISSUE_ID}
+                      subject={CL_ISSUE.title}
+                      caption={`Working · ${CL.machine}`}
+                      events={FEED_EVENTS}
+                      schedule={FEED_SCHEDULE}
+                      inputGlow={B.steerGlow}
+                      changes={{ add: 27, del: 6, at: B.feed[3] }}
+                    />
+                  </div>
+                ) : null}
               </div>
-
-              {frame < B.simul ? (
-                <DockCollapsedStrip
-                  frame={frame}
-                  tabs={[DOCK_TABS[0]]}
-                  activeTab="shell"
-                />
-              ) : (
-                <TerminalDock
-                  frame={frame}
-                  height={dockH}
-                  tabs={DOCK_TABS}
-                  activeTab={frame < B.sessionTab ? "shell" : "cl"}
-                  feed={{ events: FEED_EVENTS, schedule: FEED_SCHEDULE }}
-                  inputGlow={B.steerGlow}
-                  spinnerBase={{ sec: 4, tokensK: 0.8 }}
-                />
-              )}
             </CutoutPanel>
           </WindowChassis>
 

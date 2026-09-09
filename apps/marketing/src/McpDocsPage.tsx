@@ -14,6 +14,7 @@ const SECTIONS: DocsSectionType[] = [
   { id: `clients`, num: `03`, label: `Client setup` },
   { id: `tools`, num: `04`, label: `Tool reference` },
   { id: `recipes`, num: `05`, label: `Recipes` },
+  { id: `your-own-servers`, num: `06`, label: `Your own servers` },
 ]
 
 /* Tool reference — names + one-liners mirroring apps/web/src/lib/mcp/tools.ts. */
@@ -431,6 +432,55 @@ npx mcp-remote ${LINKS.app.mcp}
               with <code>exponential_sessions_get</code>. Steer it mid-run
               with <code>exponential_sessions_message</code>. Details in{` `}
               <a href="/docs/cli/#daemon">CLI &amp; daemon</a>.
+            </p>
+          </DocsSection>
+
+          {/* ── 06 Your own servers ── */}
+          <DocsSection
+            id="your-own-servers"
+            num="06"
+            label="Your own servers"
+          >
+            <h2>Your own MCP servers</h2>
+            <p>
+              Everything above is Exponential <em>as</em> an MCP server. This
+              is the other direction: the MCP servers <em>your</em> coding
+              runs connect to besides Exponential — your error tracker, your
+              docs, your internal API.
+            </p>
+            <p>
+              They are a team registry under{` `}
+              <strong>Settings → MCP servers</strong>. Every member sees the
+              list; owners add and edit. A row is non-secret configuration
+              only: a name, the transport (a remote URL or a local command),
+              the auth kind, and the <em>names</em> of the headers or
+              environment variables a machine has to supply.
+            </p>
+            <DocsCallout kind="note" title="Credentials stay on the machine">
+              The server keeps <em>names and readiness</em>, never values. A
+              secret is typed on the machine that will use it — in the desktop
+              app&apos;s own MCP servers pane, or with{` `}
+              <code>exponential mcp set-secret &lt;server&gt; &lt;NAME&gt;</code>
+              {` `}on a daemon — and never travels through a command line.
+            </DocsCallout>
+            <p>
+              Each row carries a <strong>readiness chip per machine</strong>,
+              so you can see at a glance which of your machines can actually
+              reach the server. For an OAuth server, the chip on one of your
+              own machines offers <strong>Sign in</strong>: that machine
+              builds the authorize URL, you consent in the browser you are
+              already in, and the machine finishes the sign-in itself. On a
+              headless box, <code>exponential mcp login &lt;server&gt;</code>
+              {` `}does the same locally, or <code>--paste</code> prints a URL
+              you open anywhere and paste the redirect back.
+            </p>
+            <p>
+              Pick the servers a run gets in the{` `}
+              <a href="/docs/coding/#start-coding">Start-coding dialog</a> and
+              on the <a href="/docs/coding/#watch-steer">chat page</a>. Runs
+              are strict about it: an agent started by Exponential connects to
+              the servers Exponential wired in and nothing else, whatever the
+              CLI has configured globally.
             </p>
           </DocsSection>
         </DocsLayout>

@@ -1,6 +1,6 @@
 /* ─── Shared IDE demo state: context, types, helpers ─── */
 import { createContext, useContext } from "react"
-import type { Change, Commit, FilterTab, ScriptLine } from "./data"
+import type { Change, Commit, FeedRow, FilterTab } from "./data"
 
 export type Tool =
   | `issues`
@@ -14,13 +14,16 @@ export type IdeView = `board` | `issue` | `files` | `source-control`
 export type TabKind = `issue` | `file` | `sc`
 export type Tab = { key: string; kind: TabKind; label: string; ref: string }
 
-export type CodingState = `idle` | `running` | `ended`
+/* The run's phase, as the session header reads it: `running` = the agent is
+   working, `waiting` = its turn ended on a question and it is holding for
+   your reply (a person-started run has no idle bound, EXP-674), `ended` =
+   killed from the header. */
+export type CodingState = `idle` | `running` | `waiting` | `ended`
 /* A coding run targets ONE issue or a BATCH of issues (EXP-106) — one
    session, one exp/batch-<id8> branch, one combined PR. */
 export type CodingTarget =
   | { kind: `issue`; id: string }
   | { kind: `batch`; issueIds: string[] }
-export type DockTab = `shell` | `claude`
 export type ScriptPos = { done: number; chars: number }
 
 export type IdeApi = {
@@ -62,8 +65,7 @@ export type IdeApi = {
 
   coding: CodingState
   codingTarget: CodingTarget | null
-  codingScript: ScriptLine[]
-  codedIssues: Set<string>
+  codingScript: FeedRow[]
   /* Start-coding dialog beat: request opens the dialog (pre-seeding its
      picker), confirm launches whatever the picker settled on. */
   pendingCoding: CodingTarget | null
@@ -73,10 +75,12 @@ export type IdeApi = {
   stopCoding: () => void
   scriptPos: ScriptPos
 
-  dockOpen: boolean
-  setDockOpen: (open: boolean) => void
-  dockTab: DockTab
-  setDockTab: (tab: DockTab) => void
+  /* EXP-791: a run is a full-width center SCREEN, opened from the rail's
+     Sessions section or the issue's Watch — never a dock. `sessionOpen`
+     is "the center is showing the run", not "a run exists". */
+  sessionOpen: boolean
+  openSession: () => void
+  closeSession: () => void
 }
 
 export const IdeContext = createContext<IdeApi | null>(null)

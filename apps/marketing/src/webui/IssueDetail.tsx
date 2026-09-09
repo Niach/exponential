@@ -3,7 +3,7 @@
    breadcrumb bar with the position switcher / copy-link / delete actions
    (the Subscribe toggle is gone since EXP-723), then ONE centered max-w-3xl
    reading column — big title, the properties GLASS CARD (no sidebar rail any
-   more), the "Coding now" glass row, the Relations card, the markdown
+   more), the "Coding now" glass row, the markdown
    description with the editor's insert rail, and the activity timeline
    (issue-timeline.tsx + comment-rows/*) whose comment cards end in the
    "Leave a reply…" row. */
@@ -22,7 +22,6 @@ import {
 import { useWeb } from "./state"
 import { StatusGlyph, PriorityGlyph, WebAvatar } from "./bits"
 import { AGENT_SESSIONS, WEB_BOARD, WEB_USER } from "./data"
-import { WebAgentDock } from "./Board"
 import {
   ICON_3,
   ICON_35,
@@ -35,13 +34,11 @@ import {
   IcDevices,
   IcHash,
   IcImage,
-  IcLink2,
   IcPaperclip,
-  IcPlus,
+  IcEllipsis,
   IcSmile,
   IcSubmit,
   IcTag,
-  IcTrash,
 } from "./icons"
 
 function Description({ issueId }: { issueId: string }) {
@@ -243,11 +240,10 @@ export function WebIssueDetail({ issueId }: { issueId: string }) {
             <IcChevDown size={ICON_4} />
           </button>
           <span className="web-vrule" />
-          <button className="web-icbtn is-glass is-click" type="button" title="Copy link to issue">
-            <IcLink2 size={ICON_4} />
-          </button>
-          <button className="web-icbtn is-glass is-click" type="button" title="Delete issue">
-            <IcTrash size={ICON_4} />
+          {/* EXP-760: Copy link and Delete fold into ONE round "…" menu
+              (issue-actions-menu.tsx), which also offers Add relation. */}
+          <button className="web-icbtn is-glass is-round is-click" type="button" title="Actions">
+            <IcEllipsis size={ICON_4} />
           </button>
         </div>
       </div>
@@ -280,23 +276,6 @@ export function WebIssueDetail({ issueId }: { issueId: string }) {
               </div>
             </div>
           )}
-
-          {/* EXP-736: the Relations card follows the coding strip
-              (issue-relations-card.tsx) — header + "Add relation" stand alone
-              above an empty list, which is what makes the affordance
-              discoverable. The glyph is `relation-section` (link-2). */}
-          <div className="web-relations">
-            <div className="web-relcard">
-              <div className="web-relhead">
-                <IcLink2 size={ICON_35} className="web-relhead-icon" />
-                <span>Relations</span>
-                <button className="web-outlinebtn is-click" type="button">
-                  <IcPlus size={ICON_3} />
-                  Add relation
-                </button>
-              </div>
-            </div>
-          </div>
 
           <div className="web-editor">
             <Description issueId={issue.id} />
@@ -371,7 +350,6 @@ export function WebIssueDetail({ issueId }: { issueId: string }) {
           </div>
         </div>
       </div>
-      <WebAgentDock />
     </div>
   )
 }

@@ -33,7 +33,9 @@ import {
   ListFilter,
   Lock,
   Mail,
+  Ellipsis,
   Megaphone,
+  MessageCircle,
   MessageSquare,
   Minus,
   Monitor,
@@ -100,6 +102,8 @@ export const IcFilter = wrap(ListFilter) // nav-filter
 export const IcCode = wrap(Code) // ui-repository
 export const IcKanban = wrap(SquareKanban) // settings-boards
 export const IcMegaphone = wrap(Megaphone) // ui-widget
+export const IcChat = wrap(MessageCircle) // action-chat
+export const IcEllipsis = wrap(Ellipsis) // ui-more
 
 /* Status / priority */
 export const IcCircleDashed = wrap(CircleDashed) // status-backlog

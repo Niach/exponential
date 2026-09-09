@@ -8,7 +8,7 @@
 **The next generation dev platform for teams.** Issues, customer feedback, and coding agents in one realtime tracker. Agents run on your own machines, on your own subscription. Web, macOS, Linux, Windows, iOS, Android.
 
 <p align="center">
-  <img src="./docs/images/hero.webp" alt="The Exponential board on desktop, with the Start coding screen on iPhone" width="100%">
+  <img src="./docs/images/hero.webp" alt="The Exponential board in the browser, with the Start coding sheet on iPhone" width="100%">
 </p>
 
 - **Cloud**: [app.exponential.at](https://app.exponential.at/?ref=github), free for up to three people

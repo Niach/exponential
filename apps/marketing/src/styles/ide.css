@@ -184,6 +184,34 @@
 .ide-btn-outline.is-click:hover {
   background: var(--g-fill-active);
 }
+/* EXP-760: demoted (a PR is open) Start coding wears the plain glass pill —
+   Merge takes the white one. */
+.ide-btn-glass {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-size: var(--f-sm);
+  font-weight: 500;
+  white-space: nowrap;
+  flex: none;
+  border: 1px solid var(--g-stroke-row);
+  background: var(--g-fill-row);
+  color: var(--ide-fg);
+}
+/* coding_flow.rs: the local run's status dot + label beside Stop. */
+.ide-codingnow {
+  display: inline-flex;
+  align-items: center;
+  gap: 5.25px;
+  flex: none;
+  font-size: var(--f-xs);
+  color: var(--ide-muted);
+  white-space: nowrap;
+}
 
 /* ─────────────────────────── Rail (labelled sidebar) ─────────────────────── */
 
@@ -387,6 +415,40 @@
 .ide-rail-dot.is-primary {
   background: var(--ide-primary);
 }
+/* EXP-791: a Sessions row whose run is waiting on you. */
+.ide-rail-dot.is-waiting {
+  background: #f59e0b;
+}
+/* `SessionRowState::Working` — the plain spinner beside a working run. */
+.ide-rail-spinner {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 999px;
+  border: 1.4px solid rgba(250, 250, 250, 0.25);
+  border-top-color: rgba(250, 250, 250, 0.75);
+  animation: ide-spin 0.9s linear infinite;
+}
+.ide-rail-x {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  color: var(--ide-dim);
+}
+@keyframes ide-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ide-rail-spinner {
+    animation: none;
+  }
+}
 .ide-rail-div {
   height: 1px;
   flex: none;
@@ -405,6 +467,18 @@
 }
 .ide-rail-grouphead > span:first-child {
   flex: 1;
+}
+/* sidebar.rs `section_label` — the muted label over Sessions and This
+   device; Boards wears the same one with a trailing "+". */
+.ide-rail-sectionlabel {
+  height: 24px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 5.25px;
+  font-size: var(--f-xs);
+  font-weight: 500;
+  color: rgba(250, 250, 250, 0.5);
 }
 .ide-rail-plus {
   width: 16px;
@@ -888,10 +962,18 @@
   width: 20px;
   height: 20px;
 }
-.ide-switcher {
-  font-size: var(--f-xs);
+/* issue_header::render_actions_menu — the round "…" the top row now is. */
+.ide-roundbtn {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--g-stroke-card);
+  background: var(--g-fill-card);
   color: var(--ide-muted);
-  margin-right: 3.5px;
 }
 .ide-issue-title {
   /* Textarea text_2xl / SEMIBOLD / line_height rems(2.) inside the header's
@@ -942,6 +1024,8 @@
   margin-left: auto;
   flex: none;
   display: inline-flex;
+  align-items: center;
+  gap: 3.5px;
 }
 
 /* issue_detail::coding_now_card (EXP-698) — a full-width glass TRAY holding
@@ -987,14 +1071,10 @@
   border-radius: 999px;
   font-size: var(--f-xs);
 }
-/* The tray keeps its shell only around a card; a lone merge control sits
-   bare on the header's own row. */
-.ide-issue-agentrow.is-bare {
-  padding: 0;
-  border: 0;
-  background: none;
-}
-/* issue_header::merge_button — the ONE Sm glass capsule. */
+/* issue_header::merge_button — the Sm capsule at the tray's right edge and,
+   with a PR open, the header's ONE emphasised (white) pill: merging is what
+   the reader came to do, so Start coding stands down to glass beside it
+   (EXP-760, `header_action_styles`). */
 .ide-mergepr {
   flex: none;
   display: inline-flex;
@@ -1003,13 +1083,13 @@
   height: 22px;
   padding: 0 10px;
   border-radius: 999px;
-  border: 1px solid var(--g-stroke-card);
-  background: var(--g-fill-card);
-  color: var(--ide-fg);
+  background: var(--ide-primary);
+  color: var(--ide-primary-fg);
   font-size: var(--f-xs);
 }
 .ide-mergepr.is-armed {
-  border-color: rgba(239, 68, 68, 0.5);
+  background: var(--g-fill-card);
+  border: 1px solid rgba(239, 68, 68, 0.5);
   color: #ef4444;
 }
 .ide-nowdot {
@@ -1019,21 +1099,6 @@
   border-radius: 999px;
   background: #22c55e;
 }
-/* Legacy alias kept for the docs' older markup. */
-.ide-codingpill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: var(--f-xs);
-  color: #22c55e;
-}
-.ide-codingdot {
-  width: 5px;
-  height: 5px;
-  border-radius: 999px;
-  background: #22c55e;
-}
-
 .ide-issue-body {
   flex: 1;
   min-height: 0;
@@ -1074,31 +1139,19 @@
   margin-top: 13px;
   border-top: 1px solid var(--g-stroke-row);
 }
-/* issue_relations::render_relations_card (EXP-736): FIRST in the scrolling
-   body, in the DETAIL_GUTTER, pb_2 — a glass card (radius 16, card hairline
-   + fill) with px_3 py_2p5, the link-2 glyph, the "Relations" text_sm medium
-   label at 70% and the "Add relation" chip on the right. */
-.ide-relations {
-  padding: 0 16px 7px;
-}
-.ide-relcard {
-  display: flex;
+/* issue_composer::add_sub_issues_button (EXP-760): the ghost affordance
+   under the relation groups, opening the inline sub-issue composer. */
+.ide-addsub {
+  align-self: flex-start;
+  display: inline-flex;
   align-items: center;
   gap: 5.25px;
-  padding: 8.75px 10.5px;
-  border-radius: 16px;
-  border: 1px solid var(--g-stroke-card);
-  background: var(--g-fill-card);
-}
-.ide-relcard > svg {
-  color: var(--ide-muted);
-}
-.ide-relcard-label {
-  flex: 1;
-  min-width: 0;
+  height: 22px;
+  margin: 7px 16px 0;
+  padding: 0 7px;
+  border-radius: 999px;
   font-size: var(--f-sm);
-  font-weight: 500;
-  color: rgba(250, 250, 250, 0.7);
+  color: var(--ide-muted);
 }
 .ide-timeline > .ide-col {
   padding: 0 16px 14px;
@@ -1763,155 +1816,246 @@
   font-size: var(--f-sm);
 }
 
-/* ─────────────────────────── Terminal dock ──────────────────────────────── */
+/* ─────────────────────────── Session screen ─────────────────────────────── */
 
-/* terminal_dock::render_strip — ONE h29 strip, open or collapsed, pinned to
-   the panel's bottom edge; the content grows UPWARD out of it (EXP-688).
-   EXP-723: the OPEN dock sits on the opaque popover under a card hairline
-   and carries its own 28px header row (window controls, right-aligned); the
-   strip is tabs + the `+` and nothing else. */
-.ide-dock {
-  flex: none;
-  height: 240px; /* TERMINAL_DOCK_HEIGHT */
+/* session_screen.rs (EXP-746/773/787/791): a coding run is a FULL-WIDTH
+   center screen — header, transcript, the collapsed changes bar, composer.
+   There is no dock and no PTY here: EXP-769 replaced the sliding terminal
+   dock with a bottom bar of terminal tabs alone, and EXP-773 deleted the
+   terminal transport for coding outright. */
+.ide-session {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--g-stroke-card);
-  background: var(--g-popover);
 }
-.ide-dock.is-collapsed {
-  height: 29px;
-  border-top: 0;
-  background: none;
-}
-.ide-dock-head {
+/* render_header: px_3 / py_2 over the row hairline. */
+.ide-session-head {
   flex: none;
-  height: 28px;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 1.75px;
-  padding: 0 7px;
+  gap: 7px;
+  padding: 7px 10.5px;
   border-bottom: 1px solid var(--g-stroke-row);
 }
-.ide-dock-head .ide-icbtn {
-  width: 20px;
-  height: 20px;
-}
-.ide-dock-head .ide-icbtn.is-selected {
-  background: var(--g-fill-active);
-  color: var(--ide-fg);
-}
-.ide-dock-tabs {
-  flex: none;
-  height: 29px;
-  display: flex;
-  align-items: center;
-  gap: 3.5px;
-  padding: 0 7px;
-  border-top: 1px solid var(--g-stroke-card);
-  background: var(--g-fill-card);
-}
-.ide-dock-glyph {
-  display: inline-flex;
-  flex: none;
-  color: var(--ide-muted);
-  margin-right: 3.5px;
-}
-.ide-dock-name {
-  font-size: var(--f-sm);
-  color: var(--ide-muted);
-}
-.ide-dock-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 5.25px;
-  height: 24px;
-  padding: 0 8px;
-  border-radius: 10px;
-  color: var(--ide-muted);
-  font-size: var(--f-sm);
-  white-space: nowrap;
-}
-/* surface::rich_tab — the session chip: 5px status dot, mono identifier,
-   the title; the shell chip leads with the `session-shell` glyph. */
-.ide-dock-tab > svg:first-child {
-  color: var(--ide-muted);
-}
-.ide-dock-tab.is-active > svg:first-child {
-  color: var(--ide-fg);
-}
-.ide-dock-dot {
-  width: 5px;
-  height: 5px;
+.ide-session-dot {
+  width: 6px;
+  height: 6px;
   flex: none;
   border-radius: 999px;
   background: #22c55e;
 }
-.ide-dock-id {
+.ide-session-dot.is-waiting {
+  background: #f59e0b;
+}
+.ide-session-dot.is-ended {
+  background: var(--ide-dim);
+}
+.ide-session-id {
+  flex: none;
   font-family: var(--ide-mono);
   font-size: var(--f-xs);
   color: var(--ide-muted);
 }
-.ide-dock-title {
-  max-width: 180px;
+.ide-session-subject {
+  flex: none;
+  max-width: 360px;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--f-sm);
 }
-.ide-dock-tab:hover {
+.ide-session-caption {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--f-xs);
+  color: var(--ide-muted);
+}
+
+/* The transcript's reading column (EXP-787, design-tokens `transcript`):
+   736px of measure centred in at least 48px of gutter. */
+.ide-feed {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 48px;
+}
+.ide-feed-col {
+  width: 100%;
+  max-width: 736px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+/* The gap ladder is the space ABOVE a row, chosen from the row before it:
+   two prose rows 12, prose meeting a tool row 12, two tool rows 8. */
+.ide-feed-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  min-width: 0;
+}
+.ide-feed-row + .ide-feed-row.is-prose,
+.ide-feed-row.is-prose + .ide-feed-row {
+  margin-top: 12px;
+}
+.ide-feed-row.is-tool + .ide-feed-row.is-tool {
+  margin-top: 8px;
+}
+.ide-feed-glyph {
+  flex: none;
+  margin-top: 3px;
+  color: rgba(161, 161, 161, 0.6);
+}
+.ide-feed-chev {
+  flex: none;
+  margin-top: 3px;
+  color: var(--ide-dim);
+}
+/* body 14/22 for prose, tool 12/18 for everything else. */
+.ide-feed-text {
+  min-width: 0;
+  font-size: 14px;
+  line-height: 22px;
+}
+.ide-feed-row.is-tool {
+  align-items: center;
+  gap: 5.25px;
+  font-size: 12px;
+  line-height: 18px;
+}
+.ide-feed-verb {
+  flex: none;
+}
+.ide-feed-target,
+.ide-feed-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--ide-mono);
+  color: var(--ide-muted);
+}
+.ide-feed-sep,
+.ide-feed-caption {
+  flex: none;
+  color: var(--ide-muted);
+}
+
+/* An answerable card (EXP-788): the question over numbered option buttons —
+   picking one and typing the answer are the same thing. */
+.ide-answercard {
+  margin-top: 12px;
+  padding: 10.5px;
+  border: 1px solid var(--g-stroke-card);
+  border-radius: 10px;
+  background: var(--g-fill-section);
+}
+.ide-answercard-glyph {
+  color: #f59e0b;
+}
+.ide-answercard-text {
+  margin-top: 5.25px;
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
+}
+.ide-answeropt {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 7px 8px;
+  border: 1px solid var(--g-stroke-row);
+  border-radius: 8px;
   background: var(--g-fill-row);
 }
-.ide-dock-tab.is-active {
-  background: var(--g-fill-active);
-  color: var(--ide-fg);
-}
-.ide-dock-x {
-  width: 14px;
-  height: 14px;
+.ide-answeropt-key {
+  flex: none;
+  width: 16px;
+  height: 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: 5px;
-  color: var(--ide-dim);
-}
-.ide-dock-tab:hover .ide-dock-x,
-.ide-dock-tab.is-active .ide-dock-x {
-  color: var(--ide-muted);
-}
-.ide-exitbadge {
+  background: var(--g-fill-active);
   font-family: var(--ide-mono);
   font-size: var(--f-xs);
-  padding: 0 4px;
-  border-radius: 4px;
-  background: rgba(34, 197, 94, 0.15);
-  color: #22c55e;
+  color: var(--ide-muted);
 }
-.ide-term {
+.ide-answeropt-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ide-answeropt-title {
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+}
+.ide-answeropt-sub {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--ide-muted);
+}
+
+/* session_extras::changes_bar — collapsed, over the composer. */
+.ide-changes {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 5.25px;
+  padding: 5.25px 10.5px;
+  border-top: 1px solid var(--g-stroke-row);
+  font-size: 12px;
+}
+.ide-changes-label {
   flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 4px 13px 10px;
-  font-family: var(--ide-mono);
-  font-size: var(--f-md);
-  line-height: 1.45;
-}
-.ide-term-line {
-  white-space: pre-wrap;
-  padding: 1px 0;
-}
-.ide-term-prompt {
+  min-width: 0;
   color: var(--ide-muted);
 }
-.ide-term-ok {
+.ide-changes-add {
+  font-family: var(--ide-mono);
   color: #22c55e;
 }
-.ide-term-claude {
-  color: #f97316;
+.ide-changes-del {
+  font-family: var(--ide-mono);
+  color: #ef4444;
 }
-.ide-term-cmd {
-  color: var(--ide-fg);
+
+/* The ONE composer (EXP-790): free text answers every card, so there is no
+   in-card input and no mid-session mode control beside it. */
+.ide-steer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 7px 10.5px 10.5px;
+  padding: 8px 10.5px;
+  border: 1px solid var(--g-stroke-card);
+  border-radius: 12px;
+  background: var(--g-fill-row);
 }
-.ide-term-out {
+.ide-steer-placeholder {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
   color: var(--ide-muted);
+}
+.ide-steer-tool {
+  flex: none;
+  color: var(--ide-muted);
+}
+/* `ui-submit` is itself a circled arrow — the chrome stays a ghost circle
+   and the glyph carries the tint. */
+.ide-steer-send {
+  flex: none;
+  display: inline-flex;
+  color: var(--ide-primary);
 }
 .ide-caret {
   display: inline-block;
@@ -1921,22 +2065,6 @@
   vertical-align: -3px;
   background: var(--ide-fg);
   animation: ide-blink 1.1s steps(2, start) infinite;
-}
-.ide-dock-status {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 13px;
-  border-top: 1px solid var(--g-stroke-row);
-  color: var(--ide-muted);
-  font-size: var(--f-xs);
-}
-.ide-exitdot {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: #22c55e;
 }
 
 @keyframes ide-blink {
@@ -2055,13 +2183,23 @@
   flex-direction: column;
   gap: 10px;
 }
+/* EXP-768: ONE glass group per picker — its FIRST row is the search field,
+   hairline-divided rows under it (the Android sheet's layout, everywhere). */
+.ide-dlg-picker {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid var(--g-stroke-card);
+  background: var(--g-fill-section);
+}
 .ide-dlg-search {
   height: 36px;
   flex: none;
-  padding: 0 12px;
-  border-radius: 10px;
-  border: 1px solid var(--g-stroke-card);
-  background: var(--g-fill-section);
+  padding: 0 14px;
+  border-bottom: 1px solid var(--g-stroke-row);
   font-size: var(--f-sm);
 }
 .ide-dlg-search::placeholder {
@@ -2071,19 +2209,17 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  padding: 6px;
-  border-radius: 10px;
-  border: 1px solid var(--g-stroke-card);
-  background: var(--g-fill-section);
 }
 .ide-dlg-issue {
   display: flex;
   align-items: center;
-  gap: 7px;
-  height: 26px;
-  padding: 0 5.25px;
-  border-radius: 8px;
+  gap: 8.75px;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--g-stroke-row);
   font-size: var(--f-sm);
+}
+.ide-dlg-issue.is-checked {
+  background: rgba(255, 255, 255, 0.045);
 }
 .ide-dlg-issue.is-click:hover {
   background: var(--g-fill-row);
@@ -2092,9 +2228,8 @@
   font-family: var(--ide-mono);
   font-size: var(--f-xs);
   color: var(--ide-muted);
-  width: 52px;
+  min-width: 60px;
   flex: none;
-  text-align: right;
 }
 .ide-dlg-issue-title {
   flex: 1;
@@ -2106,23 +2241,6 @@
 .ide-dlg-issue-note {
   font-size: var(--f-xs);
   color: var(--ide-muted);
-}
-/* The checklist's checkbox — the ONE checkbox left in the dialog (the
-   launch options are switches since EXP-694). */
-.ide-checkbox {
-  width: 14px;
-  height: 14px;
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-  border: 1px solid var(--g-stroke-active);
-  color: var(--ide-primary-fg);
-}
-.ide-checkbox.is-on {
-  background: var(--ide-primary);
-  border-color: var(--ide-primary);
 }
 .ide-dlg-noresults {
   padding: 10px;
@@ -2258,20 +2376,16 @@
 /* The Actions tab's picked-one-of-many list (EXP-721: the selection marker
    LEADS the row, then the action's curated glyph, then name over description). */
 .ide-dlg-actionlist {
-  flex: none;
-  max-height: 210px;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
-  padding: 6px;
-  border-radius: 10px;
-  border: 1px solid var(--g-stroke-card);
-  background: var(--g-fill-section);
 }
 .ide-dlg-action {
   display: flex;
   align-items: flex-start;
   gap: 7px;
-  padding: 5px 5.25px;
-  border-radius: 8px;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--g-stroke-row);
 }
 .ide-dlg-action.is-click:hover {
   background: var(--g-fill-row);

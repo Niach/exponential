@@ -327,8 +327,8 @@ export const SidebarPane: React.FC<{
   children: React.ReactNode
   title?: string // legacy label for non-board tools (Reviews); the board pane has none
   actions?: React.ReactNode
-  bottomInset?: number // px kept free at the PANEL bottom (animated dock height); default the collapsed strip
-}> = ({ children, title, actions, bottomInset = WIN.dockStrip }) => (
+  bottomInset?: number // px kept free at the PANEL bottom; nothing sits there since EXP-769
+}> = ({ children, title, actions, bottomInset = 0 }) => (
   <div
     style={{
       position: `absolute`,

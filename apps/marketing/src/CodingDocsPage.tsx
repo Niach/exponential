@@ -119,19 +119,32 @@ export function CodingDocsPage() {
             <p>
               Each machine reports, read-only, which account every installed
               agent CLI is signed in to and how much of its rate-limit window
-              is spent — never the credential itself. You see it on the
-              machine&apos;s <strong>Device settings</strong> (a{` `}
-              <strong>Login</strong> or <strong>Switch account</strong> pill
-              plus usage cards inside each agent&apos;s tab) and, mid-run,
-              from the session&apos;s <strong>…</strong> menu →{` `}
-              <strong>Usage</strong>: a <strong>Current session</strong> group
-              and the weekly windows (<strong>All models</strong> and, where
-              the agent reports one, a per-model card).
+              is spent — never the credential itself. A machine can hold more
+              than one Claude or Codex login, and a run picks the{` `}
+              <strong>Account</strong> it uses.
             </p>
             <p>
+              You see it in three places: on the machine&apos;s{` `}
+              <strong>Device settings</strong> (a <strong>Login</strong> or
+              {` `}<strong>Switch account</strong> pill plus usage cards
+              inside each agent&apos;s tab), on the <strong>Usage</strong>{` `}
+              page — every machine and account you own, grouped by agent,
+              signed-out and nearly spent ones first, with a per-row{` `}
+              <strong>Refresh</strong> — and mid-run on the session itself,
+              from its usage pill on the desktop or its <strong>…</strong>{` `}
+              menu on web and mobile.
+            </p>
+
+            <DocShot
+              view="usage"
+              caption="The Usage page: one row per machine and account, with what is left of each window"
+            />
+
+            <p>
               A signed-out agent on a remote machine can be signed in from any
-              client: the machine runs the agent&apos;s own login flow and its
-              code and link come back as an ordinary answerable card, so a
+              client: the machine runs the agent&apos;s own login flow, its
+              link and code come back as an ordinary answerable card, and you
+              type the code straight into the client you are already in — so a
               headless server never needs a browser or a keyboard.
             </p>
           </DocsSection>
@@ -164,9 +177,11 @@ export function CodingDocsPage() {
                 <strong>Actions</strong> and <strong>Chat</strong> — on every
                 client. Issues codes an issue, Actions runs one of the{` `}
                 <a href="/docs/actions/">team&apos;s saved prompts</a>, and
-                Chat takes a free <strong>Prompt</strong> plus a{` `}
-                <strong>Repository</strong> and starts an agent session with
-                no issue attached, in its own worktree.
+                Chat takes a free <strong>Prompt</strong> and starts an agent
+                session with no issue attached. A <strong>Repository</strong>
+                is optional: pick one and the chat gets its own worktree,
+                leave it out and it runs in a scratch directory with the
+                Exponential MCP tools wired up either way.
               </li>
               <li>
                 An <strong>agent picker</strong>:{` `}
@@ -189,20 +204,29 @@ export function CodingDocsPage() {
                 <strong>Model</strong> and <strong>Effort</strong> pickers, per
                 agent. Each agent offers its own models and its own effort
                 vocabulary (Codex calls it Reasoning, pi calls it Thinking).
+                They are launch-time settings: a running session is steered
+                with words, not with switches.
               </li>
               <li>
                 <strong>Ultracode</strong>, Claude only. Lets the run organize
                 its own workflow; it takes over the effort setting.
               </li>
               <li>
-                <strong>Plan mode</strong>, Claude and pi. It proposes a plan
-                you approve before it touches code — in the terminal, or from
-                the plan card in the session view on web and mobile.
+                <strong>Plan mode</strong>, Claude, Codex and pi. It proposes
+                a plan you approve before it touches code, as a card in the
+                session view — on every client, including your phone.
               </li>
               <li>
                 <strong>Resume previous session</strong>, offered when the
                 issue already has a recorded run to continue. It relaunches
                 that exact transcript, with the agent it was recorded on.
+              </li>
+              <li>
+                An <strong>Account</strong> picker on machines that hold more
+                than one login for the agent, and an{` `}
+                <strong>MCP servers</strong> picker once your team has any:
+                pick which of them this run gets. See{` `}
+                <a href="/docs/mcp/#your-own-servers">MCP servers</a>.
               </li>
             </ul>
 
@@ -243,10 +267,10 @@ export function CodingDocsPage() {
                 repo side by side.
               </li>
               <li>
-                The agent opens in the embedded terminal, seeded with the
-                issue. With plan mode on it{` `}
-                <strong>plans first</strong>; you approve before implementation
-                starts.
+                The run opens as a <strong>session</strong> — its own page in
+                the app, its own screen in the IDE — seeded with the issue.
+                With plan mode on it <strong>plans first</strong>; you approve
+                before implementation starts.
               </li>
               <li>
                 It implements, commits, pushes, and{` `}
@@ -298,9 +322,8 @@ export function CodingDocsPage() {
               </li>
             </ul>
             <DocsCallout kind="note" title="Batch size">
-              A run takes up to 30 issues, and the dialog shows a cost hint on
-              large batches. Every checked issue adds to the prompt, so big
-              batches are token-hungry.
+              A run takes <em>at most 30 issues</em>. Every checked issue adds
+              to the prompt, so big batches are token-hungry.
             </DocsCallout>
           </DocsSection>
 
@@ -308,23 +331,32 @@ export function CodingDocsPage() {
           <DocsSection id="watch-steer" num="06" label="Watch & steer">
             <h2>Watch &amp; steer</h2>
             <p>
-              The embedded terminal is a <strong>real PTY</strong>, not a log
-              view. Type into it any time to answer a question or redirect
-              the run, and hit <strong>Stop</strong> to end the session.
+              A run is a <strong>session</strong>, and a session is a page of
+              its own: <code>/t/&lt;team&gt;/sessions/&lt;id&gt;</code> in the
+              browser and on your phone, a full-width screen in the desktop
+              IDE. What it shows is not a log or a terminal — it is the
+              agent&apos;s own narration, the tool calls it makes (collapsed
+              into lines like &ldquo;Ran 4 commands · edited 2 files&rdquo;,
+              with an edit&apos;s diff foldable under its row), and the cards
+              it wants answered.
             </p>
             <p>
-              While a session runs, your other devices see it live: the{` `}
-              <strong>Devices</strong> view on web and mobile shows the running
-              session with a live activity feed, and you can{` `}
-              <strong>send steer messages</strong> from your phone. The agent
-              picks them up mid-run. The desktop IDE shows the same thing in
-              reverse: sessions running on your <em>other</em> machines,
-              including a CLI daemon, appear as chips beside its own terminal
-              tabs and open the same watch-and-steer view.
+              Every client reaches it the same way. On the web the strip along
+              the bottom of the window lists <em>your</em> running sessions;
+              clicking a tab opens it. In the IDE they are rows of the rail
+              under <strong>Sessions</strong>, and an issue&apos;s{` `}
+              <strong>Watch</strong> slides its run in over the issue. Live
+              sessions are yours alone — teammates see the status badge on the
+              issue, never the transcript.
             </p>
-            <p>
-              What the composer takes:
-            </p>
+
+            <DocShot
+              view="steering"
+              platform="desktop"
+              caption="A session on its own screen in the desktop IDE: transcript, the agent's question, the reply box that answers it"
+            />
+
+            <p>What the composer takes:</p>
             <ul>
               <li>
                 Plain text, and up to <strong>four images</strong> per message
@@ -345,24 +377,47 @@ export function CodingDocsPage() {
                 transcript.
               </li>
               <li>
-                Answers to the agent&apos;s questions, its permission prompts
-                and its plan card — all answerable remotely, not just at the
-                desk. The plan always shows in full; question cards and your
+                Answers to the agent&apos;s questions and its plan card. The
+                options are numbered buttons — keys <code>1</code> to{` `}
+                <code>9</code> and <code>Enter</code> pick them — and typing
+                your own answer into the composer answers the card just as
+                well. The plan always shows in full; question cards and your
                 own messages fold behind <strong>Show more</strong>.
               </li>
             </ul>
             <p>
+              What the composer does <em>not</em> take is a change of mind
+              about the run itself: the agent, its model, its effort and plan
+              mode are picked when you start it. A live session is steered
+              with words.
+            </p>
+            <p>
+              The transcript keeps the <strong>whole run</strong>, not the
+              last few hundred events. Each client renders a window of it and
+              pulls the rest in as you scroll to the top; past what your
+              client already holds, <strong>Load earlier</strong> fetches the
+              next page from the machine that ran the session — the full
+              transcript lives on <em>that</em> machine, never on our servers.
+            </p>
+            <p>
               A session whose host machine goes offline reads{` `}
               <strong>Paused</strong> rather than spinning; the agent picks up
-              where it left off when the machine comes back.
+              where it left off when the machine comes back. One that hits its
+              agent&apos;s usage limit is marked{` `}
+              <strong>Rate limited</strong> with the time it resets, instead
+              of going quiet — the run stays live and steerable, it simply
+              cannot make a call until then. You can see how much is left on
+              any machine on the <strong>Usage</strong> page, reached from{` `}
+              <strong>Devices</strong>.
             </p>
             <p>
               A run you started makes no report. When the agent finishes its
-              turn it waits for your next reply, in the desktop app, in a
-              terminal, and on a daemon alike, with no idle timeout. End it
-              yourself with <strong>Stop</strong> in the desktop terminal or{` `}
-              <strong>Kill session</strong> in the web and mobile session
-              view.
+              turn it waits for your next reply, in the desktop app and on a
+              daemon alike, with no idle timeout. End it yourself with{` `}
+              <strong>Kill session</strong> — the stop glyph in the session
+              header on the desktop, the <strong>…</strong> menu on web and
+              mobile — or, once a run has ended, relaunch it with{` `}
+              <strong>Resume</strong> in that same header.
             </p>
             <p>
               Runs an <a href="/docs/actions/#automations">automation</a>{` `}
@@ -372,10 +427,21 @@ export function CodingDocsPage() {
               <strong>Recent automated runs</strong> keeps them.
             </p>
 
+            <h3>Chat</h3>
+            <p>
+              Not every question is an issue. <strong>Agent</strong> in the
+              IDE rail, and the chat glyph at the end of the web&apos;s
+              session strip, open a conversation with your agent that is bound
+              to no issue and needs no repository. It runs on one of your
+              machines like any other session, with the Exponential tools
+              wired up, so it can read and write the tracker while you talk to
+              it. Past chats are listed under the prompt, each with a{` `}
+              <strong>Resume</strong>.
+            </p>
+
             <DocShot
-              view="terminal"
-              platform="desktop"
-              caption="The embedded terminal, docked under the workspace"
+              view="chat"
+              caption="The chat page: a prompt, the machine and agent it runs on, and the chats you can resume"
             />
           </DocsSection>
 
@@ -385,9 +451,10 @@ export function CodingDocsPage() {
             <p>You never have to leave the IDE to land the work:</p>
             <ul>
               <li>
-                A session&apos;s pinned <strong>Latest changes</strong> bar
-                shows the branch&apos;s diff against its base, side-by-side,
-                with <strong>Merge</strong> right next to it.
+                A session&apos;s <strong>Latest changes</strong> bar, under
+                its transcript, folds open into the branch&apos;s diff against
+                its base, side-by-side, with <strong>Merge</strong> right next
+                to it.
               </li>
               <li>
                 The <strong>Reviews</strong> list in the rail collects the
@@ -397,7 +464,8 @@ export function CodingDocsPage() {
                 <strong>Fix conflicts</strong> replaces{` `}
                 <strong>Merge</strong> in place and hands the PR to the{` `}
                 <a href="/docs/actions/#builtins">Fix merge conflicts</a>{` `}
-                builtin.
+                builtin. An issue whose own merge hits a conflict offers the
+                same swap in its header, beside <strong>Retry merge</strong>.
               </li>
               <li>
                 Pull requests opened by an{` `}
@@ -405,9 +473,9 @@ export function CodingDocsPage() {
                 attached, get their own <strong>Agent runs</strong> group in
                 Reviews, with the action name, branch and PR number, and count
                 toward the Reviews badge. The run itself shows{` `}
-                <strong>Merge</strong> too: in the desktop{` `}
-                <strong>Latest changes</strong> bar, on the web and mobile
-                Devices rows and in every steering view.
+                <strong>Merge</strong> too: in the{` `}
+                <strong>Latest changes</strong> bar under its transcript, on
+                the web and mobile Devices rows and in every steering view.
               </li>
             </ul>
             <p>
@@ -471,17 +539,20 @@ export function CodingDocsPage() {
               ones whose work has landed.
             </p>
             <p>
-              The terminal dock is ordinary too. Its <strong>+</strong>{` `}
-              opens a plain <strong>New shell</strong>, or one of the agents
-              as a steerable <a href="/docs/actions/#builtins">chat</a>{` `}
-              session with its own worktree. The open dock carries a header
-              row with <strong>Open in new window</strong>, the collapsed-form
-              switch and <strong>Hide terminal</strong>; its tabs and the{` `}
-              <strong>+</strong> sit in the strip along the bottom. Collapse it
-              to that strip or, with <strong>Collapse to a bubble</strong>, to
-              a floating card in the corner that shows a status dot, the
-              session count and the tab chips. The pick sticks per device.
+              There is a terminal too, and it is an ordinary one: a plain
+              shell on the trunk clone, opened with the button beside your
+              account in the rail or <kbd>⌘T</kbd>. It fills the working area
+              like a session does, and its tabs sit in the bar along the
+              bottom of the window — a bar that is not there at all until you
+              open one. Agents never run in it: a coding session talks to the
+              agent directly, and the terminal is yours.
             </p>
+
+            <DocShot
+              view="terminal"
+              platform="desktop"
+              caption="A plain shell in the IDE, one tab in the bar along the bottom"
+            />
           </DocsSection>
         </DocsLayout>
       </main>
