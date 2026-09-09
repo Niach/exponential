@@ -45,6 +45,10 @@ pub const CONFIG_REFRESH: Duration = Duration::from_secs(5 * 60);
 pub const NOT_SIGNED_IN: &str = "not signed in on this machine";
 pub const SIGN_IN_EXPIRED: &str = "sign-in expired on this machine";
 
+/// The config key the launcher's own MCP entry owns (`mcpServers.exponential`
+/// / `mcp_servers.exponential`); a team server may not fold to it.
+pub const RESERVED_CONFIG_KEY: &str = "exponential";
+
 /// A launch's resolved MCP servers.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ResolvedMcp {
@@ -183,6 +187,12 @@ pub fn resolve_with(
             server: config.name.clone(),
             reason,
         };
+        // `exponential` is the launcher's own entry in every rendered
+        // config; a team server folding to that key would be dropped
+        // silently by the renderers, so refuse it up front.
+        if McpServerWire::config_key(&config.name) == RESERVED_CONFIG_KEY {
+            return Err(blocker("name is reserved".to_string()));
+        }
         let transport = if config.is_http() {
             McpWireTransport::Http {
                 url: config.url.clone().unwrap_or_default(),
@@ -994,6 +1004,27 @@ mod tests {
         assert_eq!(unknown.to_string(), "MCP server s-gone: unknown server (removed?)");
     }
 
+    /// A server whose name folds to the launcher's own `exponential` key
+    /// is refused, whatever its auth — the renderers would drop it.
+    #[test]
+    fn resolve_refuses_the_reserved_exponential_key() {
+        let dir = temp_dir("resolve-reserved");
+        let configs = vec![McpServerConfig {
+            id: "s".into(),
+            name: "Exponential".into(),
+            url: Some("https://mcp.example.com/mcp".into()),
+            ..Default::default()
+        }];
+        let blocked = resolve_with(&dir.0, "acct", &configs, &["s".to_string()], 0).unwrap_err();
+        assert_eq!(
+            blocked,
+            McpBlocker {
+                server: "Exponential".into(),
+                reason: "name is reserved".into()
+            }
+        );
+    }
+
     #[test]
     fn resolve_refreshes_a_token_inside_the_margin_and_persists_it() {
         let dir = temp_dir("resolve-refresh");
@@ -1133,19 +1164,22 @@ mod tests {
         assert!(McpReadinessState::new().sweep(&dir.0, "acct", &dead).is_none());
     }
 
+    /// Compared as parsed values: `serde_json`'s `preserve_order` feature
+    /// flips object key order across crate combinations.
     #[test]
     fn command_messages_are_the_contract_json() {
+        let parse = |text: String| serde_json::from_str::<Value>(&text).unwrap();
         let start = OauthStart::Hosted {
             authorize_url: "https://auth/x?a=1".into(),
         };
         assert_eq!(
-            start.message(),
-            r#"{"phase":"authorize","url":"https://auth/x?a=1"}"#
+            parse(start.message()),
+            serde_json::json!({"phase": "authorize", "url": "https://auth/x?a=1"})
         );
-        assert_eq!(done_message(None), r#"{"phase":"done"}"#);
+        assert_eq!(parse(done_message(None)), serde_json::json!({"phase": "done"}));
         assert_eq!(
-            done_message(Some("2026-09-09T10:00:00.000Z")),
-            r#"{"expiresAt":"2026-09-09T10:00:00.000Z","phase":"done"}"#
+            parse(done_message(Some("2026-09-09T10:00:00.000Z"))),
+            serde_json::json!({"phase": "done", "expiresAt": "2026-09-09T10:00:00.000Z"})
         );
     }
 
