@@ -1660,6 +1660,73 @@ pub fn group_feed_row_specs_into(items: &[FeedItem], start: usize, rows: &mut Ve
     }
 }
 
+/// EXP-789 — the FOCUSED-subagent projection: only the rows scoped to
+/// `subagent_id` (its tool calls and, since EXP-773, the prose and user turns
+/// the mapper stamped with it), as ABSOLUTE indices into `items` like
+/// [`group_feed_row_specs_into`]. The lifecycle markers stay out — the strip's
+/// tab and the conversation header already say what they say. Consecutive
+/// tool calls still collapse into a [`FeedRowSpec::ToolRun`]; nothing else
+/// groups (there is no ask and no nested subagent inside one). Web
+/// `AgentConversation`'s `agentItems` filter, as a row projection.
+pub fn group_subagent_row_specs_into(
+    items: &[FeedItem],
+    start: usize,
+    subagent_id: &str,
+    rows: &mut Vec<FeedRowSpec>,
+) {
+    rows.clear();
+    let scoped = |item: &FeedItem| {
+        item.subagent_id() == Some(subagent_id)
+            && matches!(
+                item.kind,
+                FeedKind::Tool { .. } | FeedKind::Narration { .. } | FeedKind::UserMessage { .. }
+            )
+    };
+    let mut i = start.min(items.len());
+    while i < items.len() {
+        let item = &items[i];
+        if !scoped(item) {
+            i += 1;
+            continue;
+        }
+        if !item.is_tool() {
+            rows.push(FeedRowSpec::Single {
+                id: item.id,
+                item: i,
+            });
+            i += 1;
+            continue;
+        }
+        // A run of the subagent's OWN calls, skipping over rows that belong
+        // to the main line or to another subagent (they are not in this view).
+        let mut run = vec![i];
+        let mut j = i + 1;
+        while j < items.len() {
+            let next = &items[j];
+            if scoped(next) {
+                if !next.is_tool() {
+                    break;
+                }
+                run.push(j);
+            }
+            j += 1;
+        }
+        let after = run.last().copied().unwrap_or(i) + 1;
+        if run.len() == 1 {
+            rows.push(FeedRowSpec::Single {
+                id: item.id,
+                item: i,
+            });
+        } else {
+            rows.push(FeedRowSpec::ToolRun {
+                id: item.id,
+                items: run,
+            });
+        }
+        i = after;
+    }
+}
+
 /// `subagent.agent_type` when the desktop's hook payload carried none — old
 /// builds also stamp it onto the COMPLETED edge, so it is a sentinel the label
 /// selection must skip past, never a type to prefer (EXP-350).
@@ -1703,6 +1770,22 @@ pub fn collect_subagents(items: &[FeedItem]) -> Vec<SubagentSummary> {
                 tool_count: summary.tool_count,
             }
         })
+        .collect()
+}
+
+/// EXP-789 — the tabs the subagent strip actually shows (web
+/// `visibleSubagentTabs`, EXP-387): the still-RUNNING subagents, plus the
+/// focused one even once it is done — a completion never yanks the reader out
+/// of a conversation they are reading; the tab goes when they click away.
+/// Completed runs stay readable through their inline group row in Main.
+pub fn visible_subagent_tabs(
+    agents: &[SubagentSummary],
+    selected: Option<&str>,
+) -> Vec<SubagentSummary> {
+    agents
+        .iter()
+        .filter(|agent| !agent.done || Some(agent.subagent_id.as_str()) == selected)
+        .cloned()
         .collect()
 }
 
@@ -2964,6 +3047,105 @@ mod tests {
         assert_eq!(agents[1].subagent_id, "a2");
         assert_eq!(agents[1].agent_type, "plan");
         assert!(!agents[1].done);
+    }
+
+    // ── EXP-789: the subagent strip (web `visibleSubagentTabs`) ────────────
+
+    fn run(subagent_id: &str, done: bool) -> SubagentSummary {
+        SubagentSummary {
+            subagent_id: subagent_id.to_string(),
+            agent_type: "Explore".to_string(),
+            done,
+            detail: None,
+            tool_count: 0,
+        }
+    }
+
+    /// The web test, case for case: completed runs drop, running ones stay.
+    #[test]
+    fn visible_tabs_drop_completed_runs_and_keep_running_ones() {
+        let agents = [run("toolu_a", true), run("toolu_b", false)];
+        assert_eq!(
+            visible_subagent_tabs(&agents, None),
+            vec![run("toolu_b", false)]
+        );
+    }
+
+    #[test]
+    fn the_focused_tab_survives_its_own_completion_until_deselected() {
+        let agents = [run("toolu_a", true), run("toolu_b", false)];
+        assert_eq!(visible_subagent_tabs(&agents, Some("toolu_a")), agents.to_vec());
+        assert_eq!(
+            visible_subagent_tabs(&agents, Some("toolu_b")),
+            vec![run("toolu_b", false)]
+        );
+    }
+
+    #[test]
+    fn all_done_and_main_selected_leaves_the_strip_empty() {
+        assert!(visible_subagent_tabs(&[run("toolu_a", true), run("toolu_b", true)], None)
+            .is_empty());
+    }
+
+    /// EXP-789: the focused projection keeps ONLY the subagent's own rows —
+    /// tool calls, prose and turns — with absolute indices, drops its
+    /// lifecycle markers and everything on the main line, and still collapses
+    /// its consecutive calls (skipping over foreign rows between them).
+    #[test]
+    fn the_focused_projection_keeps_only_the_subagents_own_rows() {
+        let mut feed = SteerFeed::new();
+        feed.apply(ActivityEvent::narration("main prose")); // 0
+        feed.apply(ActivityEvent::Subagent {
+            id: "a1".into(),
+            agent_type: "explore".into(),
+            status: SubagentStatus::Started,
+            detail: None,
+            at: None,
+            tool_calls: None,
+        }); // 1
+        let scoped_tool = |name: &str, agent: &str| ActivityEvent::Tool {
+            name: name.into(),
+            detail: None,
+            id: None,
+            tool_kind: None,
+            subagent_id: Some(agent.into()),
+            at: None,
+        };
+        feed.apply(scoped_tool("Grep", "a1")); // 2
+        feed.apply(ActivityEvent::tool("Bash", None)); // 3 — main line
+        feed.apply(scoped_tool("Read", "a2")); // 4 — another subagent
+        feed.apply(scoped_tool("Read", "a1")); // 5
+        feed.apply(ActivityEvent::Narration {
+            text: "found it".into(),
+            before_question_id: None,
+            message_id: None,
+            subagent_id: Some("a1".into()),
+            at: None,
+        }); // 6
+        feed.apply(scoped_tool("Edit", "a1")); // 7
+        feed.apply(ActivityEvent::Subagent {
+            id: "a1".into(),
+            agent_type: "explore".into(),
+            status: SubagentStatus::Completed,
+            detail: None,
+            at: None,
+            tool_calls: None,
+        }); // 8
+
+        let items = feed.items();
+        let mut rows = Vec::new();
+        group_subagent_row_specs_into(items, 0, "a1", &mut rows);
+        let indices: Vec<Vec<usize>> = rows.iter().map(|row| row.item_indices().to_vec()).collect();
+        assert_eq!(indices, vec![vec![2, 5], vec![6], vec![7]]);
+        assert!(matches!(rows[0], FeedRowSpec::ToolRun { .. }));
+        assert_eq!(rows[0].id(), items[2].id);
+        // The window start restricts it exactly like the main projection.
+        group_subagent_row_specs_into(items, 6, "a1", &mut rows);
+        let indices: Vec<Vec<usize>> = rows.iter().map(|row| row.item_indices().to_vec()).collect();
+        assert_eq!(indices, vec![vec![6], vec![7]]);
+        // A subagent nobody scoped a row to projects nothing.
+        group_subagent_row_specs_into(items, 0, "nobody", &mut rows);
+        assert!(rows.is_empty());
     }
 
     /// EXP-748: the journal evicts a subagent's oldest tool calls long before

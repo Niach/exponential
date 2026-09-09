@@ -327,6 +327,17 @@ impl ViewerHandle {
         self.send_frames(vec![ClientFrame::SetMode { id: id.to_string() }.to_json()])
     }
 
+    /// EXP-790: stop the turn in flight without ending the run — the Stop
+    /// glyph the composer shows while the agent is working. Fire-and-forget
+    /// like [`ViewerHandle::send_mode`]: the engine cancels the turn and the
+    /// feed shows the agent stopping; nothing locks or waits. The frame is
+    /// spelled here rather than through [`ClientFrame`] so this stays a
+    /// one-line addition beside the protocol's own enum (Android/iOS send the
+    /// same bytes). `false` when the socket is down or not joined.
+    pub fn send_interrupt(&self) -> bool {
+        self.send_frames(vec![r#"{"t":"interrupt"}"#.to_string()])
+    }
+
     /// A wakeup nudge (the machine woke, the network came back, the host
     /// device came online): cut short a pending backoff and redial now.
     ///

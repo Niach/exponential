@@ -38,12 +38,15 @@
 //! [`Self::latest_diff`] and resolves the merge target off the synced
 //! `coding_sessions` row.
 //!
-//! ## Deliberate parity gaps vs the web view (EXP-696)
-//!
-//! * no subagent conversation TAB strip — subagent work renders inline as
-//!   expandable group rows, which is the part of parity that matters;
-//! * no fullscreen toggle — the screen's own tab chrome is the desktop's
-//!   answer to that.
+//! EXP-789 closed the last parity gap: the subagent TAB strip ("Main" plus
+//! one tab per running subagent, the focused one lingering after it ends)
+//! sits between the header and the feed, and a focused tab projects only
+//! that subagent's rows ([`steer::feed::group_subagent_row_specs_into`]).
+//! EXP-788 moved answering into the composer (numbered option list, digits
+//! and ↑/↓/Enter on an empty field, typed text as the free answer); EXP-790
+//! made the field mention-capable and the send button a Send/Stop toggle.
+//! The only deliberate gap left: no fullscreen toggle — the screen's own
+//! chrome is the desktop's answer to that.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -59,7 +62,7 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
-    input::{self, InputEvent, InputState, Textarea, TextareaState},
+    input::{self, InputEvent, TextareaState},
     spinner::Spinner,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Selectable as _, Sizable as _,
 };
@@ -75,7 +78,7 @@ use steer::{
 };
 use theme::tokens::transcript;
 
-use crate::controls::{glass_input, WebText as _};
+use crate::controls::WebText as _;
 use crate::icons::registry;
 use crate::slash_commands;
 use crate::markdown::image_paste::{
@@ -286,6 +289,30 @@ pub(crate) struct SteerSessionView {
     last_activity: std::time::Instant,
     /// Composer.
     input: Entity<TextareaState>,
+    /// EXP-790: the `@`-member / `#`-issue / `:`-emoji completion layered on
+    /// `input` — the same widget the comment composer types into. Its source
+    /// follows the run's team ([`Self::mention_team`]); a team-less run keeps
+    /// the widget and gets plain-input behaviour.
+    mention: Entity<crate::mention_input::MentionInput>,
+    /// The team the completion source was last pointed at.
+    mention_team: Option<String>,
+    /// EXP-790: the composer card's measured width, for the tool row's
+    /// wrap decision ([`tool_row_wraps`]).
+    composer_width: std::rc::Rc<std::cell::Cell<Pixels>>,
+    /// …and whether the tool row is on its own line right now (the
+    /// hysteresis state).
+    tools_wrapped: std::cell::Cell<bool>,
+    /// EXP-788: which placeholder the field currently shows, so a frame only
+    /// rewrites it on a change.
+    placeholder: ComposerPlaceholder,
+    /// EXP-789: the subagent tab in focus (`None` = Main). Only honoured
+    /// while that subagent's tab is visible ([`Self::active_subagent`]).
+    focused_subagent: Option<String>,
+    /// EXP-788: the option the keyboard has highlighted on the pending card
+    /// (↑/↓), and which card it was highlighted on — a new card starts with
+    /// nothing highlighted.
+    answer_cursor: Option<usize>,
+    answer_cursor_for: Option<FeedItemId>,
     /// EXP-724: the open `/` menu, refreshed on every draft change.
     slash: Option<SlashMenu>,
     /// The exact draft Escape dismissed the menu for — it stays shut until
@@ -298,9 +325,6 @@ pub(crate) struct SteerSessionView {
     notice: Option<SharedString>,
     /// Question-card local state, keyed by `answer_key`.
     picked: HashMap<String, Vec<String>>,
-    /// The open free-text row: `(answer key, option key)`.
-    free_text: Option<(String, String)>,
-    free_text_input: Entity<InputState>,
     /// Expanded tool-run / subagent group rows, and expanded long bodies.
     expanded_groups: HashSet<FeedItemId>,
     expanded_bodies: HashSet<FeedItemId>,
@@ -402,10 +426,15 @@ impl SteerSessionView {
                 // the placeholder is the only hint it exists. Every agent's
                 // catalog is non-empty, which is why this is a constant here
                 // and a conditional on web/Android.
-                .placeholder("Message the agent… (/ for commands)")
+                .placeholder(ComposerPlaceholder::Message.text())
         });
-        let free_text_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Type your answer…"));
+        // EXP-790: the completion overlay rides the same state; the composer
+        // card draws the chrome, so the widget draws none of its own.
+        let mention = cx.new(|cx| {
+            let mut mention = crate::mention_input::MentionInput::new(input.clone(), cx);
+            mention.set_appearance(false);
+            mention
+        });
 
         let mut subscriptions = Vec::new();
         subscriptions.push(cx.subscribe_in(
@@ -420,15 +449,6 @@ impl SteerSessionView {
                     cx.notify();
                 }
                 _ => {}
-            },
-        ));
-        subscriptions.push(cx.subscribe_in(
-            &free_text_input,
-            window,
-            |this, _, event: &InputEvent, window, cx| {
-                if matches!(event, InputEvent::PressEnter { .. }) {
-                    this.submit_free_text(window, cx);
-                }
             },
         ));
         if let Some(store) = sync::Store::try_global(cx) {
@@ -504,6 +524,14 @@ impl SteerSessionView {
             compaction_generation: 0,
             last_activity: std::time::Instant::now(),
             input,
+            mention,
+            mention_team: None,
+            composer_width: std::rc::Rc::new(std::cell::Cell::new(px(0.))),
+            tools_wrapped: std::cell::Cell::new(false),
+            placeholder: ComposerPlaceholder::Message,
+            focused_subagent: None,
+            answer_cursor: None,
+            answer_cursor_for: None,
             slash: None,
             slash_dismissed_for: None,
             pending: Vec::new(),
@@ -511,8 +539,6 @@ impl SteerSessionView {
             sending: false,
             notice: None,
             picked: HashMap::new(),
-            free_text: None,
-            free_text_input,
             images: image_cache,
             expanded_groups: HashSet::new(),
             expanded_bodies: HashSet::new(),
@@ -791,7 +817,12 @@ impl SteerSessionView {
         if self.expanded_bodies.contains(&item.id) {
             facets |= facet::BODY_EXPANDED;
         }
-        if self.extras.has_extras(item.id) {
+        // EXP-786: a remote row's wire diff is the same fold as a local
+        // row's extras — same card, same "Show more".
+        let has_extras = self.extras.has_extras(item.id)
+            || (self.source.session().is_none()
+                && matches!(&item.kind, FeedKind::Tool { diff: Some(_), .. }));
+        if has_extras {
             facets |= facet::HAS_EXTRAS;
             if self.expanded_extras.contains(&item.id) {
                 facets |= facet::EXTRAS_EXPANDED;
@@ -801,24 +832,17 @@ impl SteerSessionView {
             if self.feed.is_answer_locked(&key) {
                 facets |= facet::ANSWER_LOCKED;
             }
-            if self.free_text.as_ref().is_some_and(|(answer, _)| *answer == key) {
-                facets |= facet::FREE_TEXT_OPEN;
+            // EXP-788: the keyboard highlight moves the promoted option's
+            // paint, not its height — but the picked set does move a
+            // multi-select's Submit, so both fold in for a clean re-measure.
+            if self.pending_card_id() == Some(item.id) {
+                facets |= facet::CARD_PENDING;
+            }
+            if self.picked.get(&key).is_some_and(|picks| !picks.is_empty()) {
+                facets |= facet::PICKS_MADE;
             }
         }
         facets
-    }
-
-    /// The focus handle a freshly spliced row registers with the list: an
-    /// answerable card carries the free-text input's, so an answer being
-    /// typed on a card the reader scrolled off-screen keeps receiving keys
-    /// (the list renders a focused off-screen item for exactly this).
-    fn row_focus_handle(&self, ix: usize, cx: &App) -> Option<FocusHandle> {
-        let spec = self.rows.get(ix)?;
-        let items = self.feed.items();
-        spec.item_indices()
-            .iter()
-            .any(|&item| items.get(item).is_some_and(|item| self.active.contains(&item.id)))
-            .then(|| self.free_text_input.focus_handle(cx))
     }
 
     /// Drop the per-row state of feed items the feed has trimmed away.
@@ -874,10 +898,23 @@ impl SteerSessionView {
     /// Whether there is anything above the window to pull in: more of the
     /// feed, or (EXP-783) a page of it the device still holds.
     fn can_grow_window(&self) -> bool {
-        self.window_start() > 0
-            || (self.history_truncated
-                && !self.history_exhausted
-                && self.history_request.is_none())
+        self.window_start() > 0 || self.can_load_earlier()
+    }
+
+    /// EXP-783/796 — whether a `history_page` ask could be answered: the
+    /// relay said its replay is a tail, no page came back empty, none is in
+    /// flight, AND the viewer socket is OPEN right now. A lingering history
+    /// room keeps the socket up after the run ended, so the ask still works
+    /// there; once the socket closed, nobody is listening and the affordance
+    /// hides rather than asking into the void.
+    fn can_load_earlier(&self) -> bool {
+        self.history_truncated
+            && !self.history_exhausted
+            && self.history_request.is_none()
+            && self
+                .source
+                .handle()
+                .is_some_and(|handle| handle.is_connected())
     }
 
     /// Pull [`FEED_WINDOW_STEP`] more of the run into the window, or — when
@@ -904,7 +941,7 @@ impl SteerSessionView {
     /// carries no wire sequences at all is a publisher older than EXP-783 and
     /// cannot be paged.
     fn request_older_page(&mut self) {
-        if self.history_request.is_some() || self.history_exhausted || !self.history_truncated {
+        if !self.can_load_earlier() {
             return;
         }
         let Some(before) = self.feed.oldest_seq() else {
@@ -975,10 +1012,25 @@ impl SteerSessionView {
         let start = self.window_start();
         // EXP-783: reuse the buffer — a 1500-row `Vec<FeedRowSpec>` per frame
         // is an allocation the projection does not need.
-        self.rows.clear();
-        self.feed.row_specs_from_into(start, &mut self.rows);
+        // EXP-789: a focused subagent tab projects ONLY that subagent's rows
+        // (web `AgentConversation`); Main is the grouped transcript.
+        let focus = self.active_subagent();
+        match focus.as_deref() {
+            Some(subagent_id) => steer::feed::group_subagent_row_specs_into(
+                self.feed.items(),
+                start,
+                subagent_id,
+                &mut self.rows,
+            ),
+            None => {
+                self.rows.clear();
+                self.feed.row_specs_from_into(start, &mut self.rows);
+            }
+        }
         self.prune_dropped_rows();
-        self.working = self.working_now();
+        // The "Working…" line belongs to the main transcript — a subagent's
+        // tab has its own running spinner in the strip.
+        self.working = focus.is_none() && self.working_now();
         self.chips = self.ref_resolver(cx);
         let items = self.feed.items();
         let mut keys: Vec<RowKey> = Vec::with_capacity(self.rows.len() + 1);
@@ -1017,11 +1069,10 @@ impl SteerSessionView {
                     // top of the transcript. Only a splice further down may
                     // re-hint.
                     bulk |= range.start > 0 && count >= FEED_BULK_SPLICE;
-                    let start = range.start;
-                    let handles: Vec<Option<FocusHandle>> = (start..start + count)
-                        .map(|ix| self.row_focus_handle(ix, cx))
-                        .collect();
-                    self.list.splice_focusable(range, handles);
+                    // EXP-788: no row carries a focus handle any more — the
+                    // answer is typed into the composer, which is not a list
+                    // row, so an off-screen card needs no keyboard.
+                    self.list.splice(range, count);
                 }
                 ListOp::Remeasure(range) => self.list.remeasure_items(range),
             }
@@ -1086,6 +1137,22 @@ impl SteerSessionView {
             self.row = row;
             cx.notify();
         }
+        self.sync_mention_source(cx);
+    }
+
+    /// EXP-790: point the composer's completion at the run's team — the same
+    /// `#`-issue / `@`-member source the comment composer uses. A run with no
+    /// resolvable team (an action, a repo-less chat) gets `None`, which is
+    /// the plain-input behaviour on the same widget.
+    fn sync_mention_source(&mut self, cx: &mut gpui::Context<Self>) {
+        let team_id = self.ref_team_id(cx);
+        if team_id == self.mention_team {
+            return;
+        }
+        self.mention_team = team_id.clone();
+        self.mention.update(cx, |mention, _| {
+            mention.set_source(team_id.map(crate::markdown::store_completion_source));
+        });
     }
 
     fn row_ended(&self) -> bool {
@@ -1553,7 +1620,10 @@ impl SteerSessionView {
         // that led up to the card was the reader's, not the agent's.
         self.last_activity = std::time::Instant::now();
         self.picked.remove(&key);
-        self.free_text = None;
+        // EXP-788: the highlight belongs to the card that was just answered;
+        // the next card (an `<ask>` stepper's next step) starts clean.
+        self.answer_cursor = None;
+        self.answer_cursor_for = None;
         // The ack deadline is the CALLER's (the feed reads no clock).
         let deadline_key = key.clone();
         cx.spawn(async move |this, cx| {
@@ -1567,33 +1637,215 @@ impl SteerSessionView {
         cx.notify();
     }
 
-    fn submit_free_text(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some((answer, option_key)) = self.free_text.clone() else {
-            return;
-        };
-        let value = self.free_text_input.read(cx).value().to_string();
-        // The web input caps at 4000 chars; gpui-component's has no maxLength,
-        // so the cap lands here instead (the relay would reject a longer one).
-        let trimmed: String = value.trim().chars().take(FREE_TEXT_MAX).collect();
-        if trimmed.is_empty() {
-            return;
+    // ── EXP-788: the answer panel's keyboard ───────────────────────────────
+    //
+    // The pending card is answered from the COMPOSER: its options are a
+    // numbered list, and while the field is empty the digits 1-9, ↑/↓ and
+    // Enter drive it. Typed text goes out as the card's free answer
+    // ([`Self::send`]). An `<ask>` stepper advances on its own — the next step
+    // is simply the next pending card.
+
+    /// The card the keyboard targets: the newest answerable, unlocked card
+    /// on a live, connected run. `None` = the composer is a plain composer.
+    fn pending_card_id(&self) -> Option<FeedItemId> {
+        if self.phase != ViewerPhase::Live || !self.connected || self.row_ended() {
+            return None;
         }
-        let Some(item_id) = self
-            .feed
+        self.feed
             .items()
             .iter()
-            .find(|item| answer_key(item).is_some_and(|key| key == answer))
+            .rev()
+            .find(|item| self.active.contains(&item.id) && !self.is_answer_locked(item))
             .map(|item| item.id)
-        else {
+    }
+
+    fn pending_card(&self) -> Option<&FeedItem> {
+        let id = self.pending_card_id()?;
+        self.feed.items().iter().find(|item| item.id == id)
+    }
+
+    /// Whether a plan-approval card is the pending one (the placeholder and
+    /// the free-answer wording fork on it).
+    fn plan_pending(&self) -> bool {
+        self.pending_card()
+            .and_then(FeedItem::question)
+            .is_some_and(|card| card.plan_mode)
+    }
+
+    /// The keyboard drives the card ONLY while the field is empty: the moment
+    /// a draft exists, digits are digits and Enter sends.
+    fn keyboard_answers(&self, cx: &App) -> bool {
+        self.pending_card_id().is_some()
+            && self.input.read(cx).value().trim().is_empty()
+            && self.slash.is_none()
+    }
+
+    /// The highlighted option on the pending card, or `None` when the
+    /// highlight was set on a card that is no longer pending.
+    fn answer_cursor_on(&self, card: FeedItemId) -> Option<usize> {
+        (self.answer_cursor_for == Some(card))
+            .then_some(self.answer_cursor)
+            .flatten()
+    }
+
+    fn move_answer_cursor(&mut self, delta: isize, cx: &mut gpui::Context<Self>) {
+        let Some(item) = self.pending_card() else {
             return;
         };
-        self.answer(
-            item_id,
-            vec![option_key],
-            vec![trimmed.clone()],
-            Some(trimmed),
-            cx,
-        );
+        let (id, len) = (item.id, item.question().map_or(0, |card| card.options.len()));
+        if len == 0 {
+            return;
+        }
+        let next = match self.answer_cursor_on(id) {
+            Some(at) => (at as isize + delta).rem_euclid(len as isize) as usize,
+            None if delta < 0 => len - 1,
+            None => 0,
+        };
+        self.answer_cursor = Some(next);
+        self.answer_cursor_for = Some(id);
+        cx.notify();
+    }
+
+    /// Activate option `index` of the pending card: a single-select answers
+    /// with it, a multi-select toggles it into the picks.
+    fn activate_option(&mut self, index: usize, cx: &mut gpui::Context<Self>) {
+        let Some(item) = self.pending_card() else {
+            return;
+        };
+        let Some(card) = item.question() else {
+            return;
+        };
+        let Some(option) = card.options.get(index) else {
+            return;
+        };
+        let Some(key) = answer_key(item) else {
+            return;
+        };
+        let item_id = item.id;
+        let (option_key, option_label) = (option.key.clone(), option.label.clone());
+        if card.multi_select {
+            let picks = self.picked.entry(key).or_default();
+            match picks.iter().position(|pick| *pick == option_key) {
+                Some(at) => {
+                    picks.remove(at);
+                }
+                None => picks.push(option_key),
+            }
+            self.answer_cursor = Some(index);
+            self.answer_cursor_for = Some(item_id);
+            cx.notify();
+            return;
+        }
+        self.answer(item_id, vec![option_key], vec![option_label], None, cx);
+    }
+
+    /// Submit a multi-select card's picks (the "Submit" button, and Enter
+    /// with nothing highlighted).
+    fn submit_picks(&mut self, item_id: FeedItemId, cx: &mut gpui::Context<Self>) {
+        let Some(item) = self.feed.items().iter().find(|item| item.id == item_id) else {
+            return;
+        };
+        let (Some(card), Some(key)) = (item.question(), answer_key(item)) else {
+            return;
+        };
+        let picked = self.picked.get(&key).cloned().unwrap_or_default();
+        if picked.is_empty() {
+            return;
+        }
+        let labels: Vec<String> = card
+            .options
+            .iter()
+            .filter(|option| picked.contains(&option.key))
+            .map(|option| option.label.clone())
+            .collect();
+        self.answer(item_id, picked, labels, None, cx);
+    }
+
+    fn on_answer_up(&mut self, _: &input::MoveUp, _: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.keyboard_answers(cx) {
+            self.move_answer_cursor(-1, cx);
+            cx.stop_propagation();
+        }
+    }
+
+    fn on_answer_down(
+        &mut self,
+        _: &input::MoveDown,
+        _: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        if self.keyboard_answers(cx) {
+            self.move_answer_cursor(1, cx);
+            cx.stop_propagation();
+        }
+    }
+
+    /// Enter on an empty field with a card pending: the highlighted option,
+    /// or a multi-select's picks. With nothing highlighted and nothing picked
+    /// it does nothing — an empty draft never "sends" an empty answer.
+    fn on_answer_enter(
+        &mut self,
+        action: &input::Enter,
+        _: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        if action.shift || !self.keyboard_answers(cx) {
+            return;
+        }
+        let Some(item) = self.pending_card() else {
+            return;
+        };
+        let id = item.id;
+        let multi = item.question().is_some_and(|card| card.multi_select);
+        cx.stop_propagation();
+        match self.answer_cursor_on(id) {
+            Some(index) => self.activate_option(index, cx),
+            None if multi => self.submit_picks(id, cx),
+            None => {}
+        }
+    }
+
+    /// The digits: `1`-`9` pick the option at that position (unmodified —
+    /// ⌘1 is the window's, and a shifted digit is punctuation).
+    fn on_answer_key_down(
+        &mut self,
+        event: &gpui::KeyDownEvent,
+        _: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let Some(index) = answer_digit(&event.keystroke) else {
+            return;
+        };
+        if !self.keyboard_answers(cx) {
+            return;
+        }
+        let options = self
+            .pending_card()
+            .and_then(FeedItem::question)
+            .map_or(0, |card| card.options.len());
+        if index >= options {
+            return;
+        }
+        cx.stop_propagation();
+        self.activate_option(index, cx);
+    }
+
+    /// EXP-788: the field's hint follows what the composer is FOR right now.
+    /// Rewritten only on a change — `set_placeholder` notifies the state.
+    fn sync_placeholder(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let next = if self.pending_card_id().is_none() {
+            ComposerPlaceholder::Message
+        } else if self.plan_pending() {
+            ComposerPlaceholder::Plan
+        } else {
+            ComposerPlaceholder::Question
+        };
+        if next == self.placeholder {
+            return;
+        }
+        self.placeholder = next;
+        self.input
+            .update(cx, |state, cx| state.set_placeholder(next.text(), window, cx));
     }
 
     // ── Composer ───────────────────────────────────────────────────────────
@@ -1651,12 +1903,6 @@ impl SteerSessionView {
             .config()
             .map(|config| config.commands.clone())
             .unwrap_or_default()
-    }
-
-    /// EXP-772: the composer's ONE chip — the session mode, or `None` when
-    /// the run advertises no modes.
-    pub(crate) fn mode_chip(&self) -> Option<crate::session_extras::ConfigChip> {
-        crate::session_extras::mode_chip(self.feed.config())
     }
 
     /// EXP-772: the plan/build pair behind the compact "Plan" switch.
@@ -1906,8 +2152,48 @@ impl SteerSessionView {
                 self.prompt_command(parsed.command.name, window, cx);
                 return;
             }
+        } else if let Some(item_id) = self.pending_card_id().filter(|_| self.pending.is_empty()) {
+            // EXP-788: with a card pending the draft IS the answer — a
+            // question's free text, or a plan card's "what to change". The
+            // web input caps at 4000 chars; gpui-component's has no
+            // maxLength, so the cap lands here (the relay rejects longer).
+            let answer: String = text.trim().chars().take(FREE_TEXT_MAX).collect();
+            if answer.is_empty() {
+                return;
+            }
+            self.answer(item_id, Vec::new(), Vec::new(), Some(answer), cx);
+            self.clear_draft(window, cx);
+            return;
         }
         self.send_confirmed(window, cx);
+    }
+
+    /// EXP-790: the Stop half of the composer's one button — interrupt the
+    /// running turn without ending the run. Local: the engine's cancel;
+    /// remote: the interrupt frame down the viewer socket.
+    fn stop_turn(&mut self, cx: &mut gpui::Context<Self>) {
+        match &self.source {
+            FeedSource::Local { session } => session.cancel_turn(),
+            FeedSource::Replay { .. } | FeedSource::Journal { .. } => {}
+            FeedSource::Remote { handle } => {
+                if !handle
+                    .as_ref()
+                    .is_some_and(|handle| handle.send_interrupt())
+                {
+                    self.notice = Some(SharedString::from("The session is no longer connected"));
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    /// EXP-790: Stop shows while the agent is WORKING — a live turn with
+    /// nothing waiting on the reader — and only where a stop can reach it;
+    /// Send otherwise, and always once there is a draft to send.
+    fn shows_stop(&self, cx: &App) -> bool {
+        let has_draft =
+            !self.input.read(cx).value().trim().is_empty() || !self.pending.is_empty();
+        self.working && !has_draft && !self.source.read_only()
     }
 
     fn send_confirmed(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
@@ -2422,6 +2708,30 @@ pub(crate) fn ask_counter(position: Option<u32>, total: u32) -> Option<String> {
     })
 }
 
+/// EXP-785 — the collapsed tool-group caption over the group's tool rows:
+/// the shared [`steer::tool_group_summary`] fed each call's contract kind
+/// (`None` = `other`), its detail and whether it failed. Rows that are not
+/// tool calls (none reach a tool run today) are skipped rather than counted.
+pub(crate) fn tool_group_caption(items: &[&FeedItem]) -> String {
+    let calls: Vec<steer::ToolCallSummary<'_>> = items
+        .iter()
+        .filter_map(|item| match &item.kind {
+            FeedKind::Tool {
+                detail,
+                tool_kind,
+                failed,
+                ..
+            } => Some(steer::ToolCallSummary {
+                kind: tool_kind.map_or("other", steer::ToolKind::as_str),
+                detail: detail.as_deref(),
+                failed: *failed,
+            }),
+            _ => None,
+        })
+        .collect();
+    steer::tool_group_summary(&calls)
+}
+
 /// The subagent group row's status caption: `running · 1 tool call`.
 /// Note the singular IS handled here (unlike the tool-run group, which only
 /// ever forms at ≥2).
@@ -2437,6 +2747,136 @@ pub(crate) fn subagent_caption(done: bool, tool_count: usize) -> String {
 /// A body long enough to fold behind "Show more" (web `clampable`).
 pub(crate) fn clampable(text: &str) -> bool {
     text.len() > CLAMP_CHARS || text.lines().count() > CLAMP_LINES
+}
+
+/// EXP-788 — what the composer's field is FOR right now, and the hint it
+/// shows for it (the web `planPending` placeholder fork, plus the question
+/// case).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ComposerPlaceholder {
+    /// No card pending: a message to the agent.
+    Message,
+    /// A plan-approval card is pending: typed text is "what to change".
+    Plan,
+    /// A question card is pending: typed text is its free answer.
+    Question,
+}
+
+impl ComposerPlaceholder {
+    pub(crate) fn text(self) -> &'static str {
+        match self {
+            // EXP-724: the `/` menu is invisible until it is typed, so the
+            // placeholder is the only hint it exists. Every agent's catalog
+            // is non-empty, which is why this is a constant here and a
+            // conditional on web/Android.
+            ComposerPlaceholder::Message => "Message the agent… (/ for commands)",
+            ComposerPlaceholder::Plan => "Tell the agent what to change, or pick an option above",
+            ComposerPlaceholder::Question => "Answer directly, or pick an option above",
+        }
+    }
+}
+
+/// EXP-788 — the option a plain digit keystroke names: `1`-`9` → `0..9`,
+/// unmodified only (a ⌘-digit is the window's, a shifted one is punctuation).
+pub(crate) fn answer_digit(keystroke: &gpui::Keystroke) -> Option<usize> {
+    let modifiers = keystroke.modifiers;
+    if modifiers.control || modifiers.alt || modifiers.platform || modifiers.function || modifiers.shift
+    {
+        return None;
+    }
+    let mut chars = keystroke.key.chars();
+    let (Some(digit), None) = (chars.next(), chars.next()) else {
+        return None;
+    };
+    match digit.to_digit(10) {
+        Some(n) if (1..=9).contains(&n) => Some(n as usize - 1),
+        _ => None,
+    }
+}
+
+/// The subagent a group row belongs to — its first scoped item's id.
+fn subagent_id_of(items: &[&FeedItem]) -> Option<String> {
+    items
+        .iter()
+        .find_map(|item| item.subagent_id())
+        .map(str::to_string)
+}
+
+/// EXP-790 — the composer width under which the tool row leaves the field's
+/// line and drops under it: a 240px field beside the 24px attach glyph, the
+/// 32px round button and the card's own padding and gaps.
+const COMPOSER_INLINE_MIN_WIDTH: f32 = 340.;
+
+/// How much wider than the threshold the card must get again before the row
+/// comes back up. Without it a width sitting on the threshold — a pane being
+/// dragged, a textarea growing a line — would flap between the two layouts
+/// on every frame.
+const TOOL_ROW_WRAP_HYSTERESIS: f32 = 24.;
+
+/// EXP-790 — whether the composer's tool row wraps under the field at `width`
+/// when it takes `needed` to sit beside it, given whether it is `wrapped` right
+/// now. Wraps as soon as the width falls short; un-wraps only once the width
+/// clears the threshold by [`TOOL_ROW_WRAP_HYSTERESIS`].
+pub(crate) fn tool_row_wraps(width: f32, needed: f32, wrapped: bool) -> bool {
+    if wrapped {
+        width < needed + TOOL_ROW_WRAP_HYSTERESIS
+    } else {
+        width < needed
+    }
+}
+
+/// EXP-784 — the rate-limit banner's line: the agent's message (or a generic
+/// one) and, when the report named a reset, ` · resets HH:MM` in local time.
+pub(crate) fn rate_limit_caption(message: Option<&str>, resets_local: Option<String>) -> String {
+    let message = message
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .unwrap_or("The agent is rate limited");
+    match resets_local {
+        Some(clock) => format!("{message} · resets {clock}"),
+        None => message.to_string(),
+    }
+}
+
+/// Unix milliseconds as a local `HH:MM`, or `None` for a timestamp the clock
+/// cannot represent.
+fn local_clock_time(unix_ms: i64) -> Option<String> {
+    use chrono::TimeZone as _;
+    chrono::Local
+        .timestamp_millis_opt(unix_ms)
+        .single()
+        .map(|at| at.format("%H:%M").to_string())
+}
+
+/// EXP-788 — the numbered chip on an option row: the digit that picks it
+/// (1-9, by position). `live` = the keyboard is on this card, so the chip
+/// reads as a key; otherwise it is a quiet ordinal. Options past the ninth
+/// carry no chip (there is no key for them).
+fn key_chip(index: usize, live: bool, cx: &App) -> AnyElement {
+    let muted = cx.theme().muted_foreground;
+    let Some(digit) = (index < 9).then(|| (index + 1).to_string()) else {
+        return div().w(px(18.)).into_any_element();
+    };
+    div()
+        .flex_shrink_0()
+        .w(px(18.))
+        .h(px(18.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(theme::tokens::radius::SM))
+        .border_1()
+        .border_color(if live {
+            theme::tokens::glass::STROKE_ACTIVE.to_hsla()
+        } else {
+            theme::tokens::glass::STROKE_CARD.to_hsla()
+        })
+        .bg(theme::tokens::glass::FILL_CARD.to_hsla())
+        .text_2xs()
+        .font_family(theme::terminal::FONT_FAMILY)
+        .text_color(if live { cx.theme().foreground } else { muted })
+        .child(SharedString::from(digit))
+        .into_any_element()
 }
 
 // ---------------------------------------------------------------------------
@@ -2863,25 +3303,7 @@ impl SteerSessionView {
                         .child(self.render_user_message(item.id, text, cx)),
                 )
                 .into_any_element(),
-            FeedKind::Tool {
-                name,
-                detail,
-                ..
-            } => {
-                let row = tool_row(name, detail.as_deref(), cx);
-                // EXP-746: a LOCAL run's per-edit diff and command output hang
-                // off this row (a remote one has none — the wire carries
-                // neither).
-                match self.render_extras(item.id, cx) {
-                    Some(extras) => v_flex()
-                        .w_full()
-                        .min_w_0()
-                        .child(row)
-                        .child(extras)
-                        .into_any_element(),
-                    None => row.into_any_element(),
-                }
-            }
+            FeedKind::Tool { .. } => self.render_tool_item(item, true, cx),
             FeedKind::Permission { tool, detail } => {
                 let amber = theme::tokens::YELLOW.to_hsla();
                 tool_text(v_flex())
@@ -3073,6 +3495,61 @@ impl SteerSessionView {
         self.render_body_folding(id, text, true, cx)
     }
 
+    /// One tool call's row plus whatever hangs off it: a LOCAL run's per-edit
+    /// diff and command output ([`Self::render_extras`]), or — for a source
+    /// with no engine (EXP-786) — the per-call diff the publisher put on the
+    /// wire. The two never stack: where the engine runs, its ACP content is
+    /// richer than the wire's cut, so the wire diff is ignored there.
+    fn render_tool_item(
+        &self,
+        item: &FeedItem,
+        with_extras: bool,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        let FeedKind::Tool {
+            name,
+            detail,
+            failed,
+            diff,
+            ..
+        } = &item.kind
+        else {
+            return div().into_any_element();
+        };
+        let row = tool_row(name, detail.as_deref(), *failed, cx);
+        if !with_extras {
+            return row.into_any_element();
+        }
+        let extras = if self.source.session().is_some() {
+            self.render_extras(item.id, cx)
+        } else {
+            let id = item.id;
+            diff.as_deref().map(|diff| {
+                crate::session_extras::render_wire_diff(
+                    diff,
+                    id,
+                    self.expanded_extras.contains(&id),
+                    Box::new(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                        if !this.expanded_extras.insert(id) {
+                            this.expanded_extras.remove(&id);
+                        }
+                        cx.notify();
+                    })),
+                    cx,
+                )
+            })
+        };
+        match extras {
+            Some(extras) => v_flex()
+                .w_full()
+                .min_w_0()
+                .child(row)
+                .child(extras)
+                .into_any_element(),
+            None => row.into_any_element(),
+        }
+    }
+
     /// EXP-746 — the local cards hanging off feed row `item` (per-edit
     /// diffs, command output). `None` for every remote row: they exist only
     /// where the engine runs.
@@ -3199,7 +3676,14 @@ impl SteerSessionView {
                     .xsmall(),
                 )
                 .child(Icon::new(registry::CODING_TOOL).xsmall())
-                .child(div().child(SharedString::from(format!("{} tool calls", items.len()))))
+                // EXP-785: the ONE caption every client derives from the
+                // group's calls ("Ran 3 commands · edited 2 files · 1 failed").
+                .child(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .child(SharedString::from(tool_group_caption(items))),
+                )
                 .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                     if !this.expanded_groups.insert(id) {
                         this.expanded_groups.remove(&id);
@@ -3209,24 +3693,29 @@ impl SteerSessionView {
         );
         if expanded {
             for item in items {
-                if let FeedKind::Tool { name, detail, .. } = &item.kind {
+                if item.is_tool() {
                     // EXP-787: the group's INNER rhythm is unchanged — the
                     // 2px that used to live on `tool_row` itself (and gave
                     // the transcript its old row spacing) sits here now.
-                    column = column
-                        .child(div().pl_5().py_0p5().child(tool_row(name, detail.as_deref(), cx)));
-                    // EXP-746: an expanded group shows each call's local
-                    // cards too — that is what expanding it is for.
-                    if let Some(extras) = self.render_extras(item.id, cx) {
-                        column = column.child(div().pl_5().child(extras));
-                    }
+                    // EXP-746: an expanded group shows each call's cards
+                    // too — that is what expanding it is for.
+                    column = column.child(
+                        div()
+                            .pl_5()
+                            .py_0p5()
+                            .child(self.render_tool_item(item, true, cx)),
+                    );
                 }
             }
         } else if live_tail {
             // Collapsed but still running — keep the newest call visible.
-            if let Some(FeedKind::Tool { name, detail, .. }) = items.last().map(|item| &item.kind) {
-                column = column
-                    .child(div().pl_5().py_0p5().child(tool_row(name, detail.as_deref(), cx)));
+            if let Some(item) = items.last().filter(|item| item.is_tool()) {
+                column = column.child(
+                    div()
+                        .pl_5()
+                        .py_0p5()
+                        .child(self.render_tool_item(item, false, cx)),
+                );
             }
         }
         column.into_any_element()
@@ -3302,6 +3791,24 @@ impl SteerSessionView {
                         .text_2xs()
                         .child(SharedString::from(detail)),
                 )
+            })
+            .child(div().flex_1())
+            // EXP-789: "Open" focuses this subagent's tab — its own
+            // conversation, full width, instead of the folded group.
+            .when_some(subagent_id_of(items), |this, subagent_id| {
+                this.child(
+                    crate::surface::glass_pill(
+                        ("steer-subagent-open", id as usize),
+                        crate::surface::PillSize::Sm,
+                        crate::surface::PillMode::Action,
+                        cx,
+                    )
+                    .child("Open")
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                        cx.stop_propagation();
+                        this.focus_subagent(Some(subagent_id.clone()), cx);
+                    })),
+                )
             });
         let header = header.when(expandable, |header| {
             header
@@ -3317,16 +3824,16 @@ impl SteerSessionView {
         if expanded {
             for item in body {
                 match &item.kind {
-                    FeedKind::Tool { name, detail, .. } => {
+                    FeedKind::Tool { .. } => {
                         // EXP-787: the subagent's inner rhythm is unchanged.
+                        // EXP-746: an expanded group shows each call's cards
+                        // too — that is what expanding it is for.
                         column = column.child(
-                            div().pl_5().py_0p5().child(tool_row(name, detail.as_deref(), cx)),
+                            div()
+                                .pl_5()
+                                .py_0p5()
+                                .child(self.render_tool_item(item, true, cx)),
                         );
-                        // EXP-746: an expanded group shows each call's local
-                        // cards too — that is what expanding it is for.
-                        if let Some(extras) = self.render_extras(item.id, cx) {
-                            column = column.child(div().pl_5().child(extras));
-                        }
                     }
                     // EXP-773: the subagent's own prose and the turns sent to
                     // it read exactly as they do on the main line, indented
@@ -3584,14 +4091,17 @@ impl SteerSessionView {
             .into_any_element()
     }
 
-    /// The interactive half of a card: options, multi-select submit, the
-    /// free-text row, the lock and the resolution line.
+    /// The interactive half of a card (EXP-788): the options as a numbered
+    /// list of full-width buttons, a multi-select's Submit, the lock and the
+    /// resolution line. There is no in-card text field any more — a typed
+    /// answer goes through the composer ([`Self::send`]), whose placeholder
+    /// says so while a card is pending.
     fn render_prompt(
         &self,
         item: &FeedItem,
         active: &HashSet<FeedItemId>,
         submit_step: bool,
-        window: &Window,
+        _window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let muted = cx.theme().muted_foreground;
@@ -3668,14 +4178,14 @@ impl SteerSessionView {
             return v_flex()
                 .mt_2()
                 .gap_0p5()
-                .children(card.options.iter().map(|option| {
-                    div()
+                .children(card.options.iter().enumerate().map(|(index, option)| {
+                    h_flex()
+                        .gap_1p5()
+                        .items_center()
                         .text_xs()
                         .text_color(muted)
-                        .child(SharedString::from(format!(
-                            "{} · {}",
-                            option.key, option.label
-                        )))
+                        .child(key_chip(index, false, cx))
+                        .child(div().min_w_0().truncate().child(SharedString::from(option.label.clone())))
                 }))
                 .child(div().text_xs().text_color(muted).child(note))
                 .into_any_element();
@@ -3689,10 +4199,12 @@ impl SteerSessionView {
         let picked = self.picked.get(&key).cloned().unwrap_or_default();
         let promote_first = card.plan_mode || submit_step;
         let item_id = item.id;
+        // Only THE pending card takes the keyboard; an older active card (a
+        // second question the agent asked before the first was answered)
+        // renders its chips dimmed and answers by click.
+        let keyboard = self.pending_card_id() == Some(item_id);
+        let cursor = self.answer_cursor_on(item_id);
         let mut options = v_flex().mt_2().w_full().min_w_0().gap_1();
-        if promote_first {
-            options = options.flex_row().flex_wrap().items_center();
-        }
         for (index, option) in card.options.iter().enumerate() {
             options = options.child(self.render_option(
                 item_id,
@@ -3703,53 +4215,27 @@ impl SteerSessionView {
                 option,
                 picked.contains(&option.key),
                 index,
+                keyboard,
+                cursor == Some(index),
                 cx,
             ));
         }
 
         let mut column = v_flex().w_full().min_w_0().child(options);
         if card.multi_select {
-            let labels: Vec<String> = card
-                .options
-                .iter()
-                .filter(|option| picked.contains(&option.key))
-                .map(|option| option.label.clone())
-                .collect();
-            let keys = picked.clone();
             column = column.child(
-                Button::new(("steer-answer-submit", item_id as usize))
-                    .with_variant(ButtonVariant::Secondary)
-                    .cursor_pointer()
-                    .xsmall()
-                    .label("Answer")
-                    .disabled(keys.is_empty())
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                        cx.stop_propagation();
-                        this.answer(item_id, keys.clone(), labels.clone(), None, cx);
-                    })),
-            );
-        }
-        if self.free_text.as_ref().is_some_and(|(answer, _)| *answer == key) {
-            column = column.child(
-                h_flex()
-                    .mt_2()
-                    .w_full()
-                    .gap_1p5()
-                    .items_center()
-                    .child(
-                        div().flex_1().min_w_0().child(glass_input(&self.free_text_input, window, cx)),
-                    )
-                    .child(
-                        Button::new(("steer-free-text", item_id as usize))
-                            .with_variant(ButtonVariant::Secondary)
-                            .cursor_pointer()
-                            .xsmall()
-                            .label("Answer")
-                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                cx.stop_propagation();
-                                this.submit_free_text(window, cx);
-                            })),
-                    ),
+                div().mt_1p5().child(
+                    Button::new(("steer-answer-submit", item_id as usize))
+                        .with_variant(ButtonVariant::Secondary)
+                        .cursor_pointer()
+                        .xsmall()
+                        .label("Submit")
+                        .disabled(picked.is_empty())
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                            cx.stop_propagation();
+                            this.submit_picks(item_id, cx);
+                        })),
+                ),
             );
         }
         if errored {
@@ -3764,6 +4250,11 @@ impl SteerSessionView {
         column.into_any_element()
     }
 
+    /// One option row (EXP-788): a full-width button carrying its numbered
+    /// key chip, its label and — under the label — its description. The
+    /// promoted option (a plan card's "Yes", the stepper's submit) wears the
+    /// BLUE design token; the keyboard highlight is the same tint on the
+    /// hairline, so ↑/↓ read as a cursor and not as a second selection.
     #[allow(clippy::too_many_arguments)] // one call site; every flag is a render decision
     fn render_option(
         &self,
@@ -3775,31 +4266,93 @@ impl SteerSessionView {
         option: &QuestionOption,
         picked: bool,
         index: usize,
+        keyboard: bool,
+        highlighted: bool,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
+        let muted = cx.theme().muted_foreground;
+        let blue = theme::tokens::BLUE.to_hsla();
         let label = if submit_label {
             "Submit answers".to_string()
         } else {
             option.label.clone()
         };
+        let label_color = if primary {
+            cx.theme().primary_foreground
+        } else {
+            cx.theme().foreground
+        };
         let mut button = Button::new(("steer-option", item_id as usize * 64 + index))
             .cursor_pointer()
-            .xsmall()
-            .label(SharedString::from(label.clone()));
+            .w_full()
+            .h_auto()
+            .px_2()
+            .py_1p5()
+            .rounded(px(theme::tokens::radius::MD));
         button = if primary {
-            button.primary()
+            // The token, not `theme.primary` — the plan card's accent is
+            // BLUE on every client (web `bg-blue-500`).
+            button.custom(
+                gpui_component::button::ButtonCustomVariant::new(cx)
+                    .color(blue)
+                    .hover(blue.opacity(0.85))
+                    .active(blue.opacity(0.7))
+                    .foreground(cx.theme().primary_foreground),
+            )
         } else {
             button.outline()
         };
         if picked {
             button = button.selected(true);
         }
+        if highlighted {
+            button = button.border_color(blue);
+        }
         let answer_key = key.to_string();
         let option_key = option.key.clone();
         let option_label = option.label.clone();
-        let free_text = option.free_text;
+        let description = option.description.clone().filter(|text| !text.trim().is_empty());
         button
-            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+            .child(
+                h_flex()
+                    .w_full()
+                    .min_w_0()
+                    .gap_2()
+                    .items_start()
+                    .child(div().mt_px().child(key_chip(index, keyboard && !primary, cx)))
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .items_start()
+                            .gap_0p5()
+                            .child(
+                                div()
+                                    .w_full()
+                                    .min_w_0()
+                                    .text_left()
+                                    .text_xs()
+                                    .text_color(label_color)
+                                    .child(SharedString::from(label)),
+                            )
+                            .when_some(description, |this, description| {
+                                this.child(
+                                    div()
+                                        .w_full()
+                                        .min_w_0()
+                                        .text_left()
+                                        .text_2xs()
+                                        .text_color(if primary {
+                                            label_color.opacity(0.8)
+                                        } else {
+                                            muted
+                                        })
+                                        .child(SharedString::from(description)),
+                                )
+                            }),
+                    ),
+            )
+            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                 cx.stop_propagation();
                 if multi_select {
                     let picks = this.picked.entry(answer_key.clone()).or_default();
@@ -3812,21 +4365,6 @@ impl SteerSessionView {
                     cx.notify();
                     return;
                 }
-                if free_text {
-                    let open = this
-                        .free_text
-                        .as_ref()
-                        .is_some_and(|(answer, opt)| *answer == answer_key && *opt == option_key);
-                    this.free_text = if open {
-                        None
-                    } else {
-                        this.free_text_input
-                            .update(cx, |state, cx| state.set_value("", window, cx));
-                        Some((answer_key.clone(), option_key.clone()))
-                    };
-                    cx.notify();
-                    return;
-                }
                 this.answer(
                     item_id,
                     vec![option_key.clone()],
@@ -3836,6 +4374,171 @@ impl SteerSessionView {
                 );
             }))
             .into_any_element()
+    }
+
+    // ── EXP-789: the subagent strip ────────────────────────────────────────
+
+    /// The subagent whose tab is in focus, honoured only while its tab is
+    /// still visible (web `activeAgent`): a done subagent's tab lingers
+    /// exactly as long as it stays focused, then Main takes over.
+    fn active_subagent(&self) -> Option<String> {
+        let focused = self.focused_subagent.as_deref()?;
+        let agents = self.feed.subagents();
+        steer::feed::visible_subagent_tabs(&agents, Some(focused))
+            .iter()
+            .any(|agent| agent.subagent_id == focused)
+            .then(|| focused.to_string())
+    }
+
+    /// Focus a subagent's tab (`None` = Main). The list re-projects on the
+    /// next frame and opens on the newest rows of the conversation.
+    fn focus_subagent(&mut self, subagent_id: Option<String>, cx: &mut gpui::Context<Self>) {
+        if self.focused_subagent == subagent_id {
+            return;
+        }
+        self.focused_subagent = subagent_id;
+        self.window_from = None;
+        self.list.set_follow_mode(FollowMode::Tail);
+        self.list.scroll_to_end();
+        cx.notify();
+    }
+
+    /// "Main" plus one tab per RUNNING subagent (and the focused one, done or
+    /// not); nothing at all while no subagent is running. Under the tabs the
+    /// focused conversation's summary line — its type, liveness and detail —
+    /// the header the web `AgentConversation` paints over the stream.
+    fn render_subagent_strip(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        let muted = cx.theme().muted_foreground;
+        let active = self.active_subagent();
+        let agents = self.feed.subagents();
+        let tabs = steer::feed::visible_subagent_tabs(&agents, active.as_deref());
+        if tabs.is_empty() {
+            return None;
+        }
+        let mut strip = h_flex()
+            .w_full()
+            .flex_shrink_0()
+            .flex_wrap()
+            .gap_1()
+            .items_center()
+            .px_2()
+            .py_1()
+            .child(
+                crate::surface::glass_pill(
+                    "steer-subagent-tab-main",
+                    crate::surface::PillSize::Sm,
+                    crate::surface::PillMode::Select {
+                        selected: active.is_none(),
+                    },
+                    cx,
+                )
+                .child("Main")
+                .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                    this.focus_subagent(None, cx);
+                })),
+            );
+        for agent in &tabs {
+            let selected = active.as_deref() == Some(agent.subagent_id.as_str());
+            let subagent_id = agent.subagent_id.clone();
+            strip = strip.child(
+                crate::surface::glass_pill(
+                    SharedString::from(format!("steer-subagent-tab-{}", agent.subagent_id)),
+                    crate::surface::PillSize::Sm,
+                    crate::surface::PillMode::Select { selected },
+                    cx,
+                )
+                .when(!agent.done, |this| this.child(Spinner::new().xsmall()))
+                .child(SharedString::from(agent.agent_type.clone()))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                    this.focus_subagent(Some(subagent_id.clone()), cx);
+                })),
+            );
+        }
+        let summary = active
+            .as_deref()
+            .and_then(|id| agents.iter().find(|agent| agent.subagent_id == id));
+        let column = v_flex()
+            .w_full()
+            .flex_shrink_0()
+            .border_b_1()
+            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+            .child(strip)
+            .when_some(summary, |this, summary| {
+                this.child(
+                    tool_text(h_flex())
+                        .w_full()
+                        .min_w_0()
+                        .gap_2()
+                        .items_center()
+                        .px_3()
+                        .pb_1p5()
+                        .text_color(muted)
+                        .child(Icon::new(registry::CODING_SUBAGENT).xsmall())
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .text_color(cx.theme().foreground)
+                                .child(SharedString::from(summary.agent_type.clone())),
+                        )
+                        .when(!summary.done, |this| this.child(Spinner::new().xsmall()))
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .text_2xs()
+                                .child(SharedString::from(subagent_caption(
+                                    summary.done,
+                                    summary.tool_count,
+                                ))),
+                        )
+                        .when_some(summary.detail.clone(), |this, detail| {
+                            this.child(
+                                div()
+                                    .min_w_0()
+                                    .truncate()
+                                    .text_2xs()
+                                    .child(SharedString::from(detail)),
+                            )
+                        }),
+                )
+            });
+        Some(column.into_any_element())
+    }
+
+    /// EXP-784: the agent's rate-limit report as a banner in the status
+    /// stack — its message (or a generic one) plus the local reset time when
+    /// it named one. `None` once the slot cleared.
+    fn render_rate_limit_banner(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        let limit = self.feed.rate_limit()?;
+        let amber = theme::tokens::YELLOW.to_hsla();
+        let caption = rate_limit_caption(
+            limit.message.as_deref(),
+            limit.resets_at.and_then(local_clock_time),
+        );
+        Some(
+            h_flex()
+                .w_full()
+                .flex_shrink_0()
+                .gap_2()
+                .items_center()
+                .px_3()
+                .py_2()
+                .border_t_1()
+                .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+                .child(
+                    Icon::new(registry::UI_WARNING)
+                        .xsmall()
+                        .text_color(amber.opacity(0.8)),
+                )
+                .child(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(SharedString::from(caption)),
+                )
+                .into_any_element(),
+        )
     }
 
     fn render_banners(&self, cx: &mut gpui::Context<Self>) -> Vec<AnyElement> {
@@ -3910,25 +4613,32 @@ impl SteerSessionView {
 
     fn render_composer(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let can_send = self.can_send(cx);
-        let mode = self.render_mode_control(cx);
+        let stop = self.shows_stop(cx);
+        // EXP-790: the tool row's wrap decision, with hysteresis so a width
+        // hovering around the threshold does not flap between layouts.
+        // The first frame has no measurement yet (0px): keep the tools
+        // inline rather than flashing a wrapped row before the probe lands.
+        let width = f32::from(self.composer_width.get());
+        let wrapped = width > 0.
+            && tool_row_wraps(width, COMPOSER_INLINE_MIN_WIDTH, self.tools_wrapped.get());
+        self.tools_wrapped.set(wrapped);
+        let width_probe = self.composer_width.clone();
         let composer = crate::composer::GlassComposer::new(
             v_flex()
                 .w_full()
                 .min_w_0()
-                // EXP-772: the ONE live control — the session mode — sits
-                // above the draft, where the agent's posture is visible while
-                // typing at it.
-                .when_some(mode, |this, mode| this.child(mode))
                 // EXP-724: the `/` menu sits INSIDE the composer card,
                 // above the textarea — no popover, no caret anchoring
                 // (the token is always the whole draft).
                 .when_some(self.render_slash_menu(cx), |this, menu| this.child(menu))
                 .child(
                     div()
-                        // The five captures run before the textarea's own
-                        // handlers, so with a menu open Enter/Tab accept
-                        // and `PressEnter` — the thing that SENDS — never
-                        // fires (the `mention_input` recipe).
+                        // The captures run before the field's own handlers,
+                        // so with a `/` menu open Enter/Tab accept, and with
+                        // a card pending on an EMPTY field ↑/↓/Enter and the
+                        // digits drive the answer panel (EXP-788) — neither
+                        // ever reaches the textarea, so `PressEnter` (the
+                        // thing that SENDS) never fires for them.
                         .key_context("SteerComposer")
                         .w_full()
                         .min_w_0()
@@ -3937,10 +4647,17 @@ impl SteerSessionView {
                         .capture_action(cx.listener(Self::on_slash_escape))
                         .capture_action(cx.listener(Self::on_slash_enter))
                         .capture_action(cx.listener(Self::on_slash_tab))
-                        .child(Textarea::new(&self.input).w_full().appearance(false)),
+                        .capture_action(cx.listener(Self::on_answer_up))
+                        .capture_action(cx.listener(Self::on_answer_down))
+                        .capture_action(cx.listener(Self::on_answer_enter))
+                        .capture_key_down(cx.listener(Self::on_answer_key_down))
+                        // EXP-790: the mention-capable field — `@`, `#` and
+                        // `:` complete exactly as they do in a comment.
+                        .child(self.mention.clone()),
                 )
                 .into_any_element(),
         )
+        .inline_tools(!wrapped)
         .strip((!self.pending.is_empty()).then(|| self.render_pending_strip(cx)))
         // EXP-698: the attach tool is ALWAYS offered — steer images upload to
         // the session route, so a batch/action run (no issue at all) attaches
@@ -3954,15 +4671,24 @@ impl SteerSessionView {
                     this.pick_images(window, cx);
                 })),
         );
-        // The steer composer's send is `ui-send` on web/iOS/Android
-        // (`ui-submit` is the COMMENT composer's) — same surface, same
-        // concept. EXP-698: no tooltip — a floating "Send" label beside a
-        // circled arrow reads as a second button.
+        // EXP-790: ONE round button — Stop while the agent works, Send
+        // otherwise (and always once there is a draft). Same ring, the glyph
+        // swaps. No tooltip — a floating label beside a circled glyph reads
+        // as a second button (EXP-698).
+        let kind = if stop {
+            crate::composer::SubmitKind::Stop
+        } else {
+            crate::composer::SubmitKind::Send
+        };
         let composer = composer.submit(
-            crate::composer::composer_submit("steer-send", registry::UI_SEND, !can_send, cx)
+            crate::composer::composer_submit_kind("steer-send", kind, !stop && !can_send, cx)
                 .loading(self.sending)
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                    this.send(window, cx);
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    if stop {
+                        this.stop_turn(cx);
+                    } else {
+                        this.send(window, cx);
+                    }
                 })),
         );
         div()
@@ -3972,151 +4698,26 @@ impl SteerSessionView {
             .border_t_1()
             .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
             .child(
-                crate::composer::glass_composer(composer)
-                    .capture_action(cx.listener(Self::on_paste)),
+                div()
+                    .relative()
+                    .w_full()
+                    .min_w_0()
+                    .child(
+                        crate::composer::glass_composer(composer)
+                            .capture_action(cx.listener(Self::on_paste)),
+                    )
+                    // The card's width, read back for next frame's wrap
+                    // decision (the canvas paints nothing).
+                    .child(
+                        gpui::canvas(
+                            move |bounds, _, _| width_probe.set(bounds.size.width),
+                            |_, _, _, _| {},
+                        )
+                        .absolute()
+                        .size_full(),
+                    ),
             )
             .into_any_element()
-    }
-
-    /// EXP-772 — the composer's ONE live control: the session MODE.
-    ///
-    /// Model, effort and every other option picker left the mid-session UI (an
-    /// agent is configured when it starts, and the only thing worth flipping
-    /// mid-run is plan on/off). The claude/pi shape — exactly two modes, one
-    /// of them `plan` — draws a compact "Plan" toggle pill; any other mode
-    /// list falls back to a two-value chip, and a run with no modes (codex)
-    /// draws nothing.
-    ///
-    /// Fire-and-forget (D4): the pill repaints when the publisher's next
-    /// `config_state` lands, so there is no optimistic value and no spinner.
-    fn render_mode_control(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        let muted = cx.theme().muted_foreground;
-        if let Some(toggle) = self.plan_toggle() {
-            let target = if toggle.active {
-                toggle.build_id.clone()
-            } else {
-                toggle.plan_id.clone()
-            };
-            return Some(
-                h_flex()
-                    .w_full()
-                    .min_w_0()
-                    .gap_1()
-                    .pb_1()
-                    .child(
-                        crate::surface::glass_pill(
-                            "steer-plan-toggle",
-                            crate::surface::PillSize::Sm,
-                            crate::surface::PillMode::Select {
-                                selected: toggle.active,
-                            },
-                            cx,
-                        )
-                        .tooltip(|window, cx| {
-                            gpui_component::tooltip::Tooltip::new("Plan mode").build(window, cx)
-                        })
-                        .child(div().text_xs().child("Plan"))
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                            this.set_mode(&target);
-                            cx.notify();
-                        })),
-                    )
-                    .into_any_element(),
-            );
-        }
-        let chip = self.mode_chip()?;
-        let label = SharedString::from(format!("{}: {}", chip.label, chip.value_label));
-        if chip.values.len() < 2 {
-            return Some(
-                h_flex()
-                    .w_full()
-                    .min_w_0()
-                    .gap_1()
-                    .pb_1()
-                    .child(
-                        crate::surface::glass_pill(
-                            "steer-mode-chip",
-                            crate::surface::PillSize::Sm,
-                            crate::surface::PillMode::Readonly,
-                            cx,
-                        )
-                        .child(div().text_xs().text_color(muted).child(label)),
-                    )
-                    .into_any_element(),
-            );
-        }
-        // The popover and its trigger are two elements in one subtree — gpui
-        // ids must not collide.
-        let trigger = crate::surface::glass_pill_button(
-            "steer-mode-chip-trigger",
-            crate::surface::PillSize::Sm,
-            cx,
-        )
-        .label(label);
-        let values = chip.values.clone();
-        let current = chip.value.clone();
-        let view = cx.entity().downgrade();
-        Some(
-            h_flex()
-                .w_full()
-                .min_w_0()
-                .gap_1()
-                .pb_1()
-                .child(
-                    gpui_component::popover::Popover::new("steer-mode-chip")
-                        .p_1()
-                        .trigger(trigger)
-                        .content(move |_, _window, cx| {
-                            let mut menu = v_flex().min_w(px(160.)).gap_0p5();
-                            for value in &values {
-                                let view = view.clone();
-                                let value_id = value.id.clone();
-                                let picked = value_id == current;
-                                menu = menu.child(
-                                    h_flex()
-                                        .id(SharedString::from(format!(
-                                            "steer-mode-value-{value_id}"
-                                        )))
-                                        .w_full()
-                                        .gap_2()
-                                        .items_center()
-                                        .px_2()
-                                        .py_1()
-                                        .rounded(px(theme::tokens::radius::SM))
-                                        .cursor_pointer()
-                                        .text_xs()
-                                        .hover(|this| this.bg(cx.theme().accent))
-                                        .child(
-                                            div()
-                                                .flex_1()
-                                                .min_w_0()
-                                                .child(SharedString::from(value.label.clone())),
-                                        )
-                                        // The mode in force, marked the way
-                                        // the web menu marks it.
-                                        .when(picked, |this| {
-                                            this.child(
-                                                Icon::new(registry::UI_CHECK)
-                                                    .xsmall()
-                                                    .text_color(theme::tokens::GREEN.to_hsla()),
-                                            )
-                                        })
-                                        .on_click(move |_: &ClickEvent, _window, cx| {
-                                            let Some(view) = view.upgrade() else {
-                                                return;
-                                            };
-                                            view.update(cx, |this, cx| {
-                                                this.set_mode(&value_id);
-                                                cx.notify();
-                                            });
-                                        }),
-                                );
-                            }
-                            menu
-                        }),
-                )
-                .into_any_element(),
-        )
     }
 
     /// EXP-724: the `/` command rows — mono name, muted argument hint, muted
@@ -4442,8 +5043,12 @@ fn tool_text<E: Styled>(element: E) -> E {
         .line_height(px(transcript::TOOL_LINE_HEIGHT))
 }
 
-fn tool_row(name: &str, detail: Option<&str>, cx: &App) -> impl IntoElement {
+/// One tool call's line. EXP-789: a call whose `tool_update` said `failed`
+/// tints its name and glyph rose (the web `text-rose-400` row) — the detail
+/// stays muted, so the failure reads at a glance without shouting.
+fn tool_row(name: &str, detail: Option<&str>, failed: bool, cx: &App) -> impl IntoElement {
     let muted = cx.theme().muted_foreground;
+    let rose = cx.theme().danger;
     tool_text(h_flex())
         .w_full()
         .min_w_0()
@@ -4452,11 +5057,12 @@ fn tool_row(name: &str, detail: Option<&str>, cx: &App) -> impl IntoElement {
         .child(
             Icon::new(registry::CODING_TOOL)
                 .xsmall()
-                .text_color(muted.opacity(0.6)),
+                .text_color(if failed { rose.opacity(0.8) } else { muted.opacity(0.6) }),
         )
         .child(
             div()
                 .flex_shrink_0()
+                .when(failed, |this| this.text_color(rose))
                 .child(SharedString::from(name.to_string())),
         )
         .when_some(detail, |this, detail| {
@@ -4481,11 +5087,14 @@ impl Focusable for SteerSessionView {
 }
 
 impl Render for SteerSessionView {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         // EXP-776: the transcript list learns what changed since the last
         // frame here, before anything reads the cached projection.
         self.sync_list(cx);
+        self.sync_placeholder(window, cx);
         let header = self.chrome.then(|| self.render_header(cx));
+        // EXP-789: the subagent strip sits between the header and the feed.
+        let strip = self.render_subagent_strip(cx);
         let feed = self.render_feed(cx);
         let banners = self.render_banners(cx);
         let composer_visible = self.composer_visible();
@@ -4493,17 +5102,11 @@ impl Render for SteerSessionView {
         // web view puts it — and gone with the composer once the run ends.
         let compacting = (composer_visible && self.feed.compacting().is_some())
             .then(|| self.render_compaction_strip(cx));
-        // EXP-746: the local pinned state — the plan the agent is working
-        // through, and its latest thought. Both are STATE (replaced, not
-        // appended), which is why they sit above the composer instead of
-        // scrolling away in the feed.
-        let plan = (!self.extras.plan().is_empty())
-            .then(|| crate::session_extras::render_plan_card(self.extras.plan(), cx));
-        let thought = self
-            .extras
-            .thought()
-            .filter(|_| composer_visible)
-            .map(|text| crate::session_extras::render_thought(text, cx));
+        // EXP-784: the agent's rate-limit report, beside the compaction
+        // strip in the same status stack; gone the moment it clears.
+        let rate_limit = composer_visible
+            .then(|| self.render_rate_limit_banner(cx))
+            .flatten();
         let composer = composer_visible.then(|| self.render_composer(cx));
         // EXP-773: the Latest-changes bar sits between the transcript and the
         // composer, exactly where the web view puts it — an ended run keeps
@@ -4516,11 +5119,11 @@ impl Render for SteerSessionView {
             .min_h_0()
             .overflow_hidden()
             .children(header)
+            .children(strip)
             .child(feed)
             .children(banners)
-            .children(plan)
-            .children(thought)
             .children(compacting)
+            .children(rate_limit)
             .children(changes)
             .children(composer)
     }
