@@ -431,6 +431,14 @@ export function parseAgentLoginResult(
 // device that reports none (an older build) falls back to the top-level
 // account + `agentUsage[agent]` as the single `system` row, so the page never
 // goes blank on a pre-profile machine.
+//
+// EXP-807: this section is mirrored on the DESKTOP — same names, same
+// fallbacks, same ordering — in `apps/desktop/crates/ui/src/usage_bar.rs`
+// (`agent_profile_usage_rows` / `peak_percent` / `attention_rank` /
+// `sort_attention_first` / `refresh_allowed_at`), rendered by its
+// `usage_view.rs`. A web+desktop PAIR, not the ×4 rule above it: iOS and
+// Android ship no usage page (`packages/view-catalog/views.json`), only the
+// per-run sheet the cards feed. Change a rule here, change it there.
 
 /** The ambient login's profile id — byte-identical with the desktop's
  * `agent_profiles::SYSTEM_PROFILE`. */

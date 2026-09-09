@@ -66,6 +66,11 @@ pub enum Screen {
     /// The Automations page (EXP-686 — the web `t/$teamSlug/automations`
     /// page: the automation rows plus "Recent automated runs").
     Automations,
+    /// The Usage page (EXP-807 — the web `t/$teamSlug/usage` page: every
+    /// machine's agent usage, one row per device × agent profile). Tab-less
+    /// full-page mode like Devices, and reached the same way the web reaches
+    /// it: from the DEVICES page's header, not from a rail entry of its own.
+    Usage,
     /// The Chat page (EXP-772 — the web `t/$teamSlug/chat` page: one centred
     /// prompt box over a subtle row of launch pickers). Tab-less full-page
     /// mode like Devices; sending starts a chat run and navigates to its
@@ -172,6 +177,7 @@ impl Screen {
             Screen::Devices
                 | Screen::Actions
                 | Screen::Automations
+                | Screen::Usage
                 | Screen::Chat
                 | Screen::Reviews
                 | Screen::GettingStarted { .. }
@@ -252,6 +258,7 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
         Screen::Devices => "Devices".into(),
         Screen::Actions => "Actions".into(),
         Screen::Automations => "Automations".into(),
+        Screen::Usage => "Usage".into(),
         Screen::Chat => "Chat".into(),
         Screen::Reviews => "Reviews".into(),
         Screen::GettingStarted { .. } => "Getting started".into(),
@@ -376,7 +383,8 @@ impl Navigation {
 }
 
 /// DEV-ONLY `EXP_DEV_SCREEN` values: `settings` | `account` | `devices` |
-/// `actions` | `automations` | `reviews` | `getting-started` | `issue:<uuid>` |
+/// `actions` | `automations` | `usage` | `chat` | `reviews` |
+/// `getting-started` | `issue:<uuid>` |
 /// `pr:<issue-uuid>` (the PR-diff screen, keyed by the ISSUE whose linked PR
 /// it shows) | `support:<uuid>` | `session:<uuid>` (a coding session, keyed by
 /// its `coding_sessions` ROW id — EXP-746) (anything else = no pre-route).
@@ -391,6 +399,10 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
         "devices" => Some(Screen::Devices),
         "actions" => Some(Screen::Actions),
         "automations" => Some(Screen::Automations),
+        // EXP-807: the shots catalog's `usage` view drives this one (its
+        // desktop entry is `{kind: "screen", value: "usage"}`), and the page
+        // has no rail row to click.
+        "usage" => Some(Screen::Usage),
         "chat" => Some(Screen::Chat),
         // EXP-706: Reviews left the rail's tool windows for its own page.
         "reviews" => Some(Screen::Reviews),
@@ -1155,6 +1167,10 @@ mod tests {
         assert_eq!(parse_dev_screen("automations"), Some(Screen::Automations));
         // EXP-706: Reviews joined them (it was a rail TOOL window before).
         assert_eq!(parse_dev_screen("reviews"), Some(Screen::Reviews));
+        // EXP-807: Usage has NO rail entry (the Devices header opens it), so
+        // the catalog's `{kind: "screen", value: "usage"}` drive is the ONLY
+        // way a capture run can reach it.
+        assert_eq!(parse_dev_screen("usage"), Some(Screen::Usage));
         assert_eq!(parse_dev_screen("settings"), Some(Screen::Settings));
         // EXP-238: the legacy Account value still lands on Settings.
         assert_eq!(parse_dev_screen("account"), Some(Screen::Settings));
@@ -1249,6 +1265,9 @@ mod tests {
             Screen::Devices,
             Screen::Actions,
             Screen::Automations,
+            // EXP-807: reached from the Devices header, but a full-page screen
+            // exactly like the pages around it.
+            Screen::Usage,
             Screen::Chat,
             Screen::Reviews,
             Screen::GettingStarted {
@@ -1318,6 +1337,7 @@ mod tests {
             assert_eq!(screen_title(&Screen::Actions, cx), "Actions");
             assert_eq!(screen_title(&Screen::Automations, cx), "Automations");
             assert_eq!(screen_title(&Screen::Reviews, cx), "Reviews");
+            assert_eq!(screen_title(&Screen::Usage, cx), "Usage");
             assert_eq!(
                 screen_title(
                     &Screen::GettingStarted {
