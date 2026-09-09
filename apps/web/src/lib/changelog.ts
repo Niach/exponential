@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-rate-limited-runs`,
+    date: `2026-09-09`,
+    title: `A run that hits its rate limit says so`,
+    summary: `A rate-limited run is marked everywhere instead of just going quiet, a start into a spent agent is refused, and mobile shows an edit's diff inline.`,
+    body: `- **Rate limited, not stuck**: when an agent runs out of usage mid-run, the session is marked "Rate limited" with the time it resets, on web, desktop, iOS and Android. The run stays live and steerable; it simply cannot make a call until then. Until now it just went quiet and looked healthy.
+- **Agents tell their orchestrator**: a run started by another run reports its wall to the run that started it, once, instead of leaving it waiting on a session that reads fine.
+- **A start that would go nowhere is refused**: starting on a machine whose agent is already out of usage now says so and names when it resets, so you can pick another machine or agent.
+- **Edits inline on mobile**: an edit's diff renders under its row in the iOS and Android transcripts, folded away until you tap it and capped so a big rewrite stays scrollable.`,
+  },
+  {
     id: `2026-09-mcp-servers-and-agent-accounts`,
     date: `2026-09-09`,
     title: `Your own MCP servers in every run, and more than one agent account per machine`,
