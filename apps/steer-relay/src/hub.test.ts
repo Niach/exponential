@@ -380,6 +380,39 @@ describe(`device presence + remote start`, () => {
     })
   })
 
+  test(`startSession passes mcpServerIds + account through (EXP-792)`, () => {
+    const hub = new Hub()
+    const desktop = new FakeSocket()
+    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
+    hub.onMessage(desktop, JSON.stringify({ t: `online`, deviceId: `dev-1` }))
+
+    hub.startSession(`owner`, `dev-1`, { issueId: `issue-12` }, {
+      agent: `claude`,
+      mcpServerIds: [`srv-1`, `srv-2`],
+      account: `work`,
+    })
+    expect(desktop.lastFrame(`start_session`)).toEqual({
+      t: `start_session`,
+      issueId: `issue-12`,
+      agent: `claude`,
+      mcpServerIds: [`srv-1`, `srv-2`],
+      account: `work`,
+    })
+
+    // A resume carries neither — the run registry pinned them at launch.
+    hub.startSession(
+      `owner`,
+      `dev-1`,
+      { resumeSessionId: `run-1`, teamId: `team-1` },
+      { mcpServerIds: [`srv-1`], account: `work` }
+    )
+    expect(desktop.lastFrame(`start_session`)).toEqual({
+      t: `start_session`,
+      resumeSessionId: `run-1`,
+      teamId: `team-1`,
+    })
+  })
+
   test(`startSession routes a batch subject as a fat start_session frame`, () => {
     const hub = new Hub()
     const desktop = new FakeSocket()

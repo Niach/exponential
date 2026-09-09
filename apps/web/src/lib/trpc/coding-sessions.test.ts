@@ -297,6 +297,8 @@ describe(`codingSessions.start — issue path`, () => {
       deviceLabel: null,
       // EXP-484: no agent named by this start.
       agent: null,
+      // EXP-792: nor an account profile.
+      agentAccount: null,
       // EXP-637: issue rows carry no run branch (the issue owns
       // `exp/<IDENTIFIER>`) and this start resumes nothing.
       resumedFromId: null,
@@ -335,6 +337,7 @@ describe(`codingSessions.start — batch path`, () => {
       deviceId: null,
       deviceLabel: null,
       agent: null,
+      agentAccount: null,
       branch: null,
       resumedFromId: null,
       status: `running`,
@@ -387,6 +390,21 @@ describe(`codingSessions.start — agent (EXP-484)`, () => {
     )
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
   })
+
+  // EXP-792 (EXP-747 B7): the account profile the run launched on.
+  it(`stores the agentAccount on every subject, NULL when absent`, async () => {
+    await caller.start({ issueId: ISSUE_ID, agent: `claude`, agentAccount: `work` })
+    expect(inserts[0]!.values.agentAccount).toBe(`work`)
+    await caller.start({ teamId: TEAM_ID, agentAccount: `system` })
+    expect(inserts[1]!.values.agentAccount).toBe(`system`)
+    await caller.start({ issueId: ISSUE_ID })
+    expect(inserts[2]!.values.agentAccount).toBeNull()
+
+    const error = await rejectionOf(
+      caller.start({ issueId: ISSUE_ID, agentAccount: `x`.repeat(65) })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+  })
 })
 
 describe(`codingSessions.start — action path (EXP-253)`, () => {
@@ -412,6 +430,7 @@ describe(`codingSessions.start — action path (EXP-253)`, () => {
       deviceId: null,
       deviceLabel: null,
       agent: null,
+      agentAccount: null,
       branch: null,
       resumedFromId: null,
       status: `running`,
