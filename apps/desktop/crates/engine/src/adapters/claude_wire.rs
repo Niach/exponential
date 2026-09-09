@@ -115,6 +115,13 @@ impl Default for ClaudeArgs<'_> {
 /// through `extraArgs: {"replay-user-messages": ""}`, which emits a stray
 /// empty positional argument after it; that empty string is an artefact of
 /// the SDK's generic value pusher, not part of the contract.
+///
+/// `--forward-subagent-text` (EXP-784): without it a subagent's PROSE never
+/// reaches stdout — only its tool calls do — so the subagent view showed a
+/// Task card that ran tools and said nothing. With it the text arrives as
+/// ordinary `assistant`/`stream_event` frames carrying `parent_tool_use_id`,
+/// which is exactly the `subagentId` lane the adapter already scopes tool
+/// calls by. Present on `MIN_CLAUDE_ACP_VERSION` (2.1.263); no extra gate.
 pub fn claude_argv(args: &ClaudeArgs<'_>) -> Vec<String> {
     let mut argv: Vec<String> = Vec::new();
     let mut push = |value: &str| argv.push(value.to_string());
@@ -133,6 +140,7 @@ pub fn claude_argv(args: &ClaudeArgs<'_>) -> Vec<String> {
     push("--permission-prompt-tool");
     push("stdio");
     push("--replay-user-messages");
+    push("--forward-subagent-text");
 
     if let Some(effort) = args.effort {
         push("--effort");
@@ -213,6 +221,10 @@ pub enum ClaudeOut {
     ControlRequest(ControlRequestFrame),
     ControlResponse(ControlResponseFrame),
     ControlCancelRequest(ControlCancelFrame),
+    /// EXP-784: the CLI's plan-window report, sent on every turn (status
+    /// `allowed` at 7% utilization is the ordinary case) and when a window
+    /// closes. The adapter publishes it as the wire's `rate_limit` slot.
+    RateLimitEvent(RateLimitEventMsg),
     KeepAlive,
     #[serde(other)]
     Unknown,
@@ -245,6 +257,9 @@ impl ClaudeOut {
             }
             ClaudeOut::ControlResponse(_) => "control_response".to_string(),
             ClaudeOut::ControlCancelRequest(_) => "control_cancel_request".to_string(),
+            ClaudeOut::RateLimitEvent(msg) => {
+                format!("rate_limit_event/{}", msg.rate_limit_info.status)
+            }
             ClaudeOut::KeepAlive => "keep_alive".to_string(),
             ClaudeOut::Unknown => "unknown".to_string(),
         }
@@ -330,6 +345,92 @@ pub struct CompactMetadata {
     pub pre_tokens: Option<u64>,
     pub post_tokens: Option<u64>,
     pub duration_ms: Option<u64>,
+}
+
+/// A `rate_limit_event` frame (EXP-784). Measured shape (2.1.263):
+/// `{"type":"rate_limit_event","rate_limit_info":{"status":"allowed",
+/// "resetsAt":1788703200,"rateLimitType":"five_hour","overageStatus":
+/// "rejected","unifiedWindows":{...}},"uuid":..,"session_id":..}`.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct RateLimitEventMsg {
+    pub rate_limit_info: RateLimitInfo,
+    pub session_id: String,
+    pub uuid: String,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+/// The `rate_limit_info` object. Every field defaults and both spellings
+/// decode (the CLI writes camelCase, hand-written fixtures and older builds
+/// snake_case); unknown keys are kept in `extra`.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct RateLimitInfo {
+    /// `allowed` | `allowed_warning` | `rejected` — the CLI's own word.
+    pub status: String,
+    /// Unix SECONDS on the wire (measured: `1788703200`); see
+    /// [`resets_at_millis`] before it reaches the wire's unix-ms slot.
+    #[serde(rename = "resetsAt", alias = "resets_at")]
+    pub resets_at: Option<i64>,
+    /// `five_hour` | `seven_day` | …
+    #[serde(rename = "rateLimitType", alias = "rate_limit_type")]
+    pub rate_limit_type: Option<String>,
+    /// 0.0–1.0 of the window used, when the CLI reports one at this level.
+    pub utilization: Option<f64>,
+    #[serde(rename = "overageStatus", alias = "overage_status")]
+    pub overage_status: Option<String>,
+    #[serde(rename = "isUsingOverage", alias = "is_using_overage")]
+    pub is_using_overage: Option<bool>,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+impl RateLimitInfo {
+    /// Whether this report is a LIMIT rather than the all-clear: everything
+    /// but the CLI's `allowed` (and an empty status) counts, so the slot
+    /// clears on the ordinary per-turn `allowed` report and shows for
+    /// `allowed_warning`, `rejected` and whatever a later CLI adds.
+    pub fn is_limited(&self) -> bool {
+        !matches!(self.status.trim(), "" | "allowed" | "ok")
+    }
+}
+
+/// The model id claude stamps on an assistant frame IT wrote rather than
+/// the API: the rate-limit notice (EXP-784), the logged-out notice, and a
+/// handful of other client-side messages. Measured: `model:"<synthetic>"`,
+/// `stop_reason:"stop_sequence"`, zero usage.
+pub const SYNTHETIC_MODEL: &str = "<synthetic>";
+
+/// EXP-784: the secondary detector for a rate-limit notice — the text
+/// itself (`You've hit your session limit · resets 12:10pm (Europe/Berlin)`,
+/// measured), for a frame whose `model` field is missing or a future CLI
+/// that stops stamping `<synthetic>`.
+pub const RATE_LIMIT_PREFIX: &str = "You've hit your";
+
+/// EXP-784: the status published for a synthetic limit notice when no
+/// `rate_limit_event` named one.
+pub const RATE_LIMIT_FALLBACK_STATUS: &str = "limited";
+
+/// Whether an assistant frame is claude's own RATE-LIMIT notice (EXP-784):
+/// a synthetic frame, or any frame whose text opens with
+/// [`RATE_LIMIT_PREFIX`]. The one synthetic frame that is NOT a limit is the
+/// logged-out notice, which stays a narration so the auth error the result
+/// raises has its text in the transcript.
+pub fn is_rate_limit_notice(model: Option<&str>, text: &str) -> bool {
+    let text = text.trim_start();
+    if text.starts_with(RATE_LIMIT_PREFIX) {
+        return true;
+    }
+    model == Some(SYNTHETIC_MODEL) && !is_login_required_result(text)
+}
+
+/// `resetsAt` as unix MILLISECONDS for the wire: the CLI reports seconds
+/// (a value this side of 100 000 000 000 is 5138 AD in seconds and 1973 in
+/// ms, so the split is unambiguous); a millisecond value passes through.
+pub fn resets_at_millis(resets_at: Option<i64>) -> Option<i64> {
+    let at = resets_at.filter(|at| *at > 0)?;
+    Some(if at < 100_000_000_000 { at.saturating_mul(1000) } else { at })
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -596,11 +697,9 @@ pub fn apply_flag_settings(settings: Value) -> Value {
 
 /// Never sent once the query stream has closed.
 pub fn interrupt(cancel_queued: bool) -> Value {
-    if cancel_queued {
-        json!({ "subtype": "interrupt", "cancel_queued": true })
-    } else {
-        json!({ "subtype": "interrupt" })
-    }
+    // Always explicit: `false` (the stall watchdog's interrupt, EXP-784) is
+    // a decision, not the absence of one.
+    json!({ "subtype": "interrupt", "cancel_queued": cancel_queued })
 }
 
 /// Only for the `/usage` command. Its sibling `get_context_usage` is NEVER
@@ -1392,6 +1491,7 @@ mod tests {
             "--permission-prompt-tool".into(),
             "stdio".into(),
             "--replay-user-messages".into(),
+            "--forward-subagent-text".into(),
         ]
     }
 
@@ -1399,6 +1499,66 @@ mod tests {
     fn argv_without_print_mode_is_the_sdk_base_array() {
         let args = ClaudeArgs { print_mode: false, ..ClaudeArgs::default() };
         assert_eq!(claude_argv(&args), base());
+    }
+
+    /// EXP-784: subagent prose only reaches stdout with the flag.
+    #[test]
+    fn argv_always_forwards_subagent_text() {
+        let argv = claude_argv(&ClaudeArgs::default());
+        assert!(argv.contains(&"--forward-subagent-text".to_string()));
+    }
+
+    /// EXP-784: the measured `rate_limit_event` decodes, both spellings.
+    #[test]
+    fn a_rate_limit_event_decodes_in_either_spelling() {
+        let camel = ClaudeOut::parse(
+            r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning","resetsAt":1788703200,"rateLimitType":"five_hour","overageStatus":"rejected","isUsingOverage":false,"unifiedWindows":{"five_hour":{"utilization":0.91}}},"uuid":"u","session_id":"s"}"#,
+        );
+        let ClaudeOut::RateLimitEvent(msg) = camel else { panic!("a rate_limit_event frame") };
+        assert_eq!(msg.rate_limit_info.status, "allowed_warning");
+        assert_eq!(msg.rate_limit_info.resets_at, Some(1788703200));
+        assert_eq!(msg.rate_limit_info.rate_limit_type.as_deref(), Some("five_hour"));
+        assert!(msg.rate_limit_info.is_limited());
+        assert!(msg.rate_limit_info.extra.contains_key("unifiedWindows"), "unknowns are kept");
+        assert_eq!(camel_label(&msg), "rate_limit_event/allowed_warning");
+
+        let snake = ClaudeOut::parse(
+            r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resets_at":1,"rate_limit_type":"seven_day"}}"#,
+        );
+        let ClaudeOut::RateLimitEvent(msg) = snake else { panic!("a rate_limit_event frame") };
+        assert_eq!(msg.rate_limit_info.resets_at, Some(1));
+        assert!(!msg.rate_limit_info.is_limited(), "`allowed` is the all-clear");
+        assert!(!RateLimitInfo::default().is_limited());
+
+        // An empty object is still the frame, not Unknown.
+        assert!(matches!(
+            ClaudeOut::parse(r#"{"type":"rate_limit_event"}"#),
+            ClaudeOut::RateLimitEvent(_)
+        ));
+    }
+
+    fn camel_label(msg: &RateLimitEventMsg) -> String {
+        ClaudeOut::RateLimitEvent(msg.clone()).label()
+    }
+
+    /// EXP-784: the two detectors, and the one synthetic frame that is not
+    /// a limit.
+    #[test]
+    fn a_rate_limit_notice_is_detected_by_model_or_prefix() {
+        let measured = "You've hit your session limit · resets 12:10pm (Europe/Berlin)";
+        assert!(is_rate_limit_notice(Some(SYNTHETIC_MODEL), measured));
+        assert!(is_rate_limit_notice(None, measured), "the prefix alone is enough");
+        assert!(is_rate_limit_notice(Some("claude-opus-4-6"), measured));
+        assert!(is_rate_limit_notice(Some(SYNTHETIC_MODEL), "Rate limited. Try again later."));
+        assert!(!is_rate_limit_notice(Some("claude-opus-4-6"), "I'll hit your endpoint next."));
+        assert!(
+            !is_rate_limit_notice(Some(SYNTHETIC_MODEL), "Not logged in · Please run /login"),
+            "the logged-out notice stays a narration"
+        );
+        assert_eq!(resets_at_millis(Some(1788703200)), Some(1_788_703_200_000));
+        assert_eq!(resets_at_millis(Some(1_788_703_200_000)), Some(1_788_703_200_000));
+        assert_eq!(resets_at_millis(Some(0)), None);
+        assert_eq!(resets_at_millis(None), None);
     }
 
     #[test]
@@ -1608,7 +1768,8 @@ mod tests {
             apply_flag_settings(json!({ "effortLevel": "high" })),
             json!({ "subtype": "apply_flag_settings", "settings": { "effortLevel": "high" } })
         );
-        assert_eq!(interrupt(false), json!({ "subtype": "interrupt" }));
+        assert_eq!(interrupt(false), json!({ "subtype": "interrupt", "cancel_queued": false }));
+        assert_eq!(interrupt(true), json!({ "subtype": "interrupt", "cancel_queued": true }));
         assert_eq!(get_usage(), json!({ "subtype": "get_usage" }));
         assert_eq!(set_model(None), json!({ "subtype": "set_model", "model": null }));
     }

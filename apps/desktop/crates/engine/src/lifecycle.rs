@@ -544,7 +544,9 @@ fn tick_stall(
             // shows up as the turn simply stopping, and an unattended run
             // loses that work with nobody able to tell why.
             ctx.notice(crate::stall::StallWatchdog::interrupt_notice(silent));
-            let _ = commands.send(EngineCommand::Cancel);
+            // EXP-784: an INTERRUPT, not a Stop — the steers queued behind
+            // the wedged turn are what the watchdog is rescuing.
+            let _ = commands.send(EngineCommand::Interrupt);
         }
         crate::stall::StallAction::End => {
             log::error!(

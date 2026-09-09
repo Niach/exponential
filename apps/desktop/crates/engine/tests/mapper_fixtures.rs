@@ -104,6 +104,35 @@ fn a_recorded_turn_maps_to_the_wire_vector() {
     );
 }
 
+/// EXP-784: the rate-limit slot rides `_meta` on a no-op
+/// `session_info_update` (`engine::mapper::RATE_LIMIT_META_KEY`): a plain
+/// one publishes nothing, identical re-emits collapse, and `ok` is the one
+/// clear frame.
+#[test]
+fn a_rate_limit_meta_maps_to_the_slot_once_and_clears_on_ok() {
+    let events: Vec<Value> = wire("rate_limit.jsonl")
+        .into_iter()
+        .filter(|event| event["kind"] == "rate_limit")
+        .collect();
+    assert_eq!(
+        events,
+        vec![
+            json!({"kind": "rate_limit", "status": "rejected", "resetsAt": 1_788_703_200_000i64}),
+            json!({
+                "kind": "rate_limit",
+                "status": "rejected",
+                "resetsAt": 1_788_703_200_000i64,
+                "message": "You've hit your session limit · resets 12:10pm (Europe/Berlin)"
+            }),
+            json!({"kind": "rate_limit", "status": ""}),
+        ]
+    );
+    // The narration between them is untouched by the slot.
+    assert!(wire("rate_limit.jsonl")
+        .iter()
+        .any(|event| event["kind"] == "narration" && event["text"] == "Back to work."));
+}
+
 #[test]
 fn a_tool_call_update_is_a_local_card_and_only_its_settle_a_wire_row() {
     let local = local("turn.jsonl");

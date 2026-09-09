@@ -244,6 +244,7 @@ fn claude_row(frame: &ClaudeOut, capture: &mut Capture) -> Row {
         ClaudeOut::ControlResponse(_) => ("(request completion)", "-"),
         ClaudeOut::ControlCancelRequest(_) => ("(abort in flight)", "-"),
         ClaudeOut::KeepAlive => ("(dropped, never answered)", "-"),
+        ClaudeOut::RateLimitEvent(_) => ("(rate-limit slot)", "rate_limit"),
         ClaudeOut::Unknown => ("(dropped)", "-"),
     };
     Row { frame: label, acp, wire }

@@ -861,6 +861,42 @@ fn a_mid_turn_steer_keeps_the_run_busy_until_the_follow_up_answers() {
     harness.session.kill("killed");
 }
 
+/// EXP-784: `TURN_SLOTS` prompts may be in flight; the next one is accepted
+/// (its row and the idle edge publish at once) but its `session/prompt` is
+/// only SENT once a slot frees — and the command loop never waits for it.
+#[test]
+fn a_third_prompt_waits_for_a_turn_slot() {
+    assert_eq!(engine::host::TURN_SLOTS, 2, "the test below assumes two slots");
+    let harness = start_fake("turn-slots");
+    let signal = harness.session.turn_signal();
+    let prompts = || harness.state.prompts.lock().expect("the prompt log is not poisoned").len();
+
+    // Two turns the fake holds until released, then a third that would end
+    // immediately if it reached the agent.
+    harness.session.send_prompt("steered".to_string());
+    harness.session.steer("steered".to_string());
+    until("two turns in flight", || prompts() >= 2);
+    harness.session.steer("stream".to_string());
+    let deadline = Instant::now() + Duration::from_millis(400);
+    while Instant::now() < deadline {
+        assert_eq!(prompts(), 2, "the third prompt waits for a slot");
+        assert!(!signal.is_idle());
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // The loop stayed responsive: the user's row for the queued prompt is
+    // already on the wire.
+    let users = events_of(&harness.sink, "user_message");
+    assert!(
+        users.iter().any(|event| event["text"] == "stream"),
+        "the queued prompt's own row is published at once: {users:?}"
+    );
+
+    harness.state.released.store(true, Ordering::SeqCst);
+    until("the third turn reaches the agent", || prompts() >= 3);
+    until("the idle edge", || signal.is_idle());
+    harness.session.kill("killed");
+}
+
 /// The dispatch-loop regression test: a client handler that forgot to spawn
 /// would never dispatch this cancel, and the agent would sit in "hang".
 #[test]

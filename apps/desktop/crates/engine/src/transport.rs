@@ -74,6 +74,16 @@ pub struct ChildLines {
     pub exit: flume::Receiver<ChildExit>,
     /// The child's pid — log lines and the reaper's protection checks.
     pub pid: u32,
+    /// EXP-784: how many stdout lines the reader thread has DROPPED because
+    /// the channel was full. Nonzero means the session is already broken
+    /// (see [`STDOUT_LINES_CAP`]); the count is forwarded into the exit link
+    /// so the ended banner can say so instead of the run just going quiet.
+    dropped: Arc<AtomicU64>,
+    /// Set by the reader thread at EOF: the pipe is drained and `dropped`
+    /// is final. The exit forwarder waits on it (bounded) so the count it
+    /// records is the last one, not a snapshot taken while the reader was
+    /// still catching up on what the child wrote before exiting.
+    reader_done: Arc<AtomicBool>,
     guard: ChildGuard,
 }
 
@@ -85,7 +95,22 @@ impl ChildLines {
     /// reads the link, never a second clone of the receiver.
     pub fn forward_exit(&self, link: &ChildExitLink) {
         link.record_pid(self.pid);
-        forward_exit(self.exit.clone(), link.clone());
+        forward_exit_with_drops(
+            self.exit.clone(),
+            link.clone(),
+            Some((Arc::clone(&self.dropped), Arc::clone(&self.reader_done))),
+        );
+    }
+
+    /// EXP-784: stdout lines dropped so far (see [`STDOUT_LINES_CAP`]).
+    pub fn dropped_lines(&self) -> u64 {
+        self.dropped.load(Ordering::Relaxed)
+    }
+
+    /// Whether the reader thread has reached EOF, after which
+    /// [`Self::dropped_lines`] is final.
+    pub fn stdout_drained(&self) -> bool {
+        self.reader_done.load(Ordering::SeqCst)
     }
 
     /// EXP-758: ask the child to stop and wait up to [`CHILD_TERM_GRACE`] for
@@ -105,14 +130,39 @@ impl ChildLines {
 /// [`ChildLines::forward_exit`] for a receiver already split off its
 /// `ChildLines` (the codex router owns that child whole).
 pub fn forward_exit(exit: flume::Receiver<ChildExit>, link: ChildExitLink) {
+    forward_exit_with_drops(exit, link, None);
+}
+
+/// [`forward_exit`], also folding the reader thread's final drop count into
+/// the link BEFORE the exit is recorded — the end sequence reads both in one
+/// go, and a count that landed after the exit would be missed.
+fn forward_exit_with_drops(
+    exit: flume::Receiver<ChildExit>,
+    link: ChildExitLink,
+    dropped: Option<(Arc<AtomicU64>, Arc<AtomicBool>)>,
+) {
     let _ = std::thread::Builder::new()
         .name("exit-forward".to_string())
         .spawn(move || {
             if let Ok(exit) = exit.recv() {
+                if let Some((dropped, reader_done)) = &dropped {
+                    // The child is gone but its last writes may still sit in
+                    // the pipe; give the reader a moment to drain them (a
+                    // grandchild holding stdout open is why this is bounded).
+                    let deadline = std::time::Instant::now() + READER_DRAIN_GRACE;
+                    while !reader_done.load(Ordering::SeqCst) && std::time::Instant::now() < deadline {
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    link.record_dropped_lines(dropped.load(Ordering::Relaxed));
+                }
                 link.record(exit);
             }
         });
 }
+
+/// How long the exit forwarder waits for the stdout reader to reach EOF
+/// before recording the drop count (see [`forward_exit_with_drops`]).
+const READER_DRAIN_GRACE: Duration = Duration::from_secs(2);
 
 /// Clonable, mutex-serialized stdin. An adapter writes from the connection
 /// actor AND from spawned turn tasks, so the mutex is load-bearing: two
@@ -270,9 +320,12 @@ pub fn spawn_lines(spec: &SpawnSpec, stderr: StderrPolicy) -> std::io::Result<Ch
     let (line_tx, lines) = flume::bounded(STDOUT_LINES_CAP);
     let dropped = Arc::new(AtomicU64::new(0));
     let dropped_in_thread = Arc::clone(&dropped);
+    let reader_done = Arc::new(AtomicBool::new(false));
+    let reader_done_in_thread = Arc::clone(&reader_done);
     std::thread::Builder::new()
         .name(format!("acp-lines-{pid}"))
         .spawn(move || {
+            let _done = ReaderDone(reader_done_in_thread);
             // BufReader::lines() splits on `\n` and strips a trailing `\r`.
             // NEVER a splitter that also breaks on U+2028/U+2029: those are
             // legal inside JSON strings and pi's own jsonl reader is
@@ -340,6 +393,8 @@ pub fn spawn_lines(spec: &SpawnSpec, stderr: StderrPolicy) -> std::io::Result<Ch
         writer: LineWriter(Arc::clone(&stdin)),
         exit,
         pid,
+        dropped,
+        reader_done,
         guard: ChildGuard {
             pid,
             exited,
@@ -347,6 +402,15 @@ pub fn spawn_lines(spec: &SpawnSpec, stderr: StderrPolicy) -> std::io::Result<Ch
             asked: AtomicBool::new(false),
         },
     })
+}
+
+/// Flips the reader-done flag when the reader thread ends, however it ends.
+struct ReaderDone(Arc<AtomicBool>);
+
+impl Drop for ReaderDone {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
 }
 
 /// The values of `env` that must never reach a log line: anything under a
@@ -515,11 +579,50 @@ mod tests {
             "the line channel grew past its cap: {}",
             child.lines.len()
         );
+        // EXP-784: the drops are COUNTED, not just logged. The count is
+        // final once the reader reached EOF, which can trail the exit — and
+        // nothing may be received before then, or a freed slot admits one
+        // more line.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !child.stdout_drained() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(child.stdout_drained(), "the reader reaches EOF");
+        let dropped = child.dropped_lines();
+        assert_eq!(dropped, (flood - STDOUT_LINES_CAP) as u64, "every line past the cap");
         // What arrived first is still what a reader sees first.
         assert_eq!(
             child.lines.recv_timeout(Duration::from_secs(1)).as_deref(),
             Ok("1")
         );
+    }
+
+    /// EXP-784: the final drop count rides the exit link, ahead of the exit
+    /// itself, so the end sequence can put it on the banner.
+    #[test]
+    fn the_drop_count_reaches_the_exit_link_before_the_exit() {
+        let flood = STDOUT_LINES_CAP * 2;
+        let spec = SpawnSpec::new("sh").args(["-c", &format!("seq 1 {flood}")]);
+        let child = spawn_lines(&spec, StderrPolicy::Drop).expect("sh spawns");
+        let link = ChildExitLink::new();
+        child.forward_exit(&link);
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while link.get().is_none() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(link.get().map(|exit| exit.code), Some(0));
+        assert_eq!(link.dropped_lines(), STDOUT_LINES_CAP as u64);
+
+        // A child that never floods reports zero.
+        let quiet = spawn_lines(&SpawnSpec::new("sh").args(["-c", "echo one"]), StderrPolicy::Drop)
+            .expect("sh spawns");
+        let quiet_link = ChildExitLink::new();
+        quiet.forward_exit(&quiet_link);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while quiet_link.get().is_none() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(quiet_link.dropped_lines(), 0);
     }
 
     /// Closing stdin is the EOF half of the graceful stop, and a write after

@@ -518,8 +518,24 @@ impl Mapper {
             // EXP-772: option chips are gone from every client, so an agent's
             // option vocabulary is no longer news the wire carries.
             SessionUpdate::ConfigOptionUpdate(_) => {}
-            // A session-row fact, not a feed row.
-            SessionUpdate::SessionInfoUpdate(_) => {}
+            // A session-row fact, not a feed row — unless its `_meta` carries
+            // the EXP-784 rate-limit slot (claude's `rate_limit_event` and its
+            // synthetic "You've hit your…" notices ride a no-op one).
+            SessionUpdate::SessionInfoUpdate(_) => {
+                if let Some(slot) = notification
+                    .meta
+                    .as_ref()
+                    .and_then(|meta| meta.get(RATE_LIMIT_META_KEY))
+                    .and_then(Value::as_object)
+                {
+                    self.emit_rate_limit(
+                        slot.get("status").and_then(Value::as_str).unwrap_or(""),
+                        slot.get("resetsAt").and_then(Value::as_i64),
+                        slot.get("message").and_then(Value::as_str),
+                        out,
+                    );
+                }
+            }
             SessionUpdate::UsageUpdate(usage) => {
                 let cost = usage
                     .cost
@@ -1487,10 +1503,9 @@ impl Mapper {
 
     /// EXP-784: the rate-limit slot, deduped like `usage` above. `status` is
     /// the agent's own word for the window; an empty/`ok` status is the
-    /// CLEAR frame (`steer::rate_limit_clears`), published once. The claude
-    /// adapter (EXP-784, lane A) calls this off its rate-limit meta key;
-    /// nothing in this crate does yet, hence the allow.
-    #[allow(dead_code)]
+    /// CLEAR frame (`steer::rate_limit_clears`), published once. Fed by the
+    /// [`RATE_LIMIT_META_KEY`] `_meta` the claude adapter stamps on a no-op
+    /// `session_info_update`.
     pub(crate) fn emit_rate_limit(
         &mut self,
         status: &str,
@@ -2241,6 +2256,11 @@ type BTreeMapLike = Map<String, Value>;
 
 /// EXP-784: the relay's cap on `rate_limit.message` (protocol.ts).
 const RATE_LIMIT_MESSAGE_MAX: usize = 1024;
+
+/// EXP-784: the `_meta` key an adapter publishes the rate-limit slot under,
+/// on a no-op `session_info_update`: `{"status": <agent word>, "resetsAt":
+/// <unix ms>?, "message": <text>?}`; status empty/`ok` clears.
+pub const RATE_LIMIT_META_KEY: &str = "exponentialRateLimit";
 
 /// EXP-785: the wire's kind bucket for an ACP kind — every ACP value has a
 /// contract twin; a future ACP kind lands on `Other`.

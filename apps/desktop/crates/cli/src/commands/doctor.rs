@@ -3,10 +3,10 @@
 //! is non-zero when git or the SELECTED default agent fails (the other
 //! agents are informational — the doctor never falsely blocks).
 //!
-//! EXP-746 added a second, NON-FATAL row per agent: ACP readiness. It decides
-//! whether a session runs on the session screen or in a terminal tab
-//! (`coding::resolve_transport`) and never touches the exit code — a
-//! not-supported agent still codes, just on the PTY path.
+//! EXP-746 added a second row per agent: ACP readiness. It never touches the
+//! exit code, but it IS the coding gate (EXP-773): an agent that is not
+//! ACP-ready cannot start a session on this device at all — the launch is
+//! refused with the row's note; there is no terminal fallback.
 //!
 //! EXP-755: this command is the ONE deep pass (`coding::run_doctor_deep` plus
 //! the codex handshake below). Every other caller runs the quick doctor, which
@@ -81,7 +81,8 @@ fn print_check(name: &str, check: &ToolCheck) {
 
 /// EXP-746: the agent's ACP readiness row, indented under its check. Silent
 /// where readiness has no meaning (git) or was never probed (an unparseable
-/// claude version — never falsely block a nonstandard build).
+/// claude version — the doctor never falsely blocks a nonstandard build,
+/// though the launch gate still refuses it, EXP-773).
 fn print_acp(check: &ToolCheck) {
     match check.acp {
         Some(true) => println!("             acp: ready"),
@@ -89,7 +90,7 @@ fn print_acp(check: &ToolCheck) {
             let note = check
                 .acp_note
                 .as_deref()
-                .unwrap_or("sessions run in a terminal tab");
+                .unwrap_or("coding sessions cannot start with this agent");
             println!("             acp: not supported ({note})");
         }
         None => {}

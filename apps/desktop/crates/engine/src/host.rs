@@ -29,7 +29,7 @@
 //!   mid-turn still reaches the adapter.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -76,6 +76,21 @@ pub type LocalSink = Arc<dyn Fn(LocalFeedEvent) + Send + Sync>;
 /// run record as `agent_native_session_id` (D8) and is what a PTY resume of
 /// the same conversation would need.
 pub const NATIVE_SESSION_META_KEY: &str = "exponentialNativeSessionId";
+
+/// EXP-784: the `_meta` key on a `session/cancel` saying whether the agent
+/// should ALSO drop the user messages it holds queued behind the running
+/// turn. Absent = `true` (a Stop is a stop); the stall watchdog's interrupt
+/// sends `false` so the steers that piled up behind a wedged turn flow the
+/// moment it unwinds. Claude maps it onto `interrupt.cancel_queued`; the
+/// other adapters have no such knob and ignore it.
+pub const CANCEL_QUEUED_META_KEY: &str = "exponentialCancelQueued";
+
+/// EXP-784: how many `session/prompt`s may be in flight on one session. A
+/// steer is a prompt, and a viewer hammering the input (or a relay replaying
+/// a backlog) used to open one request per message with nothing bounding
+/// them; the CLI folds or queues at its own pace. A third prompt waits for a
+/// slot INSIDE its spawned task — the command loop never blocks on it.
+pub const TURN_SLOTS: usize = 2;
 
 /// How many local feed ROWS a session keeps for a late subscriber. A tab
 /// reopened mid-session replays this much and no more: `Output` chunks are
@@ -212,7 +227,15 @@ pub(crate) enum EngineCommand {
     Prompt(Vec<ContentBlock>),
     /// Mid-turn steering — the same entry point a relay `input` frame takes.
     Steer(String),
+    /// The user's Stop (Escape, the relay `cancel`): the turn AND whatever
+    /// the agent still holds queued behind it.
     Cancel,
+    /// EXP-784: the stall watchdog's interrupt — the turn in flight only.
+    /// The steers a user queued while it sat silent are the reason the
+    /// watchdog exists ("the queued user messages flow", `stall.rs`), so
+    /// they must survive it; the adapter reads [`CANCEL_QUEUED_META_KEY`]
+    /// off the `session/cancel` to tell the two apart.
+    Interrupt,
     SetConfig {
         id: SessionConfigId,
         value: SessionConfigOptionValue,
@@ -303,6 +326,12 @@ pub struct ChildExitLink {
     /// (`coding::reaper::reap_recorded`) — codex/pi/external children carry
     /// no `claude-hooks` anchor, so this is the only handle on them.
     pid: Arc<Mutex<Option<u32>>>,
+    /// EXP-784: stdout lines the transport DROPPED over the child's life
+    /// (`transport::STDOUT_LINES_CAP`), written by the exit forwarder just
+    /// before the exit. Nonzero is folded into the ended banner
+    /// ([`SessionCtx::take_failure`]): a session that lost frames is broken
+    /// in ways the transcript cannot show.
+    dropped_lines: Arc<AtomicU64>,
     /// Held until the exit is recorded; dropping it is the signal
     /// [`ChildExitLink::reaped`] waits on. A flume receiver whose senders are
     /// all gone resolves immediately and KEEPS resolving, so the edge is
@@ -331,9 +360,20 @@ impl ChildExitLink {
         ChildExitLink {
             slot: Arc::new(Mutex::new(None)),
             pid: Arc::new(Mutex::new(None)),
+            dropped_lines: Arc::new(AtomicU64::new(0)),
             gate: Arc::new(Mutex::new(Some(gate))),
             signal,
         }
+    }
+
+    /// Adapter side (EXP-784): the transport's final stdout drop count.
+    pub fn record_dropped_lines(&self, dropped: u64) {
+        self.dropped_lines.store(dropped, Ordering::SeqCst);
+    }
+
+    /// EXP-784: stdout lines the transport dropped, once recorded.
+    pub fn dropped_lines(&self) -> u64 {
+        self.dropped_lines.load(Ordering::SeqCst)
     }
 
     /// Adapter side: the child was reaped.
@@ -371,6 +411,26 @@ impl ChildExitLink {
     pub async fn reaped(&self) {
         let _ = self.signal.recv_async().await;
     }
+}
+
+/// EXP-784: the agent-native session handle recorded for THIS run, for the
+/// `session/load` hint. The launcher's resume record carries the previous
+/// run's native id as `claude_session_id` (its EXP-443 pin, chained through
+/// `agent_native_session_id`) and the engine upserts `agent_native_session_id`
+/// once the adapter reports; either names the conversation to reopen. A
+/// replay has no record and passes nothing.
+fn recorded_native_session_id(ctx: &SessionCtx) -> Option<String> {
+    if ctx.replay {
+        return None;
+    }
+    let record = coding::run_registry::get(&ctx.data_dir, &ctx.session_id)?;
+    record.agent_native_session_id.or(record.claude_session_id)
+}
+
+/// EXP-784: the banner fragment for a transport that dropped stdout lines.
+pub(crate) fn dropped_lines_note(dropped: u64) -> String {
+    let (lines, verb) = if dropped == 1 { ("line", "was") } else { ("lines", "were") };
+    format!("{dropped} stdout {lines} {verb} dropped")
 }
 
 /// The `main_fn` every stdio adapter runs: hold the connection open until
@@ -968,8 +1028,21 @@ impl SessionCtx {
         }
     }
 
+    /// The reason for the ended banner, if any — the watchdog's, plus
+    /// (EXP-784) the transport's dropped-line count when it is nonzero: a
+    /// child whose stdout outran the reader lost frames the transcript can
+    /// never show, and a run that just says "ended" after that hides it.
     pub(crate) fn take_failure(&self) -> Option<String> {
-        self.failure.lock().ok().and_then(|mut slot| slot.take())
+        let failure = self.failure.lock().ok().and_then(|mut slot| slot.take());
+        let dropped = self.child_exit.dropped_lines();
+        if dropped == 0 {
+            return failure;
+        }
+        let note = dropped_lines_note(dropped);
+        Some(match failure {
+            Some(failure) => format!("{failure} ({note})"),
+            None => note,
+        })
     }
 
     /// A local-only edge (phases): never a wire event.
@@ -1052,6 +1125,21 @@ where
         .name("exponential")
         .on_receive_notification(
             async move |notification: SessionNotification, _cx| {
+                // EXP-784: an adapter whose native id CHANGED mid-run (claude
+                // after a `/clear` starts a fresh transcript under a new
+                // uuid) re-publishes it here, so the run record names the
+                // conversation a resume can actually reopen.
+                if let Some(native) = notification
+                    .meta
+                    .as_ref()
+                    .and_then(|meta| meta.get(NATIVE_SESSION_META_KEY))
+                    .and_then(serde_json::Value::as_str)
+                {
+                    if notify_ctx.ids().native.as_deref() != Some(native) {
+                        notify_ctx.set_ids(None, Some(native.to_string()));
+                        crate::lifecycle::record_session_ids(&notify_ctx);
+                    }
+                }
                 let mut out = MapOut::default();
                 notify_ctx.with_mapper(|mapper| mapper.on_update(&notification, &mut out));
                 notify_ctx.dispatch(out);
@@ -1239,10 +1327,22 @@ where
                 // arrives here as a plain `session/new`.
                 Some(ResumeHandle::Acp(id)) => {
                     let session_id = SessionId::new(id.clone());
-                    let response = cx
-                        .send_request(LoadSessionRequest::new(session_id.clone(), cwd.clone()))
-                        .block_task()
-                        .await?;
+                    // EXP-784: the ACP id is the host's stable handle, not
+                    // the agent's own (claude's `--session-id` is minted
+                    // separately now). The record the launcher wrote for
+                    // this run carries the native one; it rides the load
+                    // request's `_meta` so the adapter reopens the right
+                    // transcript.
+                    let mut load = LoadSessionRequest::new(session_id.clone(), cwd.clone());
+                    if let Some(native) = recorded_native_session_id(&ctx) {
+                        let mut meta = serde_json::Map::new();
+                        meta.insert(
+                            NATIVE_SESSION_META_KEY.to_string(),
+                            serde_json::Value::String(native),
+                        );
+                        load = load.meta(meta);
+                    }
+                    let response = cx.send_request(load).block_task().await?;
                     (
                         session_id,
                         response.modes.clone(),
@@ -1303,8 +1403,8 @@ where
 
             // The in-flight turn counter: `idle` only flips back when the
             // LAST turn answers, so a steered second prompt cannot end the
-            // turn early.
-            let turns = Arc::new(AtomicUsize::new(0));
+            // turn early. EXP-784: it also carries the turn-slot semaphore.
+            let turns = Arc::new(TurnGate::new());
             if let Some(prompt) = ctx.prompt.clone() {
                 start_turn(&cx, &ctx, &session_id, text_blocks(&prompt), &turns);
             }
@@ -1370,7 +1470,7 @@ fn handle_command(
     cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Agent>,
     ctx: &Arc<SessionCtx>,
     session_id: &SessionId,
-    turns: &Arc<AtomicUsize>,
+    turns: &Arc<TurnGate>,
     command: EngineCommand,
 ) -> bool {
     match command {
@@ -1383,14 +1483,8 @@ fn handle_command(
         // the first prompt's `result` and letting an `AfterTurn` kill
         // (EXP-637) end the run mid-answer.
         EngineCommand::Steer(text) => start_turn(cx, ctx, session_id, text_blocks(&text), turns),
-        EngineCommand::Cancel => {
-            let _ = cx.send_notification(CancelNotification::new(session_id.clone()));
-            ctx.asks.cancel_all();
-            ctx.terminals.kill_all();
-            let mut out = MapOut::default();
-            ctx.with_mapper(|mapper| mapper.on_cancel(&mut out));
-            ctx.dispatch(out);
-        }
+        EngineCommand::Cancel => cancel_turn(cx, ctx, session_id, true),
+        EngineCommand::Interrupt => cancel_turn(cx, ctx, session_id, false),
         EngineCommand::SetConfig { id, value } => {
             let sent = cx.send_request(SetSessionConfigOptionRequest::new(
                 session_id.clone(),
@@ -1504,25 +1598,98 @@ fn handle_command(
     true
 }
 
+/// `session/cancel`, with the EXP-784 queued flag: `cancel_queued` is the
+/// user's Stop, `!cancel_queued` the stall watchdog's interrupt. Both dismiss
+/// the open cards and kill the agent's terminals — a stalled turn has no
+/// card open (`needs_input` gates the watchdog) and no terminal writing (its
+/// bytes would have reset the clock), so nothing of value is lost there.
+fn cancel_turn(
+    cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Agent>,
+    ctx: &Arc<SessionCtx>,
+    session_id: &SessionId,
+    cancel_queued: bool,
+) {
+    let mut meta = serde_json::Map::new();
+    meta.insert(CANCEL_QUEUED_META_KEY.to_string(), serde_json::Value::Bool(cancel_queued));
+    let _ = cx.send_notification(CancelNotification::new(session_id.clone()).meta(meta));
+    ctx.asks.cancel_all();
+    ctx.terminals.kill_all();
+    let mut out = MapOut::default();
+    ctx.with_mapper(|mapper| mapper.on_cancel(&mut out));
+    ctx.dispatch(out);
+}
+
+/// The in-flight turn bookkeeping one session shares between its prompts:
+/// the counter that keeps `idle` false until the LAST turn answers, and the
+/// EXP-784 slot semaphore ([`TURN_SLOTS`]) that bounds how many
+/// `session/prompt`s are open at once.
+pub(crate) struct TurnGate {
+    in_flight: AtomicUsize,
+    slots: tokio::sync::Semaphore,
+}
+
+impl TurnGate {
+    pub(crate) fn new() -> TurnGate {
+        TurnGate {
+            in_flight: AtomicUsize::new(0),
+            slots: tokio::sync::Semaphore::new(TURN_SLOTS),
+        }
+    }
+}
+
 /// Send one `session/prompt` as a TURN: spawned (never inline) so a `Cancel`
 /// arriving mid-turn is still dispatched, with the stop reason folded back
 /// through the mapper when the last in-flight turn answers.
+///
+/// EXP-784: the prompt is SENT only once a turn slot is held. A free slot is
+/// taken synchronously so back-to-back prompts keep their order on the
+/// wire; a full gate parks this prompt in its own task (logged at debug) and
+/// tokio's semaphore hands freed permits to waiters in FIFO order, so a
+/// later prompt never overtakes a parked one. The user's row and the idle
+/// edge are published immediately either way: the message is accepted, it
+/// is only its delivery to the agent that waits.
 fn start_turn(
     cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Agent>,
     ctx: &Arc<SessionCtx>,
     session_id: &SessionId,
     blocks: Vec<ContentBlock>,
-    turns: &Arc<AtomicUsize>,
+    turns: &Arc<TurnGate>,
 ) {
     announce_prompt(ctx, &blocks_text(&blocks));
-    let sent = cx.send_request(PromptRequest::new(session_id.clone(), blocks));
-    turns.fetch_add(1, Ordering::SeqCst);
+    turns.in_flight.fetch_add(1, Ordering::SeqCst);
     ctx.turn_signal.set_idle(false);
+    let request = PromptRequest::new(session_id.clone(), blocks);
+    let ready = turns.slots.try_acquire().ok().map(|permit| {
+        // Held by the spawned task below; the permit's own lifetime is tied
+        // to the gate through the `Arc` the task owns.
+        permit.forget();
+        cx.send_request(request.clone())
+    });
+    if ready.is_none() {
+        log::debug!(
+            "engine: session {} has {TURN_SLOTS} prompts in flight, queueing the next one",
+            ctx.session_id
+        );
+    }
+    let sent_cx = cx.clone();
     let ctx = ctx.clone();
     let turns = turns.clone();
     let _ = cx.spawn(async move {
+        let sent = match ready {
+            Some(sent) => sent,
+            None => {
+                match turns.slots.acquire().await {
+                    Ok(permit) => permit.forget(),
+                    // The gate is never closed; a closed semaphore would mean
+                    // the session is gone, and the request fails on its own.
+                    Err(_) => {}
+                }
+                sent_cx.send_request(request)
+            }
+        };
         let result = sent.block_task().await;
-        let remaining = turns.fetch_sub(1, Ordering::SeqCst).saturating_sub(1);
+        turns.slots.add_permits(1);
+        let remaining = turns.in_flight.fetch_sub(1, Ordering::SeqCst).saturating_sub(1);
         let mut out = MapOut::default();
         match result {
             Ok(response) => {
