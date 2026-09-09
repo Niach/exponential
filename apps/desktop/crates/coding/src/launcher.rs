@@ -24,7 +24,6 @@
 //! to the steer publisher (§08; EXP-249 removed the PTY tee with the binary
 //! mirror).
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
@@ -37,9 +36,11 @@ use terminal::tab::TabId;
 
 use crate::agent::{AgentKind, CodingAgent};
 use crate::argv::{
-    shell_args, AgentMcp, LaunchOptions, CLAUDE_MCP_TOOL_TIMEOUT_ENV,
-    CLAUDE_MCP_TOOL_TIMEOUT_MS, MCP_SESSION_ID_ENV, MCP_TOKEN_ENV, MCP_URL_ENV,
+    mcp_servers_env_json, shell_args, AgentMcp, LaunchOptions, McpServerWire,
+    CLAUDE_MCP_TOOL_TIMEOUT_ENV, CLAUDE_MCP_TOOL_TIMEOUT_MS, MCP_SERVERS_ENV,
+    MCP_SESSION_ID_ENV, MCP_TOKEN_ENV, MCP_URL_ENV,
 };
+use crate::mcp_servers::{McpBlocker, ResolvedMcp};
 use crate::action_prompt::{
     chat_prompt, render_action_prompt_full, render_run_resume_prompt, ActionInputValue,
     TriggerNote, WorkspaceNote,
@@ -49,7 +50,7 @@ use crate::batch_launcher::{
     action_run_branch, batch_branch_name, chat_run_branch, BatchLaunchRequest, RepoGroup,
 };
 use crate::run_cleanup::RunCleanup;
-use crate::run_registry::{RunFix, RunInput, RunIssue, RunKind, RunRecord};
+use crate::run_registry::{mcp_server_ids_extra, RunFix, RunInput, RunIssue, RunKind, RunRecord};
 use domain::IssueStatus;
 use crate::batch_prompt::{render_batch_prompt, BatchPromptArgs};
 use crate::doctor::{run_doctor, ToolCheck};
@@ -495,6 +496,45 @@ pub struct AcpLaunch {
     /// flag would be invisible to the quit sweep (EXP-300 all over again).
     /// `None` for every other agent, which the reaper never anchored either.
     pub reaper_settings_path: Option<PathBuf>,
+    /// EXP-792: the launch's team MCP servers, resolved (`exponential` is
+    /// NOT among them — it stays [`Self::mcp`]). The adapters render them
+    /// into their own config (claude inline, codex `thread/start`); pi and
+    /// an external agent already got them as [`crate::argv::MCP_SERVERS_ENV`]
+    /// on the spawn env. Empty for an agent shell and for every pick-less run.
+    pub servers: Vec<McpServerWire>,
+    /// EXP-792: every device-held value the launcher put in the spawn env
+    /// for those servers — the engine's redactor masks them out of the
+    /// activity channel like the `expu_` key. Never read for anything else.
+    pub mcp_secrets: McpSecrets,
+}
+
+/// EXP-792: the resolved servers' secret values, for the steer redactor.
+/// A newtype so a `{:?}` of the launch never prints them.
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct McpSecrets(Vec<String>);
+
+impl McpSecrets {
+    pub fn new(values: Vec<String>) -> Self {
+        Self(values)
+    }
+
+    pub fn into_vec(self) -> Vec<String> {
+        self.0
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+impl std::fmt::Debug for McpSecrets {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "McpSecrets(<{} redacted>)", self.0.len())
+    }
 }
 
 /// §7.1's non-fatal "why Start coding can't run" set — each renders as a
@@ -520,12 +560,18 @@ pub enum DisabledReason {
     /// there is nothing to fall back to; `note` carries the doctor's own
     /// explanation when it has one.
     AcpUnavailable { label: String, note: Option<String> },
+    /// EXP-792: a picked team MCP server has no credential on this machine
+    /// (or no longer exists) — the run would start without the tools the
+    /// user asked for, so it does not start. The message names the server
+    /// and what is missing ([`crate::mcp_servers::McpBlocker`]'s Display).
+    McpBlocked(McpBlocker),
 }
 
 impl DisabledReason {
     /// User-facing copy (§7.1: inline error / disabled-button helper text).
     pub fn message(&self) -> String {
         match self {
+            DisabledReason::McpBlocked(blocker) => blocker.to_string(),
             DisabledReason::NoRepositoryLinked => {
                 "Link a repository to this board in team settings.".to_string()
             }
@@ -1065,6 +1111,38 @@ fn with_claude_mcp_timeout(spawn: SpawnSpec, inherited: Option<std::ffi::OsStrin
     spawn.env(CLAUDE_MCP_TOOL_TIMEOUT_ENV, CLAUDE_MCP_TOOL_TIMEOUT_MS.to_string())
 }
 
+/// EXP-792: the launch's team MCP server pick, resolved against THIS
+/// machine's secret store. A server with no credential here (or one the
+/// team has since removed) is a named launch blocker, not a degraded run:
+/// the user asked for its tools, so a run without them does not start.
+/// Runs BEFORE any repo/git/server-side step so a refused pick costs one
+/// tRPC read and creates nothing. An empty pick resolves to nothing without
+/// touching the network (every pick-less launch and every agent shell).
+fn resolve_mcp_servers(deps: &CodingDeps, ids: &[String]) -> Result<ResolvedMcp, DisabledReason> {
+    crate::mcp_servers::resolve(&deps.data_dir, &deps.account_id, &deps.trpc, ids)
+        .map_err(DisabledReason::McpBlocked)
+}
+
+/// EXP-792: the spawn-env half of the team servers, beside [`apply_mcp_env`]:
+/// every resolved secret under the launcher-minted name (`EXP_MCP_TOKEN_<n>`,
+/// `EXP_MCP_ENV_<n>_<NAME>`, a stdio server's own `<NAME>`) — the values the
+/// agents' `${VAR}` references and codex's env-named fields resolve to — plus,
+/// for the agents with no config of their own to carry the servers (pi's
+/// bridge, an external ACP binary), the server list itself as
+/// [`MCP_SERVERS_ENV`]. Claude and codex get the list in their configs
+/// instead, so the list is never set for them.
+fn apply_mcp_server_env(spawn: SpawnSpec, agent: &AgentKind, resolved: &ResolvedMcp) -> SpawnSpec {
+    let mut spawn = spawn;
+    for (name, value) in &resolved.env {
+        spawn = spawn.env(name, value);
+    }
+    let env_carried = matches!(agent.builtin(), None | Some(CodingAgent::Pi));
+    if env_carried && !resolved.servers.is_empty() {
+        spawn = spawn.env(MCP_SERVERS_ENV, mcp_servers_env_json(&resolved.servers));
+    }
+    spawn
+}
+
 /// EXP-637: everything between `codingSessions.start` and the spawn can
 /// still fail (an unwritable MCP config, a bad argv). Ending the row keeps a
 /// failed launch from leaving a "coding now" badge nobody can clear.
@@ -1179,6 +1257,13 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     if let Some(reason) = acp_gate(&report, &agent_kind, deps) {
         return Ok(Prepared::Disabled(reason));
     }
+    // EXP-792: the team MCP server pick — a server this machine cannot
+    // authenticate to refuses the launch by name, before any git or
+    // server-side step.
+    let team_mcp = match resolve_mcp_servers(deps, &options.mcp_server_ids) {
+        Ok(resolved) => resolved,
+        Err(reason) => return Ok(Prepared::Disabled(reason)),
+    };
 
     // Step 1 — resolve the repository (the coding-first gate).
     let (repository_id, full_name) = match req {
@@ -1561,7 +1646,8 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             host_pid: None,
             external_agent: options.external.clone(),
             recorded_at: crate::run_registry::now_secs(),
-            extra: BTreeMap::new(),
+            // EXP-792: the server pick, for a resume to re-resolve.
+            extra: mcp_server_ids_extra(&options.mcp_server_ids),
         },
     );
 
@@ -1591,6 +1677,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
         Some(&session.id),
         false,
     );
+    spawn = apply_mcp_server_env(spawn, &agent_kind, &team_mcp);
     spawn = apply_pi_plan_env(spawn, agent_kind.builtin(), options.plan_mode);
     if let Some(originator) = &codex_originator {
         spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
@@ -1667,6 +1754,8 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             // relaunch is `prepare_resume_run`'s).
             resume: None,
             reaper_settings_path: reaper_anchor.clone(),
+            servers: team_mcp.servers.clone(),
+            mcp_secrets: McpSecrets::new(team_mcp.secret_values()),
         },
         action_id: None,
         bypass_permissions: agent != CodingAgent::Pi && !options.plan_mode,
@@ -1786,6 +1875,11 @@ fn prepare_action(
     if let Some(reason) = acp_gate(&report, &agent_kind, deps) {
         return Ok(Prepared::Disabled(reason));
     }
+    // EXP-792: the team MCP server pick, refused by name before any work.
+    let team_mcp = match resolve_mcp_servers(deps, &options.mcp_server_ids) {
+        Ok(resolved) => resolved,
+        Err(reason) => return Ok(Prepared::Disabled(reason)),
+    };
 
     // §7.2 — the personal key (the MCP credential), raced like a session's.
     let key_handle = {
@@ -2159,6 +2253,7 @@ fn prepare_action(
         Some(&session.id),
         false,
     );
+    spawn = apply_mcp_server_env(spawn, &agent_kind, &team_mcp);
     spawn = apply_pi_plan_env(spawn, agent_kind.builtin(), options.plan_mode);
     if let Some(originator) = &codex_originator {
         spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
@@ -2267,7 +2362,8 @@ fn prepare_action(
             host_pid: None,
             external_agent: options.external.clone(),
             recorded_at: crate::run_registry::now_secs(),
-            extra: BTreeMap::new(),
+            // EXP-792: the server pick, for a resume to re-resolve.
+            extra: mcp_server_ids_extra(&options.mcp_server_ids),
         },
     );
 
@@ -2315,6 +2411,8 @@ fn prepare_action(
             session_id: session_id_for_acp.clone(),
             resume: None,
             reaper_settings_path: reaper_anchor.clone(),
+            servers: team_mcp.servers.clone(),
+            mcp_secrets: McpSecrets::new(team_mcp.secret_values()),
         },
         action_id: Some(req.action_id.clone()),
         bypass_permissions: agent != CodingAgent::Pi && !options.plan_mode,
@@ -2401,7 +2499,10 @@ fn prepare_resume_run(
         // ACP session id. The recorded command and args are the pin; the
         // spawn env comes from the CURRENT settings entry, never from the
         // record (which never carried one).
-        mcp_server_ids: Vec::new(),
+        // EXP-792: the recorded server pick, re-resolved below against the
+        // CURRENT secret store (a rotated token is picked up; a server that
+        // lost its credential refuses the resume by name).
+        mcp_server_ids: record.mcp_server_ids(),
         account: None,
         external: record.resolved_external_agent(&deps.settings.external_agents),
     };
@@ -2431,6 +2532,12 @@ fn prepare_resume_run(
     if let Some(reason) = acp_gate(&report, &agent_kind, deps) {
         return Ok(Prepared::Disabled(reason));
     }
+    // EXP-792: the recorded team MCP server pick, against the store as it is
+    // NOW.
+    let team_mcp = match resolve_mcp_servers(deps, &options.mcp_server_ids) {
+        Ok(resolved) => resolved,
+        Err(reason) => return Ok(Prepared::Disabled(reason)),
+    };
 
     // Step 1 — the workspace. A worktree the prune reclaimed, or (EXP-764) a
     // scratch dir the purge took with its ended run, is a hard stop: there is
@@ -2713,6 +2820,7 @@ fn prepare_resume_run(
         Some(&session.id),
         false,
     );
+    spawn = apply_mcp_server_env(spawn, &agent_kind, &team_mcp);
     if let Some(originator) = &codex_originator {
         spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
     }
@@ -2852,6 +2960,8 @@ fn prepare_resume_run(
             session_id: session_id_for_acp.clone(),
             resume: acp_resume.clone(),
             reaper_settings_path: reaper_anchor.clone(),
+            servers: team_mcp.servers.clone(),
+            mcp_secrets: McpSecrets::new(team_mcp.secret_values()),
         },
         action_id,
         bypass_permissions: agent != CodingAgent::Pi,
@@ -3180,6 +3290,7 @@ mod tests {
         MINT_OK, START_ACTION_OK, START_BATCH_OK, START_OK, TOKEN_OK, UPDATE_OK,
     };
     use api::token_store::SecretKind;
+    use std::collections::BTreeMap;
     use std::fs;
 
     fn request(identifier: &str) -> LaunchRequest {

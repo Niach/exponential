@@ -896,7 +896,18 @@ pub fn argv_permission_mode(mode: &str) -> &str {
 /// `AgentMcp::ClaudeInline` exists for). The document shape mirrors
 /// `coding::mcp_json::render_mcp_json` field for field so the two paths stay
 /// comparable.
-pub fn inline_mcp_config(url: &str, session_id: Option<&str>) -> String {
+///
+/// EXP-792: `servers` are the launch's team MCP servers, rendered AFTER
+/// `exponential` under their config keys — `{type:"http", url, headers}` /
+/// `{type:"stdio", command, args, env}` — with the launcher's `${VAR}`
+/// references verbatim: claude expands header AND env values from the child
+/// environment, where the launcher put the device-held secrets. Sorted
+/// headers/env so the document is byte-stable across launches.
+pub fn inline_mcp_config(
+    url: &str,
+    session_id: Option<&str>,
+    servers: &[coding::McpServerWire],
+) -> String {
     let mut headers = Map::new();
     headers.insert(
         "Authorization".to_string(),
@@ -908,12 +919,46 @@ pub fn inline_mcp_config(url: &str, session_id: Option<&str>) -> String {
             Value::String(session_id.to_string()),
         );
     }
-    json!({
-        "mcpServers": {
-            "exponential": { "type": "http", "url": url, "headers": Value::Object(headers) },
+    let mut mcp_servers = Map::new();
+    mcp_servers.insert(
+        "exponential".to_string(),
+        json!({ "type": "http", "url": url, "headers": Value::Object(headers) }),
+    );
+    for server in servers {
+        // A server that folded to our own key would shadow the tracker's
+        // tools; the resolver refuses it, this is the belt.
+        if server.name == "exponential" {
+            continue;
         }
-    })
-    .to_string()
+        let entry = match &server.transport {
+            coding::McpWireTransport::Http { url } => json!({
+                "type": "http",
+                "url": url,
+                "headers": sorted_strings(&server.headers),
+            }),
+            coding::McpWireTransport::Stdio { command, args } => json!({
+                "type": "stdio",
+                "command": command,
+                "args": args,
+                "env": sorted_strings(&server.env),
+            }),
+        };
+        mcp_servers.insert(server.name.clone(), entry);
+    }
+    json!({ "mcpServers": Value::Object(mcp_servers) }).to_string()
+}
+
+fn sorted_strings(pairs: &[(String, String)]) -> Value {
+    let sorted: std::collections::BTreeMap<&str, &str> = pairs
+        .iter()
+        .map(|(name, value)| (name.as_str(), value.as_str()))
+        .collect();
+    Value::Object(
+        sorted
+            .into_iter()
+            .map(|(name, value)| (name.to_string(), Value::String(value.to_string())))
+            .collect(),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1802,9 +1847,66 @@ mod tests {
         }
     }
 
+    /// EXP-792: the two-server pick — an OAuth http server and a stdio one.
+    fn two_servers() -> Vec<coding::McpServerWire> {
+        vec![
+            coding::McpServerWire {
+                id: "srv-1".to_string(),
+                name: "linear".to_string(),
+                transport: coding::McpWireTransport::Http {
+                    url: "https://mcp.linear.app/mcp".to_string(),
+                },
+                headers: vec![
+                    ("X-Client".to_string(), "exponential".to_string()),
+                    ("Authorization".to_string(), "Bearer ${EXP_MCP_TOKEN_1}".to_string()),
+                ],
+                token_env: Some("EXP_MCP_TOKEN_1".to_string()),
+                env: Vec::new(),
+            },
+            coding::McpServerWire {
+                id: "srv-2".to_string(),
+                name: "github".to_string(),
+                transport: coding::McpWireTransport::Stdio {
+                    command: "npx".to_string(),
+                    args: vec!["-y".to_string(), "@acme/github-mcp".to_string()],
+                },
+                headers: Vec::new(),
+                token_env: None,
+                env: vec![("GITHUB_TOKEN".to_string(), "${GITHUB_TOKEN}".to_string())],
+            },
+        ]
+    }
+
+    /// EXP-792: the team servers follow `exponential` under their config
+    /// keys with every `${VAR}` reference verbatim (claude expands them from
+    /// the child env); zero servers is the exact pre-792 document.
+    #[test]
+    fn the_inline_mcp_document_carries_the_team_servers_after_exponential() {
+        let bare = inline_mcp_config("https://app.example/api/mcp", Some("sess-1"), &[]);
+        assert_eq!(
+            bare,
+            r#"{"mcpServers":{"exponential":{"type":"http","url":"https://app.example/api/mcp","headers":{"Authorization":"Bearer ${EXP_MCP_TOKEN}","X-Exp-Session-Id":"sess-1"}}}}"#
+        );
+        let rendered = inline_mcp_config("https://app.example/api/mcp", Some("sess-1"), &two_servers());
+        assert_eq!(
+            rendered,
+            concat!(
+                r#"{"mcpServers":{"#,
+                r#""exponential":{"type":"http","url":"https://app.example/api/mcp","headers":{"Authorization":"Bearer ${EXP_MCP_TOKEN}","X-Exp-Session-Id":"sess-1"}},"#,
+                r#""linear":{"type":"http","url":"https://mcp.linear.app/mcp","headers":{"Authorization":"Bearer ${EXP_MCP_TOKEN_1}","X-Client":"exponential"}},"#,
+                r#""github":{"type":"stdio","command":"npx","args":["-y","@acme/github-mcp"],"env":{"GITHUB_TOKEN":"${GITHUB_TOKEN}"}}"#,
+                r#"}}"#,
+            )
+        );
+        // Stable across renders, and no value ever lands in it.
+        assert_eq!(rendered, inline_mcp_config("https://app.example/api/mcp", Some("sess-1"), &two_servers()));
+        assert!(!rendered.contains("expu_"));
+        assert!(!rendered.contains("srv-1"), "row ids are the launcher's, not the agent's");
+    }
+
     #[test]
     fn the_inline_mcp_document_leaves_the_key_as_an_env_reference() {
-        let rendered = inline_mcp_config("https://app.example/api/mcp", Some("sess-1"));
+        let rendered = inline_mcp_config("https://app.example/api/mcp", Some("sess-1"), &[]);
         let parsed: Value = serde_json::from_str(&rendered).expect("inline config is JSON");
         assert_eq!(
             parsed,
@@ -1823,7 +1925,7 @@ mod tests {
         );
         // No session id outside a launched session — the header is dropped,
         // never rendered as an empty string.
-        let bare = inline_mcp_config("https://app.example/api/mcp", None);
+        let bare = inline_mcp_config("https://app.example/api/mcp", None, &[]);
         let parsed: Value = serde_json::from_str(&bare).expect("inline config is JSON");
         assert!(parsed["mcpServers"]["exponential"]["headers"]
             .get("X-Exp-Session-Id")

@@ -168,6 +168,7 @@ impl EngineSession {
             },
             // A replay never talks to MCP: it reads history and stops.
             mcp: coding::AgentMcp::ClaudeFile,
+            servers: Vec::new(),
             cwd: cwd.clone(),
             session_id: String::new(),
             prompt: None,
@@ -197,6 +198,8 @@ impl EngineSession {
             publish: false,
             local_sink: Some(local_sink),
             agent: agent.clone(),
+            // A replay spawned nothing, so there is nothing to mask.
+            mcp_secrets: Vec::new(),
             replay: true,
             // The HOST issues `session/load` for it: a replay that opened a
             // fresh `session/new` would show an empty transcript.
@@ -378,6 +381,7 @@ pub fn start(start: EngineStart, host: Arc<dyn EngineHost>) -> Result<EngineSess
         spawn: start.prepared.spawn.clone(),
         options: acp.options.clone(),
         mcp: acp.mcp.clone(),
+        servers: acp.servers.clone(),
         cwd: start.prepared.worktree.clone(),
         session_id: acp.session_id.clone(),
         prompt: acp.prompt.clone(),
@@ -444,6 +448,8 @@ where
         publish,
         local_sink,
         agent: agent.clone(),
+        // EXP-792: the team servers' device-held values, masked like the key.
+        mcp_secrets: acp.mcp_secrets.clone().into_vec(),
         replay: false,
         resume: acp.resume.clone().map(ResumeHandle::from),
         prompt: acp.prompt.clone(),
@@ -478,6 +484,9 @@ struct CtxSpec {
     publish: bool,
     local_sink: Option<LocalSink>,
     agent: coding::AgentKind,
+    /// EXP-792: every team-MCP secret the launcher put in the spawn env —
+    /// exact-match entries for the redactor beside the `expu_` key.
+    mcp_secrets: Vec<String>,
     replay: bool,
     resume: Option<ResumeHandle>,
     prompt: Option<String>,
@@ -495,6 +504,10 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
     // one becomes the leak.
     let mut secrets = steer::activity::secrets_from_worktree(&spec.run.worktree);
     secrets.extend(spec.personal_key);
+    // EXP-792: a team server's OAuth bearer / typed header or env value —
+    // the same exact-match posture as the key; a tool result that echoes one
+    // must never reach the relay.
+    secrets.extend(spec.mcp_secrets);
     let redactor = Arc::new(steer::Redactor::new(secrets));
     // EXP-766: a host with a local sink (the desktop) reattaches a view
     // mid-run and keeps the full row backlog; a headless host keeps only the

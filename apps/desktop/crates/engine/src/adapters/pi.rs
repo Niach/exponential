@@ -1813,6 +1813,7 @@ mod tests {
             spawn: terminal::pty::SpawnSpec::new("pi"),
             options,
             mcp: coding::AgentMcp::PiExtension,
+            servers: Vec::new(),
             cwd: PathBuf::from("/work/tree"),
             session_id: "sess-1".to_string(),
             prompt: None,

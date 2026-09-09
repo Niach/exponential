@@ -540,6 +540,8 @@ fn prepared(session_id: &str, worktree: PathBuf) -> coding::PreparedLaunch {
             session_id: session_id.to_string(),
             resume: None,
             reaper_settings_path: None,
+            servers: Vec::new(),
+            mcp_secrets: Default::default(),
         },
         tab_title: "claude · EXP-746".to_string(),
         tab_title_prefix: "EXP-746".to_string(),

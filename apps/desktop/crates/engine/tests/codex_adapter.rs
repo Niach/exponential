@@ -283,6 +283,7 @@ fn spec() -> engine::adapters::AdapterSpec {
             url: "https://example.test/api/mcp".to_string(),
             session_id: Some("row-1".to_string()),
         },
+        servers: Vec::new(),
         cwd: PathBuf::from("/work/tree"),
         session_id: "row-1".to_string(),
         prompt: None,

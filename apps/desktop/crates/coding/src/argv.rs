@@ -257,6 +257,237 @@ impl McpServerWire {
     }
 }
 
+/// EXP-792: the env var carrying the launch's team MCP servers for the
+/// agents that have no config format of their own to render them into: the
+/// pi bridge and an external ACP binary read this JSON array
+/// (`[{name, kind:"http", url, headers} | {name, kind:"stdio", command,
+/// args, env}]`) and resolve every `${VAR}` header/env reference from their
+/// OWN environment at connect time. Never set for claude/codex (their
+/// configs carry the servers) and never for an agent shell. NOT a secret:
+/// every credential position is a `${VAR}` reference.
+pub const MCP_SERVERS_ENV: &str = "EXP_MCP_SERVERS";
+
+/// The name of the env var a `${VAR}` reference names, when `value` is
+/// EXACTLY one such reference (`${EXP_MCP_ENV_1_X_API_KEY}`); `None` for a
+/// literal or a composite (`Bearer ${…}`, see [`bearer_env_reference`]).
+pub fn env_reference(value: &str) -> Option<&str> {
+    let inner = value.strip_prefix("${")?.strip_suffix('}')?;
+    let valid = !inner.is_empty()
+        && inner
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_');
+    valid.then_some(inner)
+}
+
+/// The env var a `Bearer ${VAR}` header value names — codex's
+/// `bearer_token_env_var` spelling of an OAuth server's `Authorization`.
+pub fn bearer_env_reference(value: &str) -> Option<&str> {
+    let rest = value.strip_prefix("Bearer ")?;
+    env_reference(rest.trim_start())
+}
+
+/// [`MCP_SERVERS_ENV`]'s value: the pi bridge / external agent wire shape,
+/// `${VAR}` references verbatim (the reader expands them), headers and env
+/// sorted by name so the string is stable across launches.
+pub fn mcp_servers_env_json(servers: &[McpServerWire]) -> String {
+    let entries: Vec<serde_json::Value> = servers
+        .iter()
+        .map(|server| {
+            let mut entry = serde_json::Map::new();
+            entry.insert("name".into(), serde_json::Value::String(server.name.clone()));
+            match &server.transport {
+                McpWireTransport::Http { url } => {
+                    entry.insert("kind".into(), "http".into());
+                    entry.insert("url".into(), serde_json::Value::String(url.clone()));
+                    entry.insert("headers".into(), sorted_object(&server.headers));
+                }
+                McpWireTransport::Stdio { command, args } => {
+                    entry.insert("kind".into(), "stdio".into());
+                    entry.insert("command".into(), serde_json::Value::String(command.clone()));
+                    entry.insert(
+                        "args".into(),
+                        serde_json::Value::Array(
+                            args.iter().map(|arg| arg.as_str().into()).collect(),
+                        ),
+                    );
+                    entry.insert("env".into(), sorted_object(&server.env));
+                }
+            }
+            serde_json::Value::Object(entry)
+        })
+        .collect();
+    serde_json::Value::Array(entries).to_string()
+}
+
+fn sorted_object(pairs: &[(String, String)]) -> serde_json::Value {
+    let sorted: std::collections::BTreeMap<&str, &str> = pairs
+        .iter()
+        .map(|(name, value)| (name.as_str(), value.as_str()))
+        .collect();
+    serde_json::Value::Object(
+        sorted
+            .into_iter()
+            .map(|(name, value)| (name.to_string(), serde_json::Value::String(value.to_string())))
+            .collect(),
+    )
+}
+
+/// EXP-792: ONE `mcp_servers.<key>` entry as codex spells it — the model
+/// BOTH codex renderers share (the shell's `-c mcp_servers={…}` inline TOML
+/// table here, the app-server's `thread/start` config JSON in the engine),
+/// so the two can never disagree on how a header or env reference is
+/// expressed. Codex expands NO `${VAR}` syntax of its own; every reference
+/// becomes one of its env-NAMED fields instead: `bearer_token_env_var` for
+/// `Authorization: Bearer ${VAR}`, `env_http_headers` (`Header-Name → VAR`)
+/// for a header that is exactly `${VAR}`, and `env_vars: [NAME…]` for a
+/// stdio server (the launcher set `NAME=value` in the spawn env, so the
+/// named parent var is forwarded as-is). Literal headers stay
+/// `http_headers`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CodexMcpEntry {
+    pub url: Option<String>,
+    pub bearer_token_env_var: Option<String>,
+    pub http_headers: Vec<(String, String)>,
+    pub env_http_headers: Vec<(String, String)>,
+    pub command: Option<String>,
+    pub args: Vec<String>,
+    pub env_vars: Vec<String>,
+}
+
+/// The WHOLE codex `mcp_servers` table for a launch: `exponential` FIRST
+/// (its dedicated posture: url + `bearer_token_env_var = EXP_MCP_TOKEN` +
+/// the `X-Exp-Session-Id` header when the run has a row), then every team
+/// server in pick order under its config key.
+pub fn codex_mcp_entries(
+    url: &str,
+    session_id: Option<&str>,
+    servers: &[McpServerWire],
+) -> Vec<(String, CodexMcpEntry)> {
+    let mut entries = vec![(
+        "exponential".to_string(),
+        CodexMcpEntry {
+            url: Some(url.to_string()),
+            bearer_token_env_var: Some(MCP_TOKEN_ENV.to_string()),
+            http_headers: session_id
+                .map(|id| vec![("X-Exp-Session-Id".to_string(), id.to_string())])
+                .unwrap_or_default(),
+            ..Default::default()
+        },
+    )];
+    for server in servers {
+        let mut entry = CodexMcpEntry::default();
+        match &server.transport {
+            McpWireTransport::Http { url } => {
+                entry.url = Some(url.clone());
+                entry.bearer_token_env_var = server.token_env.clone();
+                for (name, value) in &server.headers {
+                    if let Some(var) = bearer_env_reference(value) {
+                        if name.eq_ignore_ascii_case("authorization") {
+                            // The bearer field IS this header; a second copy
+                            // with an unexpanded `${…}` would shadow it.
+                            if entry.bearer_token_env_var.is_none() {
+                                entry.bearer_token_env_var = Some(var.to_string());
+                            }
+                            continue;
+                        }
+                    }
+                    match env_reference(value) {
+                        Some(var) => entry.env_http_headers.push((name.clone(), var.to_string())),
+                        None => entry.http_headers.push((name.clone(), value.clone())),
+                    }
+                }
+            }
+            McpWireTransport::Stdio { command, args } => {
+                entry.command = Some(command.clone());
+                entry.args = args.clone();
+                entry.env_vars = server
+                    .env
+                    .iter()
+                    .map(|(name, value)| {
+                        // `(NAME, "${NAME}")` by contract; a reference to a
+                        // differently named var forwards THAT var.
+                        env_reference(value).unwrap_or(name).to_string()
+                    })
+                    .collect();
+            }
+        }
+        entries.push((server.name.clone(), entry));
+    }
+    entries
+}
+
+/// The codex shell's `-c mcp_servers={…}` value: the table from
+/// [`codex_mcp_entries`] as ONE TOML inline table (the `-c key=value` parser
+/// takes a whole table in one flag, which is what lets a launch carry any
+/// number of servers without a flag explosion; verified parsed by codex
+/// 0.144.5 for the inline `http_headers` form).
+pub fn codex_mcp_servers_toml(
+    url: &str,
+    session_id: Option<&str>,
+    servers: &[McpServerWire],
+) -> String {
+    let entries = codex_mcp_entries(url, session_id, servers);
+    let rendered: Vec<String> = entries
+        .iter()
+        .map(|(key, entry)| format!("{}={}", toml_key(key), toml_entry(entry)))
+        .collect();
+    format!("{{{}}}", rendered.join(","))
+}
+
+fn toml_entry(entry: &CodexMcpEntry) -> String {
+    let mut fields: Vec<String> = Vec::new();
+    if let Some(url) = &entry.url {
+        fields.push(format!("url={}", toml_basic_string(url)));
+    }
+    if let Some(var) = &entry.bearer_token_env_var {
+        fields.push(format!("bearer_token_env_var={}", toml_basic_string(var)));
+    }
+    if !entry.http_headers.is_empty() {
+        fields.push(format!("http_headers={}", toml_string_table(&entry.http_headers)));
+    }
+    if !entry.env_http_headers.is_empty() {
+        fields.push(format!(
+            "env_http_headers={}",
+            toml_string_table(&entry.env_http_headers)
+        ));
+    }
+    if let Some(command) = &entry.command {
+        fields.push(format!("command={}", toml_basic_string(command)));
+        fields.push(format!("args={}", toml_string_array(&entry.args)));
+    }
+    if !entry.env_vars.is_empty() {
+        fields.push(format!("env_vars={}", toml_string_array(&entry.env_vars)));
+    }
+    format!("{{{}}}", fields.join(","))
+}
+
+fn toml_string_table(pairs: &[(String, String)]) -> String {
+    let rendered: Vec<String> = pairs
+        .iter()
+        .map(|(name, value)| format!("{}={}", toml_key(name), toml_basic_string(value)))
+        .collect();
+    format!("{{{}}}", rendered.join(","))
+}
+
+fn toml_string_array(items: &[String]) -> String {
+    let rendered: Vec<String> = items.iter().map(|item| toml_basic_string(item)).collect();
+    format!("[{}]", rendered.join(","))
+}
+
+/// A TOML key: bare when it can be, quoted otherwise (`X-Exp-Session-Id` is
+/// bare-legal; a header like `X Api Key` is not).
+fn toml_key(key: &str) -> String {
+    let bare = !key.is_empty()
+        && key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    if bare {
+        key.to_string()
+    } else {
+        toml_basic_string(key)
+    }
+}
+
 /// The Start-coding dialog's choices — ONE shape for both run modes (a
 /// single-issue session and a multi-issue batch session differ only in their
 /// settings DEFAULTS, not in the flags they can carry).
@@ -473,26 +704,20 @@ pub fn shell_args(opts: &LaunchOptions, mcp: &AgentMcp) -> Vec<String> {
                 args.push(format!("model_reasoning_effort=\"{trimmed_effort}\""));
             }
             if let AgentMcp::CodexOverrides { url, session_id } = mcp {
-                // Streamable-HTTP MCP via -c overrides (codex has no
+                // Streamable-HTTP MCP via a -c override (codex has no
                 // --mcp-config flag); the token rides MCP_TOKEN_ENV in the
-                // spawn env — never argv, never disk. The rmcp toggle is
-                // defensive for older builds where HTTP MCP was feature-gated
-                // (harmless on current ones).
-                args.push("-c".into());
-                args.push(format!("mcp_servers.exponential.url=\"{url}\""));
+                // spawn env — never argv, never disk. EXP-792: the WHOLE
+                // `mcp_servers` table as ONE inline TOML value (url +
+                // bearer_token_env_var + the EXP-637 session header, not a
+                // secret). A shell connects to `exponential` alone: team
+                // servers are a coding run's, never an interactive TUI's.
+                // The rmcp toggle is defensive for older builds where HTTP
+                // MCP was feature-gated (harmless on current ones).
                 args.push("-c".into());
                 args.push(format!(
-                    "mcp_servers.exponential.bearer_token_env_var=\"{MCP_TOKEN_ENV}\""
+                    "mcp_servers={}",
+                    codex_mcp_servers_toml(url, session_id.as_deref(), &[])
                 ));
-                // EXP-637: the run's session id as an HTTP header. TOML
-                // inline table — verified parsed by codex 0.144.5. Not a
-                // secret. A shell has no row, so it is usually absent.
-                if let Some(session_id) = session_id {
-                    args.push("-c".into());
-                    args.push(format!(
-                        "mcp_servers.exponential.http_headers={{\"X-Exp-Session-Id\"=\"{session_id}\"}}"
-                    ));
-                }
                 args.push("-c".into());
                 args.push("experimental_use_rmcp_client=true".into());
             }
@@ -573,6 +798,119 @@ mod tests {
         }
     }
 
+    /// EXP-792: the two-server pick every renderer test uses — one OAuth
+    /// http server (bearer via `${EXP_MCP_TOKEN_1}`) and one stdio server
+    /// with a typed env value (`GITHUB_TOKEN` → `${GITHUB_TOKEN}`).
+    fn two_servers() -> Vec<McpServerWire> {
+        vec![
+            McpServerWire {
+                id: "srv-1".to_string(),
+                name: "linear".to_string(),
+                transport: McpWireTransport::Http {
+                    url: "https://mcp.linear.app/mcp".to_string(),
+                },
+                headers: vec![
+                    ("Authorization".to_string(), "Bearer ${EXP_MCP_TOKEN_1}".to_string()),
+                    ("X-Api-Key".to_string(), "${EXP_MCP_ENV_1_X_API_KEY}".to_string()),
+                    ("X-Client".to_string(), "exponential".to_string()),
+                ],
+                token_env: Some("EXP_MCP_TOKEN_1".to_string()),
+                env: Vec::new(),
+            },
+            McpServerWire {
+                id: "srv-2".to_string(),
+                name: "github".to_string(),
+                transport: McpWireTransport::Stdio {
+                    command: "npx".to_string(),
+                    args: vec!["-y".to_string(), "@acme/github-mcp".to_string()],
+                },
+                headers: Vec::new(),
+                token_env: None,
+                env: vec![("GITHUB_TOKEN".to_string(), "${GITHUB_TOKEN}".to_string())],
+            },
+        ]
+    }
+
+    #[test]
+    fn env_references_are_exact_or_bearer_prefixed() {
+        assert_eq!(env_reference("${EXP_MCP_ENV_1_X_API_KEY}"), Some("EXP_MCP_ENV_1_X_API_KEY"));
+        assert_eq!(env_reference("Bearer ${EXP_MCP_TOKEN_1}"), None);
+        assert_eq!(env_reference("${}"), None);
+        assert_eq!(env_reference("${a-b}"), None);
+        assert_eq!(env_reference("literal"), None);
+        assert_eq!(bearer_env_reference("Bearer ${EXP_MCP_TOKEN_1}"), Some("EXP_MCP_TOKEN_1"));
+        assert_eq!(bearer_env_reference("Bearer expu_literal"), None);
+        assert_eq!(bearer_env_reference("${EXP_MCP_TOKEN_1}"), None);
+    }
+
+    /// EXP-792: the codex table is one TOML inline table — parseable, with
+    /// `exponential` first and each server's references turned into codex's
+    /// env-NAMED fields (it expands no `${…}` of its own).
+    #[test]
+    fn codex_mcp_table_carries_every_server_as_env_named_fields() {
+        let bare = codex_mcp_servers_toml("http://x/api/mcp", None, &[]);
+        assert_eq!(
+            bare,
+            "{exponential={url=\"http://x/api/mcp\",bearer_token_env_var=\"EXP_MCP_TOKEN\"}}"
+        );
+        let with_session = codex_mcp_servers_toml("http://x/api/mcp", Some("sess-1"), &[]);
+        assert_eq!(
+            with_session,
+            "{exponential={url=\"http://x/api/mcp\",bearer_token_env_var=\"EXP_MCP_TOKEN\",http_headers={X-Exp-Session-Id=\"sess-1\"}}}"
+        );
+
+        let full = codex_mcp_servers_toml("http://x/api/mcp", Some("sess-1"), &two_servers());
+        let doc: toml::Value = format!("mcp_servers={full}").parse().expect("valid TOML");
+        let table = doc["mcp_servers"].as_table().unwrap();
+        assert_eq!(
+            table.keys().collect::<Vec<_>>(),
+            vec!["exponential", "linear", "github"],
+            "exponential first, then pick order"
+        );
+        let linear = &table["linear"];
+        assert_eq!(linear["url"].as_str(), Some("https://mcp.linear.app/mcp"));
+        assert_eq!(linear["bearer_token_env_var"].as_str(), Some("EXP_MCP_TOKEN_1"));
+        assert_eq!(linear["env_http_headers"]["X-Api-Key"].as_str(), Some("EXP_MCP_ENV_1_X_API_KEY"));
+        assert_eq!(linear["http_headers"]["X-Client"].as_str(), Some("exponential"));
+        // The bearer header is the bearer FIELD, never a literal `${…}` copy.
+        assert!(linear["http_headers"].get("Authorization").is_none());
+        let github = &table["github"];
+        assert_eq!(github["command"].as_str(), Some("npx"));
+        assert_eq!(
+            github["args"].as_array().unwrap().iter().map(|a| a.as_str().unwrap()).collect::<Vec<_>>(),
+            vec!["-y", "@acme/github-mcp"]
+        );
+        assert_eq!(
+            github["env_vars"].as_array().unwrap().iter().map(|a| a.as_str().unwrap()).collect::<Vec<_>>(),
+            vec!["GITHUB_TOKEN"]
+        );
+        // No value ever lands in the table: only names and references.
+        assert!(!full.contains("expu_"));
+        assert!(!full.contains("${"), "codex gets env NAMES, never a `${{…}}` it cannot expand");
+    }
+
+    /// EXP-792: the pi bridge / external agent wire keeps every `${VAR}`
+    /// verbatim (they resolve it from their own env) and is byte-stable.
+    #[test]
+    fn mcp_servers_env_json_is_the_bridge_wire_shape() {
+        assert_eq!(mcp_servers_env_json(&[]), "[]");
+        let rendered = mcp_servers_env_json(&two_servers());
+        let parsed: serde_json::Value = serde_json::from_str(&rendered).unwrap();
+        assert_eq!(parsed[0]["name"], "linear");
+        assert_eq!(parsed[0]["kind"], "http");
+        assert_eq!(parsed[0]["url"], "https://mcp.linear.app/mcp");
+        assert_eq!(parsed[0]["headers"]["Authorization"], "Bearer ${EXP_MCP_TOKEN_1}");
+        assert_eq!(parsed[0]["headers"]["X-Api-Key"], "${EXP_MCP_ENV_1_X_API_KEY}");
+        assert_eq!(parsed[1]["name"], "github");
+        assert_eq!(parsed[1]["kind"], "stdio");
+        assert_eq!(parsed[1]["command"], "npx");
+        assert_eq!(parsed[1]["args"], serde_json::json!(["-y", "@acme/github-mcp"]));
+        assert_eq!(parsed[1]["env"]["GITHUB_TOKEN"], "${GITHUB_TOKEN}");
+        // The row ids stay off the wire: the agent needs names, not rows.
+        assert!(!rendered.contains("srv-1"));
+        assert_eq!(rendered, mcp_servers_env_json(&two_servers()));
+    }
+
     /// EXP-773: the agent SHELL argv — the one interactive TUI spawn left.
     /// No prompt positional, no session pin, no resume tail; the MCP wiring
     /// and the run playbook still ride it on every agent.
@@ -605,7 +943,18 @@ mod tests {
             },
         );
         assert_eq!(args[..2], ["-c", "check_for_update_on_startup=false"]);
-        assert!(args.contains(&"mcp_servers.exponential.url=\"http://x/api/mcp\"".to_string()));
+        // EXP-792: ONE inline-table flag carries the whole `mcp_servers`
+        // table — url + bearer_token_env_var, no dotted overrides left.
+        let table = args
+            .iter()
+            .find(|arg| arg.starts_with("mcp_servers="))
+            .expect("the codex shell carries the mcp_servers table");
+        assert_eq!(
+            table,
+            "mcp_servers={exponential={url=\"http://x/api/mcp\",bearer_token_env_var=\"EXP_MCP_TOKEN\"}}"
+        );
+        assert!(!args.iter().any(|arg| arg.starts_with("mcp_servers.exponential")));
+        assert!(args.contains(&"experimental_use_rmcp_client=true".to_string()));
         assert!(args.contains(&"model_reasoning_effort=\"high\"".to_string()));
         assert!(args.contains(&"--dangerously-bypass-approvals-and-sandbox".to_string()));
         assert!(!args.iter().any(|arg| arg.contains("expu_")));

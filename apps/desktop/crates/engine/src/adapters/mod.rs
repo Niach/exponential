@@ -81,6 +81,12 @@ pub struct AdapterSpec {
     pub options: coding::LaunchOptions,
     /// The per-agent MCP posture `wire_agent_mcp` already prepared.
     pub mcp: coding::AgentMcp,
+    /// EXP-792: the launch's team MCP servers beside `exponential` — claude
+    /// renders them into its inline `--mcp-config`, codex into the
+    /// `thread/start` config; pi and an external agent read them off the
+    /// spawn env (`EXP_MCP_SERVERS`) the launcher already set. Values are
+    /// `${VAR}` references, never credentials.
+    pub servers: Vec<coding::McpServerWire>,
     /// The worktree (`session/new { cwd }`).
     pub cwd: PathBuf,
     /// The `coding_sessions` row id — rides the MCP `X-Exp-Session-Id` header.

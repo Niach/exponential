@@ -289,6 +289,7 @@ fn spec_at(scenario_dir: &Path, work: &Path, plan_mode: bool) -> AdapterSpec {
             url: "https://app.example/api/mcp".to_string(),
             session_id: Some("row-1".to_string()),
         },
+        servers: Vec::new(),
         cwd: work.to_path_buf(),
         session_id: "row-1".to_string(),
         prompt: None,

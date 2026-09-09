@@ -848,7 +848,8 @@ impl ClaudeSession {
         let inline_mcp;
         let mcp = match &self.spec.mcp {
             coding::AgentMcp::ClaudeInline { url, session_id } => {
-                inline_mcp = wire::inline_mcp_config(url, session_id.as_deref());
+                inline_mcp =
+                    wire::inline_mcp_config(url, session_id.as_deref(), &self.spec.servers);
                 Some(McpConfig::Inline(&inline_mcp))
             }
             // The PTY path's `.exp-mcp.json`, kept as the zero-risk fallback.

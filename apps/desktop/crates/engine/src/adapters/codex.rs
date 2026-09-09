@@ -810,6 +810,8 @@ fn thread_config_for(shared: &Arc<Shared>, roots: &[PathBuf]) -> Value {
     codex_wire::thread_config(
         mcp_url.as_deref(),
         mcp_session.as_deref().unwrap_or(&shared.spec.session_id),
+        // EXP-792: the team servers ride the same table.
+        &shared.spec.servers,
         roots,
     )
 }

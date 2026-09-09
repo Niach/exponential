@@ -422,6 +422,7 @@ mod tests {
             spawn: terminal::pty::SpawnSpec::new("claude"),
             options: coding::LaunchOptions::defaults(&coding::Settings::default()),
             mcp: coding::AgentMcp::ClaudeFile,
+            servers: Vec::new(),
             cwd: PathBuf::from("/tmp"),
             session_id: "sess-1".to_string(),
             prompt: None,
