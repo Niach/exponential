@@ -376,6 +376,11 @@ pub const SHAPES: [ShapeSpec; 20] = [
             // the usage bar with it (heals onto existing store tables).
             "agent",
             "needs_input",
+            // EXP-804: the agent's usage wall as row state (jsonb, NULL =
+            // not blocked). A blocked run still reads `running`, so without
+            // this the IDE shows a silently stalled run as healthy. Heals
+            // onto existing store tables like the rest.
+            "blocked",
             // EXP-545/EXP-698: the head branch `pr_open` stamped on the row.
             // It is what ties a BATCH run (no issue linkage at all) to its
             // OWN pull request, which is how the steer viewer's Merge pill
@@ -665,6 +670,15 @@ mod tests {
         // dropping it from the allowlist silently kills the badge on desktop.
         let spec = shape_by_name("coding_sessions").unwrap();
         assert!(spec.columns.contains(&"needs_input"));
+    }
+
+    #[test]
+    fn coding_sessions_syncs_the_usage_wall() {
+        // EXP-804: a rate-limited run keeps status `running` and a moving
+        // updated_at, so this column is the ONLY thing that distinguishes a
+        // silently walled run from a healthy one.
+        let spec = shape_by_name("coding_sessions").unwrap();
+        assert!(spec.columns.contains(&"blocked"));
     }
 
     #[test]

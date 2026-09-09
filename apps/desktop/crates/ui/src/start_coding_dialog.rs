@@ -112,6 +112,24 @@ const MAX_ISSUES_PER_RUN: usize = 30;
 /// of issues, and the checklist is a plain (non-virtual) list.
 const MAX_UNCHECKED_ROWS: usize = 50;
 
+/// EXP-484/747 B7: a machine's `agent_accounts` payload off its SYNCED row —
+/// which login each agent CLI runs as there, and its account profiles. Empty
+/// for a row that never reported (an older build, or one that has not beaten
+/// yet): the Account row then has nothing to offer and hides.
+fn device_agent_accounts(row_id: &str, cx: &App) -> coding::agent_accounts::AgentAccounts {
+    if row_id.is_empty() {
+        return Default::default();
+    }
+    let collections = Store::global(cx).collections();
+    let devices = collections.devices.read(cx);
+    let Some(row) = devices.iter().find(|row| row.id == row_id) else {
+        return Default::default();
+    };
+    crate::device_settings::parse_agent_map::<coding::agent_accounts::AgentAccount>(
+        row.agent_accounts.as_ref(),
+    )
+}
+
 /// The `pr` input's pick list (EXP-259): the team's OPEN issue-linked pull
 /// requests, deduped by prUrl (a batch PR shows once; its value is the
 /// representative issue's id). Shared by the field's dropdown and the
@@ -457,6 +475,18 @@ pub struct StartCodingDialogView {
     /// EXP-615: the ONE shared options cluster (agent pills, model/effort,
     /// toggles) — the same component the create-action dialog renders.
     launch: LaunchOptionsSection,
+    /// EXP-792: the team's MCP servers (`mcpServers.list` — server-only, so
+    /// a fetch, not a shape), with the readiness matrix of every machine the
+    /// caller can see. `None` while the fetch is out or has not started.
+    mcp_servers: Option<Vec<api::mcp_servers::McpServerListEntry>>,
+    /// THIS machine's readiness for those servers, read from the local
+    /// secret store when the list landed. The synced matrix carries a row
+    /// for this machine too, but it is a heartbeat stale and the person is
+    /// sitting AT this machine — a sign-in they just did has to count.
+    mcp_local: Vec<api::mcp_servers::McpReadinessReport>,
+    /// Guards the one-shot fetch (a failure is not retried under the open
+    /// dialog: no servers simply hides the row).
+    mcp_fetched: bool,
     /// EXP-746 (D7): run the agent in a TERMINAL tab (today's PTY path)
     /// EXP-696: the machine the run starts on (`None` before the first
     /// settle). The routing switch is its candidate's `is_own` flag: this
@@ -691,6 +721,9 @@ impl StartCodingDialogView {
             list_scroll: ScrollHandle::new(),
             body_scroll: ScrollHandle::new(),
             launch: LaunchOptionsSection::new(window, cx),
+            mcp_servers: None,
+            mcp_local: Vec::new(),
+            mcp_fetched: false,
             device_id: None,
             device_explicit: false,
             device_resolved: false,
@@ -787,6 +820,121 @@ impl StartCodingDialogView {
         }
     }
 
+    /// EXP-792: one-shot `mcpServers.list` for the dialog's team, plus THIS
+    /// machine's readiness for what came back.
+    ///
+    /// `mcp_servers` is server-only (never a shape), so it is a fetch — and
+    /// the multiselect only exists once it lands, which is exactly the web's
+    /// behaviour (`useMcpServers` renders no picker until it has rows). A
+    /// failure is not retried under the open dialog: no rows simply means no
+    /// row, and the launch is not gated on data nobody asked for.
+    fn ensure_mcp_loaded(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.mcp_fetched {
+            return;
+        }
+        let (Some(trpc), Some(account)) = (queries::trpc_client(cx), queries::active_account(cx))
+        else {
+            return;
+        };
+        self.mcp_fetched = true;
+        let data_dir = crate::session::AuthContext::global(cx).data_dir.clone();
+        let team = self.team_id.clone();
+        cx.spawn(async move |this, cx| {
+            let loaded = cx
+                .background_executor()
+                .spawn(async move {
+                    let servers = api::mcp_servers::list(&trpc, &team)
+                        .inspect_err(|err| {
+                            log::debug!("[ui] mcpServers.list for start-coding: {err}");
+                        })
+                        .ok()?;
+                    let configs: Vec<api::mcp_servers::McpServerConfig> =
+                        servers.iter().map(|entry| entry.config.clone()).collect();
+                    // A pure local read of the 0600 store — a sign-in the
+                    // person did a minute ago counts here, where the synced
+                    // matrix is still a heartbeat behind.
+                    let local = coding::mcp_servers::readiness(
+                        &data_dir,
+                        &account.id,
+                        &configs,
+                        crate::settings::mcp_servers::now_secs(),
+                    );
+                    Some((servers, local))
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if let Some((servers, local)) = loaded {
+                    this.mcp_servers = Some(servers);
+                    this.mcp_local = local;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// EXP-792: the team's servers as the multiselect offers them, resolved
+    /// against the machine the dialog currently targets — so re-pointing the
+    /// Device row re-greys the list without a second fetch. Empty until the
+    /// fetch lands, and for a team with no servers at all: both hide the row.
+    fn mcp_options(&self) -> Vec<launch_options::McpServerOption> {
+        let Some(entries) = self.mcp_servers.as_ref() else {
+            return Vec::new();
+        };
+        let now = chrono::Utc::now();
+        let remote = self.remote_device();
+        entries
+            .iter()
+            .map(|entry| {
+                let (readiness, label) = match remote {
+                    Some(device) => (
+                        entry
+                            .readiness
+                            .iter()
+                            .find(|row| row.device_id.as_deref() == Some(device.device_id.as_str()))
+                            .map(crate::settings::mcp_servers::Readiness::from),
+                        Some(device.label.as_str()),
+                    ),
+                    None => (
+                        self.mcp_local
+                            .iter()
+                            .find(|row| row.server_id == entry.config.id)
+                            .map(crate::settings::mcp_servers::Readiness::from),
+                        None,
+                    ),
+                };
+                launch_options::McpServerOption {
+                    id: entry.config.id.clone(),
+                    name: entry.config.name.clone(),
+                    blocked: launch_options::mcp_block_reason(
+                        &entry.config.auth,
+                        readiness,
+                        label,
+                        now,
+                    ),
+                    enabled_by_default: entry.config.enabled_by_default,
+                }
+            })
+            .collect()
+    }
+
+    /// EXP-792: the first PICKED server the target machine cannot satisfy,
+    /// as the LAUNCHER's own blocker shape — so the dialog's sentence and
+    /// the refused run's are one string.
+    fn mcp_blocker(&self) -> Option<coding::McpBlocker> {
+        let picked = self.launch.mcp_server_ids();
+        self.launch
+            .mcp_servers()
+            .iter()
+            .filter(|server| picked.iter().any(|id| id == &server.id))
+            .find_map(|server| {
+                server.blocked.clone().map(|reason| coding::McpBlocker {
+                    server: server.name.clone(),
+                    reason,
+                })
+            })
+    }
+
     /// EXP-696: the sticky pick whose machine has left the candidate list —
     /// its heartbeat lapsed (or it stopped advertising a runnable agent).
     /// Some(label) blocks the launch and keeps the Device row on screen so
@@ -809,6 +957,11 @@ impl StartCodingDialogView {
                 // EXP-749: what that machine says about its session screen.
                 acp_agents: device.acp_agents.clone(),
                 settings: device.defaults.clone(),
+                // EXP-747 B7: its agent logins + account profiles, so the
+                // Account row offers THAT machine's profiles and not this
+                // one's (which would name config dirs that do not exist
+                // there).
+                accounts: device_agent_accounts(&device.row_id, cx),
             });
         // EXP-746 (D13): an external agent is a local-only pick, so pointing
         // at another machine drops the pills with it.
@@ -1467,6 +1620,16 @@ impl StartCodingDialogView {
                     }
                 }
             }
+        }
+        // EXP-792: a PICKED MCP server the target machine cannot satisfy.
+        // The launcher refuses such a run itself
+        // (`DisabledReason::McpBlocked`) — but only once the dialog has
+        // closed and a session row exists, which is a terrible place to
+        // learn that a sign-in is missing. This is the same readiness the
+        // picker greys the row with, so the blocker names the same server
+        // with the same sentence the run would have.
+        if let Some(blocker) = self.mcp_blocker() {
+            return Some(blocker.to_string().into());
         }
         // EXP-615: the Chat tab's gate is its builtin's REQUIRED inputs,
         // named exactly like the Actions tab names an unfilled input.
@@ -2774,6 +2937,14 @@ impl StartCodingDialogView {
 
 impl Render for StartCodingDialogView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        // EXP-792: the team's servers, re-resolved against whatever machine
+        // the Device row currently points at. Cheap and idempotent — the
+        // fetch is one-shot, and `set_mcp_servers` only re-points the
+        // blockers (the seed fires once, so an open dialog's ticks stand).
+        self.ensure_mcp_loaded(cx);
+        let mcp = self.mcp_options();
+        self.launch.set_mcp_servers(mcp);
+
         let danger = cx.theme().danger;
         let warning = cx.theme().warning;
         let checked_count = self.checked.len();

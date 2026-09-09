@@ -475,6 +475,7 @@ fn spawn_tickers(
         .spawn(move || {
             let mut diffs = steer::DiffSnapshots::new();
             let mut needs_input = steer::NeedsInputForwarder::new();
+            let mut blocked = steer::BlockedForwarder::new();
             let mut stall = crate::stall::StallWatchdog::new();
             let hook: Option<steer::NeedsInputHook> = {
                 let trpc = Arc::clone(&ctx.trpc);
@@ -483,12 +484,36 @@ fn spawn_tickers(
                     api::coding_sessions::set_needs_input(&trpc, &session_id, pending).is_ok()
                 }))
             };
+            // EXP-804: the same shape as the needs-input hook — a failed
+            // write is simply not confirmed, and the forwarder retries it.
+            let blocked_hook: Option<steer::BlockedHook> = {
+                let trpc = Arc::clone(&ctx.trpc);
+                let session_id = ctx.session_id.clone();
+                Some(Arc::new(move |wall: Option<&steer::SessionBlocked>| {
+                    api::coding_sessions::set_blocked(
+                        &trpc,
+                        &session_id,
+                        wall.map(|wall| api::coding_sessions::BlockedInput {
+                            kind: &wall.kind,
+                            agent: &wall.agent,
+                            window: &wall.window,
+                            resets_at: wall.resets_at.as_deref(),
+                            since: &wall.since,
+                        }),
+                    )
+                    .is_ok()
+                }))
+            };
             while active.load(Ordering::SeqCst) {
                 std::thread::sleep(steer::POLL_INTERVAL);
                 if !active.load(Ordering::SeqCst) {
                     break;
                 }
                 needs_input.tick(ctx.needs_input.load(Ordering::SeqCst), &hook);
+                {
+                    let wall = ctx.blocked.lock().ok().and_then(|wall| wall.clone());
+                    blocked.tick(wall.as_ref(), &blocked_hook);
+                }
                 tick_stall(&ctx, &mut stall, &commands);
                 // REV2-17: the run's ONE redactor (`SessionCtx.redactor`),
                 // never a weaker key-only one — the worktree patch is the
@@ -511,6 +536,7 @@ fn spawn_tickers(
             // Teardown tidiness: never leave the synced attention flag stuck
             // on a session whose engine is gone.
             needs_input.clear_on_teardown(&hook);
+            blocked.clear_on_teardown(&blocked_hook);
         });
 }
 
@@ -524,13 +550,31 @@ fn tick_stall(
 ) {
     let now = std::time::Instant::now();
     let last_activity = ctx.last_activity();
+    // EXP-804: a run behind its agent's usage wall is silent for a REASON, so
+    // the watchdog's clock suspends rather than cancelling a turn that was
+    // never stuck. Logged when it bites: "silent and not interrupted" is
+    // otherwise indistinguishable from a watchdog that stopped working.
+    let blocked = ctx
+        .blocked
+        .lock()
+        .ok()
+        .map(|wall| wall.is_some())
+        .unwrap_or(false);
     let action = stall.tick(crate::stall::StallInput {
         now,
         live: ctx.feed.phase() == Some(EnginePhase::Live),
         idle: ctx.turn_signal.is_idle(),
         needs_input: ctx.needs_input.load(Ordering::SeqCst),
+        blocked,
         last_activity,
     });
+    if blocked && now.saturating_duration_since(last_activity) >= crate::stall::STALL_AFTER {
+        log::info!(
+            "engine: session {} silent for {}s behind its agent's usage wall — stall clock suspended",
+            ctx.session_id,
+            now.saturating_duration_since(last_activity).as_secs()
+        );
+    }
     let silent = now.saturating_duration_since(last_activity);
     match action {
         crate::stall::StallAction::None => {}

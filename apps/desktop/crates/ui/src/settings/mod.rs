@@ -40,6 +40,10 @@ mod api_keys;
 pub(crate) mod doctor_section;
 mod helpdesk;
 mod labels;
+// EXP-792: `pub(crate)` because the READINESS vocabulary lives here —
+// `launch_options`' multiselect greys a row with the same rule the pane's
+// status line reads, and start-coding's blocker with the same sentences.
+pub(crate) mod mcp_servers;
 mod statuses;
 mod local_repos;
 mod members;
@@ -81,6 +85,7 @@ use account::AccountPane;
 use api_keys::ApiKeysPane;
 use helpdesk::HelpdeskPane;
 use labels::LabelsPane;
+use mcp_servers::McpServersPane;
 use widget::WidgetPane;
 use statuses::StatusesPane;
 use local_repos::LocalReposPane;
@@ -129,6 +134,12 @@ pub(crate) enum SettingsSection {
     /// card, split out into its own pane because the desktop nav is one
     /// section per page. Owner-only.
     Helpdesk,
+    /// EXP-792/EXP-807: the team's MCP servers — the registry (non-secret
+    /// config only) plus THIS machine's readiness and the device-side
+    /// sign-in / typed-secret actions. Member-visible: every member reads
+    /// the list and holds their OWN credentials; the owner-only writes are
+    /// gated inside the pane, like the router behind it.
+    McpServers,
     /// This-device tools (EXP-288: renamed from "Coding" — repos root,
     /// branch prefix, terminal shell).
     Tools,
@@ -227,6 +238,13 @@ const NAV_GROUPS: &[NavGroup] = &[
                 label: "Helpdesk",
                 section: SettingsSection::Helpdesk,
             },
+            // EXP-792: member-visible, unlike its two neighbours — every
+            // member reads the registry and signs in on their own machines
+            // (the web nav's `visible: () => true`).
+            NavItem {
+                label: "MCP servers",
+                section: SettingsSection::McpServers,
+            },
         ],
     },
     NavGroup {
@@ -292,6 +310,7 @@ fn section_icon(section: &SettingsSection) -> Icon {
         SettingsSection::Repositories => Icon::from(registry::SETTINGS_REPOSITORIES),
         SettingsSection::Widget => Icon::from(registry::SETTINGS_WIDGET),
         SettingsSection::Helpdesk => Icon::from(registry::SETTINGS_HELPDESK),
+        SettingsSection::McpServers => Icon::from(registry::SETTINGS_MCP),
         SettingsSection::Tools => Icon::from(registry::SETTINGS_TOOLS),
         SettingsSection::Agents => Icon::from(registry::SETTINGS_AGENTS),
         SettingsSection::LocalRepos => Icon::from(registry::SETTINGS_LOCAL_REPOS),
@@ -397,6 +416,9 @@ pub struct SettingsView {
     widget: Entity<WidgetPane>,
     /// EXP-771 owner-only helpdesk switch (the team row's synced flag).
     helpdesk: Entity<HelpdeskPane>,
+    /// EXP-792 team MCP servers (fetch-on-open server read — `mcp_servers`
+    /// is never synced), member-visible.
+    mcp_servers: Entity<McpServersPane>,
     /// This-device tools (EXP-288: repos root, branch prefix, terminal
     /// shell) — local per-install state, so NOT owner-gated.
     tools: Entity<ToolsPane>,
@@ -445,6 +467,7 @@ impl SettingsView {
         let repositories = cx.new(|cx| RepositoriesPane::new(nav.clone(), window, cx));
         let widget = cx.new(|cx| WidgetPane::new(nav.clone(), cx));
         let helpdesk = cx.new(|cx| HelpdeskPane::new(nav.clone(), cx));
+        let mcp_servers = cx.new(|cx| McpServersPane::new(nav.clone(), window, cx));
         let tools = cx.new(|cx| ToolsPane::new(window, cx));
         let agents = cx.new(|cx| AgentsPane::new(window, cx));
         let local_repos = cx.new(LocalReposPane::new);
@@ -478,6 +501,7 @@ impl SettingsView {
             repositories,
             widget,
             helpdesk,
+            mcp_servers,
             tools,
             agents,
             local_repos,
@@ -539,6 +563,12 @@ impl Render for SettingsView {
                 SettingsSection::Widget => {
                     self.widget.update(cx, |pane, cx| pane.mark_stale(cx))
                 }
+                // Same reason, plus one of its own: the readiness line is
+                // computed from THIS machine's store, and a sign-in run from
+                // the CLI (or another window) has to show on re-entry.
+                SettingsSection::McpServers => {
+                    self.mcp_servers.update(cx, |pane, cx| pane.mark_stale(cx))
+                }
                 _ => {}
             }
             // EXP-771: one scroll region for header + pane, so a section
@@ -563,6 +593,7 @@ impl Render for SettingsView {
             SettingsSection::Repositories => self.repositories.clone().into_any_element(),
             SettingsSection::Widget => self.widget.clone().into_any_element(),
             SettingsSection::Helpdesk => self.helpdesk.clone().into_any_element(),
+            SettingsSection::McpServers => self.mcp_servers.clone().into_any_element(),
             SettingsSection::Tools => self.tools.clone().into_any_element(),
             SettingsSection::Agents => self.agents.clone().into_any_element(),
             SettingsSection::LocalRepos => self.local_repos.clone().into_any_element(),
@@ -1468,10 +1499,12 @@ mod tests {
         );
     }
 
-    /// EXP-771: the Features group sits between Boards and This device, it
-    /// carries exactly the two owner-only panes, and every nav label is the
-    /// web's (the nav order also feeds the fallback scan, which must keep
-    /// landing on a Team section).
+    /// EXP-771/EXP-792: the Features group sits between Boards and This
+    /// device, its labels are the web's, and its gating is the web's too —
+    /// the two widget panes are owner-only (`canManageWidgets`), MCP servers
+    /// is member-visible (`visible: () => true`), because every member reads
+    /// the registry and signs in on their OWN machines. The nav order also
+    /// feeds the fallback scan, which must keep landing on a Team section.
     #[test]
     fn features_group_sits_between_boards_and_this_device() {
         let groups: Vec<&str> = NAV_GROUPS.iter().map(|group| group.label).collect();
@@ -1484,10 +1517,15 @@ mod tests {
             .find(|group| group.label == "Features")
             .expect("Features group");
         let labels: Vec<&str> = features.items.iter().map(|item| item.label).collect();
-        assert_eq!(labels, vec!["Feedback widget", "Helpdesk"]);
+        assert_eq!(labels, vec!["Feedback widget", "Helpdesk", "MCP servers"]);
         for item in features.items {
             assert!(section_visible(&item.section, true));
-            assert!(!section_visible(&item.section, false));
+            assert_eq!(
+                section_visible(&item.section, false),
+                item.section == SettingsSection::McpServers,
+                "{} owner gating must match the web nav's `visible`",
+                item.label
+            );
         }
     }
 

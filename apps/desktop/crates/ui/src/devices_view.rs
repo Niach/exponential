@@ -8,11 +8,13 @@
 //! shape directly (EXP-485).
 
 use gpui::{
-    AppContext as _, Entity, IntoElement, ParentElement, Render, ScrollHandle, Subscription, Window,
+    AppContext as _, ClickEvent, Entity, IntoElement, ParentElement, Render, ScrollHandle, Styled,
+    Subscription, Window,
 };
 
 use crate::actions_view::page_scaffold;
-use crate::navigation::{nav_for_window, Navigation};
+use crate::icons::registry;
+use crate::navigation::{nav_for_window, navigate, Navigation, Screen};
 
 pub struct DevicesView {
     #[allow(dead_code)] // held for the team-switch re-render subscription
@@ -51,7 +53,30 @@ impl DevicesView {
 }
 
 impl Render for DevicesView {
-    fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        // EXP-807: the way to the Usage page — the web reaches it from THIS
+        // page (an icon-only glass button in the "My machines" header), so the
+        // IDE does too and Usage gets no rail entry of its own. It sits in a
+        // header row above the machines section rather than in that section's
+        // own header, which `machines.rs` owns.
+        let usage = gpui_component::h_flex()
+            .w_full()
+            .min_w_0()
+            .items_center()
+            .justify_end()
+            .pb_2()
+            .child(
+                crate::surface::glass_pill_button(
+                    "devices-usage",
+                    crate::surface::PillSize::Sm,
+                    cx,
+                )
+                .icon(registry::UI_USAGE)
+                .label("Usage")
+                .on_click(|_: &ClickEvent, window, cx| {
+                    navigate(window, cx, Screen::Usage);
+                }),
+            );
         page_scaffold(
             "devices-screen-scroll",
             &self.scroll,
@@ -60,6 +85,7 @@ impl Render for DevicesView {
             // a machine-only page reads exactly as it did before EXP-746
             // instead of growing two empty gaps under the list.
             gpui_component::v_flex()
+                .child(usage)
                 .child(self.machines.clone())
                 .child(self.running.clone())
                 .child(self.past.clone()),

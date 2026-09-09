@@ -19,6 +19,7 @@ import {
   mcpServers,
   repositories,
   teamMembers,
+  type Device,
 } from "@/db/schema"
 import {
   assertTeamMember,
@@ -38,7 +39,7 @@ import {
   type SteerStartRepo,
 } from "@/lib/steer"
 import { resolveActionInputs } from "@/lib/action-inputs"
-import { deviceRowIsOnline } from "@/lib/steer-devices"
+import { deviceRowIsOnline, deviceUsageWallAt } from "@/lib/steer-devices"
 import {
   BUILTIN_CHAT_ID,
   BUILTIN_CREATE_ACTION_ID,
@@ -90,6 +91,14 @@ const agentEffortValues: Record<string, readonly string[]> = {
   codex: [``, ...contract.codexEffort.values],
   pi: [``, ...contract.piThinking.values],
 }
+
+// The registered `devices` row as a start reads it: the agent advertisement
+// (EXP-485) plus, since EXP-804, the label + synced usage report the
+// start-time headroom check needs.
+type TargetDevice = Pick<
+  Device,
+  `agents` | `unauthedAgents` | `caps` | `label` | `agentUsage` | `agentAccounts`
+>
 
 const mintTicketInput = z.discriminatedUnion(`kind`, [
   // Desktop device-presence socket (no sessionId yet).
@@ -246,6 +255,11 @@ export const steerRouter = router({
           effort: z.string().max(32).optional(),
           ultracode: z.boolean().optional(),
           planMode: z.boolean().optional(),
+          // EXP-804: start even though the device's fresh usage report says
+          // the agent's window is spent — the run parks at the wall and
+          // picks up when it resets. Off by default: a silent walled run is
+          // exactly the failure this refusal exists to prevent.
+          allowRateLimited: z.boolean().default(false),
           // EXP-481: resume the issue's existing worktree/agent session.
           // Single-issue starts only; gated below on the device's persisted
           // `resume` cap.
@@ -479,6 +493,30 @@ export const steerRouter = router({
         })
       }
 
+      // EXP-804: the START-time half of the usage wall. The device's synced
+      // usage report already says the agent is out of credit, so launching
+      // into it produces a run that goes silent the second it starts — the
+      // 2026-09-09 incident with a cheaper fix. `deviceUsageWallAt` owns the
+      // decision (and its fail-open rules); this only formats the refusal.
+      // It names `allowRateLimited` on purpose: an orchestrating agent reads
+      // the error message, not this comment.
+      const requireUsageHeadroom = (
+        device: TargetDevice,
+        agent: string,
+        account: string | undefined
+      ) => {
+        if (input.allowRateLimited) return
+        const wallAt = deviceUsageWallAt(device, agent, account, new Date())
+        if (!wallAt) return
+        const clock = `${String(wallAt.getUTCHours()).padStart(2, `0`)}:${String(
+          wallAt.getUTCMinutes()
+        ).padStart(2, `0`)}`
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `${agent} on ${device.label || input.deviceId} is out of usage until ${clock} UTC; pick another machine or agent, or pass allowRateLimited to start into the wall anyway.`,
+        })
+      }
+
       // EXP-792: every picked MCP server must be a row of the subject's team.
       // Duplicates collapse; the count check refuses a foreign or vanished
       // id without naming which (the caller's own picker rendered the list).
@@ -512,12 +550,17 @@ export const steerRouter = router({
         unauthedAgents: devicesTable.unauthedAgents,
         caps: devicesTable.caps,
         lastSeenAt: devicesTable.lastSeenAt,
+        // EXP-804: the synced usage report the headroom check reads, plus the
+        // label its refusal names the machine by.
+        label: devicesTable.label,
+        agentUsage: devicesTable.agentUsage,
+        agentAccounts: devicesTable.agentAccounts,
       }
       const resolveTargetDevice = async (
         teamId: string
       ): Promise<{
         ownerId: string
-        device: { agents: string[]; unauthedAgents: string[]; caps: string[] }
+        device: TargetDevice
         shared: boolean
       }> => {
         const { db } = await import(`@/db/connection`)
@@ -568,6 +611,9 @@ export const steerRouter = router({
             agents: row.agents,
             unauthedAgents: row.unauthedAgents,
             caps: row.caps,
+            label: row.label,
+            agentUsage: row.agentUsage,
+            agentAccounts: row.agentAccounts,
           },
           shared: true,
         }
@@ -903,6 +949,7 @@ export const steerRouter = router({
               : `${actionAgent} is not installed on that device`,
           })
         }
+        requireUsageHeadroom(device, actionAgent, input.account)
 
         const result = await relayPostStart(config, {
           userId: ownerId,
@@ -1010,6 +1057,7 @@ export const steerRouter = router({
             : `${agent} is not installed on that device`,
         })
       }
+      requireUsageHeadroom(device, agent, input.account)
 
       const options = {
         agent: input.agent,

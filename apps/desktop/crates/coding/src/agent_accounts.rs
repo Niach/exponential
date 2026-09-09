@@ -160,9 +160,14 @@ pub fn pi_account(
 /// accounts must not look like a change to the hosts' last-sent compare (the
 /// stamp moves every single probe).
 ///
-/// EXP-792: the profiles fold in (id, identity, `active` — never their
-/// usage, which has its own change detector), so adding, removing or
-/// re-defaulting a profile is a change the heartbeat ships.
+/// EXP-792: the profiles fold in (id, identity, `active`), so adding,
+/// removing or re-defaulting a profile is a change the heartbeat ships.
+///
+/// EXP-808: and so do their USAGE numbers. They used to be excluded as
+/// having "their own change detector" — but that detector is the top-level
+/// `agentUsage` map, which only ever carries the ACTIVE login. A secondary
+/// profile's windows ride this map and nothing else, so leaving them out
+/// meant a second account's bars only ever moved when its identity did.
 pub fn accounts_key(accounts: &AgentAccounts) -> String {
     accounts
         .iter()
@@ -172,12 +177,13 @@ pub fn accounts_key(accounts: &AgentAccounts) -> String {
                 .iter()
                 .map(|profile| {
                     format!(
-                        "{}={}:{}:{}:{}",
+                        "{}={}:{}:{}:{}:{}",
                         profile.id,
                         profile.signed_in,
                         profile.email.as_deref().unwrap_or_default(),
                         profile.plan.as_deref().unwrap_or_default(),
-                        profile.active
+                        profile.active,
+                        usage_fingerprint(profile.usage.as_ref())
                     )
                 })
                 .collect::<Vec<_>>()
@@ -191,6 +197,29 @@ pub fn accounts_key(accounts: &AgentAccounts) -> String {
         })
         .collect::<Vec<_>>()
         .join("|")
+}
+
+/// EXP-808 — one profile's usage, as the [`accounts_key`] fragment. It
+/// covers everything a reader can see (the stamp, the dimming and the
+/// windows), which is the same bar the top-level map's JSON compare sets.
+fn usage_fingerprint(usage: Option<&crate::agent_usage::AgentUsage>) -> String {
+    let Some(usage) = usage else {
+        return String::new();
+    };
+    let windows = usage
+        .windows
+        .iter()
+        .map(|window| {
+            format!(
+                "{}={}@{}",
+                window.key,
+                window.percent,
+                window.resets_at.as_deref().unwrap_or_default()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(";");
+    format!("{}/{}/{windows}", usage.fetched_at, usage.stale)
 }
 
 #[cfg(test)]
@@ -316,13 +345,36 @@ mod tests {
         ];
         assert_ne!(accounts_key(&base), accounts_key(&with_profile));
 
-        // Only the stamp (and the numbers) moved: same key.
+        // Only the probe stamp moved: same key.
         let mut restamped = with_profile.clone();
         for profile in &mut restamped.get_mut("claude").unwrap().profiles {
             profile.checked_at = "T1".into();
-            profile.usage = Some(crate::agent_usage::AgentUsage::default());
         }
         assert_eq!(accounts_key(&with_profile), accounts_key(&restamped));
+
+        // EXP-808: a profile's own NUMBERS do move it — for a non-active
+        // login this map is the only place they ride, so a key that ignored
+        // them would pin a second account's bars to its identity.
+        let mut repolled = with_profile.clone();
+        repolled.get_mut("claude").unwrap().profiles[1].usage =
+            Some(crate::agent_usage::AgentUsage {
+                fetched_at: "T1".into(),
+                stale: false,
+                windows: vec![crate::agent_usage::UsageWindow {
+                    key: "session".into(),
+                    label: "5h".into(),
+                    percent: 42,
+                    resets_at: None,
+                }],
+            });
+        assert_ne!(accounts_key(&with_profile), accounts_key(&repolled));
+        let mut dimmed = repolled.clone();
+        dimmed.get_mut("claude").unwrap().profiles[1]
+            .usage
+            .as_mut()
+            .unwrap()
+            .stale = true;
+        assert_ne!(accounts_key(&repolled), accounts_key(&dimmed));
 
         // Re-defaulting moves it; removing the profile moves it back.
         let mut redefaulted = with_profile.clone();

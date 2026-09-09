@@ -46,6 +46,24 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-rate-limited-runs",
+    date: "2026-09-09",
+    title: "A run that hits its rate limit says so",
+    summary: "A rate-limited run is marked everywhere instead of going quiet, mobile gets mentions and inline diffs, and the IDE gets a Usage page and MCP servers.",
+    body: r#"- **Rate limited, not stuck**: when an agent runs out of usage mid-run, the session is marked "Rate limited" with the time it resets, on web, desktop, iOS and Android. The run stays live and steerable; it simply cannot make a call until then. Until now it just went quiet and looked healthy.
+- **Agents tell their orchestrator**: a run started by another run reports its wall to the run that started it, once, instead of leaving it waiting on a session that reads fine.
+- **A start that would go nowhere is refused**: starting on a machine whose agent is already out of usage now says so and names when it resets, so you can pick another machine or agent.
+- **Mentions in the mobile composer**: the steer field on iOS and Android takes @ for teammates, # for issues and : for emoji, the same three the comment box already had.
+- **Edits inline on mobile**: an edit's diff renders under its row in the iOS and Android transcripts, folded away until you tap it and capped so a big rewrite stays scrollable.
+- **Usage in the IDE**: the desktop app has the Usage page too, reached from Devices, with every machine and account grouped by agent and a Refresh that respects the provider's limits.
+- **MCP servers in the IDE**: a Settings page listing the team's servers with this machine's readiness, so you can sign in, paste a redirect URL or set a value without leaving the app, and pick servers per run from the Start coding dialog and chat.
+- **Bars for a second account**: a machine holding more than one Claude or Codex login now reports usage for each of them, not just the default one."#,
+};
+
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-mcp-servers-and-agent-accounts",
     date: "2026-09-09",
     title: "Your own MCP servers in every run, and more than one agent account per machine",
@@ -55,24 +73,6 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Sign in, one click**: a start that fails because an agent is signed out now offers Sign in right there, on the toast and on the machine list, instead of sending you to a terminal.
 - **Agent accounts**: a machine can hold more than one Claude or Codex login, and a run picks the account it uses.
 - **Usage page**: every machine and account you own, grouped by agent with its rate-limit windows, with a Refresh that respects the provider's limits."#,
-};
-
-/// The previous head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-session-page-restructure",
-    date: "2026-09-09",
-    title: "A session page you can read, and a rail you can find it in",
-    summary: "Tool groups say what happened, edits show their diff inline, plan approval reads top to bottom, and every live run sits in the desktop rail.",
-    body: r#"- **Tool groups that say what happened**: a collapsed run of tool calls reads "Ran 4 commands · edited 2 files · 1 failed" instead of "12 tool calls", with failures last, on web, desktop, iOS and Android.
-- **Edits inline**: an edit's diff renders under its row in the web transcript, capped so a big rewrite stays scrollable; failed calls tint the row.
-- **Plan approval, top to bottom**: the primary choice is "Yes", the fresh-context choice comes second and "No, keep planning" sits last with a line saying your next message goes back to planning. Options are numbered buttons; keys 1 to 9 and Enter pick them, and typing in the composer answers the card. The extra text field inside the card is gone.
-- **One composer**: the mention-capable field from issues is the session field too, the send glyph is the same everywhere, and it turns into Stop while the agent is working. The plan-mode pill left the composer; the Plan switch stays on the chat page, model and effort are picked at start.
-- **Subagent tabs on desktop**: a subagent gets its own tab above the transcript, like the other clients, and the collapsed row opens it.
-- **Rate limits in the transcript**: a claude session that hits its limit shows one banner with the reset time instead of a run of identical messages.
-- **The desktop rail**: sessions and terminals fill the window on their own, every live run is a rail row under Sessions with an amber dot when it needs you, Agent opens chat, and the machine's Files and Source Control sit under a This device heading. Watch slides the run in over the issue instead of leaving the page.
-- **Transcripts stay loadable**: after a device has replayed a finished run, scrolling to the top still fetches earlier pages from that device instead of stalling.
-- **Session ids survive /clear**: a claude session that clears its context keeps its page, its tab and its resume record."#,
 };
 
 /// Whether the rail's "What's new" card renders, given the stored

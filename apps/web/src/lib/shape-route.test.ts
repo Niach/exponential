@@ -569,6 +569,7 @@ describe(`shape column + trash contracts`, () => {
       `ended_by`,
       `resumed_from_id`,
       `needs_input`,
+      `blocked`,
       `started_at`,
       `ended_at`,
       `created_at`,

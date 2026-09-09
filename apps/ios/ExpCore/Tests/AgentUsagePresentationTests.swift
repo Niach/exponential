@@ -333,6 +333,63 @@ final class AgentUsagePresentationTests: XCTestCase {
         XCTAssertNil(AgentUsagePresentation.formatUsageCost(nil))
     }
 
+    // EXP-804: the usage wall's badge. Strings are locked ×4 (web
+    // `blockedBadgeLabel`, desktop `blocked_badge_label`, Android's twin) and
+    // this fixture is theirs: NOW = 2026-08-28T10:00Z, reset two hours out.
+    func testBlockedBadgeNamesTheWallAndCountsDown() {
+        func blocked(_ kind: String, _ resetsAt: String?) -> CodingSessionBlocked {
+            CodingSessionBlocked(kind: kind, agent: "claude", window: "session", resetsAt: resetsAt)
+        }
+        XCTAssertEqual(
+            AgentUsagePresentation.blockedBadgeLabel(
+                blocked("rate_limit", "2026-08-28T12:00:00.000Z"), now: now
+            ),
+            "Rate limited · resets in 2h"
+        )
+        // No reset time, or one this build cannot read, still gets a badge —
+        // silence is the failure the badge exists to prevent.
+        XCTAssertEqual(
+            AgentUsagePresentation.blockedBadgeLabel(blocked("rate_limit", nil), now: now),
+            "Rate limited"
+        )
+        XCTAssertEqual(
+            AgentUsagePresentation.blockedBadgeLabel(blocked("rate_limit", "later"), now: now),
+            "Rate limited"
+        )
+        // An unrecognised kind from a newer device degrades to `Blocked`,
+        // never to nothing.
+        XCTAssertEqual(
+            AgentUsagePresentation.blockedBadgeLabel(
+                blocked("quota", "2026-08-28T12:00:00.000Z"), now: now
+            ),
+            "Blocked · resets in 2h"
+        )
+        XCTAssertNil(AgentUsagePresentation.blockedBadgeLabel(nil, now: now))
+    }
+
+    // The column is a TOLERANT decode for the same reason the server's zod
+    // mirror is `.nullish()` throughout: an unreadable field must degrade,
+    // never blank the wall and render a walled run healthy.
+    func testParseBlockedToleratesGarbage() {
+        XCTAssertNil(AgentUsagePresentation.parseBlocked(nil))
+        XCTAssertNil(AgentUsagePresentation.parseBlocked(""))
+        XCTAssertNil(AgentUsagePresentation.parseBlocked("nope"))
+        XCTAssertEqual(AgentUsagePresentation.parseBlocked("{}"), CodingSessionBlocked())
+        let parsed = AgentUsagePresentation.parseBlocked("""
+            {"kind":"rate_limit","agent":"claude","window":"session",
+            "resetsAt":"2026-08-28T12:00:00.000Z","since":"2026-08-28T09:00:00Z"}
+            """)
+        XCTAssertEqual(parsed?.kind, "rate_limit")
+        XCTAssertEqual(parsed?.window, "session")
+        XCTAssertEqual(parsed?.resetsAt, "2026-08-28T12:00:00.000Z")
+        // A bare `{}` is still "blocked" — the badge falls back to the
+        // rate-limit wording rather than showing nothing.
+        XCTAssertEqual(
+            AgentUsagePresentation.blockedBadgeLabel(CodingSessionBlocked(), now: now),
+            "Rate limited"
+        )
+    }
+
     private func session(
         agent: String? = "claude",
         status: String = "running",

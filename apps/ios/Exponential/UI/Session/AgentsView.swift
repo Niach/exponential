@@ -1025,6 +1025,9 @@ struct AgentsView: View {
                             .foregroundStyle(sessionStateColor(state))
                             .lineLimit(1)
                     }
+                    // EXP-804: BESIDE the state, never instead of it — a
+                    // walled run still reads `running`.
+                    SessionBlockedBadge(blocked: row.session.blocked)
                     Text(byline(row, paused: paused))
                         .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))

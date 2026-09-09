@@ -154,6 +154,8 @@ import com.exponential.app.domain.activeQuestionIds
 import com.exponential.app.domain.canOfferFixConflicts
 import com.exponential.app.domain.collectSubagents
 import com.exponential.app.domain.currentStepperStep
+import com.exponential.app.domain.diffTruncationNote
+import com.exponential.app.domain.splitTruncatedDiff
 import com.exponential.app.domain.FEED_WINDOW
 import com.exponential.app.domain.FEED_WINDOW_STEP
 import com.exponential.app.domain.groupFeedRows
@@ -181,6 +183,8 @@ import com.exponential.app.ui.components.SheetHeight
 import com.exponential.app.ui.components.TopBarActionButton
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.emoji.rememberEmojiData
+import com.exponential.app.ui.emoji.rememberEmojiPrefs
 import com.exponential.app.ui.issue.DiffAddColor
 import com.exponential.app.ui.issue.DiffDelColor
 import com.exponential.app.ui.issue.NeedsInputAmber
@@ -191,7 +195,15 @@ import com.exponential.app.ui.issue.StaticDot
 import com.exponential.app.ui.issue.splitUnifiedDiff
 import com.exponential.app.ui.issue.unifiedDiffStats
 import com.exponential.app.ui.issue.relativeTime
+import com.exponential.app.ui.markdown.AutocompleteRows
+import com.exponential.app.ui.markdown.EMOJI_TYPEAHEAD_LIMIT
 import com.exponential.app.ui.markdown.IssueRefHandler
+import com.exponential.app.ui.markdown.MENTION_CANDIDATE_LIMIT
+import com.exponential.app.ui.markdown.autocompleteTriggersAt
+import com.exponential.app.ui.markdown.mentionCandidatesFor
+import com.exponential.app.ui.markdown.withEmoji
+import com.exponential.app.ui.markdown.withIssueRef
+import com.exponential.app.ui.markdown.withMention
 import com.exponential.app.ui.markdown.LocalAttachmentDims
 import com.exponential.app.ui.markdown.LocalIssueRefBare
 import com.exponential.app.ui.markdown.LocalIssueRefs
@@ -480,6 +492,83 @@ fun AgentSessionScreen(
     val slashMenuOpen = slashMatches.isNotEmpty() && slashDismissedFor != draft
     // A changed candidate list can never leave the highlight past its end.
     LaunchedEffect(slashMatches) { slashSelected = 0 }
+
+    // ── EXP-802/EXP-805: the composer's `@` / `#` / `:` autocomplete ─────────
+    // The steer composer speaks the same three triggers as the issue comment
+    // composer, so the field's TextFieldValue is hoisted HERE: the menu mounts
+    // as a plain sibling above the composer (exactly like the `/` menu), and a
+    // picked row splices against this very value. The draft string still lives
+    // in the connection — it has to survive a reconnect — so this is the
+    // caret's home, not the text's.
+    var composerField by remember { mutableStateOf(TextFieldValue(draft, TextRange(draft.length))) }
+    // The ARMED latch (BlockTextField parity, EXP-322): only a TEXT change may
+    // OPEN the menu. Moving the caret back into an existing `#EXP-238` or
+    // `@ann@example.com` must not pop it — on a phone the caret moves on every
+    // tap, and a menu that reopens on a tap is a menu nothing can dismiss.
+    var composerArmed by remember { mutableStateOf(false) }
+    // The draft is the authority (EXP-621). Reconciled in an EFFECT and only
+    // when the text ACTUALLY differs: the draft round-trips through a
+    // StateFlow, so doing it in composition reset the caret mid-typing and
+    // dropped the IME's in-flight composing word. The selection is CLAMPED
+    // into the new text rather than jumped to its end, and `composition` is
+    // dropped on purpose — it indexes characters that are gone. An outside
+    // rewrite (a send clearing the draft, a `/` pick, a restored draft) is not
+    // typing, so it also DISARMS.
+    LaunchedEffect(draft) {
+        if (composerField.text != draft) {
+            val start = composerField.selection.start.coerceIn(0, draft.length)
+            val end = composerField.selection.end.coerceIn(0, draft.length)
+            composerField = TextFieldValue(draft, TextRange(start, end))
+            composerArmed = false
+        }
+    }
+    val mentionMembers by viewModel.mentionMembers.collectAsStateWithLifecycle()
+    // `#` needs no plumbing beyond the handler the feed already builds — the
+    // composer sits OUTSIDE that provider (what the user types must stay the
+    // stored `#IDENTIFIER` contract, never a bare identifier), so it reads the
+    // same object directly.
+    val composerTriggers = autocompleteTriggersAt(
+        beforeCaret = composerField.text.take(composerField.selection.start),
+        mentionsEnabled = mentionMembers.isNotEmpty(),
+        refsEnabled = issueRefCandidates.isNotEmpty(),
+    )
+    val composerMentions = mentionCandidatesFor(mentionMembers, composerTriggers.mentionQuery)
+    val composerRefs = composerTriggers.issueRefQuery
+        ?.let { issueRefHandler.search(it, limit = MENTION_CANDIDATE_LIMIT) }
+        ?: emptyList()
+    val composerEmojiMatch = composerTriggers.emoji
+    val composerEmojiData = rememberEmojiData(enabled = composerEmojiMatch != null)
+    val composerEmojiPrefs = rememberEmojiPrefs()
+    val composerEmoji = if (composerEmojiMatch != null && composerEmojiData != null) {
+        composerEmojiData.search(composerEmojiMatch.query, limit = EMOJI_TYPEAHEAD_LIMIT)
+    } else {
+        emptyList()
+    }
+    // The trigger stopped matching (the caret left the token, whitespace was
+    // typed, the trigger was deleted): a fresh text change has to re-arm.
+    LaunchedEffect(composerTriggers.none) {
+        if (composerTriggers.none) composerArmed = false
+    }
+    // Every pick splices against the LIVE value (EXP-655) and clears the latch.
+    fun commitComposerToken(spliced: TextFieldValue?) {
+        val next = spliced ?: return
+        composerField = next
+        viewModel.setDraft(next.text)
+        composerArmed = false
+    }
+    // `:tada:` — the closing colon plus an EXACT shortcode commits immediately
+    // (no trailing space), so a user who habitually types the closed form never
+    // leaves literal shortcode text in a steered message. Web/iOS/desktop
+    // parity, and armed-gated like the menu: re-reading an old `:tada:` with
+    // the caret must not rewrite it.
+    val composerClosedShortcode = composerEmojiMatch?.takeIf { it.closed }?.query
+    LaunchedEffect(composerClosedShortcode, composerEmojiData, composerArmed) {
+        val code = composerClosedShortcode ?: return@LaunchedEffect
+        if (!composerArmed) return@LaunchedEffect
+        val record = composerEmojiData?.findShortcode(code) ?: return@LaunchedEffect
+        commitComposerToken(composerField.withEmoji(record, trailingSpace = false))
+        composerEmojiPrefs.pushRecent(record.unicode)
+    }
     // EXP-688: the top bar's "…" menu, and the Usage sheet it opens.
     var overflowOpen by remember { mutableStateOf(false) }
     var usageSheetOpen by remember { mutableStateOf(false) }
@@ -1082,21 +1171,57 @@ fun AgentSessionScreen(
                 Spacer(Modifier.height(8.dp))
             }
 
-            // EXP-724: the `/` command menu — a normal child above the
-            // composer, not a Popup: the composer is already pinned to the
-            // bottom above the IME, so the menu simply grows upward from it.
-            if (!sessionEnded && phase !is AgentPhase.Ended && slashMenuOpen) {
-                SlashCommandMenu(
-                    commands = slashMatches,
-                    selected = slashSelected,
-                    onPick = { command ->
-                        viewModel.setDraft(command.insertion)
-                        // Accepting closes the menu; it reopens as soon as the
-                        // draft changes again (never auto-sends).
-                        slashDismissedFor = command.insertion
-                    },
-                )
-                Spacer(Modifier.height(8.dp))
+            // The ONE menu above the composer. `/` commands and the three
+            // composer triggers are already mutually exclusive on CONTENT (a
+            // slash command matches only a draft that opens with `/`, the
+            // others only a token at the caret), so resolving them into one
+            // value is DEFENCE, not arbitration: it makes it impossible for
+            // two menus to stack, or for the key guards below to drive a menu
+            // that is not on screen.
+            val composerMenu = when {
+                sessionEnded || phase is AgentPhase.Ended -> ComposerMenu.None
+                slashMenuOpen -> ComposerMenu.Slash
+                composerArmed &&
+                    (composerMentions.isNotEmpty() || composerRefs.isNotEmpty() ||
+                        composerEmoji.isNotEmpty()) -> ComposerMenu.Autocomplete
+                else -> ComposerMenu.None
+            }
+            // EXP-724/EXP-802: both menus are a normal child above the
+            // composer, not a Popup — the composer is already pinned to the
+            // bottom above the IME, so a menu simply grows upward from it, and
+            // a sibling cannot steal the field's focus by construction.
+            when (composerMenu) {
+                ComposerMenu.Slash -> {
+                    SlashCommandMenu(
+                        commands = slashMatches,
+                        selected = slashSelected,
+                        onPick = { command ->
+                            viewModel.setDraft(command.insertion)
+                            // Accepting closes the menu; it reopens as soon as
+                            // the draft changes again (never auto-sends).
+                            slashDismissedFor = command.insertion
+                        },
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
+                ComposerMenu.Autocomplete -> {
+                    AutocompleteRows(
+                        mentionCandidates = composerMentions,
+                        refCandidates = composerRefs,
+                        emojiCandidates = composerEmoji,
+                        onPickMention = { commitComposerToken(composerField.withMention(it)) },
+                        onPickIssueRef = { commitComposerToken(composerField.withIssueRef(it)) },
+                        onPickEmoji = { record ->
+                            commitComposerToken(
+                                composerField.withEmoji(record, trailingSpace = true),
+                            )
+                            composerEmojiPrefs.pushRecent(record.unicode)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
+                ComposerMenu.None -> Unit
             }
             // ── Steering input — fully seamless (EXP-312): no captions, no
             // operator state; live implies ownership, input just sends.
@@ -1107,14 +1232,35 @@ fun AgentSessionScreen(
             // live, sending is disabled rather than hidden.
             if (!sessionEnded && phase !is AgentPhase.Ended) {
                 // Escape has no hardware key on most phones — Back dismisses
-                // the menu, and only the menu (EXP-724).
-                BackHandler(enabled = slashMenuOpen) { slashDismissedFor = draft }
+                // the menu, and only the menu (EXP-724). One handler per menu,
+                // and [composerMenu] guarantees at most one is ever enabled.
+                BackHandler(enabled = composerMenu == ComposerMenu.Slash) {
+                    slashDismissedFor = draft
+                }
+                BackHandler(enabled = composerMenu == ComposerMenu.Autocomplete) {
+                    composerArmed = false
+                }
                 SteerComposer(
-                    value = draft,
-                    onValueChange = viewModel::setDraft,
+                    value = composerField,
+                    // A user edit is the ONLY write that may arm the `@`/`#`/`:`
+                    // menu (web parity: the autocomplete opens on a document
+                    // change, never on a caret move).
+                    onValueChange = { next ->
+                        if (next.text != composerField.text) composerArmed = true
+                        composerField = next
+                        viewModel.setDraft(next.text)
+                    },
+                    // The composer's own rewrites — the `[Image #k]` markers and
+                    // their renumbering — write the same state and never arm.
+                    onValueRewrite = { next ->
+                        composerField = next
+                        viewModel.setDraft(next.text)
+                    },
                     fieldModifier = Modifier.onPreviewKeyEvent { event ->
                         if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                        if (!slashMenuOpen) return@onPreviewKeyEvent false
+                        // Keyed on the RESOLVED menu, not on `slashMenuOpen`:
+                        // ↑/↓/Enter must only ever drive the menu that is up.
+                        if (composerMenu != ComposerMenu.Slash) return@onPreviewKeyEvent false
                         when (event.key) {
                             // ↑/↓ wrap around the candidate list.
                             Key.DirectionUp -> {
@@ -1411,6 +1557,25 @@ private fun SessionHeaderTitle(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        // EXP-804: the PERSISTED usage wall off the session row, under the
+        // status line and never folded into it — a walled run is still
+        // running, and both facts have to survive. Deliberately not the same
+        // thing as the live `rate_limit` slot: this one is already there when
+        // a run's stream has not connected yet, which is exactly the moment a
+        // silently walled run looks healthy.
+        val blockedLabel = AgentUsagePresentation.blockedBadgeLabel(
+            AgentUsagePresentation.parseBlocked(session?.blocked),
+            rememberUsageClock(),
+        )
+        if (blockedLabel != null) {
+            Text(
+                blockedLabel,
+                style = MaterialTheme.typography.labelSmall,
+                color = NeedsInputAmber,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -1746,7 +1911,7 @@ private fun ActivityFeed(
                         )
                         is AgentFeedRow.Single -> when (val item = row.item) {
                             is AgentFeedItem.Narration -> NarrationBubble(item.text)
-                            is AgentFeedItem.Tool -> ToolRow(item.name, item.detail, failed = item.failed)
+                            is AgentFeedItem.Tool -> ToolRow(item.name, item.detail, failed = item.failed, diff = item.diff)
                             is AgentFeedItem.UserMessage -> {
                                 // EXP-724: a steered catalog command reads as one.
                                 val command =
@@ -2814,7 +2979,7 @@ private fun SubagentGroupRow(
 @Composable
 private fun SubagentItemRow(item: AgentFeedItem, nested: Boolean = false) {
     when (item) {
-        is AgentFeedItem.Tool -> ToolRow(item.name, item.detail, nested = nested, failed = item.failed)
+        is AgentFeedItem.Tool -> ToolRow(item.name, item.detail, nested = nested, failed = item.failed, diff = item.diff)
         is AgentFeedItem.Narration -> NarrationBubble(item.text, nested = nested)
         is AgentFeedItem.UserMessage -> UserMessageBubble(item.text, nested = nested)
         else -> Unit
@@ -2832,39 +2997,130 @@ private fun ToolRow(
     nested: Boolean = false,
     /** EXP-785: the call errored — the row tints rose, like the web. */
     failed: Boolean = false,
+    /** EXP-806: the per-call unified diff an `edit` published, already cut to
+     *  the contract's caps by the publisher. Folded away until the row is
+     *  tapped — a phone transcript is a column, not the web's wide page, so an
+     *  always-open patch under every edit buries the conversation. */
+    diff: String? = null,
 ) {
-    Row(
+    var diffOpen by remember(diff) { mutableStateOf(false) }
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .then(if (nested) Modifier.padding(vertical = 2.dp) else Modifier),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Icon(
-            ExpIcons.codingTool,
-            contentDescription = null,
-            modifier = Modifier.size(12.dp),
-            tint = if (failed) DiffDelColor else {
-                MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-            },
-        )
-        Text(
-            name,
-            style = transcriptToolStyle(),
-            color = if (failed) DiffDelColor else MaterialTheme.colorScheme.onSurface,
-        )
-        if (!detail.isNullOrBlank()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(
+                    if (diff != null) {
+                        Modifier.clickable { diffOpen = !diffOpen }
+                    } else {
+                        Modifier
+                    },
+                ),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                ExpIcons.codingTool,
+                contentDescription = null,
+                modifier = Modifier.size(12.dp),
+                tint = if (failed) DiffDelColor else {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+                },
+            )
             Text(
-                remember(detail) { middleTruncate(detail) },
-                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                name,
+                style = transcriptToolStyle(),
+                color = if (failed) DiffDelColor else MaterialTheme.colorScheme.onSurface,
+            )
+            if (!detail.isNullOrBlank()) {
+                Text(
+                    remember(detail) { middleTruncate(detail) },
+                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+            } else if (diff != null) {
+                Spacer(Modifier.weight(1f))
+            }
+            // The only affordance a folded diff has — the group row's chevron,
+            // trailing here because the leading slot is the tool glyph.
+            if (diff != null) {
+                Icon(
+                    if (diffOpen) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
+                    contentDescription = if (diffOpen) "Hide changes" else "Show changes",
+                    modifier = Modifier.size(12.dp),
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                )
+            }
+        }
+        if (diff != null && diffOpen) ToolDiff(diff)
+    }
+}
+
+/**
+ * EXP-806: one call's diff, through the same monospace renderer the "Latest
+ * changes" sheet uses, in a scroll box no taller than [ToolDiffMaxHeight] (web
+ * `ToolDiff`'s `max-h-72`). The publisher's cut note is a MUTED FOOTER outside
+ * the patch — inside it, `\ 120 more lines truncated` would render as a diff
+ * line, which it is not.
+ *
+ * Nothing here reads [failed]: a failed call keeps the ROW's rose tint and its
+ * diff renders in the ordinary +/− colors, exactly like the web.
+ */
+@Composable
+private fun ToolDiff(diff: String) {
+    val cut = remember(diff) { splitTruncatedDiff(diff) }
+    val sections = remember(cut.diff) { splitUnifiedDiff(cut.diff) }
+    if (sections.isEmpty() && cut.truncated == null) return
+    val contextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            // Aligned under the row's text, past the tool glyph and its gap.
+            .padding(start = 20.dp, top = 4.dp)
+            // Bounded FIRST, so the glass fill paints the capped box and the
+            // patch scrolls inside it rather than growing the transcript row.
+            .heightIn(max = ToolDiffMaxHeight)
+            .glassGroup()
+            .verticalScroll(rememberScrollState()),
+    ) {
+        sections.forEach { section ->
+            if (section.filename.isNotBlank()) {
+                Text(
+                    section.filename,
+                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                )
+            }
+            // Horizontal scrolling lives inside PatchLines; this box owns only
+            // the vertical one, so the two axes never fight.
+            PatchLines(
+                lines = section.lines,
+                contextColor = contextColor,
+                modifier = Modifier.padding(bottom = 6.dp),
+            )
+        }
+        cut.truncated?.let { lines ->
+            Text(
+                diffTruncationNote(lines),
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
             )
         }
     }
 }
+
+/** The folded-open diff's ceiling — web `ToolDiff`'s `max-h-72`. */
+private val ToolDiffMaxHeight = 288.dp
 
 // A run of ≥2 consecutive tool calls collapsed into one row (EXP-97),
 // expandable to the individual rows. EXP-785: the caption says what happened
@@ -2908,11 +3164,11 @@ private fun ToolGroupRow(items: List<AgentFeedItem.Tool>, liveTail: Boolean) {
         }
         when {
             expanded -> Column(modifier = Modifier.padding(start = 22.dp)) {
-                items.forEach { ToolRow(it.name, it.detail, nested = true, failed = it.failed) }
+                items.forEach { ToolRow(it.name, it.detail, nested = true, failed = it.failed, diff = it.diff) }
             }
             liveTail -> Column(modifier = Modifier.padding(start = 22.dp)) {
                 val latest = items.last()
-                ToolRow(latest.name, latest.detail, nested = true, failed = latest.failed)
+                ToolRow(latest.name, latest.detail, nested = true, failed = latest.failed, diff = latest.diff)
             }
         }
     }
@@ -2928,6 +3184,14 @@ private fun middleTruncate(s: String, max: Int = 72): String {
 }
 
 // ── Steering input ───────────────────────────────────────────────────────────
+
+/**
+ * Which menu is up over the steer composer (EXP-802/EXP-805). The `/` commands
+ * and the `@`/`#`/`:` autocomplete cannot both match the same draft, so this is
+ * DEFENCE rather than arbitration: one value means two menus can never stack,
+ * and the composer's key guards can only ever drive the one on screen.
+ */
+private enum class ComposerMenu { None, Slash, Autocomplete }
 
 /**
  * The steering composer (EXP-511) restyled to the comment composer's chrome
@@ -2953,8 +3217,18 @@ private fun middleTruncate(s: String, max: Int = 72): String {
  */
 @Composable
 private fun SteerComposer(
-    value: String,
-    onValueChange: (String) -> Unit,
+    /**
+     * EXP-802/EXP-805: the value is a TextFieldValue owned by the SCREEN, not
+     * a string owned here — the `@`/`#`/`:` menu is a sibling above this
+     * composer and splices at the caret, so the caret has to be visible up
+     * there. The draft text itself still belongs to the connection.
+     */
+    value: TextFieldValue,
+    /** A user edit — the only write that may arm the autocomplete. */
+    onValueChange: (TextFieldValue) -> Unit,
+    /** The composer's own rewrites (image markers, renumbering): the same
+     *  state, but never arming — nobody typed a trigger. */
+    onValueRewrite: (TextFieldValue) -> Unit,
     /** EXP-724: the screen's key handling for the open `/` menu (↑/↓/Enter/
      *  Escape) — the composer itself knows nothing about commands. */
     fieldModifier: Modifier = Modifier,
@@ -2989,9 +3263,12 @@ private fun SteerComposer(
         else -> "Message the agent…"
     }
     // A draft that arrives from outside — a restored one, a `/` menu pick, an
-    // image just attached — has to be seen, so it opens the card.
-    LaunchedEffect(value, pendingImages.size) {
-        if (!expanded && (value.isNotBlank() || pendingImages.isNotEmpty())) onExpandedChange(true)
+    // image just attached — has to be seen, so it opens the card. Keyed on the
+    // TEXT: a caret move is not a reason to re-run this.
+    LaunchedEffect(value.text, pendingImages.size) {
+        if (!expanded && (value.text.isNotBlank() || pendingImages.isNotEmpty())) {
+            onExpandedChange(true)
+        }
     }
     // Collapse-on-blur (IssueDetailBottomBar's rule): only once the field has
     // HAD focus and lost it with the keyboard fully down, after a ~200ms quiet
@@ -3000,7 +3277,7 @@ private fun SteerComposer(
     var fieldFocused by remember { mutableStateOf(false) }
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     val imeVisibleState = rememberUpdatedState(imeVisible)
-    val draftState = rememberUpdatedState(value)
+    val draftState = rememberUpdatedState(value.text)
     val pendingState = rememberUpdatedState(pendingImages)
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(expanded) {
@@ -3036,6 +3313,7 @@ private fun SteerComposer(
             ExpandedSteerComposer(
                 value = value,
                 onValueChange = onValueChange,
+                onValueRewrite = onValueRewrite,
                 fieldModifier = fieldModifier.onFocusChanged { fieldFocused = it.isFocused },
                 placeholder = placeholder,
                 pendingImages = pendingImages,
@@ -3120,8 +3398,9 @@ private val CollapsedComposerHeight = 52.dp
 
 @Composable
 private fun ExpandedSteerComposer(
-    value: String,
-    onValueChange: (String) -> Unit,
+    value: TextFieldValue,
+    onValueChange: (TextFieldValue) -> Unit,
+    onValueRewrite: (TextFieldValue) -> Unit,
     fieldModifier: Modifier,
     placeholder: String,
     pendingImages: List<PendingAttachment>,
@@ -3134,45 +3413,26 @@ private fun ExpandedSteerComposer(
     onRemoveImage: (Int) -> Unit,
     onSend: () -> Unit,
 ) {
-    val canSend = (value.isNotBlank() || pendingImages.isNotEmpty()) && !sending && live
+    val canSend = (value.text.isNotBlank() || pendingImages.isNotEmpty()) && !sending && live
     // EXP-790: nothing to send and the agent mid-turn — the glyph is a Stop.
-    val stop = working && live && value.isBlank() && pendingImages.isEmpty()
-    // EXP-698: the field tracks its SELECTION, because picking an image drops
-    // an `[Image #k]` marker at the caret. The draft itself still lives in the
-    // connection as a plain string (it has to survive a reconnect), so the
-    // two are reconciled whenever the outside changes it — a send clearing it,
-    // a restored draft on reopen.
-    var field by remember { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
-    // Reconciled in an EFFECT, and only when the text ACTUALLY differs: the
-    // draft round-trips through a StateFlow, so a lagging collector re-delivers
-    // text this field has already moved past. Doing it in composition reset the
-    // caret to the end mid-typing and dropped the IME's in-flight composing
-    // word. The existing selection is CLAMPED into the new text rather than
-    // jumped to its end, and a fresh value drops `composition` on purpose —
-    // it indexes characters that are gone.
-    LaunchedEffect(value) {
-        if (field.text != value) {
-            val start = field.selection.start.coerceIn(0, value.length)
-            val end = field.selection.end.coerceIn(0, value.length)
-            field = TextFieldValue(value, TextRange(start, end))
-        }
-    }
-    fun setField(next: TextFieldValue) {
-        field = next
-        onValueChange(next.text)
-    }
+    val stop = working && live && value.text.isBlank() && pendingImages.isEmpty()
+    // EXP-698: the value carries its SELECTION, because picking an image drops
+    // an `[Image #k]` marker at the caret. Since EXP-802/EXP-805 that value —
+    // and its reconciliation with the connection's draft string — lives on the
+    // SCREEN, where the autocomplete menu can splice at the caret; this
+    // composer only reads it and reports its edits back.
     // Each newly picked image inserts its own marker, so the writer can say
     // "crop [Image #2]" without typing the token. Removing one renumbers the
     // draft (below), so the markers always name images the composer still has.
     var markedImages by remember { mutableIntStateOf(pendingImages.size) }
     LaunchedEffect(pendingImages.size) {
         if (pendingImages.size > markedImages) {
-            var next = field
+            var next = value
             for (k in (markedImages + 1)..pendingImages.size) {
                 val (text, caret) = insertImageMarker(next.text, next.selection.end, k)
                 next = TextFieldValue(text, TextRange(caret))
             }
-            setField(next)
+            onValueRewrite(next)
         }
         markedImages = pendingImages.size
     }
@@ -3190,12 +3450,12 @@ private fun ExpandedSteerComposer(
                 onRemove = { index ->
                     // Renumber BEFORE the list shrinks: `[Image #k]` goes, and
                     // every higher marker comes down one.
-                    val renumbered = renumberImageMarkers(field.text, index + 1)
-                    if (renumbered != field.text) {
-                        setField(
+                    val renumbered = renumberImageMarkers(value.text, index + 1)
+                    if (renumbered != value.text) {
+                        onValueRewrite(
                             TextFieldValue(
                                 renumbered,
-                                TextRange(field.selection.end.coerceAtMost(renumbered.length)),
+                                TextRange(value.selection.end.coerceAtMost(renumbered.length)),
                             ),
                         )
                     }
@@ -3232,8 +3492,8 @@ private fun ExpandedSteerComposer(
         },
     ) {
         GlassTextField(
-            value = field,
-            onValueChange = ::setField,
+            value = value,
+            onValueChange = onValueChange,
             modifier = Modifier
                 .fillMaxWidth()
                 .focusRequester(focusRequester)

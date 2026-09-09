@@ -276,6 +276,44 @@ public final class IssueEditorModel {
         MarkdownConversion.blocksToMarkdown(blocks)
     }
 
+    /// The document as UNDECORATED plain text — what a single-field composer
+    /// (EXP-802: the steer draft) puts on the wire.
+    ///
+    /// Deliberately NOT `currentMarkdown()`: that writes a DOCUMENT. It
+    /// re-derives structure from the paragraph attributes, escapes what a
+    /// table cell needs, and — the one that bites a chat message — rewrites an
+    /// interior blank line as the contract's `&nbsp;` paragraph (EXP-689). A
+    /// steer message is prose typed into a field, so it goes out byte for byte
+    /// or not at all.
+    ///
+    /// Display-only chip attachments are dropped (see `issueRefTitleResolver`:
+    /// a resolved `#EXP-1` chip carries its title on ONE attachment character
+    /// that was never typed). Text blocks join on a newline, which is exactly
+    /// the one-block identity for the single-field composers this serves.
+    public var plainText: String {
+        blocks.compactMap { block -> String? in
+            guard case let .text(_, content) = block else { return nil }
+            return Self.undecoratedString(content)
+        }.joined(separator: "\n")
+    }
+
+    /// A block's characters minus every attachment run — the inverse of the
+    /// chip pass, for readers that want what was typed.
+    private static func undecoratedString(_ content: NSAttributedString) -> String {
+        var attachments: [NSRange] = []
+        content.enumerateAttribute(
+            .attachment,
+            in: NSRange(location: 0, length: content.length),
+            options: []
+        ) { value, range, _ in
+            if value != nil { attachments.append(range) }
+        }
+        guard !attachments.isEmpty else { return content.string }
+        let mutable = NSMutableAttributedString(attributedString: content)
+        for range in attachments.reversed() { mutable.replaceCharacters(in: range, with: "") }
+        return mutable.string
+    }
+
     public var isEditing: Bool { focusedBlockId != nil }
     public var isDirty: Bool { currentMarkdown() != lastSavedMarkdown }
     public var hasUncommittedDrafts: Bool { MarkdownImageUtils.hasDraftImages(currentMarkdown()) }
@@ -307,6 +345,50 @@ public final class IssueEditorModel {
         pendingRemoteMarkdown = nil
         focusedBlockId = nil
         selection = nil
+    }
+
+    /// EXP-802 — replace the WHOLE draft with plain `text`, KEEPING focus and
+    /// the keyboard, for the single-field composers `plainText` reads back.
+    ///
+    /// `load(markdown:)` cannot stand in for this: it reparses, and it clears
+    /// `focusedBlockId` and `selection` — a document load has no caret. A steer
+    /// draft takes external writes WHILE the user types (a `/` command
+    /// rewriting the line, an `[Image #k]` marker landing on a photo pick), so
+    /// going through `load` there would drop the keyboard mid-message.
+    ///
+    /// The document collapses to exactly ONE text block (a single-field
+    /// composer has no other kind) and the caret goes to the END of the new
+    /// text, which is where every external write today leaves it. Writing the
+    /// text it already holds is a no-op — without that guard a host echoing
+    /// its own draft back would re-apply the content on every keystroke and
+    /// yank the caret to the end of the line.
+    public func setPlainText(_ text: String) {
+        let id = blocks.compactMap { block -> UUID? in
+            guard case let .text(id, _) = block else { return nil }
+            return id
+        }.first ?? UUID()
+        if case let .block(idx)? = locate(id), case let .text(_, content) = blocks[idx],
+           Self.undecoratedString(content) == text, blocks.count == 1 {
+            return
+        }
+        var caret = NSRange(location: (text as NSString).length, length: 0)
+        let decorated = chipDecoration(
+            for: NSAttributedString(string: text, attributes: MarkdownStyle.baseAttributes),
+            selection: caret
+        )
+        if decorated.changed { caret = decorated.selection }
+        blocks = [.text(id: id, attributedContent: decorated.attributed)]
+        bumpRevision(id)
+        desiredSelection = (id, caret.location)
+        selection = (id, NSRange(location: caret.location, length: 0))
+        // A programmatic rewrite is not a keystroke: it must never ARM the
+        // `@`/`#`/`:` bar (a `/clear` insertion would open one on the token it
+        // happens to end with). Any bar open on the pre-write text is stale,
+        // though — its replace range points into characters that are gone.
+        clearMention()
+        clearIssueRef()
+        clearEmoji()
+        notifyEdit()
     }
 
     /// Apply a remote markdown update if safe (not actively editing, no unsaved

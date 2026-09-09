@@ -50,6 +50,47 @@ struct SessionRowTitle: View {
     }
 }
 
+/// EXP-804: the run's usage wall — `Rate limited · resets in 2h`.
+///
+/// A quiet amber pill that renders BESIDE the state badge, never instead of
+/// it: the wall is ORTHOGONAL to the session state, so a walled run still
+/// reads `running` and still pulses its live dot. Without this the two are
+/// indistinguishable — the run just goes silent (the 2026-09-09 incident).
+///
+/// The label itself is `AgentUsagePresentation.blockedBadgeLabel`, locked ×4;
+/// nothing here decides wording. Nil label = not blocked = no pill.
+struct SessionBlockedBadge: View {
+    /// The raw `coding_sessions.blocked` jsonb text off the wire.
+    let blocked: String?
+    /// Pinned by the tests; production passes the wall clock so the countdown
+    /// re-reads whenever the row redraws.
+    var now: Date = Date()
+
+    private var label: String? {
+        AgentUsagePresentation.blockedBadgeLabel(
+            AgentUsagePresentation.parseBlocked(blocked),
+            now: now
+        )
+    }
+
+    var body: some View {
+        if let label {
+            HStack(spacing: 4) {
+                AppIcon(AppIcons.uiClock, size: 10)
+                Text(label)
+                    .font(.caption2.weight(.semibold))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(DesignTokens.Semantic.yellow)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(DesignTokens.Semantic.yellow.opacity(0.12), in: Capsule())
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(label)
+        }
+    }
+}
+
 /// Static-dot/label tint per parked display state (EXP-194/EXP-214):
 /// review green, done blue (the issue-status palette), needs-input amber.
 func sessionStateColor(_ state: CodingSessionDisplayState) -> Color {

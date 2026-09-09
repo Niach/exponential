@@ -505,6 +505,15 @@ pub struct CodingSession {
     /// plan-approval / AskUserQuestion picker and waits for a human.
     #[serde(default, deserialize_with = "tolerant_opt_bool")]
     pub needs_input: Option<bool>,
+    /// EXP-804 jsonb `{kind, agent, window, resetsAt, since}` — the agent's
+    /// usage wall as row state; `None` = not blocked. Orthogonal to `status`
+    /// exactly like `needs_input` above: a blocked run still reads `running`
+    /// and stays live, steerable and killable, so a client that ignores this
+    /// renders a silently stalled run as healthy. Same tolerant jsonb
+    /// handling as the devices row's usage blobs (the wire may hand it over
+    /// as a JSON string).
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub blocked: Option<serde_json::Value>,
     /// Action-run scoping (EXP-253/EXP-530): the `actions` row id plus its
     /// name SNAPSHOT (survives the action's deletion); `None` = issue/batch.
     #[serde(default)]

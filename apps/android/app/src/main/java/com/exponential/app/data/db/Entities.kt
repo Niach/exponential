@@ -317,6 +317,14 @@ data class CodingSessionEntity(
     // Desktop-written attention flag (EXP-214): the agent is parked on a
     // plan-approval / AskUserQuestion picker and waits for a human.
     @ColumnInfo(name = "needs_input") @SerialName("needs_input") @JsonNames("needsInput") val needsInput: PgBool = false,
+    // EXP-804: the agent's usage wall as row state, kept as the raw jsonb
+    // TEXT off the wire (`{kind, agent, window, resetsAt, since}`) exactly
+    // like DeviceEntity.agentUsage; NULL = not blocked. Orthogonal to
+    // `status` the way needsInput is — a blocked run still reads `running`
+    // and stays live and killable, so a client ignoring this shows a silently
+    // walled run as healthy. Parsed for display by AgentUsagePresentation.
+    @ColumnInfo(name = "blocked") @SerialName("blocked")
+    @Serializable(with = JsonAsStringSerializer::class) val blocked: String? = null,
     // Action run linkage (EXP-253): set on a session started from a team
     // action. action_id nulls if the action is later deleted (server FK SET
     // NULL) while action_name — a display snapshot — keeps labeling the run.

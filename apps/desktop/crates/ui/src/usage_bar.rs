@@ -13,6 +13,13 @@
 //!   Android  apps/android/.../domain/AgentUsagePresentation.kt
 //! Changing a rule or a string here means changing it in all four.
 //!
+//! EXP-807: the cross-device USAGE PAGE's model lives here too — the twin of
+//! the web `agentProfileUsageRows` / `peakPercent` / `attentionRank` /
+//! `sortAttentionFirst` / `refreshAllowedAt` (`agent-usage.ts`, bottom
+//! section). It is a web+desktop pair, not a ×4 rule: iOS and Android ship no
+//! usage PAGE (`packages/view-catalog/views.json` says so), only the per-run
+//! sheet the cards above feed.
+//!
 //! EXP-688: there is no "pinned window" any more. Claude's own app shows
 //! every window at once (Current session / All models / Fable only), so
 //! [`usage_groups`] renders the machine's whole report as cards in three
@@ -196,6 +203,63 @@ pub(crate) fn format_reset_countdown(resets_at: Option<&str>, now_epoch: i64) ->
     } else {
         format!("resets in {days}d {rest}h")
     })
+}
+
+/// EXP-804: `coding_sessions.blocked` — the agent's usage wall as row state.
+/// Every field is optional for the same reason the server's zod mirror is
+/// `.nullish()` throughout: a newer device naming a window this build has no
+/// name for must degrade that field, never fail the whole parse and leave a
+/// walled run rendering healthy.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct CodingSessionBlocked {
+    pub kind: Option<String>,
+    pub agent: Option<String>,
+    pub window: Option<String>,
+    pub resets_at: Option<String>,
+    pub since: Option<String>,
+}
+
+/// Tolerant parse of a run's `blocked` jsonb column. `None` on absent or
+/// unusable JSON — a run is then simply not shown as blocked, never guessed.
+pub(crate) fn parse_blocked(value: Option<&serde_json::Value>) -> Option<CodingSessionBlocked> {
+    let object = value?.as_object()?;
+    let string = |key: &str| {
+        object
+            .get(key)
+            .and_then(|value| value.as_str())
+            .map(str::to_string)
+    };
+    Some(CodingSessionBlocked {
+        kind: string("kind"),
+        agent: string("agent"),
+        window: string("window"),
+        resets_at: string("resetsAt"),
+        since: string("since"),
+    })
+}
+
+/// EXP-804: the one-line badge for a run's usage wall — `Rate limited ·
+/// resets in 2h`, or bare `Rate limited` when the agent named no reset time.
+/// `None` when the run is not blocked.
+///
+/// The wall is ORTHOGONAL to the session state: a blocked run still reads
+/// `running`, so this NEVER replaces the display state — it renders beside
+/// it. An unrecognised `kind` still gets a badge (`Blocked`): a future device
+/// reporting a wall this build has no name for must not render silent.
+/// Locked ×4 (web `blockedBadgeLabel`).
+pub(crate) fn blocked_badge_label(
+    blocked: Option<&CodingSessionBlocked>,
+    now_epoch: i64,
+) -> Option<String> {
+    let blocked = blocked?;
+    let label = match blocked.kind.as_deref().unwrap_or("rate_limit") {
+        "rate_limit" => "Rate limited",
+        _ => "Blocked",
+    };
+    match format_reset_countdown(blocked.resets_at.as_deref(), now_epoch) {
+        Some(countdown) => Some(format!("{label} · {countdown}")),
+        None => Some(label.to_string()),
+    }
 }
 
 /// `as of 8 minutes ago` — the stale caption (and the offline "when was this
@@ -485,6 +549,230 @@ pub(crate) fn render_context_block(
     Some(block.into_any_element())
 }
 
+// ---------------------------------------------------------------------------
+// EXP-807 (EXP-792 C1-C4): the cross-device usage PAGE's model
+// ---------------------------------------------------------------------------
+//
+// One row per device × agent PROFILE off the synced `devices` rows (mine +
+// the servers shared with the team). Profiles (`agentAccounts[agent].profiles`,
+// EXP-747 B5) carry their own usage; a device that reports none (an older
+// build) falls back to the top-level account + `agentUsage[agent]` as the
+// single `system` row, so the page never goes blank on a pre-profile machine.
+//
+// Mirrored with the web `agent-usage.ts` bottom section — same field names,
+// same fallbacks, same ordering — so a rule changed on one side is greppable
+// from the other. [`crate::usage_view`] is the only renderer.
+
+/// The ambient login's profile id — the local constant the launcher already
+/// uses, byte-identical with the web's `SYSTEM_PROFILE_ID`.
+pub(crate) const SYSTEM_PROFILE_ID: &str = coding::SYSTEM_PROFILE;
+
+/// A forced usage refresh (`agent_usage_refresh`) is refused while the last
+/// fetch is younger than this: the device never hits the agent's usage
+/// endpoint more often (its own [`coding::usage_cache::RATE_LIMITED_FLOOR_SECS`]),
+/// so the button greys out and names the next allowed time instead of
+/// queueing a no-op. The twin of the web's `RATE_LIMITED_FLOOR_MS`.
+pub(crate) const RATE_LIMITED_FLOOR_SECS: i64 =
+    coding::usage_cache::RATE_LIMITED_FLOOR_SECS as i64;
+
+/// One rendered line of the usage page: a machine, an agent, and ONE of that
+/// agent's account profiles on it.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct AgentProfileUsageRow {
+    /// `<deviceId>:<agent>:<profileId>` — stable enough to key a list with,
+    /// and the key the in-flight refresh map uses.
+    pub key: String,
+    pub device_id: String,
+    pub device_label: String,
+    /// Whether the row is one of the caller's OWN machines (a refresh is only
+    /// ever queued on those).
+    pub mine: bool,
+    pub online: bool,
+    pub agent: String,
+    pub profile_id: String,
+    /// The profile's label (`Default` for the system profile when the device
+    /// sent none).
+    pub profile_label: String,
+    pub active: bool,
+    pub signed_in: bool,
+    pub email: Option<String>,
+    pub plan: Option<String>,
+    pub usage: Option<AgentUsage>,
+    /// The "as of …" fallback when the usage is stale or absent.
+    pub checked_at: Option<String>,
+}
+
+/// `Some(trimmed)` for a non-blank string — the wire uses "absent" and "empty
+/// string" interchangeably (a `#[serde(default)]` String is `""`), and every
+/// caption here treats both as nothing to say.
+fn non_empty(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+/// The rows the usage page renders for `devices`, grouped by agent later.
+///
+/// `is_online` is injected rather than re-derived (the desktop's
+/// `device_settings::row_is_online` needs a clock) so the derivation stays a
+/// pure function of the rows — the web passes `deviceRowIsOnline` the same
+/// way. Nothing is sorted here: [`sort_attention_first`] owns the order.
+pub(crate) fn agent_profile_usage_rows(
+    devices: &[domain::rows::DeviceRow],
+    current_user_id: &str,
+    is_online: impl Fn(Option<&str>) -> bool,
+) -> Vec<AgentProfileUsageRow> {
+    let mut out = Vec::new();
+    for device in devices {
+        let accounts = crate::device_settings::parse_agent_map::<coding::AgentAccount>(
+            device.agent_accounts.as_ref(),
+        );
+        let usage_map: std::collections::BTreeMap<String, AgentUsage> = device
+            .agent_usage
+            .as_ref()
+            .and_then(|value| value.as_object())
+            .map(|entries| {
+                entries
+                    .iter()
+                    .filter_map(|(agent, entry)| {
+                        parse_agent_usage(entry).map(|usage| (agent.clone(), usage))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        // The union of "has an account" and "reported usage": a machine that
+        // only managed one of the two still gets its row.
+        let mut agents: std::collections::BTreeSet<&str> =
+            accounts.keys().map(String::as_str).collect();
+        agents.extend(usage_map.keys().map(String::as_str));
+
+        let device_id = device.device_id.clone().unwrap_or_default();
+        let device_label = device.label.clone().unwrap_or_default();
+        let mine = device.user_id.as_deref() == Some(current_user_id);
+        let online = is_online(device.last_seen_at.as_deref());
+        for agent in agents {
+            let account = accounts.get(agent);
+            let base = |profile_id: &str| AgentProfileUsageRow {
+                key: format!("{device_id}:{agent}:{profile_id}"),
+                device_id: device_id.clone(),
+                device_label: device_label.clone(),
+                mine,
+                online,
+                agent: agent.to_string(),
+                profile_id: profile_id.to_string(),
+                profile_label: String::new(),
+                active: false,
+                signed_in: false,
+                email: None,
+                plan: None,
+                usage: None,
+                checked_at: None,
+            };
+            let profiles = account.map(|account| account.profiles.as_slice()).unwrap_or(&[]);
+            if profiles.is_empty() {
+                out.push(AgentProfileUsageRow {
+                    profile_label: coding::agent_profiles::SYSTEM_LABEL.to_string(),
+                    active: true,
+                    signed_in: account.is_some_and(|account| account.signed_in),
+                    email: account.and_then(|account| non_empty(account.email.as_deref())),
+                    plan: account.and_then(|account| non_empty(account.plan.as_deref())),
+                    usage: usage_map.get(agent).cloned(),
+                    checked_at: account
+                        .and_then(|account| non_empty(Some(&account.checked_at)))
+                        .or_else(|| non_empty(device.agent_usage_at.as_deref())),
+                    ..base(SYSTEM_PROFILE_ID)
+                });
+                continue;
+            }
+            for profile in profiles {
+                // The active profile's numbers ride BOTH the profile entry and
+                // the pre-profile `agentUsage[agent]` slot; prefer the
+                // profile's own and fall back for a device that only
+                // populated the old slot.
+                let usage = profile.usage.clone().or_else(|| {
+                    profile
+                        .active
+                        .then(|| usage_map.get(agent).cloned())
+                        .flatten()
+                });
+                out.push(AgentProfileUsageRow {
+                    profile_label: non_empty(profile.label.as_deref()).unwrap_or_else(|| {
+                        if profile.id == SYSTEM_PROFILE_ID {
+                            coding::agent_profiles::SYSTEM_LABEL.to_string()
+                        } else {
+                            profile.id.clone()
+                        }
+                    }),
+                    active: profile.active,
+                    signed_in: profile.signed_in,
+                    email: non_empty(profile.email.as_deref()),
+                    plan: non_empty(profile.plan.as_deref()),
+                    usage,
+                    checked_at: non_empty(Some(&profile.checked_at))
+                        .or_else(|| account.and_then(|a| non_empty(Some(&a.checked_at)))),
+                    ..base(&profile.id)
+                });
+            }
+        }
+    }
+    out
+}
+
+/// The fullest window's percent, or 0 for a row with no usage at all.
+pub(crate) fn peak_percent(usage: Option<&AgentUsage>) -> u8 {
+    usage
+        .map(|usage| {
+            usage
+                .windows
+                .iter()
+                .map(|window| window.percent)
+                .max()
+                .unwrap_or(0)
+        })
+        .unwrap_or(0)
+}
+
+/// Attention-first bucket: signed-out rows lead (there is something to do),
+/// then rows at or over [`DANGER_PERCENT`], then everything else.
+pub(crate) fn attention_rank(row: &AgentProfileUsageRow) -> u8 {
+    if !row.signed_in {
+        0
+    } else if peak_percent(row.usage.as_ref()) >= DANGER_PERCENT {
+        1
+    } else {
+        2
+    }
+}
+
+/// [`attention_rank`] first, then the fuller row, then device label, agent and
+/// profile — so a heartbeat can never shuffle two otherwise equal rows.
+pub(crate) fn sort_attention_first(
+    rows: Vec<AgentProfileUsageRow>,
+) -> Vec<AgentProfileUsageRow> {
+    let mut rows = rows;
+    rows.sort_by(|a, b| {
+        attention_rank(a)
+            .cmp(&attention_rank(b))
+            .then_with(|| peak_percent(b.usage.as_ref()).cmp(&peak_percent(a.usage.as_ref())))
+            .then_with(|| a.device_label.cmp(&b.device_label))
+            .then_with(|| a.agent.cmp(&b.agent))
+            .then_with(|| a.profile_id.cmp(&b.profile_id))
+    });
+    rows
+}
+
+/// When a forced refresh is next allowed for `usage`, as an epoch SECOND.
+/// `None` = right now (no fetch on record, an unreadable stamp, or a last
+/// fetch older than the floor). A stamp in the future (the machine's clock
+/// runs ahead) is treated as "just fetched".
+pub(crate) fn refresh_allowed_at(usage: Option<&AgentUsage>, now_epoch: i64) -> Option<i64> {
+    let usage = usage?;
+    let fetched = crate::comments::parse_epoch(&usage.fetched_at)?;
+    let next = fetched + RATE_LIMITED_FLOOR_SECS;
+    (next > now_epoch).then_some(next)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -610,6 +898,68 @@ mod tests {
     /// Freshness fails closed: 15 minutes is the line, and a stamp that
     /// cannot be read is never fresh.
     #[test]
+    fn blocked_badge_names_the_wall_and_counts_down() {
+        // ×4-locked strings (web `blockedBadgeLabel`). NOW = 2026-08-28T12:00Z.
+        let now = crate::comments::parse_epoch("2026-08-28T12:00:00.000Z").unwrap();
+        let blocked = |kind: &str, resets_at: Option<&str>| CodingSessionBlocked {
+            kind: Some(kind.to_string()),
+            agent: Some("claude".to_string()),
+            window: Some("session".to_string()),
+            resets_at: resets_at.map(str::to_string),
+            since: Some("2026-08-28T11:30:00.000Z".to_string()),
+        };
+        assert_eq!(
+            blocked_badge_label(
+                Some(&blocked("rate_limit", Some("2026-08-28T14:00:00.000Z"))),
+                now
+            )
+            .as_deref(),
+            Some("Rate limited · resets in 2h")
+        );
+        // No reset time: the badge still names the wall.
+        assert_eq!(
+            blocked_badge_label(Some(&blocked("rate_limit", None)), now).as_deref(),
+            Some("Rate limited")
+        );
+        assert_eq!(
+            blocked_badge_label(Some(&blocked("rate_limit", Some("later"))), now).as_deref(),
+            Some("Rate limited")
+        );
+        // A wall kind this build has no name for must not render silent.
+        assert_eq!(
+            blocked_badge_label(
+                Some(&blocked("quota", Some("2026-08-28T14:00:00.000Z"))),
+                now
+            )
+            .as_deref(),
+            Some("Blocked · resets in 2h")
+        );
+        assert_eq!(blocked_badge_label(None, now), None);
+    }
+
+    #[test]
+    fn parse_blocked_tolerates_garbage() {
+        assert_eq!(parse_blocked(None), None);
+        assert_eq!(parse_blocked(Some(&serde_json::json!(null))), None);
+        assert_eq!(parse_blocked(Some(&serde_json::json!("nope"))), None);
+        // A payload missing every field still parses — the badge falls back.
+        assert_eq!(
+            parse_blocked(Some(&serde_json::json!({}))),
+            Some(CodingSessionBlocked::default())
+        );
+        let parsed = parse_blocked(Some(&serde_json::json!({
+            "kind": "rate_limit",
+            "agent": "claude",
+            "window": "weekly",
+            "resetsAt": "2026-08-28T14:00:00.000Z",
+            "since": "2026-08-28T11:30:00.000Z",
+        })))
+        .unwrap();
+        assert_eq!(parsed.window.as_deref(), Some("weekly"));
+        assert_eq!(parsed.resets_at.as_deref(), Some("2026-08-28T14:00:00.000Z"));
+    }
+
+    #[test]
     fn stale_usage_older_than_fifteen_minutes_is_not_fresh() {
         let now = 1_756_000_000_i64;
         let at = |offset: i64| {
@@ -726,5 +1076,286 @@ mod tests {
     #[test]
     fn the_context_heading_is_the_shared_wording() {
         assert_eq!(CONTEXT_SECTION_TITLE, "Context");
+    }
+
+    // ── EXP-807: the usage PAGE's model ───────────────────────────────────
+    //
+    // The web twin (`agentProfileUsageRows` & co) carries no tests of its own
+    // yet, so these names are the ones a web mirror should take verbatim:
+    // "rows fall back to the system profile", "rows read every profile",
+    // "peak percent is the fullest window", "attention first leads with the
+    // signed-out rows" and "a refresh inside the floor is refused".
+
+    /// The synced wire, hydrated exactly the way the shape does it.
+    fn device_row(value: serde_json::Value) -> domain::rows::DeviceRow {
+        serde_json::from_value(value).expect("device row parses")
+    }
+
+    fn usage_json(fetched_at: &str, key: &str, percent: u8) -> serde_json::Value {
+        serde_json::json!({
+            "fetchedAt": fetched_at,
+            "stale": false,
+            "windows": [{ "key": key, "label": "Week", "percent": percent }],
+        })
+    }
+
+    /// A machine that reports no PROFILES (an older build, or a single-login
+    /// install) still gets exactly one row per agent: the ambient `system`
+    /// profile, labelled "Default", carrying the top-level account and the
+    /// pre-profile `agentUsage` slot. An agent that reported ONLY usage — no
+    /// account at all — still gets its row, signed out, dated by the row's
+    /// `agent_usage_at`.
+    #[test]
+    fn agent_profile_usage_rows_fall_back_to_the_system_profile() {
+        let row = device_row(serde_json::json!({
+            "id": "row-1",
+            "device_id": "dev-1",
+            "label": "Studio",
+            "user_id": "me",
+            "last_seen_at": "2026-08-28T11:59:00.000Z",
+            "agent_accounts": {
+                "claude": {
+                    "signedIn": true,
+                    "email": "dev@acme.test",
+                    "plan": "max",
+                    "checkedAt": "2026-08-28T11:00:00.000Z",
+                },
+            },
+            "agent_usage": {
+                "claude": usage_json("2026-08-28T11:55:00.000Z", "session", 42),
+                "codex": usage_json("2026-08-28T11:55:00.000Z", "weekly", 8),
+            },
+            "agent_usage_at": "2026-08-28T11:30:00.000Z",
+        }));
+        let rows = sort_attention_first(agent_profile_usage_rows(&[row], "me", |_| true));
+
+        // Signed-out rows lead: codex reported numbers but no account.
+        assert_eq!(
+            rows.iter().map(|row| row.key.as_str()).collect::<Vec<_>>(),
+            vec!["dev-1:codex:system", "dev-1:claude:system"]
+        );
+        let claude = &rows[1];
+        assert_eq!(claude.agent, "claude");
+        assert_eq!(claude.profile_id, SYSTEM_PROFILE_ID);
+        assert_eq!(claude.profile_label, "Default");
+        assert!(claude.active, "the ambient login is always the active one");
+        assert!(claude.mine);
+        assert!(claude.online);
+        assert!(claude.signed_in);
+        assert_eq!(claude.device_label, "Studio");
+        assert_eq!(claude.email.as_deref(), Some("dev@acme.test"));
+        assert_eq!(claude.plan.as_deref(), Some("max"));
+        assert_eq!(peak_percent(claude.usage.as_ref()), 42);
+        // The account's own probe stamp wins over the row's usage stamp.
+        assert_eq!(claude.checked_at.as_deref(), Some("2026-08-28T11:00:00.000Z"));
+
+        let codex = &rows[0];
+        assert!(!codex.signed_in);
+        assert_eq!(codex.email, None);
+        assert_eq!(peak_percent(codex.usage.as_ref()), 8);
+        // No account to date it: the device's `agent_usage_at` is the fallback.
+        assert_eq!(codex.checked_at.as_deref(), Some("2026-08-28T11:30:00.000Z"));
+
+        // A teammate's shared machine is never "mine", and the online-ness is
+        // the caller's to decide.
+        let theirs = device_row(serde_json::json!({
+            "id": "row-2",
+            "device_id": "dev-2",
+            "label": "Server",
+            "user_id": "someone-else",
+            "shared_team_id": "team-1",
+            "agent_accounts": { "claude": { "signedIn": true, "checkedAt": "" } },
+        }));
+        let rows = agent_profile_usage_rows(&[theirs], "me", |_| false);
+        assert_eq!(rows.len(), 1);
+        assert!(!rows[0].mine);
+        assert!(!rows[0].online);
+        // An empty `checkedAt` is nothing to say, never an "as of " with no date.
+        assert_eq!(rows[0].checked_at, None);
+
+        // A machine that reported nothing at all contributes no rows.
+        let quiet = device_row(serde_json::json!({ "id": "row-3", "device_id": "dev-3" }));
+        assert!(agent_profile_usage_rows(&[quiet], "me", |_| true).is_empty());
+    }
+
+    /// EXP-747 B5: with profiles the page renders ONE row each — the profile's
+    /// own label/identity/usage — and only the ACTIVE profile falls back to the
+    /// pre-profile `agentUsage` slot (those numbers are its, not the others').
+    #[test]
+    fn agent_profile_usage_rows_read_every_profile() {
+        let row = device_row(serde_json::json!({
+            "id": "row-1",
+            "device_id": "dev-1",
+            "label": "Studio",
+            "user_id": "me",
+            "agent_accounts": {
+                "claude": {
+                    "signedIn": true,
+                    "email": "work@acme.test",
+                    "checkedAt": "2026-08-28T11:00:00.000Z",
+                    "profiles": [
+                        {
+                            "id": "system",
+                            "signedIn": true,
+                            "email": "work@acme.test",
+                            "active": true,
+                            "checkedAt": "2026-08-28T11:00:00.000Z",
+                        },
+                        {
+                            "id": "personal",
+                            "label": "Personal",
+                            "signedIn": false,
+                            "active": false,
+                            "checkedAt": "",
+                            "usage": usage_json("2026-08-28T11:50:00.000Z", "weekly", 96),
+                        },
+                    ],
+                },
+            },
+            "agent_usage": { "claude": usage_json("2026-08-28T11:55:00.000Z", "session", 42) },
+        }));
+        let rows = agent_profile_usage_rows(&[row], "me", |_| true);
+        assert_eq!(
+            rows.iter().map(|row| row.key.as_str()).collect::<Vec<_>>(),
+            vec!["dev-1:claude:system", "dev-1:claude:personal"]
+        );
+        let system = &rows[0];
+        // No label on the wire: the system profile is "Default" everywhere.
+        assert_eq!(system.profile_label, "Default");
+        assert!(system.active);
+        assert!(system.signed_in);
+        // The active profile inherits the pre-profile slot.
+        assert_eq!(peak_percent(system.usage.as_ref()), 42);
+
+        let personal = &rows[1];
+        assert_eq!(personal.profile_label, "Personal");
+        assert!(!personal.active);
+        assert!(!personal.signed_in);
+        // Its OWN numbers — never the active profile's.
+        assert_eq!(peak_percent(personal.usage.as_ref()), 96);
+        // A blank profile stamp degrades to the account's.
+        assert_eq!(
+            personal.checked_at.as_deref(),
+            Some("2026-08-28T11:00:00.000Z")
+        );
+    }
+
+    /// A row's attention weight is the FULLEST window, not the first or the
+    /// last one; nothing reported is 0 rather than a missing value.
+    #[test]
+    fn peak_percent_is_the_fullest_window() {
+        let now = 1_756_000_000_i64;
+        let usage = AgentUsage {
+            fetched_at: chrono::DateTime::from_timestamp(now, 0).unwrap().to_rfc3339(),
+            stale: false,
+            windows: vec![
+                window("session", "5h", 12, None),
+                window("weekly", "Week", 96, None),
+                window("model:fable", "Fable", 40, None),
+            ],
+        };
+        assert_eq!(peak_percent(Some(&usage)), 96);
+        assert_eq!(peak_percent(Some(&AgentUsage::default())), 0);
+        assert_eq!(peak_percent(None), 0);
+    }
+
+    /// The page's order: signed-out rows first (there is something to DO),
+    /// then anything at or over the danger threshold, then the rest — the
+    /// fuller row ahead inside a bucket, and label/agent/profile after that so
+    /// a heartbeat cannot reshuffle equal rows.
+    #[test]
+    fn attention_first_leads_with_the_signed_out_rows() {
+        let row = |device: &str, agent: &str, profile: &str, signed_in: bool, percent: u8| {
+            AgentProfileUsageRow {
+                key: format!("{device}:{agent}:{profile}"),
+                device_id: device.to_string(),
+                device_label: device.to_string(),
+                mine: true,
+                online: true,
+                agent: agent.to_string(),
+                profile_id: profile.to_string(),
+                profile_label: profile.to_string(),
+                active: true,
+                signed_in,
+                email: None,
+                plan: None,
+                usage: Some(AgentUsage {
+                    fetched_at: String::new(),
+                    stale: false,
+                    windows: vec![window("weekly", "Week", percent, None)],
+                }),
+                checked_at: None,
+            }
+        };
+        let rows = sort_attention_first(vec![
+            row("Studio", "claude", "system", true, 10),
+            row("Studio", "codex", "system", true, DANGER_PERCENT),
+            row("Air", "claude", "system", false, 100),
+            row("Air", "claude", "personal", true, 60),
+            // Same bucket AND the same fill: label, then agent, then profile.
+            row("Air", "codex", "system", true, 10),
+        ]);
+        assert_eq!(
+            rows.iter().map(|row| row.key.as_str()).collect::<Vec<_>>(),
+            vec![
+                // Signed out leads even at 100% — it is the actionable one.
+                "Air:claude:system",
+                // Then the danger bucket.
+                "Studio:codex:system",
+                // Then the rest, fullest first, ties by label/agent/profile.
+                "Air:claude:personal",
+                "Air:codex:system",
+                "Studio:claude:system",
+            ]
+        );
+        // The buckets themselves, spelled out.
+        assert_eq!(attention_rank(&row("Air", "claude", "system", false, 0)), 0);
+        assert_eq!(
+            attention_rank(&row("Air", "claude", "system", true, DANGER_PERCENT)),
+            1
+        );
+        assert_eq!(
+            attention_rank(&row("Air", "claude", "system", true, DANGER_PERCENT - 1)),
+            2
+        );
+    }
+
+    /// The button greys out for the device's OWN 429 floor (5 minutes) and
+    /// names the moment it comes back; anything older, or undated, refreshes
+    /// right now.
+    #[test]
+    fn a_refresh_inside_the_floor_is_refused() {
+        let now = 1_756_000_000_i64;
+        let at = |offset: i64| {
+            chrono::DateTime::from_timestamp(now + offset, 0)
+                .unwrap()
+                .to_rfc3339()
+        };
+        let usage = |fetched_at: String| AgentUsage {
+            fetched_at,
+            stale: false,
+            windows: Vec::new(),
+        };
+        assert_eq!(RATE_LIMITED_FLOOR_SECS, 300);
+        // Fetched a minute ago: refused until the floor runs out.
+        assert_eq!(
+            refresh_allowed_at(Some(&usage(at(-60))), now),
+            Some(now - 60 + RATE_LIMITED_FLOOR_SECS)
+        );
+        // Exactly on the floor, and past it: allowed now.
+        assert_eq!(
+            refresh_allowed_at(Some(&usage(at(-RATE_LIMITED_FLOOR_SECS))), now),
+            None
+        );
+        assert_eq!(refresh_allowed_at(Some(&usage(at(-3_600))), now), None);
+        // A machine whose clock runs ahead counts as "just fetched".
+        assert_eq!(
+            refresh_allowed_at(Some(&usage(at(120))), now),
+            Some(now + 120 + RATE_LIMITED_FLOOR_SECS)
+        );
+        // No fetch on record, an unreadable stamp, or no usage at all.
+        assert_eq!(refresh_allowed_at(Some(&usage(String::new())), now), None);
+        assert_eq!(refresh_allowed_at(Some(&usage("garbage".into())), now), None);
+        assert_eq!(refresh_allowed_at(None, now), None);
     }
 }

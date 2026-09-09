@@ -52,6 +52,21 @@ data class UsageGroup(
  * than blanking the row, and an unparseable timestamp reads NOT fresh
  * (fail closed — showing a stale percentage as live is the bad direction).
  */
+/**
+ * EXP-804: `coding_sessions.blocked` — the agent's usage wall as row state.
+ * Every field is nullable for the same reason the server's zod mirror is
+ * `.nullish()` throughout: a newer device naming a window this build has no
+ * name for must degrade that field, never fail the whole parse and leave a
+ * walled run rendering healthy.
+ */
+data class CodingSessionBlocked(
+    val kind: String? = null,
+    val agent: String? = null,
+    val window: String? = null,
+    val resetsAt: String? = null,
+    val since: String? = null,
+)
+
 object AgentUsagePresentation {
 
     /** Usage older than this simply isn't rendered. */
@@ -81,6 +96,22 @@ object AgentUsagePresentation {
                 .getOrNull()
                 ?.let { agent to it }
         }.toMap()
+    }
+
+    /**
+     * EXP-804: a run's usage wall from the stored jsonb text; null on absent
+     * or unusable JSON — a run is then simply not shown as blocked, never
+     * guessed.
+     */
+    fun parseBlocked(raw: String?): CodingSessionBlocked? {
+        val obj = parseElement(raw) as? JsonObject ?: return null
+        return CodingSessionBlocked(
+            kind = obj.string("kind"),
+            agent = obj.string("agent"),
+            window = obj.string("window"),
+            resetsAt = obj.string("resetsAt"),
+            since = obj.string("since"),
+        )
     }
 
     private fun parseElement(raw: String?): JsonElement? =
@@ -286,6 +317,24 @@ object AgentUsagePresentation {
             }
             else -> "resets in ${minutes}m"
         }
+    }
+
+    /**
+     * EXP-804: the one-line badge for a run's usage wall — `Rate limited ·
+     * resets in 2h`, or bare `Rate limited` when the agent named no reset
+     * time. Null when the run is not blocked.
+     *
+     * The wall is ORTHOGONAL to the session state: a blocked run still reads
+     * `running`, so this NEVER replaces the display state — it renders beside
+     * it. An unrecognised `kind` still gets a badge (`Blocked`): a future
+     * device reporting a wall this build has no name for must not render
+     * silent. Locked x4 (web `blockedBadgeLabel`).
+     */
+    fun blockedBadgeLabel(blocked: CodingSessionBlocked?, nowMs: Long): String? {
+        if (blocked == null) return null
+        val label = if ((blocked.kind ?: "rate_limit") == "rate_limit") "Rate limited" else "Blocked"
+        val countdown = resetCountdown(blocked.resetsAt, nowMs) ?: return label
+        return "$label · $countdown"
     }
 
     // ── Account captions ─────────────────────────────────────────────────────

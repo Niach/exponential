@@ -31,9 +31,11 @@ import {
   formatChildEndedSilently,
   formatChildFinished,
   formatChildQuestion,
+  formatChildRateLimited,
   formatParentAnswer,
   formatStarterMessage,
   loadChildParentContext,
+  notifyParentOfChildBlocked,
   notifyParentOfChildEnd,
 } from "@/lib/steer-child-messages"
 import type { Context } from "@/lib/trpc"
@@ -88,6 +90,18 @@ describe(`message formats`, () => {
     )
     expect(formatChildQuestion(child, `Which env?`)).toBe(
       `[Exponential child run EXP-12 66666666 asks — reply with exponential_sessions_message sessionId=${CHILD}] Which env?`
+    )
+    // EXP-804: the usage wall, pushed to the parent — the reset rides
+    // VERBATIM as the device reported it, so the parent can compare it.
+    expect(
+      formatChildRateLimited(child, `2026-09-09T01:09Z`)
+    ).toBe(
+      `[Exponential child run EXP-12 66666666 is rate limited until 2026-09-09T01:09Z]`
+    )
+    // No reset time: say so in the parenthetical shape the silent-end
+    // message uses, never a bogus timestamp.
+    expect(formatChildRateLimited(child, null)).toBe(
+      `[Exponential child run EXP-12 66666666 is rate limited (no reset time reported)]`
     )
     expect(formatStarterMessage(`Use staging.`)).toBe(
       `[Message from your starter via exponential_sessions_message] Use staging.`
@@ -167,6 +181,62 @@ describe(`notifyParentOfChildEnd`, () => {
     })
     await expect(
       notifyParentOfChildEnd(db, CHILD, { summary: `s`, endedBy: `agent` })
+    ).resolves.toEqual({ delivered: false })
+  })
+})
+
+describe(`notifyParentOfChildBlocked`, () => {
+  it(`injects the rate-limit message into a live parent`, async () => {
+    h.dbRows.current = [childRow()]
+    await expect(
+      notifyParentOfChildBlocked(db, CHILD, { resetsAt: `2026-09-09T01:09Z` })
+    ).resolves.toEqual({ delivered: true })
+    expect(relayPostInput).toHaveBeenCalledWith(
+      RELAY,
+      PARENT,
+      `[Exponential child run EXP-12 66666666 is rate limited until 2026-09-09T01:09Z]`
+    )
+  })
+
+  it(`injects the no-reset wording when the agent named no reset time`, async () => {
+    h.dbRows.current = [childRow()]
+    await notifyParentOfChildBlocked(db, CHILD, { resetsAt: null })
+    expect(relayPostInput).toHaveBeenCalledWith(
+      RELAY,
+      PARENT,
+      `[Exponential child run EXP-12 66666666 is rate limited (no reset time reported)]`
+    )
+  })
+
+  it.each([
+    [`no row`, []],
+    [`not agent-started`, [childRow({ startedReason: `schedule` })]],
+    [`no parent linked`, [childRow({ parentSessionId: null })]],
+    [`parent ended`, [childRow({ parentStatus: `ended` })]],
+    [`parent row gone`, [childRow({ parentStatus: null })]],
+  ])(`no-ops when %s`, async (_name, rows) => {
+    h.dbRows.current = rows
+    await expect(
+      notifyParentOfChildBlocked(db, CHILD, { resetsAt: null })
+    ).resolves.toEqual({ delivered: false })
+    expect(relayPostInput).not.toHaveBeenCalled()
+  })
+
+  it(`no-ops when the relay is not configured`, async () => {
+    h.dbRows.current = [childRow()]
+    vi.mocked(getSteerRelayConfig).mockReturnValue(null)
+    await expect(
+      notifyParentOfChildBlocked(db, CHILD, { resetsAt: null })
+    ).resolves.toEqual({ delivered: false })
+    expect(relayPostInput).not.toHaveBeenCalled()
+  })
+
+  it(`never throws — a db failure reads as not-delivered`, async () => {
+    h.db.select.mockImplementationOnce(() => {
+      throw new Error(`boom`)
+    })
+    await expect(
+      notifyParentOfChildBlocked(db, CHILD, { resetsAt: null })
     ).resolves.toEqual({ delivered: false })
   })
 })

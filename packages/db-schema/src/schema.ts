@@ -25,6 +25,7 @@ import {
   type ActionInputDef,
   actionInputsSchema,
   type AutomationTrigger,
+  type CodingSessionBlocked,
   codingSessionStatusSchema,
   commentBodyWithAttachmentsSchema,
   commentSourceValues,
@@ -860,6 +861,14 @@ export const codingSessions = pgTable(
     // with running/in_review (which stay server-owned) instead of being a
     // status of its own; cleared by the desktop when the picker resolves.
     needsInput: boolean(`needs_input`).notNull().default(false),
+    // EXP-804: the agent's usage wall as row state. NULL = not blocked. The
+    // run stays `running` — a blocked run is still live, steerable and
+    // killable; this is orthogonal to status, like `needs_input` above.
+    // `resetsAt`/`since` are ISO strings (the steer wire carries unix ms and
+    // claude's own frame unix seconds — both normalised on the device so this
+    // matches DeviceUsageWindow.resetsAt). Written by the run's device and
+    // cleared on the next assistant token.
+    blocked: jsonb(`blocked`).$type<CodingSessionBlocked>(),
     // EXP-701: the device's pickup ack. The launching device creates this row
     // right before it spawns the agent, then its FIRST liveness heartbeat —
     // fired immediately after the spawn — stamps this (the server coalesces it

@@ -14,6 +14,8 @@ import {
 } from "@/components/issue-coding-rows"
 import { relativeTime } from "@/components/comment-rows/format"
 import { agentLabel } from "@/components/agent-usage-bar"
+import { blockedBadgeLabel } from "@/lib/agent-usage"
+import { useNow } from "@/hooks/use-now"
 import { pastRunByline, pastRunEndedAt } from "@/lib/past-runs"
 import { actionCollection } from "@/lib/collections"
 import { getActionIcon } from "@/lib/board-icons"
@@ -125,6 +127,9 @@ export function SessionRow({
   // (use-agents-data) — same button either way.
   const mergeTarget = row.mergeTarget
   const displayState = sessionDisplayState(session, rowPrState(session, issue))
+  // EXP-804: null unless the device reported the agent's usage wall on this
+  // row. Orthogonal to `displayState`, so it renders alongside it.
+  const blockedLabel = blockedBadgeLabel(session.blocked, useNow(30_000))
   // EXP-549/550: the host machine per the synced devices row — its RENAMED
   // label, and greyed-out "Paused" while it is offline (the agent is parked,
   // not gone; it resumes when the machine comes back).
@@ -195,6 +200,15 @@ export function SessionRow({
                 {STATE_LABEL[displayState].text}
               </span>
             )
+          )}
+          {/* EXP-804: the agent's usage wall, BESIDE the state and never
+              instead of it — a walled run is still running, just unable to
+              make a call. Amber, the same attention tone "Needs input" uses,
+              and absent entirely when the run is not blocked. */}
+          {blockedLabel && (
+            <span className="shrink-0 font-medium text-amber-400">
+              {blockedLabel}
+            </span>
           )}
           <span className="truncate">
             {`${device.label || session.deviceLabel || `Desktop`}${paused ? ` (offline)` : ``} · started ${relativeTime(session.startedAt)}`}

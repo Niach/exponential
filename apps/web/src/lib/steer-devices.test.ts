@@ -10,7 +10,9 @@ import {
   deviceDefaultAgent,
   deviceIsMine,
   deviceSupportsAcp,
+  deviceProfileUsage,
   deviceUpdateAvailable,
+  deviceUsageWallAt,
   showDeviceUpdateButton,
   type SteerDevice,
 } from "./steer-devices"
@@ -602,5 +604,160 @@ describe(`acp agents (EXP-749)`, () => {
       { now: NOW, currentUserId: `me` }
     )
     expect(deviceAcpAgentIds(mapped)).toEqual([`claude`])
+  })
+})
+
+// EXP-804: the START-time half of the usage wall. Getting this wrong in
+// either direction is expensive — refusing a healthy machine blocks work,
+// and letting a spent one through produces the silent run the whole issue
+// exists to prevent — so both directions are pinned here.
+describe(`deviceUsageWallAt`, () => {
+  const NOW = new Date(`2026-09-09T12:00:00.000Z`)
+  const RESET = `2026-09-09T14:30:00.000Z`
+  const fresh = `2026-09-09T11:58:00.000Z`
+
+  const usage = (
+    windows: { key: string; percent: number; resetsAt?: string | null }[],
+    fetchedAt = fresh
+  ) => ({
+    fetchedAt,
+    stale: false,
+    windows: windows.map((w) => ({
+      key: w.key,
+      label: w.key,
+      percent: w.percent,
+      resetsAt: w.resetsAt ?? null,
+    })),
+  })
+
+  const device = (over: Partial<SteerDevice> = {}): SteerDevice => ({
+    deviceId: `dev-1`,
+    deviceLabel: `mint`,
+    online: true,
+    agentUsage: { claude: usage([{ key: `session`, percent: 100, resetsAt: RESET }]) },
+    ...over,
+  })
+
+  it(`is the reset of a fresh, fully spent window`, () => {
+    expect(deviceUsageWallAt(device(), `claude`, undefined, NOW)).toEqual(
+      new Date(RESET)
+    )
+  })
+
+  it(`binds on the window that resets LAST`, () => {
+    // Both spent: the agent cannot work again until the later one resets.
+    const later = `2026-09-10T09:00:00.000Z`
+    const row = device({
+      agentUsage: {
+        claude: usage([
+          { key: `session`, percent: 100, resetsAt: RESET },
+          { key: `weekly`, percent: 100, resetsAt: later },
+        ]),
+      },
+    })
+    expect(deviceUsageWallAt(row, `claude`, undefined, NOW)).toEqual(
+      new Date(later)
+    )
+  })
+
+  it(`fails open on a half-spent window`, () => {
+    const row = device({
+      agentUsage: {
+        claude: usage([{ key: `session`, percent: 99, resetsAt: RESET }]),
+      },
+    })
+    expect(deviceUsageWallAt(row, `claude`, undefined, NOW)).toBeNull()
+  })
+
+  it(`fails open on STALE numbers`, () => {
+    // A machine that stopped reporting is not a machine out of credit.
+    const row = device({
+      agentUsage: {
+        claude: usage(
+          [{ key: `session`, percent: 100, resetsAt: RESET }],
+          `2026-09-09T11:00:00.000Z`
+        ),
+      },
+    })
+    expect(deviceUsageWallAt(row, `claude`, undefined, NOW)).toBeNull()
+  })
+
+  it(`fails open with no reset, a past reset, or no report at all`, () => {
+    const noReset = device({
+      agentUsage: { claude: usage([{ key: `session`, percent: 100 }]) },
+    })
+    expect(deviceUsageWallAt(noReset, `claude`, undefined, NOW)).toBeNull()
+    const past = device({
+      agentUsage: {
+        claude: usage([
+          { key: `session`, percent: 100, resetsAt: `2026-09-09T11:00:00.000Z` },
+        ]),
+      },
+    })
+    expect(deviceUsageWallAt(past, `claude`, undefined, NOW)).toBeNull()
+    expect(
+      deviceUsageWallAt(device({ agentUsage: undefined }), `claude`, undefined, NOW)
+    ).toBeNull()
+    // A different agent on the same machine is unaffected.
+    expect(deviceUsageWallAt(device(), `codex`, undefined, NOW)).toBeNull()
+  })
+})
+
+describe(`deviceProfileUsage`, () => {
+  const NOW = new Date(`2026-09-09T12:00:00.000Z`)
+  const window = (percent: number) => ({
+    fetchedAt: `2026-09-09T11:58:00.000Z`,
+    stale: false,
+    windows: [
+      {
+        key: `session`,
+        label: `5h`,
+        percent,
+        resetsAt: `2026-09-09T14:30:00.000Z`,
+      },
+    ],
+  })
+
+  it(`prefers a profile's OWN numbers over the top-level slot`, () => {
+    const row: SteerDevice = {
+      deviceId: `dev-1`,
+      deviceLabel: `mint`,
+      agentUsage: { claude: window(100) },
+      agentAccounts: {
+        claude: {
+          signedIn: true,
+          profiles: [
+            { id: `work`, signedIn: true, active: true, usage: window(10) },
+          ],
+        },
+      },
+    }
+    expect(deviceProfileUsage(row, `claude`, undefined)?.windows[0].percent).toBe(10)
+    expect(deviceUsageWallAt(row, `claude`, undefined, NOW)).toBeNull()
+  })
+
+  it(`falls the ACTIVE profile back to the pre-profile slot`, () => {
+    const row: SteerDevice = {
+      deviceId: `dev-1`,
+      deviceLabel: `mint`,
+      agentUsage: { claude: window(100) },
+      agentAccounts: {
+        claude: { signedIn: true, profiles: [{ id: `work`, signedIn: true, active: true }] },
+      },
+    }
+    expect(deviceProfileUsage(row, `claude`, undefined)?.windows[0].percent).toBe(100)
+  })
+
+  it(`treats a profile this device does not have as UNKNOWN, not spent`, () => {
+    const row: SteerDevice = {
+      deviceId: `dev-1`,
+      deviceLabel: `mint`,
+      agentUsage: { claude: window(100) },
+      agentAccounts: {
+        claude: { signedIn: true, profiles: [{ id: `work`, signedIn: true, active: true }] },
+      },
+    }
+    expect(deviceProfileUsage(row, `claude`, `other`)).toBeNull()
+    expect(deviceUsageWallAt(row, `claude`, `other`, NOW)).toBeNull()
   })
 })

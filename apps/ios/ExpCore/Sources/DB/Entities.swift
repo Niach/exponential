@@ -377,6 +377,13 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
     // Desktop-written attention flag (EXP-214): the agent is parked on a
     // plan-approval / AskUserQuestion picker and waits for a human.
     public let needsInput: Bool
+    // EXP-804: the agent's usage wall, stored as the raw jsonb TEXT off the
+    // wire (`{kind, agent, window, resetsAt, since}`) exactly like the device
+    // row's `agentUsage`; nil = not blocked. Orthogonal to `status` the way
+    // `needsInput` is: a blocked run still reads `running` and stays live and
+    // killable, so ignoring this would render a silently walled run healthy.
+    // Parsed for display by `AgentUsagePresentation.blockedBadgeLabel`.
+    public let blocked: String?
     // Action run linkage (EXP-253): set on a session started from a team
     // action. `actionId` nulls if the action is later deleted (server FK SET
     // NULL) while `actionName` — a display snapshot — keeps labeling the run.
@@ -434,6 +441,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         agent: String? = nil,
         branch: String? = nil,
         needsInput: Bool = false,
+        blocked: String? = nil,
         actionId: String? = nil,
         actionName: String? = nil,
         startedReason: String? = nil,
@@ -460,6 +468,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         self.agent = agent
         self.branch = branch
         self.needsInput = needsInput
+        self.blocked = blocked
         self.actionId = actionId
         self.actionName = actionName
         self.startedReason = startedReason
@@ -485,6 +494,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         case deviceLabel = "device_label"
         case deviceId = "device_id"
         case needsInput = "needs_input"
+        case blocked
         case actionId = "action_id"
         case actionName = "action_name"
         case startedReason = "started_reason"
@@ -522,6 +532,9 @@ extension CodingSessionEntity: Codable {
         // Pre-EXP-545 snapshots omit the key — decode permissively.
         branch = try c.decodeIfPresent(String.self, forKey: .branch)
         needsInput = c.decodeWireBool(forKey: .needsInput, default: false)
+        // EXP-804: jsonb — raw text off the wire, a native object from
+        // fixtures; pre-EXP-804 snapshots omit the key entirely.
+        blocked = c.decodeWireJsonString(forKey: .blocked)
         actionId = try c.decodeIfPresent(String.self, forKey: .actionId)
         actionName = try c.decodeIfPresent(String.self, forKey: .actionName)
         startedReason = try c.decodeIfPresent(String.self, forKey: .startedReason)

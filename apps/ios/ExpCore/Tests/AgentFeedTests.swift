@@ -872,6 +872,41 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertFalse(AgentFeed.rateLimitClears("allowed"))
     }
 
+    // EXP-786: the publisher's cut note is a footer, never a diff line.
+    // Mirrors web `per-call diff truncation (EXP-786)` case for case.
+    func testPerCallDiffTruncationSplitsTheTrailingNoteOff() {
+        let diff = "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b"
+        var split = AgentFeed.splitTruncatedDiff("\(diff)\n\\ 120 more lines truncated")
+        XCTAssertEqual(split.diff, diff)
+        XCTAssertEqual(split.truncated, 120)
+        // Singular wording, and trailing whitespace after the note.
+        split = AgentFeed.splitTruncatedDiff("\(diff)\n\\ 1 more line truncated\n")
+        XCTAssertEqual(split.diff, diff)
+        XCTAssertEqual(split.truncated, 1)
+    }
+
+    func testPerCallDiffTruncationLeavesAnUncutDiffAlone() {
+        let diff = "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b"
+        // git's OWN `\ ` marker shares the prefix and must survive as a line.
+        let eof = "\(diff)\n\\ No newline at end of file"
+        var split = AgentFeed.splitTruncatedDiff(eof)
+        XCTAssertEqual(split.diff, eof)
+        XCTAssertNil(split.truncated)
+        // The note only counts as the LAST line.
+        let mid = "\\ 12 more lines truncated\n\(diff)"
+        split = AgentFeed.splitTruncatedDiff(mid)
+        XCTAssertEqual(split.diff, mid)
+        XCTAssertNil(split.truncated)
+        split = AgentFeed.splitTruncatedDiff("")
+        XCTAssertEqual(split.diff, "")
+        XCTAssertNil(split.truncated)
+    }
+
+    func testPerCallDiffTruncationWordsTheFooter() {
+        XCTAssertEqual(AgentFeed.diffTruncationNote(1), "1 more line truncated")
+        XCTAssertEqual(AgentFeed.diffTruncationNote(120), "120 more lines truncated")
+    }
+
     func testApplyUsageRefusesAZeroContextSize() {
         let usage = AgentFeed.applyUsage(nil, event: [
             "contextUsed": 124_000, "contextSize": 200_000, "costUsd": 1.24,

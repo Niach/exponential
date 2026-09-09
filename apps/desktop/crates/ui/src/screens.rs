@@ -190,6 +190,9 @@ pub(crate) fn build_screen_content(
         Screen::Automations => cx
             .new(|cx| crate::automations_view::AutomationsView::new(window, cx))
             .into(),
+        Screen::Usage => cx
+            .new(|cx| crate::usage_view::UsageView::new(window, cx))
+            .into(),
         Screen::Chat => cx
             .new(|cx| crate::chat_screen::ChatScreenView::new(window, cx))
             .into(),
@@ -687,6 +690,10 @@ pub struct ScreensPanel {
     /// The Automations page (EXP-686 — the automation rows plus the
     /// "Recent automated runs" log).
     automations: Entity<crate::automations_view::AutomationsView>,
+    /// The Usage page (EXP-807 — every machine's agent usage, one row per
+    /// device × agent profile; the same tab-less full-page mode, opened from
+    /// the Devices page's header).
+    usage: Entity<crate::usage_view::UsageView>,
     /// The Chat page (EXP-772 — the centred prompt box; the same tab-less
     /// full-page mode).
     chat: Entity<crate::chat_screen::ChatScreenView>,
@@ -748,6 +755,7 @@ impl ScreensPanel {
         let actions = cx.new(|cx| crate::actions_view::ActionsView::new(window, cx));
         let automations =
             cx.new(|cx| crate::automations_view::AutomationsView::new(window, cx));
+        let usage = cx.new(|cx| crate::usage_view::UsageView::new(window, cx));
         let chat = cx.new(|cx| crate::chat_screen::ChatScreenView::new(window, cx));
         let reviews = cx.new(|cx| crate::reviews_view::ReviewsView::new(window, cx));
         let getting_started =
@@ -844,6 +852,7 @@ impl ScreensPanel {
             devices,
             actions,
             automations,
+            usage,
             chat,
             reviews,
             getting_started,
@@ -1046,6 +1055,7 @@ impl ScreensPanel {
             | Screen::Devices
             | Screen::Actions
             | Screen::Automations
+            | Screen::Usage
             | Screen::Chat
             | Screen::Reviews
             | Screen::GettingStarted { .. }
@@ -2594,6 +2604,7 @@ impl Render for ScreensPanel {
             Some(Screen::Devices) => self.devices.clone().into_any_element(),
             Some(Screen::Actions) => self.actions.clone().into_any_element(),
             Some(Screen::Automations) => self.automations.clone().into_any_element(),
+            Some(Screen::Usage) => self.usage.clone().into_any_element(),
             Some(Screen::Chat) => self.chat.clone().into_any_element(),
             Some(Screen::Reviews) => self.reviews.clone().into_any_element(),
             Some(Screen::GettingStarted { .. }) => {

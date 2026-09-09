@@ -6725,6 +6725,7 @@ mod tests {
                 ("EXP_MCP_TOKEN_1".to_string(), "oauth-access-token-value-1".to_string()),
                 ("GITHUB_TOKEN".to_string(), "ghp_typed_value_2".to_string()),
             ],
+            warnings: Vec::new(),
         }
     }
 

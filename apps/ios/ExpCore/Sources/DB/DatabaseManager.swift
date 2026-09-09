@@ -402,6 +402,11 @@ public final class DatabaseManager: @unchecked Sendable {
                 // detection).
                 t.column("device_id", .text)
                 t.column("needs_input", .boolean).notNull().defaults(to: false)
+                // EXP-804: the agent's usage wall as row state (raw jsonb
+                // text, NULL = not blocked). A blocked run still reads
+                // `running`, so this is what tells a walled run from a
+                // healthy one.
+                t.column("blocked", .text)
                 // Action run linkage (EXP-253): both NULL on ordinary
                 // issue/batch sessions; action_name outlives a deleted action
                 // (server FK SET NULL keeps the snapshot label).
@@ -1300,6 +1305,29 @@ public final class DatabaseManager: @unchecked Sendable {
                     UPDATE "electric_offsets"
                     SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
                     WHERE "shape" = 'devices'
+                    """)
+            }
+        }
+
+        // EXP-804: the agent's usage wall as coding_sessions row state.
+        migrator.registerMigration("v30_coding_session_blocked") { db in
+            // Table-existence guard (the v4 precedent): migration-fixture DBs
+            // carry only the minimal schema and have no coding_sessions.
+            guard try db.tableExists("coding_sessions") else { return }
+            let existing = Set(try db.columns(in: "coding_sessions").map(\.name))
+            if !existing.contains("blocked") {
+                try db.alter(table: "coding_sessions") { t in
+                    t.add(column: "blocked", .text)
+                }
+            }
+            // Force a re-snapshot so already-synced rows pick up the column.
+            // The shape key is 'coding-sessions' WITH A DASH (the proxy route
+            // name), not the SQLite table name.
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'coding-sessions'
                     """)
             }
         }

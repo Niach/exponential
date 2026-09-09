@@ -21,6 +21,7 @@ import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueStatusEntity
+import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.electric.SyncStats
@@ -49,6 +50,7 @@ import com.exponential.app.domain.resolveSessionDevice
 import com.exponential.app.ui.issue.StartIssueOption
 import com.exponential.app.ui.markdown.AttachmentDims
 import com.exponential.app.ui.markdown.IssueRefTarget
+import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.steer.ActionRunState
 import com.exponential.app.ui.steer.SteerLaunchDelegate
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -258,6 +260,29 @@ class AgentSessionViewModel @Inject constructor(
                 }
             }
         }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * EXP-802/EXP-805 — the run team's members, the steer composer's `@`
+     * vocabulary. The same lookup the issue screens make
+     * (`IssueDetailViewModel.teamUsers`, `db.userDao().observeByTeam`), scoped
+     * to the SESSION's team for the same reason [issueRefCandidates] is: a
+     * batch, action or chat run has no issue and no board to derive one from.
+     * A mention is stored as the plain `@email` the server resolves, so the
+     * display name only ever labels the row.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val mentionMembers: StateFlow<List<MentionMember>> = session
+        .map { it?.teamId }
+        .distinctUntilChanged()
+        .flatMapLatest { teamId ->
+            if (teamId == null) {
+                flowOf(emptyList())
+            } else {
+                dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeByTeam(teamId) }
+            }
+        }
+        .map { users -> users.map { MentionMember(it.name ?: it.email, it.email) } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**

@@ -112,6 +112,11 @@ pub struct MapOut {
     pub local: Vec<LocalFeedEvent>,
     pub needs_input: Option<bool>,
     pub idle: Option<bool>,
+    /// EXP-804: a CHANGE to the agent's usage wall — `Some(Some(..))` hit
+    /// one, `Some(None)` cleared it, `None` said nothing about it. Nested
+    /// exactly like `needs_input`'s `Option<bool>`: the outer layer is "did
+    /// this step speak", the inner one is the value.
+    pub blocked: Option<Option<steer::SessionBlocked>>,
 }
 
 /// Identifies one parked ask so an inbound `answer` frame can find the ACP
@@ -1517,7 +1522,8 @@ impl Mapper {
         let message = message
             .map(|message| self.clean(message.trim(), RATE_LIMIT_MESSAGE_MAX))
             .filter(|message| !message.is_empty());
-        let event = if steer::rate_limit_clears(&status) {
+        let clears = steer::rate_limit_clears(&status);
+        let event = if clears {
             ActivityEvent::rate_limit("", None, None)
         } else {
             ActivityEvent::rate_limit(status, resets_at.filter(|at| *at >= 0), message)
@@ -1526,6 +1532,25 @@ impl Mapper {
             return;
         }
         self.last_rate_limit = Some(event.clone());
+        // EXP-804: the same edge that drives the viewer's banner drives the
+        // ROW's durable `blocked`. The banner only exists while somebody
+        // watches the stream; the row is what a teammate's list and a parent
+        // agent's `sessions_get` read, and it is the only place a walled run
+        // is distinguishable from a healthy one.
+        out.blocked = Some(if clears {
+            None
+        } else {
+            Some(steer::SessionBlocked {
+                kind: steer::activity::BLOCKED_KIND_RATE_LIMIT.to_string(),
+                agent: self.config.agent.id().to_string(),
+                // The agent names a status, not a window. `session` is the
+                // wall a run actually hits (claude's 5h credit frame); a
+                // future producer that names its window fills this properly.
+                window: steer::activity::BLOCKED_WINDOW_SESSION.to_string(),
+                resets_at: resets_at.and_then(steer::iso_from_unix_millis),
+                since: coding::agent_accounts::now_iso(),
+            })
+        });
         emit(out, event, None);
     }
 

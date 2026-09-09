@@ -488,6 +488,49 @@ pub fn set_needs_input(trpc: &TrpcClient, id: &str, needs_input: bool) -> Result
     Ok(envelope.updated)
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlockedInput<'a> {
+    pub kind: &'a str,
+    pub agent: &'a str,
+    pub window: &'a str,
+    pub resets_at: Option<&'a str>,
+    pub since: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SetBlockedInput<'a> {
+    id: &'a str,
+    /// `None` clears the wall — the server takes an explicit null.
+    blocked: Option<BlockedInput<'a>>,
+}
+
+#[derive(Deserialize)]
+struct SetBlockedEnvelope {
+    updated: bool,
+}
+
+/// `codingSessions.setBlocked` — mutation (EXP-804). Records the agent's
+/// usage wall on the synced row, or clears it with `None`. The device is the
+/// only thing that can see the wall, and a walled run keeps status `running`
+/// with a moving `updated_at`, so this write is the ONLY thing separating a
+/// rate-limited run from a healthy one on every other client.
+///
+/// Fire-and-forget like `set_needs_input`: `updated: false` (row swept or
+/// ended) and transport errors are both ignorable — [`steer::BlockedForwarder`]
+/// retries an unlanded write, and the server fires the parent notification
+/// only on the null -> set transition, so a retry never nags twice.
+pub fn set_blocked(
+    trpc: &TrpcClient,
+    id: &str,
+    blocked: Option<BlockedInput<'_>>,
+) -> Result<bool, ApiError> {
+    let envelope: SetBlockedEnvelope =
+        trpc.mutation("codingSessions.setBlocked", &SetBlockedInput { id, blocked })?;
+    Ok(envelope.updated)
+}
+
 /// `codingSessions.heartbeat` — mutation. Advances the synced row's
 /// `updated_at` while the claude child is alive so the server's staleness
 /// sweep (which DELETES `running` rows whose liveness signal stopped) never

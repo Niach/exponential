@@ -23,6 +23,7 @@ import type {
   DeviceAgentUsageMap,
   DeviceUsageWindow,
 } from "@/db/schema"
+import type { CodingSessionBlocked } from "@exp/db-schema/domain"
 
 /** Usage numbers older than this are STALE: the bar dims and captions itself
  * `as of <relative>` instead of claiming to be current. Fails closed — a
@@ -134,6 +135,28 @@ export function formatResetCountdown(
   const days = Math.floor(hours / 24)
   const rest = hours % 24
   return rest === 0 ? `resets in ${days}d` : `resets in ${days}d ${rest}h`
+}
+
+/** EXP-804: the one-line badge for a run's usage wall
+ * (`coding_sessions.blocked`) — `Rate limited · resets in 2h`, or bare
+ * `Rate limited` when the agent named no reset time. Null when the run is not
+ * blocked, so a caller can render it beside the session state with a single
+ * truthiness check.
+ *
+ * The wall is ORTHOGONAL to the session state: a blocked run still reads
+ * `running`, so this NEVER replaces `sessionDisplayState` — it renders next
+ * to it. An unrecognised `kind` still gets a badge (`Blocked`): a future
+ * device reporting a wall this build has no name for must not render silent.
+ */
+export function blockedBadgeLabel(
+  blocked: CodingSessionBlocked | null | undefined,
+  now: Date
+): string | null {
+  if (!blocked) return null
+  const kind = blocked.kind ?? `rate_limit`
+  const label = kind === `rate_limit` ? `Rate limited` : `Blocked`
+  const countdown = formatResetCountdown(blocked.resetsAt, now)
+  return countdown ? `${label} · ${countdown}` : label
 }
 
 export type UsageGroupKey = `session` | `weekly` | `other`
@@ -408,6 +431,14 @@ export function parseAgentLoginResult(
 // device that reports none (an older build) falls back to the top-level
 // account + `agentUsage[agent]` as the single `system` row, so the page never
 // goes blank on a pre-profile machine.
+//
+// EXP-807: this section is mirrored on the DESKTOP — same names, same
+// fallbacks, same ordering — in `apps/desktop/crates/ui/src/usage_bar.rs`
+// (`agent_profile_usage_rows` / `peak_percent` / `attention_rank` /
+// `sort_attention_first` / `refresh_allowed_at`), rendered by its
+// `usage_view.rs`. A web+desktop PAIR, not the ×4 rule above it: iOS and
+// Android ship no usage page (`packages/view-catalog/views.json`), only the
+// per-run sheet the cards feed. Change a rule here, change it there.
 
 /** The ambient login's profile id — byte-identical with the desktop's
  * `agent_profiles::SYSTEM_PROFILE`. */

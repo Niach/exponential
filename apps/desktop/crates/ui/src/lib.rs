@@ -129,6 +129,7 @@ mod timeline;
 mod title_bar;
 mod undock;
 mod usage_bar;
+mod usage_view;
 mod undocked_terminal;
 mod update;
 mod user_avatar;

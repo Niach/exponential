@@ -557,6 +557,7 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
         terminals: Default::default(),
         ids: Mutex::new(SessionIds::default()),
         needs_input: AtomicBool::new(false),
+        blocked: Mutex::new(None),
         last_activity: Mutex::new(std::time::Instant::now()),
         failure: Mutex::new(None),
         exit: ExitState::default(),

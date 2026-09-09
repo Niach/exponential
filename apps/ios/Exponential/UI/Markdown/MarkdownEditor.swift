@@ -465,6 +465,15 @@ struct BlockTextEditor: UIViewRepresentable {
     var singleLine = false
     /// Column alignment from the table's delimiter row.
     var textAlignment: NSTextAlignment = .natural
+    /// `singleLine` only: what the return key says. A cell moves to the "next"
+    /// one; EXP-802's composer field sends.
+    var returnKeyType: UIReturnKeyType = .next
+    /// `singleLine` only: whether a PASTED multi-line block collapses to one
+    /// line. True for a table cell — a cell is one inline paragraph on every
+    /// client and a newline may never enter its storage. False for the steer
+    /// composer (EXP-802): pasting a stack trace into a message to an agent
+    /// has to keep its lines, and that draft never serializes as a table cell.
+    var flattensPastedNewlines = true
     /// Return in `singleLine` mode. Nil swallows the newline.
     var onReturn: (() -> Void)?
     /// EXP-727 — set only on an editable table cell: adds "Delete table" to
@@ -509,7 +518,7 @@ struct BlockTextEditor: UIViewRepresentable {
         if singleLine {
             // The cell is one line of prose, so the keyboard offers "next" and
             // autocapitalisation stays sentence-shaped like every other block.
-            tv.returnKeyType = .next
+            tv.returnKeyType = returnKeyType
             tv.textContainerInset = UIEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
         }
         if !isReadOnly, let toolbar {
@@ -523,6 +532,7 @@ struct BlockTextEditor: UIViewRepresentable {
         coord.blockId = blockId
         coord.onPasteImage = onPasteImage
         coord.singleLine = singleLine
+        coord.flattensPastedNewlines = flattensPastedNewlines
         coord.onReturn = onReturn
         coord.onDeleteTable = onDeleteTable
         coord.appliedRevision = revision
@@ -605,6 +615,7 @@ struct BlockTextEditor: UIViewRepresentable {
         coord.blockId = blockId
         coord.onPasteImage = onPasteImage
         coord.singleLine = singleLine
+        coord.flattensPastedNewlines = flattensPastedNewlines
         coord.onReturn = onReturn
         coord.onDeleteTable = onDeleteTable
         tv.onDeleteBackwardAtStart = { [weak coord] in coord?.handleDeleteBackwardAtStart() }
@@ -657,6 +668,8 @@ struct BlockTextEditor: UIViewRepresentable {
         var onPasteImage: ((UIImage) -> Void)?
         /// EXP-726 — see `BlockTextEditor.singleLine`.
         var singleLine = false
+        /// EXP-802 — see `BlockTextEditor.flattensPastedNewlines`.
+        var flattensPastedNewlines = true
         var onReturn: (() -> Void)?
         /// EXP-727 — see `BlockTextEditor.onDeleteTable`.
         var onDeleteTable: (() -> Void)?
@@ -891,6 +904,11 @@ struct BlockTextEditor: UIViewRepresentable {
                     onReturn?()
                     return false
                 }
+                // EXP-802: a composer field keeps a pasted block's lines — see
+                // `BlockTextEditor.flattensPastedNewlines`. Only the RETURN key
+                // above is intercepted there, which is what keeps the document
+                // one block.
+                guard flattensPastedNewlines else { return true }
                 let flattened = text.components(separatedBy: .newlines).joined(separator: " ")
                 let attrs = MarkdownChipDecorator.sanitizedTypingAttributes(tv.typingAttributes)
                 storage.beginEditing()

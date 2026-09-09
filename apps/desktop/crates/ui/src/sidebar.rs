@@ -330,6 +330,7 @@ fn parse_dev_settings_section(spec: &str) -> Option<crate::settings::SettingsSec
         "account" => Some(S::Account),
         "notifications" => Some(S::Notifications),
         "api-keys" => Some(S::ApiKeys),
+        "mcp-servers" => Some(S::McpServers),
         "about" => Some(S::About),
         _ => spec.strip_prefix("board:").map(|id| S::Board(id.to_string())),
     }

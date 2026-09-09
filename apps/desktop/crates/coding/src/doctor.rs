@@ -378,6 +378,23 @@ impl DoctorReport {
         accounts
     }
 
+    /// Whether the AMBIENT login of `agent` may be asked for usage windows
+    /// (EXP-808) — the same judgement [`probe_profile_auth`] makes for a
+    /// profile dir, made from the doctor's own check: claude needs a
+    /// first-party `claude.ai` subscription
+    /// ([`ClaudeAuthStatus::usage_eligible`]), codex and pi need only to be
+    /// installed and signed in (they answer over their own surfaces).
+    pub fn ambient_usage_eligible(&self, agent: CodingAgent) -> bool {
+        let check = self.check_for(agent);
+        if check.version.is_none() || check.signed_out() {
+            return false;
+        }
+        match agent {
+            CodingAgent::Claude => check.usage_eligible,
+            CodingAgent::Codex | CodingAgent::Pi => true,
+        }
+    }
+
     /// EXP-792 (EXP-747 B3): [`DoctorReport::agent_accounts`] plus the
     /// device's ACCOUNT PROFILES — one probe per profile dir, so a machine
     /// with two claude logins reports both.
@@ -396,7 +413,24 @@ impl DoctorReport {
         data_dir: &Path,
         now: &str,
     ) -> AgentAccounts {
+        self.agent_accounts_detailed(settings, data_dir, now).accounts
+    }
+
+    /// EXP-808: [`Self::agent_accounts_with_profiles`] plus the one thing
+    /// the wire rows cannot carry — whether each LOGIN's usage windows may
+    /// be fetched at all ([`ProfileAccounts::usage_eligible`]).
+    ///
+    /// The eligibility is a by-product of the sign-in probe this pass
+    /// already runs per profile dir, so the usage collector reads it here
+    /// instead of spawning a second `auth status` of its own.
+    pub fn agent_accounts_detailed(
+        &self,
+        settings: &Settings,
+        data_dir: &Path,
+        now: &str,
+    ) -> ProfileAccounts {
         let mut accounts = self.agent_accounts(now);
+        let mut usage_eligible = BTreeMap::new();
         for agent in CodingAgent::ALL {
             let Some(base) = accounts.get(agent.id()).cloned() else {
                 continue;
@@ -418,20 +452,30 @@ impl DoctorReport {
                 // every other profile gets its own `auth status` inside its
                 // config dir. An unreadable answer reads as signed OUT: a
                 // profile is explicit, so silence is not "assume fine".
-                let account = if system {
-                    base.clone()
+                let (account, eligible) = if system {
+                    let eligible = self.ambient_usage_eligible(agent);
+                    (base.clone(), eligible)
                 } else {
                     crate::agent_profiles::profile_dir(data_dir, agent, &profile.id)
                         .and_then(|dir| {
                             probe_profile_auth(agent, program, &path_env, &dir, now)
                         })
-                        .map(|probe| probe.account)
-                        .unwrap_or_else(|| AgentAccount {
-                            signed_in: false,
-                            checked_at: now.to_string(),
-                            ..AgentAccount::default()
+                        .map(|probe| (probe.account, probe.usage_eligible))
+                        .unwrap_or_else(|| {
+                            (
+                                AgentAccount {
+                                    signed_in: false,
+                                    checked_at: now.to_string(),
+                                    ..AgentAccount::default()
+                                },
+                                false,
+                            )
                         })
                 };
+                usage_eligible.insert(
+                    crate::usage_cache::entry_key(agent.id(), &profile.id),
+                    eligible,
+                );
                 rows.push(crate::agent_accounts::AgentProfileEntry {
                     id: profile.id.clone(),
                     label: Some(profile.label.clone()),
@@ -454,8 +498,23 @@ impl DoctorReport {
             account.profiles = rows;
             accounts.insert(agent.id().to_string(), account);
         }
-        accounts
+        ProfileAccounts {
+            accounts,
+            usage_eligible,
+        }
     }
+}
+
+/// EXP-808 — [`DoctorReport::agent_accounts_detailed`]'s answer: the wire
+/// map plus the per-LOGIN usage eligibility that never rides the wire.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProfileAccounts {
+    pub accounts: AgentAccounts,
+    /// `usage_cache::entry_key(agent, profile)` → may this login's usage
+    /// windows be fetched at all. Only agents that HAVE custom profiles
+    /// appear here; every other login is judged by
+    /// [`DoctorReport::ambient_usage_eligible`].
+    pub usage_eligible: BTreeMap<String, bool>,
 }
 
 /// What a device tells the relay + registry about its agent CLIs (EXP-409):

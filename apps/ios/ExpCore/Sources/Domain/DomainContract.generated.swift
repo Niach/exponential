@@ -24,6 +24,8 @@ public enum DomainContract {
     public static let prStateValues: [String] = ["open", "closed", "merged", "draft"]
     public static let codingSessionStatusValues: [String] = ["running", "in_review", "ended"]
     public static let codingSessionEndedByValues: [String] = ["agent", "user", "client", "merge", "system"]
+    public static let codingSessionBlockedKinds: [String] = ["rate_limit"]
+    public static let codingSessionBlockedWindows: [String] = ["session", "weekly", "model"]
     public static let toolKindValues: [String] = ["read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "other"]
     public static let subscriberSourceValues: [String] = ["creator", "assignee", "commenter", "manual", "mention", "widget_reporter"]
     public static let issueEventTypeValues: [String] = ["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved", "created", "priority_changed", "relation_added", "relation_removed"]
