@@ -19,6 +19,8 @@ import {
   prStateValues,
   codingSessionStatusValues,
   codingSessionEndedByValues,
+  codingSessionBlockedKindValues,
+  codingSessionBlockedWindowValues,
   subscriberSourceValues,
   issueEventTypeValues,
   issueRelationTypeValues,
@@ -177,6 +179,17 @@ describe(`domain-contract parity`, () => {
   it(`coding session endedBy values match the contract`, () => {
     expect([...codingSessionEndedByValues]).toEqual([
       ...contract.codingSessionEndedBy.values,
+    ])
+  })
+
+  // EXP-804: the usage-wall row state. Both vocabularies are hand-mirrored
+  // into db-schema/domain.ts, so the contract owns them like every enum here.
+  it(`coding session blocked vocabulary matches the contract`, () => {
+    expect([...codingSessionBlockedKindValues]).toEqual([
+      ...contract.codingSessionBlocked.kinds,
+    ])
+    expect([...codingSessionBlockedWindowValues]).toEqual([
+      ...contract.codingSessionBlocked.windows,
     ])
   })
 

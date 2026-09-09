@@ -220,9 +220,14 @@ import androidx.room.RoomDatabase
     //      runnable agent is ACP-ready). New column on the devices shape
     //      allowlist; destructive fallback wipes + resyncs so every device row
     //      arrives carrying it.
+    // v49 (EXP-804): coding_sessions.blocked — the agent's usage wall as row
+    //      state (raw jsonb text, NULL = not blocked). A blocked run keeps
+    //      status `running`, so without the column a walled run reads healthy.
+    //      New column on the coding-sessions shape allowlist; destructive
+    //      fallback wipes + resyncs so every row arrives carrying it.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 48,
+    version = 49,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

@@ -6,6 +6,7 @@ import {
   contextPercent,
   formatContextUsage,
   formatResetCountdown,
+  blockedBadgeLabel,
   formatUsageCost,
   parseAgentLoginResult,
   parseAgentUsage,
@@ -280,6 +281,41 @@ describe(`formatResetCountdown`, () => {
   it(`is null without a usable stamp`, () => {
     expect(formatResetCountdown(null, NOW)).toBeNull()
     expect(formatResetCountdown(`later`, NOW)).toBeNull()
+  })
+})
+
+describe(`blockedBadgeLabel`, () => {
+  const blocked = (over: Record<string, unknown> = {}) => ({
+    kind: `rate_limit`,
+    agent: `claude`,
+    window: `session`,
+    resetsAt: `2026-08-28T14:00:00.000Z`,
+    since: `2026-08-28T11:30:00.000Z`,
+    ...over,
+  })
+
+  it(`names the wall and counts down to the reset`, () => {
+    expect(blockedBadgeLabel(blocked(), NOW)).toBe(`Rate limited · resets in 2h`)
+  })
+
+  it(`drops the countdown when the agent named no reset`, () => {
+    expect(blockedBadgeLabel(blocked({ resetsAt: null }), NOW)).toBe(
+      `Rate limited`
+    )
+    expect(blockedBadgeLabel(blocked({ resetsAt: `later` }), NOW)).toBe(
+      `Rate limited`
+    )
+  })
+
+  it(`still badges a wall this build has no name for`, () => {
+    expect(blockedBadgeLabel(blocked({ kind: `quota` }), NOW)).toBe(
+      `Blocked · resets in 2h`
+    )
+  })
+
+  it(`is null when the run is not blocked`, () => {
+    expect(blockedBadgeLabel(null, NOW)).toBeNull()
+    expect(blockedBadgeLabel(undefined, NOW)).toBeNull()
   })
 })
 

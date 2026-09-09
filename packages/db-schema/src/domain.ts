@@ -353,6 +353,45 @@ export const codingSessionEndedByValues = [
 // not a transcript: the runs lists render it in full once expanded.
 export const MAX_CODING_SESSION_SUMMARY = 4_000
 
+// EXP-804: the agent's usage wall as coding_sessions row state. NULL = not
+// blocked. A blocked run STAYS `running` — it is still live, steerable and
+// killable — so this composes with status the way `needs_input` does rather
+// than being a status of its own. Written by the device the moment its agent
+// reports the wall (claude's `<synthetic>` credit frame, EXP-784) and cleared
+// on the next assistant token. `kind` is the discriminator (contract
+// codingSessionBlocked.kinds), `window` names WHICH usage window ran out
+// (contract codingSessionBlocked.windows, the same vocabulary
+// DeviceUsageWindow.key uses). `resetsAt` is an ISO string or null when the
+// agent gave no reset time; `since` is when the device first saw the wall.
+export const codingSessionBlockedKindValues = [`rate_limit`] as const
+export const codingSessionBlockedWindowValues = [
+  `session`,
+  `weekly`,
+  `model`,
+] as const
+
+export interface CodingSessionBlocked {
+  kind: string
+  agent: string
+  window: string
+  resetsAt: string | null
+  since: string
+}
+
+// Every field is `.nullish()` for the same reason deviceAgentUsageSchema's
+// are: a newer client sending a field this server does not know, or an
+// explicit `null` where this server expects a string, must degrade that field
+// rather than 400 the write and leave a rate-limited run reading healthy.
+// Vocabulary is NOT enforced here (`kind`/`window` are free strings) so a
+// future window name from a newer device still lands; presentation falls back.
+export const codingSessionBlockedSchema = z.object({
+  kind: z.string().max(64).nullish(),
+  agent: z.string().max(64).nullish(),
+  window: z.string().max(64).nullish(),
+  resetsAt: z.string().max(64).nullish(),
+  since: z.string().max(64).nullish(),
+})
+
 // Why a user is subscribed to an issue (issue_subscribers.source, pg enum).
 // `manual` records an explicit (un)subscribe and suppresses auto-resubscribe.
 // `widget_reporter` rows model an external feedback-widget reporter: null
@@ -433,6 +472,10 @@ export type IssueEventType = (typeof issueEventTypeValues)[number]
 export type StartedReason = (typeof startedReasonValues)[number]
 export type CodingSessionEndedBy =
   (typeof codingSessionEndedByValues)[number]
+export type CodingSessionBlockedKind =
+  (typeof codingSessionBlockedKindValues)[number]
+export type CodingSessionBlockedWindow =
+  (typeof codingSessionBlockedWindowValues)[number]
 export type SupportMessageDirection =
   (typeof supportMessageDirectionValues)[number]
 export type SupportMessageVisibility =

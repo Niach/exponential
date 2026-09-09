@@ -88,6 +88,33 @@ public struct UsageGroup: Equatable, Sendable, Identifiable {
     }
 }
 
+/// EXP-804: `coding_sessions.blocked` — the agent's usage wall as row state.
+/// Every field is optional for the same reason the server's zod mirror is
+/// `.nullish()` throughout: a newer device naming a window this build has no
+/// name for must degrade that field, never fail the whole decode and leave a
+/// walled run rendering healthy.
+public struct CodingSessionBlocked: Decodable, Equatable, Sendable {
+    public let kind: String?
+    public let agent: String?
+    public let window: String?
+    public let resetsAt: String?
+    public let since: String?
+
+    public init(
+        kind: String? = nil,
+        agent: String? = nil,
+        window: String? = nil,
+        resetsAt: String? = nil,
+        since: String? = nil
+    ) {
+        self.kind = kind
+        self.agent = agent
+        self.window = window
+        self.resetsAt = resetsAt
+        self.since = since
+    }
+}
+
 public enum AgentUsagePresentation {
     /// Numbers older than this are not current enough to draw. Locked ×4.
     public static let freshWindow: TimeInterval = 15 * 60
@@ -113,6 +140,14 @@ public enum AgentUsagePresentation {
     public static func parseAccounts(_ json: String?) -> [String: AgentAccount]? {
         guard let json, let data = jsonData(json) else { return nil }
         return try? JSONDecoder().decode([String: AgentAccount].self, from: data)
+    }
+
+    /// EXP-804: the run's usage wall from the stored jsonb string. Nil on
+    /// absent or unparsable JSON — a run is then simply not shown as blocked,
+    /// never guessed.
+    public static func parseBlocked(_ json: String?) -> CodingSessionBlocked? {
+        guard let json, let data = jsonData(json) else { return nil }
+        return try? JSONDecoder().decode(CodingSessionBlocked.self, from: data)
     }
 
     private static func jsonData(_ json: String) -> Data? {
@@ -252,6 +287,29 @@ public enum AgentUsagePresentation {
             return rest > 0 ? "resets in \(hours)h \(rest)m" : "resets in \(hours)h"
         }
         return "resets in \(minutes)m"
+    }
+
+    /// EXP-804: the one-line badge for a run's usage wall — `Rate limited ·
+    /// resets in 2h`, or bare `Rate limited` when the agent named no reset
+    /// time. Nil when the run is not blocked.
+    ///
+    /// The wall is ORTHOGONAL to the session state: a blocked run still reads
+    /// `running`, so this NEVER replaces `CodingSessionDisplay`'s state — it
+    /// renders beside it. An unrecognised `kind` still gets a badge
+    /// (`Blocked`): a future device reporting a wall this build has no name
+    /// for must not render silent. Locked ×4 (web `blockedBadgeLabel`).
+    public static func blockedBadgeLabel(
+        _ blocked: CodingSessionBlocked?,
+        now: Date = Date()
+    ) -> String? {
+        guard let blocked else { return nil }
+        let label = (blocked.kind ?? "rate_limit") == "rate_limit"
+            ? "Rate limited"
+            : "Blocked"
+        guard let countdown = resetCountdown(resetsAt: blocked.resetsAt, now: now) else {
+            return label
+        }
+        return "\(label) · \(countdown)"
     }
 
     // MARK: - Accounts

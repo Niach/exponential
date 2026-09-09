@@ -55,6 +55,18 @@ export interface DomainContract {
    */
   codingSessionEndedBy: { values: readonly string[] }
   /**
+   * EXP-804: the shape of `coding_sessions.blocked`, the agent's usage wall
+   * as row state. NULL = not blocked; a blocked run still reads `running`
+   * and stays live, steerable and killable, so this is orthogonal to status
+   * exactly like `needs_input`. `kinds` is the discriminator (only the
+   * rate-limit wall today), `windows` mirrors the agent usage windows a
+   * device already reports (`session`/`weekly`/`model`).
+   */
+  codingSessionBlocked: {
+    kinds: readonly string[]
+    windows: readonly string[]
+  }
+  /**
    * Client-side liveness window for `running` coding_sessions rows: a row
    * whose synced updated_at is older than this renders as absent (EXP-153).
    * Mirrors CODING_SESSION_STALE_HOURS in @exp/db-schema/domain (the server

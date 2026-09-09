@@ -49,6 +49,7 @@ import {
   FREE_TEXT_KEY,
   PLAN_PENDING_PLACEHOLDER,
   QUESTION_PENDING_PLACEHOLDER,
+  type AnswerableCard,
   type AnswerStates,
   type EchoEntry,
   type FeedRow,
@@ -1299,20 +1300,33 @@ describe(`transcriptGap ladder`, () => {
 // EXP-788: the composer answers the pending card — which card, and what the
 // typed reply sends. The strings are the ×4 copy contract.
 describe(`pending card routing (EXP-788)`, () => {
-  const question = (id: number, over: Record<string, unknown> = {}) => ({
-    id,
-    kind: `question`,
-    text: `Which?`,
-    options: [
-      { key: `1`, label: `Refactor` },
-      { key: `2`, label: `Rewrite` },
-    ],
-    multiSelect: false,
-    planMode: false,
-    questionId: `q-${id}`,
-    ...over,
-  })
-  const plan = (id: number) =>
+  // `kind` must stay a LITERAL on both card shapes: `pendingAnswerable`
+  // narrows its return with `Extract<T, { kind: \`question\` }>`, which
+  // collapses to `never` the moment the feed's element type widens `kind` to
+  // `string` (a bare object literal does exactly that).
+  type QuestionCard = AnswerableCard & { kind: `question` }
+  type NarrationCard = { id: number; kind: `narration`; text: string }
+  // `over` stays a loose overlay because the fixtures deliberately carry
+  // wire fields `AnswerableOption` does not declare (a plan option's
+  // `description`); the assertion below is what re-pins `kind`.
+  const question = (
+    id: number,
+    over: Record<string, unknown> = {}
+  ): QuestionCard =>
+    ({
+      id,
+      kind: `question`,
+      text: `Which?`,
+      options: [
+        { key: `1`, label: `Refactor` },
+        { key: `2`, label: `Rewrite` },
+      ],
+      multiSelect: false,
+      planMode: false,
+      questionId: `q-${id}`,
+      ...over,
+    }) as QuestionCard
+  const plan = (id: number): QuestionCard =>
     question(id, {
       planMode: true,
       options: [
@@ -1328,7 +1342,7 @@ describe(`pending card routing (EXP-788)`, () => {
   const active = (...ids: number[]) => new Set(ids)
 
   it(`picks the newest active card and skips one whose answer is in flight`, () => {
-    const feed = [
+    const feed: (QuestionCard | NarrationCard)[] = [
       { id: 0, kind: `narration`, text: `hi` },
       question(1),
       plan(2),

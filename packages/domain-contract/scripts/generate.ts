@@ -41,6 +41,7 @@ interface Contract {
   prState: Section
   codingSessionStatus: Section
   codingSessionEndedBy: Section
+  codingSessionBlocked: { kinds: string[]; windows: string[] }
   codingSession: { staleHours: number }
   device: { onlineWindowSeconds: number }
   steerFeed: {
@@ -253,6 +254,8 @@ ${swiftStringArray("notificationTypeValues", contract.notificationType.values)}
 ${swiftStringArray("prStateValues", contract.prState.values)}
 ${swiftStringArray("codingSessionStatusValues", contract.codingSessionStatus.values)}
 ${swiftStringArray("codingSessionEndedByValues", contract.codingSessionEndedBy.values)}
+${swiftStringArray("codingSessionBlockedKinds", contract.codingSessionBlocked.kinds)}
+${swiftStringArray("codingSessionBlockedWindows", contract.codingSessionBlocked.windows)}
 ${swiftStringArray("toolKindValues", contract.toolKind.values)}
 ${swiftStringArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${swiftStringArray("issueEventTypeValues", contract.issueEventType.values)}
@@ -338,6 +341,8 @@ ${kotlinStringArray("notificationTypeValues", contract.notificationType.values)}
 ${kotlinStringArray("prStateValues", contract.prState.values)}
 ${kotlinStringArray("codingSessionStatusValues", contract.codingSessionStatus.values)}
 ${kotlinStringArray("codingSessionEndedByValues", contract.codingSessionEndedBy.values)}
+${kotlinStringArray("codingSessionBlockedKinds", contract.codingSessionBlocked.kinds)}
+${kotlinStringArray("codingSessionBlockedWindows", contract.codingSessionBlocked.windows)}
 ${kotlinStringArray("toolKindValues", contract.toolKind.values)}
 ${kotlinStringArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${kotlinStringArray("issueEventTypeValues", contract.issueEventType.values)}
@@ -425,6 +430,8 @@ ${rustStrSlice("notificationTypeValues", contract.notificationType.values)}
 ${rustStrSlice("prStateValues", contract.prState.values)}
 ${rustStrSlice("codingSessionStatusValues", contract.codingSessionStatus.values)}
 ${rustStrSlice("codingSessionEndedByValues", contract.codingSessionEndedBy.values)}
+${rustStrSlice("codingSessionBlockedKinds", contract.codingSessionBlocked.kinds)}
+${rustStrSlice("codingSessionBlockedWindows", contract.codingSessionBlocked.windows)}
 ${rustStrSlice("toolKindValues", contract.toolKind.values)}
 ${rustStrSlice("subscriberSourceValues", contract.subscriberSource.values)}
 ${rustStrSlice("issueEventTypeValues", contract.issueEventType.values)}

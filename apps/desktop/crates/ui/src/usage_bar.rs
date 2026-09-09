@@ -198,6 +198,63 @@ pub(crate) fn format_reset_countdown(resets_at: Option<&str>, now_epoch: i64) ->
     })
 }
 
+/// EXP-804: `coding_sessions.blocked` — the agent's usage wall as row state.
+/// Every field is optional for the same reason the server's zod mirror is
+/// `.nullish()` throughout: a newer device naming a window this build has no
+/// name for must degrade that field, never fail the whole parse and leave a
+/// walled run rendering healthy.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct CodingSessionBlocked {
+    pub kind: Option<String>,
+    pub agent: Option<String>,
+    pub window: Option<String>,
+    pub resets_at: Option<String>,
+    pub since: Option<String>,
+}
+
+/// Tolerant parse of a run's `blocked` jsonb column. `None` on absent or
+/// unusable JSON — a run is then simply not shown as blocked, never guessed.
+pub(crate) fn parse_blocked(value: Option<&serde_json::Value>) -> Option<CodingSessionBlocked> {
+    let object = value?.as_object()?;
+    let string = |key: &str| {
+        object
+            .get(key)
+            .and_then(|value| value.as_str())
+            .map(str::to_string)
+    };
+    Some(CodingSessionBlocked {
+        kind: string("kind"),
+        agent: string("agent"),
+        window: string("window"),
+        resets_at: string("resetsAt"),
+        since: string("since"),
+    })
+}
+
+/// EXP-804: the one-line badge for a run's usage wall — `Rate limited ·
+/// resets in 2h`, or bare `Rate limited` when the agent named no reset time.
+/// `None` when the run is not blocked.
+///
+/// The wall is ORTHOGONAL to the session state: a blocked run still reads
+/// `running`, so this NEVER replaces the display state — it renders beside
+/// it. An unrecognised `kind` still gets a badge (`Blocked`): a future device
+/// reporting a wall this build has no name for must not render silent.
+/// Locked ×4 (web `blockedBadgeLabel`).
+pub(crate) fn blocked_badge_label(
+    blocked: Option<&CodingSessionBlocked>,
+    now_epoch: i64,
+) -> Option<String> {
+    let blocked = blocked?;
+    let label = match blocked.kind.as_deref().unwrap_or("rate_limit") {
+        "rate_limit" => "Rate limited",
+        _ => "Blocked",
+    };
+    match format_reset_countdown(blocked.resets_at.as_deref(), now_epoch) {
+        Some(countdown) => Some(format!("{label} · {countdown}")),
+        None => Some(label.to_string()),
+    }
+}
+
 /// `as of 8 minutes ago` — the stale caption (and the offline "when was this
 /// probed" line in the device dialog). Empty on an unparsable stamp, like
 /// every other `relative_time` caller.
@@ -609,6 +666,68 @@ mod tests {
 
     /// Freshness fails closed: 15 minutes is the line, and a stamp that
     /// cannot be read is never fresh.
+    #[test]
+    fn blocked_badge_names_the_wall_and_counts_down() {
+        // ×4-locked strings (web `blockedBadgeLabel`). NOW = 2026-08-28T12:00Z.
+        let now = crate::comments::parse_epoch("2026-08-28T12:00:00.000Z").unwrap();
+        let blocked = |kind: &str, resets_at: Option<&str>| CodingSessionBlocked {
+            kind: Some(kind.to_string()),
+            agent: Some("claude".to_string()),
+            window: Some("session".to_string()),
+            resets_at: resets_at.map(str::to_string),
+            since: Some("2026-08-28T11:30:00.000Z".to_string()),
+        };
+        assert_eq!(
+            blocked_badge_label(
+                Some(&blocked("rate_limit", Some("2026-08-28T14:00:00.000Z"))),
+                now
+            )
+            .as_deref(),
+            Some("Rate limited · resets in 2h")
+        );
+        // No reset time: the badge still names the wall.
+        assert_eq!(
+            blocked_badge_label(Some(&blocked("rate_limit", None)), now).as_deref(),
+            Some("Rate limited")
+        );
+        assert_eq!(
+            blocked_badge_label(Some(&blocked("rate_limit", Some("later"))), now).as_deref(),
+            Some("Rate limited")
+        );
+        // A wall kind this build has no name for must not render silent.
+        assert_eq!(
+            blocked_badge_label(
+                Some(&blocked("quota", Some("2026-08-28T14:00:00.000Z"))),
+                now
+            )
+            .as_deref(),
+            Some("Blocked · resets in 2h")
+        );
+        assert_eq!(blocked_badge_label(None, now), None);
+    }
+
+    #[test]
+    fn parse_blocked_tolerates_garbage() {
+        assert_eq!(parse_blocked(None), None);
+        assert_eq!(parse_blocked(Some(&serde_json::json!(null))), None);
+        assert_eq!(parse_blocked(Some(&serde_json::json!("nope"))), None);
+        // A payload missing every field still parses — the badge falls back.
+        assert_eq!(
+            parse_blocked(Some(&serde_json::json!({}))),
+            Some(CodingSessionBlocked::default())
+        );
+        let parsed = parse_blocked(Some(&serde_json::json!({
+            "kind": "rate_limit",
+            "agent": "claude",
+            "window": "weekly",
+            "resetsAt": "2026-08-28T14:00:00.000Z",
+            "since": "2026-08-28T11:30:00.000Z",
+        })))
+        .unwrap();
+        assert_eq!(parsed.window.as_deref(), Some("weekly"));
+        assert_eq!(parsed.resets_at.as_deref(), Some("2026-08-28T14:00:00.000Z"));
+    }
+
     #[test]
     fn stale_usage_older_than_fifteen_minutes_is_not_fresh() {
         let now = 1_756_000_000_i64;
