@@ -93,9 +93,10 @@ export function DocsPage() {
               <li>
                 <strong>Start coding</strong>: install the{` `}
                 <a href={LINKS.downloadPage}>desktop app</a>, open the issue,
-                and hit <strong>Start coding</strong>. Your agent runs in the
-                embedded terminal, plans first, implements, and opens the PR
-                itself. See <a href="/docs/coding/">Coding agents</a>.
+                and hit <strong>Start coding</strong>. Your agent runs on
+                your machine, plans first, implements, and opens the PR
+                itself; the run is a session you can read and steer from
+                anywhere. See <a href="/docs/coding/">Coding agents</a>.
               </li>
               <li>
                 <strong>Merge</strong>: the issue moves to In Review when the

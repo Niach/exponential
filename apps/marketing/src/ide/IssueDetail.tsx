@@ -1,15 +1,17 @@
-/* ─── The issue-detail screen (EXP-417/568/601/723/736/741): a FIXED header
-   — switcher row (copy-link · delete right; the Subscribe toggle retired
-   with EXP-723) · 2xl title · one glass property tray with Start coding on
-   its right edge · the coding-now pill — over a scrolling body that opens
-   with the Relations card, then the description, attachments rail and the
-   Activity timeline: muted event lines with their time, comment CARDS on
-   the timeline rail that each end in a "Leave a reply…" row, and the
-   composer. There is no Details/Changes segment and no properties rail. ─── */
+/* ─── The issue-detail screen (EXP-417/568/601/723/736/741/760): a FIXED
+   header — the top row, which is the round "…" actions menu and nothing else
+   (EXP-760 folded Copy link and Delete into it; the Subscribe toggle retired
+   with EXP-723) · 2xl title · one glass property tray carrying BOTH header
+   actions on its right edge, Start coding and, while the PR is open, Merge ·
+   the agent row — over a scrolling body: the description, the relation
+   groups (EXP-760 moved them BELOW it and drops them entirely when there are
+   none), "Add sub-issues", the attachments rail and the Activity timeline —
+   muted event lines with their time, comment CARDS on the timeline rail that
+   each end in a "Leave a reply…" row, and the composer. There is no
+   Details/Changes segment and no properties rail. ─── */
 import { useState, type KeyboardEvent } from "react"
 import {
   getIssue,
-  ISSUES,
   ISSUE_ACTIVITY,
   ISSUE_BODY,
   PRIORITY_LABEL,
@@ -17,27 +19,23 @@ import {
   STATUS_LABEL,
   type ActivityItem,
   type Issue,
+  type Review,
 } from "./data"
-import { useIde } from "./state"
+import { useIde, type CodingState, type CodingTarget } from "./state"
 import { ACTIVE_BOARD } from "./Rail"
 import { Avatar, LabelChip, PriorityIcon, StatusIcon } from "./bits"
 import {
   IcCalDays,
-  IcChevDown,
-  IcChevUp,
   IcCircleX,
   IcEllipsis,
   IcGitMerge,
   IcImage,
-  IcLink,
-  IcLink2,
   IcMonitor,
   IcPaperclip,
   IcPlay,
   IcPlus,
   IcSmile,
   IcTag,
-  IcTrash,
   IcCircleUser,
 } from "./icons"
 
@@ -181,6 +179,19 @@ function ActivityRow({
   )
 }
 
+/* A live run on this issue — a plain run on it, or a batch that includes
+   it (a batch ships every checked issue). */
+function isCodingHere(
+  coding: CodingState,
+  target: CodingTarget | null,
+  issueId: string,
+): boolean {
+  if (coding !== `running` && coding !== `waiting`) return false
+  return target?.kind === `issue`
+    ? target.id === issueId
+    : (target?.issueIds.includes(issueId) ?? false)
+}
+
 /* pr_merge::two_click — Merge PR arms, Confirm merge fires (danger). */
 function MergePrButton({
   armed,
@@ -213,13 +224,20 @@ function Chip({
   return <span className={`ide-tchip${muted ? ` is-muted` : ``}`}>{children}</span>
 }
 
-function PropertyTray({ issue }: { issue: Issue }) {
+function PropertyTray({
+  issue,
+  review,
+  armed,
+  arm,
+}: {
+  issue: Issue
+  /* An open PR on this issue — the tray then carries Merge as well. */
+  review?: Review
+  armed: boolean
+  arm: (on: boolean) => void
+}) {
   const { interactive, coding, codingTarget, requestCoding, stopCoding } = useIde()
-  const codingHere =
-    coding === `running` &&
-    (codingTarget?.kind === `issue`
-      ? codingTarget.id === issue.id
-      : (codingTarget?.issueIds.includes(issue.id) ?? false))
+  const codingHere = isCodingHere(coding, codingTarget, issue.id)
   return (
     <div className="ide-tray">
       <Chip>
@@ -250,19 +268,30 @@ function PropertyTray({ issue }: { issue: Issue }) {
         <ACTIVE_BOARD.Icon size={10} style={{ color: ACTIVE_BOARD.color }} />
         {ACTIVE_BOARD.name}
       </Chip>
+      {/* EXP-760: BOTH header actions live at the tray's right edge — Start
+          coding and, while the PR is open, Merge (which takes the white
+          paint and demotes Start coding to plain glass). A run THIS machine
+          hosts replaces the launcher with the "Coding…" indicator and Stop
+          (coding_flow.rs), since that control is the only way to stop it. */}
       <span className="ide-tray-action">
         {codingHere ? (
-          <button
-            className={`ide-btn-outline${interactive ? ` is-click` : ``}`}
-            type="button"
-            onClick={interactive ? stopCoding : undefined}
-          >
-            <IcCircleX size={11} className="ide-c-danger" />
-            Stop
-          </button>
+          <>
+            <span className="ide-codingnow">
+              <span className="ide-nowdot" />
+              Coding…
+            </span>
+            <button
+              className={`ide-btn-outline${interactive ? ` is-click` : ``}`}
+              type="button"
+              onClick={interactive ? stopCoding : undefined}
+            >
+              <IcCircleX size={11} className="ide-c-danger" />
+              Stop
+            </button>
+          </>
         ) : (
           <button
-            className={`ide-btn-primary${interactive ? ` is-click` : ``}`}
+            className={`${review ? `ide-btn-glass` : `ide-btn-primary`}${interactive ? ` is-click` : ``}`}
             type="button"
             onClick={
               interactive ? () => requestCoding({ kind: `issue`, id: issue.id }) : undefined
@@ -272,13 +301,14 @@ function PropertyTray({ issue }: { issue: Issue }) {
             Start coding
           </button>
         )}
+        {review && <MergePrButton armed={armed} arm={arm} />}
       </span>
     </div>
   )
 }
 
 export function IssueDetail({ issueId }: { issueId: string }) {
-  const { interactive, coding, codingTarget } = useIde()
+  const { interactive, coding, codingTarget, openSession } = useIde()
   const issue = getIssue(issueId)
   const [armed, setArmed] = useState(false)
   const [draft, setDraft] = useState(``)
@@ -287,14 +317,10 @@ export function IssueDetail({ issueId }: { issueId: string }) {
   const baseActivity = ISSUE_ACTIVITY[issue.id] ?? []
   const activity = [...baseActivity, ...extraComments]
   const review = REVIEWS.find((r) => r.issueId === issue.id)
-  /* Coding pill lights for a plain run on this issue AND for a batch run
-     that includes it — a batch ships every checked issue. */
-  const codingHere =
-    coding === `running` &&
-    (codingTarget?.kind === `issue`
-      ? codingTarget.id === issue.id
-      : (codingTarget?.issueIds.includes(issue.id) ?? false))
-  const position = Math.max(ISSUES.findIndex((i) => i.id === issue.id), 0) + 1
+  const codingHere = isCodingHere(coding, codingTarget, issue.id)
+  /* The fixture's OTHER live run — a teammate's machine, which is what puts
+     the coding-now card and its Watch on an issue. */
+  const otherMachineRun = issue.id === `EXP-11`
 
   const submitComment = () => {
     const body = draft.trim()
@@ -314,71 +340,58 @@ export function IssueDetail({ issueId }: { issueId: string }) {
     <div className="ide-issue">
       <div className="ide-issue-header">
         <div className="ide-col">
+          {/* issue_header::top_row — ONE round menu, right-aligned: Copy
+              link · Add relation ▸ · Delete (EXP-760). */}
           <div className="ide-issue-toprow">
-            <span className="ide-switcher">{`${position} / ${ISSUES.length}`}</span>
-            <span className="ide-icbtn">
-              <IcChevUp size={11} />
-            </span>
-            <span className="ide-icbtn">
-              <IcChevDown size={11} />
-            </span>
             <div className="ide-flex1" />
-            <span className="ide-icbtn">
-              <IcLink size={11} />
-            </span>
-            <span className="ide-icbtn">
-              <IcTrash size={11} />
+            <span className="ide-roundbtn">
+              <IcEllipsis size={11} />
             </span>
           </div>
           <div className="ide-issue-title">{issue.title}</div>
           <div className="ide-issue-chiprow">
-            <PropertyTray issue={issue} />
+            <PropertyTray issue={issue} review={review} armed={armed} arm={setArmed} />
           </div>
-          {/* issue_header::agent_row (EXP-698): the coding-now CARD on its own
-              full-width line, and the Merge-PR capsule as a TRAILING action
-              INSIDE it whenever both show — one tray holds the run and
-              everything to do about it. With no live session the merge
-              control falls back to its own row. */}
-          {codingHere ? (
+          {/* issue_header::agent_row: the coding-now CARD, for a run on
+              ANOTHER machine — this machine's own run is the tray's
+              "Coding…"/Stop control instead, and the card would say the same
+              thing twice. Watch slides the run in over the issue (EXP-791);
+              Merge left this row for the tray with EXP-760. */}
+          {codingHere ? null : otherMachineRun ? (
             <div className="ide-issue-agentrow">
               <span className="ide-nowpill">
                 <span className="ide-nowdot" />
                 Coding now
               </span>
               <span className="ide-nowcaption">
-                Danny Strähhuber · Danny&apos;s MacBook Pro
+                Mira Chen · Mira&apos;s MacBook Pro
               </span>
               <div className="ide-flex1" />
               {/* An own run gets the primary "Watch" pill — NAV_DEVICES
                   (monitor), never an eye. */}
-              <button className="ide-btn-primary ide-nowwatch" type="button">
+              <button
+                className={`ide-btn-primary ide-nowwatch${interactive ? ` is-click` : ``}`}
+                type="button"
+                onClick={interactive ? openSession : undefined}
+              >
                 <IcMonitor size={11} />
                 Watch
               </button>
-              {review && <MergePrButton armed={armed} arm={setArmed} />}
-            </div>
-          ) : review ? (
-            <div className="ide-issue-agentrow is-bare">
-              <MergePrButton armed={armed} arm={setArmed} />
             </div>
           ) : null}
         </div>
       </div>
       <div className="ide-issue-body">
-        {/* issue_relations::render_relations_card (EXP-736) opens the body:
-            the header + "Add relation" chip stand alone above an empty list. */}
-        <div className="ide-col ide-relations">
-          <div className="ide-relcard">
-            <IcLink2 size={10.5} />
-            <span className="ide-relcard-label">Relations</span>
-            <span className="ide-tchip">
-              <IcPlus size={10.5} />
-              Add relation
-            </span>
-          </div>
-        </div>
+        {/* EXP-760: relations are Linear-style group headings BELOW the
+            description ("Sub-issues 1/3", "Blocked by", …) and render
+            nothing at all when the issue has none — which is this fixture.
+            "Add sub-issues" follows them and opens the inline composer. */}
         <div className="ide-col">
           <Description issueId={issue.id} />
+          <button className="ide-addsub" type="button">
+            <IcPlus size={10.5} />
+            Add sub-issues
+          </button>
           <div className="ide-attachrail">
             <span className="ide-icbtn">
               <IcSmile size={12} />

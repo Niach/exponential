@@ -6,9 +6,10 @@
    Order is the real one — the system drag indicator (EXP-687 retired every
    bar button: a swipe down cancels, and the ONE confirm is the full-width
    button pinned to the bottom), the Issues|Actions|Chat glass segmented
-   capsule, the "Issues" section header, the grouped picker card (inline
-   search + checkbox rows, EXP-8 checked), then ONE grouped options card
-   whose FIRST ROW is the embedded agent strip (EXP-694: no capsule of its
+   capsule, the grouped picker card straight under it (EXP-768 retired the
+   "Issues" section header on every client — the capsule already names the
+   subject; inline search + checkbox rows, EXP-8 checked), then ONE grouped
+   options card whose FIRST ROW is the embedded agent strip (EXP-694: no capsule of its
    own) over Model / Effort / Ultracode / Plan mode. The Device row hides
    itself when there is one machine.
 
@@ -68,8 +69,6 @@ export function MobileStartCodingSheet() {
             </span>
           ))}
         </div>
-
-        <div className={`mss-header`}>Issues</div>
 
         <div className={`mss-card`}>
           <div className={`mss-search`}>

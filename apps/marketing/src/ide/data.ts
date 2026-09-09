@@ -212,8 +212,8 @@ export const ISSUE_BODY: Record<string, Inline[][]> = {
       {
         t: `When the steer relay drops a WebSocket mid-session, the activity feed goes stale and never recovers. Reconnect with exponential backoff and resume the `,
       },
-      { t: `pty`, code: true },
-      { t: ` stream from the last acked offset.` },
+      { t: `activity`, code: true },
+      { t: ` stream from the last acked seq.` },
     ],
     [
       {
@@ -464,10 +464,22 @@ export const PACKAGE_JSON = `{
   "packageManager": "bun@1.2.19"
 }`
 
-/* ─── "Start coding" scripted agent session (~8 lines), per issue ─── */
+/* ─── "Start coding" scripted agent session — the ACP TRANSCRIPT the
+   session screen renders (EXP-746/773/787), not a terminal log: prose
+   narration rows, tool rows and collapsed tool groups, ending in the
+   agent's answerable question. Row copy follows steer::feed / web
+   agent-feed.ts: a tool row is "<Verb> <target> · <detail>", a collapsed
+   run of calls wears the contract `toolGroupSummary` caption. ─── */
 
-export type ScriptLineKind = `ok` | `cmd` | `claude`
-export type ScriptLine = { kind: ScriptLineKind; text: string }
+export type FeedRow =
+  /* Agent prose (14/22, the transcript's body type). */
+  | { kind: `narration`; text: string }
+  /* One settled tool call: the verb, its target, an optional detail. */
+  | { kind: `tool`; verb: string; target: string; detail?: string }
+  /* A collapsed run of tool calls — `toolGroupSummary`'s caption. */
+  | { kind: `group`; caption: string }
+  /* The agent's question, answerable from the composer or by picking. */
+  | { kind: `question`; text: string; options: { title: string; sub: string }[] }
 
 /* Issues with an open PR fixture keep their number; anyone else gets a
    plausible one derived from the issue number. */
@@ -476,49 +488,89 @@ const prNumberFor = (issue: Issue): number =>
   200 + Number(issue.id.split(`-`)[1] ?? `0`)
 
 /* EXP-8 keeps its bespoke plan line (it matches the diff fixture); every
-   other issue plays the same canned change so the terminal script and the
+   other issue plays the same canned change so the transcript and the
    Changes-tab diff stay consistent. */
 const PLAN_LINES: Record<string, string> = {
-  [`EXP-8`]: `Plan: reconnect with exponential backoff, resume stream`,
+  [`EXP-8`]: `Plan: reconnect with exponential backoff and resume the stream from the last event the client saw.`,
 }
 
-export const codingScriptFor = (issue: Issue): ScriptLine[] => [
-  { kind: `ok`, text: `Created worktree .worktrees/${issue.id} on branch exp/${issue.id}` },
-  { kind: `ok`, text: `Launched Claude on ${issue.id}` },
-  { kind: `claude`, text: `Reading issue ${issue.id}: ${issue.title}` },
-  { kind: `claude`, text: PLAN_LINES[issue.id] ?? `Plan: implement the change, verify, open a PR` },
-  { kind: `claude`, text: `Edited apps/web/src/components/steer-terminal.tsx (+24 -6)` },
-  { kind: `cmd`, text: `git push -u origin exp/${issue.id}` },
-  { kind: `claude`, text: `Opened PR #${prNumberFor(issue)}: ${issue.title}` },
-  { kind: `ok`, text: `Session finished · 1 file changed` },
+export const codingScriptFor = (issue: Issue): FeedRow[] => [
+  {
+    kind: `narration`,
+    text: `Reading ${issue.id} and the code around it. ${issue.title}.`,
+  },
+  { kind: `tool`, verb: `Read`, target: DIFF_FILE.path },
+  { kind: `group`, caption: `Used 3 tools` },
+  {
+    kind: `narration`,
+    text: PLAN_LINES[issue.id] ?? `Plan: implement the change, verify it, and open a PR.`,
+  },
+  {
+    kind: `tool`,
+    verb: `Edit`,
+    target: DIFF_FILE.path,
+    detail: `reconnect with backoff`,
+  },
+  { kind: `group`, caption: `Ran 2 commands · edited 1 file` },
+  {
+    kind: `narration`,
+    text: `Typecheck and the steering tests are clean. Pushed exp/${issue.id} and opened PR #${prNumberFor(issue)}.`,
+  },
+  {
+    kind: `question`,
+    text: `The backoff caps at 15s. Keep that, or make the cap a team setting?`,
+    options: [
+      {
+        title: `Keep the 15s cap`,
+        sub: `One less setting, and it matches the relay's own backoff`,
+      },
+      {
+        title: `Make it a team setting`,
+        sub: `A settings row and a migration on top of this PR`,
+      },
+    ],
+  },
 ]
 
-/* ─── Batch coding run (EXP-106) — ONE Claude session on ONE pushed
+/* ─── Batch coding run (EXP-106) — ONE agent session on ONE pushed
    exp/batch-<id8> branch implementing every checked issue, ending in ONE
    combined PR that links them all. Deliberately loose: no waves, no
-   per-issue worktrees — Claude organizes the work itself. ─── */
+   per-issue worktrees — the agent organizes the work itself. ─── */
 
 const BATCH_BRANCH = `exp/batch-3f9a1c2e`
 
-export const batchCodingScriptFor = (issues: Issue[]): ScriptLine[] => [
-  { kind: `ok`, text: `Created worktree .worktrees/batch-3f9a1c2e on branch ${BATCH_BRANCH}` },
-  { kind: `ok`, text: `Launched Claude on ${issues.length} issues` },
+export const batchCodingScriptFor = (issues: Issue[]): FeedRow[] => [
   {
-    kind: `claude`,
-    text: `Plan: one pass across ${issues.map((i) => i.id).join(`, `)} (shared branch, one combined PR)`,
+    kind: `narration`,
+    text: `One pass across ${issues.map((i) => i.id).join(`, `)} on ${BATCH_BRANCH}, ending in one combined PR.`,
   },
   ...issues.slice(0, 3).map(
-    (issue): ScriptLine => ({
-      kind: `claude`,
-      text: `Implementing ${issue.id}: ${issue.title}`,
+    (issue): FeedRow => ({
+      kind: `narration`,
+      text: `${issue.id}: ${issue.title}. Implemented and covered by a test.`,
     }),
   ),
-  { kind: `claude`, text: `Typecheck and tests clean across the combined change` },
-  { kind: `cmd`, text: `git push -u origin ${BATCH_BRANCH}` },
-  { kind: `claude`, text: `Opened PR #221 (${issues.length} issues)` },
-  { kind: `ok`, text: `Session finished · ${issues.length} issues in one PR` },
+  { kind: `group`, caption: `Ran 6 commands · edited 4 files` },
+  {
+    kind: `narration`,
+    text: `Typecheck and tests are clean across the combined change. Pushed ${BATCH_BRANCH} and opened PR #221 for all ${issues.length} issues.`,
+  },
+  {
+    kind: `question`,
+    text: `The batch touches one screen twice. Land it as one PR, or split the risky change out?`,
+    options: [
+      {
+        title: `Land it as one PR`,
+        sub: `Merging completes every issue in the batch`,
+      },
+      {
+        title: `Split the risky change out`,
+        sub: `A second branch and a second PR from this run`,
+      },
+    ],
+  },
 ]
 
-/* The shell tab is named by its cwd (the trunk clone's directory). */
-export const SHELL_TAB_TITLE = `exponential`
-export const batchTabTitle = (count: number): string => `claude · batch (${count} issues)`
+/* A batch session has no issue to name it: every client titles it "Batch
+   run" (navigation::screen_title, web session-identity.ts). */
+export const BATCH_RUN_TITLE = `Batch run`

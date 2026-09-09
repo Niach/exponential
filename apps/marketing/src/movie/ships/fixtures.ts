@@ -53,7 +53,7 @@ export const HERO = {
   id: "EXP-142",
   title: "Live-steer terminal reconnect",
   descriptionParas: [
-    "When the steer relay drops a WebSocket mid-session, the terminal view goes stale and never recovers. Reconnect with exponential backoff and resume the scrollback buffer.",
+    "When the steer relay drops a WebSocket mid-session, the activity feed goes stale and never recovers. Reconnect with exponential backoff and resume the event stream from the last acked seq.",
     "Repro: restart the relay while a session is streaming. The viewer freezes until a full reload.",
   ],
   switcher: "3 / 8", // "N / M" pager next to the chevrons
@@ -63,26 +63,26 @@ export const HERO = {
   ],
   branch: "exp/EXP-142",
   pr: 214,
-  sessionTab: "Fix live-steer terminal reconnect", // real app titles session tabs by task
+  sessionTab: "Fix live-steer terminal reconnect", // the run's screen title
 } as const
 
-// ── Claude session events — REAL Claude Code CLI grammar (see the desktop-claude-session-dock reference screenshot, local-only):
-//    tool:   "● Bash(bun run typecheck)" then "  ⎿ <result summary>" (muted)
-//    prose:  "● <assistant text>" (white dot, wraps)
-//    spinner:"✳ Vibing… (2m 41s · ↓ 12.3k tokens)" — ✳ + verb yellow, parens muted; ticks live
-//    The input box at the bottom: "❯ " + blinking block cursor between hairline rules, and the
-//    status row "▶▶ bypass permissions on (shift+tab to cycle) · esc to interrupt · ⏎ for agents".
+// ── Session events — what a run PUBLISHES over ACP and every client renders
+//    as its transcript (surfaces/session.tsx). EXP-773 deleted the PTY
+//    transport this used to describe in CLI grammar; the rows are the agent's
+//    own narration, its settled tool calls, the working indicator and your
+//    own steer messages.
 export type SessionEvent =
   | { kind: "tool"; tool: string; args?: string; result?: string; extra?: string[] }
   | { kind: "prose"; text: string }
-  | { kind: "spinner"; verb: string } // rendered with live elapsed/tokens counters
-  | { kind: "flash"; text: string } // green ✓-style landing line (PR opened etc.)
+  | { kind: "spinner"; verb: string } // the working row while a turn runs
+  | { kind: "flash"; text: string } // the agent naming what it just landed
+  | { kind: "user"; text: string } // a message you sent into the run
 
-// Hero session (dock tab "Fix live-steer terminal reconnect"). S1/S2 flash-forward shows
+// Hero session (the run's screen, "Fix live-steer terminal reconnect"). S1/S2 flash-forward shows
 // the tail (from index FLASH_FORWARD_FROM); S6 plays it whole.
 export const HERO_SESSION: SessionEvent[] = [
   { kind: "tool", tool: "Read", args: "apps/web/src/components/agent-session.tsx", result: "Read 212 lines" },
-  { kind: "prose", text: "The steer socket never retries after a relay drop. Adding reconnect with exponential backoff and scrollback resume:" },
+  { kind: "prose", text: "The steer socket never retries after a relay drop. Adding reconnect with exponential backoff and a resume from the last acked seq:" },
   { kind: "tool", tool: "Update", args: "apps/web/src/components/agent-session.tsx", result: "Added 29 lines, removed 11 lines" },
   { kind: "tool", tool: "Write", args: "apps/web/src/lib/steer-backoff.ts", result: "Created file with 46 lines" },
   { kind: "tool", tool: "Bash", args: "bun run typecheck", result: "0 errors" },
@@ -101,14 +101,14 @@ export type SteerItem =
   | { kind: "narration"; text: string }
 export const PHONE_FEED: SteerItem[] = [
   { kind: "tool", name: "Read", summary: "agent-session.tsx" },
-  { kind: "narration", text: "The steer socket never retries after a relay drop. Adding reconnect with exponential backoff and scrollback resume:" },
+  { kind: "narration", text: "The steer socket never retries after a relay drop. Adding reconnect with exponential backoff and a resume from the last acked seq:" },
   { kind: "tool", name: "Update", summary: "apps/web/src/components/agent-session…" },
   { kind: "tool", name: "Write", summary: "apps/web/src/lib/steer-backoff.ts" },
   { kind: "tool", name: "Bash", summary: "Typecheck the web app" },
   { kind: "tool", name: "Bash", summary: "Run the backoff unit tests" },
   { kind: "tool", name: "Bash", summary: "Push the branch" },
   { kind: "tool", name: "mcp__exponential__exponential_pr_open" },
-  { kind: "narration", text: "Done: reconnect with exponential backoff, scrollback resume, tests green. Opened PR #214." },
+  { kind: "narration", text: "Done: reconnect with exponential backoff, stream resume, tests green. Opened PR #214." },
 ]
 export const PHONE_DIFFSTAT = { add: 51, del: 16 } // pinned "Latest changes" strip
 

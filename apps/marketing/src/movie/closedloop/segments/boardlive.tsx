@@ -29,13 +29,11 @@ import {
 } from "../../ships/surfaces/board"
 import {
   CutoutPanel,
-  DockCollapsedStrip,
   ExpandedRail,
   TitleBar,
   type ChromeTab,
 } from "../../ships/surfaces/chrome"
 import { IssueDetailPane } from "../../ships/surfaces/detail"
-import type { DockTab } from "../../ships/surfaces/terminal"
 import { PhoneChassis } from "../surfaces/steerphone"
 import { BoardScreen } from "../surfaces/mobileui"
 import {
@@ -123,10 +121,6 @@ const LOCAL_KEYS: CursorKey[] = [
   { f: 168, x: 399, y: 154 },
   { f: 190, x: 900, y: 500 },
 ]
-// The strip's shell chip: the trunk clone's directory names the tab
-// (terminal_dock.rs names a shell tab by its cwd).
-const SHELL_TAB: DockTab = { id: "shell", label: "acme-shop", shell: true }
-
 
 const TAB_151: ChromeTab = {
   id: "exp151",
@@ -144,8 +138,9 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({
   frame,
   portrait,
 }) => {
-  const dockH = WIN.dockStrip
-  const paneH = WIN.panel.h - dockH
+  // EXP-769/791: no dock inside the panel — the bottom bar carries terminal
+  // tabs alone, and none is open here, so the panel runs to its own edge.
+  const paneH = WIN.panel.h
   const capSize = captionSize(portrait)
 
   const dragging = frame >= B.dragFrom
@@ -191,7 +186,7 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({
 
             {/* EXP-723: everything below the band lives in the cutout panel */}
             <CutoutPanel>
-              <SidebarPane actions={<BoardActions />} bottomInset={dockH}>
+              <SidebarPane actions={<BoardActions />}>
                 <BoardTool
                   frame={frame}
                   rows={CL_BOARD}
@@ -224,7 +219,6 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({
                 />
               </div>
 
-              <DockCollapsedStrip frame={frame} tabs={[SHELL_TAB]} activeTab="shell" />
             </CutoutPanel>
 
             {/* to reaches into the cross-fade overrun (EXP-482) so the

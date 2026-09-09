@@ -35,6 +35,7 @@
     "screenshots:pop-sidecars": "bun run --filter @exp/marketing screenshots:pop-sidecars",
     "screenshots:social": "bun run --filter @exp/web screenshots:social",
     "shots": "bun run --filter @exp/shots capture",
+    "shots:readme-hero": "bun run --filter @exp/shots readme-hero",
     "shots:index": "bun run --filter @exp/shots index",
     "shots:affected": "bun run --filter @exp/shots affected",
     "shots:check": "bun --filter @exp/styleguide build -- --check",

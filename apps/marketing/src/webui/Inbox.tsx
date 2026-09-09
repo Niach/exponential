@@ -5,7 +5,7 @@
    "Mark all read" opposite it. */
 import { INBOX_ITEMS, type InboxType } from "../ide/data"
 import { useWeb } from "./state"
-import { WebAgentDock, WebMyIssues } from "./Board"
+import { WebMyIssues } from "./Board"
 import {
   ICON_35,
   ICON_4,
@@ -128,7 +128,6 @@ export function WebInbox() {
         )}
       </div>
       {isMine ? <WebMyIssues /> : <NotificationList />}
-      <WebAgentDock />
     </div>
   )
 }

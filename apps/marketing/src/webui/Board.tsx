@@ -1,9 +1,9 @@
-/* ─── Board — filter bar + grouped issue list + agent dock ───
+/* ─── Board — filter bar + grouped issue list ───
    Mirrors apps/web issue-filter-bar.tsx (EXP-449: title-less control row,
    just the right-hand Filter trigger) and issue-list.tsx (the md grid
    [checkbox | priority | id | status | title | labels | assignee | due],
-   sticky status-washed group headers). The strip along the bottom is the
-   agent dock (agent-dock/agent-dock.tsx): one tab per live coding session. */
+   sticky status-washed group headers). The agent dock is NOT part of a page:
+   it is a band of the team layout, under the cutout card (WebDemo). */
 import {
   getIssue,
   GROUP_ORDER,
@@ -19,6 +19,7 @@ import {
   ICON_3,
   ICON_35,
   IcCalendar,
+  IcChat,
   IcChevRight,
   IcClose,
   IcFilter,
@@ -124,24 +125,34 @@ export function WebFilterBar() {
   )
 }
 
-/* Agent dock (agent-dock.tsx): a h-9 glass strip of RichTab session tabs
-   (rich-tab.tsx) — a pinging green dot, the mono identifier, the truncating
-   issue title, the device as a trailing muted badge, and a close glyph. */
+/* Agent dock (agent-dock/agent-dock.tsx). EXP-740 left it as the STRIP and
+   nothing else — selecting a tab NAVIGATES to the session's own page. EXP-771
+   moved the band OUTSIDE the cutout card, onto the bare page ground: 36px,
+   no fill, no border, the card's 10px side margins and 8px of its own. The
+   tabs are RichTabs (rich-tab.tsx) — a pinging green dot, the mono
+   identifier, the truncating issue title, the device as a trailing muted
+   badge, and a close glyph — and the trailing Chat glyph is always there,
+   whatever is running (EXP-739), which is why the band renders even with no
+   session at all. */
 export function WebAgentDock() {
-  if (AGENT_SESSIONS.length === 0) return null
   return (
     <div className="web-dock">
-      {AGENT_SESSIONS.map((s) => (
-        <span className="web-dock-tab" key={s.issueId}>
-          <span className="web-dock-dot" />
-          <span className="web-dock-id">{s.issueId}</span>
-          <span className="web-dock-title">{getIssue(s.issueId).title}</span>
-          <span className="web-dock-device">{` · ${s.device}`}</span>
-          <span className="web-dock-close">
-            <IcClose size={ICON_3} />
+      <div className="web-dock-tabs">
+        {AGENT_SESSIONS.map((s) => (
+          <span className="web-dock-tab" key={s.issueId}>
+            <span className="web-dock-dot" />
+            <span className="web-dock-id">{s.issueId}</span>
+            <span className="web-dock-title">{getIssue(s.issueId).title}</span>
+            <span className="web-dock-device">{` · ${s.device}`}</span>
+            <span className="web-dock-close">
+              <IcClose size={ICON_3} />
+            </span>
           </span>
-        </span>
-      ))}
+        ))}
+      </div>
+      <span className="web-dock-chat" title="Chat">
+        <IcChat size={ICON_35} />
+      </span>
     </div>
   )
 }
@@ -154,7 +165,6 @@ export function WebBoard() {
     <div className="web-page">
       <WebFilterBar />
       <WebGroupedList issues={source} />
-      <WebAgentDock />
     </div>
   )
 }

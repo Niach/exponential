@@ -26,6 +26,7 @@ const COMMANDS: { name: string; desc: string }[] = [
   { name: `exponential doctor`, desc: `Check git and the three agent CLIs, and say what's missing.` },
   { name: `exponential code <ISSUE> [--agent claude|codex|pi] [--model <m>] [--effort <e>] [--plan] [--detach]`, desc: `Start a coding session for an issue, by identifier ("EXP-42") or id.` },
   { name: `exponential run <action> [--team <id>] [--input k=v ...] [--agent <a>] [--model <m>] [--effort <e>] [--plan] [--detach]`, desc: `Run a team action by name or id — the same agent flags apply.` },
+  { name: `exponential mcp list | login <server> [--paste] | set-secret <server> <NAME> | status`, desc: `The team's MCP servers and the credentials THIS machine holds for them. Values never travel through argv: login runs the OAuth flow locally (or --paste for a machine with no browser), set-secret reads from a no-echo prompt.` },
   { name: `exponential daemon [--foreground] [--label <name>]`, desc: `Run the remote-start daemon in this terminal.` },
   { name: `exponential daemon install | uninstall | status`, desc: `Manage the systemd user unit (Linux) or launchd agent (macOS).` },
   { name: `exponential update`, desc: `Self-update from the latest CLI release.` },
@@ -132,15 +133,16 @@ EXP_INSTANCE=https://issues.example.com EXP_TOKEN=expu_... exponential login
               <code>code</code> and <code>run</code> take the same agent
               options as the desktop&apos;s start-coding dialog, and fall
               back to your saved per-agent defaults when you omit them.{` `}
-              <code>--plan</code> is agent-specific (Claude and pi); every run
+              <code>--plan</code> works on all three agents; every run
               bypasses the agent&apos;s permission prompts. See{` `}
               <a href="/docs/coding/">Coding agents</a>.
             </p>
             <p>
-              Run <code>code</code> from a terminal and the agent&apos;s
-              interactive TUI attaches to it — type at it exactly like you
-              would in the desktop app. Without a terminal (in CI, over a
-              pipe) or with <code>--detach</code>, the session runs headless
+              Run <code>code</code> with a terminal attached and the session
+              prints there as a line transcript — the same narration, tool
+              calls and questions the app shows — and whatever you type is
+              sent to the agent as a message. Without a terminal (in CI, over
+              a pipe) or with <code>--detach</code>, the session runs headless
               and stays fully steerable from the web, so you can close the
               laptop and keep watching it from your phone.
             </p>
@@ -198,7 +200,7 @@ exponential daemon install
             </p>
             <p>
               A run you start on the daemon makes no report, exactly like a
-              run in the desktop app or an attached terminal: when the agent
+              run in the desktop app or an attached CLI: when the agent
               finishes its turn it waits for your next reply, and the daemon
               keeps its process and worktree alive with no idle timeout. Hit{` `}
               <strong>Kill session</strong> in the web or mobile session view

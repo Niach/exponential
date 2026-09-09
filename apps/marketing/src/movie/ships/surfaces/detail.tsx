@@ -1,8 +1,9 @@
 // surfaces/detail.tsx — IssueDetailPane: the issue-detail center pane.
 // EXP-471 rebuilt it against shots/issue-detail/desktop.webp — the post-EXP-282
 // desktop detail has NO properties sidebar and NO rich-text toolbar:
-//   · a pager row ("9 / 17" + prev/next) with copy-link · delete right (the
-//     Subscribe toggle retired with EXP-723)
+//   · a top row that is ONE round "…" menu, right-aligned (EXP-760 folded
+//     Copy link and Delete into it and retired the pager; the Subscribe
+//     toggle went with EXP-723)
 //   · the big title
 //   · ONE bordered PROPERTIES PILL BAR (status · priority · assignee · label ·
 //     due · board · origin — issue_header.rs `chip_row`) with the light
@@ -10,8 +11,8 @@
 //   · that launcher becomes "● Coding… / ⊗ Stop" while a LOCAL run is up
 //     (coding_flow.rs); EXP-698 suppresses the synced coding-now CARD for a
 //     local run, so this pane never draws one
-//   · the Relations card (EXP-736: issue_relations::render_relations_card opens
-//     the scrolling body — header + "Add relation" chip above an empty list)
+//   · relations, when the issue has any: EXP-760 made them plain group
+//     headings BELOW the description, and an issue with none draws nothing
 //   · the markdown description, then the emoji / image / attach affordance row
 //   · a full-bleed hairline, "Activity (n)", the timeline: muted event lines
 //     ending in their time, comment CARDS on the 28px gutter rail that each
@@ -42,7 +43,7 @@ const PRIMARY_FG = "#18181b"
 
 // ── Layout constants (pane-local) ────────────────────────────────────────────
 const DEFAULT_W = WIN.w - WIN.rail - WIN.sidebar // 884
-const DEFAULT_H = WIN.h - WIN.titleBar - WIN.dockStrip // 917
+const DEFAULT_H = WIN.h - WIN.titleBar // the panel runs to the window's edge
 // The app left-aligns the detail content at 28px. MAX_COL caps the header
 // block (pager · title · properties bar) and PROSE_W the running text, so the
 // description and activity never run under the phone the clips float over the
@@ -87,34 +88,12 @@ const IcCircleX: React.FC<IconProps> = (p) => (
   </Svg>
 )
 // relation-section = link-2, ui-add = plus (icons.json)
-const IcLink2: React.FC<IconProps> = (p) => (
-  <Svg {...p} sw={1.8}>
-    <path d="M9 17H7A5 5 0 0 1 7 7h2" />
-    <path d="M15 7h2a5 5 0 1 1 0 10h-2" />
-    <line x1="8" x2="16" y1="12" y2="12" />
-  </Svg>
-)
-const IcPlus: React.FC<IconProps> = (p) => (
-  <Svg {...p}>
-    <path d="M5 12h14" />
-    <path d="M12 5v14" />
-  </Svg>
-)
-const IcTrash: React.FC<IconProps> = (p) => (
-  <Svg {...p} sw={1.8}>
-    <path d="M3 6h18" />
-    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
-    <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-  </Svg>
-)
-const IcChevronUp: React.FC<IconProps> = (p) => (
-  <Svg {...p}>
-    <path d="m6 15 6-6 6 6" />
-  </Svg>
-)
-const IcChevronDown: React.FC<IconProps> = (p) => (
-  <Svg {...p}>
-    <path d="m6 9 6 6 6-6" />
+// issue_header::render_actions_menu — the round "…" the top row now is.
+const IcEllipsis: React.FC<IconProps> = (p) => (
+  <Svg {...p} sw={2}>
+    <circle cx="12" cy="12" r="1" />
+    <circle cx="19" cy="12" r="1" />
+    <circle cx="5" cy="12" r="1" />
   </Svg>
 )
 const IcTag: React.FC<IconProps> = (p) => (
@@ -156,12 +135,6 @@ const IcMessageSquare: React.FC<IconProps> = (p) => (
   </Svg>
 )
 
-const IcLink: React.FC<IconProps> = (p) => (
-  <Svg {...p} sw={1.8}>
-    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-  </Svg>
-)
 const IcSmile: React.FC<IconProps> = (p) => (
   <Svg {...p} sw={1.7}>
     <circle cx="12" cy="12" r="10" />
@@ -460,54 +433,31 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
       }}
     >
       <div style={{ ...col, paddingTop: 4 }}>
-        {/* pager row: "N / M" + prev/next · copy-link · subscribe · delete */}
+        {/* issue_header::top_row — EXP-760 folded Copy link and Delete into
+            ONE round "…" menu, right-aligned, and the pager went with them. */}
         <div
           style={{
             height: 20,
             display: "flex",
             alignItems: "center",
-            gap: 2,
+            justifyContent: "flex-end",
             color: C.muted,
           }}
         >
-          <span style={{ fontSize: 13, marginRight: 4 }}>{issue.switcher}</span>
           <div
             style={{
-              width: 18,
-              height: 18,
+              width: 20,
+              height: 20,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
+              borderRadius: 999,
+              border: `1px solid ${C.strokeCard}`,
+              backgroundColor: C.fillCard,
             }}
           >
-            <IcChevronUp size={13} sw={1.8} />
+            <IcEllipsis size={13} />
           </div>
-          <div
-            style={{
-              width: 18,
-              height: 18,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <IcChevronDown size={13} sw={1.8} />
-          </div>
-          <div style={{ flex: 1 }} />
-          {[IcLink, IcTrash].map((Icon, i) => (
-            <div
-              key={i}
-              style={{
-                width: 20,
-                height: 20,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Icon size={13} />
-            </div>
-          ))}
         </div>
 
         {/* title */}
@@ -635,54 +585,6 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
           </div>
         </div>
 
-        {/* EXP-736: the Relations card (issue_relations.rs) — glass card,
-            px_3 py_2p5: link-2 glyph · "Relations" text_sm medium at 70% ·
-            the "Add relation" chip on the right. Empty here: the header and
-            the chip stand alone, which is what makes it discoverable. */}
-        <div
-          style={{
-            marginTop: 8,
-            height: 40,
-            boxSizing: "border-box",
-            display: "flex",
-            alignItems: "center",
-            gap: 5.25,
-            padding: "0 10.5px",
-            borderRadius: 16,
-            border: `1px solid ${C.strokeCard}`,
-            backgroundColor: C.fillCard,
-          }}
-        >
-          <IcLink2 size={12} style={{ color: C.muted }} />
-          <span
-            style={{
-              flex: 1,
-              fontSize: 13.5,
-              fontWeight: 500,
-              color: "rgba(250,250,250,0.7)",
-            }}
-          >
-            Relations
-          </span>
-          <div
-            style={{
-              height: 24,
-              boxSizing: "border-box",
-              display: "flex",
-              alignItems: "center",
-              gap: 5,
-              padding: "0 8px",
-              borderRadius: 999,
-              border: `1px solid ${C.strokeCard}`,
-              fontSize: 13,
-              color: C.text,
-              whiteSpace: "nowrap",
-            }}
-          >
-            <IcPlus size={12} style={{ color: C.muted }} />
-            Add relation
-          </div>
-        </div>
       </div>
 
       {/* description + the emoji / image / attach affordances */}

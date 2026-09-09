@@ -269,11 +269,14 @@ export function ActionsDocsPage() {
                 the session view when a merge fails on conflicts.
               </li>
               <li>
-                <strong>Chat</strong>: a free prompt on a repository, with no
-                issue attached. It is the launcher&apos;s{` `}
-                <strong>Chat</strong> tab rather than a list row; the run gets
-                its own <code>exp/chat-&lt;id&gt;</code> worktree and steers
-                like any other session.
+                <strong>Chat</strong>: a free prompt with no issue attached
+                and no repository required. It is the launcher&apos;s{` `}
+                <strong>Chat</strong> tab (and the app&apos;s own{` `}
+                <a href="/docs/coding/#watch-steer">chat page</a>) rather than
+                a list row; with a repository picked the run gets its own{` `}
+                <code>exp/chat-&lt;id&gt;</code> worktree, without one it runs
+                in a scratch directory. Either way it steers like any other
+                session.
               </li>
             </ul>
             <p>

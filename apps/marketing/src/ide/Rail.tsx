@@ -1,13 +1,18 @@
-/* ─── The labelled left rail (EXP-282/285/525/723) — 208px (sidebar.rs
-   RAIL_W), glass wash, full window height, ALWAYS open since EXP-723. Order
+/* ─── The labelled left rail (EXP-282/285/525/723/791) — 208px (sidebar.rs
+   RAIL_W), full window height, ALWAYS open since EXP-723, and painting
+   nothing of its own since EXP-767 (it sits on the ONE page gradient the
+   shell root paints; the cutout panel is the only brightness step). Order
    (sidebar.rs): titlebar strip (traffic lights only — the collapse toggle is
    gone) · the web-style header (team switcher · Search · New issue) ·
-   divider · Inbox / Support / Devices / Actions / Automations / Reviews ·
-   divider · Boards group · divider · Files / Source Control · spacer · the
-   What's new card · Getting started · the account row + settings gear. ─── */
+   divider · Inbox / Support / Devices / Actions / Automations / Reviews /
+   Agent · divider · Boards group · the Sessions section (EXP-791: one row
+   per open session or live run, hidden while nothing is up) · divider ·
+   "This device": Files / Source Control · spacer · the What's new card ·
+   Getting started · the account row with the new-terminal button and the
+   settings gear. ─── */
 import type { ReactNode } from "react"
-import { INBOX_ITEMS, PROJECT, REVIEWS } from "./data"
-import { useIde } from "./state"
+import { BATCH_RUN_TITLE, getIssue, INBOX_ITEMS, PROJECT, REVIEWS } from "./data"
+import { useIde, type CodingTarget } from "./state"
 import {
   IcBot,
   IcChevsUpDown,
@@ -18,13 +23,16 @@ import {
   IcInbox,
   IcLifeBuoy,
   IcMegaphone,
+  IcMessageCircle,
   IcMonitor,
+  IcPlay,
   IcPlus,
   IcKanban,
   IcSearch,
   IcSettings,
   IcSparkles,
   IcSquarePen,
+  IcSquareTerminal,
   IcX,
   IcZap,
   IcAlert,
@@ -50,7 +58,15 @@ const TEAM_NAME = `Exponential`
 
 /* crate::changelog::LATEST.summary — the What's new card's one-line teaser
    is the head changelog entry's summary (apps/web/src/lib/changelog.ts). */
-const WHATS_NEW_SUMMARY = `Reply under a comment on web, desktop, iOS and Android, and see when an agent posted a comment over MCP.`
+const WHATS_NEW_SUMMARY = `A rate-limited run is marked everywhere instead of going quiet, mobile gets mentions and inline diffs, and the IDE gets a Usage page and MCP servers.`
+
+/* navigation::screen_title — a session is named by its issue, or "Batch
+   run" when it has none. */
+function sessionLabel(target: CodingTarget): string {
+  if (target.kind === `batch`) return BATCH_RUN_TITLE
+  const issue = getIssue(target.id)
+  return `${issue.id} · ${issue.title}`
+}
 
 function RailRow({
   Icon,
@@ -81,9 +97,22 @@ function RailRow({
 }
 
 export function Rail() {
-  const { tool, setTool, openSourceControl, interactive, goneReviews, inboxRead } =
-    useIde()
-  const on = (fn: () => void) => (interactive ? fn : undefined)
+  const {
+    tool,
+    setTool,
+    openSourceControl,
+    interactive,
+    goneReviews,
+    inboxRead,
+    coding,
+    codingTarget,
+    sessionOpen,
+    openSession,
+    closeSession,
+  } = useIde()
+  /* Leaving for another destination takes the center off the session screen,
+     the way a rail navigation does. */
+  const on = (fn: () => void) => (interactive ? () => { closeSession(); fn() } : undefined)
   const openReviews = REVIEWS.filter((r) => !goneReviews.has(r.issueId)).length
   const unreadInbox = INBOX_ITEMS.some((n) => n.unread && !inboxRead.has(n.id))
   return (
@@ -129,10 +158,13 @@ export function Rail() {
       <RailRow
         Icon={IcGitPullRequest}
         label="Reviews"
-        active={tool === `reviews`}
+        active={tool === `reviews` && !sessionOpen}
         badge={openReviews > 0 ? <span className="ide-rail-dot" /> : undefined}
         onClick={on(() => setTool(`reviews`))}
       />
+      {/* EXP-791: the Chat page is a rail destination — "Agent", the web
+          sidebar's word for it. */}
+      <RailRow Icon={IcMessageCircle} label="Agent" />
       <div className="ide-rail-div" />
       <div className="ide-rail-grouphead">
         <span>Boards</span>
@@ -146,21 +178,47 @@ export function Rail() {
           Icon={board.Icon}
           label={board.name}
           tint={board.color}
-          active={i === 0 && tool === `issues`}
+          active={i === 0 && tool === `issues` && !sessionOpen}
           onClick={i === 0 ? on(() => setTool(`issues`)) : undefined}
         />
       ))}
+      {/* EXP-791: the Sessions section — the ONE navigation for coding runs.
+          A working run spins, one that needs you carries an amber dot. */}
+      {coding !== `idle` && codingTarget && (
+        <>
+          <div className="ide-rail-div" />
+          <div className="ide-rail-sectionlabel">Sessions</div>
+          <RailRow
+            Icon={IcPlay}
+            label={sessionLabel(codingTarget)}
+            active={sessionOpen}
+            badge={
+              coding === `running` ? (
+                <span className="ide-rail-spinner" />
+              ) : coding === `waiting` ? (
+                <span className="ide-rail-dot is-waiting" />
+              ) : (
+                <span className="ide-rail-x">
+                  <IcX size={9} />
+                </span>
+              )
+            }
+            onClick={interactive ? openSession : undefined}
+          />
+        </>
+      )}
       <div className="ide-rail-div" />
+      <div className="ide-rail-sectionlabel">This device</div>
       <RailRow
         Icon={IcFolder}
         label="Files"
-        active={tool === `files`}
+        active={tool === `files` && !sessionOpen}
         onClick={on(() => setTool(`files`))}
       />
       <RailRow
         Icon={IcGitMerge}
         label="Source Control"
-        active={tool === `source-control`}
+        active={tool === `source-control` && !sessionOpen}
         badge={<IcAlert size={10.5} className="ide-c-yellow" />}
         onClick={on(openSourceControl)}
       />
@@ -183,6 +241,11 @@ export function Rail() {
           <span className="ide-avatar ide-avatar-me">DS</span>
           <span className="ide-railrow-label">Danny</span>
           <IcChevsUpDown size={10.5} />
+        </span>
+        {/* EXP-340/769: the new-terminal button and the gear ride the
+            account row's right edge; a terminal opens as a center screen. */}
+        <span className="ide-rail-gear" title="New terminal">
+          <IcSquareTerminal size={12.25} />
         </span>
         <span className="ide-rail-gear">
           <IcSettings size={12.25} />

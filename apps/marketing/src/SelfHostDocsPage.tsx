@@ -468,7 +468,7 @@ docker run -d \\
             </p>
             <DocsCallout kind="warn" title="Internet-reachable ⇒ TLS, always">
               The steering socket carries bearer steer tickets, the live
-              terminal stream of your coding sessions, and remote steering
+              activity stream of your coding sessions, and remote steering
               input. Plain <code>ws://</code> is cleartext — anyone on the
               path can read the stream or inject input into a running agent.
               Only use <code>ws://</code> on a trusted LAN; anything reachable

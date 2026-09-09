@@ -393,6 +393,15 @@
 
 /* ══ Main pane ══ */
 
+/* team/app-shell.ts MAIN_COLUMN_CLASS: the content column — the cutout card
+   over the agent dock's band, both on the page ground. */
+.web-col {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 .web-main {
   flex: 1;
   min-width: 0;
@@ -401,8 +410,10 @@
   flex-direction: column;
   /* EXP-723 cutout (team/app-shell.ts MAIN_PANEL_CLASS): a rounded card inset
      10px on every side — PX literals, not rem steps — with the card hairline
-     and the translucent panel wash over the page gradient. */
-  margin: 10px;
+     and the translucent panel wash over the page gradient. EXP-771: with the
+     dock up the bottom inset is 6px, not 10 — the band is the card's own
+     chrome and rides closer than the window inset. */
+  margin: 10px 10px 6px;
   border: 1px solid var(--w-stroke-card);
   border-radius: var(--w-r-xl);
   background: var(--w-fill-panel);
@@ -474,9 +485,10 @@
   background: var(--w-accent-50);
   color: var(--w-fg);
 }
-/* Button variant="glass": the card hairline + fill, foreground/70. The
-   breadcrumb's copy-link / subscribe / delete trio keeps its circles;
-   the issue switcher's chevrons stay bare ghosts (EXP-698 r5). */
+/* Button variant="glass": the card hairline + fill, foreground/70. EXP-760
+   left the breadcrumb ONE round glass button — the "…" actions menu that
+   folded Copy link and Delete in; the issue switcher's chevrons stay bare
+   ghosts (EXP-698 r5). */
 .web-icbtn.is-glass {
   border: 1px solid var(--w-stroke-card);
   background: var(--w-fill-card);
@@ -714,20 +726,40 @@
   border-radius: 999px;
 }
 
-/* ══ Agent dock (agent-dock.tsx) — the h-9 glass strip of session tabs ══ */
+/* ══ Agent dock (agent-dock/agent-dock.tsx) — the band of session tabs ══
+   EXP-771 DOCK_BAND_CLASS: 36px on the bare page ground under the card, the
+   card's 10px side margins plus 8px of its own, and no fill or border at all
+   — the ground shows through, so the band reads as window chrome instead of
+   a second card. Heights and insets are PX literals, like the card's. */
 
 .web-dock {
   flex: none;
-  height: var(--w9);
+  height: 36px;
   display: flex;
   align-items: center;
   gap: var(--w1);
-  padding: 0 var(--w2);
+  margin: 0 10px;
+  padding: 0 8px;
   overflow: hidden;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-  background: color-mix(in oklab, #18181b 70%, transparent);
-  -webkit-backdrop-filter: blur(24px);
-  backdrop-filter: blur(24px);
+}
+/* The tab list; the Chat glyph is pushed to the band's right edge. */
+.web-dock-tabs {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--w1);
+}
+/* Button variant="ghost" size="icon", size-6 with a size-4 glyph. */
+.web-dock-chat {
+  width: var(--w6);
+  height: var(--w6);
+  margin-left: auto;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--w-r-md);
+  color: var(--w-muted);
 }
 /* RichTab: h-[26px], rounded-[10px], gap-1.5, px-2.5, text-sm. */
 .web-dock-tab {
@@ -1148,31 +1180,6 @@
 }
 
 /* CodingRowStack px-5 py-2 → GlassRow (issue-coding-rows.tsx). */
-/* issue-relations-card.tsx (EXP-736): the same gutter + glass chrome as the
-   coding strip, one section header with the Add-relation pill. */
-.web-relations {
-  padding: var(--w3) var(--w4) 0;
-}
-.web-relcard {
-  padding: var(--w2) var(--w3);
-  border: 1px solid var(--w-stroke-card);
-  border-radius: var(--w-r-xl);
-  background: var(--w-popover-40);
-}
-.web-relhead {
-  display: flex;
-  align-items: center;
-  gap: var(--w2);
-  padding-bottom: var(--w1);
-  font-size: var(--text-sm);
-  font-weight: 500;
-}
-.web-relhead-icon {
-  color: var(--w-muted);
-}
-.web-relhead .web-outlinebtn {
-  margin-left: auto;
-}
 .web-codingstack {
   padding: var(--w2) var(--w5);
 }

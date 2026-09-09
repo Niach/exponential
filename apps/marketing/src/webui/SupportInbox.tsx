@@ -7,7 +7,6 @@
 import { useState, type KeyboardEvent } from "react"
 import { getIssue, type Issue } from "../ide/data"
 import { useWeb } from "./state"
-import { WebAgentDock } from "./Board"
 import {
   ICON_3,
   ICON_4,
@@ -393,7 +392,6 @@ export function WebSupportInbox() {
         />
       )}
       </div>
-      <WebAgentDock />
     </div>
   )
 }

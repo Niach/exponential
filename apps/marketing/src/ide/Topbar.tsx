@@ -7,13 +7,23 @@ import { StatusIcon } from "./bits"
 import { IcExternalLink, IcFile, IcGitMerge, IcX } from "./icons"
 
 function TabChip({ tab }: { tab: Tab }) {
-  const { active, selectTab, closeTab, interactive } = useIde()
-  const isActive = tab.key === active
+  const { active, selectTab, closeTab, closeSession, sessionOpen, interactive } =
+    useIde()
+  /* A session is its own screen, so an issue tab reads inactive while one is
+     up — clicking it navigates back to the issue. */
+  const isActive = tab.key === active && !sessionOpen
   const issue = tab.kind === `issue` ? getIssue(tab.ref) : null
   return (
     <div
       className={`ide-tab${isActive ? ` is-active` : ``}${interactive ? ` is-click` : ``}`}
-      onClick={interactive ? () => selectTab(tab.key) : undefined}
+      onClick={
+        interactive
+          ? () => {
+              selectTab(tab.key)
+              closeSession()
+            }
+          : undefined
+      }
     >
       {issue ? (
         <StatusIcon status={issue.status} size={10} />

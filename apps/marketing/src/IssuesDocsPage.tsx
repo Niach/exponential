@@ -212,9 +212,11 @@ export function IssuesDocsPage() {
               Type <code>#</code> and pick an issue, or just write{` `}
               <code>#EXP-42</code>. When the identifier resolves to an issue
               in the same team, every client renders it as a clickable pill
-              that jumps straight to that issue. Unknown identifiers stay
-              plain text, so pasting logs or commit messages never produces
-              broken links.
+              that jumps straight to that issue; hovering one on web or the
+              desktop shows a preview card with its title, status, priority
+              and labels, and tapping one on mobile does the same. Unknown
+              identifiers stay plain text, so pasting logs or commit messages
+              never produces broken links.
             </p>
           </DocsSection>
 
@@ -224,26 +226,38 @@ export function IssuesDocsPage() {
             <p>
               The full-page view puts the description front and center: a
               properties card (status, priority, assignee, labels, due date,
-              board) sits under the title, then the <strong>Relations</strong>
-              {` `}card, then the conversation. On web and desktop the content
-              area is a rounded card floating on a darker ground; phones run
-              full-bleed.
+              board) sits under the title, the description follows, then this
+              issue&apos;s relations, then the conversation. The round{` `}
+              <strong>…</strong> menu above the title holds Copy link, Add
+              relation and Delete. On web and desktop the content area is a
+              rounded card floating on a darker ground; phones run full-bleed.
             </p>
 
             <DocShot view="issue-detail" />
 
             <h3>Relations</h3>
             <p>
-              <strong>Add relation</strong> on the card offers{` `}
-              <strong>Parent of</strong>, <strong>Sub-issue of</strong>,{` `}
-              <strong>Blocking</strong>, <strong>Blocked by</strong>,{` `}
+              Related issues sit under the description as plain group
+              headings — <strong>Sub-issues</strong> (with a done/total
+              counter), <strong>Parent</strong>, <strong>Blocked by</strong>,
+              {` `}<strong>Blocks</strong>, <strong>Duplicate of</strong>,{` `}
+              <strong>Duplicated by</strong>, <strong>Related</strong> — and
+              an issue with none shows nothing at all.
+            </p>
+            <p>
+              <strong>Add relation</strong> in the <strong>…</strong> menu
+              offers <strong>Parent of</strong>, <strong>Sub-issue of</strong>,
+              {` `}<strong>Blocking</strong>, <strong>Blocked by</strong>,{` `}
               <strong>Duplicate of</strong> and <strong>Related to</strong>,
-              then a picker for the other issue; on iOS and Android the same
-              list lives in the properties sheet. Writing <code>#EXP-42</code>
-              {` `}in a description or comment links the two issues as related
-              on its own, and marking an issue as a duplicate shows up in the
-              card too. Every link shows on both issues, and adding or removing
-              one lands in both activity feeds.
+              then a picker for the other issue; the issue list&apos;s context
+              menu offers the same, and on iOS and Android the list lives in
+              the properties sheet. <strong>Add sub-issues</strong>, right
+              under the groups, opens a small composer that files a new issue
+              already parented to this one. Writing <code>#EXP-42</code>{` `}
+              in a description or comment links the two issues as related on
+              its own, and marking an issue as a duplicate shows up here too.
+              Every link shows on both issues, and adding or removing one lands
+              in both activity feeds.
             </p>
             <h3>Activity and comments</h3>
             <p>

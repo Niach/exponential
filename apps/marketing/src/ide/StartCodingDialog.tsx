@@ -13,9 +13,11 @@
    controls. Defaults are per AGENT (EXP-206), not per mode. ─── */
 import { useMemo, useState } from "react"
 import { ISSUES, STATUS_LABEL } from "./data"
+import { PriorityIcon, StatusIcon } from "./bits"
 import { useIde, type CodingTarget } from "./state"
 import {
-  IcCheck,
+  IcCircle,
+  IcCircleCheck,
   IcChevDown,
   IcFlask,
   IcGitBranch,
@@ -312,18 +314,25 @@ export function StartCodingDialog() {
     confirmStartCoding(target)
   }
 
+  /* EXP-768: the mobile row anatomy on every client — selection glyph ·
+     priority · identifier · status · title (+ the state hint), hairline
+     divided, tinted while checked, the whole row toggling. */
   const issueRow = (issue: (typeof ISSUES)[number]) => {
     const on = checked.has(issue.id)
     return (
       <div
         key={issue.id}
-        className={`ide-dlg-issue${interactive ? ` is-click` : ``}`}
+        className={`ide-dlg-issue${on ? ` is-checked` : ``}${interactive ? ` is-click` : ``}`}
         onClick={interactive ? () => toggle(issue.id) : undefined}
       >
-        <span className={`ide-checkbox${on ? ` is-on` : ``}`}>
-          {on && <IcCheck size={9} />}
-        </span>
+        {on ? (
+          <IcCircleCheck size={12.25} />
+        ) : (
+          <IcCircle size={12.25} className="ide-c-muted" />
+        )}
+        <PriorityIcon priority={issue.priority} size={10.5} />
         <span className="ide-dlg-issue-id">{issue.id}</span>
+        <StatusIcon status={issue.status} size={10.5} />
         <span className="ide-dlg-issue-title">{issue.title}</span>
         {issue.status === `done` && (
           <span className="ide-dlg-issue-note">
@@ -362,34 +371,39 @@ export function StartCodingDialog() {
             <div className="ide-dlg-left">
               {subject === `Issues` && (
                 <>
-                  <input
-                    className="ide-dlg-search"
-                    placeholder="Search issues…"
-                    value={query}
-                    readOnly={!interactive}
-                    onChange={(e) => setQuery(e.target.value)}
-                  />
-                  <div className="ide-dlg-issues">
-                    {checkedRows.map(issueRow)}
-                    {matchRows.map(issueRow)}
-                    {noMatches && (
-                      <div className="ide-dlg-noresults">
-                        No matches. Only open issues from this board are shown.
-                      </div>
-                    )}
+                  {/* EXP-768: ONE glass group whose first row IS the search
+                      field, hairline-divided rows under it. */}
+                  <div className="ide-dlg-picker">
+                    <input
+                      className="ide-dlg-search"
+                      placeholder="Search issues…"
+                      value={query}
+                      readOnly={!interactive}
+                      onChange={(e) => setQuery(e.target.value)}
+                    />
+                    <div className="ide-dlg-issues">
+                      {checkedRows.map(issueRow)}
+                      {matchRows.map(issueRow)}
+                      {noMatches && (
+                        <div className="ide-dlg-noresults">
+                          No matches. Only open issues from this board are shown.
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </>
               )}
               {subject === `Actions` && (
                 <>
-                  <input
-                    className="ide-dlg-search"
-                    placeholder="Search actions…"
-                    value={actionQuery}
-                    readOnly={!interactive}
-                    onChange={(e) => setActionQuery(e.target.value)}
-                  />
-                  <div className="ide-dlg-actionlist">
+                  <div className="ide-dlg-picker">
+                    <input
+                      className="ide-dlg-search"
+                      placeholder="Search actions…"
+                      value={actionQuery}
+                      readOnly={!interactive}
+                      onChange={(e) => setActionQuery(e.target.value)}
+                    />
+                    <div className="ide-dlg-actionlist">
                     {actionRows.length === 0 ? (
                       <div className="ide-dlg-noresults">No matching actions.</div>
                     ) : (
@@ -413,6 +427,7 @@ export function StartCodingDialog() {
                         )
                       })
                     )}
+                    </div>
                   </div>
                   {action.input && (
                     <LabeledField label={action.input.label}>
@@ -500,6 +515,10 @@ export function StartCodingDialog() {
                     onToggle={() => setPlanMode((v) => !v)}
                   />
                 )}
+                {/* EXP-792: WHICH login on the target machine the run signs
+                    in as. "Default" is that machine's ambient one; the row
+                    hides on a machine that reported no profiles. */}
+                <PickerRow label="Account" value="Default" />
               </div>
             </div>
           </div>

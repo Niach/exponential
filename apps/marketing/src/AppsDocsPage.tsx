@@ -80,13 +80,28 @@ export function AppsDocsPage() {
               The sidebar is always open and mirrors the web app: the team
               switcher, <strong>Search</strong> and <strong>New issue</strong>
               {` `}at the top, then Inbox, Support, Devices, Actions,
-              Automations and Reviews, the boards, <strong>Files</strong> and
-              {` `}<strong>Source Control</strong>, and at the bottom the{` `}
-              <strong>What&apos;s new</strong> card, <strong>Getting started</strong>
-              {` `}and your account, whose menu holds What&apos;s new, About
-              and Sign out. The working area is a rounded card on a darker
-              ground, the same cutout layout the web app uses.
+              Automations, Reviews and <strong>Agent</strong>, the boards,
+              your live <strong>Sessions</strong>, and under{` `}
+              <strong>This device</strong> the machine&apos;s own{` `}
+              <strong>Files</strong> and <strong>Source Control</strong>. At
+              the bottom sit the <strong>What&apos;s new</strong> card,{` `}
+              <strong>Getting started</strong> and your account, whose menu
+              holds What&apos;s new, About and Sign out, with a new-terminal
+              button and the settings gear on its right.
             </p>
+            <p>
+              The working area is a rounded card on a darker ground, the same
+              cutout layout the web app uses. Issues open as tabs along its
+              top; a coding session or a terminal fills it instead, and open
+              terminals get a bar of tabs under the card — a bar that is not
+              there at all while none is open.
+            </p>
+
+            <DocShot
+              view="steering"
+              platform="desktop"
+              caption="A coding session filling the working area, with the rail's Sessions rows beside it"
+            />
             <h3>System notifications</h3>
             <p>
               The desktop app raises real macOS, Windows and XDG
@@ -191,8 +206,10 @@ export function AppsDocsPage() {
               You can also start one from here: the launcher&apos;s{` `}
               <strong>Issues</strong>, <strong>Actions</strong> and{` `}
               <strong>Chat</strong> tabs, its device and agent pickers, and
-              the <code>/</code> slash commands in the composer are the same
-              on the phone as on the desktop. The session&apos;s{` `}
+              the composer — <code>/</code> slash commands, and{` `}
+              <code>@</code> for a teammate, <code>#</code> for an issue and
+              {` `}<code>:</code> for an emoji — are the same on the phone as
+              on the desktop. The session&apos;s{` `}
               <strong>…</strong> menu holds <strong>Usage</strong> (how much
               of the agent&apos;s limits this run and this week have spent)
               and <strong>Kill session</strong>, and an open PR the run
