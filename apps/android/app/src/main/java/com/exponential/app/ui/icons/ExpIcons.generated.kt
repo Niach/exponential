@@ -6624,6 +6624,8 @@ public object ExpIcons {
     public val settingsLicenses: ImageVector get() = `scale`
     /** Concept `settings-local-repos`. */
     public val settingsLocalRepos: ImageVector get() = `hard-drive`
+    /** Concept `settings-mcp`. */
+    public val settingsMcp: ImageVector get() = `plug`
     /** Concept `settings-members`. */
     public val settingsMembers: ImageVector get() = `users`
     /** Concept `settings-notifications`. */

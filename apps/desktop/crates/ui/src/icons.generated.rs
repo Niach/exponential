@@ -515,6 +515,8 @@ pub const SETTINGS_LABELS: ExpIcon = ExpIcon::Tag;
 pub const SETTINGS_LICENSES: ExpIcon = ExpIcon::Scale;
 /// Registry concept `settings-local-repos` -> Lucide `hard-drive`.
 pub const SETTINGS_LOCAL_REPOS: ExpIcon = ExpIcon::HardDrive;
+/// Registry concept `settings-mcp` -> Lucide `plug`.
+pub const SETTINGS_MCP: ExpIcon = ExpIcon::Plug;
 /// Registry concept `settings-members` -> Lucide `users`.
 pub const SETTINGS_MEMBERS: ExpIcon = ExpIcon::Users;
 /// Registry concept `settings-notifications` -> Lucide `bell`.

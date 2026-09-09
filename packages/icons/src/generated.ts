@@ -404,6 +404,7 @@ export const SEMANTIC_ICONS = {
   "settings-labels": `tag`,
   "settings-licenses": `scale`,
   "settings-local-repos": `hard-drive`,
+  "settings-mcp": `plug`,
   "settings-members": `users`,
   "settings-notifications": `bell`,
   "settings-rate": `star`,
