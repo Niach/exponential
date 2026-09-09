@@ -64,6 +64,23 @@ export function formatChildQuestion(
   return `[${CHILD_RUN_TAG} ${childRunLabel(child)} asks — reply with exponential_sessions_message sessionId=${child.id}] ${oneLine(question)}`
 }
 
+/** EXP-804: the child hit its agent's usage wall. The row stays `running`
+ * with a moving `updated_at`, so a parent polling `exponential_sessions_get`
+ * sees a perfectly healthy run and waits forever (the 2026-09-09 incident) —
+ * the wall has to be PUSHED. Names the reset verbatim as the device reported
+ * it (an ISO stamp the parent can compare against); with no reset time it
+ * says so in the same parenthetical shape `formatChildEndedSilently` uses,
+ * rather than inventing a timestamp. */
+export function formatChildRateLimited(
+  child: ChildRunRef,
+  resetsAt: string | null | undefined
+): string {
+  const label = `${CHILD_RUN_TAG} ${childRunLabel(child)} is rate limited`
+  return resetsAt
+    ? `[${label} until ${oneLine(resetsAt)}]`
+    : `[${label} (no reset time reported)]`
+}
+
 /** A header-less caller (a plain `expu_`-key orchestrator) messaging a run
  * it started or owns. */
 export function formatStarterMessage(text: string): string {
@@ -149,6 +166,44 @@ export async function notifyParentOfChildEnd(
         ? formatChildFinished(child, end.summary)
         : formatChildEndedSilently(child, end.endedBy)
     return await relayPostInput(config, child.parentSessionId, message)
+  } catch {
+    return { delivered: false }
+  }
+}
+
+/**
+ * EXP-804: tell a live parent that its agent-started child ran into its
+ * agent's usage wall. Same gating as `notifyParentOfChildEnd` (agent-started
+ * child + a linked, live parent + a configured relay), same best-effort
+ * contract: never throws, a failure just reads as not-delivered.
+ *
+ * The CALLER fires this only on the null → set transition
+ * (`codingSessions.setBlocked`), so a device retrying the write sends exactly
+ * one message per wall — the parent must not be nagged every heartbeat.
+ */
+export async function notifyParentOfChildBlocked(
+  db: Context[`db`],
+  childSessionId: string,
+  blocked: { resetsAt?: string | null }
+): Promise<{ delivered: boolean }> {
+  try {
+    const child = await loadChildParentContext(db, childSessionId)
+    if (!child || child.startedReason !== `agent` || !child.parentSessionId) {
+      return { delivered: false }
+    }
+    if (
+      !child.parentStatus ||
+      !(PARENT_LIVE_STATUSES as readonly string[]).includes(child.parentStatus)
+    ) {
+      return { delivered: false }
+    }
+    const config = getSteerRelayConfig()
+    if (!config) return { delivered: false }
+    return await relayPostInput(
+      config,
+      child.parentSessionId,
+      formatChildRateLimited(child, blocked.resetsAt ?? null)
+    )
   } catch {
     return { delivered: false }
   }

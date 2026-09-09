@@ -31,6 +31,7 @@ import { useIsMobile } from "@/hooks/use-mobile"
 import { AgentUsageCards } from "@/components/agent-usage-bar"
 import {
   accountCaption,
+  blockedBadgeLabel,
   contextPercent,
   formatContextUsage,
   formatUsageCost,
@@ -597,6 +598,10 @@ export function AgentSessionView({
     live && !paused && !awaitingInput && !compactingNow
       ? staleActivityMinutes(usageNow.getTime(), lastActivityAt)
       : null
+  // EXP-804: the agent's usage wall as the ROW records it — null unless the
+  // run's device reported one. `usageNow` already ticks for the stale check,
+  // so the countdown rides it rather than opening a second timer.
+  const blockedLabel = blockedBadgeLabel(session.blocked, usageNow)
   /** EXP-688: the kill confirmation is shared with the dock tab's X. Live
    *  implies ownership (EXP-312), and only a live stream can be killed. */
   const {
@@ -735,16 +740,30 @@ export function AgentSessionView({
               {identity.subject}
             </span>
           </div>
-          <span className="max-w-full truncate text-[11px] text-muted-foreground">
-            {phaseLabel(
-              phase,
-              device,
-              awaitingInput,
-              paused,
-              compactingNow,
-              staleMinutes
+          <div className="flex w-full min-w-0 items-center justify-center gap-1.5">
+            <span className="max-w-full truncate text-[11px] text-muted-foreground">
+              {phaseLabel(
+                phase,
+                device,
+                awaitingInput,
+                paused,
+                compactingNow,
+                staleMinutes
+              )}
+            </span>
+            {/* EXP-804: the PERSISTED usage wall off the session row, beside
+                the phase caption and never instead of it — a walled run is
+                still running. Deliberately not the same thing as
+                `RateLimitBanner` below, which is the LIVE stream's own
+                report: this one is already there when you open a run whose
+                stream has not connected yet, which is exactly the moment a
+                silently walled run looks healthy. */}
+            {blockedLabel && (
+              <span className="shrink-0 text-[11px] font-medium text-amber-400">
+                {blockedLabel}
+              </span>
             )}
-          </span>
+          </div>
         </div>
         {/* A dropped stream redials from here too — a phone has no desktop
             header to fall back on. */}

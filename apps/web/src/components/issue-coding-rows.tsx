@@ -18,6 +18,7 @@ import { conceptIcon } from "@/lib/icons.generated"
 import type { CodingSession, Issue, Board, User } from "@/db/schema"
 import { isCodingSessionStale } from "@exp/db-schema/domain"
 import { useNow } from "@/hooks/use-now"
+import { blockedBadgeLabel } from "@/lib/agent-usage"
 import { useSessionDevice } from "@/hooks/use-session-device"
 import { sessionIsPaused } from "@/lib/session-device"
 import {
@@ -129,6 +130,9 @@ const SESSION_STATE_BADGE: Record<
 
 const RUNNING_TONE = `var(--color-emerald-400)`
 const PAUSED_TONE = `var(--muted-foreground)`
+// EXP-804: the usage wall reuses the "Needs input" amber — both mean the run
+// is alive but cannot move until something outside it changes.
+const BLOCKED_TONE = `var(--color-amber-400)`
 
 /** The phone bar's badge dot — the pulsing ping while a run is live, the
  * badge's own tone once it parks, so the circle and the pill never disagree
@@ -149,6 +153,32 @@ function toneStyle(tone: string): CSSProperties {
     color: tone,
     borderColor: `color-mix(in srgb, ${tone} 40%, transparent)`,
   }
+}
+
+/** EXP-804: the agent's usage wall, rendered BESIDE the state badge and never
+ * instead of it. A walled run is still `running` — live, steerable, killable
+ * — so the wall composes with the state exactly the way `needs_input` does;
+ * collapsing the two would hide either that the run is alive or that it
+ * cannot make a call. Amber, the same attention tone "Needs input" uses.
+ *
+ * Renders nothing when the run is not blocked, so every call site is a bare
+ * mount with no surrounding condition. Shared by the issue detail row, the
+ * Agents page, the session header and the Devices page.
+ */
+export function SessionBlockedBadge({
+  session,
+}: {
+  session: Pick<CodingSession, `blocked`>
+}) {
+  const now = useNow(30_000)
+  const label = blockedBadgeLabel(session.blocked, now)
+  if (!label) return null
+  const tone = BLOCKED_TONE
+  return (
+    <Pill size="sm" style={toneStyle(tone)} dot={tone}>
+      {label}
+    </Pill>
+  )
 }
 
 /** Live-session badge — "Coding now" / "Needs input" / "Ready for review" /
@@ -407,12 +437,15 @@ function AgentRow({
     }
 
     const codingBadge = (
-      <SessionStatusBadge
-        session={latest}
-        prState={issue.prState}
-        count={sessions.length}
-        paused={paused}
-      />
+      <>
+        <SessionStatusBadge
+          session={latest}
+          prState={issue.prState}
+          count={sessions.length}
+          paused={paused}
+        />
+        <SessionBlockedBadge session={latest} />
+      </>
     )
     const ownerLabel = (
       <span

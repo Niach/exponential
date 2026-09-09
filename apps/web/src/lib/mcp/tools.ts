@@ -330,6 +330,9 @@ const sessionColumns = {
   resumedFromId: codingSessions.resumedFromId,
   parentSessionId: codingSessions.parentSessionId,
   needsInput: codingSessions.needsInput,
+  // EXP-804: the agent's usage wall. Non-null on a row that still reads
+  // `running` — the ONE state a polling orchestrator cannot infer.
+  blocked: codingSessions.blocked,
   ackedAt: codingSessions.ackedAt,
   startedAt: codingSessions.startedAt,
   endedAt: codingSessions.endedAt,
@@ -2686,7 +2689,7 @@ export function registerExponentialTools(
     `exponential_sessions_get`,
     {
       annotations: READ_ONLY,
-      description: `Get one coding session by id. Poll it after exponential_sessions_start: status running → in_review (PR open) → ended, then summary is the run's own close-out. ackedAt is the device's liveness ack, stamped within seconds of the launch; null for more than a couple of minutes = the launch died on the device.`,
+      description: `Get one coding session by id. Poll it after exponential_sessions_start: status running → in_review (PR open) → ended, then summary is the run's own close-out. ackedAt is the device's liveness ack, stamped within seconds of the launch; null for more than a couple of minutes = the launch died on the device. A non-null blocked means the agent hit its usage wall and the run cannot make a call until blocked.resetsAt, even though the row still reads running.`,
       inputSchema: strictInput({ id: uuidString }),
     },
     async ({ id }) => {
@@ -2880,6 +2883,7 @@ export function registerExponentialTools(
         effort: z.string().max(32).optional(),
         planMode: z.boolean().optional(),
         ultracode: z.boolean().optional(),
+        allowRateLimited: z.boolean().optional(),
       }),
     },
     async (input) => {

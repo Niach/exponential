@@ -1736,3 +1736,111 @@ describe(`steer.startSession — MCP servers + account (EXP-792)`, () => {
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 })
+
+// EXP-804: the start-time half of the usage wall. The device's synced
+// `agent_usage` already says the agent is out of credit, so a start into it
+// produces a run that goes silent the second it launches — refuse instead.
+// Fail-open everywhere the report is not both FRESH and unambiguous.
+describe(`steer.startSession — usage headroom (EXP-804)`, () => {
+  const iso = (msFromNow: number) => new Date(Date.now() + msFromNow).toISOString()
+  const window = (percent: number, resetsAt: string | null) => ({
+    key: `session`,
+    label: `Session`,
+    percent,
+    resetsAt,
+  })
+  const usageFor = (
+    percent: number,
+    resetsAt: string | null,
+    fetchedAt = iso(0)
+  ) => ({ claude: { fetchedAt, windows: [window(percent, resetsAt)] } })
+
+  it(`refuses a fresh 100% window with a future reset, naming machine, agent, reset and the override`, async () => {
+    queueOwnDevice({
+      label: `mint`,
+      agentUsage: usageFor(100, iso(2 * 60 * 60_000)),
+    })
+    const error = await rejectionOf(
+      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toContain(
+      `claude on mint is out of usage until `
+    )
+    expect((error as TRPCError).message).toContain(` UTC;`)
+    expect((error as TRPCError).message).toContain(`pick another machine or agent`)
+    expect((error as TRPCError).message).toContain(`allowRateLimited`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`never refuses on a STALE report — a machine that stopped reporting is not out of credit`, async () => {
+    queueOwnDevice({
+      label: `mint`,
+      agentUsage: usageFor(100, iso(2 * 60 * 60_000), iso(-60 * 60_000)),
+    })
+    await expect(
+      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
+    ).resolves.toEqual({ ok: true })
+    expect(h.relayPostStart).toHaveBeenCalledTimes(1)
+  })
+
+  it(`allowRateLimited bypasses the refusal`, async () => {
+    queueOwnDevice({
+      label: `mint`,
+      agentUsage: usageFor(100, iso(2 * 60 * 60_000)),
+    })
+    await expect(
+      caller.startSession({
+        issueId: ISSUE_A,
+        deviceId: `dev-1`,
+        allowRateLimited: true,
+      })
+    ).resolves.toEqual({ ok: true })
+    expect(h.relayPostStart).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    [`a partially-used window`, usageFor(99, iso(2 * 60 * 60_000))],
+    [`a spent window whose reset already passed`, usageFor(100, iso(-60_000))],
+    [`a spent window with no reset time`, usageFor(100, null)],
+    [`no usage report at all`, undefined],
+  ])(`does not refuse on %s`, async (_name, agentUsage) => {
+    queueOwnDevice({ label: `mint`, agentUsage })
+    await expect(
+      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
+    ).resolves.toEqual({ ok: true })
+    expect(h.relayPostStart).toHaveBeenCalledTimes(1)
+  })
+
+  it(`reads the named profile's OWN usage (EXP-747 B5), not the top-level slot`, async () => {
+    queueOwnDevice({
+      label: `mint`,
+      // The pre-profile slot is healthy; the picked profile is walled.
+      agentUsage: usageFor(0, null),
+      agentAccounts: {
+        claude: {
+          signedIn: true,
+          profiles: [
+            {
+              id: `work`,
+              signedIn: true,
+              usage: {
+                fetchedAt: iso(0),
+                windows: [window(100, iso(90 * 60_000))],
+              },
+            },
+          ],
+        },
+      },
+    })
+    const error = await rejectionOf(
+      caller.startSession({
+        issueId: ISSUE_A,
+        deviceId: `dev-1`,
+        account: `work`,
+      })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toContain(`out of usage`)
+  })
+})

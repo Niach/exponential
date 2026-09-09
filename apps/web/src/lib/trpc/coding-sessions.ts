@@ -4,10 +4,15 @@ import { and, desc, eq, gte, inArray, ne, or, sql } from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
 import {
   CODING_SESSION_STALE_MS,
+  codingSessionBlockedSchema,
   startedReasonValues,
+  type CodingSessionBlocked,
 } from "@exp/db-schema/domain"
 import { router, authedProcedure, type Context } from "@/lib/trpc"
-import { notifyParentOfChildEnd } from "@/lib/steer-child-messages"
+import {
+  notifyParentOfChildBlocked,
+  notifyParentOfChildEnd,
+} from "@/lib/steer-child-messages"
 import { actions, automations, codingSessions, devices, issues } from "@/db/schema"
 import {
   assertTeamMember,
@@ -881,6 +886,92 @@ export const codingSessionsRouter = router({
         .returning({ id: codingSessions.id })
 
       return { updated: updated.length > 0 }
+    }),
+
+  // EXP-804: the agent's usage wall as ROW STATE. A walled run keeps status
+  // `running` and a moving `updated_at` — it is still live, steerable and
+  // killable — so without this column a rate-limited run is indistinguishable
+  // from a healthy one (the 2026-09-09 incident: an ACP batch run hit
+  // claude's 5h wall, went silent, and the PARENT that started it waited
+  // forever on a row that read perfectly fine). Written by the device the
+  // moment its agent reports the wall and cleared (`blocked: null`) on the
+  // next assistant token.
+  //
+  // A twin of setNeedsInput in every respect that matters: the owner-or-host
+  // check, the status conditioning (an ENDED row stays final — a wall can
+  // never resurrect one), and a refused write as a SILENT no-op. That last
+  // one is load-bearing: the device forwards this off its heartbeat, and a
+  // retry against a row it no longer owns must degrade, never crash the beat.
+  //
+  // `wasBlocked` reports whether the row was ALREADY blocked, so the parent
+  // notification below fires exactly once per wall — on the null → set
+  // TRANSITION, never on the retries behind it.
+  setBlocked: authedProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        blocked: codingSessionBlockedSchema.nullable(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [existing] = await ctx.db
+        .select({
+          userId: codingSessions.userId,
+          hostUserId: codingSessions.hostUserId,
+          status: codingSessions.status,
+          blocked: codingSessions.blocked,
+        })
+        .from(codingSessions)
+        .where(eq(codingSessions.id, input.id))
+        .limit(1)
+
+      if (!existing) return { updated: false, wasBlocked: false }
+      if (
+        existing.userId !== ctx.session.user.id &&
+        existing.hostUserId !== ctx.session.user.id
+      ) {
+        throw new TRPCError({
+          code: `FORBIDDEN`,
+          message: `Only the session owner can update it`,
+        })
+      }
+
+      // Tolerant in, canonical out: every input field is `.nullish()` (a
+      // newer device's payload must degrade a field rather than 400 a write
+      // that would otherwise leave a walled run reading healthy), so the
+      // stored row is filled in here instead of carrying holes every reader
+      // would have to re-handle.
+      const blocked: CodingSessionBlocked | null = input.blocked
+        ? {
+            kind: input.blocked.kind ?? `rate_limit`,
+            agent: input.blocked.agent ?? ``,
+            window: input.blocked.window ?? ``,
+            resetsAt: input.blocked.resetsAt ?? null,
+            since: input.blocked.since ?? new Date().toISOString(),
+          }
+        : null
+
+      const wasBlocked = existing.blocked != null
+      const updated = await ctx.db
+        .update(codingSessions)
+        .set({ blocked })
+        .where(
+          and(
+            eq(codingSessions.id, input.id),
+            inArray(codingSessions.status, [`running`, `in_review`])
+          )
+        )
+        .returning({ id: codingSessions.id })
+
+      const didUpdate = updated.length > 0
+      // EXP-700 rails: a child that goes silent behind a wall must PUSH that
+      // to its parent — polling the row shows a healthy run. Best-effort and
+      // never awaited into the result's meaning; the helper never throws.
+      if (didUpdate && blocked && !wasBlocked) {
+        await notifyParentOfChildBlocked(ctx.db, input.id, blocked)
+      }
+
+      return { updated: didUpdate, wasBlocked }
     }),
 
   end: authedProcedure

@@ -8,6 +8,13 @@ import type {
   User,
 } from "@/db/schema"
 import { parseVersionTuple } from "./client-version"
+import {
+  SYSTEM_PROFILE_ID,
+  parseAgentUsage,
+  parseAgentUsageMap,
+  usageIsFresh,
+} from "./agent-usage"
+import type { DeviceAgentUsage } from "@/db/schema"
 import type { AgentLaunchDefaults } from "./coding-launch-prefs"
 
 // The caller's machines (EXP-403). The ONE source is the synced `devices`
@@ -241,6 +248,77 @@ export function deviceNeedsSignIn(device: SteerDevice): boolean {
     deviceIsOnline(device) &&
     deviceUnauthedAgentIds(device).length > 0
   )
+}
+
+/** The two synced usage slots, as either a `SteerDevice` (absent = undefined)
+ * or a raw `devices` ROW (absent = null) — the start path reads the row
+ * directly, every UI surface reads the composed shape. */
+type UsageReporting = {
+  agentUsage?: DeviceAgentUsageMap | null
+  agentAccounts?: DeviceAgentAccounts | null
+}
+
+/** EXP-804: the usage report that governs starting `agent` on this machine
+ * under `account` (a profile id, or undefined for the machine's active one).
+ *
+ * The lookup order mirrors what the usage surfaces already do: a profile's
+ * OWN `usage` wins, the ACTIVE profile falls back to the pre-profile
+ * top-level slot, and a device that reports no profiles at all keeps its
+ * ambient login there. A profile the device does not have is UNKNOWN, not
+ * spent — `null`, which every caller must fail open on.
+ */
+export function deviceProfileUsage(
+  device: UsageReporting,
+  agent: string,
+  account: string | undefined
+): DeviceAgentUsage | null {
+  const usageMap = parseAgentUsageMap(device.agentUsage ?? {})
+  const profiles = (device.agentAccounts ?? {})[agent]?.profiles ?? []
+  const profile = account
+    ? profiles.find((entry) => entry?.id === account)
+    : profiles.find((entry) => entry?.active)
+  if (profile) {
+    return (
+      parseAgentUsage(profile.usage) ??
+      (profile.active ? (usageMap[agent] ?? null) : null)
+    )
+  }
+  return !account || account === SYSTEM_PROFILE_ID
+    ? (usageMap[agent] ?? null)
+    : null
+}
+
+/** EXP-804: when the machine's agent can work again, or `null` when nothing
+ * says it cannot work now. This is the START-time half of the usage wall:
+ * `devices.agent_usage` rides the heartbeat, so the server already knows a
+ * machine is out of credit, and launching into that produces a run that goes
+ * silent the second it starts.
+ *
+ * FAILS OPEN on everything ambiguous, because a refused start is worse than
+ * a run that parks:
+ *   - stale or absent numbers — a machine that stopped reporting is not a
+ *     machine that is out of credit;
+ *   - a window under 100% — that run will finish;
+ *   - a spent window with no reset, or one already past — nothing to wait for.
+ * Among the spent windows the one that resets LAST binds: that is when the
+ * agent can actually work again.
+ */
+export function deviceUsageWallAt(
+  device: UsageReporting,
+  agent: string,
+  account: string | undefined,
+  now: Date
+): Date | null {
+  const usage = deviceProfileUsage(device, agent, account)
+  if (!usageIsFresh(usage, now)) return null
+  let wallAt = 0
+  for (const window of usage?.windows ?? []) {
+    if (window.percent < 100) continue
+    const at = window.resetsAt ? new Date(window.resetsAt).getTime() : NaN
+    if (!Number.isFinite(at) || at <= now.getTime()) continue
+    if (at > wallAt) wallAt = at
+  }
+  return wallAt === 0 ? null : new Date(wallAt)
 }
 
 /** EXP-481: whether a devices row reads "online" — `last_seen_at` within the
