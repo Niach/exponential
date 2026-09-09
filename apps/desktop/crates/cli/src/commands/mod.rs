@@ -3,6 +3,7 @@ pub mod code;
 pub mod daemon;
 pub mod doctor;
 pub mod login;
+pub mod mcp;
 pub mod run;
 pub mod uninstall;
 pub mod update;

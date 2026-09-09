@@ -66,6 +66,7 @@ Commands:
   doctor                                  Check git and the agent CLIs
   code <ISSUE> [options]                  Start a coding session for an issue
   run <action> [--input k=v ...]          Run a team action (or a builtin)
+  mcp list|login|set-secret|status        Team MCP servers + this machine's credentials
   daemon [--foreground] [--label <name>]  Run the remote-start daemon
   daemon install|uninstall|status         Manage the systemd/launchd service
   update                                  Self-update from the latest cli release
@@ -133,6 +134,7 @@ fn main() -> ExitCode {
         "doctor" => commands::doctor::run(rest),
         "code" => commands::code::run(rest),
         "run" => commands::run::run(rest),
+        "mcp" => commands::mcp::run(rest),
         "daemon" => commands::daemon::run(rest),
         "update" => commands::update::run(rest),
         "uninstall" => commands::uninstall::run(rest),
