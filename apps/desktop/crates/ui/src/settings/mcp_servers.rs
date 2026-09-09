@@ -18,11 +18,14 @@
 //! ([`coding::mcp_servers::report_now`]) so the web's matrix flips without
 //! waiting for the next heartbeat.
 //!
-//! AUTHORING stays on the web, exactly like [`super::widget`]: adding a
-//! server means a transport, a URL or a command line, declared header/env
-//! names and OAuth scopes — a form, not an IDE surface. Owners get the
-//! destructive half here (a server they remove is one a machine keeps
-//! offering otherwise) and "Manage on the web" for the rest.
+//! AUTHORING is here too since EXP-810: "Add server" and a row's "Edit" open
+//! [`super::mcp_server_dialog`], the web `McpServerDialog`'s twin over the
+//! same `mcpServers.create` / `update`. It is a dialog WINDOW rather than an
+//! alert because the form re-renders on its own state (the transport swaps
+//! URL for Command, the auth kind adds Scopes, the switch has to move) — the
+//! reason the desktop half of EXP-792 shipped read-only. Owner-only, like the
+//! destructive half; "Manage on the web" stays for everything a settings page
+//! shows that a pane does not.
 //!
 //! `mcp_servers` is server-only (never an Electric shape), so this is a
 //! fetch-on-open tRPC read like the widget pane's — with THIS machine's
@@ -197,6 +200,24 @@ fn secret_name(config: &McpServerConfig) -> Option<&str> {
     config.secret_names().first().map(String::as_str)
 }
 
+/// EXP-810: the one BLOCKING read a local launch surface makes — the team's
+/// servers (`mcpServers.list`, server-only: never a shape) paired with THIS
+/// machine's readiness for them, read straight out of the 0600 store. The
+/// synced matrix carries a row for this machine too, but it is a heartbeat
+/// stale and the person is sitting AT this machine: a sign-in they just did
+/// has to count. Call it on a background executor — both halves are IO.
+pub(crate) fn list_with_local_readiness(
+    trpc: &api::trpc::TrpcClient,
+    team_id: &str,
+    data_dir: &std::path::Path,
+    account_id: &str,
+) -> Result<(Vec<McpServerListEntry>, Vec<McpReadinessReport>), String> {
+    let servers = api::mcp_servers::list(trpc, team_id).map_err(|err| err.user_message())?;
+    let configs: Vec<McpServerConfig> = servers.iter().map(|entry| entry.config.clone()).collect();
+    let local = coding::mcp_servers::readiness(data_dir, account_id, &configs, now_secs());
+    Ok((servers, local))
+}
+
 /// Unix seconds, as the readiness reader takes them.
 pub(crate) fn now_secs() -> u64 {
     std::time::SystemTime::now()
@@ -316,7 +337,10 @@ impl McpServersPane {
         cx.notify();
     }
 
-    fn refetch(&mut self, cx: &mut gpui::Context<Self>) {
+    /// Drop the cache so the next render refetches — the dialog calls this
+    /// after a create/edit lands (`mcpServers.list` is a server read with no
+    /// Electric echo).
+    pub(super) fn refetch(&mut self, cx: &mut gpui::Context<Self>) {
         self.load = Load::Idle;
         cx.notify();
     }
@@ -348,19 +372,15 @@ impl McpServersPane {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    let servers = api::mcp_servers::list(&trpc, &team)
-                        .map_err(|err| err.user_message())?;
-                    let configs: Vec<McpServerConfig> =
-                        servers.iter().map(|entry| entry.config.clone()).collect();
-                    // Pure local reads of the secret store — this is what
-                    // makes the pane's own machine authoritative about
-                    // itself rather than a heartbeat behind.
-                    let local = coding::mcp_servers::readiness(
+                    // The local half is a pure read of the secret store —
+                    // this is what makes the pane's own machine authoritative
+                    // about itself rather than a heartbeat behind.
+                    let (servers, local) = list_with_local_readiness(
+                        &trpc,
+                        &team,
                         &device.data_dir,
                         &device.account_id,
-                        &configs,
-                        now_secs(),
-                    );
+                    )?;
                     Ok(Loaded { servers, local })
                 })
                 .await;
@@ -839,6 +859,25 @@ impl McpServersPane {
         open_alert(window, cx, spec);
     }
 
+    /// Open the add/edit form (EXP-810). `config` = the row being edited;
+    /// `None` adds one. `team_id` comes from the caller so an edit and an add
+    /// name the same team even mid team switch.
+    fn open_editor(
+        &mut self,
+        config: Option<McpServerConfig>,
+        team_id: &str,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let team_id = match config.as_ref() {
+            // A row knows its own team; the header button has only the pane's.
+            Some(row) if !row.team_id.is_empty() => row.team_id.clone(),
+            _ => team_id.to_string(),
+        };
+        let pane = cx.entity().downgrade();
+        super::mcp_server_dialog::open(window, cx, team_id, config, pane);
+    }
+
     // -- render pieces --------------------------------------------------------
 
     fn chip(&self, id: String, text: String, cx: &App) -> impl IntoElement {
@@ -969,6 +1008,20 @@ impl McpServersPane {
             );
         }
         if owner {
+            let edit = config.clone();
+            let team = entry.config.team_id.clone();
+            actions = actions.child(
+                glass_pill_button(
+                    SharedString::from(format!("mcp-edit-{}", config.id)),
+                    PillSize::Sm,
+                    cx,
+                )
+                .label("Edit")
+                .disabled(self.busy)
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.open_editor(Some(edit.clone()), &team, window, cx);
+                })),
+            );
             let remove = config.clone();
             actions = actions.child(
                 glass_pill_button(
@@ -1069,14 +1122,31 @@ impl Render for McpServersPane {
         let refresh = glass_pill_button("mcp-servers-refresh", PillSize::Sm, cx)
             .label("Refresh")
             .loading(matches!(self.load, Load::Loading))
-            .on_click(cx.listener(|this, _, _, cx| this.refetch(cx)))
+            .on_click(cx.listener(|this, _, _, cx| this.refetch(cx)));
+        // EXP-810: authoring is owner-only, exactly like Remove.
+        let add_team = team_id.clone();
+        let trailing = h_flex()
+            .gap_1()
+            .items_center()
+            .when(owner, |this| {
+                this.child(
+                    glass_pill_button("mcp-servers-add", PillSize::Sm, cx)
+                        .label("Add server")
+                        .disabled(self.busy)
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            let team = add_team.clone();
+                            this.open_editor(None, &team, window, cx);
+                        })),
+                )
+            })
+            .child(refresh)
             .into_any_element();
 
         let mut body = section(cx).child(
             v_flex()
                 .child(crate::surface::glass_section_header(
                     "MCP servers",
-                    Some(refresh),
+                    Some(trailing),
                     cx,
                 ))
                 .child(section_description(MCP_DESCRIPTION, cx)),
@@ -1097,10 +1167,12 @@ impl Render for McpServersPane {
                 body = body.child(error_notice(SharedString::from(message.clone()), cx));
             }
             Load::Ready(Ok(loaded)) if loaded.servers.is_empty() => {
-                body = body.child(div().text_sm().text_color(muted).child(
-                    "No MCP servers yet. Add one on the web and it shows up on \
-                     every machine in the team.",
-                ));
+                // Web copy, verbatim — the owner is the one who can act.
+                body = body.child(div().text_sm().text_color(muted).child(if owner {
+                    "No MCP servers yet. Add one to offer it in the start-coding dialog."
+                } else {
+                    "No MCP servers yet. The team owner can add one."
+                }));
             }
             Load::Ready(Ok(loaded)) => {
                 // Cloned so the row builder can take `&mut Context` (the

@@ -153,6 +153,17 @@ pub struct CreateActionDialogView {
     automation: AutomationEditorState,
     automation_set: bool,
     launch: LaunchOptionsSection,
+    /// EXP-810: the team's MCP servers (`mcpServers.list` — server-only, so a
+    /// fetch, not a shape) paired with THIS machine's readiness. `None` while
+    /// the one-shot fetch is out; empty hides the row, exactly like the web
+    /// (`mcpRow` renders nothing until `useMcpServers` has rows).
+    mcp: Option<(
+        Vec<api::mcp_servers::McpServerListEntry>,
+        Vec<api::mcp_servers::McpReadinessReport>,
+    )>,
+    /// Guards the one-shot fetch — a failure is not retried under the open
+    /// dialog: no servers simply means no row.
+    mcp_fetched: bool,
     body_scroll: ScrollHandle,
     error: Option<SharedString>,
     _subscriptions: Vec<Subscription>,
@@ -225,6 +236,8 @@ impl CreateActionDialogView {
             automation,
             automation_set: automation_trigger.is_some(),
             launch: LaunchOptionsSection::new(window, cx),
+            mcp: None,
+            mcp_fetched: false,
             body_scroll: ScrollHandle::new(),
             error: None,
             _subscriptions: subscriptions,
@@ -255,6 +268,53 @@ impl CreateActionDialogView {
             });
         })
         .detach();
+    }
+
+    /// EXP-810: one-shot `mcpServers.list` for the dialog's team, plus THIS
+    /// machine's readiness for what came back. The creator agent runs LOCALLY
+    /// (the builtin's run is `LaunchOrigin::Local`), so there is no device to
+    /// re-resolve against — the row is what this install can connect to.
+    fn ensure_mcp_loaded(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.mcp_fetched {
+            return;
+        }
+        let (Some(trpc), Some(account)) = (queries::trpc_client(cx), queries::active_account(cx))
+        else {
+            return;
+        };
+        self.mcp_fetched = true;
+        let data_dir = crate::session::AuthContext::global(cx).data_dir.clone();
+        let team_id = self.team_id.clone();
+        cx.spawn(async move |this, cx| {
+            let loaded = cx
+                .background_executor()
+                .spawn(async move {
+                    crate::settings::mcp_servers::list_with_local_readiness(
+                        &trpc, &team_id, &data_dir, &account.id,
+                    )
+                    .inspect_err(|err| {
+                        log::debug!("[ui] mcpServers.list for the create-action dialog: {err}");
+                    })
+                    .ok()
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if let Some(loaded) = loaded {
+                    this.mcp = Some(loaded);
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// The servers the multiselect offers — empty until the fetch lands, and
+    /// for a team with no servers at all: both hide the row.
+    fn mcp_options(&self) -> Vec<crate::launch_options::McpServerOption> {
+        let Some((servers, local)) = self.mcp.as_ref() else {
+            return Vec::new();
+        };
+        crate::launch_options::local_mcp_options(servers, local, chrono::Utc::now())
     }
 
     /// The summary the always-visible Automation row shows: the trigger
@@ -585,6 +645,14 @@ impl CreateActionDialogView {
 
 impl Render for CreateActionDialogView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        // EXP-810: web parity — the creator run connects to the team's MCP
+        // servers too. Cheap and idempotent: the fetch is one-shot, and
+        // `set_mcp_servers` seeds the ticks once, so an open dialog's picks
+        // stand.
+        self.ensure_mcp_loaded(cx);
+        let mcp = self.mcp_options();
+        self.launch.set_mcp_servers(mcp);
+
         let blocker = self.launch_blocker(cx);
         let body = match self.pane {
             Pane::Form => v_flex().w_full().gap_3().child(
