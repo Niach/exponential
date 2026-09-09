@@ -501,9 +501,6 @@ export function StartCodingDialog() {
                   />
                 )}
               </div>
-              {subject === `Issues` && checked.size >= 4 && (
-                <div className="ide-dlg-hint">Large batches can be token-expensive.</div>
-              )}
             </div>
           </div>
         </div>

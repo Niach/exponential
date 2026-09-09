@@ -2305,10 +2305,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ide-dlg-hint {
-  font-size: var(--f-xs);
-  color: var(--ide-muted);
-}
 /* The action bar's left slot: the ONE blocker message. */
 .ide-dlg-blocker {
   font-size: var(--f-sm);

@@ -100,10 +100,6 @@ use crate::icons::{option_icon, registry, resolved_status_icon};
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::queries;
 
-/// Soft cost warning threshold: more checked issues than this shows the
-/// "token-expensive" note (no hard gate — coding is unmetered).
-const COST_NOTE_THRESHOLD: usize = 6;
-
 /// Hard cap per run: every checked issue adds a prompt section, and a batch
 /// beyond this size stops being one coherent session anyway.
 const MAX_ISSUES_PER_RUN: usize = 30;
@@ -3127,22 +3123,15 @@ impl Render for StartCodingDialogView {
                 }
             }
         }
-        // Web parity: the selection-size notes ride the picker column.
-        if self.subject_tab == SubjectTab::Issues {
-            if checked_count > MAX_ISSUES_PER_RUN {
-                left = left.child(div().text_xs().text_color(warning).child(
-                    SharedString::from(format!(
-                        "At most {MAX_ISSUES_PER_RUN} issues per run. Split the batch."
-                    )),
-                ));
-            } else if checked_count > COST_NOTE_THRESHOLD {
-                left = left.child(
-                    div()
-                        .text_xs()
-                        .text_color(warning)
-                        .child("Large batches can be token-expensive."),
-                );
-            }
+        // Only the HARD cap gets a line here (EXP-809): the dialog's height is
+        // fixed, and a soft note under the checklist pushed the columns past
+        // it into a scrollbar every time somebody ticked a seventh issue.
+        if self.subject_tab == SubjectTab::Issues && checked_count > MAX_ISSUES_PER_RUN {
+            left = left.child(div().text_xs().text_color(warning).child(
+                SharedString::from(format!(
+                    "At most {MAX_ISSUES_PER_RUN} issues per run. Split the batch."
+                )),
+            ));
         }
 
         // Right column: the ONE shared options cluster (agent pills,
