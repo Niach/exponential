@@ -34,10 +34,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::agent::CodingAgent;
-use crate::agent_accounts::{iso_from_unix_secs, now_iso, AgentAccounts};
+use crate::agent_accounts::{iso_from_unix_secs, now_iso, AgentAccount, AgentAccounts};
 use crate::doctor::{DoctorReport, MIN_CLAUDE_VERSION};
 use crate::settings::Settings;
-use crate::usage_cache::{self, AgentCacheEntry, PollOutcome};
+use crate::usage_cache::{self, entry_key, AgentCacheEntry, PollOutcome};
 
 /// Hard cap on the windows one agent may report — the clients render a list,
 /// the server clamps to the same number, and a runaway answer must never
@@ -441,45 +441,82 @@ pub enum CredentialRead {
 /// `.credentials.json` file under `CLAUDE_CONFIG_DIR` (or `~/.claude`).
 /// Never written, never refreshed, never logged.
 pub fn read_claude_credential() -> CredentialRead {
-    #[cfg(target_os = "macos")]
-    {
-        let mut cmd = terminal::process::background_command("/usr/bin/security");
-        cmd.args([
-            "find-generic-password",
-            "-s",
-            "Claude Code-credentials",
-            "-w",
-        ]);
-        match crate::doctor::output_with_timeout(cmd, crate::doctor::PROBE_TIMEOUT) {
-            Ok(output) if output.status.success() => {
-                let raw = String::from_utf8_lossy(&output.stdout);
-                if let Some(credential) = parse_claude_credentials(raw.trim()) {
-                    return CredentialRead::Found(credential);
-                }
-            }
-            Ok(output) => {
-                // 44 = "the item cannot be found" — a file-based install.
-                // Anything else is a refusal (ACL denial, locked keychain).
-                if output.status.code() != Some(44) {
-                    return CredentialRead::Denied;
-                }
-            }
-            // A timeout is the ACL prompt nobody is there to answer.
-            Err(_) => return CredentialRead::Denied,
+    read_claude_credential_in(None)
+}
+
+/// [`read_claude_credential`] for ONE config dir — EXP-792: an account
+/// profile's `CLAUDE_CONFIG_DIR`. The file under that dir is read first
+/// (the credential a relocated config keeps beside itself); on macOS the
+/// keychain item claude names after a non-default dir (the service suffixed
+/// with the dir's hash) is tried when the file is absent. `None` = the
+/// ambient login, keychain first as before.
+pub fn read_claude_credential_in(config_dir: Option<&Path>) -> CredentialRead {
+    if let Some(dir) = config_dir {
+        match read_credential_file(&dir.join(".credentials.json")) {
+            CredentialRead::Missing => {}
+            found_or_denied => return found_or_denied,
         }
+        #[cfg(target_os = "macos")]
+        {
+            return match read_keychain_credential(&profile_keychain_service(dir)) {
+                Some(read) => read,
+                None => CredentialRead::Missing,
+            };
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            return CredentialRead::Missing;
+        }
+    }
+    #[cfg(target_os = "macos")]
+    if let Some(read) = read_keychain_credential("Claude Code-credentials") {
+        return read;
     }
     let Some(path) = claude_credentials_path() else {
         return CredentialRead::Missing;
     };
+    read_credential_file(&path)
+}
+
+/// The `.credentials.json` read: absent → `Missing`, unreadable → `Denied`.
+fn read_credential_file(path: &Path) -> CredentialRead {
     if !path.exists() {
         return CredentialRead::Missing;
     }
-    match std::fs::read_to_string(&path) {
+    match std::fs::read_to_string(path) {
         Ok(raw) => match parse_claude_credentials(&raw) {
             Some(credential) => CredentialRead::Found(credential),
             None => CredentialRead::Missing,
         },
         Err(_) => CredentialRead::Denied,
+    }
+}
+
+/// The keychain service name claude uses for a NON-default config dir:
+/// its default service plus `-<first 8 hex of sha256(dir)>`.
+#[cfg(target_os = "macos")]
+fn profile_keychain_service(dir: &Path) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(dir.to_string_lossy().as_bytes());
+    format!("Claude Code-credentials-{}", &format!("{digest:x}")[..8])
+}
+
+/// One read-only `security find-generic-password -w` for `service`.
+/// `None` = "no such item" (fall through to the file); `Some(Denied)` = a
+/// refusal or a timeout (the ACL prompt nobody answers).
+#[cfg(target_os = "macos")]
+fn read_keychain_credential(service: &str) -> Option<CredentialRead> {
+    let mut cmd = terminal::process::background_command("/usr/bin/security");
+    cmd.args(["find-generic-password", "-s", service, "-w"]);
+    match crate::doctor::output_with_timeout(cmd, crate::doctor::PROBE_TIMEOUT) {
+        Ok(output) if output.status.success() => {
+            let raw = String::from_utf8_lossy(&output.stdout);
+            parse_claude_credentials(raw.trim()).map(CredentialRead::Found)
+        }
+        // 44 = "the item cannot be found" — a file-based install.
+        // Anything else is a refusal (ACL denial, locked keychain).
+        Ok(output) if output.status.code() == Some(44) => None,
+        Ok(_) | Err(_) => Some(CredentialRead::Denied),
     }
 }
 
@@ -671,13 +708,22 @@ pub fn collect_if_due(
     now: u64,
 ) -> AgentStatusPayload {
     let stamp = iso_from_unix_secs(now as i64).unwrap_or_else(now_iso);
-    let mut accounts = report.agent_accounts(&stamp);
+    // EXP-792 (EXP-747 B3): the heartbeat's account map carries this
+    // machine's profiles; a machine with only the ambient login sends the
+    // pre-profile payload unchanged.
+    let mut accounts = report.agent_accounts_with_profiles(settings, data_dir, &stamp);
     let mut usage = AgentUsageMap::new();
     let mut cache = usage_cache::load(data_dir);
     let mut changed = false;
 
     for agent in CodingAgent::ALL {
         let id = agent.id().to_string();
+        // EXP-792 (EXP-747 B6): the cache is keyed per LOGIN
+        // (`agent:profileId`), so one profile's 429 never backs off its
+        // siblings. The polled login is the device's ACTIVE profile — the
+        // one a run without an explicit account lands on.
+        let cache_id =
+            usage_cache::entry_key(&id, &crate::agent_profiles::active_profile(data_dir, agent));
         let check = report.check_for(agent);
         // Installed = a version resolved. A signed-OUT agent has an account
         // row (`signedIn: false`) but nothing to fetch.
@@ -690,7 +736,7 @@ pub fn collect_if_due(
         if agent == CodingAgent::Claude && !check.usage_eligible {
             continue;
         }
-        let mut entry = cache.get(&id).cloned().unwrap_or_default();
+        let mut entry = cache.get(&cache_id).cloned().unwrap_or_default();
         let mut polled = false;
         // EXP-754: a live session on this machine has already been told the
         // numbers. Reading them spawns nothing, sends nothing and contends
@@ -712,7 +758,7 @@ pub fn collect_if_due(
                     // numbers reach the bar as fast as codex reports them.
                     changed = true;
                     usage_cache::apply_outcome(&mut entry, probe.outcome, probe.windows, now, &stamp);
-                    cache.insert(id.clone(), entry.clone());
+                    cache.insert(cache_id.clone(), entry.clone());
                 }
                 // A rate-limit frame names nobody, so a machine that has
                 // never probed (fresh cache, or a login just called
@@ -728,7 +774,7 @@ pub fn collect_if_due(
                     entry.next_poll_at_secs = entry
                         .next_poll_at_secs
                         .max(now + usage_cache::MIN_POLL_SECS);
-                    cache.insert(id.clone(), entry.clone());
+                    cache.insert(cache_id.clone(), entry.clone());
                     usage_cache::save(data_dir, &cache);
                     let probe =
                         probe_agent(agent, settings, check.version.as_deref(), &mut entry, now);
@@ -738,7 +784,7 @@ pub fn collect_if_due(
                         entry.account = Some(account.clone());
                         accounts.insert(id.clone(), account);
                     }
-                    cache.insert(id.clone(), entry.clone());
+                    cache.insert(cache_id.clone(), entry.clone());
                 }
             }
             // No live session (or its numbers went stale): today's path.
@@ -749,7 +795,7 @@ pub fn collect_if_due(
                 // sibling process sharing this token (IDE vs daemon) sees the
                 // poll as taken instead of spending a second request.
                 entry.next_poll_at_secs = now + usage_cache::MIN_POLL_SECS;
-                cache.insert(id.clone(), entry.clone());
+                cache.insert(cache_id.clone(), entry.clone());
                 usage_cache::save(data_dir, &cache);
                 let probe = probe_agent(agent, settings, check.version.as_deref(), &mut entry, now);
                 if let Some(account) = probe.account {
@@ -759,7 +805,7 @@ pub fn collect_if_due(
                     accounts.insert(id.clone(), account);
                 }
                 usage_cache::apply_outcome(&mut entry, probe.outcome, probe.windows, now, &stamp);
-                cache.insert(id.clone(), entry.clone());
+                cache.insert(cache_id.clone(), entry.clone());
             }
             None => {}
         }
@@ -802,12 +848,15 @@ pub fn force_collect(
     agent: CodingAgent,
     now: u64,
 ) -> Result<AgentStatusPayload, u64> {
-    let id = agent.id().to_string();
+    let cache_id = usage_cache::entry_key(
+        agent.id(),
+        &crate::agent_profiles::active_profile(data_dir, agent),
+    );
     {
         let mut cache = usage_cache::load(data_dir);
-        let mut entry = cache.get(&id).cloned().unwrap_or_default();
+        let mut entry = cache.get(&cache_id).cloned().unwrap_or_default();
         usage_cache::force_due(&mut entry, now)?;
-        cache.insert(id, entry);
+        cache.insert(cache_id, entry);
         usage_cache::save(data_dir, &cache);
     }
     Ok(collect_if_due(data_dir, settings, report, now))
@@ -1406,7 +1455,7 @@ mod tests {
             "EARLIER",
         );
         let mut cache = usage_cache::UsageCache::default();
-        cache.insert("codex".to_string(), entry);
+        cache.insert(usage_cache::entry_key("codex", "system"), entry);
         usage_cache::save(&dir, &cache);
 
         let now = crate::run_registry::now_secs() + usage_cache::SHARED_TTL_SECS + 60;
@@ -1417,7 +1466,10 @@ mod tests {
         assert!(usage.stale, "the probe could not run, so the bar is dimmed");
         let reloaded = usage_cache::load(&dir);
         assert_eq!(
-            reloaded.get("codex").unwrap().next_poll_at_secs,
+            reloaded
+                .get(&usage_cache::entry_key("codex", "system"))
+                .unwrap()
+                .next_poll_at_secs,
             now + usage_cache::FAILED_BACKOFF_SECS
         );
 
@@ -1460,7 +1512,7 @@ mod tests {
         assert!(entry.usage.as_ref().unwrap().stale);
         assert!(!usage_cache::poll_due(&entry, now), "deep in the backoff");
         let mut cache = usage_cache::UsageCache::default();
-        cache.insert("codex".to_string(), entry);
+        cache.insert(usage_cache::entry_key("codex", "system"), entry);
         usage_cache::save(&dir, &cache);
 
         // A session starts and reports the very same percentages.
@@ -1475,7 +1527,9 @@ mod tests {
 
         // The sibling process reading the file sees the same.
         let reloaded = usage_cache::load(&dir);
-        let stored = reloaded.get("codex").expect("the shared entry");
+        let stored = reloaded
+            .get(&usage_cache::entry_key("codex", "system"))
+            .expect("the shared entry");
         assert!(!stored.usage.as_ref().unwrap().stale);
         assert_eq!(stored.fetched_at_secs, now);
 

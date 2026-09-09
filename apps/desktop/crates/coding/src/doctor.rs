@@ -44,6 +44,7 @@ use crate::agent_accounts::{now_iso, pi_account, AgentAccount, AgentAccounts};
 use crate::settings::Settings;
 use std::collections::BTreeMap;
 use std::fmt;
+use std::path::Path;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 use terminal::process::background_command;
@@ -368,6 +369,85 @@ impl DoctorReport {
                 account.checked_at = now.to_string();
                 accounts.insert(agent.id().to_string(), account);
             }
+        }
+        accounts
+    }
+
+    /// EXP-792 (EXP-747 B3): [`DoctorReport::agent_accounts`] plus the
+    /// device's ACCOUNT PROFILES — one probe per profile dir, so a machine
+    /// with two claude logins reports both.
+    ///
+    /// A machine that never added a second account keeps the pre-profile
+    /// payload BYTE for byte (`profiles` stays empty): only `system` exists
+    /// and it is the active one, so there is nothing a profile row would say
+    /// that the top-level fields do not. That is what lets old clients and
+    /// old servers read this map unchanged.
+    ///
+    /// The top-level fields keep naming the ACTIVE profile, which is the
+    /// login a run without an explicit account lands on.
+    pub fn agent_accounts_with_profiles(
+        &self,
+        settings: &Settings,
+        data_dir: &Path,
+        now: &str,
+    ) -> AgentAccounts {
+        let mut accounts = self.agent_accounts(now);
+        for agent in CodingAgent::ALL {
+            let Some(base) = accounts.get(agent.id()).cloned() else {
+                continue;
+            };
+            if crate::agent_profiles::config_env_var(agent).is_none() {
+                continue;
+            }
+            let profiles = crate::agent_profiles::list(data_dir, agent);
+            let active = crate::agent_profiles::active_profile(data_dir, agent);
+            if profiles.len() <= 1 && active == crate::agent_profiles::SYSTEM_PROFILE {
+                continue;
+            }
+            let program = settings.path_for(agent);
+            let path_env = terminal::pty::login_path();
+            let mut rows = Vec::new();
+            for profile in &profiles {
+                let system = profile.id == crate::agent_profiles::SYSTEM_PROFILE;
+                // The ambient login is the one the doctor already probed;
+                // every other profile gets its own `auth status` inside its
+                // config dir. An unreadable answer reads as signed OUT: a
+                // profile is explicit, so silence is not "assume fine".
+                let account = if system {
+                    base.clone()
+                } else {
+                    crate::agent_profiles::profile_dir(data_dir, agent, &profile.id)
+                        .and_then(|dir| {
+                            probe_profile_auth(agent, program, &path_env, &dir, now)
+                        })
+                        .map(|probe| probe.account)
+                        .unwrap_or_else(|| AgentAccount {
+                            signed_in: false,
+                            checked_at: now.to_string(),
+                            ..AgentAccount::default()
+                        })
+                };
+                rows.push(crate::agent_accounts::AgentProfileEntry {
+                    id: profile.id.clone(),
+                    label: Some(profile.label.clone()),
+                    signed_in: account.signed_in,
+                    email: account.email.clone(),
+                    plan: account.plan.clone(),
+                    active: profile.id == active,
+                    checked_at: now.to_string(),
+                    usage: None,
+                });
+            }
+            // The top-level fields follow the ACTIVE profile so a client that
+            // reads only them names the login a default run uses.
+            let mut account = base;
+            if let Some(row) = rows.iter().find(|row| row.active) {
+                account.signed_in = row.signed_in;
+                account.email = row.email.clone();
+                account.plan = row.plan.clone();
+            }
+            account.profiles = rows;
+            accounts.insert(agent.id().to_string(), account);
         }
         accounts
     }
@@ -848,10 +928,69 @@ impl ClaudeAuthStatus {
 /// 2.1.220; [`MIN_CLAUDE_VERSION`] builds carry it). Any spawn failure or
 /// unrecognisable output fails open to `None`.
 fn probe_claude_auth_status(program: &str, path_env: &str) -> Option<ClaudeAuthStatus> {
+    probe_claude_auth_status_in(program, path_env, None)
+}
+
+/// [`probe_claude_auth_status`] inside one config dir — EXP-792: the
+/// `(CLAUDE_CONFIG_DIR, dir)` pair of an account profile, so the answer
+/// names THAT login.
+fn probe_claude_auth_status_in(
+    program: &str,
+    path_env: &str,
+    config: Option<(&str, &Path)>,
+) -> Option<ClaudeAuthStatus> {
     let mut cmd = background_command(program);
     cmd.env("PATH", path_env).args(["auth", "status"]);
+    if let Some((key, dir)) = config {
+        cmd.env(key, dir);
+    }
     let output = output_with_timeout(cmd, PROBE_TIMEOUT).ok()?;
     parse_claude_auth_status_full(&String::from_utf8_lossy(&output.stdout))
+}
+
+/// EXP-792 (EXP-747 B3): who is signed in inside ONE account profile dir of
+/// `agent` — the same probes the doctor's auth gate runs, pointed at the
+/// profile's config dir. `None` for pi (no profiles) and for a probe that
+/// never ran. A profile is explicit, so an unreadable answer reads as
+/// signed OUT here (the ambient gate fails open instead).
+pub(crate) struct ProfileAuth {
+    pub account: AgentAccount,
+    /// Whether this login's usage windows may be fetched at all
+    /// ([`ClaudeAuthStatus::usage_eligible`]; codex answers over its
+    /// app-server whenever it is signed in).
+    pub usage_eligible: bool,
+}
+
+pub(crate) fn probe_profile_auth(
+    agent: CodingAgent,
+    program: &str,
+    path_env: &str,
+    config_dir: &Path,
+    now: &str,
+) -> Option<ProfileAuth> {
+    let key = crate::agent_profiles::config_env_var(agent)?;
+    let config = Some((key, config_dir));
+    match agent {
+        CodingAgent::Claude => {
+            let status = probe_claude_auth_status_in(program, path_env, config)?;
+            Some(ProfileAuth {
+                account: status.account(now),
+                usage_eligible: status.usage_eligible(),
+            })
+        }
+        CodingAgent::Codex => {
+            let authed = probe_codex_auth_in(program, path_env, config).unwrap_or(false);
+            Some(ProfileAuth {
+                account: AgentAccount {
+                    signed_in: authed,
+                    checked_at: now.to_string(),
+                    ..AgentAccount::default()
+                },
+                usage_eligible: authed,
+            })
+        }
+        CodingAgent::Pi => None,
+    }
 }
 
 /// Pull `loggedIn` out of `claude auth status` output, tolerating noise
@@ -886,8 +1025,17 @@ pub fn parse_claude_auth_status_full(stdout: &str) -> Option<ClaudeAuthStatus> {
 /// `codex login status`: exit 0 = logged in; a "not logged in" answer = signed
 /// out; anything else (no such subcommand on an old build) fails open.
 fn probe_codex_auth(program: &str, path_env: &str) -> Option<bool> {
+    probe_codex_auth_in(program, path_env, None)
+}
+
+/// [`probe_codex_auth`] inside one config dir (EXP-792: a profile's
+/// `(CODEX_HOME, dir)` pair).
+fn probe_codex_auth_in(program: &str, path_env: &str, config: Option<(&str, &Path)>) -> Option<bool> {
     let mut cmd = background_command(program);
     cmd.env("PATH", path_env).args(["login", "status"]);
+    if let Some((key, dir)) = config {
+        cmd.env(key, dir);
+    }
     let output = output_with_timeout(cmd, PROBE_TIMEOUT).ok()?;
     let combined = format!(
         "{}\n{}",
@@ -1839,6 +1987,89 @@ mod tests {
     /// EXP-484: the accounts map covers INSTALLED agents only, restamps
     /// every entry with the passed instant, and never leaks into the
     /// advertisement (whose change detection would then flap every probe).
+    /// A throwaway data dir for the profile collectors (no tempfile dep in
+    /// this crate — the same shape `agent_profiles`' own tests use).
+    fn profile_data_dir(tag: &str) -> std::path::PathBuf {
+        let mut dir = std::env::temp_dir();
+        dir.push(format!(
+            "exp-doctor-profiles-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("create data dir");
+        dir
+    }
+
+    #[test]
+    fn agent_accounts_stay_pre_profile_until_a_second_account_exists() {
+        // EXP-792 (EXP-747 B5): the whole compatibility promise. One ambient
+        // login = the exact payload every shipped client already decodes.
+        let dir = profile_data_dir("pre");
+        let mut claude = green(Tool::Claude, "2.1.215 (Claude Code)");
+        claude.account = Some(AgentAccount {
+            signed_in: true,
+            email: Some("dev@acme.test".into()),
+            plan: Some("max".into()),
+            checked_at: "2026-01-01T00:00:00.000Z".into(),
+            profiles: Vec::new(),
+        });
+        let report = DoctorReport {
+            claude,
+            codex: red(Tool::Codex),
+            pi: red(Tool::Pi),
+            git: green(Tool::Git, "2.44.0"),
+        };
+        let settings = Settings::default();
+        let accounts =
+            report.agent_accounts_with_profiles(&settings, &dir, "2026-02-02T00:00:00.000Z");
+        let claude = accounts.get("claude").expect("claude row");
+        assert!(claude.profiles.is_empty(), "no second account, no profile rows");
+        assert_eq!(claude.email.as_deref(), Some("dev@acme.test"));
+    }
+
+    #[test]
+    fn a_second_profile_lists_both_and_the_active_one_leads() {
+        // The added profile has no config dir content, so its probe fails and
+        // it reads signed OUT — the ambient row keeps naming the login a
+        // default run lands on.
+        let dir = profile_data_dir("second");
+        crate::agent_profiles::create(&dir, CodingAgent::Claude, "Work")
+            .expect("create profile");
+        let mut claude = green(Tool::Claude, "2.1.215 (Claude Code)");
+        claude.account = Some(AgentAccount {
+            signed_in: true,
+            email: Some("dev@acme.test".into()),
+            plan: Some("max".into()),
+            checked_at: "2026-01-01T00:00:00.000Z".into(),
+            profiles: Vec::new(),
+        });
+        let report = DoctorReport {
+            claude,
+            codex: red(Tool::Codex),
+            pi: red(Tool::Pi),
+            git: green(Tool::Git, "2.44.0"),
+        };
+        let mut settings = Settings::default();
+        // A binary that cannot exist: the profile probe must fail CLOSED.
+        settings.claude_path = "/nonexistent/exp792-claude".to_string();
+        let accounts =
+            report.agent_accounts_with_profiles(&settings, &dir, "2026-02-02T00:00:00.000Z");
+        let claude = accounts.get("claude").expect("claude row");
+        assert_eq!(claude.profiles.len(), 2, "system + the added profile");
+        let system = &claude.profiles[0];
+        assert_eq!(system.id, crate::agent_profiles::SYSTEM_PROFILE);
+        assert!(system.active, "the ambient login is the default account");
+        assert!(system.signed_in);
+        let work = &claude.profiles[1];
+        assert_eq!(work.label.as_deref(), Some("Work"));
+        assert!(!work.active);
+        assert!(!work.signed_in, "an unreadable profile probe reads signed out");
+        assert_eq!(claude.email.as_deref(), Some("dev@acme.test"));
+    }
+
     #[test]
     fn agent_accounts_cover_installed_agents_only() {
         let mut claude = green(Tool::Claude, "2.1.215 (Claude Code)");

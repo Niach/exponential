@@ -989,7 +989,8 @@ fn register_device(
     let settings = coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir));
     let launch_defaults = serde_json::to_value(coding::defaults_wire(&settings))
         .expect("defaults serialize cannot fail");
-    let accounts = doctor.agent_accounts(&coding::now_iso());
+    let accounts =
+        doctor.agent_accounts_with_profiles(&settings, &ctx.data_dir, &coding::now_iso());
     let agent_accounts = (!accounts.is_empty())
         .then(|| serde_json::to_value(&accounts).ok())
         .flatten();
