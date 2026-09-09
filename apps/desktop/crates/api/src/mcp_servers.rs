@@ -152,6 +152,97 @@ pub struct McpReadinessReport {
     pub error: Option<String>,
 }
 
+/// The OWNER-write field set (`mcpServers.create` / `mcpServers.update`).
+///
+/// Every field is optional because `update` is a PATCH: the server merges it
+/// onto the stored row and validates the MERGED result, so flipping `auth` to
+/// `secret` alone still has to find exactly one declared header/env name.
+/// `create` runs the same validator on a NON-partial input, so `name`,
+/// `transport` and `auth` must be present there — the server answers
+/// `BAD_REQUEST` otherwise, and this type does not pretend to know better.
+///
+/// The cross-field rules are the router's, not ours (`normalizeFields` in
+/// `apps/web/src/lib/trpc/mcp-servers.ts`): an http server needs a `url` and
+/// a stdio one a `command`; `oauth` is http-only; `secret` declares exactly
+/// one name on the transport's side. A blank/`None` field is simply absent
+/// from the wire, never `null`.
+#[derive(Clone, Debug, Default, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct McpServerFields {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// `http` | `stdio`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transport: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub header_names: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub args: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub env_names: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scopes: Option<Vec<String>>,
+    /// `none` | `oauth` | `secret`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled_by_default: Option<bool>,
+}
+
+/// `mcpServers.create` — owner-only. Returns the stored row.
+pub fn create(
+    trpc: &TrpcClient,
+    team_id: &str,
+    fields: &McpServerFields,
+) -> Result<McpServerConfig, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        team_id: &'a str,
+        #[serde(flatten)]
+        fields: &'a McpServerFields,
+    }
+    trpc.mutation("mcpServers.create", &Input { team_id, fields })
+}
+
+/// `mcpServers.update` — owner-only PATCH. Returns the stored row.
+pub fn update(
+    trpc: &TrpcClient,
+    id: &str,
+    fields: &McpServerFields,
+) -> Result<McpServerConfig, ApiError> {
+    #[derive(Serialize)]
+    struct Input<'a> {
+        id: &'a str,
+        #[serde(flatten)]
+        fields: &'a McpServerFields,
+    }
+    trpc.mutation("mcpServers.update", &Input { id, fields })
+}
+
+/// `mcpServers.remove` — owner-only. Readiness rows and OAuth flows cascade
+/// with the server row; the CREDENTIALS every device holds do not, so a
+/// caller that also wants them gone runs
+/// `coding::mcp_servers::forget_server` on this machine.
+pub fn remove(trpc: &TrpcClient, id: &str) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    struct Input<'a> {
+        id: &'a str,
+    }
+    #[derive(Deserialize)]
+    struct Ok {
+        #[serde(default)]
+        #[allow(dead_code)]
+        ok: bool,
+    }
+    let _: Ok = trpc.mutation("mcpServers.remove", &Input { id })?;
+    Ok(())
+}
+
 /// `mcpServers.reportReadiness` — replace this device's readiness rows for
 /// the listed servers (servers absent from `entries` are left alone).
 pub fn report_readiness(
@@ -256,6 +347,66 @@ mod tests {
         assert!(request.contains(
             r#"{"deviceId":"dev-1","entries":[{"serverId":"s1","ready":false,"error":"not signed in on this machine"}]}"#
         ));
+    }
+
+    /// The create wire is `{teamId, ...fields}` — a flattened field set, so
+    /// the router's `fieldsSchema.extend({teamId})` sees ONE flat object.
+    #[test]
+    fn create_flattens_the_fields_beside_the_team_id() {
+        let (base, rx) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"id":"s1","name":"Linear","transport":"http","auth":"oauth"}}}"#,
+        );
+        let row = create(
+            &client(&base),
+            "team-1",
+            &McpServerFields {
+                name: Some("Linear".into()),
+                transport: Some("http".into()),
+                url: Some("https://mcp.linear.app/mcp".into()),
+                auth: Some("oauth".into()),
+                enabled_by_default: Some(true),
+                ..Default::default()
+            },
+        )
+        .expect("ok");
+        assert_eq!(row.id, "s1");
+        let request = rx.recv().unwrap();
+        assert!(request.contains("POST /api/trpc/mcpServers.create"));
+        assert!(request.contains(
+            r#"{"teamId":"team-1","name":"Linear","transport":"http","url":"https://mcp.linear.app/mcp","auth":"oauth","enabledByDefault":true}"#
+        ));
+    }
+
+    /// An update is a PATCH: absent fields never reach the wire as `null`,
+    /// which is what lets the server validate the MERGED row.
+    #[test]
+    fn update_sends_only_the_named_fields() {
+        let (base, rx) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"id":"s1","name":"Linear"}}}"#,
+        );
+        update(
+            &client(&base),
+            "s1",
+            &McpServerFields {
+                enabled_by_default: Some(false),
+                ..Default::default()
+            },
+        )
+        .expect("ok");
+        let request = rx.recv().unwrap();
+        assert!(request.contains("POST /api/trpc/mcpServers.update"));
+        assert!(request.contains(r#"{"id":"s1","enabledByDefault":false}"#));
+    }
+
+    #[test]
+    fn remove_posts_the_id() {
+        let (base, rx) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        remove(&client(&base), "s1").expect("ok");
+        let request = rx.recv().unwrap();
+        assert!(request.contains("POST /api/trpc/mcpServers.remove"));
+        assert!(request.contains(r#"{"id":"s1"}"#));
     }
 
     #[test]

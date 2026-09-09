@@ -38,7 +38,9 @@ use gpui_component::{h_flex, v_flex, ActiveTheme as _};
 use coding::CodingAgent;
 
 use crate::icons::registry;
-use crate::launch_options::{agent_label, pickable_agents};
+use crate::launch_options::{
+    agent_label, mcp_pick_summary, mcp_pick_popover, pickable_agents, McpServerOption,
+};
 use crate::mention_input::MentionInput;
 use crate::navigation::{self, Navigation};
 use crate::surface::{glass_pill, PillMode, PillSize};
@@ -69,6 +71,16 @@ pub(crate) struct ChatScreenView {
     effort: String,
     /// EXP-772: OFF by default for a chat, whatever the agent's setting says.
     plan: bool,
+    /// EXP-792: the team's MCP servers, resolved against THIS machine (a
+    /// desktop chat runs here — there is no device pick to re-resolve
+    /// against). Empty hides the pill, like the web's `mcp.servers.length`
+    /// guard on the same row.
+    mcp_servers: Vec<McpServerOption>,
+    /// The picked server ids, seeded from `enabled_by_default`.
+    mcp_selected: Vec<String>,
+    /// The team the server list belongs to — the page outlives a team
+    /// switch, so a switch has to refetch and re-seed.
+    mcp_team: Option<String>,
     focus_handle: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -114,6 +126,9 @@ impl ChatScreenView {
             model: String::new(),
             effort: String::new(),
             plan: false,
+            mcp_servers: Vec::new(),
+            mcp_selected: Vec::new(),
+            mcp_team: None,
             focus_handle: cx.focus_handle(),
             _subscriptions: subscriptions,
         };
@@ -181,7 +196,124 @@ impl ChatScreenView {
 
     /// The options the run launches with.
     fn options(&self, agent: CodingAgent) -> coding::LaunchOptions {
-        chat_options(agent, &self.model, &self.effort, self.plan)
+        chat_options(
+            agent,
+            &self.model,
+            &self.effort,
+            self.plan,
+            self.mcp_selected.clone(),
+        )
+    }
+
+    /// EXP-792: the team's MCP servers for the chat pill. One fetch per
+    /// team (`mcpServers.list` is server-only), with THIS machine's
+    /// readiness read from the local store alongside it — the page targets
+    /// this machine and nothing else, so there is no matrix to consult.
+    fn ensure_mcp_loaded(&mut self, cx: &mut gpui::Context<Self>) {
+        let team_id = navigation::active_team_id(&self.nav, cx);
+        if team_id == self.mcp_team {
+            return;
+        }
+        self.mcp_team = team_id.clone();
+        self.mcp_servers = Vec::new();
+        self.mcp_selected = Vec::new();
+        let (Some(team), Some(trpc), Some(account)) = (
+            team_id,
+            crate::queries::trpc_client(cx),
+            crate::queries::active_account(cx),
+        ) else {
+            return;
+        };
+        let data_dir = crate::session::AuthContext::global(cx).data_dir.clone();
+        cx.spawn(async move |this, cx| {
+            let loaded = cx
+                .background_executor()
+                .spawn(async move {
+                    let servers = api::mcp_servers::list(&trpc, &team)
+                        .inspect_err(|err| log::debug!("[ui] mcpServers.list for chat: {err}"))
+                        .ok()?;
+                    let configs: Vec<api::mcp_servers::McpServerConfig> =
+                        servers.iter().map(|entry| entry.config.clone()).collect();
+                    let local = coding::mcp_servers::readiness(
+                        &data_dir,
+                        &account.id,
+                        &configs,
+                        crate::settings::mcp_servers::now_secs(),
+                    );
+                    Some((team, servers, local))
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                let Some((team, servers, local)) = loaded else {
+                    return;
+                };
+                // A team switch under the fetch wins — never seed the pill
+                // from the team the person just left.
+                if this.mcp_team.as_deref() != Some(team.as_str()) {
+                    return;
+                }
+                let now = chrono::Utc::now();
+                this.mcp_servers = servers
+                    .iter()
+                    .map(|entry| McpServerOption {
+                        id: entry.config.id.clone(),
+                        name: entry.config.name.clone(),
+                        blocked: crate::launch_options::mcp_block_reason(
+                            &entry.config.auth,
+                            local
+                                .iter()
+                                .find(|row| row.server_id == entry.config.id)
+                                .map(crate::settings::mcp_servers::Readiness::from),
+                            None,
+                            now,
+                        ),
+                        enabled_by_default: entry.config.enabled_by_default,
+                    })
+                    .collect();
+                this.mcp_selected =
+                    crate::launch_options::mcp_default_ids(&this.mcp_servers);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn toggle_mcp_server(&mut self, id: &str) {
+        if let Some(at) = self.mcp_selected.iter().position(|picked| picked == id) {
+            self.mcp_selected.remove(at);
+            return;
+        }
+        self.mcp_selected.push(id.to_string());
+        let order: Vec<&str> = self.mcp_servers.iter().map(|s| s.id.as_str()).collect();
+        self.mcp_selected.sort_by_key(|id| {
+            order.iter().position(|known| known == id).unwrap_or(usize::MAX)
+        });
+    }
+
+    /// EXP-792: the inline MCP pill — the web chat page's `McpServerPicker`
+    /// on the same row, summarised the same way.
+    fn mcp_picker(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let trigger = Button::new("chat-pick-mcp")
+            .ghost()
+            .cursor_pointer()
+            .h_auto()
+            .px_1()
+            .py_0()
+            .text_color(cx.theme().muted_foreground)
+            .dropdown_caret(true)
+            .child(div().text_xs().child(SharedString::from(format!(
+                "MCP: {}",
+                mcp_pick_summary(&self.mcp_servers, &self.mcp_selected)
+            ))));
+        mcp_pick_popover(
+            "chat",
+            trigger,
+            &self.mcp_servers,
+            &self.mcp_selected,
+            |view: &mut Self, id: &str| view.toggle_mcp_server(id),
+            cx,
+        )
+        .into_any_element()
     }
 
     /// Start the chat run with the typed prompt. The launcher navigates to
@@ -281,6 +413,9 @@ impl ChatScreenView {
             .text_color(muted)
             .child(div().px_1().child(machine))
             .child(self.agent_picker(cx))
+            .when(!self.mcp_servers.is_empty(), |this| {
+                this.child(self.mcp_picker(cx))
+            })
             .when(plan_supported, |this| {
                 this.child(
                     h_flex()
@@ -343,6 +478,7 @@ pub(crate) fn chat_options(
     model: &str,
     effort: &str,
     plan: bool,
+    mcp_server_ids: Vec<String>,
 ) -> coding::LaunchOptions {
     coding::LaunchOptions {
         agent,
@@ -350,7 +486,12 @@ pub(crate) fn chat_options(
         effort: effort.to_string(),
         ultracode: false,
         plan_mode: plan && agent.supports_plan_mode(),
-        mcp_server_ids: Vec::new(),
+        // EXP-792: the row's own pick, seeded from `enabled_by_default`.
+        mcp_server_ids,
+        // EXP-747 B7: the machine's ambient login. The chat row is
+        // deliberately three controls wide (machine, agent, plan) — model
+        // and effort are not on it either — so there is no account picker
+        // here; the Start-coding dialog is where a run picks a profile.
         account: None,
         external: None,
     }
@@ -373,6 +514,7 @@ impl Focusable for ChatScreenView {
 impl Render for ChatScreenView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         self.sync_mention_source(cx);
+        self.ensure_mcp_loaded(cx);
         let can_send = self.agent.is_some();
         let options = self.render_options_row(cx);
         let suggestions = self.render_suggestions(cx);
@@ -450,7 +592,7 @@ mod tests {
     /// actually do.
     #[test]
     fn chat_options_never_ultracode_and_clamp_plan_mode() {
-        let claude = chat_options(CodingAgent::Claude, "opus", "high", true);
+        let claude = chat_options(CodingAgent::Claude, "opus", "high", true, Vec::new());
         assert!(!claude.ultracode);
         assert!(claude.plan_mode);
         assert_eq!((claude.model.as_str(), claude.effort.as_str()), ("opus", "high"));
@@ -458,9 +600,25 @@ mod tests {
 
         // Codex has no plan mode — a switch left on cannot reach the argv.
         assert!(!CodingAgent::Codex.supports_plan_mode());
-        assert!(!chat_options(CodingAgent::Codex, "", "", true).plan_mode);
+        assert!(!chat_options(CodingAgent::Codex, "", "", true, Vec::new()).plan_mode);
 
         // Off is off.
-        assert!(!chat_options(CodingAgent::Claude, "opus", "", false).plan_mode);
+        assert!(!chat_options(CodingAgent::Claude, "opus", "", false, Vec::new()).plan_mode);
+    }
+
+    /// EXP-792: the row's MCP pick reaches the launch options verbatim (it
+    /// was hardcoded empty until EXP-807), and the account stays the
+    /// machine's ambient login — the chat row has no profile picker.
+    #[test]
+    fn chat_options_carry_the_mcp_pick() {
+        let options = chat_options(
+            CodingAgent::Claude,
+            "opus",
+            "",
+            false,
+            vec!["srv-1".to_string(), "srv-2".to_string()],
+        );
+        assert_eq!(options.mcp_server_ids, ["srv-1".to_string(), "srv-2".to_string()]);
+        assert_eq!(options.account, None);
     }
 }

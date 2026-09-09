@@ -346,9 +346,9 @@ describe(`icon call sites`, () => {
     // same list as a card on its single Boards settings page, which desktop
     // flattened into per-board panes (EXP-288), so it needs its own entry.
     // EXP-771: + Feedback widget and Helpdesk, now on both clients.
-    // EXP-792 added MCP servers on the WEB only: the IDE pane follows in the
-    // desktop sub-issue, and this count moves to 18 with it.
-    expect(desktopNav.size).toBe(17)
+    // EXP-807: + MCP servers, the IDE pane the desktop sub-issue added — the
+    // count the EXP-792 comment here predicted.
+    expect(desktopNav.size).toBe(18)
 
     // The sections both clients render, web label → desktop variant.
     const shared: [string, string][] = [
@@ -361,6 +361,9 @@ describe(`icon call sites`, () => {
       [`Repositories`, `Repositories`],
       [`Feedback widget`, `Widget`],
       [`Helpdesk`, `Helpdesk`],
+      // EXP-807: member-visible on both clients, so the pair belongs in the
+      // SHARED list — without the row here the gate never bites on it.
+      [`MCP servers`, `McpServers`],
       [`Account`, `Account`],
       [`Notifications`, `Notifications`],
       [`API keys`, `ApiKeys`],
