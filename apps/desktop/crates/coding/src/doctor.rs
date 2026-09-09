@@ -103,10 +103,15 @@ pub const MIN_CODEX_ACP_VERSION: (u32, u32, u32) = (0, 144, 0);
 ///   types the authorization code claude's browser page hands the requester
 ///   into the login PTY still waiting for it. A build without it reports the
 ///   command "unsupported", so requesters hide the code field.
+/// - `mcp` (EXP-792) — this build runs `mcp_oauth_start`/`mcp_oauth_code`
+///   and reports per-server MCP readiness on the heartbeat; the server
+///   refuses `beginOAuth` against a device without it.
+/// - `agent-usage-refresh` (EXP-792) — this build runs
+///   `agent_usage_refresh` (a forced usage re-read, 429 floor kept).
 ///
 /// Ceiling check: `devices.register`'s `capsInput` accepts 16 caps
-/// (`apps/web/src/lib/trpc/devices.ts`); this is 7 + 6 = 13.
-pub const DEVICE_CAPS: [&str; 7] = [
+/// (`apps/web/src/lib/trpc/devices.ts`); this is 9 + 6 = 15.
+pub const DEVICE_CAPS: [&str; 9] = [
     "resume",
     "worktrees",
     "launch-defaults",
@@ -114,6 +119,8 @@ pub const DEVICE_CAPS: [&str; 7] = [
     "agent-start",
     "acp",
     "agent-login-code",
+    "mcp",
+    "agent-usage-refresh",
 ];
 
 /// The action-run capabilities — advertised only while at least one agent is
@@ -182,12 +189,13 @@ impl Tool {
     }
 
     /// The EXP-409 red actionable message for an installed-but-signed-out
-    /// agent (never produced for git).
+    /// agent (never produced for git). EXP-792 (A3): the fix is a button in
+    /// the product, never a terminal command the person has to type.
     fn signed_out_message(self) -> &'static str {
         match self {
-            Tool::Claude => "claude is installed but not signed in. Run `claude` in a terminal and log in.",
-            Tool::Codex => "codex is installed but not signed in. Run `codex login` in a terminal.",
-            Tool::Pi => "pi has no provider credentials. Run `pi` and sign in with /login, or set a provider API key.",
+            Tool::Claude => "claude is installed but not signed in. Sign in from Settings → Agents, or from the Sign in button on the failed start.",
+            Tool::Codex => "codex is installed but not signed in. Sign in from Settings → Agents, or from the Sign in button on the failed start.",
+            Tool::Pi => "pi has no provider credentials. Sign in from Settings → Agents, or from the Sign in button on the failed start.",
             Tool::Git => "",
         }
     }
@@ -1524,6 +1532,31 @@ mod tests {
         assert!(signed_out.contains(&"agent-login-code".to_string()));
     }
 
+    /// EXP-792: running `mcp_oauth_*` and a forced usage refresh are
+    /// properties of the BINARY — build caps, advertised while signed out,
+    /// and the whole list stays under `capsInput`'s ceiling of 16.
+    #[test]
+    fn device_caps_include_mcp_and_usage_refresh_under_the_ceiling() {
+        assert!(DEVICE_CAPS.contains(&"mcp"));
+        assert!(DEVICE_CAPS.contains(&"agent-usage-refresh"));
+        assert!(!ACTION_CAPS.contains(&"mcp"));
+        let signed_out = device_caps(&advert(&[]));
+        assert!(signed_out.contains(&"mcp".to_string()));
+        assert!(signed_out.contains(&"agent-usage-refresh".to_string()));
+        assert!(device_caps(&advert(&["claude"])).len() <= 16);
+    }
+
+    /// EXP-792 (A3): the signed-out fix is a button, never a command to type.
+    #[test]
+    fn signed_out_message_never_asks_for_a_terminal_command() {
+        for tool in [Tool::Claude, Tool::Codex, Tool::Pi] {
+            let message = tool.signed_out_message();
+            assert!(message.contains("Sign in from Settings → Agents"), "{message}");
+            assert!(!message.contains('`'), "{message}");
+            assert!(!message.contains("terminal"), "{message}");
+        }
+    }
+
     /// EXP-679: `agent-start` asserts this build understands a start frame's
     /// `started_reason` — a PROTOCOL property of the binary, not of what it
     /// can run, so it rides with the build caps and the server may gate an
@@ -1909,7 +1942,7 @@ mod tests {
         assert_eq!(check.version.as_deref(), Some("9.9.9 (Claude Code)"));
         assert_eq!(
             check.error.as_deref(),
-            Some("claude is installed but not signed in. Run `claude` in a terminal and log in.")
+            Some("claude is installed but not signed in. Sign in from Settings → Agents, or from the Sign in button on the failed start.")
         );
 
         let claude_in = write_stub(
@@ -1929,7 +1962,7 @@ mod tests {
         assert!(check.signed_out());
         assert_eq!(
             check.error.as_deref(),
-            Some("codex is installed but not signed in. Run `codex login` in a terminal.")
+            Some("codex is installed but not signed in. Sign in from Settings → Agents, or from the Sign in button on the failed start.")
         );
 
         // The report-level view: signed-out codex is out of installed_agents

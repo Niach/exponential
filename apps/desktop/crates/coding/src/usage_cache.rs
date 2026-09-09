@@ -90,6 +90,10 @@ pub struct AgentCacheEntry {
     /// Set when the credential STORE refused; no read is attempted before it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credential_denied_until_secs: Option<u64>,
+    /// EXP-792: set on a 429 — the one floor a FORCED refresh
+    /// (`agent_usage_refresh`) must still honor.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rate_limited_until_secs: Option<u64>,
     /// Fields a newer build wrote that this one does not know — carried
     /// verbatim through every rewrite (the [`crate::run_registry`] promise).
     #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -261,6 +265,7 @@ pub fn apply_outcome(
             });
             // A successful read proves the credential store answers again.
             entry.credential_denied_until_secs = None;
+            entry.rate_limited_until_secs = None;
             if unchanged {
                 PollOutcome::Unchanged
             } else {
@@ -272,10 +277,26 @@ pub fn apply_outcome(
             if let Some(usage) = &mut entry.usage {
                 usage.stale = true;
             }
+            if outcome == PollOutcome::RateLimited {
+                entry.rate_limited_until_secs = Some(now + RATE_LIMITED_FLOOR_SECS);
+            }
             outcome
         }
     };
     entry.next_poll_at_secs = next_poll_at(entry, outcome, now);
+}
+
+/// EXP-792: make `entry` due for one FORCED poll — past the scheduled next
+/// poll and the machine-wide shared TTL, but never past the 429 floor.
+/// `Err(until)` = still rate-limited until that unix second.
+pub fn force_due(entry: &mut AgentCacheEntry, now: u64) -> Result<(), u64> {
+    if let Some(until) = entry.rate_limited_until_secs.filter(|until| now < *until) {
+        return Err(until);
+    }
+    entry.next_poll_at_secs = 0;
+    entry.fetched_at_secs = 0;
+    entry.credential_denied_until_secs = None;
+    Ok(())
 }
 
 /// A stable digest of the rendered windows — the change detector. SHA-256

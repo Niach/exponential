@@ -58,6 +58,7 @@ pub mod launch_defaults_sync;
 pub mod launch_gate;
 pub mod launcher;
 pub mod mcp_json;
+pub mod mcp_oauth;
 pub mod mcp_servers;
 pub mod pi_bridge;
 pub mod process;
@@ -107,8 +108,9 @@ pub use doctor::{
 pub use agent_accounts::{now_iso, AgentAccount, AgentAccounts};
 pub use agent_login::{login_plan, LoginPhase, LoginPlan, LoginProgress};
 pub use agent_usage::{
-    collect_if_due, AgentStatusPayload, AgentUsage, AgentUsageMap, UsageWindow,
+    collect_if_due, force_collect, AgentStatusPayload, AgentUsage, AgentUsageMap, UsageWindow,
 };
+pub use mcp_servers::{McpBlocker, McpReadinessState, ResolvedMcp};
 pub use scm::{
     CommitInfo, ConflictKind, ConflictState, DiffFile, DiffLine, DiffLineKind, FileChange,
     FileStatus, StatusSummary, UnifiedHunk,

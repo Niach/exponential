@@ -789,6 +789,29 @@ pub fn collect_if_due(
     AgentStatusPayload { accounts, usage }
 }
 
+/// EXP-792: a FORCED refresh for one agent (`agent_usage_refresh`): the
+/// poll policy's schedule and the shared TTL are set aside for this one
+/// pass, the 429 floor is not. `Err(until)` names the unix second the
+/// floor lifts (the host replies with it instead of polling); `Ok` is the
+/// same payload [`collect_if_due`] would answer, with `agent` re-read.
+pub fn force_collect(
+    data_dir: &Path,
+    settings: &Settings,
+    report: &DoctorReport,
+    agent: CodingAgent,
+    now: u64,
+) -> Result<AgentStatusPayload, u64> {
+    let id = agent.id().to_string();
+    {
+        let mut cache = usage_cache::load(data_dir);
+        let mut entry = cache.get(&id).cloned().unwrap_or_default();
+        usage_cache::force_due(&mut entry, now)?;
+        cache.insert(id, entry);
+        usage_cache::save(data_dir, &cache);
+    }
+    Ok(collect_if_due(data_dir, settings, report, now))
+}
+
 /// One agent's fetch result, before the cache folds it in.
 struct AgentProbe {
     outcome: PollOutcome,
@@ -1527,5 +1550,36 @@ mod tests {
         payload.usage.insert("claude".into(), AgentUsage::default());
         assert!(payload.usage_json().is_some());
         assert_eq!(payload.accounts_json(), None);
+    }
+
+    /// EXP-792: a forced refresh clears the schedule + shared TTL but stops
+    /// at the 429 floor.
+    #[test]
+    fn force_due_honors_only_the_rate_limit_floor() {
+        let mut entry = usage_cache::AgentCacheEntry {
+            fetched_at_secs: 1_000,
+            next_poll_at_secs: 5_000,
+            credential_denied_until_secs: Some(9_000),
+            ..Default::default()
+        };
+        assert!(!usage_cache::poll_due(&entry, 1_010));
+        assert_eq!(usage_cache::force_due(&mut entry, 1_010), Ok(()));
+        assert!(usage_cache::poll_due(&entry, 1_010));
+        usage_cache::apply_outcome(&mut entry, PollOutcome::RateLimited, None, 1_010, "s");
+        assert_eq!(
+            entry.rate_limited_until_secs,
+            Some(1_010 + usage_cache::RATE_LIMITED_FLOOR_SECS)
+        );
+        assert_eq!(
+            usage_cache::force_due(&mut entry, 1_020),
+            Err(1_010 + usage_cache::RATE_LIMITED_FLOOR_SECS)
+        );
+        assert_eq!(
+            usage_cache::force_due(&mut entry, 1_010 + usage_cache::RATE_LIMITED_FLOOR_SECS),
+            Ok(())
+        );
+        // A successful read lifts the floor.
+        usage_cache::apply_outcome(&mut entry, PollOutcome::Changed, Some(Vec::new()), 2_000, "s");
+        assert_eq!(entry.rate_limited_until_secs, None);
     }
 }
