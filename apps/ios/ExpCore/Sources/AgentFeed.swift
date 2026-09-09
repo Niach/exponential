@@ -905,6 +905,51 @@ public enum AgentFeed {
         return next
     }
 
+    // MARK: - The per-call diff (EXP-786)
+
+    /// A publisher-cut diff ends in ONE metadata line saying how much it
+    /// dropped (`\ 120 more lines truncated`). Split it off: the diff proper
+    /// renders as a diff, the note as a muted footer — rendered as a diff LINE
+    /// it would read as context the agent actually saw.
+    ///
+    /// Hand-mirrored from web `splitTruncatedDiff` (`lib/agent-feed.ts`),
+    /// whose regex is `/(?:^|\n)\\ (\d+) more lines? truncated\s*$/`: only the
+    /// LAST line counts, trailing whitespace is tolerated, and git's own
+    /// `\ No newline at end of file` marker — same `\ ` prefix — is left in
+    /// the diff where it belongs.
+    public static func splitTruncatedDiff(_ diff: String) -> (diff: String, truncated: Int?) {
+        // `\s*$`: the note may be followed by blank space and nothing else.
+        var end = diff.endIndex
+        while end > diff.startIndex, diff[diff.index(before: end)].isWhitespace {
+            end = diff.index(before: end)
+        }
+        let body = diff[diff.startIndex..<end]
+        // `(?:^|\n)`: the note is the whole string, or the last line of it.
+        let lineStart = body.lastIndex(of: "\n").map(body.index(after:)) ?? body.startIndex
+        guard let count = truncationCount(body[lineStart...]) else { return (diff, nil) }
+        // The match SWALLOWS its leading newline, so the diff keeps no blank
+        // last line.
+        let cut = lineStart == body.startIndex ? body.startIndex : body.index(before: lineStart)
+        return (String(body[body.startIndex..<cut]), count)
+    }
+
+    /// `\ 120 more lines truncated` → 120. Nil for anything else, git's
+    /// `\ No newline at end of file` included.
+    private static func truncationCount(_ line: Substring) -> Int? {
+        guard line.hasPrefix("\\ ") else { return nil }
+        let rest = line.dropFirst(2)
+        // `\d+` is ASCII-only; a Devanagari numeral is not a line count.
+        let digits = rest.prefix { $0.isASCII && $0.isNumber }
+        guard !digits.isEmpty, let count = Int(digits) else { return nil }
+        let tail = rest.dropFirst(digits.count)
+        return tail == " more line truncated" || tail == " more lines truncated" ? count : nil
+    }
+
+    /// The footer under a cut diff. Locked ×4 with web `diffTruncationNote`.
+    public static func diffTruncationNote(_ lines: Int) -> String {
+        "\(lines) more line\(lines == 1 ? "" : "s") truncated"
+    }
+
     /// EXP-784: the `rate_limit.status` values that CLEAR the slot.
     public static func rateLimitClears(_ status: String) -> Bool {
         let trimmed = status.trimmingCharacters(in: .whitespacesAndNewlines)

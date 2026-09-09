@@ -207,10 +207,17 @@ struct AgentSessionView: View {
                         paused: hostPaused || headerLost,
                         live: model?.phase == .live
                     )
-                    Text(headerCaption)
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .lineLimit(1)
+                    HStack(spacing: 6) {
+                        Text(headerCaption)
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .lineLimit(1)
+                        // EXP-804: the usage wall rides BESIDE the phase
+                        // caption. It never replaces it — a walled run is
+                        // still `Live`, it just cannot make progress, and
+                        // that is exactly the pair a viewer needs to see.
+                        SessionBlockedBadge(blocked: (model?.session ?? session).blocked)
+                    }
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -963,8 +970,8 @@ struct AgentSessionView: View {
             switch item {
             case let .narration(_, text, _, _):
                 NarrationBubble(text: text, context: markdownContext)
-            case let .tool(_, name, detail, _, _, _, _, failed, _):
-                ToolRow(name: name, detail: detail, failed: failed)
+            case let .tool(_, name, detail, _, _, _, _, failed, diff):
+                ToolRow(name: name, detail: detail, failed: failed, diff: diff)
             case let .userMessage(_, text, _):
                 // EXP-724: a steered slash command is a control action, not
                 // prose — it renders as a compact pill instead of a bubble.
@@ -2608,8 +2615,35 @@ private struct ToolRow: View {
     /// this used to give every tool row; an outermost one is spaced by the
     /// transcript's gap ladder instead.
     var nested: Bool = false
+    /// EXP-786: the per-call unified diff an `edit` published, already cut to
+    /// the contract's caps by the publisher. Nil for every other call.
+    var diff: String? = nil
+
+    /// EXP-806: COLLAPSED by default, unlike web's always-open `ToolDiff` —
+    /// a phone transcript is one narrow column, and a dozen open patches
+    /// would bury the prose between them.
+    @State private var showsDiff = false
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if diff == nil {
+                headline
+            } else {
+                Button { showsDiff.toggle() } label: {
+                    headline.contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(showsDiff ? "Hide the diff" : "Show the diff")
+            }
+            if showsDiff, let diff {
+                ToolDiffBlock(diff: diff)
+                    .padding(.top, 4)
+            }
+        }
+        .padding(.vertical, nested ? 2 : 0)
+    }
+
+    private var headline: some View {
         HStack(spacing: 8) {
             AppIcon(AppIcons.codingTool, size: 11)
                 .foregroundStyle(
@@ -2627,8 +2661,14 @@ private struct ToolRow: View {
             } else {
                 Spacer(minLength: 0)
             }
+            // The disclosure sits on the TRAILING edge on purpose: a leading
+            // chevron would indent the diff-carrying rows out of line with
+            // every other tool row in the same run.
+            if diff != nil {
+                AppIcon(showsDiff ? AppIcons.uiChevronDown : AppIcons.uiChevronRight, size: 11)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
         }
-        .padding(.vertical, nested ? 2 : 0)
     }
 
     /// Middle-truncate a tool detail (paths etc.) so head AND tail stay
@@ -2638,6 +2678,63 @@ private struct ToolRow: View {
         let head = max * 2 / 3
         let tail = max - head - 1
         return String(s.prefix(head)) + "…" + String(s.suffix(tail))
+    }
+}
+
+/// EXP-806: one call's diff, under its tool row — the same per-file renderer
+/// the "Latest changes" sheet uses (`DiffPatchBlock`), in a scroll box no
+/// taller than that bar, mirroring web's `ToolDiff`.
+///
+/// The publisher's cut note is split off FIRST and drawn as a muted footer
+/// OUTSIDE the patch: `\ 120 more lines truncated` is metadata about the
+/// diff, and inside the block `DiffRendering.kind` would colour it as a
+/// context line the agent supposedly read. That footer is a different fact
+/// from `DiffPatchBlock`'s own "Diff truncated…" line, which reports THIS
+/// renderer's 600-line layout cap — both can show at once and mean different
+/// things.
+private struct ToolDiffBlock: View {
+    let diff: String
+
+    /// Web's `max-h-72`. A box tall enough to read a hunk in, short enough
+    /// that the prose after the call stays on screen.
+    private static let maxHeight: CGFloat = 288
+
+    var body: some View {
+        let split = AgentFeed.splitTruncatedDiff(diff)
+        let sections = DiffRendering.splitFiles(split.diff)
+        if !sections.isEmpty || split.truncated != nil {
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(sections) { section in
+                        if let filename = section.filename {
+                            Text(filename)
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        DiffPatchBlock(patch: section.patch)
+                    }
+                    if let truncated = split.truncated {
+                        Text(AgentFeed.diffTruncationNote(truncated))
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    }
+                }
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: Self.maxHeight)
+            // Web's `overscroll-contain`: with a short patch there is nothing
+            // to scroll here, so the drag belongs to the transcript.
+            .scrollBounceBehavior(.basedOnSize)
+            .background(Color.white.opacity(0.03))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
+            )
+        }
     }
 }
 
@@ -2684,15 +2781,20 @@ private struct ToolGroupRow: View {
             if expanded {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(items) { item in
-                        if case let .tool(_, name, detail, _, _, _, _, failed, _) = item {
-                            ToolRow(name: name, detail: detail, failed: failed, nested: true)
+                        if case let .tool(_, name, detail, _, _, _, _, failed, diff) = item {
+                            ToolRow(
+                                name: name, detail: detail, failed: failed,
+                                nested: true, diff: diff
+                            )
                         }
                     }
                 }
                 .padding(.leading, 20)
             } else if liveTail, let last = items.last,
-                      case let .tool(_, name, detail, _, _, _, _, failed, _) = last {
-                ToolRow(name: name, detail: detail, failed: failed, nested: true)
+                      case let .tool(_, name, detail, _, _, _, _, failed, diff) = last {
+                ToolRow(
+                    name: name, detail: detail, failed: failed, nested: true, diff: diff
+                )
                     .padding(.leading, 20)
             }
         }
@@ -2795,8 +2897,8 @@ private struct SubagentItemRow: View {
     @ViewBuilder
     private var content: some View {
         switch item {
-        case let .tool(_, name, detail, _, _, _, _, failed, _):
-            ToolRow(name: name, detail: detail, failed: failed)
+        case let .tool(_, name, detail, _, _, _, _, failed, diff):
+            ToolRow(name: name, detail: detail, failed: failed, diff: diff)
         case let .narration(_, text, _, _):
             NarrationBubble(text: text, context: context)
         case let .userMessage(_, text, _):
