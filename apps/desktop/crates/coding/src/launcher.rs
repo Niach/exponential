@@ -50,7 +50,7 @@ use crate::batch_launcher::{
     action_run_branch, batch_branch_name, chat_run_branch, BatchLaunchRequest, RepoGroup,
 };
 use crate::run_cleanup::RunCleanup;
-use crate::run_registry::{mcp_server_ids_extra, RunFix, RunInput, RunIssue, RunKind, RunRecord};
+use crate::run_registry::{launch_extra, RunFix, RunInput, RunIssue, RunKind, RunRecord};
 use domain::IssueStatus;
 use crate::batch_prompt::{render_batch_prompt, BatchPromptArgs};
 use crate::doctor::{run_doctor, ToolCheck};
@@ -1100,6 +1100,28 @@ fn apply_mcp_env(
     }
 }
 
+/// EXP-792 (EXP-747 B2): the account PROFILE half of the spawn env — ONLY
+/// the agent's config-dir variable (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`)
+/// pointed at the profile's dir under `{data_dir}/agents/<agent>/<id>/`.
+/// Nothing at all for `None`/`system` (the ambient login), for pi (no such
+/// variable), for an external agent, and for an id no profile answers to —
+/// a stale pick degrades to the ambient login rather than a spawn that
+/// cannot find its credentials.
+pub fn apply_account_env(
+    spawn: SpawnSpec,
+    agent: &AgentKind,
+    data_dir: &Path,
+    account: Option<&str>,
+) -> SpawnSpec {
+    let Some(agent) = agent.builtin() else {
+        return spawn;
+    };
+    match crate::agent_profiles::config_env(data_dir, agent, account) {
+        Some((key, value)) => spawn.env(key, value),
+        None => spawn,
+    }
+}
+
 /// FEED-25: bound every claude MCP call (both arms — the agent shell and the
 /// ACP child run with the same [`SpawnSpec`] env). `inherited` is the
 /// host's own `MCP_TOOL_TIMEOUT`: a user who tuned it keeps their value, the
@@ -1539,15 +1561,22 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     // EXP-758: on the BUILTIN — an external agent has neither config, and
     // seeding the settings-default builtin's trust for a run it never spawns
     // is a write into the user's config on behalf of nobody.
+    // EXP-792: the flags land in the run's account PROFILE config (its
+    // `CLAUDE_CONFIG_DIR`/`CODEX_HOME`), never the ambient one.
+    let profile_dir = crate::agent_profiles::account_dir(
+        &deps.data_dir,
+        agent_kind.builtin(),
+        options.account.as_deref(),
+    );
     if agent_kind.builtin() == Some(CodingAgent::Codex) {
-        crate::codex_trust::ensure_trusted(&clone);
+        crate::codex_trust::ensure_trusted(&clone, profile_dir.as_deref());
     }
     // EXP-414: same pre-accept for claude, keyed by the spawn CWD — claude's
     // trust dialog is per-directory and every session gets a fresh worktree.
     if agent_kind.builtin() == Some(CodingAgent::Claude) {
         // EXP-690: always seed `bypassPermissionsModeAccepted` — every run
         // bypasses, and even a plan-mode run is one Shift+Tab from it.
-        crate::claude_trust::ensure_onboarded(&worktree, true);
+        crate::claude_trust::ensure_onboarded(&worktree, true, profile_dir.as_deref());
     }
     // EXP-746: the reaper's empty-`{}` claude anchor — the only file this
     // launch still writes outside the worktree.
@@ -1647,7 +1676,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             external_agent: options.external.clone(),
             recorded_at: crate::run_registry::now_secs(),
             // EXP-792: the server pick, for a resume to re-resolve.
-            extra: mcp_server_ids_extra(&options.mcp_server_ids),
+            extra: launch_extra(&options.mcp_server_ids, options.account.as_deref()),
         },
     );
 
@@ -1678,6 +1707,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
         false,
     );
     spawn = apply_mcp_server_env(spawn, &agent_kind, &team_mcp);
+    spawn = apply_account_env(spawn, &agent_kind, &deps.data_dir, options.account.as_deref());
     spawn = apply_pi_plan_env(spawn, agent_kind.builtin(), options.plan_mode);
     if let Some(originator) = &codex_originator {
         spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
@@ -2214,16 +2244,19 @@ fn prepare_action(
     // directory-trust screen.
     // EXP-758: on the BUILTIN, like every other per-CLI step here.
     let builtin = agent_kind.builtin();
+    // EXP-792: trust lands in the run's account PROFILE config.
+    let profile_dir =
+        crate::agent_profiles::account_dir(&deps.data_dir, builtin, options.account.as_deref());
     if builtin == Some(CodingAgent::Codex) {
         let trust_root = trunk_clone
             .as_deref()
             .or_else(|| cwd.parent())
             .unwrap_or(&cwd);
-        crate::codex_trust::ensure_trusted(trust_root);
+        crate::codex_trust::ensure_trusted(trust_root, profile_dir.as_deref());
     }
     // EXP-414: claude keys trust by the spawn cwd itself (worktree/scratch).
     if builtin == Some(CodingAgent::Claude) {
-        crate::claude_trust::ensure_onboarded(&cwd, true);
+        crate::claude_trust::ensure_onboarded(&cwd, true, profile_dir.as_deref());
     }
     // EXP-746: the reaper's empty-`{}` claude anchor.
     let reaper_anchor = write_acp_reaper_anchor(&deps.data_dir, &session.id, &agent_kind);
@@ -2254,6 +2287,7 @@ fn prepare_action(
         false,
     );
     spawn = apply_mcp_server_env(spawn, &agent_kind, &team_mcp);
+    spawn = apply_account_env(spawn, &agent_kind, &deps.data_dir, options.account.as_deref());
     spawn = apply_pi_plan_env(spawn, agent_kind.builtin(), options.plan_mode);
     if let Some(originator) = &codex_originator {
         spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
@@ -2363,7 +2397,7 @@ fn prepare_action(
             external_agent: options.external.clone(),
             recorded_at: crate::run_registry::now_secs(),
             // EXP-792: the server pick, for a resume to re-resolve.
-            extra: mcp_server_ids_extra(&options.mcp_server_ids),
+            extra: launch_extra(&options.mcp_server_ids, options.account.as_deref()),
         },
     );
 
@@ -2503,10 +2537,17 @@ fn prepare_resume_run(
         // CURRENT secret store (a rotated token is picked up; a server that
         // lost its credential refuses the resume by name).
         mcp_server_ids: record.mcp_server_ids(),
-        account: None,
+        // EXP-792: the recorded account profile — the resume must read the
+        // SAME config dir (credentials, trust, codex rollouts) the run did.
+        account: record.account(),
         external: record.resolved_external_agent(&deps.settings.external_agents),
     };
     let agent_kind = agent_kind(&options);
+    let profile_dir = crate::agent_profiles::account_dir(
+        &deps.data_dir,
+        agent_kind.builtin(),
+        options.account.as_deref(),
+    );
     // The builtin CLI this resume runs, if any. Everything keyed on the
     // closed [`CodingAgent`] vocabulary — the doctor gate, the trust
     // seeders, the three native resume handles, the argv identities — has
@@ -2638,7 +2679,7 @@ fn prepare_resume_run(
             acp_native.clone().or_else(|| {
                 deps.codex_sessions_root
                     .clone()
-                    .or_else(crate::codex_sessions::default_codex_sessions_root)
+                    .or_else(|| crate::codex_sessions::codex_sessions_root(profile_dir.as_deref()))
                     .and_then(|root| {
                         crate::codex_sessions::find_codex_session_id(
                             &root,
@@ -2772,10 +2813,10 @@ fn prepare_resume_run(
             .as_deref()
             .or_else(|| cwd.parent())
             .unwrap_or(&cwd);
-        crate::codex_trust::ensure_trusted(trust_root);
+        crate::codex_trust::ensure_trusted(trust_root, profile_dir.as_deref());
     }
     if builtin == Some(CodingAgent::Claude) {
-        crate::claude_trust::ensure_onboarded(&cwd, true);
+        crate::claude_trust::ensure_onboarded(&cwd, true, profile_dir.as_deref());
     }
     // EXP-746: the reaper's empty-`{}` claude anchor.
     let reaper_anchor = write_acp_reaper_anchor(&deps.data_dir, &session.id, &agent_kind);
@@ -2821,6 +2862,7 @@ fn prepare_resume_run(
         false,
     );
     spawn = apply_mcp_server_env(spawn, &agent_kind, &team_mcp);
+    spawn = apply_account_env(spawn, &agent_kind, &deps.data_dir, options.account.as_deref());
     if let Some(originator) = &codex_originator {
         spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
     }
@@ -3103,12 +3145,15 @@ pub fn prepare_agent_shell(
     // there is no session row to scope one to). EXP-389: same codex
     // directory pre-trust as a session (an EXP-369 worktree cwd resolves to
     // the clone anyway).
+    // EXP-792: a shell on a profile trusts + runs inside that profile's dir.
+    let profile_dir =
+        crate::agent_profiles::account_dir(&deps.data_dir, Some(agent), options.account.as_deref());
     if agent == CodingAgent::Codex {
-        crate::codex_trust::ensure_trusted(&clone);
+        crate::codex_trust::ensure_trusted(&clone, profile_dir.as_deref());
     }
     // EXP-414: claude keys trust by the spawn cwd itself.
     if agent == CodingAgent::Claude {
-        crate::claude_trust::ensure_onboarded(&cwd, true);
+        crate::claude_trust::ensure_onboarded(&cwd, true, profile_dir.as_deref());
     }
     let args = shell_args(options, &agent_mcp);
     let tab_title = agent_shell_tab_title(agent, req, &cwd);
@@ -3124,6 +3169,7 @@ pub fn prepare_agent_shell(
         None,
         true,
     );
+    spawn = apply_account_env(spawn, &AgentKind::Builtin(agent), &deps.data_dir, options.account.as_deref());
     if agent == CodingAgent::Codex {
         // EXP-443: shells share the trunk cwd with action runs — a distinct
         // originator keeps their rollouts out of every session's strict pass.
@@ -3896,6 +3942,58 @@ mod tests {
         assert!(acp.env.iter().any(|(k, v)| k == MCP_TOKEN_ENV && v == "expu_k"));
         assert!(acp.env.iter().any(|(k, v)| k == MCP_URL_ENV && v == "http://x/api/mcp"));
         assert!(acp.env.iter().any(|(k, v)| k == MCP_SESSION_ID_ENV && v == "s"));
+    }
+
+    /// EXP-792 (EXP-747 B2): a profile pick sets the agent's config-dir
+    /// variable and NOTHING else; `None`/`system`, pi, an external agent and
+    /// an unknown id set nothing.
+    #[test]
+    fn apply_account_env_sets_only_the_config_dir_var() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "exp-account-env-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&data_dir).unwrap();
+        let work = crate::agent_profiles::create(&data_dir, CodingAgent::Claude, "Work").unwrap();
+        let codex_work = crate::agent_profiles::create(&data_dir, CodingAgent::Codex, "Work").unwrap();
+        let base = SpawnSpec::new("agent").env("KEEP", "1");
+        let claude = AgentKind::Builtin(CodingAgent::Claude);
+
+        let picked = apply_account_env(base.clone(), &claude, &data_dir, Some(&work.id));
+        assert_eq!(picked.env.len(), 2, "{:?}", picked.env);
+        assert_eq!(
+            picked.env[1],
+            (
+                "CLAUDE_CONFIG_DIR".to_string(),
+                data_dir.join("agents").join("claude").join(&work.id).to_string_lossy().into_owned()
+            )
+        );
+        let codex = apply_account_env(
+            base.clone(),
+            &AgentKind::Builtin(CodingAgent::Codex),
+            &data_dir,
+            Some(&codex_work.id),
+        );
+        assert_eq!(codex.env[1].0, "CODEX_HOME");
+
+        for none in [None, Some("system"), Some(""), Some("deadbeef")] {
+            let spawn = apply_account_env(base.clone(), &claude, &data_dir, none);
+            assert_eq!(spawn.env, base.env, "{none:?}");
+        }
+        // pi has no config-dir variable; an external agent is never profiled.
+        let pi = apply_account_env(base.clone(), &AgentKind::Builtin(CodingAgent::Pi), &data_dir, Some(&work.id));
+        assert_eq!(pi.env, base.env);
+        let external = AgentKind::External(crate::settings::ExternalAgentSpec {
+            id: "x".into(),
+            label: "x".into(),
+            command: "x".into(),
+            args: Vec::new(),
+            env: Default::default(),
+        });
+        let ext = apply_account_env(base.clone(), &external, &data_dir, Some(&work.id));
+        assert_eq!(ext.env, base.env);
+        let _ = std::fs::remove_dir_all(&data_dir);
     }
 
     /// FEED-25: a claude child carries a finite per-call MCP timeout on BOTH

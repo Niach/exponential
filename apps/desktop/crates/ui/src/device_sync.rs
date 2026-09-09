@@ -1121,6 +1121,7 @@ mod tests {
                 email: Some("dev@acme.test".to_string()),
                 plan: Some("max".to_string()),
                 checked_at: "2026-08-28T10:00:00.000Z".to_string(),
+                profiles: Vec::new(),
             },
         );
         status.usage.insert(

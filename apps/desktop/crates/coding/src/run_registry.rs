@@ -377,6 +377,52 @@ pub fn mcp_server_ids_extra(ids: &[String]) -> BTreeMap<String, serde_json::Valu
     extra
 }
 
+/// EXP-792 (EXP-747 B7): the [`RunRecord::extra`] key carrying the run's
+/// agent ACCOUNT PROFILE id — a resume must reopen the SAME config dir
+/// (credentials, trust flags, codex rollouts). Absent for the ambient
+/// login, so a profile-less run serializes exactly as before.
+pub const ACCOUNT_KEY: &str = "account";
+
+impl RunRecord {
+    /// EXP-792: the recorded account profile; `None` = the ambient login.
+    pub fn account(&self) -> Option<String> {
+        self.extra
+            .get(ACCOUNT_KEY)
+            .and_then(|value| value.as_str())
+            .filter(|id| !crate::agent_profiles::is_system(Some(id)))
+            .map(str::to_string)
+    }
+
+    /// EXP-792: record (or, for `None`/`system`, clear) the profile.
+    pub fn set_account(&mut self, account: Option<&str>) {
+        self.extra.remove(ACCOUNT_KEY);
+        self.extra.extend(account_extra(account));
+    }
+}
+
+/// EXP-792: the `extra` entry an account pick writes — empty for the
+/// ambient login.
+pub fn account_extra(account: Option<&str>) -> BTreeMap<String, serde_json::Value> {
+    let mut extra = BTreeMap::new();
+    if !crate::agent_profiles::is_system(account) {
+        if let Some(id) = account {
+            extra.insert(
+                ACCOUNT_KEY.to_string(),
+                serde_json::Value::String(id.trim().to_string()),
+            );
+        }
+    }
+    extra
+}
+
+/// EXP-792: everything a fresh record's `extra` carries off the launch
+/// options — the team server pick and the account profile.
+pub fn launch_extra(ids: &[String], account: Option<&str>) -> BTreeMap<String, serde_json::Value> {
+    let mut extra = mcp_server_ids_extra(ids);
+    extra.extend(account_extra(account));
+    extra
+}
+
 impl RunRecord {
 
     /// EXP-746: the external agent this run ran under, with its `env` taken
@@ -1364,6 +1410,27 @@ mod tests {
             .expect("the neighbour");
         assert_eq!(plain.get("extra"), None);
         assert_eq!(plain.get("worktreeMode"), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-792 (EXP-747 B7): the account profile rides `extra["account"]`;
+    /// the ambient login writes nothing.
+    #[test]
+    fn account_round_trips_through_extra_and_system_writes_nothing() {
+        let dir = temp_dir("account-extra");
+        let mut picked = sample("sess-1");
+        picked.set_account(Some("0a1b2c3d"));
+        let mut plain = sample("sess-2");
+        plain.set_account(Some("system"));
+        record(&dir, picked.clone());
+        record(&dir, plain.clone());
+        assert_eq!(get(&dir, "sess-1").unwrap().account().as_deref(), Some("0a1b2c3d"));
+        assert_eq!(get(&dir, "sess-2").unwrap().account(), None);
+        assert!(!get(&dir, "sess-2").unwrap().extra.contains_key(ACCOUNT_KEY));
+        let extra = launch_extra(&["srv-1".to_string()], Some("0a1b2c3d"));
+        assert_eq!(extra.len(), 2);
+        assert!(launch_extra(&[], None).is_empty());
+        assert!(launch_extra(&[], Some("system")).is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

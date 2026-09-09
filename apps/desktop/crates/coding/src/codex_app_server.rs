@@ -109,8 +109,20 @@ impl Drop for ChildGuard {
 /// installed, an older build without `app-server`, or a wedged process
 /// killed at the deadline).
 pub fn probe(program: &str, path_env: &str, timeout: Duration) -> std::io::Result<CodexProbe> {
+    probe_in(program, path_env, &[], timeout)
+}
+
+/// [`probe`] with extra spawn env — EXP-792: a profile's `CODEX_HOME`, so
+/// the app-server answers for THAT login's account and windows.
+pub fn probe_in(
+    program: &str,
+    path_env: &str,
+    env: &[(String, String)],
+    timeout: Duration,
+) -> std::io::Result<CodexProbe> {
     let mut cmd = background_command(program);
     cmd.env("PATH", path_env)
+        .envs(env.iter().map(|(key, value)| (key.as_str(), value.as_str())))
         .args(["app-server", "--listen", "stdio://"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

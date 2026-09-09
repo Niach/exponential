@@ -839,6 +839,7 @@ impl ClaudeAuthStatus {
                 .then(|| self.subscription_type.clone())
                 .flatten(),
             checked_at: now.to_string(),
+            profiles: Vec::new(),
         }
     }
 }
@@ -1846,6 +1847,7 @@ mod tests {
             email: Some("dev@acme.test".into()),
             plan: Some("max".into()),
             checked_at: "2026-01-01T00:00:00.000Z".into(),
+            profiles: Vec::new(),
         });
         let mut codex = green(Tool::Codex, "0.46.0");
         codex.account = Some(AgentAccount {

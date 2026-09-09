@@ -344,6 +344,7 @@ pub fn parse_codex_account(value: &Value, now: &str) -> Option<crate::agent_acco
         email: text("email"),
         plan,
         checked_at: now.to_string(),
+        profiles: Vec::new(),
     })
 }
 

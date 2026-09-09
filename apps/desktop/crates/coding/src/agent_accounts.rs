@@ -41,6 +41,48 @@ pub struct AgentAccount {
     /// When this row was probed — the "as of …" fallback when a device is
     /// offline.
     pub checked_at: String,
+    /// EXP-792 (EXP-747 B5): every account PROFILE of this agent on the
+    /// machine, `system` first, when there is more than the ambient login.
+    /// Absent (never `[]`) on a single-login machine, so the pre-profile
+    /// payload stays byte-identical. The top-level fields above mirror the
+    /// ACTIVE profile.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub profiles: Vec<AgentProfileEntry>,
+}
+
+/// One profile's row inside [`AgentAccount::profiles`] — the account
+/// fields again, plus the profile's identity and its OWN usage windows
+/// (the top-level `agentUsage` map carries only the active profile's).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AgentProfileEntry {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    pub signed_in: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plan: Option<String>,
+    /// The device's default account for this agent (exactly one is).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub active: bool,
+    pub checked_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage: Option<crate::agent_usage::AgentUsage>,
+}
+
+impl AgentProfileEntry {
+    /// The account half of this row, as the top-level shape.
+    pub fn account(&self) -> AgentAccount {
+        AgentAccount {
+            signed_in: self.signed_in,
+            email: self.email.clone(),
+            plan: self.plan.clone(),
+            checked_at: self.checked_at.clone(),
+            profiles: Vec::new(),
+        }
+    }
 }
 
 /// `{ agent: account }`, keyed by the contract `codingAgent` id. `BTreeMap`
@@ -110,18 +152,38 @@ pub fn pi_account(
         email: None,
         plan,
         checked_at: now.to_string(),
+        profiles: Vec::new(),
     }
 }
 
 /// The map's IDENTITY, `checked_at` excluded — a probe that finds the same
 /// accounts must not look like a change to the hosts' last-sent compare (the
 /// stamp moves every single probe).
+///
+/// EXP-792: the profiles fold in (id, identity, `active` — never their
+/// usage, which has its own change detector), so adding, removing or
+/// re-defaulting a profile is a change the heartbeat ships.
 pub fn accounts_key(accounts: &AgentAccounts) -> String {
     accounts
         .iter()
         .map(|(agent, account)| {
+            let profiles = account
+                .profiles
+                .iter()
+                .map(|profile| {
+                    format!(
+                        "{}={}:{}:{}:{}",
+                        profile.id,
+                        profile.signed_in,
+                        profile.email.as_deref().unwrap_or_default(),
+                        profile.plan.as_deref().unwrap_or_default(),
+                        profile.active
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(",");
             format!(
-                "{agent}:{}:{}:{}",
+                "{agent}:{}:{}:{}:{profiles}",
                 account.signed_in,
                 account.email.as_deref().unwrap_or_default(),
                 account.plan.as_deref().unwrap_or_default()
@@ -142,6 +204,7 @@ mod tests {
             email: Some("dev@acme.test".into()),
             plan: Some("max".into()),
             checked_at: "2026-08-28T10:00:00.000Z".into(),
+            profiles: Vec::new(),
         };
         assert_eq!(
             serde_json::to_string(&account).unwrap(),
@@ -206,6 +269,7 @@ mod tests {
                 email: Some("dev@acme.test".into()),
                 plan: Some("max".into()),
                 checked_at: "2026-08-28T10:00:00.000Z".into(),
+                profiles: Vec::new(),
             },
         );
         let mut second = first.clone();
@@ -215,6 +279,98 @@ mod tests {
         // A real identity change DOES move the key.
         second.get_mut("claude").unwrap().email = Some("other@acme.test".into());
         assert_ne!(accounts_key(&first), accounts_key(&second));
+    }
+
+    /// EXP-792: a profile appearing, vanishing or becoming the default is a
+    /// change; its usage numbers and probe stamp are not.
+    #[test]
+    fn accounts_key_moves_when_a_profile_is_added_or_removed() {
+        let mut base = AgentAccounts::new();
+        base.insert(
+            "claude".into(),
+            AgentAccount {
+                signed_in: true,
+                email: Some("dev@acme.test".into()),
+                plan: Some("max".into()),
+                checked_at: "T0".into(),
+                profiles: Vec::new(),
+            },
+        );
+        let mut with_profile = base.clone();
+        with_profile.get_mut("claude").unwrap().profiles = vec![
+            AgentProfileEntry {
+                id: "system".into(),
+                signed_in: true,
+                email: Some("dev@acme.test".into()),
+                active: true,
+                checked_at: "T0".into(),
+                ..AgentProfileEntry::default()
+            },
+            AgentProfileEntry {
+                id: "0a1b2c3d".into(),
+                label: Some("Work".into()),
+                signed_in: false,
+                checked_at: "T0".into(),
+                ..AgentProfileEntry::default()
+            },
+        ];
+        assert_ne!(accounts_key(&base), accounts_key(&with_profile));
+
+        // Only the stamp (and the numbers) moved: same key.
+        let mut restamped = with_profile.clone();
+        for profile in &mut restamped.get_mut("claude").unwrap().profiles {
+            profile.checked_at = "T1".into();
+            profile.usage = Some(crate::agent_usage::AgentUsage::default());
+        }
+        assert_eq!(accounts_key(&with_profile), accounts_key(&restamped));
+
+        // Re-defaulting moves it; removing the profile moves it back.
+        let mut redefaulted = with_profile.clone();
+        {
+            let profiles = &mut redefaulted.get_mut("claude").unwrap().profiles;
+            profiles[0].active = false;
+            profiles[1].active = true;
+        }
+        assert_ne!(accounts_key(&with_profile), accounts_key(&redefaulted));
+        let mut removed = with_profile.clone();
+        removed.get_mut("claude").unwrap().profiles.clear();
+        assert_eq!(accounts_key(&base), accounts_key(&removed));
+    }
+
+    /// The wire shape of a profile row: camelCase, `active` only when true,
+    /// nothing null.
+    #[test]
+    fn profile_entry_serializes_the_locked_wire_shape() {
+        let entry = AgentProfileEntry {
+            id: "0a1b2c3d".into(),
+            label: Some("Work".into()),
+            signed_in: true,
+            email: Some("w@acme.test".into()),
+            plan: None,
+            active: true,
+            checked_at: "2026-08-28T10:00:00.000Z".into(),
+            usage: None,
+        };
+        assert_eq!(
+            serde_json::to_string(&entry).unwrap(),
+            r#"{"id":"0a1b2c3d","label":"Work","signedIn":true,"email":"w@acme.test","active":true,"checkedAt":"2026-08-28T10:00:00.000Z"}"#
+        );
+        let signed_out = AgentProfileEntry {
+            id: "system".into(),
+            checked_at: "T".into(),
+            ..AgentProfileEntry::default()
+        };
+        assert_eq!(
+            serde_json::to_string(&signed_out).unwrap(),
+            r#"{"id":"system","signedIn":false,"checkedAt":"T"}"#
+        );
+        // An account with profiles nests them; without, the key is absent.
+        let mut account = entry.account();
+        assert!(!serde_json::to_string(&account).unwrap().contains("profiles"));
+        account.profiles = vec![signed_out];
+        assert!(serde_json::to_string(&account).unwrap().contains(r#""profiles":[{"id":"system""#));
+        let decoded: AgentAccount = serde_json::from_str(r#"{"signedIn":true}"#).unwrap();
+        assert!(decoded.profiles.is_empty());
     }
 
     #[test]
