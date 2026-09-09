@@ -925,6 +925,12 @@ pub(crate) struct SessionCtx {
     pub(crate) ids: Mutex<SessionIds>,
     /// EXP-214: the latest pending flag; the lifecycle ticker forwards it.
     pub(crate) needs_input: AtomicBool,
+    /// EXP-804: the agent's usage wall as the mapper last saw it (`None` =
+    /// not blocked); the lifecycle ticker forwards it to the synced row.
+    /// A Mutex rather than an atomic because the value is a struct — it is
+    /// touched only on a rate-limit EDGE and once per tick, never on the hot
+    /// event path.
+    pub(crate) blocked: Mutex<Option<steer::SessionBlocked>>,
     /// FEED-25: when the agent last produced anything the mapper emitted (or
     /// a turn edge) — the stall watchdog's clock. The `diff` ticker's own
     /// snapshots never advance it.
@@ -987,6 +993,11 @@ impl SessionCtx {
         }
         if let Some(pending) = out.needs_input {
             self.needs_input.store(pending, Ordering::SeqCst);
+        }
+        if let Some(wall) = out.blocked {
+            if let Ok(mut blocked) = self.blocked.lock() {
+                *blocked = wall;
+            }
         }
         if let Some(idle) = out.idle {
             self.turn_signal.set_idle(idle);

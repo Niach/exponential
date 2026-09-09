@@ -45,18 +45,13 @@ impl ParsedCommand {
     }
 }
 
+// EXP-746: `External`'s id is deliberately one `contract.json`'s
+// `steerCommands` cannot name, so an external ACP agent's catalog is EMPTY and
+// its `/` menu carries only what the agent advertised itself
+// (`config_state.commands`). Never add it to the contract: the curated rows
+// describe claude/codex/pi behaviour we verified.
 fn agent_id(agent: SessionAgent) -> &'static str {
-    match agent {
-        SessionAgent::Claude => "claude",
-        SessionAgent::Codex => "codex",
-        SessionAgent::Pi => "pi",
-        // EXP-746: deliberately an id `contract.json`'s `steerCommands`
-        // cannot name, so an external ACP agent's catalog is EMPTY and its
-        // `/` menu carries only what the agent advertised itself
-        // (`config_state.commands`). Never add it to the contract: the
-        // curated rows describe claude/codex/pi behaviour we verified.
-        SessionAgent::External => "external",
-    }
+    agent.id()
 }
 
 /// Every catalog row, agent-agnostic, in contract order.

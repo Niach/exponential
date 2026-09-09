@@ -678,6 +678,27 @@ pub enum SessionAgent {
     External,
 }
 
+impl SessionAgent {
+    /// The contract `codingAgent` id, or the deliberately un-nameable
+    /// `external` (see the variant's own note). The ONE mapping — the command
+    /// catalog and the EXP-804 wall write must never disagree about what to
+    /// call an agent.
+    pub fn id(self) -> &'static str {
+        match self {
+            SessionAgent::Claude => "claude",
+            SessionAgent::Codex => "codex",
+            SessionAgent::Pi => "pi",
+            SessionAgent::External => "external",
+        }
+    }
+}
+
+/// EXP-804 contract vocabulary (`codingSessionBlocked`), named rather than
+/// indexed out of the generated slices so a call site reads. The test below
+/// is what keeps them inside the contract.
+pub const BLOCKED_KIND_RATE_LIMIT: &str = "rate_limit";
+pub const BLOCKED_WINDOW_SESSION: &str = "session";
+
 /// EXP-637 — the "is the agent between turns?" signal, shared by the emitter
 /// (which flips it) and the graceful-stop path (which waits on it).
 ///
@@ -861,6 +882,92 @@ impl NeedsInputForwarder {
     }
 }
 
+/// EXP-804: the agent's usage wall as the synced row records it. The device
+/// is the only thing that can see it (the agent reports the wall on its own
+/// stream), and a walled run keeps status `running` with a moving
+/// `updated_at`, so without this write a rate-limited run is indistinguishable
+/// from a healthy one — the 2026-09-09 incident.
+///
+/// `resets_at` is an ISO string here even though every producer speaks a
+/// different unit: claude's own frame carries unix SECONDS, the relay wire
+/// unix MILLIS, and the column an ISO stamp matching `DeviceUsageWindow`.
+/// [`BlockedForwarder`] is the one place that conversion happens.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionBlocked {
+    /// Contract `codingSessionBlocked.kinds` — `rate_limit` today.
+    pub kind: String,
+    pub agent: String,
+    /// Contract `codingSessionBlocked.windows`, when the agent named one.
+    pub window: String,
+    pub resets_at: Option<String>,
+    pub since: String,
+}
+
+/// The EXP-804 synced usage wall, tracked exactly like [`NeedsInputForwarder`]
+/// tracks its flag: the last CONFIRMED server value, `None` on a write that
+/// failed and wants a retry. Forwarded on CHANGES only, so a run that sits
+/// behind a wall for hours writes once, not every tick.
+pub struct BlockedForwarder {
+    forwarded: Option<Option<SessionBlocked>>,
+    retry_at: Option<Instant>,
+}
+
+/// Returns whether the write landed. `None` = clear the wall.
+pub type BlockedHook = Arc<dyn Fn(Option<&SessionBlocked>) -> bool + Send + Sync>;
+
+impl BlockedForwarder {
+    pub fn new() -> Self {
+        Self {
+            // A session row is born unblocked, so the initial state is
+            // CONFIRMED — nothing to write until the agent hits a wall.
+            forwarded: Some(None),
+            retry_at: None,
+        }
+    }
+
+    pub fn tick(&mut self, pending: Option<&SessionBlocked>, hook: &Option<BlockedHook>) {
+        let changed = self.forwarded.as_ref() != Some(&pending.cloned());
+        if changed && self.retry_at.is_none_or(|at| Instant::now() >= at) {
+            let landed = match hook {
+                Some(hook) => hook(pending),
+                None => true,
+            };
+            self.forwarded = landed.then(|| pending.cloned());
+            self.retry_at = (!landed).then(|| Instant::now() + NEEDS_INPUT_RETRY);
+        }
+    }
+
+    /// Teardown tidiness, the [`NeedsInputForwarder::clear_on_teardown`] rule:
+    /// never leave a walled flag on a session whose emitter is gone. The
+    /// terminal `end` supersedes it, but an ended row that still reads
+    /// "Rate limited" would be a lie every client renders.
+    pub fn clear_on_teardown(&mut self, hook: &Option<BlockedHook>) {
+        if self.forwarded != Some(None) {
+            if let Some(hook) = hook {
+                hook(None);
+            }
+        }
+    }
+}
+
+impl Default for BlockedForwarder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// EXP-804: every producer of a reset stamp speaks a different unit — the
+/// relay wire unix MILLIS, claude's own frame unix SECONDS, the column an ISO
+/// string. Normalise ONCE, here, on top of the ISO helper the usage collector
+/// already uses so the two never format differently. A non-positive stamp is
+/// "no reset named", never 1970.
+pub fn iso_from_unix_millis(millis: i64) -> Option<String> {
+    if millis <= 0 {
+        return None;
+    }
+    coding::agent_accounts::iso_from_unix_secs(millis / 1000)
+}
+
 /// Truncate to at most `max` UTF-8 BYTES, backing up to a char boundary.
 /// The relay enforces string caps in UTF-16 code units and the whole-frame
 /// cap in bytes; UTF-8 bytes >= UTF-16 code units >= chars for any string,
@@ -895,6 +1002,129 @@ pub fn truncate_marked(s: &str, max: usize) -> String {
     let mut out = truncate(s, max - TRUNCATION_MARKER.len());
     out.push_str(TRUNCATION_MARKER);
     out
+}
+
+#[cfg(test)]
+mod blocked_tests {
+    use super::*;
+
+    fn wall(resets_at: Option<&str>) -> SessionBlocked {
+        SessionBlocked {
+            kind: BLOCKED_KIND_RATE_LIMIT.to_string(),
+            agent: "claude".to_string(),
+            window: BLOCKED_WINDOW_SESSION.to_string(),
+            resets_at: resets_at.map(str::to_string),
+            since: "2026-09-09T11:30:00.000Z".to_string(),
+        }
+    }
+
+    #[test]
+    fn the_blocked_vocabulary_is_the_contract_vocabulary() {
+        // Named constants over slice indices, but the contract still owns the
+        // values — a renamed kind or window must break here, not in the wild.
+        assert!(domain::contract::CODING_SESSION_BLOCKED_KINDS.contains(&BLOCKED_KIND_RATE_LIMIT));
+        assert!(
+            domain::contract::CODING_SESSION_BLOCKED_WINDOWS.contains(&BLOCKED_WINDOW_SESSION)
+        );
+    }
+
+    #[test]
+    fn session_agent_ids_are_the_contract_agents() {
+        for agent in [SessionAgent::Claude, SessionAgent::Codex, SessionAgent::Pi] {
+            assert!(domain::contract::CODING_AGENT_VALUES.contains(&agent.id()));
+        }
+        // EXP-746: deliberately un-nameable by the contract.
+        assert!(!domain::contract::CODING_AGENT_VALUES.contains(&SessionAgent::External.id()));
+    }
+
+    #[test]
+    fn a_reset_stamp_normalises_from_wire_millis() {
+        // 2026-09-09T00:59:00Z. The wire carries MILLIS and the column takes
+        // an ISO stamp; getting the unit wrong here reads as a reset in 1970
+        // or in the year 57000, and the badge would say either with a
+        // straight face.
+        assert_eq!(
+            iso_from_unix_millis(1_788_915_540_000).as_deref(),
+            Some("2026-09-09T00:59:00.000Z")
+        );
+        // Non-positive is "no reset named", never 1970.
+        assert_eq!(iso_from_unix_millis(0), None);
+        assert_eq!(iso_from_unix_millis(-5), None);
+    }
+
+    #[test]
+    fn forwards_only_changes_and_retries_a_failed_write() {
+        let seen = Arc::new(Mutex::new(Vec::<Option<SessionBlocked>>::new()));
+        let ok: Option<BlockedHook> = {
+            let seen = Arc::clone(&seen);
+            Some(Arc::new(move |wall: Option<&SessionBlocked>| {
+                seen.lock().unwrap().push(wall.cloned());
+                true
+            }))
+        };
+        let mut forwarder = BlockedForwarder::new();
+        // A row is born unblocked: nothing to say until a wall lands.
+        forwarder.tick(None, &ok);
+        assert!(seen.lock().unwrap().is_empty());
+        // The wall lands, then the run sits behind it for many ticks — ONE
+        // write, or a walled run would rewrite the row every poll interval.
+        let hit = wall(Some("2026-09-09T14:00:00.000Z"));
+        forwarder.tick(Some(&hit), &ok);
+        forwarder.tick(Some(&hit), &ok);
+        forwarder.tick(Some(&hit), &ok);
+        assert_eq!(seen.lock().unwrap().len(), 1);
+        // Clearing is a change like any other.
+        forwarder.tick(None, &ok);
+        assert_eq!(seen.lock().unwrap().len(), 2);
+        assert_eq!(seen.lock().unwrap()[1], None);
+    }
+
+    #[test]
+    fn an_unlanded_write_is_never_confirmed() {
+        let calls = Arc::new(Mutex::new(0usize));
+        let failing: Option<BlockedHook> = {
+            let calls = Arc::clone(&calls);
+            Some(Arc::new(move |_: Option<&SessionBlocked>| {
+                *calls.lock().unwrap() += 1;
+                false
+            }))
+        };
+        let mut forwarder = BlockedForwarder::new();
+        let hit = wall(None);
+        forwarder.tick(Some(&hit), &failing);
+        assert_eq!(*calls.lock().unwrap(), 1);
+        // Behind the retry backoff nothing is re-sent...
+        forwarder.tick(Some(&hit), &failing);
+        assert_eq!(*calls.lock().unwrap(), 1);
+        // ...but the value is NOT recorded as forwarded, so once the backoff
+        // passes the wall is written again rather than silently lost.
+        std::thread::sleep(NEEDS_INPUT_RETRY + Duration::from_millis(50));
+        forwarder.tick(Some(&hit), &failing);
+        assert_eq!(*calls.lock().unwrap(), 2);
+    }
+
+    #[test]
+    fn teardown_clears_a_wall_but_says_nothing_when_unblocked() {
+        let seen = Arc::new(Mutex::new(Vec::<Option<SessionBlocked>>::new()));
+        let ok: Option<BlockedHook> = {
+            let seen = Arc::clone(&seen);
+            Some(Arc::new(move |wall: Option<&SessionBlocked>| {
+                seen.lock().unwrap().push(wall.cloned());
+                true
+            }))
+        };
+        // An ended row that still reads "Rate limited" is a lie every client
+        // renders, so teardown clears it.
+        let mut forwarder = BlockedForwarder::new();
+        forwarder.tick(Some(&wall(None)), &ok);
+        forwarder.clear_on_teardown(&ok);
+        assert_eq!(seen.lock().unwrap().as_slice(), &[Some(wall(None)), None]);
+        // An unblocked run writes nothing on the way out.
+        let mut clean = BlockedForwarder::new();
+        let before = seen.lock().unwrap().len();
+        clean.clear_on_teardown(&ok);
+        assert_eq!(seen.lock().unwrap().len(), before);
+    }
 }
 
 #[cfg(test)]

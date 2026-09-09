@@ -68,6 +68,12 @@ pub struct StallInput {
     pub idle: bool,
     /// The EXP-214 flag: a card is waiting on a person.
     pub needs_input: bool,
+    /// EXP-804: the agent is behind its usage wall. A rate-limited wait looks
+    /// EXACTLY like the silence this watchdog exists to break — an agent that
+    /// cannot make a call says nothing — so the wall suspends the clock
+    /// instead. Interrupting there would cancel a turn that was never stuck,
+    /// and the kill grace behind it would end a run that was only waiting.
+    pub blocked: bool,
     /// When the agent last said anything (`SessionCtx::last_activity`).
     pub last_activity: Instant,
 }
@@ -89,7 +95,7 @@ impl StallWatchdog {
         if self.ended {
             return StallAction::None;
         }
-        if !input.live || input.idle || input.needs_input {
+        if !input.live || input.idle || input.needs_input || input.blocked {
             self.interrupted_at = None;
             return StallAction::None;
         }
@@ -148,8 +154,35 @@ mod tests {
             live: true,
             idle: false,
             needs_input: false,
+            blocked: false,
             last_activity,
         }
+    }
+
+    #[test]
+    fn a_usage_wall_suspends_the_clock_instead_of_cancelling() {
+        // EXP-804: a rate-limited wait is INDISTINGUISHABLE from the silence
+        // this watchdog breaks — the agent cannot make a call, so it says
+        // nothing. Interrupting there cancels a turn that was never stuck,
+        // and the kill grace behind it ends a run that was only waiting.
+        let start = Instant::now();
+        let mut dog = StallWatchdog::new();
+        let walled = |at: Instant| StallInput {
+            blocked: true,
+            ..input(at, start)
+        };
+        assert_eq!(dog.tick(walled(start + STALL_AFTER)), StallAction::None);
+        assert_eq!(
+            dog.tick(walled(start + STALL_AFTER + STALL_KILL_GRACE)),
+            StallAction::None
+        );
+        // The wall lifts and the agent is STILL silent: the clock resumes
+        // from scratch, so the run gets a full quiet stretch before anything
+        // is cancelled rather than being interrupted the instant it clears.
+        assert_eq!(
+            dog.tick(input(start + STALL_AFTER + STALL_KILL_GRACE, start)),
+            StallAction::Interrupt
+        );
     }
 
     #[test]
