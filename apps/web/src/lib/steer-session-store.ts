@@ -539,6 +539,11 @@ export interface SteerSessionStore {
   /** EXP-746: switch the session mode — the composer's ONE live control
    *  since EXP-772. False = the socket is down and nothing went out. */
   setMode(id: string): boolean
+  /** EXP-790: stop the agent's current turn (the composer's Stop glyph, shown
+   *  while it works and the field is empty). Fire-and-forget like `setMode`:
+   *  the publisher cancels the turn and the feed shows the outcome. False =
+   *  the socket is down and nothing went out. */
+  interrupt(): boolean
   setDraftText(text: string): void
   addDraftImages(files: File[]): AddDraftImagesResult
   removeDraftImage(url: string): void
@@ -665,7 +670,9 @@ export function createSteerSessionStore(
       rateLimit,
       answerStates,
       connected,
-      canLoadEarlier: historyTruncated && !historyExhausted,
+      // EXP-796: a page can only be asked for over an OPEN socket — once the
+      // relay closed the (lingering) history room, the button goes.
+      canLoadEarlier: historyTruncated && !historyExhausted && connected,
     }
     notify()
   }
@@ -738,9 +745,27 @@ export function createSteerSessionStore(
     retries = 0
     if (phase.kind === `live`) return false
     // EXP-773: a history republish streams the same frames a live room does,
-    // but the run is over — the caption keeps saying so until the `bye`.
+    // but the run is over — the caption keeps saying so until the marker.
     if (phase.kind === `history_pending`) return false
+    // EXP-796: an ended phase never lifts back to live on the same dial — a
+    // lingering history room's keepalives and pages are not a run, and the
+    // synced row stays the source of truth (a redial resets the phase).
+    if (phase.kind === `ended`) return false
     phase = { kind: `live` }
+    return true
+  }
+
+  /** EXP-796: the device's replay is fully in. The relay keeps the history
+   *  room OPEN for a while (no `bye`, keepalives, "Load earlier" pages down
+   *  the device's control socket), so the phase moves off "loading" here
+   *  rather than at a close: an ENDED row is over — the transcript is on
+   *  screen, read-only, the socket lingers only for pages — while a row the
+   *  server still calls alive waits for its publisher, whose takeover of the
+   *  lingering room lands on this same socket as an ordinary replay. */
+  const markHistoryServed = (): boolean => {
+    if (phase.kind !== `history_pending`) return false
+    retries = 0
+    phase = sessionStatus === `ended` ? { kind: `ended` } : { kind: `starting` }
     return true
   }
 
@@ -1460,7 +1485,12 @@ export function createSteerSessionStore(
             const f = frame as Extract<ServerFrame, { t: `activity_synced` }>
             historyTruncated = f.truncated === true
             activityQueue.enqueue({ t: `synced`, firstSeq: f.firstSeq })
-            if (markLive()) commit()
+            if (markHistoryServed()) {
+              commit()
+              if (phase.kind === `ended`) onEnded()
+            } else if (markLive()) {
+              commit()
+            }
             return
           }
           // EXP-783: one page of older transcript. It goes in FRONT of
@@ -1672,6 +1702,15 @@ export function createSteerSessionStore(
     return true
   }
 
+  /** EXP-790: cancel the agent's current turn. The relay forwards the frame
+   *  to the publisher verbatim; the engine's `session/cancel` dismisses every
+   *  open card and the feed shows the interrupted turn. */
+  const sendInterruptFrame = (): boolean => {
+    if (ws?.readyState !== WebSocket.OPEN) return false
+    ws.send(JSON.stringify({ t: `interrupt` }))
+    return true
+  }
+
   // ── Ended/retention lifecycle (driven by the registry below) ─────────────
 
   let endedTimer: ReturnType<typeof setTimeout> | null = null
@@ -1754,6 +1793,17 @@ export function createSteerSessionStore(
           // The desktop's publisher may well have arrived while we were
           // away, so retry NOW instead of waiting out a 30s backoff step.
           // The phase holds, so nothing flickers.
+          // EXP-796: unless a socket is OPEN and talking — a served history
+          // room lingers for the publisher's takeover, which arrives on it;
+          // redialing would only throw the transcript away and re-ask.
+          // An in-flight dial (open, nothing heard yet) is still retried:
+          // only a socket that has answered THIS dial recently is left be.
+          if (
+            connected &&
+            lastFrameAt >= dialStartedAt &&
+            Date.now() - lastFrameAt <= LIVE_STALE_MS
+          )
+            return
           clearRetryTimer()
           void dial(true)
           return
@@ -1834,6 +1884,9 @@ export function createSteerSessionStore(
      *  agent kept it). */
     setMode(id) {
       return sendModeFrame(id)
+    },
+    interrupt() {
+      return sendInterruptFrame()
     },
     setDraftText(text) {
       draftText = text

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
   createFileRoute,
   redirect,
@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-router"
 import { ChevronDown, LoaderCircle } from "lucide-react"
 import { MAX_ACTION_INPUT_TEXT } from "@exp/db-schema/domain"
+import type { User } from "@/db/schema"
 import { AgentSessionView, useSteerConfig } from "@/components/agent-session"
 import {
   EndedSessionRow,
@@ -15,13 +16,12 @@ import {
 } from "@/components/agent-session-row"
 import { Composer, ComposerSubmit } from "@/components/composer"
 import { SessionStatusBadge } from "@/components/issue-coding-rows"
-import {
-  AGENT_LABELS,
-  CLI_DEFAULT_EFFORT,
-  effortLabel,
-  modelLabel,
-} from "@/components/launch-dialog/launch-options-pane"
+import { AGENT_LABELS } from "@/components/launch-dialog/launch-options-pane"
 import { useLaunchOptions } from "@/components/launch-dialog/use-launch-options"
+import {
+  MentionTextarea,
+  type MentionTextareaHandle,
+} from "@/components/mention-textarea"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -30,15 +30,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { GlassSectionHeader } from "@/components/ui/glass-rows"
+import { Pill } from "@/components/ui/pill"
 import { Switch } from "@/components/ui/switch"
-import { Textarea } from "@/components/ui/textarea"
 import { conceptIcon } from "@/lib/icons.generated"
-import {
-  agentAllowsBlankModel,
-  agentEffortValues,
-  agentModelValues,
-  agentSupportsPlanMode,
-} from "@/lib/coding-launch-prefs"
+import { agentSupportsPlanMode } from "@/lib/coding-launch-prefs"
 import { BUILTIN_CHAT_ID, BUILTIN_CHAT_NAME } from "@/lib/builtin-actions"
 import { isChatSession, sessionIdentity } from "@/lib/session-identity"
 import { deviceHasRunnableAgent, deviceIsOnline } from "@/lib/steer-devices"
@@ -50,7 +45,7 @@ import {
 } from "@/hooks/use-agents-data"
 import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
-import { useTeamBySlug } from "@/hooks/use-team-data"
+import { useTeamBySlug, useTeamUsers } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 
 // EXP-739: the team's Chat page — a conversation with an agent bound to no
@@ -100,6 +95,8 @@ function ChatPage() {
   const { data: authSession } = useSession()
   const { isMember } = useTeamPermissions(team)
   const steerConfig = useSteerConfig()
+  // EXP-790: the prompt box is the mention field, so `@` needs the roster.
+  const { users: teamUsers } = useTeamUsers(team?.id)
 
   const currentUserId = authSession?.user?.id
   const teamId = team?.id
@@ -229,6 +226,7 @@ function ChatPage() {
               devices={remote.devices}
               starting={remote.starting}
               sentTo={remote.sentTo}
+              users={teamUsers}
               onStart={(device, options, inputs) => {
                 remote
                   .runAction(
@@ -304,23 +302,32 @@ function ChatHeader({
   )
 }
 
-const UiSendIcon = conceptIcon(`ui-send`)
+/** EXP-790: the chips over the empty prompt box. Each inserts its text with
+ *  the `#` last, so the issue-ref autocomplete opens on the caret at once —
+ *  the chat's job is mostly "do this to that issue". Hand-mirrored ×4. */
+export const CHAT_SUGGESTIONS: readonly string[] = [`Fix #`, `Explain #`, `Review #`]
 
 /** EXP-772: the chat launcher — one wide prompt box, and under it a single
- * muted row of inline pickers (machine → agent → model → effort → plan) seeded
- * from the selected machine's launch defaults. Enter sends, Shift+Enter breaks
+ * muted row of inline pickers (machine → agent → plan) seeded from the
+ * selected machine's launch defaults. EXP-790: the box is the mention field
+ * (`@` members, `#` issue refs, `:` emoji), model and effort stay the machine's
+ * defaults (they left the row with the session composer's pickers), and three
+ * suggestion chips sit over the empty field. Enter sends, Shift+Enter breaks
  * the line. Plan mode starts OFF here: a chat is a conversation, not a change
  * proposal. */
 function ChatPrompt({
   devices,
   starting,
   sentTo,
+  users,
   onStart,
 }: {
   /** null while the first device lookup is in flight. */
   devices: ReturnType<typeof useRemoteStart>[`devices`]
   starting: boolean
   sentTo: string | null
+  /** The team roster, for the field's `@` autocomplete. */
+  users: User[]
   onStart: (
     device: NonNullable<ReturnType<typeof useRemoteStart>[`devices`]>[number],
     options: ReturnType<ReturnType<typeof useLaunchOptions>[`buildOptions`]>,
@@ -328,6 +335,7 @@ function ChatPrompt({
   ) => void
 }) {
   const [prompt, setPrompt] = useState(``)
+  const fieldRef = useRef<MentionTextareaHandle>(null)
   // The same candidate filter the launch dialog uses (EXP-403/EXP-409): the
   // registry lists offline machines and signed-out ones, neither is startable.
   const candidateDevices = useMemo(
@@ -352,25 +360,24 @@ function ChatPrompt({
     onStart(launch.device, launch.buildOptions(), { prompt })
   }
 
-  const modelOptions = [
-    ...(agentAllowsBlankModel(launch.agent)
-      ? [{ value: ``, label: `CLI default` }]
-      : []),
-    ...agentModelValues(launch.agent).map((value) => ({
-      value,
-      label: modelLabel(value),
-    })),
-  ]
-  const effortOptions = [
-    { value: CLI_DEFAULT_EFFORT, label: `CLI default` },
-    ...agentEffortValues(launch.agent).map((value) => ({
-      value,
-      label: effortLabel(value),
-    })),
-  ]
-
   return (
     <div className="my-auto flex flex-col gap-2">
+      {/* EXP-790: the chips only while there is nothing typed — once the
+          field has text they would just be in the way. */}
+      {prompt.length === 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 px-1">
+          {CHAT_SUGGESTIONS.map((suggestion) => (
+            <Pill
+              key={suggestion}
+              size="sm"
+              mode="action"
+              onClick={() => fieldRef.current?.insertText(suggestion)}
+            >
+              {suggestion}
+            </Pill>
+          ))}
+        </div>
+      )}
       <Composer
         submit={
           <ComposerSubmit
@@ -379,18 +386,16 @@ function ChatPrompt({
             disabled={blocked}
             onClick={send}
           >
-            {starting ? (
-              <LoaderCircle className="animate-spin" />
-            ) : (
-              <UiSendIcon className="!size-6" />
-            )}
+            {starting ? <LoaderCircle className="animate-spin" /> : undefined}
           </ComposerSubmit>
         }
       >
-        <Textarea
+        <MentionTextarea
+          ref={fieldRef}
           id="chat-page-prompt"
           value={prompt}
-          onChange={(event) => setPrompt(event.target.value)}
+          onValueChange={setPrompt}
+          users={users}
           onKeyDown={(event) => {
             // Shift+Enter breaks the line; an IME's own Enter is never a send.
             if (event.key !== `Enter` || event.shiftKey) return
@@ -430,18 +435,6 @@ function ChatPrompt({
               label: AGENT_LABELS[agent] ?? agent,
             }))}
             onChange={launch.switchAgent}
-          />
-          <InlinePicker
-            label="Model"
-            value={launch.model}
-            options={modelOptions}
-            onChange={launch.setModel}
-          />
-          <InlinePicker
-            label="Effort"
-            value={launch.effortValue}
-            options={effortOptions}
-            onChange={launch.setEffortValue}
           />
           {agentSupportsPlanMode(launch.agent) && (
             <label className="flex items-center gap-1.5">

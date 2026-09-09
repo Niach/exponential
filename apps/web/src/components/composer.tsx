@@ -1,7 +1,15 @@
 import * as React from "react"
 
 import { cn } from "@/lib/utils"
+import { conceptIcon } from "@/lib/icons.generated"
 import { Button } from "@/components/ui/button"
+
+// EXP-790: the send glyph is ONE concept everywhere a composer renders —
+// comments, support replies, steering, the chat launcher — and a working
+// agent swaps it for the stop glyph (`ui-stop`). Both resolve through the
+// shared registry (packages/icons/icons.json), so the natives draw the same.
+const UiSubmitIcon = conceptIcon(`ui-submit`)
+const UiStopIcon = conceptIcon(`ui-stop`)
 
 // EXP-698 — the ONE composer card. Comments, agent steering and support
 // replies are the same object: a 16-radius glass card laid out as a COLUMN —
@@ -82,26 +90,48 @@ function ComposerTool({
   )
 }
 
-/** The round send glyph. The concept icons are themselves circled arrows
- *  (`ui-submit`, `ui-send`) — a filled button around one would draw a second
- *  ring, so the chrome stays a ghost circle and the glyph carries the tint. */
+interface ComposerSubmitProps extends React.ComponentProps<typeof Button> {
+  /** EXP-790: the agent is working and there is nothing to send — the glyph
+   *  is Stop (`ui-stop`) and the click interrupts the turn. */
+  stop?: boolean
+}
+
+/** The round send glyph. `ui-submit` is itself a circled arrow — a filled
+ *  button around it would draw a second ring, so the chrome stays a ghost
+ *  circle and the glyph carries the tint. The glyph is the component's own
+ *  (`ui-submit`, or `ui-stop` with `stop`); `children` overrides it for a
+ *  caller's transient state, like the chat launcher's spinner. */
 function ComposerSubmit({
+  stop = false,
   className,
+  children,
   ...props
-}: React.ComponentProps<typeof Button>) {
+}: ComposerSubmitProps) {
   return (
     <Button
       type="button"
       variant="ghost"
       size="icon"
+      aria-label={stop ? `Stop` : `Send`}
+      title={stop ? `Stop` : `Send`}
       className={cn(
-        `shrink-0 rounded-full text-primary hover:text-primary disabled:opacity-40`,
+        `shrink-0 rounded-full disabled:opacity-40`,
+        stop
+          ? `text-foreground hover:text-foreground`
+          : `text-primary hover:text-primary`,
         className
       )}
       {...props}
-    />
+    >
+      {children ??
+        (stop ? (
+          <UiStopIcon className="!size-6" />
+        ) : (
+          <UiSubmitIcon className="!size-6" />
+        ))}
+    </Button>
   )
 }
 
 export { Composer, ComposerSubmit, ComposerTool }
-export type { ComposerProps }
+export type { ComposerProps, ComposerSubmitProps }

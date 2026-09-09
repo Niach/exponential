@@ -36,6 +36,19 @@ import {
   COMPACTION_TIMEOUT_MS,
   ECHO_CAP,
   ECHO_TTL_MS,
+  diffTruncationNote,
+  freeAnswerFor,
+  optionForHotkey,
+  optionHotkey,
+  pendingAnswerable,
+  pendingPlaceholder,
+  rateLimitBanner,
+  rateLimitResetsAtMs,
+  splitTruncatedDiff,
+  toolGroupCaption,
+  FREE_TEXT_KEY,
+  PLAN_PENDING_PLACEHOLDER,
+  QUESTION_PENDING_PLACEHOLDER,
   type AnswerStates,
   type EchoEntry,
   type FeedRow,
@@ -1280,5 +1293,202 @@ describe(`transcriptGap ladder`, () => {
 
   it(`matches the shared tokens`, () => {
     expect([TURN, BLOCK, TOOL, DEFAULT_GAP]).toEqual([16, 12, 12, 8])
+  })
+})
+
+// EXP-788: the composer answers the pending card — which card, and what the
+// typed reply sends. The strings are the ×4 copy contract.
+describe(`pending card routing (EXP-788)`, () => {
+  const question = (id: number, over: Record<string, unknown> = {}) => ({
+    id,
+    kind: `question`,
+    text: `Which?`,
+    options: [
+      { key: `1`, label: `Refactor` },
+      { key: `2`, label: `Rewrite` },
+    ],
+    multiSelect: false,
+    planMode: false,
+    questionId: `q-${id}`,
+    ...over,
+  })
+  const plan = (id: number) =>
+    question(id, {
+      planMode: true,
+      options: [
+        { key: `exit-plan-bypass`, label: `Yes` },
+        { key: `exit-plan-clear-bypass`, label: `Yes, and start with a fresh context` },
+        {
+          key: `reject`,
+          label: `No, keep planning`,
+          description: `Sends your next message back to planning`,
+        },
+      ],
+    })
+  const active = (...ids: number[]) => new Set(ids)
+
+  it(`picks the newest active card and skips one whose answer is in flight`, () => {
+    const feed = [
+      { id: 0, kind: `narration`, text: `hi` },
+      question(1),
+      plan(2),
+    ]
+    expect(pendingAnswerable(feed, active(1, 2), {})?.id).toBe(2)
+    const locked: AnswerStates = {
+      [`q-2`]: { keys: [`reject`], labels: [`No`], status: `sending` },
+    }
+    expect(pendingAnswerable(feed, active(1, 2), locked)?.id).toBe(1)
+    expect(pendingAnswerable(feed, active(), {})).toBeNull()
+    // A resolved card is never active (activeQuestionIds already drops it);
+    // an inactive one is never pending even when unlocked.
+    expect(pendingAnswerable(feed, active(2), {})?.id).toBe(2)
+  })
+
+  it(`a plan card rejects and forwards the text as the next message`, () => {
+    expect(freeAnswerFor(plan(2), `  drop the cache layer  `)).toEqual({
+      keys: [`reject`],
+      labels: [`No, keep planning`],
+      followUp: `drop the cache layer`,
+    })
+    // A plan card with one option has no reject to pick.
+    expect(
+      freeAnswerFor(
+        plan(2) as ReturnType<typeof plan> & { options: unknown[] },
+        ``
+      )
+    ).toBeNull()
+    expect(
+      freeAnswerFor(question(3, { planMode: true, options: [{ key: `y`, label: `Yes` }] }), `x`)
+    ).toBeNull()
+  })
+
+  it(`a question rides its free-text row, else the mapper's text key`, () => {
+    expect(freeAnswerFor(question(1), `purple`)).toEqual({
+      keys: [FREE_TEXT_KEY],
+      labels: [`purple`],
+      text: `purple`,
+    })
+    const withRow = question(1, {
+      options: [
+        { key: `1`, label: `Red` },
+        { key: `text`, label: `Type something.`, freeText: true },
+      ],
+    })
+    expect(freeAnswerFor(withRow, `purple`)).toEqual({
+      keys: [`text`],
+      labels: [`purple`],
+      text: `purple`,
+    })
+    expect(freeAnswerFor(question(1), `   `)).toBeNull()
+  })
+
+  it(`number chips and hotkeys cover 1-9 only`, () => {
+    expect(optionHotkey(0)).toBe(`1`)
+    expect(optionHotkey(8)).toBe(`9`)
+    expect(optionHotkey(9)).toBeNull()
+    const options = Array.from({ length: 12 }, (_, i) => ({ key: `k${i}` }))
+    expect(optionForHotkey(options, `1`)?.key).toBe(`k0`)
+    expect(optionForHotkey(options, `9`)?.key).toBe(`k8`)
+    expect(optionForHotkey(options, `0`)).toBeNull()
+    expect(optionForHotkey(options.slice(0, 2), `3`)).toBeNull()
+    expect(optionForHotkey(options, `a`)).toBeNull()
+    expect(optionForHotkey(options, `Enter`)).toBeNull()
+  })
+
+  it(`the placeholder names the card kind`, () => {
+    expect(pendingPlaceholder(plan(1))).toBe(PLAN_PENDING_PLACEHOLDER)
+    expect(pendingPlaceholder(question(1))).toBe(QUESTION_PENDING_PLACEHOLDER)
+    expect(PLAN_PENDING_PLACEHOLDER).toBe(
+      `Tell the agent what to change, or pick an option above`
+    )
+    expect(QUESTION_PENDING_PLACEHOLDER).toBe(
+      `Answer directly, or pick an option above`
+    )
+  })
+})
+
+// EXP-785: the collapsed group's caption is the contract summary over the
+// rows' kinds; a kind-less row (pre-EXP-785 publisher) counts as `other`.
+describe(`tool group caption (EXP-785)`, () => {
+  it(`summarises kinds, dedupes edited paths and lists failures last`, () => {
+    expect(
+      toolGroupCaption([
+        { toolKind: `execute` },
+        { toolKind: `execute`, failed: true },
+        { toolKind: `edit`, detail: `src/a.ts` },
+        { toolKind: `edit`, detail: `src/a.ts` },
+        { toolKind: `edit`, detail: `src/b.ts` },
+        { toolKind: `read`, detail: `src/c.ts` },
+      ])
+    ).toBe(`Ran 2 commands · edited 2 files · read 1 file · 1 failed`)
+  })
+
+  it(`counts kind-less rows as other tools`, () => {
+    expect(toolGroupCaption([{}, {}, { toolKind: `think` }])).toBe(`Used 3 tools`)
+    expect(toolGroupCaption([])).toBe(`No tool calls`)
+  })
+})
+
+// EXP-786: the publisher's cut note is a footer, never a diff line.
+describe(`per-call diff truncation (EXP-786)`, () => {
+  const diff = `diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b`
+
+  it(`splits the trailing truncation line off`, () => {
+    expect(splitTruncatedDiff(`${diff}\n\\ 120 more lines truncated`)).toEqual({
+      diff,
+      truncated: 120,
+    })
+    expect(splitTruncatedDiff(`${diff}\n\\ 1 more line truncated\n`)).toEqual({
+      diff,
+      truncated: 1,
+    })
+  })
+
+  it(`leaves an uncut diff alone, "no newline" markers included`, () => {
+    const eof = `${diff}\n\\ No newline at end of file`
+    expect(splitTruncatedDiff(eof)).toEqual({ diff: eof, truncated: null })
+  })
+
+  it(`words the footer`, () => {
+    expect(diffTruncationNote(1)).toBe(`1 more line truncated`)
+    expect(diffTruncationNote(120)).toBe(`120 more lines truncated`)
+  })
+})
+
+// EXP-784: the banner strings.
+describe(`rate-limit banner (EXP-784)`, () => {
+  const clock = (ms: number) => `T${ms}`
+
+  it(`prefers the agent's message and names the local reset time`, () => {
+    expect(
+      rateLimitBanner(
+        { status: `rejected`, message: `5-hour limit reached`, resetsAt: 1_700_000_000_000 },
+        clock
+      )
+    ).toEqual({ text: `5-hour limit reached`, resets: `resets T1700000000000` })
+  })
+
+  it(`falls back on the status and omits the reset when unknown`, () => {
+    expect(rateLimitBanner({ status: `rejected` }, clock)).toEqual({
+      text: `Rate limit reached`,
+      resets: null,
+    })
+    expect(rateLimitBanner({ status: `allowed_warning` }, clock)).toEqual({
+      text: `Approaching the rate limit`,
+      resets: null,
+    })
+  })
+
+  it(`scales a seconds-valued resetsAt up to ms`, () => {
+    expect(rateLimitResetsAtMs(1_700_000_000)).toBe(1_700_000_000_000)
+    expect(rateLimitResetsAtMs(1_700_000_000_000)).toBe(1_700_000_000_000)
+    expect(rateLimitBanner({ status: `rejected`, resetsAt: 1_700_000_000 }, clock).resets).toBe(
+      `resets T1700000000000`
+    )
+  })
+
+  it(`formats HH:MM in local time by default`, () => {
+    const at = new Date(2026, 8, 9, 7, 5).getTime()
+    expect(rateLimitBanner({ status: `rejected`, resetsAt: at }).resets).toBe(`resets 07:05`)
   })
 })

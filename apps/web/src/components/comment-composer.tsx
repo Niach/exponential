@@ -37,7 +37,6 @@ const EmojiIcon = conceptIcon(`editor-emoji`)
 const ImageIcon = conceptIcon(`editor-image`)
 const AttachIcon = conceptIcon(`ui-attach`)
 const IssueRefIcon = conceptIcon(`editor-issue-ref`)
-const SubmitIcon = conceptIcon(`ui-submit`)
 const CloseIcon = conceptIcon(`ui-close`)
 
 /** A file picked into the composer, or (in edit mode) an already-linked row.
@@ -352,9 +351,7 @@ export function CommentComposer({
             aria-label="Send comment"
             disabled={submitting || !canSubmit}
             onClick={() => void submit()}
-          >
-            <SubmitIcon className="!size-6" />
-          </ComposerSubmit>
+          />
         </>
       }
       onBlur={(event) => {

@@ -10,7 +10,7 @@ import {
   CONFIG_DEFAULT_VALUE_LABEL,
   CONFIG_MODE_LABEL,
 } from "@/lib/steer-commands"
-import { contract } from "@exp/domain-contract"
+import { contract, toolGroupSummary } from "@exp/domain-contract"
 // EXP-787: the transcript's rhythm is a shared token group, read straight from
 // the canonical tokens.json (@exp/design-tokens is not a dependency of this
 // app — see design-tokens.test.ts, which reads the same file by path).
@@ -1103,4 +1103,168 @@ export function planModeToggle(
     buildId: build.id,
     active: config.currentMode === plan.id,
   }
+}
+
+// ── EXP-788: the composer answers the pending card ──────────────────────────
+
+/** The option key a free-text answer rides when the card offers no free-text
+ *  row of its own — the desktop mapper's `FREE_TEXT_KEY`: never a value, the
+ *  typed reply is `answer.text`. */
+export const FREE_TEXT_KEY = `text`
+
+export interface AnswerableOption {
+  key: string
+  label: string
+  freeText?: boolean
+}
+
+export interface AnswerableCard extends QuestionLike {
+  options: AnswerableOption[]
+  multiSelect: boolean
+}
+
+/** The ONE card the composer's free text answers: the newest active card
+ *  (`activeQuestionIds`) whose answer is not already in flight — plan or
+ *  question alike. Null = the composer sends an ordinary message. */
+export function pendingAnswerable<
+  T extends { id: number; kind: string; questionId?: string },
+>(
+  feed: readonly T[],
+  activeIds: ReadonlySet<number>,
+  states: AnswerStates
+): Extract<T, { kind: `question` }> | null {
+  for (let i = feed.length - 1; i >= 0; i--) {
+    const item = feed[i]
+    if (item.kind !== `question` || !activeIds.has(item.id)) continue
+    if (isAnswerLocked(states[answerKey(item)])) continue
+    return item as Extract<T, { kind: `question` }>
+  }
+  return null
+}
+
+/** What a typed reply to the pending card sends. A plan card has no free
+ *  answer of its own: the reply picks "No, keep planning" (the LAST option,
+ *  whose description says it sends the next message back to planning) and
+ *  the text follows as that next message (`followUp`). A question rides its
+ *  own free-text row when it has one, else the mapper's `text` key, with the
+ *  reply as `answer.text`. Null when the card cannot take a typed reply. */
+export interface FreeAnswer {
+  keys: string[]
+  labels: string[]
+  text?: string
+  /** Sent as an ordinary message right after the answer frame. */
+  followUp?: string
+}
+
+export function freeAnswerFor(
+  item: AnswerableCard,
+  text: string
+): FreeAnswer | null {
+  const trimmed = text.trim()
+  if (trimmed.length === 0) return null
+  if (item.planMode === true) {
+    if (item.options.length < 2) return null
+    const reject = item.options[item.options.length - 1]
+    return { keys: [reject.key], labels: [reject.label], followUp: trimmed }
+  }
+  const row = item.options.find((option) => option.freeText === true)
+  return { keys: [row?.key ?? FREE_TEXT_KEY], labels: [trimmed], text: trimmed }
+}
+
+/** The number chip an option wears — `1`..`9` for the first nine, none past
+ *  that (there is no key for a tenth). */
+export const HOTKEY_MAX = 9
+
+export function optionHotkey(index: number): string | null {
+  return index >= 0 && index < HOTKEY_MAX ? String(index + 1) : null
+}
+
+/** The option a digit key selects, or null (`0`, a letter, past the end). */
+export function optionForHotkey<T>(options: readonly T[], key: string): T | null {
+  if (!/^[1-9]$/.test(key)) return null
+  return options[Number(key) - 1] ?? null
+}
+
+/** The composer's hint while a card is pending — plan vs question. */
+export const PLAN_PENDING_PLACEHOLDER = `Tell the agent what to change, or pick an option above`
+export const QUESTION_PENDING_PLACEHOLDER = `Answer directly, or pick an option above`
+
+export function pendingPlaceholder(item: { planMode?: boolean }): string {
+  return item.planMode === true
+    ? PLAN_PENDING_PLACEHOLDER
+    : QUESTION_PENDING_PLACEHOLDER
+}
+
+// ── EXP-785: the collapsed tool group's caption ─────────────────────────────
+
+/** The `toolGroupSummary` input for a run of tool rows: a row from a
+ *  pre-EXP-785 publisher (no kind) counts as `other`. */
+export function toolGroupCaption(
+  items: readonly {
+    toolKind?: ToolKind
+    detail?: string
+    failed?: boolean
+  }[]
+): string {
+  return toolGroupSummary(
+    items.map((item) => ({
+      kind: item.toolKind ?? `other`,
+      detail: item.detail ?? null,
+      failed: item.failed === true,
+    }))
+  )
+}
+
+// ── EXP-786: the per-call diff ──────────────────────────────────────────────
+
+/** A publisher-cut diff ends in ONE metadata line saying how much it dropped
+ *  (`\ 120 more lines truncated`). Split it off: the diff proper renders as a
+ *  diff, the note as a muted footer. */
+const DIFF_TRUNCATION_LINE = /(?:^|\n)\\ (\d+) more lines? truncated\s*$/
+
+export function splitTruncatedDiff(diff: string): {
+  diff: string
+  truncated: number | null
+} {
+  const match = DIFF_TRUNCATION_LINE.exec(diff)
+  if (!match) return { diff, truncated: null }
+  return {
+    diff: diff.slice(0, match.index),
+    truncated: Number(match[1]),
+  }
+}
+
+export function diffTruncationNote(lines: number): string {
+  return `${lines} more line${lines === 1 ? `` : `s`} truncated`
+}
+
+// ── EXP-784: the rate-limit banner ──────────────────────────────────────────
+
+/** `resetsAt` is unix MS on the wire; a publisher that sent SECONDS (any
+ *  value that would land before 1973 read as ms) is scaled up. */
+export function rateLimitResetsAtMs(resetsAt: number): number {
+  return resetsAt < 1e11 ? resetsAt * 1000 : resetsAt
+}
+
+/** The banner's two strings: the agent's own message (else a status-derived
+ *  fallback) and `resets HH:MM` in local time when a reset is known. */
+export function rateLimitBanner(
+  state: SessionRateLimitState,
+  formatTime: (ms: number) => string = defaultResetTime
+): { text: string; resets: string | null } {
+  const text =
+    state.message ??
+    (state.status === `rejected` ? `Rate limit reached` : `Approaching the rate limit`)
+  const resets =
+    state.resetsAt === undefined
+      ? null
+      : `resets ${formatTime(rateLimitResetsAtMs(state.resetsAt))}`
+  return { text, resets }
+}
+
+function defaultResetTime(ms: number): string {
+  const date = new Date(ms)
+  const hh = String(date.getHours()).padStart(2, `0`)
+  const mm = String(date.getMinutes()).padStart(2, `0`)
+  return `${hh}:${mm}`
 }
