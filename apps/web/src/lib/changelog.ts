@@ -28,12 +28,12 @@ export const CHANGELOG: ChangelogEntry[] = [
     id: `2026-09-mcp-servers-and-agent-accounts`,
     date: `2026-09-09`,
     title: `Your own MCP servers in every run, and more than one agent account per machine`,
-    summary: `Add a team's MCP servers once, sign in from the browser on any of your machines, pick them per run; agents get profiles and a usage page.`,
+    summary: `Add a team's MCP servers once, sign in from the browser on any of your machines, pick them per run; agents get accounts and a usage page.`,
     body: `- **MCP servers**: Settings has a new MCP servers page. Add a remote server or a local command with the header or variable names it needs; the values never leave your machines. Pick servers per run in the Start coding dialog and on the chat page.
-- **Sign in from anywhere**: an OAuth server shows a readiness chip per machine. Click Sign in on the machine you want, consent in the browser you are already in, and that machine finishes the sign-in itself. The desktop pane and the CLI can also sign in locally or take a pasted redirect URL.
-- **Sign in, one click**: a start that fails because an agent is signed out now offers Sign in right there, on the web toast, on the machine list and in the desktop IDE, instead of sending you to a terminal.
-- **Agent accounts**: add a second Claude or Codex account on a machine without logging the first one out, and choose the account per run.
-- **Usage page**: every machine and account you own, grouped by agent with its rate-limit windows, on the web and in the desktop IDE, with a Refresh that respects the provider's limits.`,
+- **Sign in from anywhere**: an OAuth server shows a readiness chip per machine. Click Sign in on the machine you want, consent in the browser you are already in, and that machine finishes the sign-in itself. The exponential mcp command signs in locally or takes a pasted redirect URL.
+- **Sign in, one click**: a start that fails because an agent is signed out now offers Sign in right there, on the toast and on the machine list, instead of sending you to a terminal.
+- **Agent accounts**: a machine can hold more than one Claude or Codex login, and a run picks the account it uses.
+- **Usage page**: every machine and account you own, grouped by agent with its rate-limit windows, with a Refresh that respects the provider's limits.`,
   },
   {
     id: `2026-09-session-page-restructure`,
