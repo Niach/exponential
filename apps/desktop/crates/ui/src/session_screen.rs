@@ -43,7 +43,8 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, popover::Popover, v_flex, ActiveTheme as _, Sizable as _,
+    h_flex, notification::Notification, popover::Popover, v_flex, ActiveTheme as _,
+    Sizable as _, WindowExt as _,
 };
 
 use crate::coding_flow::LocalSessions;
@@ -266,6 +267,51 @@ fn row_ended(session_id: &str, cx: &App) -> bool {
 /// EXP-791: the finished-run summary's height cap (scrolls inside).
 const SUMMARY_MAX_H: f32 = 160.;
 
+/// EXP-800: where an ended run's Resume goes. `Local` re-enters the run
+/// recorded in this machine's registry; `Remote` asks the machine that
+/// hosted it over the steer rails (`steer.startSession({resumeSessionId})`),
+/// the path the web and mobile clients already take.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ResumePath {
+    Local,
+    Remote { device_id: String },
+}
+
+/// The ONE resume decision, pure so the table test can pin it.
+///
+/// A local record always wins. Without one, a run this install hosted is
+/// NOT relaunched through the relay: the answer could only be "no local
+/// record" again (a purged repo-less run, EXP-764). Any other machine takes
+/// the resume when its synced row is online and advertises the
+/// `resume-run` cap — the same two gates the web's `useCanResumeOn` reads,
+/// and the ones the server enforces on `steer.startSession`.
+pub(crate) fn resume_path_for<'a>(
+    local_resumable: bool,
+    own_device: bool,
+    session: &domain::rows::CodingSession,
+    devices: impl Iterator<Item = &'a domain::rows::DeviceRow>,
+    now_ms: i64,
+) -> Option<ResumePath> {
+    if local_resumable {
+        return Some(ResumePath::Local);
+    }
+    if own_device {
+        return None;
+    }
+    let row = crate::queries::session_device_row(session, devices)?;
+    let online = crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms);
+    let can_resume = row
+        .cap_ids()
+        .iter()
+        .any(|cap| cap == coding::doctor::RESUME_RUN_CAP);
+    if !(online && can_resume) {
+        return None;
+    }
+    Some(ResumePath::Remote {
+        device_id: session.device_id.clone()?,
+    })
+}
+
 /// One coding session's center screen.
 pub(crate) struct SessionScreenView {
     session_id: String,
@@ -281,6 +327,10 @@ pub(crate) struct SessionScreenView {
     /// every feed event). `None` until the run is over — a live run offers no
     /// Resume.
     resumable: Option<bool>,
+    /// EXP-800: this install's persistent device id, read off settings.json
+    /// ONCE — the resume decision compares it against the row's `device_id`
+    /// on every repaint.
+    own_device_id: String,
     focus_handle: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -329,12 +379,14 @@ impl SessionScreenView {
         // The transcript notifies on every feed change — which is also when
         // the header's usage and status move.
         let subscription = cx.observe(&inner, |_: &mut Self, _, cx| cx.notify());
+        let own_device_id = crate::queries::own_device_id(cx);
         Self {
             session_id,
             inner,
             feed,
             ended: false,
             resumable: None,
+            own_device_id,
             focus_handle: cx.focus_handle(),
             _subscriptions: vec![subscription],
         }
@@ -377,10 +429,7 @@ impl SessionScreenView {
 
     /// EXP-773 — this machine still holds the run's workspace, so the header
     /// may offer Resume. Resolved once per screen (the registry is a file).
-    fn resume_offered(&mut self, cx: &App) -> bool {
-        if !self.run_over(cx) {
-            return false;
-        }
+    fn local_resumable(&mut self, cx: &App) -> bool {
         match self.resumable {
             Some(known) => known,
             None => {
@@ -389,6 +438,30 @@ impl SessionScreenView {
                 known
             }
         }
+    }
+
+    /// Where the header's Resume goes, or `None` while the run is live or no
+    /// machine can take it. EXP-800: the local half is the once-per-screen
+    /// cache above; the remote half is re-read per repaint (one pass over the
+    /// synced `devices` rows — the inner viewer observes that collection, so
+    /// a heartbeat edge repaints this header like the offline caption).
+    fn resume_path(&mut self, cx: &App) -> Option<ResumePath> {
+        if !self.run_over(cx) {
+            return None;
+        }
+        let local = self.local_resumable(cx);
+        let inner = self.inner.read(cx);
+        let (Some(row), Some(store)) = (inner.session_row(), sync::Store::try_global(cx)) else {
+            return local.then_some(ResumePath::Local);
+        };
+        let own_device = row.device_id.as_deref() == Some(self.own_device_id.as_str());
+        resume_path_for(
+            local,
+            own_device,
+            row,
+            store.collections().devices.read(cx).iter(),
+            chrono::Utc::now().timestamp_millis(),
+        )
     }
 
     /// EXP-773 — the ended run's byline, the one its list row used to carry
@@ -453,7 +526,14 @@ impl SessionScreenView {
         let muted = cx.theme().muted_foreground;
         // EXP-773: an ended run wears its list byline and, when this machine
         // still holds the workspace, the Resume the Past row used to carry.
-        let resume = self.resume_offered(cx);
+        let resume = self.resume_path(cx);
+        // EXP-800: the remote button names the host; the byline below moves
+        // the label, so its copy is taken first.
+        let resume_host = self
+            .inner
+            .read(cx)
+            .device_label(cx)
+            .unwrap_or_else(|| "its machine".to_string());
         let byline = self.run_over(cx).then(|| self.ended_byline(cx)).flatten();
         let inner = self.inner.read(cx);
         let (tone, caption) = inner.header_status(cx);
@@ -564,28 +644,46 @@ impl SessionScreenView {
                     )
                 },
             )
-            .when(resume, |this| {
+            .when_some(resume, |this, path| {
                 let session_id = self.session_id.clone();
-                this.child(
-                    Button::new("session-resume")
-                        .ghost()
-                        .cursor_pointer()
-                        .xsmall()
-                        .icon(registry::RUN_RESUME)
-                        .label("Resume")
-                        .on_click(move |_, window, cx| {
-                            // The ONE desktop resume entry point: the
-                            // transport comes from the recorded run, never
-                            // from the setting.
-                            crate::action_run::resume_run(
-                                session_id.clone(),
-                                Some(window.window_handle()),
-                                false,
-                                coding::LaunchOrigin::Local,
-                                cx,
-                            );
-                        }),
-                )
+                let button = Button::new("session-resume")
+                    .ghost()
+                    .cursor_pointer()
+                    .xsmall()
+                    .icon(registry::RUN_RESUME)
+                    .label("Resume");
+                match path {
+                    ResumePath::Local => this.child(button.on_click(move |_, window, cx| {
+                        // The ONE desktop resume entry point: the transport
+                        // comes from the recorded run, never from the
+                        // setting.
+                        crate::action_run::resume_run(
+                            session_id.clone(),
+                            Some(window.window_handle()),
+                            false,
+                            coding::LaunchOrigin::Local,
+                            cx,
+                        );
+                    })),
+                    ResumePath::Remote { device_id } => {
+                        // EXP-800: the run relaunches on the machine that
+                        // hosted it; the tooltip says so before the click.
+                        let label = resume_host.clone();
+                        this.child(
+                            button
+                                .tooltip(SharedString::from(format!("Resume on {label}")))
+                                .on_click(move |_, window, cx| {
+                                    resume_remote(
+                                        session_id.clone(),
+                                        device_id.clone(),
+                                        label.clone(),
+                                        window,
+                                        cx,
+                                    );
+                                }),
+                        )
+                    }
+                }
             })
             .when(can_kill && !self.ended, |this| {
                 let inner = self.inner.clone();
@@ -603,6 +701,49 @@ impl SessionScreenView {
             })
             .into_any_element()
     }
+}
+
+/// EXP-800: send a resume to the machine that hosted the run — the
+/// `start_coding_dialog::launch_remote` recipe. The server checks owner,
+/// `ended`, the device and its `resume-run` cap; the resumed run then arrives
+/// as a new synced row and `screens::sync_session_tabs` moves this tab over
+/// via `resumed_from_id`, so all that is left here is to say where it went.
+fn resume_remote(
+    session_id: String,
+    device_id: String,
+    device_label: String,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let Some(trpc) = crate::queries::trpc_client(cx) else {
+        window.push_notification(
+            Notification::error("Sign in and wait for sync before resuming."),
+            cx,
+        );
+        return;
+    };
+    let input = api::steer::StartSessionInput {
+        resume_session_id: Some(session_id),
+        device_id,
+        ..Default::default()
+    };
+    let handle = window.window_handle();
+    cx.spawn(async move |cx| {
+        let result = cx
+            .background_executor()
+            .spawn(async move { api::steer::start_session(&trpc, &input) })
+            .await;
+        let note = match result {
+            Ok(()) => Notification::success(SharedString::from(format!(
+                "Resume sent to {device_label}."
+            ))),
+            Err(err) => Notification::error(SharedString::from(err.user_message())),
+        };
+        let _ = handle.update(cx, |_, window, cx| {
+            window.push_notification(note, cx);
+        });
+    })
+    .detach();
 }
 
 /// The usage sheet: this SESSION's context block first (live, on the wire),
@@ -686,7 +827,8 @@ impl Render for SessionScreenView {
 
 #[cfg(test)]
 mod tests {
-    use super::{feed_source_for, SessionFeed, SUMMARY_MAX_H};
+    use super::{feed_source_for, resume_path_for, ResumePath, SessionFeed, SUMMARY_MAX_H};
+    use serde_json::json;
 
     /// EXP-791: the summary block is clamped (and scrolls inside) — it used to
     /// take whatever height the agent's prose needed.
@@ -712,5 +854,181 @@ mod tests {
         // journal): the relay, which asks that device for the history.
         assert_eq!(feed_source_for(false, false, true), SessionFeed::Remote);
         assert_eq!(feed_source_for(false, false, false), SessionFeed::Remote);
+    }
+
+    // ---- EXP-800: local-or-remote resume ----------------------------------
+
+    const NOW_MS: i64 = 1784289600_000;
+    const FRESH: &str = "2026-07-17T11:59:30Z";
+
+    fn ended_session(device_id: Option<&str>, user_id: Option<&str>) -> domain::rows::CodingSession {
+        serde_json::from_value(json!({
+            "id": "sess-1",
+            "issue_id": "issue-1",
+            "status": "ended",
+            "updated_at": "2026-07-17T11:59:00Z",
+            "device_id": device_id,
+            "device_label": "old-host",
+            "user_id": user_id,
+        }))
+        .unwrap()
+    }
+
+    fn device_row(
+        id: &str,
+        device_id: &str,
+        user_id: &str,
+        last_seen_at: &str,
+        caps: &[&str],
+    ) -> domain::rows::DeviceRow {
+        serde_json::from_value(json!({
+            "id": id,
+            "device_id": device_id,
+            "user_id": user_id,
+            "label": id,
+            "last_seen_at": last_seen_at,
+            "caps": caps,
+        }))
+        .unwrap()
+    }
+
+    fn stale() -> String {
+        let window_secs = domain::contract::DEVICE_ONLINE_WINDOW_MS / 1_000;
+        let seen = chrono::DateTime::from_timestamp(NOW_MS / 1_000 - window_secs - 5, 0).unwrap();
+        seen.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+    }
+
+    /// A run this machine still holds resumes locally no matter what the
+    /// synced rows say — even when its host row is offline or capless.
+    #[test]
+    fn resume_path_prefers_a_local_record() {
+        let session = ended_session(Some("dev-other"), Some("user-1"));
+        let devices = vec![device_row("d-1", "dev-other", "user-1", &stale(), &[])];
+        assert_eq!(
+            resume_path_for(true, false, &session, devices.iter(), NOW_MS),
+            Some(ResumePath::Local)
+        );
+        assert_eq!(
+            resume_path_for(true, true, &session, [].iter(), NOW_MS),
+            Some(ResumePath::Local)
+        );
+    }
+
+    /// The host machine is online and advertises `resume-run`: the relay
+    /// path, addressed by the session's own `device_id`.
+    #[test]
+    fn resume_path_goes_remote_to_an_online_capable_host() {
+        let session = ended_session(Some("dev-other"), Some("user-1"));
+        let devices = vec![device_row(
+            "d-1",
+            "dev-other",
+            "user-1",
+            FRESH,
+            &["actions", coding::doctor::RESUME_RUN_CAP],
+        )];
+        assert_eq!(
+            resume_path_for(false, false, &session, devices.iter(), NOW_MS),
+            Some(ResumePath::Remote { device_id: "dev-other".to_string() })
+        );
+    }
+
+    /// Offline, or online without the cap: no button — the server would
+    /// refuse the start anyway.
+    #[test]
+    fn resume_path_needs_the_host_online_and_capable() {
+        let session = ended_session(Some("dev-other"), Some("user-1"));
+        let offline = vec![device_row(
+            "d-1",
+            "dev-other",
+            "user-1",
+            &stale(),
+            &[coding::doctor::RESUME_RUN_CAP],
+        )];
+        assert_eq!(
+            resume_path_for(false, false, &session, offline.iter(), NOW_MS),
+            None
+        );
+        let capless = vec![device_row("d-1", "dev-other", "user-1", FRESH, &["actions"])];
+        assert_eq!(
+            resume_path_for(false, false, &session, capless.iter(), NOW_MS),
+            None
+        );
+    }
+
+    /// No `device_id` stamp, or no synced row for it: nowhere to send it.
+    #[test]
+    fn resume_path_needs_a_resolved_host() {
+        let devices = vec![device_row(
+            "d-1",
+            "dev-other",
+            "user-1",
+            FRESH,
+            &[coding::doctor::RESUME_RUN_CAP],
+        )];
+        let unstamped = ended_session(None, Some("user-1"));
+        assert_eq!(
+            resume_path_for(false, false, &unstamped, devices.iter(), NOW_MS),
+            None
+        );
+        let unknown = ended_session(Some("dev-unknown"), Some("user-1"));
+        assert_eq!(
+            resume_path_for(false, false, &unknown, devices.iter(), NOW_MS),
+            None
+        );
+    }
+
+    /// EXP-764: this install hosted the run but no longer holds a record (a
+    /// purged repo-less run) — a relay round trip to ourselves could only
+    /// answer the same "no", so nothing is offered even with a live row.
+    #[test]
+    fn resume_path_never_relays_to_itself() {
+        let session = ended_session(Some("dev-me"), Some("user-1"));
+        let devices = vec![device_row(
+            "d-1",
+            "dev-me",
+            "user-1",
+            FRESH,
+            &[coding::doctor::RESUME_RUN_CAP],
+        )];
+        assert_eq!(
+            resume_path_for(false, true, &session, devices.iter(), NOW_MS),
+            None
+        );
+    }
+
+    /// A shared device syncs one row per member; the session owner's row is
+    /// the one whose caps and heartbeat count, first in the list or not.
+    #[test]
+    fn resume_path_reads_the_owner_row_on_a_shared_device() {
+        let session = ended_session(Some("dev-shared"), Some("user-1"));
+        let teammate_capable = vec![
+            device_row(
+                "d-teammate",
+                "dev-shared",
+                "user-2",
+                FRESH,
+                &[coding::doctor::RESUME_RUN_CAP],
+            ),
+            device_row("d-mine", "dev-shared", "user-1", FRESH, &[]),
+        ];
+        assert_eq!(
+            resume_path_for(false, false, &session, teammate_capable.iter(), NOW_MS),
+            None,
+            "the teammate's caps never speak for the owner's row"
+        );
+        let mine_capable = vec![
+            device_row("d-teammate", "dev-shared", "user-2", FRESH, &[]),
+            device_row(
+                "d-mine",
+                "dev-shared",
+                "user-1",
+                FRESH,
+                &[coding::doctor::RESUME_RUN_CAP],
+            ),
+        ];
+        assert_eq!(
+            resume_path_for(false, false, &session, mine_capable.iter(), NOW_MS),
+            Some(ResumePath::Remote { device_id: "dev-shared".to_string() })
+        );
     }
 }

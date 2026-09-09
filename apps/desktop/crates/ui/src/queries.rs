@@ -980,22 +980,7 @@ pub(crate) fn session_device_presentation<'a>(
     devices: impl Iterator<Item = &'a domain::rows::DeviceRow>,
     now_ms: i64,
 ) -> SessionDevicePresentation {
-    let row = match session.device_id.as_deref() {
-        Some(device_id) => {
-            let matches = devices
-                .filter(|row| row.device_id.as_deref() == Some(device_id))
-                .collect::<Vec<_>>();
-            matches
-                .iter()
-                .find(|row| {
-                    session.user_id.is_some() && row.user_id.as_deref() == session.user_id.as_deref()
-                })
-                .copied()
-                .or_else(|| matches.first().copied())
-        }
-        None => None,
-    };
-    match row {
+    match session_device_row(session, devices) {
         Some(row) => SessionDevicePresentation {
             label: row
                 .label
@@ -1009,6 +994,28 @@ pub(crate) fn session_device_presentation<'a>(
             offline: false,
         },
     }
+}
+
+/// The synced `devices` row hosting `session`: the exact `device_id` match,
+/// the session owner's own row when a shared device produced several, and
+/// `None` for a session with no `device_id` stamp or an unknown machine —
+/// never a label match (see [`session_device_presentation`]). EXP-800 reads
+/// the same row for the resume decision, so both agree on WHICH machine.
+pub(crate) fn session_device_row<'a>(
+    session: &domain::rows::CodingSession,
+    devices: impl Iterator<Item = &'a domain::rows::DeviceRow>,
+) -> Option<&'a domain::rows::DeviceRow> {
+    let device_id = session.device_id.as_deref()?;
+    let matches = devices
+        .filter(|row| row.device_id.as_deref() == Some(device_id))
+        .collect::<Vec<_>>();
+    matches
+        .iter()
+        .find(|row| {
+            session.user_id.is_some() && row.user_id.as_deref() == session.user_id.as_deref()
+        })
+        .copied()
+        .or_else(|| matches.first().copied())
 }
 
 /// EXP-550: a session whose host machine is offline (lid closed) is PAUSED,
