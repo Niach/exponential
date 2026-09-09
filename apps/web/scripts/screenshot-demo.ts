@@ -324,6 +324,19 @@ export interface DemoAgentStatus {
   email?: string
   plan?: string
   windows: DemoUsageWindow[]
+  /** EXP-792 (EXP-747 B5): the profiles the machine holds for this agent —
+   * the FIRST is the active one and mirrors the top-level fields. Absent =
+   * the agent reports only its ambient login. */
+  profiles?: DemoAgentProfile[]
+}
+
+export interface DemoAgentProfile {
+  id: string
+  label: string
+  signedIn: boolean
+  email?: string
+  plan?: string
+  windows: DemoUsageWindow[]
 }
 
 const CLAUDE_WINDOWS: DemoUsageWindow[] = [
@@ -332,20 +345,61 @@ const CLAUDE_WINDOWS: DemoUsageWindow[] = [
   { key: `model:fable`, label: `Fable`, percent: 38, resetsIn: 30 * 3_600 },
 ]
 
+/**
+ * EXP-792 (EXP-747 C6): the demo desktop's SECOND claude profile — a work
+ * account beside the ambient one — so the usage page photographs two rows
+ * for one agent on one machine. Its windows sit below the ambient ones on
+ * purpose: the attention-first sort keeps the fuller (active) profile on top.
+ */
+const CLAUDE_WORK_WINDOWS: DemoUsageWindow[] = [
+  { key: `session`, label: `5h`, percent: 12, resetsIn: 4 * 3_600 + 10 * 60 },
+  { key: `weekly`, label: `Week`, percent: 9, resetsIn: 5 * 86_400 + 2 * 3_600 },
+]
+
+const CODEX_WINDOWS: DemoUsageWindow[] = [
+  { key: `session`, label: `5h`, percent: 41, resetsIn: 2 * 3_600 + 5 * 60 },
+  { key: `weekly`, label: `Week`, percent: 57, resetsIn: 4 * 86_400 + 9 * 3_600 },
+]
+
 export const DEMO_AGENT_STATUS: Record<`claude` | `codex` | `pi`, DemoAgentStatus> = {
   claude: {
     signedIn: true,
     email: DEMO_EMAIL,
     plan: `max`,
     windows: CLAUDE_WINDOWS,
+    profiles: [
+      {
+        id: `system`,
+        label: `Default`,
+        signedIn: true,
+        email: DEMO_EMAIL,
+        plan: `max`,
+        windows: CLAUDE_WINDOWS,
+      },
+      {
+        id: `work`,
+        label: `Work`,
+        signedIn: true,
+        email: `alex@northwind.dev`,
+        plan: `team`,
+        windows: CLAUDE_WORK_WINDOWS,
+      },
+    ],
   },
   codex: {
     signedIn: true,
     email: DEMO_EMAIL,
     plan: `plus`,
-    windows: [
-      { key: `session`, label: `5h`, percent: 41, resetsIn: 2 * 3_600 + 5 * 60 },
-      { key: `weekly`, label: `Week`, percent: 57, resetsIn: 4 * 86_400 + 9 * 3_600 },
+    windows: CODEX_WINDOWS,
+    profiles: [
+      {
+        id: `system`,
+        label: `Default`,
+        signedIn: true,
+        email: DEMO_EMAIL,
+        plan: `plus`,
+        windows: CODEX_WINDOWS,
+      },
     ],
   },
   pi: {
@@ -360,26 +414,58 @@ export const DEMO_AGENT_STATUS: Record<`claude` | `codex` | `pi`, DemoAgentStatu
  * against `now` — call it on EVERY heartbeat, never once at boot, or the
  * numbers go stale 15 minutes into the run.
  */
+interface DemoReportUsage {
+  fetchedAt: string
+  stale: boolean
+  windows: Array<{
+    key: string
+    label: string
+    percent: number
+    resetsAt: string | null
+  }>
+}
+
+interface DemoReportProfile {
+  id: string
+  label: string
+  signedIn: boolean
+  email?: string
+  plan?: string
+  active: boolean
+  checkedAt: string
+  usage: DemoReportUsage
+}
+
 export function demoAgentReport(now: Date): {
   agentAccounts: Record<
     string,
-    { signedIn: boolean; email?: string; plan?: string; checkedAt: string }
-  >
-  agentUsage: Record<
-    string,
     {
-      fetchedAt: string
-      stale: boolean
-      windows: Array<{
-        key: string
-        label: string
-        percent: number
-        resetsAt: string | null
-      }>
+      signedIn: boolean
+      email?: string
+      plan?: string
+      checkedAt: string
+      /** EXP-792: present only for agents that declare profiles. */
+      profiles?: DemoReportProfile[]
     }
   >
+  agentUsage: Record<string, DemoReportUsage>
 } {
   const stamp = now.toISOString()
+  const stampUsage = (windows: DemoUsageWindow[]): DemoReportUsage => ({
+    fetchedAt: stamp,
+    stale: false,
+    windows: windows.map((window) => ({
+      key: window.key,
+      label: window.label,
+      percent: window.percent,
+      resetsAt:
+        window.resetsIn === null
+          ? null
+          : new Date(
+              now.getTime() + (window.resetsIn + COUNTDOWN_PAD_SECONDS) * 1000
+            ).toISOString(),
+    })),
+  })
   const agentAccounts: ReturnType<typeof demoAgentReport>[`agentAccounts`] = {}
   const agentUsage: ReturnType<typeof demoAgentReport>[`agentUsage`] = {}
   for (const [agent, status] of Object.entries(DEMO_AGENT_STATUS)) {
@@ -388,22 +474,24 @@ export function demoAgentReport(now: Date): {
       ...(status.email ? { email: status.email } : {}),
       ...(status.plan ? { plan: status.plan } : {}),
       checkedAt: stamp,
+      // EXP-792: the first profile is the active one; each carries its own
+      // usage the same way a real device reports it (`clampAgentAccounts`).
+      ...(status.profiles
+        ? {
+            profiles: status.profiles.map((profile, index) => ({
+              id: profile.id,
+              label: profile.label,
+              signedIn: profile.signedIn,
+              ...(profile.email ? { email: profile.email } : {}),
+              ...(profile.plan ? { plan: profile.plan } : {}),
+              active: index === 0,
+              checkedAt: stamp,
+              usage: stampUsage(profile.windows),
+            })),
+          }
+        : {}),
     }
-    agentUsage[agent] = {
-      fetchedAt: stamp,
-      stale: false,
-      windows: status.windows.map((window) => ({
-        key: window.key,
-        label: window.label,
-        percent: window.percent,
-        resetsAt:
-          window.resetsIn === null
-            ? null
-            : new Date(
-                now.getTime() + (window.resetsIn + COUNTDOWN_PAD_SECONDS) * 1000
-              ).toISOString(),
-      })),
-    }
+    agentUsage[agent] = stampUsage(status.windows)
   }
   return { agentAccounts, agentUsage }
 }

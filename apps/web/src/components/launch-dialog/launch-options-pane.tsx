@@ -17,6 +17,17 @@ import {
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
 import { deviceAgentNotReady, type SteerDevice } from "@/lib/steer-devices"
+import { McpServerPicker } from "@/components/launch-dialog/mcp-server-picker"
+import type { McpServerRow } from "@/lib/mcp-servers"
+
+/** EXP-792: the "MCP servers" row's inputs — rendered only when the team has
+ * servers at all (the caller passes null otherwise). */
+export interface McpRowProps {
+  servers: readonly McpServerRow[]
+  selectedIds: readonly string[]
+  onToggle: (id: string) => void
+  now: Date
+}
 
 // The options column of the unified launch dialog (EXP-257) — a
 // presentational extraction of the Start-coding dialog's right half: device
@@ -286,6 +297,7 @@ export function LaunchOptionsPane({
   onPlanModeChange,
   planModeHidden,
   resumeRow,
+  mcpRow,
 }: {
   /** The tab's CANDIDATE devices (capability-filtered by the shell). */
   devices: SteerDevice[]
@@ -308,6 +320,8 @@ export function LaunchOptionsPane({
   planModeHidden?: boolean
   /** EXP-481: rendered when the shell computed a resumable worktree. */
   resumeRow?: ResumeRowProps | null
+  /** EXP-792: the team's MCP servers multiselect; null/absent hides the row. */
+  mcpRow?: McpRowProps | null
 }) {
   if (devices.length === 0) {
     return (
@@ -361,6 +375,23 @@ export function LaunchOptionsPane({
         planModeHidden={planModeHidden}
         resumeRow={resumeRow}
       />
+      {mcpRow && (
+        /* EXP-792: WHICH team servers the run connects to — its own card
+           under the agent options, a label-leading row with the multiselect
+           pill trailing (the picker greys rows the machine is not ready for). */
+        <GlassGroup>
+          <div className="flex items-center gap-3 px-4 py-3">
+            <span className="flex-1 text-sm text-foreground">MCP servers</span>
+            <McpServerPicker
+              servers={mcpRow.servers}
+              selectedIds={mcpRow.selectedIds}
+              onToggle={mcpRow.onToggle}
+              device={device}
+              now={mcpRow.now}
+            />
+          </div>
+        </GlassGroup>
+      )}
     </div>
   )
 }

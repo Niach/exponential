@@ -30,6 +30,7 @@ export type SettingsSectionPath =
   | `/t/$teamSlug/settings/repositories`
   | `/t/$teamSlug/settings/widget`
   | `/t/$teamSlug/settings/helpdesk`
+  | `/t/$teamSlug/settings/mcp-servers`
   | `/t/$teamSlug/settings/account`
   | `/t/$teamSlug/settings/notifications`
   | `/t/$teamSlug/settings/api-keys`
@@ -133,6 +134,15 @@ export const SETTINGS_NAV: { group: string; items: SettingsNavItem[] }[] = [
         to: `/t/$teamSlug/settings/helpdesk`,
         icon: conceptIcon(`settings-helpdesk`),
         visible: (permissions) => permissions.canManageWidgets,
+      },
+      // EXP-792: team MCP servers. Member-visible — every member reads the
+      // list and signs in on their OWN machines; the write controls are
+      // owner-only inside the section (the router gates them the same way).
+      {
+        label: `MCP servers`,
+        to: `/t/$teamSlug/settings/mcp-servers`,
+        icon: conceptIcon(`settings-mcp`),
+        visible: () => true,
       },
     ],
   },

@@ -21,6 +21,7 @@ import type { Board, Team } from "@/db/schema"
 import {
   useReviewsOpenPrCount,
   useAgentsRunningCount,
+  useDevicesNeedSignIn,
 } from "@/hooks/use-nav-counts"
 import { useTeamMemberships } from "@/hooks/use-team-data"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
@@ -125,10 +126,15 @@ function ReviewsOpenBadge({
 
 // Any of MY live coding sessions in the team, for the Devices entry.
 // Amber while any session waits on a plan approval / question (EXP-214).
+// EXP-792 (EXP-747 A4): with nothing running, an amber dot when one of MY
+// online machines has an agent signed out — running/needs-input win.
 function DevicesRunningBadge({ teamId }: { teamId?: string }) {
   const { data: session } = useSession()
   const { count, needsInput } = useAgentsRunningCount(teamId, session?.user?.id)
-  if (count === 0) return null
+  const needsSignIn = useDevicesNeedSignIn(session?.user?.id)
+  if (count === 0) {
+    return needsSignIn ? <NavDot className="bg-amber-500" /> : null
+  }
   return <NavDot className={needsInput ? `bg-yellow-400` : `bg-green-500`} />
 }
 

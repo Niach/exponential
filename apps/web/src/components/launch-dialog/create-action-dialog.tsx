@@ -37,6 +37,8 @@ import {
 import type { StartCodingOptions } from "@/components/launch-dialog/launch-dialog"
 import { LaunchOptionsPane } from "@/components/launch-dialog/launch-options-pane"
 import { useLaunchOptions } from "@/components/launch-dialog/use-launch-options"
+import { useMcpServers } from "@/hooks/use-mcp-servers"
+import { useNow } from "@/hooks/use-now"
 import { IconPicker } from "@/components/ui/icon-picker"
 import { Button } from "@/components/ui/button"
 import {
@@ -148,8 +150,16 @@ export function CreateActionDialog({
 
   // The same device-settle + device-seeded options cluster the launch dialog
   // runs (EXP-437/EXP-201).
-  const launch = useLaunchOptions({ open, devices: candidateDevices })
+  // EXP-792: the creator run connects to the team's MCP servers too.
+  const mcp = useMcpServers(teamId, open)
+  const launch = useLaunchOptions({
+    open,
+    devices: candidateDevices,
+    teamId,
+    mcpServers: mcp.servers,
+  })
   const device = launch.device
+  const mcpNow = useNow(30_000)
 
   // Seed fields on OPEN only — a desktop connecting mid-dialog (the settle
   // effect inside the hook) must never wipe a typed description.
@@ -398,6 +408,16 @@ export function CreateActionDialog({
               onUltracodeChange={launch.setUltracode}
               planMode={launch.planMode}
               onPlanModeChange={launch.setPlanMode}
+              mcpRow={
+                mcp.servers && mcp.servers.length > 0
+                  ? {
+                      servers: mcp.servers,
+                      selectedIds: launch.mcpServerIds,
+                      onToggle: launch.toggleMcpServer,
+                      now: mcpNow,
+                    }
+                  : null
+              }
             />
           </div>
 

@@ -7,11 +7,13 @@
 // defaults and worktree management all live in the Device settings dialog.
 // Teammates' shared servers render read-only under "Team machines".
 import { useMemo, useState } from "react"
+import { Link, useParams } from "@tanstack/react-router"
 import { LoaderCircle } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
 import { relativeTime } from "@/components/comment-rows/format"
 import { trpc } from "@/lib/trpc-client"
 import {
+  deviceCanAgentLogin,
   deviceHasRunnableAgent,
   deviceIsMine,
   deviceIsOnline,
@@ -22,6 +24,7 @@ import {
 } from "@/lib/steer-devices"
 import { desktopDownloadHref } from "@/lib/desktop-download"
 import { DeviceSettingsDialog } from "@/components/device-settings-dialog"
+import { requestAgentLogin } from "@/components/agent-login-dialog"
 import { Button } from "@/components/ui/button"
 import { Pill } from "@/components/ui/pill"
 import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
@@ -57,6 +60,19 @@ const RemoveIcon = conceptIcon(`ui-delete`)
 const MoreIcon = conceptIcon(`ui-more`)
 const CopyIcon = conceptIcon(`ui-copy`)
 const CheckIcon = conceptIcon(`ui-check`)
+// EXP-792 (EXP-747): the cross-device usage page + the remote sign-in.
+const UsageIcon = conceptIcon(`ui-usage`)
+const SignInIcon = conceptIcon(`ui-sign-in`)
+
+/** EXP-747 A5: the agent a machine row's "Sign in" pill targets — the first
+ * signed-out agent with a device-code flow (pi has none: local only). Null
+ * when nothing is signed out, or the build cannot run `agent_login`. */
+export function signInAgentFor(device: SteerDevice): string | null {
+  if (!deviceIsOnline(device) || !deviceCanAgentLogin(device)) return null
+  return (
+    deviceUnauthedAgentIds(device).find((agent) => agent !== `pi`) ?? null
+  )
+}
 
 // The install script is served by the CLOUD marketing site for every
 // instance — self-hosted deployments ship only the web app (no marketing
@@ -155,6 +171,7 @@ export function MyMachines({
   const [removeTarget, setRemoveTarget] = useState<SteerDevice | null>(null)
   const [busy, setBusy] = useState(false)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
+  const { teamSlug } = useParams({ strict: false })
 
   const mine = devices?.filter(deviceIsMine) ?? null
   const teamShared = devices?.filter((device) => !deviceIsMine(device)) ?? []
@@ -202,10 +219,26 @@ export function MyMachines({
       <GlassSectionHeader
         label="My machines"
         trailing={
-          <Pill mode="action" onClick={() => setAddServerOpen(true)}>
-            <AddIcon className="size-3" />
-            Add device
-          </Pill>
+          <>
+            {/* EXP-792 (EXP-747 C1): every machine's agent usage on one page. */}
+            {teamSlug && (
+              <Button
+                asChild
+                variant="glass"
+                size="icon-sm"
+                aria-label="Usage"
+                title="Usage"
+              >
+                <Link to="/t/$teamSlug/usage" params={{ teamSlug }}>
+                  <UsageIcon />
+                </Link>
+              </Button>
+            )}
+            <Pill mode="action" onClick={() => setAddServerOpen(true)}>
+              <AddIcon className="size-3" />
+              Add device
+            </Pill>
+          </>
         }
       />
 
@@ -232,6 +265,9 @@ export function MyMachines({
                 ? latestVersions?.cli
                 : latestVersions?.desktop
             const outdated = deviceUpdateAvailable(device.version, latest)
+            // EXP-747 A5: a signed-out agent gets a Sign in pill in the
+            // trailing column, wired to the remote login dialog.
+            const signInAgent = unauthed.length > 0 ? signInAgentFor(device) : null
             return (
               <GlassRow
                 key={device.deviceId}
@@ -331,10 +367,21 @@ export function MyMachines({
                       )}
                     </Button>
                   )}
+                  {signInAgent && (
+                    <Pill
+                      mode="action"
+                      onClick={() =>
+                        requestAgentLogin({ device, agent: signInAgent })
+                      }
+                    >
+                      <SignInIcon className="size-3" />
+                      Sign in
+                    </Pill>
+                  )}
                   <span
                     title={
                       signInNeeded
-                        ? `No agent is signed in on this machine — sign in on the machine first (e.g. run \`${unauthed[0]}\` there).`
+                        ? `Sign in to ${unauthed[0]} on this machine first.`
                         : undefined
                     }
                   >

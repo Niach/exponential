@@ -18,6 +18,9 @@ import { Composer, ComposerSubmit } from "@/components/composer"
 import { SessionStatusBadge } from "@/components/issue-coding-rows"
 import { AGENT_LABELS } from "@/components/launch-dialog/launch-options-pane"
 import { useLaunchOptions } from "@/components/launch-dialog/use-launch-options"
+import { McpServerPicker } from "@/components/launch-dialog/mcp-server-picker"
+import { useMcpServers } from "@/hooks/use-mcp-servers"
+import { useNow } from "@/hooks/use-now"
 import {
   MentionTextarea,
   type MentionTextareaHandle,
@@ -223,6 +226,7 @@ function ChatPage() {
         <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col gap-10 px-4 py-6">
           {steerEnabled ? (
             <ChatPrompt
+              teamId={team.id}
               devices={remote.devices}
               starting={remote.starting}
               sentTo={remote.sentTo}
@@ -316,12 +320,14 @@ export const CHAT_SUGGESTIONS: readonly string[] = [`Fix #`, `Explain #`, `Revie
  * the line. Plan mode starts OFF here: a chat is a conversation, not a change
  * proposal. */
 function ChatPrompt({
+  teamId,
   devices,
   starting,
   sentTo,
   users,
   onStart,
 }: {
+  teamId: string
   /** null while the first device lookup is in flight. */
   devices: ReturnType<typeof useRemoteStart>[`devices`]
   starting: boolean
@@ -342,11 +348,17 @@ function ChatPrompt({
     () => (devices ?? []).filter(deviceIsOnline).filter(deviceHasRunnableAgent),
     [devices]
   )
+  // EXP-792: the team's MCP servers ride the same picker row as the machine
+  // and agent; the pick seeds from the team's defaults / last pick.
+  const mcp = useMcpServers(teamId)
+  const mcpNow = useNow(30_000)
   // `open: true` — this page IS the launcher, there is no dialog to settle on.
   const launch = useLaunchOptions({
     open: true,
     devices: candidateDevices,
     planModeOff: true,
+    teamId,
+    mcpServers: mcp.servers,
   })
   // EXP-773: an agent outside the machine's reported ACP set has no transport
   // left to start on — the note under the pickers says so.
@@ -436,6 +448,26 @@ function ChatPrompt({
             }))}
             onChange={launch.switchAgent}
           />
+          {mcp.servers && mcp.servers.length > 0 && (
+            <McpServerPicker
+              servers={mcp.servers}
+              selectedIds={launch.mcpServerIds}
+              onToggle={launch.toggleMcpServer}
+              device={launch.device}
+              now={mcpNow}
+              renderTrigger={(summary) => (
+                <button
+                  type="button"
+                  className="flex items-center gap-0.5 outline-none hover:text-foreground focus-visible:text-foreground"
+                  title="MCP servers"
+                  aria-label="MCP servers"
+                >
+                  {`MCP: ${summary}`}
+                  <ChevronDown className="size-3" />
+                </button>
+              )}
+            />
+          )}
           {agentSupportsPlanMode(launch.agent) && (
             <label className="flex items-center gap-1.5">
               <span>Plan</span>

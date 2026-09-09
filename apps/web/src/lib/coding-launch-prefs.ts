@@ -21,6 +21,54 @@ export interface CodingLaunchPrefs {
   /** EXP-481: resume the issue's existing worktree/agent session — SINGLE
    * issue starts only (the batch arm strips it before the mutation). */
   resume?: boolean
+  /** EXP-792: the team MCP servers the run connects to (row ids). Omitted
+   * when nothing is picked; the server refuses ids outside the team. */
+  mcpServerIds?: string[]
+}
+
+// EXP-792: the MCP server pick IS persisted, unlike model/effort (which the
+// device advertises): a machine knows nothing about which team servers a
+// person wants on a run, so the last pick per TEAM is the only sensible seed
+// after the team's `enabledByDefault` rows. localStorage, tolerant of
+// anything stored by an older build.
+const MCP_PICK_KEY = `exp:mcp-server-pick:v1`
+
+function readMcpPicks(): Record<string, string[]> {
+  if (typeof localStorage === `undefined`) return {}
+  try {
+    const raw = localStorage.getItem(MCP_PICK_KEY)
+    if (!raw) return {}
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== `object` || parsed === null || Array.isArray(parsed)) {
+      return {}
+    }
+    const out: Record<string, string[]> = {}
+    for (const [teamId, ids] of Object.entries(parsed)) {
+      if (Array.isArray(ids)) {
+        out[teamId] = ids.filter((id): id is string => typeof id === `string`)
+      }
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+/** The last MCP server pick for `teamId`, or null when none was ever saved
+ * (the caller then seeds from the team's `enabledByDefault` rows). */
+export function loadMcpServerPick(teamId: string): string[] | null {
+  return readMcpPicks()[teamId] ?? null
+}
+
+export function saveMcpServerPick(teamId: string, ids: string[]): void {
+  if (typeof localStorage === `undefined`) return
+  try {
+    const picks = readMcpPicks()
+    picks[teamId] = [...ids]
+    localStorage.setItem(MCP_PICK_KEY, JSON.stringify(picks))
+  } catch {
+    // Quota or a privacy mode: the pick just does not survive a reload.
+  }
 }
 
 /** EXP-437: one agent's launch defaults as a device advertises them. Blank

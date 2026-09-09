@@ -401,3 +401,176 @@ export function parseAgentLoginResult(
         : null,
   }
 }
+
+// ── The cross-device usage page (EXP-792, EXP-747 C1-C4) ────────────────────
+// One row per device × agent profile off the synced devices rows. Profiles
+// (`agentAccounts[agent].profiles`, EXP-747 B5) carry their own usage; a
+// device that reports none (an older build) falls back to the top-level
+// account + `agentUsage[agent]` as the single `system` row, so the page never
+// goes blank on a pre-profile machine.
+
+/** The ambient login's profile id — byte-identical with the desktop's
+ * `agent_profiles::SYSTEM_PROFILE`. */
+export const SYSTEM_PROFILE_ID = `system`
+
+/** A forced usage refresh (`agent_usage_refresh`) is refused while the last
+ * fetch is younger than this: the device never hits the agent's usage
+ * endpoint more often (its `RATE_LIMITED_FLOOR_SECS`), so the button greys
+ * out and names the next allowed time instead of queueing a no-op. */
+export const RATE_LIMITED_FLOOR_MS = 5 * 60 * 1000
+
+export interface AgentProfileUsageRow {
+  /** `${deviceId}:${agent}:${profileId}` — stable enough to key a list. */
+  key: string
+  deviceId: string
+  deviceLabel: string
+  /** Whether the row is one of the caller's own machines (a refresh is
+   * only ever queued on those). */
+  mine: boolean
+  online: boolean
+  agent: string
+  profileId: string
+  /** The profile's label (`Default` for the system profile when the device
+   * sent none). */
+  profileLabel: string
+  active: boolean
+  signedIn: boolean
+  email: string | null
+  plan: string | null
+  usage: DeviceAgentUsage | null
+  /** The "as of …" fallback when the usage is stale or absent. */
+  checkedAt: string | null
+}
+
+type UsageDeviceRow = Pick<
+  Device,
+  | `deviceId`
+  | `label`
+  | `userId`
+  | `agentAccounts`
+  | `agentUsage`
+  | `agentUsageAt`
+  | `lastSeenAt`
+>
+
+/** The rows the usage page renders for `devices`, grouped later by agent.
+ * `online` is decided by the caller's clock the same way every device list
+ * does (`deviceRowIsOnline`); it is passed in rather than re-derived so the
+ * derivation stays a pure function of the rows. */
+export function agentProfileUsageRows(
+  devices: readonly UsageDeviceRow[],
+  currentUserId: string,
+  isOnline: (lastSeenAt: Date | string) => boolean
+): AgentProfileUsageRow[] {
+  const out: AgentProfileUsageRow[] = []
+  for (const device of devices) {
+    const accounts = device.agentAccounts ?? {}
+    const usageMap = parseAgentUsageMap(device.agentUsage ?? {})
+    const agents = new Set<string>([
+      ...Object.keys(accounts),
+      ...Object.keys(usageMap),
+    ])
+    for (const agent of agents) {
+      const account = accounts[agent] ?? null
+      const base = {
+        deviceId: device.deviceId,
+        deviceLabel: device.label,
+        mine: device.userId === currentUserId,
+        online: isOnline(device.lastSeenAt),
+        agent,
+      }
+      const profiles = account?.profiles ?? []
+      if (profiles.length === 0) {
+        out.push({
+          ...base,
+          key: `${device.deviceId}:${agent}:${SYSTEM_PROFILE_ID}`,
+          profileId: SYSTEM_PROFILE_ID,
+          profileLabel: `Default`,
+          active: true,
+          signedIn: account?.signedIn === true,
+          email: account?.email || null,
+          plan: account?.plan || null,
+          usage: usageMap[agent] ?? null,
+          checkedAt:
+            account?.checkedAt ??
+            (device.agentUsageAt
+              ? new Date(device.agentUsageAt).toISOString()
+              : null),
+        })
+        continue
+      }
+      for (const profile of profiles) {
+        // The active profile's numbers ride BOTH the profile entry and the
+        // pre-profile `agentUsage[agent]` slot; prefer the profile's own and
+        // fall back for a device that only populated the old slot.
+        const usage =
+          parseAgentUsage(profile.usage) ??
+          (profile.active ? (usageMap[agent] ?? null) : null)
+        out.push({
+          ...base,
+          key: `${device.deviceId}:${agent}:${profile.id}`,
+          profileId: profile.id,
+          profileLabel:
+            profile.label ||
+            (profile.id === SYSTEM_PROFILE_ID ? `Default` : profile.id),
+          active: profile.active === true,
+          signedIn: profile.signedIn === true,
+          email: profile.email || null,
+          plan: profile.plan || null,
+          usage,
+          checkedAt: profile.checkedAt ?? account?.checkedAt ?? null,
+        })
+      }
+    }
+  }
+  return out
+}
+
+/** The fullest window's percent, or 0 for a row with no usage at all. */
+export function peakPercent(usage: DeviceAgentUsage | null | undefined): number {
+  let peak = 0
+  for (const window of usage?.windows ?? []) {
+    if (window.percent > peak) peak = window.percent
+  }
+  return peak
+}
+
+/** Attention-first ordering: signed-out rows lead (there is something to do),
+ * then rows at or over `DANGER_PERCENT`, then everything else. Within a
+ * bucket the fuller row comes first, then device label, agent, profile, so
+ * a heartbeat cannot shuffle equal rows. */
+export function attentionRank(row: AgentProfileUsageRow): number {
+  if (!row.signedIn) return 0
+  if (peakPercent(row.usage) >= DANGER_PERCENT) return 1
+  return 2
+}
+
+export function sortAttentionFirst(
+  rows: readonly AgentProfileUsageRow[]
+): AgentProfileUsageRow[] {
+  return [...rows].sort((a, b) => {
+    const byRank = attentionRank(a) - attentionRank(b)
+    if (byRank !== 0) return byRank
+    const byPeak = peakPercent(b.usage) - peakPercent(a.usage)
+    if (byPeak !== 0) return byPeak
+    const byDevice = a.deviceLabel.localeCompare(b.deviceLabel)
+    if (byDevice !== 0) return byDevice
+    const byAgent = a.agent.localeCompare(b.agent)
+    if (byAgent !== 0) return byAgent
+    return a.profileId.localeCompare(b.profileId)
+  })
+}
+
+/** When a forced refresh is next allowed for `usage`: null = right now (no
+ * fetch on record, or the last one is older than the floor). A stamp in the
+ * future (the machine's clock runs ahead) is treated as "just fetched". */
+export function refreshAllowedAt(
+  usage: DeviceAgentUsage | null | undefined,
+  now: Date
+): Date | null {
+  if (!usage?.fetchedAt) return null
+  const fetched = new Date(usage.fetchedAt).getTime()
+  if (Number.isNaN(fetched)) return null
+  const next = fetched + RATE_LIMITED_FLOOR_MS
+  return next > now.getTime() ? new Date(next) : null
+}
