@@ -44,6 +44,9 @@ mod labels;
 // `launch_options`' multiselect greys a row with the same rule the pane's
 // status line reads, and start-coding's blocker with the same sentences.
 pub(crate) mod mcp_servers;
+// EXP-810: the pane's own add/edit form — a WINDOW, not an alert (the form
+// re-renders on its own state).
+mod mcp_server_dialog;
 mod statuses;
 mod local_repos;
 mod members;

@@ -839,23 +839,16 @@ impl StartCodingDialogView {
             let loaded = cx
                 .background_executor()
                 .spawn(async move {
-                    let servers = api::mcp_servers::list(&trpc, &team)
-                        .inspect_err(|err| {
-                            log::debug!("[ui] mcpServers.list for start-coding: {err}");
-                        })
-                        .ok()?;
-                    let configs: Vec<api::mcp_servers::McpServerConfig> =
-                        servers.iter().map(|entry| entry.config.clone()).collect();
-                    // A pure local read of the 0600 store — a sign-in the
-                    // person did a minute ago counts here, where the synced
-                    // matrix is still a heartbeat behind.
-                    let local = coding::mcp_servers::readiness(
-                        &data_dir,
-                        &account.id,
-                        &configs,
-                        crate::settings::mcp_servers::now_secs(),
-                    );
-                    Some((servers, local))
+                    // The local half is a pure read of the 0600 store — a
+                    // sign-in the person did a minute ago counts here, where
+                    // the synced matrix is still a heartbeat behind.
+                    crate::settings::mcp_servers::list_with_local_readiness(
+                        &trpc, &team, &data_dir, &account.id,
+                    )
+                    .inspect_err(|err| {
+                        log::debug!("[ui] mcpServers.list for start-coding: {err}");
+                    })
+                    .ok()
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {

@@ -95,6 +95,34 @@ pub(crate) fn mcp_default_ids(servers: &[McpServerOption]) -> Vec<String> {
         .collect()
 }
 
+/// EXP-810: the team's servers as a LOCAL launch surface offers them — every
+/// row resolved against THIS machine's own readiness read
+/// ([`crate::settings::mcp_servers::list_with_local_readiness`]). A surface
+/// that can re-point the run at ANOTHER machine (the Start-coding dialog)
+/// resolves against that machine's synced matrix row instead and builds its
+/// own list.
+pub(crate) fn local_mcp_options(
+    entries: &[api::mcp_servers::McpServerListEntry],
+    local: &[api::mcp_servers::McpReadinessReport],
+    now: chrono::DateTime<chrono::Utc>,
+) -> Vec<McpServerOption> {
+    entries
+        .iter()
+        .map(|entry| {
+            let readiness = local
+                .iter()
+                .find(|row| row.server_id == entry.config.id)
+                .map(crate::settings::mcp_servers::Readiness::from);
+            McpServerOption {
+                id: entry.config.id.clone(),
+                name: entry.config.name.clone(),
+                blocked: mcp_block_reason(&entry.config.auth, readiness, None, now),
+                enabled_by_default: entry.config.enabled_by_default,
+            }
+        })
+        .collect()
+}
+
 /// EXP-792 — why a machine cannot satisfy a server (web
 /// `serverBlockReason`). `entry` is that machine's readiness row: the local
 /// read for this install, the synced matrix row for a remote target.

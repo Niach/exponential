@@ -936,7 +936,9 @@ impl AutomationEditorState {
 /// The trailing control of a trigger-card row: a caret-ed dropdown trigger
 /// stripped of field chrome, exactly like [`crate::launch_options`]'s pins —
 /// the GROUP is the field, the row's 16/12 is the padding.
-fn picker_trigger(id: SharedString, label: impl Into<SharedString>, cx: &App) -> Button {
+/// EXP-810: `pub(crate)` — the MCP server editor's Transport/Auth rows are
+/// the same closed-vocabulary picker trigger.
+pub(crate) fn picker_trigger(id: SharedString, label: impl Into<SharedString>, cx: &App) -> Button {
     Button::new(id)
         .ghost()
         .cursor_pointer()
