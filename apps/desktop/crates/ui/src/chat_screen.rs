@@ -3,15 +3,20 @@
 //!
 //! An essentially empty page in the "Ask Linear" shape: one wide rounded
 //! prompt box, vertically centred, with a single subtle row of small inline
-//! pickers under it — machine, agent, model, effort, plan. No cards, no
-//! headings, no sections.
+//! pickers under it — machine, agent, plan. No cards, no headings, no
+//! sections.
 //!
-//! The session bar's Chat button used to launch a promptless run on the spot;
-//! it opens this page instead, and the run starts with the first message. The
-//! options are the ONE launch model every desktop surface uses
+//! EXP-790: the box is the mention field (`@` members, `#` issue refs, `:`
+//! emoji — the comment composer's widget), model and effort stay the
+//! machine's defaults (they left the row with the session composer's
+//! pickers), and three suggestion chips sit over the EMPTY field, inserting a
+//! `#` so the issue picker opens. The chip strings are byte-identical to the
+//! web page's `CHAT_SUGGESTIONS` (locked below).
+//!
+//! The rail's Agent entry opens this page, and the run starts with the first
+//! message. The options are the ONE launch model every desktop surface uses
 //! ([`coding::LaunchOptions`], seeded by
-//! [`coding::LaunchOptions::defaults_for`] and named from the
-//! [`crate::coding_selects`] vocabularies) — with **plan mode OFF** by
+//! [`coding::LaunchOptions::defaults_for`]) — with **plan mode OFF** by
 //! default, whatever the agent's setting says: a chat is a conversation, not a
 //! planning run.
 //!
@@ -21,29 +26,40 @@
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, App, AppContext as _, ClickEvent, Entity, FocusHandle, Focusable,
-    InteractiveElement as _, IntoElement, ParentElement, Render, SharedString, Styled, Subscription,
-    Window,
+    InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
+    StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::input::{InputEvent, Textarea, TextareaState};
+use gpui_component::input::{InputEvent, TextareaState};
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_component::switch::Switch;
 use gpui_component::{h_flex, v_flex, ActiveTheme as _};
 
 use coding::CodingAgent;
 
-use crate::coding_selects::{effort_choices_for, model_choices_for};
 use crate::icons::registry;
-use crate::launch_options::{agent_label, pickable_agents, CLI_DEFAULT_LABEL};
+use crate::launch_options::{agent_label, pickable_agents};
+use crate::mention_input::MentionInput;
 use crate::navigation::{self, Navigation};
+use crate::surface::{glass_pill, PillMode, PillSize};
 
 /// The page's one field: wide, rounded, Enter sends and Shift+Enter breaks a
 /// line — the steer composer's rhythm, on a page with nothing else on it.
 const PROMPT_MAX_W: f32 = 640.;
 
+/// EXP-790: the chips over an empty prompt. Each ends in `#` so the issue
+/// picker opens the moment it lands — the desktop twin of the web page's
+/// `CHAT_SUGGESTIONS` (`routes/t/$teamSlug/chat.tsx`), byte-identical.
+pub(crate) const CHAT_SUGGESTIONS: [&str; 3] = ["Fix #", "Explain #", "Review #"];
+
 pub(crate) struct ChatScreenView {
     nav: Entity<Navigation>,
     input: Entity<TextareaState>,
+    /// EXP-790: the completion overlay (`@` / `#` / `:`) over `input`; the
+    /// composer card draws the chrome, so the widget draws none of its own.
+    mention: Entity<MentionInput>,
+    /// The team the completion source was last pointed at.
+    mention_team: Option<String>,
     /// The agent the run starts on. `None` while the doctor found nothing
     /// runnable — the page still renders, and sending says so.
     agent: Option<CodingAgent>,
@@ -65,13 +81,19 @@ impl ChatScreenView {
                 .submit_on_enter(true)
                 .placeholder("Ask your agent anything…")
         });
+        let mention = cx.new(|cx| {
+            let mut mention = MentionInput::new(input.clone(), cx);
+            mention.set_appearance(false);
+            mention
+        });
         let mut subscriptions = vec![cx.subscribe_in(
             &input,
             window,
-            |this, _, event: &InputEvent, window, cx| {
-                if matches!(event, InputEvent::PressEnter { shift: false, .. }) {
-                    this.send(window, cx);
-                }
+            |this, _, event: &InputEvent, window, cx| match event {
+                InputEvent::PressEnter { shift: false, .. } => this.send(window, cx),
+                // The suggestion chips are a function of the draft being empty.
+                InputEvent::Change => cx.notify(),
+                _ => {}
             },
         )];
         subscriptions.push(cx.observe(&nav, |_, _, cx| cx.notify()));
@@ -86,6 +108,8 @@ impl ChatScreenView {
         let mut this = Self {
             nav,
             input,
+            mention,
+            mention_team: None,
             agent: None,
             model: String::new(),
             effort: String::new(),
@@ -113,6 +137,19 @@ impl ChatScreenView {
         crate::coding_flow::CodingHub::global_ref(cx)
             .map(|hub| hub.read(cx).settings.clone())
             .unwrap_or_default()
+    }
+
+    /// EXP-790: point the completion at the active team — the same `#`-issue
+    /// / `@`-member source the comment composer uses. No team = plain input.
+    fn sync_mention_source(&mut self, cx: &mut gpui::Context<Self>) {
+        let team_id = navigation::active_team_id(&self.nav, cx);
+        if team_id == self.mention_team {
+            return;
+        }
+        self.mention_team = team_id.clone();
+        self.mention.update(cx, |mention, _| {
+            mention.set_source(team_id.map(crate::markdown::store_completion_source));
+        });
     }
 
     /// Keep the pick on a runnable agent, and re-seed model/effort from that
@@ -175,55 +212,6 @@ impl ChatScreenView {
 
     // ── The picker row ────────────────────────────────────────────────────
 
-    /// One inline picker: muted label, the value at 70%, a caret. Deliberately
-    /// chrome-less — this row must read as a caption under the field, not as a
-    /// toolbar.
-    fn choice_picker(
-        &self,
-        key: &'static str,
-        choices: &'static [(&'static str, &'static str)],
-        picked: &str,
-        write: fn(&mut Self) -> &mut String,
-        cx: &mut gpui::Context<Self>,
-    ) -> AnyElement {
-        let label = choices
-            .iter()
-            .find(|(_, value)| *value == picked)
-            .map(|(label, _)| (*label).to_string())
-            .unwrap_or_else(|| CLI_DEFAULT_LABEL.to_string());
-        let current = picked.to_string();
-        let view = cx.entity().downgrade();
-        Button::new(SharedString::from(format!("chat-pick-{key}")))
-            .ghost()
-            .cursor_pointer()
-            .h_auto()
-            .px_1()
-            .py_0()
-            .text_color(cx.theme().muted_foreground)
-            .dropdown_caret(true)
-            .child(div().text_xs().child(SharedString::from(label)))
-            .dropdown_menu(move |mut menu, _window, _cx| {
-                for (label, value) in choices {
-                    let view = view.clone();
-                    let value = (*value).to_string();
-                    let checked = current == value;
-                    menu = menu.item(PopupMenuItem::new(*label).checked(checked).on_click(
-                        move |_, _, cx| {
-                            if let Some(view) = view.upgrade() {
-                                let value = value.clone();
-                                view.update(cx, |view, cx| {
-                                    *write(view) = value;
-                                    cx.notify();
-                                });
-                            }
-                        },
-                    ));
-                }
-                menu
-            })
-            .into_any_element()
-    }
-
     fn agent_picker(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let agents = Self::agents(cx);
         let label = match self.agent {
@@ -275,26 +263,12 @@ impl ChatScreenView {
             .unwrap_or_else(|| SharedString::from("This device"))
     }
 
+    /// EXP-790: machine → agent → plan. Model and effort are the machine's
+    /// defaults for the picked agent and never shown here.
     fn render_options_row(&mut self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         let machine = self.machine_label(cx);
         let agent = self.agent;
-        let picked_model = self.model.clone();
-        let picked_effort = self.effort.clone();
-        let model = self.choice_picker(
-            "model",
-            agent.map(model_choices_for).unwrap_or(&[]),
-            &picked_model,
-            |this| &mut this.model,
-            cx,
-        );
-        let effort = self.choice_picker(
-            "effort",
-            agent.map(effort_choices_for).unwrap_or(&[]),
-            &picked_effort,
-            |this| &mut this.effort,
-            cx,
-        );
         let plan_supported = agent.is_some_and(CodingAgent::supports_plan_mode);
         h_flex()
             .w_full()
@@ -307,8 +281,6 @@ impl ChatScreenView {
             .text_color(muted)
             .child(div().px_1().child(machine))
             .child(self.agent_picker(cx))
-            .children(agent.map(|_| model))
-            .children(agent.map(|_| effort))
             .when(plan_supported, |this| {
                 this.child(
                     h_flex()
@@ -327,6 +299,35 @@ impl ChatScreenView {
                 )
             })
             .into_any_element()
+    }
+
+    /// EXP-790: the suggestion chips, shown over the EMPTY field only. A click
+    /// inserts the text through the mention widget so its trailing `#` opens
+    /// the issue picker, exactly as typing it would.
+    fn render_suggestions(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        if !self.input.read(cx).value().trim().is_empty() {
+            return None;
+        }
+        let chips = CHAT_SUGGESTIONS.iter().enumerate().map(|(index, suggestion)| {
+            let text: &'static str = suggestion;
+            glass_pill(("chat-suggestion", index), PillSize::Sm, PillMode::Action, cx)
+                .cursor_pointer()
+                .child(div().text_xs().child(text))
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    this.mention.update(cx, |mention, cx| mention.insert_text(text, window, cx));
+                    cx.notify();
+                }))
+        });
+        Some(
+            h_flex()
+                .w_full()
+                .min_w_0()
+                .flex_wrap()
+                .gap_1()
+                .px_1()
+                .children(chips)
+                .into_any_element(),
+        )
     }
 }
 
@@ -369,17 +370,20 @@ impl Focusable for ChatScreenView {
 
 impl Render for ChatScreenView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        self.sync_mention_source(cx);
         let can_send = self.agent.is_some();
         let options = self.render_options_row(cx);
+        let suggestions = self.render_suggestions(cx);
         let composer = crate::composer::GlassComposer::new(
             div()
                 .w_full()
                 .min_w_0()
-                .child(Textarea::new(&self.input).w_full().appearance(false))
+                .child(self.mention.clone())
                 .into_any_element(),
         )
         .submit(
-            crate::composer::composer_submit("chat-send", registry::UI_SEND, !can_send, cx)
+            // EXP-790: one circled arrow on every composer (`ui-submit`).
+            crate::composer::composer_submit("chat-send", registry::UI_SUBMIT, !can_send, cx)
                 .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                     this.send(window, cx);
                 })),
@@ -398,6 +402,7 @@ impl Render for ChatScreenView {
                     .max_w(px(PROMPT_MAX_W))
                     .min_w_0()
                     .gap_2()
+                    .children(suggestions)
                     .child(crate::composer::glass_composer(composer))
                     .child(options),
             )
@@ -407,6 +412,16 @@ impl Render for ChatScreenView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-790: the chips are the web page's `CHAT_SUGGESTIONS`, byte for
+    /// byte, and each ends in the `#` that opens the issue picker.
+    #[test]
+    fn chat_suggestions_mirror_the_web_page() {
+        assert_eq!(CHAT_SUGGESTIONS, ["Fix #", "Explain #", "Review #"]);
+        for suggestion in CHAT_SUGGESTIONS {
+            assert!(suggestion.ends_with('#'), "{suggestion:?} must open the issue picker");
+        }
+    }
 
     /// The chat page seeds off the AGENT's own defaults — and never off its
     /// plan-mode setting: a chat starts in build mode, always.

@@ -643,10 +643,11 @@ pub(crate) fn mode_chip(config: Option<&steer::SessionConfig>) -> Option<ConfigC
 /// The mode id every plan-capable agent advertises.
 pub(crate) const PLAN_MODE_ID: &str = "plan";
 
-/// EXP-772: the plan/build PAIR — exactly two modes, one of them `plan`. That
-/// shape (claude, and pi when it launched with the plan extension) draws a
-/// compact "Plan" toggle pill instead of a two-value chip; anything else falls
-/// back to the chip. Mirrored ×4 as `planModeToggle`.
+/// EXP-772: the plan/build PAIR — exactly two modes, one of them `plan`.
+/// Mirrored ×4 as `planModeToggle` and kept as that mirror (lock-tested
+/// below); EXP-790 retired the mid-session pill that drew it, so no view
+/// reads it any more — plan is a launch-time switch on the chat page.
+#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct PlanModeToggle {
     /// The mode to switch to when turning plan ON.
@@ -657,6 +658,7 @@ pub(crate) struct PlanModeToggle {
     pub(crate) active: bool,
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn plan_mode_toggle(config: Option<&steer::SessionConfig>) -> Option<PlanModeToggle> {
     let config = config?;
     if config.modes.len() != 2 {

@@ -206,38 +206,10 @@ impl RailShared {
         }
     }
 
-    /// The issue list the CURRENT rail state shows: the My Issues board
-    /// while the Inbox tool window shows its My Issues tab, the active
-    /// board's list otherwise. Since EXP-426 the detail's prev/next switcher
-    /// prefers the active TAB's remembered origin and uses this only as its
-    /// fallback (undocked windows, origin-less tabs).
-    pub(crate) fn active_issue_board(&self) -> &Entity<BoardView> {
-        match (self.tool, self.inbox_tab) {
-            (ToolWindow::Inbox, InboxTab::MyIssues) => &self.board_my,
-            _ => &self.board_active,
-        }
-    }
-
     /// The Inbox tool window's active tab (EXP-426 — stamped into a new
     /// detail tab's [`crate::navigation::TabOrigin`]).
     pub(crate) fn inbox_tab(&self) -> InboxTab {
         self.inbox_tab
-    }
-
-    /// The two issue boards by role (EXP-426 — the switcher's origin
-    /// resolution needs a specific one, not the rail-state pick).
-    pub(crate) fn board_my(&self) -> &Entity<BoardView> {
-        &self.board_my
-    }
-
-    pub(crate) fn board_active(&self) -> &Entity<BoardView> {
-        &self.board_active
-    }
-
-    /// Both issue boards (the detail view observes them so the EXP-48
-    /// counter re-renders on filter changes).
-    pub(crate) fn issue_boards(&self) -> [&Entity<BoardView>; 2] {
-        [&self.board_active, &self.board_my]
     }
 
     /// EXP-282: the settings nav's selected section (raw — callers clamp it

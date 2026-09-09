@@ -682,21 +682,6 @@ impl SteerSessionView {
         )
     }
 
-    /// What to print on the header's agent pill: the run's own agent, which
-    /// for an EXTERNAL one is the user's label (the synced row cannot name
-    /// it — `coding_sessions.agent` takes contract values only).
-    pub(crate) fn agent_display_label(&self) -> String {
-        if let Some(session) = self.source.session() {
-            return session.agent_label().to_string();
-        }
-        match self.agent() {
-            SessionAgent::Claude => coding::CodingAgent::Claude.label().to_string(),
-            SessionAgent::Codex => coding::CodingAgent::Codex.label().to_string(),
-            SessionAgent::Pi => coding::CodingAgent::Pi.label().to_string(),
-            SessionAgent::External => "Agent".to_string(),
-        }
-    }
-
     /// The builtin agent behind this session, for the usage sheet's device
     /// cards (an external agent reports no usage windows of its own).
     pub(crate) fn builtin_agent(&self) -> Option<coding::CodingAgent> {
@@ -1905,11 +1890,6 @@ impl SteerSessionView {
             .unwrap_or_default()
     }
 
-    /// EXP-772: the plan/build pair behind the compact "Plan" switch.
-    pub(crate) fn plan_toggle(&self) -> Option<crate::session_extras::PlanModeToggle> {
-        crate::session_extras::plan_mode_toggle(self.feed.config())
-    }
-
     /// EXP-746: the run's context/spend meter (the usage sheet's own block).
     pub(crate) fn usage(&self) -> Option<steer::SessionUsage> {
         self.feed.usage()
@@ -1988,19 +1968,6 @@ impl SteerSessionView {
             },
             cx,
         ))
-    }
-
-    /// EXP-746 — switch the session mode (`plan` ⇄ the agent's default).
-    pub(crate) fn set_mode(&self, id: &str) {
-        match &self.source {
-            FeedSource::Local { session } => session.set_mode(id),
-            FeedSource::Replay { .. } | FeedSource::Journal { .. } => {}
-            FeedSource::Remote { handle } => {
-                if let Some(handle) = handle.as_ref() {
-                    handle.send_mode(id);
-                }
-            }
-        }
     }
 
     /// Whether this view drives an in-process engine (the header's kill copy

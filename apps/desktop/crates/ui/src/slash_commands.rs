@@ -142,14 +142,18 @@ pub(crate) fn insertion(command: &MenuCommand) -> String {
 }
 
 // ── Composer chip copy (byte-identical ×4) ──────────────────────────────────
+// Kept as the ×4 mirror of web `agent-feed.ts`; EXP-790 retired the
+// mid-session mode chip that drew them, so nothing renders them here.
 
 /// EXP-746: a chip whose value is BLANK — the agent CLI's own default, which
 /// is a real choice (the relay's `set_config` deliberately allows an empty
 /// value) and not a missing one.
+#[allow(dead_code)]
 pub(crate) const CONFIG_DEFAULT_VALUE_LABEL: &str = "CLI default";
 
 /// The mode chip's leading label. Every other chip's label arrives live on
 /// `config_state.options[].label`, so this is the only one a client owns.
+#[allow(dead_code)]
 pub(crate) const CONFIG_MODE_LABEL: &str = "Mode";
 
 // ── Confirm copy (byte-identical ×4) ────────────────────────────────────────

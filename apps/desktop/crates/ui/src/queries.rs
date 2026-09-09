@@ -47,18 +47,6 @@ pub struct BoardGroup {
     pub issues: Vec<Rc<Issue>>,
 }
 
-impl BoardData {
-    /// [`domain::board::flatten_group_issue_ids`] over the `Rc`'d groups: the
-    /// visible top-to-bottom issue order (the EXP-48 prev/next switcher's
-    /// read).
-    pub fn flatten_issue_ids(&self) -> Vec<String> {
-        self.groups
-            .iter()
-            .flat_map(|group| group.issues.iter().map(|issue| issue.id.clone()))
-            .collect()
-    }
-}
-
 /// `use-board-view-data.ts`: one board's issues, filtered + grouped.
 pub fn board_board(cx: &App, board_id: &str, filters: &IssueFilters) -> BoardData {
     let collections = Store::global(cx).collections();

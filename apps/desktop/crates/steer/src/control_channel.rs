@@ -384,6 +384,7 @@ pub(crate) fn next_action(event: ControlEvent, backoff: &mut Backoff) -> Control
 // The IO loop
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)] // one closure per inbound frame kind (EXP-796 added history pages)
 async fn run_control_loop(
     device: DeviceIdentity,
     control_api: Arc<dyn ControlApi>,
