@@ -3,6 +3,8 @@ package com.exponential.app.ui.markdown
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
+import com.exponential.app.ui.emoji.EmojiTokenMatch
+import com.exponential.app.ui.emoji.matchEmojiToken
 import com.exponential.app.ui.markdown.model.BlockKind
 import com.exponential.app.ui.markdown.model.InlineKind
 import com.exponential.app.ui.markdown.model.InlineMark
@@ -95,3 +97,69 @@ internal fun railMenuPopupOffset(
     val y = (anchorBounds.top - gapPx - popupSize.height).coerceAtLeast(marginPx)
     return IntOffset(x, y)
 }
+
+/**
+ * The trigger token in progress at the caret, if any — and which of the three
+ * it is. Exactly one field is ever non-null: `@` wins over `#`, and `:` only
+ * runs when neither matched (web `mention-textarea.tsx` checks @ first), so
+ * one menu opens and never two.
+ */
+internal data class AutocompleteTriggers(
+    val mention: MatchResult?,
+    val issueRef: MatchResult?,
+    val emoji: EmojiTokenMatch?,
+) {
+    /** The `@query` typed so far, or null when `@` is not the live trigger. */
+    val mentionQuery: String? get() = mention?.groupValues?.get(1)
+
+    /** The `#query` typed so far, or null when `#` is not the live trigger. */
+    val issueRefQuery: String? get() = issueRef?.groupValues?.get(1)
+
+    /**
+     * No trigger ends at the caret — the caret left the token, whitespace was
+     * typed, the trigger was deleted. The ARMED latch resets on this: the menu
+     * may only reopen on a fresh text change (EXP-322).
+     */
+    val none: Boolean get() = mention == null && issueRef == null && emoji == null
+}
+
+/**
+ * Match the three composer triggers against the text BEFORE the caret. The
+ * `*Enabled` flags are "there is a vocabulary at all": no team members means
+ * `@` cannot offer anything, no issue-ref handler means `#` cannot.
+ */
+internal fun autocompleteTriggersAt(
+    beforeCaret: String,
+    mentionsEnabled: Boolean,
+    refsEnabled: Boolean,
+): AutocompleteTriggers {
+    val mention = if (mentionsEnabled) MENTION_AT_CARET.find(beforeCaret) else null
+    val issueRef = if (refsEnabled && mention == null) ISSUE_REF_AT_CARET.find(beforeCaret) else null
+    val emoji = if (mention == null && issueRef == null) matchEmojiToken(beforeCaret) else null
+    return AutocompleteTriggers(mention, issueRef, emoji)
+}
+
+/**
+ * The members a `@query` offers: name or email containing the query, capped —
+ * a null [query] (no live `@` trigger) offers nobody.
+ */
+internal fun mentionCandidatesFor(
+    members: List<MentionMember>,
+    query: String?,
+    limit: Int = MENTION_CANDIDATE_LIMIT,
+): List<MentionMember> {
+    if (query == null) return emptyList()
+    val q = query.lowercase()
+    return members
+        .filter { it.name.lowercase().contains(q) || it.email.lowercase().contains(q) }
+        .take(limit)
+}
+
+/** How many rows the `@` and `#` menus offer. */
+internal const val MENTION_CANDIDATE_LIMIT = 6
+
+/**
+ * How many emoji the `:shortcode` typeahead offers (EXP-551) — the picker
+ * sheet's cap is larger; this menu is a keyboard-adjacent shortlist.
+ */
+internal const val EMOJI_TYPEAHEAD_LIMIT = 8

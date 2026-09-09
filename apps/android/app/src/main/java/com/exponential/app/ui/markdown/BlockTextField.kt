@@ -2,28 +2,17 @@ package com.exponential.app.ui.markdown
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LocalTextStyle
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -32,9 +21,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -49,21 +36,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.LineHeightStyle
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntRect
-import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.LayoutDirection
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupPositionProvider
-import androidx.compose.ui.window.PopupProperties
-import com.exponential.app.ui.components.GlassMenuSurface
-import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.emoji.EmojiRecord
 import com.exponential.app.ui.emoji.EmojiTokenMatch
 import com.exponential.app.ui.emoji.matchEmojiToken
@@ -81,10 +56,6 @@ internal val MENTION_AT_CARET = Regex("(?:^|\\s)@([A-Za-z0-9._%+-]*)$")
 // In-progress issue reference `#query` at the caret — same shape as the web
 // ISSUE_REF_AT_CARET (mention-textarea.tsx / editor-autocomplete.ts).
 internal val ISSUE_REF_AT_CARET = Regex("(?:^|\\s)#([A-Za-z0-9-]*)$")
-
-// How many emoji the `:shortcode` typeahead offers (EXP-551) — the picker
-// sheet's cap is larger; this menu is a keyboard-adjacent shortlist.
-private const val EMOJI_TYPEAHEAD_LIMIT = 8
 
 /**
  * One editable text RUN — every '\n'-separated paragraph between two images in
@@ -169,19 +140,35 @@ fun BlockTextField(
         }
     }
 
-    // @mention autocomplete: detect an in-progress `@query` before the caret and
-    // offer matching members; tapping inserts the canonical `@email ` form the
-    // server resolves. Tap-to-insert keeps Enter behaving as a newline.
+    // The three composer triggers at the caret, with their precedence
+    // ([autocompleteTriggersAt], shared with the steer composer since
+    // EXP-802/EXP-805): `@query` offers matching members, `#query` same-team
+    // issues from [LocalIssueRefs] (identifier + title substring, newest
+    // first, empty query = most recent — web IssueRefProvider.search parity),
+    // and `:shortcode` emoji from the shared dataset (assets/emoji.json,
+    // loaded lazily the first time a token appears). Tap-to-insert keeps
+    // Enter behaving as a newline.
+    val issueRefs = LocalIssueRefs.current
     val beforeCaret = value.text.take(value.selection.start)
-    val mentionMatch =
-        if (mentionMembers.isNotEmpty()) MENTION_AT_CARET.find(beforeCaret) else null
-    val mentionQuery = mentionMatch?.groupValues?.get(1)
-    val mentionCandidates =
-        if (mentionQuery != null) {
-            val q = mentionQuery.lowercase()
-            mentionMembers
-                .filter { it.name.lowercase().contains(q) || it.email.lowercase().contains(q) }
-                .take(6)
+    val triggers = autocompleteTriggersAt(
+        beforeCaret = beforeCaret,
+        mentionsEnabled = mentionMembers.isNotEmpty(),
+        refsEnabled = issueRefs != null,
+    )
+    val mentionCandidates = mentionCandidatesFor(mentionMembers, triggers.mentionQuery)
+    val refQuery = triggers.issueRefQuery
+    val refCandidates =
+        if (refQuery != null && issueRefs != null) {
+            issueRefs.search(refQuery, limit = MENTION_CANDIDATE_LIMIT)
+        } else {
+            emptyList()
+        }
+    val emojiMatch: EmojiTokenMatch? = triggers.emoji
+    val emojiData = rememberEmojiData(enabled = emojiMatch != null)
+    val emojiPrefs = rememberEmojiPrefs()
+    val emojiCandidates =
+        if (emojiMatch != null && emojiData != null) {
+            emojiData.search(emojiMatch.query, limit = EMOJI_TYPEAHEAD_LIMIT)
         } else {
             emptyList()
         }
@@ -192,62 +179,25 @@ fun BlockTextField(
     // past the query the row was composed with used to keep the typed `#`
     // and land `##EXP-552`. One snapshot for both ends of the replaced range
     // (mention-textarea.tsx / IssueEditorModel.applyIssueRef parity).
-    fun commitToken(spliced: Pair<String, Int>?) {
-        val (newText, newCaret) = spliced ?: return
-        value = TextFieldValue(newText, TextRange(newCaret))
-        model.updateRun(row.id, newText, newCaret)
-        model.updateSelection(row.id, newCaret..newCaret)
+    fun commitToken(spliced: TextFieldValue?) {
+        val next = spliced ?: return
+        val caret = next.selection.start
+        value = next
+        model.updateRun(row.id, next.text, caret)
+        model.updateSelection(row.id, caret..caret)
         armed = false
     }
 
     fun insertMention(member: MentionMember) {
-        commitToken(
-            spliceTriggerToken(value.text, value.selection.start, MENTION_AT_CARET, "@" + member.email + " "),
-        )
+        commitToken(value.withMention(member))
     }
-
-    // #issue-ref autocomplete (masterplan §5e): detect an in-progress `#query`
-    // before the caret and offer same-team issues from [LocalIssueRefs]
-    // (identifier + title substring, newest first, empty query = most recent —
-    // web IssueRefProvider.search parity). Tapping inserts the plain
-    // `#IDENTIFIER ` interchange token, never a custom span, so the GFM
-    // round-trip stays byte-identical. Mention detection wins when both could
-    // match (web checks @ first).
-    val issueRefs = LocalIssueRefs.current
-    val refMatch =
-        if (issueRefs != null && mentionMatch == null) ISSUE_REF_AT_CARET.find(beforeCaret) else null
-    val refQuery = refMatch?.groupValues?.get(1)
-    val refCandidates =
-        if (refQuery != null && issueRefs != null) issueRefs.search(refQuery, limit = 6)
-        else emptyList()
 
     fun insertIssueRef(target: IssueRefTarget) {
-        commitToken(
-            spliceTriggerToken(value.text, value.selection.start, ISSUE_REF_AT_CARET, "#" + target.identifier + " "),
-        )
+        commitToken(value.withIssueRef(target))
     }
 
-    // `:shortcode` emoji typeahead (EXP-551): the same trigger shape as `@`/`#`,
-    // matched only when neither of those does. Candidates come from the shared
-    // dataset (assets/emoji.json), loaded lazily the first time a token
-    // appears. A pick replaces the WHOLE token with the unicode + a space —
-    // never `:shortcode:` text, because the markdown is shared with clients
-    // that render only unicode.
-    val emojiMatch: EmojiTokenMatch? =
-        if (mentionMatch == null && refMatch == null) matchEmojiToken(beforeCaret) else null
-    val emojiData = rememberEmojiData(enabled = emojiMatch != null)
-    val emojiPrefs = rememberEmojiPrefs()
-    val emojiCandidates =
-        if (emojiMatch != null && emojiData != null) {
-            emojiData.search(emojiMatch.query, limit = EMOJI_TYPEAHEAD_LIMIT)
-        } else {
-            emptyList()
-        }
-
     fun insertEmoji(record: EmojiRecord, trailingSpace: Boolean) {
-        val inserted = if (trailingSpace) record.unicode + " " else record.unicode
-        val spliced = spliceEmojiToken(value.text, value.selection.start, inserted) ?: return
-        commitToken(spliced)
+        commitToken(value.withEmoji(record, trailingSpace) ?: return)
         emojiPrefs.pushRecent(record.unicode)
     }
 
@@ -272,7 +222,7 @@ fun BlockTextField(
         (mentionCandidates.isNotEmpty() || refCandidates.isNotEmpty() || emojiCandidates.isNotEmpty())
     // The regex stopped matching (caret left the token, whitespace typed, the
     // trigger was deleted) — require a fresh text change to reopen.
-    val noTrigger = mentionMatch == null && refMatch == null && emojiMatch == null
+    val noTrigger = triggers.none
     LaunchedEffect(noTrigger) {
         if (noTrigger) armed = false
     }
@@ -692,142 +642,4 @@ private fun IssueChipTransform.Chip.stillSpellsItsToken(text: String): Boolean =
 internal fun snapCaretOutOfChips(chips: List<IssueChipTransform.Chip>, oldCaret: Int, newCaret: Int): Int {
     val chip = chips.firstOrNull { newCaret > it.sourceStart && newCaret < it.sourceEnd } ?: return newCaret
     return if (newCaret > oldCaret) chip.sourceEnd else chip.sourceStart
-}
-
-@Composable
-private fun AutocompleteMenu(
-    caretRect: Rect?,
-    toolbarHeightPx: Int,
-    mentionCandidates: List<MentionMember>,
-    refCandidates: List<IssueRefTarget>,
-    emojiCandidates: List<EmojiRecord>,
-    onPickMention: (MentionMember) -> Unit,
-    onPickIssueRef: (IssueRefTarget) -> Unit,
-    onPickEmoji: (EmojiRecord) -> Unit,
-) {
-    val density = LocalDensity.current
-    val imeBottomPx = WindowInsets.ime.getBottom(density)
-    val marginPx = with(density) { 8.dp.roundToPx() }
-    val gapPx = with(density) { 4.dp.roundToPx() }
-    val provider = remember(caretRect, imeBottomPx, toolbarHeightPx, marginPx, gapPx) {
-        object : PopupPositionProvider {
-            override fun calculatePosition(
-                anchorBounds: IntRect,
-                windowSize: IntSize,
-                layoutDirection: LayoutDirection,
-                popupContentSize: IntSize,
-            ): IntOffset = autocompletePopupOffset(
-                anchorBounds = anchorBounds,
-                caretLeftInAnchor = caretRect?.left?.toInt() ?: 0,
-                caretTopInAnchor = caretRect?.top?.toInt() ?: 0,
-                caretBottomInAnchor = caretRect?.bottom?.toInt() ?: anchorBounds.height,
-                popupSize = popupContentSize,
-                windowSize = windowSize,
-                imeBottomPx = imeBottomPx,
-                toolbarHeightPx = toolbarHeightPx,
-                marginPx = marginPx,
-                gapPx = gapPx,
-            )
-        }
-    }
-    Popup(
-        popupPositionProvider = provider,
-        // Focusable would steal focus from the field and drop the keyboard, so
-        // dismissal rides the armed state + BackHandler instead.
-        properties = PopupProperties(focusable = false),
-    ) {
-        // EXP-332: the same container as every DropdownMenu in the app, so the
-        // `@`/`#` menu is no longer a second menu look.
-        GlassMenuSurface {
-            Column(
-                modifier = Modifier
-                    .width(260.dp)
-                    .heightIn(max = 240.dp)
-                    .verticalScroll(rememberScrollState())
-                    // Scrolls with the content, matching M3's menu padding.
-                    .padding(vertical = 4.dp),
-            ) {
-                mentionCandidates.forEach { m ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 44.dp)
-                            .clickable { onPickMention(m) }
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(m.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-                        Spacer(Modifier.weight(1f))
-                        Text(
-                            m.email,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                        )
-                    }
-                }
-                refCandidates.forEach { target ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 44.dp)
-                            .clickable { onPickIssueRef(target) }
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        // EXP-581: status glyph first, then the mono identifier,
-                        // then the title — the web IssueCandidateRow layout,
-                        // now uniform across all four clients.
-                        target.resolvedStatus?.let { status ->
-                            StatusIcon(status, size = 16.dp)
-                            Spacer(Modifier.width(8.dp))
-                        }
-                        Text(
-                            target.identifier,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            target.title,
-                            style = MaterialTheme.typography.bodyMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                }
-                emojiCandidates.forEach { emoji ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 44.dp)
-                            .clickable { onPickEmoji(emoji) }
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(emoji.unicode, style = MaterialTheme.typography.bodyLarge)
-                        Spacer(Modifier.width(10.dp))
-                        Text(
-                            ":" + (emoji.shortcodes.firstOrNull() ?: emoji.label) + ":",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontFamily = FontFamily.Monospace,
-                            maxLines = 1,
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            emoji.label,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                }
-            }
-        }
-    }
 }
