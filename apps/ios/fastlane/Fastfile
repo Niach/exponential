@@ -139,7 +139,7 @@ platform :ios do
   end
 
   desc "Regenerate the Tuist project and capture the STYLEGUIDE screenshots (EXP-566):"
-  desc "the 28 cross-platform `sg_*` surface shots from"
+  desc "the 29 cross-platform `sg_*` surface shots from"
   desc "ExponentialUITests/StyleguideScreenshots.swift, iPhone only, into"
   desc "fastlane/screenshots-styleguide/. Same seeded backend as `screenshots` and no"
   desc "steer TRAFFIC, but it DOES need `cd apps/web && bun run screenshots:desktop`"

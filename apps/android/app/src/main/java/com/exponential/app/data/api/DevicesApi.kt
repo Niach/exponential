@@ -274,6 +274,21 @@ fun agentLoginCodeCommand(deviceId: String, agent: String, code: String): JsonOb
     }
 
 /**
+ * The `agent_usage_refresh` input for [DevicesApi.createCommand] (EXP-747 C4,
+ * EXP-829) — ask the machine to re-read [agent]'s usage for [profileId] past
+ * the shared TTL (never past its own rate-limit floor: the server refuses a
+ * machine without the `agent-usage-refresh` cap, and the device answers by
+ * re-reporting on its next heartbeat, not through the command result).
+ */
+fun agentUsageRefreshCommand(deviceId: String, agent: String, profileId: String): JsonObject =
+    buildJsonObject {
+        put("deviceId", deviceId)
+        put("kind", "agent_usage_refresh")
+        put("agent", agent)
+        put("profileId", profileId)
+    }
+
+/**
  * Whether [version] compares below [latest] (both `major.minor.patch`).
  * Missing or unparseable on either side = no hint, never a false alarm.
  * Mirrors `updateAvailable` in apps/web/src/components/my-machines.tsx.

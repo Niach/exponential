@@ -164,13 +164,55 @@ public struct AgentAccount: Decodable, Equatable, Sendable {
 /// names it). Every field but the id optional — the sender's vintage varies.
 public struct AgentAccountProfile: Decodable, Equatable, Sendable, Identifiable {
     public let id: String
+    /// EXP-829: the profile's display name (`Default` for the ambient login
+    /// when the device sent none — `AgentAccountsRows` applies that fallback).
+    public let label: String?
     public let active: Bool?
+    /// EXP-829: the profile's OWN sign-in state, plan, probe stamp and usage
+    /// report (web `DeviceAgentProfileEntry`). The Accounts section reads one
+    /// row per profile off these; a pre-profile device carries none.
+    public let signedIn: Bool?
     public let email: String?
+    public let plan: String?
+    public let checkedAt: String?
+    public let usage: AgentUsage?
 
-    public init(id: String, active: Bool? = nil, email: String? = nil) {
+    public init(
+        id: String,
+        label: String? = nil,
+        active: Bool? = nil,
+        signedIn: Bool? = nil,
+        email: String? = nil,
+        plan: String? = nil,
+        checkedAt: String? = nil,
+        usage: AgentUsage? = nil
+    ) {
         self.id = id
+        self.label = label
         self.active = active
+        self.signedIn = signedIn
         self.email = email
+        self.plan = plan
+        self.checkedAt = checkedAt
+        self.usage = usage
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, label, active, signedIn, email, plan, checkedAt, usage
+    }
+
+    /// Only the id is load-bearing; every other field degrades on its own so
+    /// a newer device's profile entry never throws the whole list away.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        label = try? c.decodeIfPresent(String.self, forKey: .label)
+        active = try? c.decodeIfPresent(Bool.self, forKey: .active)
+        signedIn = try? c.decodeIfPresent(Bool.self, forKey: .signedIn)
+        email = try? c.decodeIfPresent(String.self, forKey: .email)
+        plan = try? c.decodeIfPresent(String.self, forKey: .plan)
+        checkedAt = try? c.decodeIfPresent(String.self, forKey: .checkedAt)
+        usage = try? c.decodeIfPresent(AgentUsage.self, forKey: .usage)
     }
 }
 

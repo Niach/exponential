@@ -105,9 +105,13 @@ private struct CreateCommandInput: Encodable {
     /// waiting on its own screen. The server trims it and refuses an empty
     /// one; nil is simply omitted like the rest.
     let code: String?
+    /// EXP-829 (`agent_usage_refresh`, EXP-747 C4): which login profile to
+    /// re-read (`system` = the ambient login). The server requires it for
+    /// that kind and ignores it for every other.
+    let profileId: String?
 
     enum CodingKeys: String, CodingKey {
-        case deviceId, kind, repoFullName, branch, agent, code
+        case deviceId, kind, repoFullName, branch, agent, code, profileId
         case switchAccount = "switch"
     }
 }
@@ -250,14 +254,15 @@ public final class DevicesApi: Sendable {
         branch: String? = nil,
         agent: String? = nil,
         switchAccount: Bool? = nil,
-        code: String? = nil
+        code: String? = nil,
+        profileId: String? = nil
     ) async throws -> CreatedDeviceCommand {
         try await trpc.mutation(
             accountId: accountId,
             path: "devices.createCommand",
             input: CreateCommandInput(
                 deviceId: deviceId, kind: kind, repoFullName: repoFullName, branch: branch,
-                agent: agent, switchAccount: switchAccount, code: code
+                agent: agent, switchAccount: switchAccount, code: code, profileId: profileId
             )
         )
     }

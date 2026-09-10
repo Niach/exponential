@@ -65,7 +65,7 @@ fastlane/screenshots/ before sync_store — EXP-580.
 
 Regenerate the Tuist project and capture the STYLEGUIDE screenshots (EXP-566):
 
-the 28 cross-platform `sg_*` surface shots from
+the 29 cross-platform `sg_*` surface shots from
 
 ExponentialUITests/StyleguideScreenshots.swift, iPhone only, into
 

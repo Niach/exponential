@@ -10,6 +10,8 @@ import com.exponential.app.data.api.DevicesApi
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.data.api.agentUsageRefreshCommand
+import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.CodingSessionEntity
@@ -20,6 +22,9 @@ import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.electric.SyncStats
+import com.exponential.app.domain.AgentAccountSection
+import com.exponential.app.domain.AgentAccountUsageGroup
+import com.exponential.app.domain.AgentAccountsRows
 import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.DeviceFreshness
 import com.exponential.app.domain.DeviceLiveness
@@ -45,6 +50,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -149,6 +155,96 @@ class AgentsViewModel @Inject constructor(
     // menu stays put but its actions disable until the refetch lands.
     private val _deviceBusy = MutableStateFlow<Set<String>>(emptySet())
     val deviceBusy: StateFlow<Set<String>> = _deviceBusy
+
+    // ── EXP-829: the Accounts section (EXP-818's Devices → Accounts) ────────
+    // One row per agent ACCOUNT off the synced devices rows — own machines
+    // plus the selected team's shared servers — recomputed on the same 30s
+    // ticker the machine list's online-ness rides. null until the shape's
+    // initial snapshot has landed (the section says "Loading…", never a
+    // flash of "nothing reported yet").
+    val accountSections: StateFlow<List<AgentAccountSection>?> = combine(
+        dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() },
+        dbFlow.scopedQuery(null as Boolean?) { it.electricOffsetDao().observeIsLive("devices") },
+        combine(auth.userId, selection.selectedId) { userId, teamId -> userId to teamId },
+        DeviceLiveness.ticker(),
+    ) { rows, snapshotLive, (userId, teamId), now ->
+        if (snapshotLive != true && rows.isEmpty()) null else accountSections(rows, userId, teamId, now)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    // Refreshes in flight, keyed by account: the usage stamp the account
+    // carried when it was queued — the device's re-report MOVES it, and that
+    // is what clears the spinner (web `refreshing`, desktop `RefreshMark`).
+    private data class RefreshMark(val fetchedAt: String?, val at: Long)
+
+    private val _refreshingAccounts = MutableStateFlow<Map<String, RefreshMark>>(emptyMap())
+    val refreshingAccounts: StateFlow<Set<String>> = _refreshingAccounts
+        .map { it.keys }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    // EXP-817: when the section's OWN refresh last tried each account.
+    private val autoAttempts = mutableMapOf<String, Long>()
+
+    // The last failed MANUAL queue attempt, rendered under the header (the
+    // desktop's treatment — a snackbar hides behind the bottom nav pill).
+    private val _accountsError = MutableStateFlow<String?>(null)
+    val accountsError: StateFlow<String?> = _accountsError
+
+    /**
+     * Queue `agent_usage_refresh` on the account's refresh target. The answer
+     * arrives as a synced `agent_usage` write, never as a command result, so
+     * the only local state is the in-flight mark. [silent] is the section's
+     * own round: a refusal (a command still queued from the last round is a
+     * CONFLICT) is swallowed, the next tick simply looks again.
+     */
+    fun refreshAccount(group: AgentAccountUsageGroup, silent: Boolean = false) {
+        val target = group.refreshTarget ?: return
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            if (!silent) _accountsError.value = null
+            _refreshingAccounts.value = _refreshingAccounts.value +
+                (group.key to RefreshMark(group.usage?.fetchedAt, System.currentTimeMillis()))
+            runCatching {
+                devicesApi.createCommand(
+                    accountId,
+                    agentUsageRefreshCommand(target.deviceId, target.agent, target.profileId),
+                )
+            }.onFailure { t ->
+                if (t is CancellationException) throw t
+                _refreshingAccounts.value = _refreshingAccounts.value - group.key
+                if (!silent) {
+                    _accountsError.value =
+                        trpcErrorMessage(t, "The refresh could not be queued on the machine.")
+                }
+            }
+        }
+    }
+
+    /**
+     * EXP-817: keep the section current while it is open — the screen calls
+     * this on every sections emission and on a 30s tick (web `useNow`).
+     * First the in-flight marks the synced rows have answered (the stamp
+     * moved) or that waited past [REFRESH_PENDING_MS] are dropped; then every
+     * account with an eligible machine and a freshest report past the floor
+     * gets ONE refresh queued — never while one is in flight, never twice
+     * inside [AUTO_REFRESH_RETRY_MS]. The floor is the device's own 429
+     * budget, so this can never out-poll what the machine allows itself.
+     */
+    fun autoRefreshAccounts() {
+        val groups = accountSections.value?.flatMap { it.groups } ?: return
+        val nowMs = System.currentTimeMillis()
+        _refreshingAccounts.value = _refreshingAccounts.value.filter { (key, mark) ->
+            val group = groups.firstOrNull { it.key == key } ?: return@filter false
+            group.usage?.fetchedAt == mark.fetchedAt && nowMs - mark.at <= REFRESH_PENDING_MS
+        }
+        for (group in groups) {
+            if (group.refreshTarget == null || group.key in _refreshingAccounts.value) continue
+            if (AgentAccountsRows.refreshAllowedAt(group.usage, nowMs) != null) continue
+            val last = autoAttempts[group.key] ?: Long.MIN_VALUE
+            if (nowMs - last < AUTO_REFRESH_RETRY_MS) continue
+            autoAttempts[group.key] = nowMs
+            refreshAccount(group, silent = true)
+        }
+    }
 
     // The live rows the list renders from.
     private val liveSessionRows = dbFlow.scopedQuery(emptyList()) {
@@ -407,6 +503,46 @@ fun agentRows(
             mergeTarget = resolveMergeTarget(session, issue, batchPrIssue),
         )
     }
+}
+
+/**
+ * How long a queued usage refresh shows as in flight before the section gives
+ * up on the machine answering (it answers by re-reporting on its next beat).
+ * Web `REFRESH_PENDING_MS`.
+ */
+const val REFRESH_PENDING_MS = 45_000L
+
+/**
+ * EXP-817: the section's own refresh never re-tries one account faster than
+ * this — a queued command the machine has not answered yet is a CONFLICT on
+ * the server, and hammering it buys nothing. Web `AUTO_REFRESH_RETRY_MS`.
+ */
+const val AUTO_REFRESH_RETRY_MS = 60_000L
+
+/**
+ * EXP-829: the Accounts section's rows — the synced devices rows the section
+ * reads ([AgentAccountsRows.sectionDevices]) folded into one row per account,
+ * attention first, under agent bands in contract order. Online-ness and the
+ * refresh eligibility (mine + online + the `agent-usage-refresh` cap) come
+ * off the same [SteerDevice] mapping every machine row renders from. Signed
+ * out lists nothing.
+ */
+fun accountSections(
+    rows: List<DeviceEntity>,
+    currentUserId: String?,
+    teamId: String?,
+    nowMs: Long,
+): List<AgentAccountSection> {
+    if (currentUserId == null) return emptyList()
+    val devices = AgentAccountsRows.sectionDevices(rows, currentUserId, teamId)
+    val capsByDevice = devices.associate { it.deviceId to it.toSteerDevice(nowMs, currentUserId).caps }
+    val profileRows = AgentAccountsRows.agentProfileUsageRows(devices, currentUserId) { seen ->
+        DeviceLiveness.isOnline(seen, nowMs)
+    }
+    val groups = AgentAccountsRows.accountUsageGroups(profileRows) { row ->
+        AgentAccountsRows.canRefresh(row, capsByDevice[row.deviceId])
+    }
+    return AgentAccountsRows.sections(AgentAccountsRows.sortAccountGroupsAttentionFirst(groups))
 }
 
 /** How many finished rows the DAO pulls before the pure filter narrows them. */

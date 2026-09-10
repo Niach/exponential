@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -23,13 +24,16 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -38,12 +42,19 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.DeviceLatestVersions
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.deviceUpdateAvailable
+import com.exponential.app.domain.AgentAccountUsageGroup
+import com.exponential.app.domain.AgentAccountsRows
 import com.exponential.app.domain.AgentComposerSeed
+import com.exponential.app.domain.AgentProfileUsageRow
+import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
+import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.SectionHeader
+import com.exponential.app.ui.components.agentLabel
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.issue.ReviewGreen
@@ -52,6 +63,7 @@ import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
+import kotlinx.coroutines.delay
 
 /**
  * The Devices tab (EXP-686, the renamed Agents surface): "My machines" — the
@@ -61,6 +73,13 @@ import com.exponential.app.ui.theme.glassRow
  * EXP-818) — the Running / Past session lists moved to the Agent page, and a
  * machine's play glyph opens that page with the machine preselected instead
  * of a launcher sheet of its own.
+ *
+ * EXP-829: below the machines sits "Accounts" (web `AgentAccountsSection`,
+ * desktop `accounts_section.rs`) — one row per agent account the machines
+ * report, its machines as chips (a check where the account is the ACTIVE
+ * login there), the freshest machine's usage windows, refreshed by itself
+ * while the page is open. A chip of one of the caller's own machines opens
+ * that machine's settings sheet, where the agent sign-in lives.
  */
 @Composable
 fun AgentsScreen(
@@ -72,6 +91,19 @@ fun AgentsScreen(
     val devices by viewModel.devices.collectAsStateWithLifecycle()
     val latestVersions by viewModel.latestVersions.collectAsStateWithLifecycle()
     val deviceBusy by viewModel.deviceBusy.collectAsStateWithLifecycle()
+    val accountSections by viewModel.accountSections.collectAsStateWithLifecycle()
+    val refreshingAccounts by viewModel.refreshingAccounts.collectAsStateWithLifecycle()
+    val accountsError by viewModel.accountsError.collectAsStateWithLifecycle()
+
+    // EXP-817: the section's own refresh round — on every change of the rows
+    // and on the same 30s clock the countdowns re-read on (web `useNow`).
+    LaunchedEffect(accountSections) { viewModel.autoRefreshAccounts() }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(30_000L)
+            viewModel.autoRefreshAccounts()
+        }
+    }
 
     // The machine row whose settings sheet (EXP-481) / Remove dialog is open.
     var settingsTargetId by remember { mutableStateOf<String?>(null) }
@@ -92,7 +124,7 @@ fun AgentsScreen(
                 AgentsEmptyState()
             } else if (steerOn) {
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().testTag("devices-list"),
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
@@ -138,6 +170,89 @@ fun AgentsScreen(
                                 onRemove = {},
                                 onUpdate = {},
                             )
+                        }
+                    }
+                    // EXP-829: the Accounts section. The header carries the
+                    // tag the screenshot flow scrolls to; the trailing note
+                    // only shows when some machine can take a refresh.
+                    item(key = "__accounts_gap__") { Spacer(Modifier.height(10.dp)) }
+                    item(key = "__accounts_header__") {
+                        val autoRefreshes = accountSections.orEmpty()
+                            .any { section -> section.groups.any { it.refreshTarget != null } }
+                        SectionHeader(
+                            "Accounts",
+                            modifier = Modifier.testTag("agent-accounts-section"),
+                            trailing = if (autoRefreshes) {
+                                {
+                                    Text(
+                                        "Refreshes every 5 minutes",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(
+                                            alpha = TextEmphasis.Tertiary,
+                                        ),
+                                    )
+                                }
+                            } else {
+                                null
+                            },
+                        )
+                    }
+                    accountsError?.let { message ->
+                        item(key = "__accounts_error__") {
+                            Text(
+                                message,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(horizontal = 4.dp),
+                            )
+                        }
+                    }
+                    val sections = accountSections
+                    when {
+                        sections == null -> item(key = "__accounts_loading__") { HintRow("Loading…") }
+                        sections.isEmpty() -> item(key = "__no_accounts__") {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                            ) {
+                                Icon(
+                                    ExpIcons.uiDeviceOffline,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                                )
+                                Text(
+                                    AgentAccountsRows.EMPTY_STATE,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                                )
+                            }
+                        }
+                        else -> sections.forEach { section ->
+                            // The agent band: contract order, only agents a
+                            // machine reported (never a heading over nothing).
+                            item(key = "acct_agent_${section.agent}") {
+                                Text(
+                                    agentLabel(section.agent),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                                    modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp),
+                                )
+                            }
+                            items(section.groups, key = { "acct_${it.key}" }) { group ->
+                                AccountRow(
+                                    group = group,
+                                    ownDeviceIds = devices.orEmpty().filter { it.isMine }
+                                        .mapTo(mutableSetOf()) { it.deviceId },
+                                    refreshing = group.key in refreshingAccounts,
+                                    onRefresh = { viewModel.refreshAccount(group) },
+                                    // The chip's destination IS the machine
+                                    // row's: the device-settings sheet, where
+                                    // that agent's Login / Switch account live.
+                                    onOpenDevice = { settingsTargetId = it },
+                                )
+                            }
                         }
                     }
                 }
@@ -424,6 +539,160 @@ private fun MachineRow(
             }
         }
     }
+}
+
+/**
+ * EXP-829: one account ROW under its agent band — the identity line (amber
+ * "Not signed in", else the email · plan), the refresh glyph when one of the
+ * caller's machines can re-read the numbers (greyed inside the device's own
+ * five-minute floor, a spinner while a refresh is in flight), the machine
+ * chips, and the freshest machine's usage windows (the same cards the device
+ * settings sheet renders; dimmed with an "as of …" line once they are older
+ * than the freshness window). Web `AccountCard`, desktop `render_row`.
+ */
+@Composable
+private fun AccountRow(
+    group: AgentAccountUsageGroup,
+    ownDeviceIds: Set<String>,
+    refreshing: Boolean,
+    onRefresh: () -> Unit,
+    onOpenDevice: (String) -> Unit,
+) {
+    val nowMs = rememberUsageClock()
+    val usage = group.usage
+    val fresh = AgentUsagePresentation.isFresh(usage?.fetchedAt, nowMs)
+    val nextAllowed = AgentAccountsRows.refreshAllowedAt(usage, nowMs)
+    // The "as of …" fallback: the numbers' own stamp, else when a machine last
+    // probed the account.
+    val asOf = (usage?.fetchedAt?.takeIf { it.isNotBlank() } ?: group.checkedAt)
+        ?.let(::relativeTime)?.takeIf { it.isNotEmpty() }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .glassRow()
+            .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV)
+            .testTag("agent-account-row"),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f),
+            ) {
+                Text(
+                    AgentAccountsRows.caption(group),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (group.signedIn) MaterialTheme.colorScheme.onSurface else NeedsInputAmber,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (group.signedIn && group.email != null && group.plan != null) {
+                    Text(
+                        " · ${group.plan}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        maxLines = 1,
+                    )
+                }
+            }
+            if (group.refreshTarget != null) {
+                if (refreshing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.padding(start = 8.dp).size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    )
+                } else {
+                    CircleIconButton(
+                        ExpIcons.uiRefresh,
+                        contentDescription = "Refresh usage",
+                        onClick = onRefresh,
+                        enabled = nextAllowed == null,
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
+            }
+        }
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            group.rows.forEach { row ->
+                DeviceChip(
+                    row = row,
+                    onClick = if (row.deviceId in ownDeviceIds) {
+                        { onOpenDevice(row.deviceId) }
+                    } else {
+                        null
+                    },
+                )
+            }
+        }
+        if (usage != null && usage.windows.isNotEmpty()) {
+            Column(
+                modifier = Modifier.alpha(if (fresh) 1f else 0.5f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                AgentUsageCards(usage = usage, compact = true)
+                // The cards caption their own staleness (the device's flag);
+                // an aged-out but never-failed report gets the line here.
+                if (!fresh && !usage.stale && asOf != null) {
+                    Text(
+                        "as of $asOf",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    )
+                }
+            }
+        } else {
+            Text(
+                if (asOf != null) "No usage reported · as of $asOf" else "No usage reported",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
+        }
+    }
+}
+
+/**
+ * EXP-829: one machine chip — the online dot, the machine (· profile), and a
+ * CHECK when the account is the ACTIVE login on that machine. A chip of one
+ * of the caller's own machines taps through to that machine's settings
+ * sheet (its agent card carries Login / Switch account); a teammate's is
+ * read-only. Web / desktop `DeviceChip`.
+ */
+@Composable
+private fun DeviceChip(row: AgentProfileUsageRow, onClick: (() -> Unit)?) {
+    val description = buildString {
+        append(AgentAccountsRows.chipLabel(row))
+        append(if (row.online) ", online" else ", offline")
+        if (!row.signedIn) append(", not signed in") else if (row.active) append(", active here")
+    }
+    GlassPill(
+        AgentAccountsRows.chipLabel(row),
+        size = PillSize.Sm,
+        onClick = onClick,
+        dot = if (row.online) {
+            ReviewGreen
+        } else {
+            MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+        },
+        trailing = if (row.signedIn && row.active) {
+            {
+                Icon(
+                    ExpIcons.uiCheck,
+                    contentDescription = "Active on this machine",
+                    tint = ReviewGreen,
+                    modifier = Modifier.size(12.dp),
+                )
+            }
+        } else {
+            null
+        },
+        contentDescription = description,
+        modifier = Modifier.testTag("agent-account-chip"),
+    )
 }
 
 @Composable
