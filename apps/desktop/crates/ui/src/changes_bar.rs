@@ -93,7 +93,8 @@ pub(crate) fn render<V: Render>(spec: ChangesSpec<V>, cx: &mut Context<V>) -> An
                 .xsmall(),
             )
             .child(Icon::new(registry::CODING_DIFF).xsmall())
-            .child("Latest changes")
+            // EXP-818: "Changes" — ×4 (web, iOS, Android say the same).
+            .child("Changes")
             .child(
                 div()
                     .font_family(theme::terminal::FONT_FAMILY)

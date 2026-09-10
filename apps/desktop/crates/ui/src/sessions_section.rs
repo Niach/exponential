@@ -397,7 +397,7 @@ fn session_title(
 
 /// The live dot's tone, mirroring the web tab's dot rules (and the dock chip's
 /// twin, which D6 removes).
-fn session_tone(display: CodingSessionDisplay, paused: bool, muted: Hsla) -> Hsla {
+pub(crate) fn session_tone(display: CodingSessionDisplay, paused: bool, muted: Hsla) -> Hsla {
     if paused {
         return muted.opacity(0.4);
     }

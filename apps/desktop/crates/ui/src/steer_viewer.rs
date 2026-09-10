@@ -64,7 +64,7 @@ use gpui_component::{
     h_flex,
     input::{self, InputEvent, TextareaState},
     spinner::Spinner,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Selectable as _, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use steer::activity::SessionAgent;
 use steer::commands::parse_command;
@@ -2776,6 +2776,11 @@ const COMPOSER_INLINE_MIN_WIDTH: f32 = 340.;
 /// on every frame.
 const TOOL_ROW_WRAP_HYSTERESIS: f32 = 24.;
 
+/// EXP-818: how much of the transcript column a user bubble may take (web
+/// `max-w-[85%]`), and the narrowest bubble worth drawing.
+const USER_BUBBLE_MAX_FRACTION: f32 = 0.85;
+const USER_BUBBLE_MIN_W: f32 = 48.;
+
 /// EXP-790 — whether the composer's tool row wraps under the field at `width`
 /// when it takes `needed` to sit beside it, given whether it is `wrapped` right
 /// now. Wraps as soon as the width falls short; un-wraps only once the width
@@ -2788,27 +2793,29 @@ pub(crate) fn tool_row_wraps(width: f32, needed: f32, wrapped: bool) -> bool {
     }
 }
 
+/// EXP-818: whether a rate-limit report is a WALL worth a banner. Claude
+/// files `allowed_warning` on every turn past ~75% of a window while it
+/// keeps working — the Usage pill already shows that percentage, and a
+/// "rate limited" banner over a run that is visibly working was wrong. Only
+/// `rejected`, or a notice the agent itself wrote, is a banner. Web
+/// `rateLimitBanner` twin.
+pub(crate) fn rate_limit_is_wall(status: &str, message: Option<&str>) -> bool {
+    status.trim() == "rejected" || message.is_some_and(|text| !text.trim().is_empty())
+}
+
 /// EXP-784 — the rate-limit banner's line: the agent's message (or a generic
-/// one) and, when the report named a reset, ` · resets HH:MM` in local time.
-pub(crate) fn rate_limit_caption(message: Option<&str>, resets_local: Option<String>) -> String {
+/// one) and, when the report named a reset, ` · resets in 2h 10m` (EXP-818:
+/// relative, the usage cards' countdown — a clock reading `00:00` looked
+/// like a zero).
+pub(crate) fn rate_limit_caption(message: Option<&str>, countdown: Option<String>) -> String {
     let message = message
         .map(str::trim)
         .filter(|text| !text.is_empty())
-        .unwrap_or("The agent is rate limited");
-    match resets_local {
-        Some(clock) => format!("{message} · resets {clock}"),
+        .unwrap_or("Rate limit reached");
+    match countdown {
+        Some(countdown) => format!("{message} · {countdown}"),
         None => message.to_string(),
     }
-}
-
-/// Unix milliseconds as a local `HH:MM`, or `None` for a timestamp the clock
-/// cannot represent.
-fn local_clock_time(unix_ms: i64) -> Option<String> {
-    use chrono::TimeZone as _;
-    chrono::Local
-        .timestamp_millis_opt(unix_ms)
-        .single()
-        .map(|at| at.format("%H:%M").to_string())
 }
 
 /// EXP-788 — the numbered chip on an option row: the digit that picks it
@@ -2901,17 +2908,15 @@ impl SteerSessionView {
                     .child(SharedString::from(caption)),
             )
             .when(can_kill, |this| {
+                // EXP-818: the ONE Stop — identical on the hosting machine
+                // and on a watching one.
                 this.child(
-                    Button::new("steer-kill")
-                        .ghost()
-                        .cursor_pointer()
-                        .xsmall()
-                        .icon(registry::CODING_STOP)
-                        .tooltip("Kill session")
-                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                    crate::session_screen::stop_session_pill("steer-stop", cx).on_click(
+                        cx.listener(|this, _: &ClickEvent, window, cx| {
                             cx.stop_propagation();
                             this.prompt_kill(window, cx);
-                        })),
+                        }),
+                    ),
                 )
             })
             .into_any_element()
@@ -3254,9 +3259,13 @@ impl SteerSessionView {
                 .pl_8()
                 .child(
                     // The bubble keeps its INNER padding — only the row's
-                    // outer rhythm moved to the ladder (EXP-787).
+                    // outer rhythm moved to the ladder (EXP-787). EXP-818:
+                    // and a DEFINITE width — inside the EXP-787 column a
+                    // content-sized bubble measured at min-content and
+                    // wrapped every word.
                     body_text(div())
                         .min_w_0()
+                        .w(self.user_bubble_width(text, window))
                         .rounded(px(12.))
                         .border_1()
                         .border_color(theme::tokens::glass::STROKE_STRONG.to_hsla())
@@ -3354,6 +3363,56 @@ impl SteerSessionView {
     /// nothing in `crate::markdown` autolinks — `markdown/parse.rs` documents
     /// that bare URLs stay bare for tiptap parity — and inventing an autolink
     /// here would make the marker path diverge from every other body.)
+    /// EXP-818: a user bubble's width — its longest source line shaped at
+    /// the body size plus the bubble's padding, capped at
+    /// [`USER_BUBBLE_MAX_FRACTION`] of the transcript column. A bubble
+    /// sized to its content wrapped every word once the EXP-787 column gave
+    /// it a min-content measure; a definite width is the recorded-px
+    /// pattern every wrapped text in this crate ends up on.
+    fn user_bubble_width(&self, text: &str, window: &Window) -> Pixels {
+        let parsed = steer::image_message::parse_steer_message(text);
+        let font = window.text_style().font();
+        let mut longest = px(0.);
+        for line in parsed.text.lines() {
+            let line = line.trim_end();
+            if line.is_empty() {
+                continue;
+            }
+            let run = gpui::TextRun {
+                len: line.len(),
+                font: font.clone(),
+                color: gpui::black(),
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            };
+            let width = window
+                .text_system()
+                .shape_line(
+                    SharedString::from(line.to_string()),
+                    px(transcript::BODY_SIZE),
+                    &[run],
+                    None,
+                )
+                .width;
+            if width > longest {
+                longest = width;
+            }
+        }
+        let column = f32::from(self.composer_width.get());
+        let column = if column > 0. { column } else { transcript::MAX_WIDTH };
+        let cap = px((column * USER_BUBBLE_MAX_FRACTION).max(USER_BUBBLE_MIN_W));
+        // px_3 both sides + the 1px stroke each side.
+        let padded = longest + px(2. * 12. + 2.);
+        if padded > cap {
+            cap
+        } else if padded < px(USER_BUBBLE_MIN_W) {
+            px(USER_BUBBLE_MIN_W)
+        } else {
+            padded
+        }
+    }
+
     fn render_user_message(
         &self,
         id: FeedItemId,
@@ -3755,24 +3814,9 @@ impl SteerSessionView {
                         .child(SharedString::from(detail)),
                 )
             })
-            .child(div().flex_1())
-            // EXP-789: "Open" focuses this subagent's tab — its own
-            // conversation, full width, instead of the folded group.
-            .when_some(subagent_id_of(items), |this, subagent_id| {
-                this.child(
-                    crate::surface::glass_pill(
-                        ("steer-subagent-open", id as usize),
-                        crate::surface::PillSize::Sm,
-                        crate::surface::PillMode::Action,
-                        cx,
-                    )
-                    .child("Open")
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                        cx.stop_propagation();
-                        this.focus_subagent(Some(subagent_id.clone()), cx);
-                    })),
-                )
-            });
+            // EXP-818: no per-row "Open" pill — the subagent strip over the
+            // feed is the one way into a subagent's own conversation.
+            .child(div().flex_1());
         let header = header.when(expandable, |header| {
             header
                 .cursor_pointer()
@@ -4235,8 +4279,11 @@ impl SteerSessionView {
         } else {
             option.label.clone()
         };
+        // EXP-818: WHITE on the blue promoted option (web `bg-blue-500
+        // text-white`) — `primary_foreground` is near-black on the dark-only
+        // desktop and made the plan card's first option unreadable.
         let label_color = if primary {
-            cx.theme().primary_foreground
+            gpui::white()
         } else {
             cx.theme().foreground
         };
@@ -4255,14 +4302,24 @@ impl SteerSessionView {
                     .color(blue)
                     .hover(blue.opacity(0.85))
                     .active(blue.opacity(0.7))
-                    .foreground(cx.theme().primary_foreground),
+                    .foreground(gpui::white()),
             )
+        } else if picked {
+            // EXP-818: the web `border-blue-500/60 bg-blue-500/15` pick —
+            // an explicit tint, not gpui-component's `selected` outline fill,
+            // whose foreground was never designed against the row's text.
+            button
+                .custom(
+                    gpui_component::button::ButtonCustomVariant::new(cx)
+                        .color(blue.opacity(0.15))
+                        .hover(blue.opacity(0.22))
+                        .active(blue.opacity(0.3))
+                        .foreground(cx.theme().foreground),
+                )
+                .border_color(blue.opacity(0.6))
         } else {
             button.outline()
         };
-        if picked {
-            button = button.selected(true);
-        }
         if highlighted {
             button = button.border_color(blue);
         }
@@ -4467,10 +4524,16 @@ impl SteerSessionView {
     /// it named one. `None` once the slot cleared.
     fn render_rate_limit_banner(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         let limit = self.feed.rate_limit()?;
+        if !rate_limit_is_wall(&limit.status, limit.message.as_deref()) {
+            return None;
+        }
         let amber = theme::tokens::YELLOW.to_hsla();
+        let now_ms = chrono::Utc::now().timestamp_millis();
         let caption = rate_limit_caption(
             limit.message.as_deref(),
-            limit.resets_at.and_then(local_clock_time),
+            limit
+                .resets_at
+                .map(|at| crate::usage_bar::countdown_from_secs((at - now_ms) / 1000)),
         );
         Some(
             h_flex()
@@ -4619,10 +4682,11 @@ impl SteerSessionView {
         .strip((!self.pending.is_empty()).then(|| self.render_pending_strip(cx)))
         // EXP-698: the attach tool is ALWAYS offered — steer images upload to
         // the session route, so a batch/action run (no issue at all) attaches
-        // exactly like an issue run. Its glyph is `ui-add`, the `+` web, iOS
-        // and Android all wear on this control.
+        // exactly like an issue run. EXP-818: its glyph is `editor-image`,
+        // the image glyph every other composer (comments, the description
+        // editor) wears — web, iOS and Android swapped with it.
         .tool(
-            crate::composer::composer_tool("steer-attach", registry::UI_ADD, cx)
+            crate::composer::composer_tool("steer-attach", registry::EDITOR_IMAGE, cx)
                 .tooltip("Attach image")
                 .disabled(self.sending)
                 .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {

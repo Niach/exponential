@@ -289,6 +289,20 @@ pub(crate) fn derive_entries(signals: &Signals, gates: Gates) -> Vec<Entry> {
     entries
 }
 
+/// EXP-818: what THIS app shows of the shared list — everything but the
+/// "Get the desktop app" step: this IDE is the desktop app, the step
+/// completes on its own the moment the device registers, and a checklist
+/// telling the desktop app to get the desktop app read as a bug. The shared
+/// `derive_entries` stays the byte-for-byte web mirror (the copy constants
+/// stay too — the drift test reads them); only the IDE's view drops the
+/// row, so steps number from the GitHub one.
+pub(crate) fn ide_entries(entries: Vec<Entry>) -> Vec<Entry> {
+    entries
+        .into_iter()
+        .filter(|entry| entry.key != EntryKey::Desktop)
+        .collect()
+}
+
 /// Web `isGettingStartedComplete`: every visible entry done (an empty list is
 /// never complete).
 pub(crate) fn is_complete(entries: &[Entry]) -> bool {
@@ -589,7 +603,7 @@ impl GettingStartedProgress {
         let is_owner = crate::settings::is_owner(cx, team_id);
         let gates = Gates::for_role(is_owner);
         let signals = self.signals(team_id, cx);
-        let entries = derive_entries(&signals, gates);
+        let entries = ide_entries(derive_entries(&signals, gates));
         let answers = self.teams.get(team_id);
         // Neutral until every signal source has answered — checks/locks that
         // pop in one by one read as state changes, not loading. Membership
@@ -1492,6 +1506,23 @@ mod tests {
                 "{key:?} is out of the owner order: member {member:?} vs owner {owner:?}"
             );
         }
+    }
+
+    /// EXP-818: the IDE's own list is the web list minus the desktop step —
+    /// same order, nothing else dropped, and the desktop row's completion
+    /// no longer gates "complete".
+    #[test]
+    fn ide_entries_drop_only_the_desktop_step() {
+        let keys: Vec<EntryKey> = ide_entries(derive_entries(&Signals::default(), OWNER))
+            .iter()
+            .map(|entry| entry.key)
+            .collect();
+        assert_eq!(keys.first(), Some(&EntryKey::Github));
+        assert!(!keys.contains(&EntryKey::Desktop));
+        assert_eq!(keys.len(), 9);
+        let mut done = all_done();
+        done.has_desktop_device = false;
+        assert!(is_complete(&ide_entries(derive_entries(&done, OWNER))));
     }
 
     #[test]

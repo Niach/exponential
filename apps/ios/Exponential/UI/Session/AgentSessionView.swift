@@ -1552,7 +1552,7 @@ struct AgentSessionView: View {
         }
     }
 
-    /// Pinned collapsible "Latest changes" chip — +/− counts, opens the diff
+    /// Pinned collapsible "Changes" chip — +/− counts, opens the diff
     /// sheet. The latest worktree diff replaces the previous one.
     private func diffChip(_ diff: String) -> some View {
         let stats = DiffRendering.stats(of: diff)
@@ -1562,7 +1562,7 @@ struct AgentSessionView: View {
             HStack(spacing: 8) {
                 AppIcon(AppIcons.codingDiff, size: AppIcon.Size.small)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                Text("Latest changes")
+                Text("Changes")
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.white)
                 Spacer()
@@ -1836,8 +1836,9 @@ struct AgentSessionView: View {
                     .padding(.bottom, 4)
             }
         } tools: {
+            // EXP-818: the image glyph every other composer wears (×4).
             GlassComposerToolButton(
-                AppIcons.uiAdd,
+                AppIcons.editorImage,
                 accessibilityLabel: "Attach image",
                 enabled: !attachDisabled
             ) {
@@ -3381,7 +3382,7 @@ private struct LatestChangesSheet: View {
         let stats = DiffRendering.stats(of: diff)
         let sections = DiffRendering.splitFiles(diff)
         GlassSheetChrome(
-            title: "Latest changes",
+            title: "Changes",
             height: .full,
             headerTrailing: {
                 HStack(spacing: 8) {

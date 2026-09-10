@@ -2219,31 +2219,15 @@ pub(crate) fn has_live_coding_session(issue_id: &str, cx: &App) -> bool {
         })
 }
 
-/// The §4.2 steer presence CARD (EXP-698 — it was a lone pill until this
-/// sweep): while a `coding_sessions` row is live for this issue, the issue
-/// header grows a second [`crate::surface::glass_tray`] under the property
-/// one, carrying the run's state badge, who is running it where, and the
-/// actions on it. Same chrome as the property tray, so the header reads as
-/// two bands of one material rather than a card and a stray capsule.
-///
-/// Contents, in order: the state badge as a `Readonly` `Sm` pill tinted with
-/// the run's tone (EXP-194/EXP-214: review GREEN — the in_review status tint,
-/// done BLUE once the PR merges, needs-input YELLOW while the agent waits on
-/// a plan-approval / question picker, neutral grey while its host is offline);
-/// the ellipsizing "<Who> · <Machine>" caption; then the caller's own trailing
-/// actions (Merge PR — [`crate::issue_header::IssueHeader::merge_button`] —
-/// appended by `agent_row`, which owns the PR state).
-///
-/// EXP-549/550: the machine name is RESOLVED against the synced `devices`
-/// rows (so a rename shows immediately, not the start-time hostname), and an
-/// in-flight session whose host went offline (lid closed) reads "paused" in
-/// neutral grey instead of claiming to be live.
-///
-/// EXP-696/698: steering has its OWN control now — a primary Watch pill,
-/// rendered only for a run the caller may watch (their own, either hosted by
-/// this process or reachable over the relay). A teammate's run, or a
-/// relay-less instance, simply shows no Watch: the card stays informational.
-pub(crate) fn coding_now_card(issue_id: &str, cx: &mut App) -> Option<gpui::Div> {
+/// EXP-818: the tray's coding slot for an issue with a LIVE run this
+/// process does not host (a local run's slot is `StartCodingControl`
+/// itself). The caller's OWN run — steerable through the relay — gets the
+/// primary **Watch** pill straight into the run's screen; a teammate's run
+/// reads as a muted `● Coding now · Danny` caption, informational only. The
+/// EXP-696/698 "coding now" CARD (badge · byline · Watch on its own row) is
+/// gone: the tray already holds every action, and a second card said the
+/// same thing again.
+pub(crate) fn coding_now_slot(issue_id: &str, cx: &mut App) -> Option<gpui::AnyElement> {
     let collections = Store::global(cx).collections().clone();
     let now = chrono::Utc::now().timestamp();
     let session = collections
@@ -2255,6 +2239,19 @@ pub(crate) fn coding_now_card(issue_id: &str, cx: &mut App) -> Option<gpui::Div>
                 && crate::queries::coding_session_is_live(session, now)
         })
         .cloned()?;
+
+    // EXP-696/698: steerable when the run is the caller's OWN. A LOCAL run —
+    // one this very process hosts — is the control's own business; anything
+    // else of the caller's goes through the relay, INCLUDING a run stamped
+    // with this device id that this process does not host (an earlier IDE
+    // process, a second window). No relay, no viewer, so no Watch.
+    let me = crate::queries::active_account(cx).map(|account| account.user_id);
+    let own = session.user_id.is_some() && session.user_id == me;
+    let local = crate::coding_flow::LocalSessions::global_ref(cx)
+        .is_some_and(|sessions| sessions.read(cx).session_by_id(&session.id).is_some());
+    if own && (local || crate::queries::remote_start_enabled(cx)) {
+        return Some(watch_pill("coding-now-watch", session.id.clone(), cx).into_any_element());
+    }
 
     let pr_state = collections
         .issues
@@ -2268,116 +2265,57 @@ pub(crate) fn coding_now_card(issue_id: &str, cx: &mut App) -> Option<gpui::Div>
         now * 1_000,
     );
     let (verb, tone) = if crate::queries::session_is_paused(display, &presentation) {
-        ("paused", theme::tokens::NEUTRAL)
+        ("Paused", theme::tokens::NEUTRAL)
     } else {
         match display {
-            crate::queries::CodingSessionDisplay::NeedsInput => {
-                ("needs input", theme::tokens::YELLOW)
-            }
-            crate::queries::CodingSessionDisplay::Review => {
-                ("ready for review", theme::tokens::GREEN)
-            }
-            crate::queries::CodingSessionDisplay::Done => ("done", theme::tokens::BLUE),
-            crate::queries::CodingSessionDisplay::Running => ("coding now", theme::tokens::GREEN),
+            crate::queries::CodingSessionDisplay::NeedsInput => ("Needs input", theme::tokens::YELLOW),
+            crate::queries::CodingSessionDisplay::Review => ("Ready for review", theme::tokens::GREEN),
+            crate::queries::CodingSessionDisplay::Done => ("Done", theme::tokens::BLUE),
+            crate::queries::CodingSessionDisplay::Running => ("Coding now", theme::tokens::GREEN),
         }
     };
-
     let who = session
         .user_id
         .as_deref()
         .and_then(|id| collections.users.read(cx).get(id).cloned())
         .map(|user| comments::author_label(Some(&user)));
-    // EXP-698: the verb became the BADGE, so the caption is the identity
-    // ("Danny Strähhuber · MacBook Pro") and nothing else.
-    let caption = match (who, presentation.label.as_deref()) {
-        (Some(who), Some(device)) => Some(format!("{who} · {device}")),
-        (Some(who), None) => Some(who),
-        (None, Some(device)) => Some(device.to_string()),
-        (None, None) => None,
+    let caption = match who {
+        Some(who) => format!("{verb} · {who}"),
+        None => verb.to_string(),
     };
-
-    // EXP-696/698: steerable when the run is the caller's OWN. A LOCAL run —
-    // one this very process hosts — focuses its terminal tab; anything else
-    // of the caller's goes through the relay, INCLUDING a run stamped with
-    // this device id that this process does not host (an earlier IDE process,
-    // a second window). That is why the gate does not compare device ids:
-    // web's rule is `ownLatest && steerEnabled` (issue-coding-rows.tsx) and a
-    // device-id mismatch was hiding the pill on exactly the runs a restart
-    // orphaned. No relay, no viewer, so no Watch.
-    let steer_target = {
-        let me = crate::queries::active_account(cx).map(|account| account.user_id);
-        let local = crate::coding_flow::LocalSessions::global_ref(cx)
-            .is_some_and(|sessions| sessions.read(cx).session_by_id(&session.id).is_some());
-        (session.user_id.is_some()
-            && session.user_id == me
-            && (local || crate::queries::remote_start_enabled(cx)))
-        .then(|| session.id.clone())
-    };
-
-    let tone = tone.to_hsla();
-    let badge = crate::surface::glass_pill(
-        "coding-now-state",
-        crate::surface::PillSize::Sm,
-        crate::surface::PillMode::Readonly,
-        cx,
-    )
-    // The tone is the STATE's, so it rides the badge's own stroke and text
-    // instead of the glass defaults — the rest of the tray stays neutral.
-    .border_color(tone.opacity(0.4))
-    .text_color(tone)
-    .child(crate::surface::pill_dot(tone))
-    .child(SharedString::from(capitalize_first(verb)));
-
-    let watch = steer_target.map(|session_id| {
-        crate::surface::glass_pill_button_primary("coding-now-watch", crate::surface::PillSize::Sm)
-            .icon(
-                // NAV_DEVICES (monitor), not UI_WATCH (eye — file preview
-                // elsewhere): the monitor IS the Watch concept on web, iOS
-                // and Android, and the glyph has to be the same on all four.
-                Icon::new(registry::NAV_DEVICES)
-                    .with_size(px(crate::surface::PillSize::Sm.glyph()))
-                    .text_color(cx.theme().primary_foreground),
-            )
-            .label("Watch")
-            .tooltip("Open this run and steer it")
-            .on_click(move |_, window, cx| {
-                // EXP-818: the run's own screen, beside the list this issue
-                // was opened from; back returns here.
-                crate::session_screen::open_session(&session_id, window, cx);
-            })
-    });
-
-    // EXP-309/698: the caption ellipsizes rather than pushing the actions off
-    // the tray — "Danny Strähhuber · MacBook Pro" overflows a narrow column
-    // otherwise. Truncation needs the whole width chain definite: `w_full` +
-    // `min_w_0` on the tray, then `flex_1 min_w_0 overflow_hidden` on the text.
     Some(
-        crate::surface::glass_tray()
-            .w_full()
-            .min_w_0()
-            .child(badge)
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .whitespace_nowrap()
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .children(caption.map(SharedString::from)),
-            )
-            .children(watch),
+        h_flex()
+            .flex_shrink_0()
+            .gap_1p5()
+            .items_center()
+            .text_xs()
+            .text_color(cx.theme().muted_foreground)
+            .child(crate::surface::pill_dot(tone.to_hsla()))
+            .child(SharedString::from(caption))
+            .into_any_element(),
     )
 }
 
-/// "ready for review" → "Ready for review" (the who-less pill variants).
-fn capitalize_first(text: &str) -> String {
-    let mut chars = text.chars();
-    match chars.next() {
-        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-        None => String::new(),
-    }
+/// EXP-818: the ONE Watch pill — primary, the monitor glyph (NAV_DEVICES,
+/// not UI_WATCH: the monitor IS the Watch concept on web, iOS and Android),
+/// straight into `session_id`'s own screen. The tray renders it for a local
+/// run (`StartCodingControl`) and a remote one (`coding_now_slot`) alike.
+pub(crate) fn watch_pill(
+    id: &'static str,
+    session_id: String,
+    cx: &App,
+) -> gpui_component::button::Button {
+    crate::surface::glass_pill_button_primary(id, crate::surface::PillSize::Sm)
+        .icon(
+            Icon::new(registry::NAV_DEVICES)
+                .with_size(px(crate::surface::PillSize::Sm.glyph()))
+                .text_color(cx.theme().primary_foreground),
+        )
+        .label("Watch")
+        .tooltip("Open this run and steer it")
+        .on_click(move |_, window, cx| {
+            crate::session_screen::open_session(&session_id, window, cx);
+        })
 }
 
 

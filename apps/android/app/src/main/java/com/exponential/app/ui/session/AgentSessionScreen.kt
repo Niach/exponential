@@ -924,7 +924,7 @@ fun AgentSessionScreen(
                                     ),
                                 )
                                 Text(
-                                    "Latest changes",
+                                    "Changes",
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.weight(1f),
@@ -3452,8 +3452,9 @@ private fun ExpandedSteerComposer(
         },
         tools = {
             if (canAttach) {
+                // EXP-818: the image glyph every other composer wears (×4).
                 ComposerToolButton(
-                    ExpIcons.uiAdd,
+                    ExpIcons.editorImage,
                     contentDescription = "Attach image",
                     onClick = onPickImages,
                     enabled = !sending,
@@ -3811,7 +3812,7 @@ private fun UnifiedDiffPanel(diff: String, onDismiss: () -> Unit) {
     val contextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
 
     GlassSheet(
-        title = "Latest changes",
+        title = "Changes",
         onDismiss = onDismiss,
         height = SheetHeight.Full,
         headerAction = {
