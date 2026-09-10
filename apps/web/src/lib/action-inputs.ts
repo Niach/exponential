@@ -3,11 +3,7 @@
 // and the launch dialog (client-side required-field gating). No DB imports:
 // lookups are injected so this stays unit-testable and client-bundle-safe.
 
-import {
-  MAX_ACTION_INPUT_TEXT,
-  boardIconValues,
-  type ActionInputDef,
-} from "@exp/db-schema/domain"
+import { boardIconValues, type ActionInputDef } from "@exp/db-schema/domain"
 
 /** One FILLED action input, fully resolved server-side: `display` is the
  * human-readable form (repo fullName / board name / the text itself) so the
@@ -97,27 +93,6 @@ export async function resolveActionInputs(
       if (def.required) {
         return { ok: false, message: `Missing required input "${def.key}"` }
       }
-      continue
-    }
-
-    // textarea (EXP-530) is text with a multi-line widget — same validation.
-    if (def.type === `text` || def.type === `textarea`) {
-      if (raw.length > MAX_ACTION_INPUT_TEXT) {
-        return {
-          ok: false,
-          message: `Input "${def.key}" is too long (max ${MAX_ACTION_INPUT_TEXT} chars)`,
-        }
-      }
-      if (raw.includes(`\u0000`)) {
-        return { ok: false, message: `Input "${def.key}" contains NUL bytes` }
-      }
-      inputs.push({
-        key: def.key,
-        label: def.label,
-        type: def.type,
-        value: raw,
-        display: raw,
-      })
       continue
     }
 

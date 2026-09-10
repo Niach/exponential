@@ -40,7 +40,7 @@ public enum DomainContract {
     public static let codexEffortValues: [String] = ["minimal", "low", "medium", "high", "xhigh"]
     public static let piModelValues: [String] = ["fable", "opus", "sonnet", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "grok-4.5"]
     public static let piThinkingValues: [String] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
-    public static let actionInputTypeValues: [String] = ["text", "repo", "board", "pr", "icon", "textarea"]
+    public static let actionInputTypeValues: [String] = ["repo", "board", "pr", "icon"]
     public static let mcpTransportValues: [String] = ["http", "stdio"]
     public static let mcpAuthValues: [String] = ["none", "oauth", "secret"]
     public static let actionTriggerEventValues: [String] = ["created", "status_changed", "assignee_changed", "label_added", "priority_changed", "pr_opened", "pr_merged"]
@@ -59,6 +59,8 @@ public enum DomainContract {
     public static let builtinChatId: String = "builtin:chat"
     public static let actionInputsMax: Int = 10
     public static let actionInputTextMax: Int = 4096
+    public static let startPromptMaxLength: Int = 16384
+    public static let startPromptMaxImages: Int = 4
     public static let actionTriggerMaxFilterIds: Int = 20
     public static let automationCooldownMs: Int = 60000
     public static let automationEventCatchupMs: Int = 86400000

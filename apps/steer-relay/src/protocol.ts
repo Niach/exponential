@@ -468,6 +468,11 @@ export interface StartSessionOptions {
   /** EXP-792 (EXP-747 B7): the agent account profile to launch on; absent
    * or `system` = the ambient login. Pass-through. */
   account?: string
+  /** EXP-825: the requester's free text beside the subject (the chat text,
+   * the create-action request, or additional instructions), in the
+   * steer-image-message shape. Pass-through (the web server validated it);
+   * never on a resume. */
+  prompt?: string
 }
 
 /** Server-resolved repo group for a BATCH or ACTION remote start — the

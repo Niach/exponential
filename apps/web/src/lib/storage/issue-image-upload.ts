@@ -68,6 +68,19 @@ export async function uploadSessionImageFile(sessionId: string, file: File) {
 }
 
 /**
+ * EXP-825: an image attached to a START — the Agent page composer — before
+ * any session exists. Lands in the team's pending store; the device binds it
+ * to the session row it creates (or the orphan sweep reclaims it).
+ */
+export async function uploadTeamSessionImageFile(teamId: string, file: File) {
+  return postIssueUpload(
+    `/api/teams/${teamId}/session-files`,
+    file,
+    `Failed to upload image`
+  )
+}
+
+/**
  * Arbitrary-file upload (EXP-297): 50 MB for non-images, 10 MB for the inline
  * image types. Non-image rows never enter markdown — they render from the
  * synced attachments collection in the issue's Files section.

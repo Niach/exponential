@@ -27,7 +27,7 @@ export const BUILTIN_FIX_CONFLICTS_NAME = `Fix merge conflicts`
 
 /** Reserved non-UUID id of the hidden "Chat" builtin (EXP-615). Unlike the
  * other two it is NEVER appended to `actions.list` or any picker — clients
- * reach it only through the start-coding dialog's Chat tab. */
+ * reach it only through the Agent page composer with no subject picked. */
 export const BUILTIN_CHAT_ID = contract.builtinAction.chatId
 
 export const BUILTIN_CHAT_NAME = `Chat`
@@ -50,21 +50,10 @@ export function builtinActionName(id: string): string {
       : BUILTIN_CREATE_ACTION_NAME
 }
 
+// EXP-825: the request itself (what the action should do, and its name if
+// the user states one) is the start's `prompt`, never an input — the two
+// remaining inputs are PICKS the creator run can't derive from prose.
 const CREATE_ACTION_INPUTS: ActionInputDef[] = [
-  {
-    key: `description`,
-    label: `Description`,
-    type: `text`,
-    required: true,
-    placeholder: `What should this action do?`,
-  },
-  {
-    key: `name`,
-    label: `Name`,
-    type: `text`,
-    required: false,
-    placeholder: `Name (optional)`,
-  },
   { key: `repo`, label: `Repository`, type: `repo`, required: false },
   // EXP-273: the user picks the new action's glyph up front and the
   // action-creator prompt passes it to `exponential_actions_create`, so a
@@ -76,14 +65,9 @@ const FIX_CONFLICTS_INPUTS: ActionInputDef[] = [
   { key: `pr`, label: `Pull request`, type: `pr`, required: true },
 ]
 
+// EXP-825: the chat text is the start's `prompt` (required for this
+// builtin), never an input.
 const CHAT_INPUTS: ActionInputDef[] = [
-  {
-    key: `prompt`,
-    label: `Prompt`,
-    type: `textarea`,
-    required: true,
-    placeholder: `What should the agent do?`,
-  },
   // EXP-739: OPTIONAL. A repo-less chat runs in the agent's scratch dir with
   // only the Exponential MCP server wired up — a conversation with the
   // tracker, where code is an anchor you may add rather than a precondition.

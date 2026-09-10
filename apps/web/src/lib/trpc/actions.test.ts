@@ -174,7 +174,7 @@ describe(`actions.create — inputs + reserved name (EXP-257)`, () => {
     // sortOrder probe select.
     selectResults.push([])
     const inputs = [
-      { key: `topic`, label: `Topic`, type: `text` as const, required: true },
+      { key: `topic`, label: `Topic`, type: `icon` as const, required: true },
     ]
     const { action } = await caller.create({
       teamId: TEAM_ID,
@@ -199,8 +199,8 @@ describe(`actions.create — inputs + reserved name (EXP-257)`, () => {
         name: `Dup`,
         body: `x`,
         inputs: [
-          { key: `a`, label: `A`, type: `text` },
-          { key: `a`, label: `B`, type: `text` },
+          { key: `a`, label: `A`, type: `icon` },
+          { key: `a`, label: `B`, type: `icon` },
         ],
       })
     )
@@ -245,7 +245,7 @@ describe(`actions.update — required inputs vs automations (EXP-583)`, () => {
   const requiredInput = {
     key: `target`,
     label: `Target`,
-    type: `text` as const,
+    type: `icon` as const,
     required: true,
   }
   const optionalInput = { ...requiredInput, required: false }

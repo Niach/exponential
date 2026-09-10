@@ -192,6 +192,34 @@ describe(`device presence + remote start`, () => {
     })
   })
 
+  test(`startSession passes prompt through on issue, batch and action frames (EXP-825)`, () => {
+    const hub = new Hub()
+    const desktop = new FakeSocket()
+    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
+    hub.onMessage(desktop, JSON.stringify({ t: `online`, deviceId: `dev-1` }))
+
+    hub.startSession(`owner`, `dev-1`, { issueId: `issue-9` }, { prompt: `Go.` })
+    expect(desktop.lastFrame(`start_session`)).toEqual({
+      t: `start_session`,
+      issueId: `issue-9`,
+      prompt: `Go.`,
+    })
+    hub.startSession(
+      `owner`,
+      `dev-1`,
+      { actionId: `builtin:chat`, actionName: `Chat`, teamId: `t-1` },
+      { prompt: `hello`, agent: `codex` }
+    )
+    expect(desktop.lastFrame(`start_session`)).toEqual({
+      t: `start_session`,
+      actionId: `builtin:chat`,
+      actionName: `Chat`,
+      teamId: `t-1`,
+      prompt: `hello`,
+      agent: `codex`,
+    })
+  })
+
   test(`startSession routes a resume subject and drops launch options (EXP-637)`, () => {
     const hub = new Hub()
     const desktop = new FakeSocket()

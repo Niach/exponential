@@ -137,7 +137,7 @@ export interface DomainContract {
   piModel: { values: readonly string[] }
   /** pi `--thinking` levels; blank is per-client. */
   piThinking: { values: readonly string[] }
-  /** Typed action-input kinds (EXP-257; EXP-259 adds `pr`): text | repo | board | pr. */
+  /** Typed action-input kinds (EXP-257/EXP-259/EXP-273): repo | board | pr | icon — every one a PICK. EXP-825 retired the free-text kinds: a run's free text is the start's `prompt`. */
   actionInputType: { values: readonly string[] }
   /** EXP-792: how a team MCP server is reached — a remote `http` endpoint or a local `stdio` command. */
   mcpTransport: { values: readonly string[] }
@@ -151,6 +151,14 @@ export interface DomainContract {
   }
   /** Action-input limits — parity-locked with @exp/db-schema/domain. */
   actionInputs: { max: number; maxTextLength: number }
+  /**
+   * EXP-825: the free text a start carries beside its subject (the chat
+   * prompt, or additional instructions for an issue/action run), in the
+   * steer-image-message shape — prose plus up to `maxImages` trailing
+   * `![image](/api/attachments/<id>)` embeds. `maxLength` caps the whole
+   * string; parity-locked with @exp/db-schema/domain `MAX_START_PROMPT`.
+   */
+  startPrompt: { maxLength: number; maxImages: number }
   /**
    * Action automation triggers (EXP-530): the event kinds a trigger may
    * watch (a subset of issueEventType), the schedule intervals, and the cap

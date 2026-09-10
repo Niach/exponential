@@ -121,6 +121,18 @@ export function buildSessionAttachmentStorageKey(
   return `session-attachments/${sessionId}/${attachmentId}-${sanitizeAttachmentFilename(filename)}`
 }
 
+// EXP-825: an image attached to a START before its session exists — the row
+// carries a NULL session_id until the device binds it, so the key is scoped
+// to the team instead. The key is opaque (rows carry storage_key), so the
+// bind never moves the object.
+export function buildPendingSessionAttachmentStorageKey(
+  teamId: string,
+  attachmentId: string,
+  filename: string
+) {
+  return `session-attachments/pending/${teamId}/${attachmentId}-${sanitizeAttachmentFilename(filename)}`
+}
+
 /**
  * Write-path sanitizer for the stored `attachments.filename` display value.
  * Preserves Unicode (display names stay human-readable — header safety is the

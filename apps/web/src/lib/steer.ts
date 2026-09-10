@@ -248,14 +248,19 @@ export interface SteerStartRepo {
  * one form.
  */
 export type SteerStartSubject =
-  | { issueId: string }
-  | { issueIds: string[]; teamId: string; repo: SteerStartRepo }
+  | { issueId: string; prompt?: string }
+  | { issueIds: string[]; teamId: string; repo: SteerStartRepo; prompt?: string }
   | {
       actionId: string
       actionName: string
       teamId: string
       repo?: SteerStartRepo
       inputs?: SteerStartInput[]
+      /** EXP-825: the requester's free text — the chat text for the Chat
+       * builtin, the request for Create action, additional instructions
+       * otherwise — in the steer-image-message shape (validated in
+       * `steer.startSession`, forwarded byte-identical). */
+      prompt?: string
     }
   // EXP-637: resume an ENDED run. The device looks the run up in its own run
   // registry (cwd, agent, options, native transcript id), so the frame only

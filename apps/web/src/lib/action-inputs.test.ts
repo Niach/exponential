@@ -11,9 +11,11 @@ const REPO_ID = `11111111-1111-4111-8111-111111111111`
 const BOARD_ID = `22222222-2222-4222-8222-222222222222`
 const PR_ISSUE_ID = `44444444-4444-4444-8444-444444444444`
 
+// EXP-825: every input is a pick — the free-text kinds are gone (the start's
+// `prompt` carries that). `icon` stands in as the lookup-free required pick.
 const defs: ActionInputDef[] = [
-  { key: `topic`, label: `Topic`, type: `text`, required: true },
-  { key: `notes`, label: `Notes`, type: `text`, required: false },
+  { key: `topic`, label: `Topic`, type: `icon`, required: true },
+  { key: `notes`, label: `Notes`, type: `icon`, required: false },
   { key: `repo`, label: `Repository`, type: `repo`, required: false },
   { key: `board`, label: `Board`, type: `board`, required: false },
   { key: `pr`, label: `Pull request`, type: `pr`, required: false },
@@ -34,7 +36,7 @@ describe(`missingRequiredInputs`, () => {
   it(`reports unfilled required labels; whitespace counts as empty`, () => {
     expect(missingRequiredInputs(defs, {})).toEqual([`Topic`])
     expect(missingRequiredInputs(defs, { topic: `   ` })).toEqual([`Topic`])
-    expect(missingRequiredInputs(defs, { topic: `perf` })).toEqual([])
+    expect(missingRequiredInputs(defs, { topic: `rocket` })).toEqual([])
     expect(missingRequiredInputs(null, {})).toEqual([])
   })
 })
@@ -42,8 +44,8 @@ describe(`missingRequiredInputs`, () => {
 describe(`buildInputsPayload`, () => {
   it(`keeps filled keys, drops blanks and unknowns, undefined when empty`, () => {
     expect(
-      buildInputsPayload(defs, { topic: `perf`, notes: ` `, bogus: `x` })
-    ).toEqual({ topic: `perf` })
+      buildInputsPayload(defs, { topic: `rocket`, notes: ` `, bogus: `x` })
+    ).toEqual({ topic: `rocket` })
     expect(buildInputsPayload(defs, {})).toBeUndefined()
     expect(buildInputsPayload(undefined, { a: `b` })).toBeUndefined()
   })
@@ -53,14 +55,14 @@ describe(`resolveActionInputs`, () => {
   it(`resolves in definition order with display names`, async () => {
     const result = await resolveActionInputs(
       defs,
-      { board: BOARD_ID, topic: `perf`, repo: REPO_ID },
+      { board: BOARD_ID, topic: `rocket`, repo: REPO_ID },
       `ws-1`,
       lookups
     )
     expect(result).toEqual({
       ok: true,
       inputs: [
-        { key: `topic`, label: `Topic`, type: `text`, value: `perf`, display: `perf` },
+        { key: `topic`, label: `Topic`, type: `icon`, value: `rocket`, display: `rocket` },
         {
           key: `repo`,
           label: `Repository`,
@@ -95,34 +97,29 @@ describe(`resolveActionInputs`, () => {
   it(`skips blank optionals`, async () => {
     const result = await resolveActionInputs(
       defs,
-      { topic: `x`, notes: `` },
+      { topic: `rocket`, notes: `` },
       `ws-1`,
       lookups
     )
     expect(result.ok && result.inputs.map((i) => i.key)).toEqual([`topic`])
   })
 
-  it(`rejects NUL bytes and oversize text`, async () => {
-    let result = await resolveActionInputs(
-      defs,
-      { topic: `a\u0000b` },
-      `ws-1`,
-      lookups
-    )
-    expect(result).toMatchObject({ ok: false })
-    result = await resolveActionInputs(
-      defs,
-      { topic: `x`.repeat(5000) },
-      `ws-1`,
-      lookups
-    )
-    expect(result).toMatchObject({ ok: false })
+  // EXP-825: a definition still carrying a retired free-text kind is not a
+  // valid schema anymore — the domain zod refuses it at create/update.
+  it(`refuses the retired text and textarea kinds at the schema`, async () => {
+    const { actionInputDefSchema } = await import(`@exp/db-schema/domain`)
+    for (const type of [`text`, `textarea`]) {
+      expect(
+        actionInputDefSchema.safeParse({ key: `topic`, label: `Topic`, type })
+          .success
+      ).toBe(false)
+    }
   })
 
   it(`rejects non-uuid and unresolvable repo/board values`, async () => {
     let result = await resolveActionInputs(
       defs,
-      { topic: `x`, repo: `not-a-uuid` },
+      { topic: `rocket`, repo: `not-a-uuid` },
       `ws-1`,
       lookups
     )
@@ -131,7 +128,7 @@ describe(`resolveActionInputs`, () => {
     // Wrong team ⇒ lookup returns null ⇒ refused.
     result = await resolveActionInputs(
       defs,
-      { topic: `x`, repo: REPO_ID },
+      { topic: `rocket`, repo: REPO_ID },
       `ws-2`,
       lookups
     )
@@ -139,7 +136,7 @@ describe(`resolveActionInputs`, () => {
 
     result = await resolveActionInputs(
       defs,
-      { topic: `x`, board: `33333333-3333-4333-8333-333333333333` },
+      { topic: `rocket`, board: `33333333-3333-4333-8333-333333333333` },
       `ws-1`,
       lookups
     )
@@ -149,7 +146,7 @@ describe(`resolveActionInputs`, () => {
   it(`resolves pr inputs to a "#N · IDENT" display (EXP-259)`, async () => {
     const result = await resolveActionInputs(
       defs,
-      { topic: `x`, pr: PR_ISSUE_ID },
+      { topic: `rocket`, pr: PR_ISSUE_ID },
       `ws-1`,
       lookups
     )
@@ -165,7 +162,7 @@ describe(`resolveActionInputs`, () => {
   it(`rejects an unresolvable pr value (wrong team / no open PR)`, async () => {
     const result = await resolveActionInputs(
       defs,
-      { topic: `x`, pr: PR_ISSUE_ID },
+      { topic: `rocket`, pr: PR_ISSUE_ID },
       `ws-2`,
       lookups
     )
