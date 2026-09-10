@@ -269,7 +269,7 @@ impl ActionsView {
 
         // EXP-367: no agent CLI → Run disabled with the reason, never hidden.
         let no_agent = crate::coding_flow::no_agent_reason(cx);
-        let mut row = crate::surface::glass_row_card()
+        let mut row = crate::surface::flat_row()
             .flex()
             .w_full()
             .min_w_0()
@@ -491,7 +491,7 @@ impl Render for ActionsView {
         // never blank a list that already has data).
         let mut body = gpui_component::v_flex().min_w_0().gap_2();
         if !rows.is_empty() {
-            body = body.child(gpui_component::v_flex().min_w_0().gap_2().children(rows));
+            body = body.child(gpui_component::v_flex().min_w_0().children(rows));
         }
         // NO gap on the section (EXP-697): the header's own `pb_2` IS the
         // 8px to the list — a gap here doubles it. The rows keep their gap

@@ -1,46 +1,49 @@
-//! The Usage center screen (EXP-807): the desktop twin of the web
-//! `t/$teamSlug/usage` page (`components/agent-usage-page.tsx`, the spec this
-//! file mirrors) — every machine's agent usage on ONE page instead of one
-//! device dialog at a time.
+//! EXP-818: the **Accounts** section of the Devices page — the Usage page
+//! (EXP-807/817) folded into Devices, so ONE page says which machines exist
+//! and which agent accounts are live on them.
 //!
-//! EXP-817: one card per ACCOUNT (an agent plus the login the machines
-//! named) off the synced `devices` rows (own machines plus the servers
-//! teammates shared with the active team), grouped by agent in contract
-//! order, ATTENTION FIRST: signed-out cards lead, then anything at or over
-//! the danger threshold, then the rest. The machines holding the account are
-//! chips on the card; the numbers are the FRESHEST machine's report (they
-//! are the account's limits, so every machine reads the same ones). The
-//! windows are [`crate::usage_bar::render_usage_cards_dense`], laid out as a
-//! wrapping grid so every account fits on one screen; stale numbers keep the
+//! One ROW per ACCOUNT (an agent plus the login the machines named) off the
+//! synced `devices` rows (own machines plus the servers teammates shared
+//! with the active team), grouped by agent in contract order, ATTENTION
+//! FIRST: signed-out accounts lead, then anything at or over the danger
+//! threshold, then the rest. The machines holding the account are chips on
+//! the row — a chip wears a CHECK when the account is the ACTIVE login on
+//! that machine (`AgentProfileUsageRow::active`), and clicking a chip of one
+//! of MY machines offers "Switch account" / "Sign in" on that machine
+//! (`device_settings::login_affordance`, the ONE rule): the "Default" /
+//! "active" chips the old page wore said nothing about where the account
+//! was live. The numbers are the FRESHEST machine's report (they are the
+//! account's limits, so every machine reads the same ones), rendered as
+//! [`crate::usage_bar::render_usage_cards_dense`]; stale numbers keep the
 //! dimmed "as of …" treatment.
 //!
-//! The page owns no model of its own: rows, groups, ordering and the refresh
-//! floor live in [`crate::usage_bar`] beside the ×4 card rules (the twin of
-//! the web `agent-usage.ts` page section), so this file is layout, the
-//! refresh round-trip and nothing else.
+//! The section owns no model of its own: rows, groups, ordering and the
+//! refresh floor live in [`crate::usage_bar`] beside the ×4 card rules (the
+//! twin of the web `agent-usage.ts`), so this file is layout, the refresh
+//! round-trip and the login menu.
 //!
 //! "Refresh" queues an `agent_usage_refresh` command on one of MY machines
 //! that runs it (cap `agent-usage-refresh`), never more often than the
-//! device's own rate-limit floor — the button greys out and names the next
-//! allowed time instead of queueing a no-op. EXP-817: while the page is open
-//! it does that BY ITSELF for every account whose freshest report is past
-//! the floor, so the numbers on screen are never older than ~5 minutes on a
-//! machine that answers.
+//! device's own rate-limit floor; while the section is on screen it does
+//! that BY ITSELF for every account whose freshest report is past the floor
+//! (EXP-817).
 
 use std::collections::HashMap;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, ClickEvent, Entity, InteractiveElement as _, IntoElement, ParentElement, Render,
-    ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window,
+    div, px, App, ClickEvent, Entity, InteractiveElement as _, IntoElement, ParentElement, Render,
+    SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
-use gpui_component::{h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon};
+use gpui_component::{
+    h_flex, menu::DropdownMenu as _, menu::PopupMenuItem, notification::Notification, v_flex,
+    ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
+};
 
 use coding::CodingAgent;
 
-use crate::actions_view::page_scaffold;
 use crate::icons::registry;
-use crate::navigation::{active_team_id, nav_for_window, navigate, Navigation, Screen};
+use crate::navigation::{active_team_id, nav_for_window, Navigation};
 use crate::queries;
 use crate::usage_bar::{
     account_usage_groups, agent_profile_usage_rows, as_of_label, is_fresh, refresh_allowed_at,
@@ -48,13 +51,13 @@ use crate::usage_bar::{
     AgentProfileUsageRow, SYSTEM_PROFILE_ID,
 };
 
-/// How long a queued refresh shows as in flight before this page gives up on
-/// the machine answering (it answers by re-reporting on its next beat — the
-/// synced stamp moving is what really clears the spinner). Web parity
+/// How long a queued refresh shows as in flight before this section gives up
+/// on the machine answering (it answers by re-reporting on its next beat —
+/// the synced stamp moving is what really clears the spinner). Web parity
 /// (`REFRESH_PENDING_MS`).
 const REFRESH_PENDING_SECS: i64 = 45;
 
-/// EXP-817: the page's own refresh never re-tries one account faster than
+/// EXP-817: the section's own refresh never re-tries one account faster than
 /// this — a queued command the machine has not answered yet is a CONFLICT on
 /// the server, and hammering it buys nothing (web `AUTO_REFRESH_RETRY_MS`).
 const AUTO_REFRESH_RETRY_SECS: i64 = 60;
@@ -65,11 +68,6 @@ const AUTO_REFRESH_TICK_SECS: u64 = 30;
 /// The device cap a machine must advertise before a forced refresh is offered
 /// (`coding::doctor::DEVICE_CAPS`, web `deviceCanRefreshUsage`).
 const REFRESH_CAP: &str = "agent-usage-refresh";
-
-/// The account card's width in the wrapping grid: narrow enough for three
-/// beside each other on a laptop, wide enough for an email and a chip row.
-const CARD_MIN_W: f32 = 280.;
-const CARD_MAX_W: f32 = 420.;
 
 /// `14:32` in this machine's own local time — the web tooltip's
 /// `toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })`.
@@ -88,11 +86,10 @@ struct RefreshMark {
     at: i64,
 }
 
-pub struct UsageView {
+pub struct AccountsSection {
     nav: Entity<Navigation>,
-    scroll: ScrollHandle,
     refreshing: HashMap<String, RefreshMark>,
-    /// EXP-817: when the page's OWN refresh last tried each account.
+    /// EXP-817: when the section's OWN refresh last tried each account.
     auto_attempts: HashMap<String, i64>,
     /// The last failed MANUAL queue attempt, rendered under the header.
     /// tRPC-only: nothing about a refused command reaches the synced row.
@@ -100,17 +97,17 @@ pub struct UsageView {
     _subscriptions: Vec<Subscription>,
 }
 
-impl UsageView {
+impl AccountsSection {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let nav = nav_for_window(window, cx);
-        // Live page: every heartbeat is a `devices` delta, and a team switch
-        // re-scopes which shared servers belong here.
+        // Live section: every heartbeat is a `devices` delta, and a team
+        // switch re-scopes which shared servers belong here.
         let devices = sync::Store::global(cx).collections().devices.clone();
         let subscriptions = vec![
             cx.observe(&nav, |_, _, cx| cx.notify()),
             cx.observe(&devices, |_, _, cx| cx.notify()),
         ];
-        // EXP-817: the auto-refresh tick — the page looks at every account
+        // EXP-817: the auto-refresh tick — the section looks at every account
         // on a coarse clock (and once right away), like the web's `useNow`.
         cx.spawn(async move |this, cx| loop {
             if this
@@ -129,7 +126,6 @@ impl UsageView {
         .detach();
         Self {
             nav,
-            scroll: ScrollHandle::new(),
             refreshing: HashMap::new(),
             auto_attempts: HashMap::new(),
             error: None,
@@ -334,46 +330,6 @@ impl UsageView {
 
     // -- render --------------------------------------------------------------
 
-    /// The page header: the way back to Devices (this page has no rail entry —
-    /// the Devices page's header opens it, web parity), the title, and the
-    /// auto-refresh note when any account has a machine to ask.
-    fn render_header(&self, auto_refreshes: bool, cx: &gpui::App) -> gpui::AnyElement {
-        h_flex()
-            .w_full()
-            .min_w_0()
-            .items_center()
-            .gap_2()
-            .pb_2()
-            .child(
-                crate::controls::glass_icon_button(
-                    "usage-back",
-                    Icon::new(registry::UI_BACK),
-                    cx,
-                )
-                .tooltip("Devices")
-                .on_click(|_: &ClickEvent, window, cx| {
-                    navigate(window, cx, Screen::Devices);
-                }),
-            )
-            .child(
-                div()
-                    .text_sm()
-                    .font_weight(gpui::FontWeight::MEDIUM)
-                    .text_color(cx.theme().foreground)
-                    .child("Usage"),
-            )
-            .when(auto_refreshes, |this| {
-                this.child(
-                    div()
-                        .ml_auto()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child("Refreshes every 5 minutes while this page is open"),
-                )
-            })
-            .into_any_element()
-    }
-
     /// The `Studio · Personal` chip text: the machine, plus the profile when
     /// it is not the ambient login.
     fn chip_label(row: &AgentProfileUsageRow) -> String {
@@ -389,11 +345,14 @@ impl UsageView {
         }
     }
 
-    /// What hovering a chip says: this machine's OWN report age and state.
+    /// What hovering a chip says: this machine's OWN report age and state,
+    /// and (EXP-818) whether the account is the ACTIVE login there.
     fn chip_tooltip(row: &AgentProfileUsageRow, now_epoch: i64) -> String {
         let mut parts = vec![if row.online { "online" } else { "offline" }.to_string()];
         if !row.signed_in {
             parts.push("not signed in".to_string());
+        } else if row.active {
+            parts.push("active here".to_string());
         }
         let stamp = row
             .usage
@@ -421,44 +380,113 @@ impl UsageView {
         parts.join(" · ")
     }
 
+    /// EXP-818: one machine chip — the online dot, the machine (· profile),
+    /// and a CHECK when the account is the active login on that machine.
+    /// A chip of one of MY machines that can run a sign-in opens a menu:
+    /// "Switch account on X" (signed in) or "Sign in on X"; every other chip
+    /// is read-only with the tooltip.
     fn render_chip(
         index: usize,
         chip: usize,
         row: &AgentProfileUsageRow,
+        own_device_id: &str,
+        caps: &[String],
         now_epoch: i64,
-        cx: &gpui::App,
+        cx: &App,
     ) -> gpui::AnyElement {
         let muted = cx.theme().muted_foreground;
         let tooltip = SharedString::from(Self::chip_tooltip(row, now_epoch));
-        crate::surface::glass_pill(
-            ("usage-chip", index * 64 + chip),
-            crate::surface::PillSize::Sm,
-            crate::surface::PillMode::Readonly,
-            cx,
-        )
-        .when(!row.online, |this| this.text_color(muted))
-        .tooltip(move |window, cx| {
-            gpui_component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)
-        })
-        .child(
-            div()
-                .size_1p5()
-                .flex_shrink_0()
-                .rounded_full()
-                .bg(if row.online {
-                    theme::tokens::GREEN.to_hsla()
-                } else {
-                    muted.opacity(0.4)
-                }),
-        )
-        .child(SharedString::from(Self::chip_label(row)))
-        .into_any_element()
+        let dot = div()
+            .size_1p5()
+            .flex_shrink_0()
+            .rounded_full()
+            .bg(if row.online {
+                theme::tokens::GREEN.to_hsla()
+            } else {
+                muted.opacity(0.4)
+            });
+        let label = SharedString::from(Self::chip_label(row));
+        let check = (row.signed_in && row.active).then(|| {
+            Icon::new(registry::UI_CHECK)
+                .with_size(px(crate::surface::PillSize::Sm.glyph()))
+                .text_color(theme::tokens::GREEN.to_hsla())
+        });
+        let agent = CodingAgent::parse(&row.agent);
+        let own = row.device_id == own_device_id;
+        let affordance = agent.filter(|_| row.mine).and_then(|agent| {
+            crate::device_settings::login_affordance(agent, own, row.online, caps, row.signed_in)
+        });
+        match (agent, affordance) {
+            (Some(agent), Some(affordance)) => {
+                let device_id = row.device_id.clone();
+                let device_label = Self::chip_label(row);
+                let switch = affordance.switch;
+                let item_label = SharedString::from(format!(
+                    "{} on {device_label}",
+                    affordance.label
+                ));
+                crate::surface::glass_pill_button(
+                    ("accounts-chip", index * 64 + chip),
+                    crate::surface::PillSize::Sm,
+                    cx,
+                )
+                .when(!row.online, |this| this.text_color(muted))
+                .tooltip(tooltip)
+                .child(dot)
+                .child(label)
+                .children(check)
+                .dropdown_menu(move |menu, _window, _cx| {
+                    let device_id = device_id.clone();
+                    let device_label = device_label.clone();
+                    menu.item(
+                        PopupMenuItem::new(item_label.clone())
+                            .icon(Icon::new(if switch {
+                                registry::UI_SWAP
+                            } else {
+                                registry::UI_SIGN_IN
+                            }))
+                            .on_click(move |_, window, cx| {
+                                start_login(
+                                    device_id.clone(),
+                                    device_label.clone(),
+                                    own,
+                                    agent,
+                                    switch,
+                                    window,
+                                    cx,
+                                );
+                            }),
+                    )
+                })
+                .into_any_element()
+            }
+            _ => crate::surface::glass_pill(
+                ("accounts-chip", index * 64 + chip),
+                crate::surface::PillSize::Sm,
+                crate::surface::PillMode::Readonly,
+                cx,
+            )
+            .when(!row.online, |this| this.text_color(muted))
+            .tooltip(move |window, cx| {
+                gpui_component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)
+            })
+            .child(dot)
+            .child(label)
+            .children(check)
+            .into_any_element(),
+        }
     }
 
-    fn render_card(
+    /// One account ROW (EXP-818: a flat row under the Accounts band, not a
+    /// card in a grid): the identity line with the refresh button, the
+    /// machine chips, the dense usage windows.
+    #[allow(clippy::too_many_arguments)] // one call site; render facts
+    fn render_row(
         &self,
         index: usize,
         group: &AgentAccountUsageGroup,
+        own_device_id: &str,
+        caps: &HashMap<String, Vec<String>>,
         now_epoch: i64,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
@@ -485,7 +513,7 @@ impl UsageView {
             .or_else(|| group.checked_at.clone())
             .map(|stamp| as_of_label(&stamp, now_epoch))
             .filter(|line| !line.is_empty());
-        // EXP-694: the identity alone — the section already names the agent.
+        // EXP-694: the identity alone — the agent label sits above the rows.
         let caption: SharedString = if !group.signed_in {
             "Not signed in".into()
         } else {
@@ -519,7 +547,7 @@ impl UsageView {
             };
             let target_group = group.clone();
             crate::controls::glass_icon_button(
-                ("usage-refresh", index),
+                ("accounts-refresh", index),
                 Icon::new(registry::UI_REFRESH),
                 cx,
             )
@@ -533,21 +561,27 @@ impl UsageView {
 
         let mut chips = h_flex().w_full().min_w_0().flex_wrap().gap_1();
         for (chip, row) in group.rows.iter().enumerate() {
-            chips = chips.child(Self::render_chip(index, chip, row, now_epoch, cx));
+            let device_caps = caps.get(&row.device_id).map(Vec::as_slice).unwrap_or(&[]);
+            chips = chips.child(Self::render_chip(
+                index,
+                chip,
+                row,
+                own_device_id,
+                device_caps,
+                now_epoch,
+                cx,
+            ));
         }
 
-        // `glass_row_card` is a bare div (row-flex by default): the usage cards
-        // stack UNDER the identity line, so the card is an explicit column.
-        crate::surface::glass_row_card()
-            .id(SharedString::from(format!("usage-card-{}", group.key)))
+        crate::surface::flat_row()
+            .id(SharedString::from(format!("accounts-row-{}", group.key)))
             .flex()
             .flex_col()
-            .flex_grow_1()
-            .min_w(px(CARD_MIN_W))
-            .max_w(px(CARD_MAX_W))
+            .w_full()
+            .min_w_0()
             .gap_1p5()
-            .px_2p5()
-            .py_2()
+            .px_3()
+            .py_2p5()
             .child(
                 h_flex()
                     .w_full()
@@ -612,7 +646,64 @@ impl UsageView {
     }
 }
 
-impl Render for UsageView {
+/// EXP-818: a chip's sign-in — this machine opens the login tab right here
+/// (`agent_login::open_login_tab`, which confirms a destructive switch);
+/// another of my machines gets an `agent_login` command on its heartbeat,
+/// finished from that machine's Device settings (the code hand-back lives
+/// there). Mirrors `device_settings::start_login` for the own/remote fork.
+#[allow(clippy::too_many_arguments)]
+fn start_login(
+    device_id: String,
+    device_label: String,
+    own: bool,
+    agent: CodingAgent,
+    switch: bool,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    if own {
+        crate::agent_login::open_login_tab(agent, switch, cx);
+        return;
+    }
+    let handle = window.window_handle();
+    let queue = move |cx: &mut App| {
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
+        };
+        let device_id = device_id.clone();
+        let device_label = device_label.clone();
+        cx.spawn(async move |cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    api::devices::create_agent_login_command(&trpc, &device_id, agent.id(), switch)
+                })
+                .await;
+            let _ = handle.update(cx, |_, window, cx| {
+                match result {
+                    Ok(_) => window.push_notification(
+                        Notification::success(SharedString::from(format!(
+                            "Sign-in sent to {device_label}. Finish it in that machine's settings."
+                        ))),
+                        cx,
+                    ),
+                    Err(err) => window.push_notification(
+                        Notification::error(SharedString::from(err.user_message())),
+                        cx,
+                    ),
+                }
+            });
+        })
+        .detach();
+    };
+    if switch {
+        crate::agent_login::confirm_switch_then(agent, cx, queue);
+    } else {
+        queue(cx);
+    }
+}
+
+impl Render for AccountsSection {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let now_epoch = chrono::Utc::now().timestamp();
         let muted = cx.theme().muted_foreground;
@@ -623,10 +714,29 @@ impl Render for UsageView {
         let auto_refreshes = loaded
             .as_ref()
             .is_some_and(|groups| groups.iter().any(|group| group.refresh_target.is_some()));
+        let own_device_id = queries::own_device_id(cx);
+        // The machines' caps, for the chips' sign-in gate.
+        let caps: HashMap<String, Vec<String>> = sync::Store::global(cx)
+            .collections()
+            .devices
+            .read(cx)
+            .iter()
+            .map(|row| (row.device_id.clone().unwrap_or_default(), row.cap_ids()))
+            .collect();
 
+        let note = auto_refreshes.then(|| {
+            div()
+                .text_xs()
+                .text_color(muted)
+                .child("Refreshes every 5 minutes")
+                .into_any_element()
+        });
+        // The section carries its OWN top spacing (the page column has no
+        // `gap`), like the run sections it sits where.
         let mut column = v_flex()
             .min_w_0()
-            .child(self.render_header(auto_refreshes, cx));
+            .mt_6()
+            .child(crate::surface::glass_section_header("Accounts", note, cx));
         if let Some(error) = self.error.clone() {
             column = column.child(
                 div()
@@ -646,16 +756,18 @@ impl Render for UsageView {
                         .py_2()
                         .text_xs()
                         .text_color(muted)
-                        .child("Loading usage…"),
+                        .child("Loading accounts…"),
                 );
             }
             Some(groups) if groups.is_empty() => {
-                column = column.child(crate::controls::empty_state(
-                    Icon::new(registry::UI_DEVICE_OFFLINE),
-                    "No agent accounts yet",
-                    "No machine has reported an agent account yet.",
-                    cx,
-                ));
+                column = column.child(
+                    div()
+                        .px_1()
+                        .py_2()
+                        .text_xs()
+                        .text_color(muted)
+                        .child("No machine has reported an agent account yet."),
+                );
             }
             Some(groups) => {
                 let mut index = 0;
@@ -663,24 +775,33 @@ impl Render for UsageView {
                     let label = CodingAgent::parse(&agent)
                         .map(|agent| agent.label().to_string())
                         .unwrap_or(agent);
-                    let mut block = v_flex()
-                        .min_w_0()
-                        .pb_2()
-                        .child(crate::surface::glass_section_header(label, None, cx));
-                    // The wrapping grid: cards grow to share a row and wrap
-                    // to the next when the window is too narrow for another.
-                    let mut grid = h_flex().w_full().min_w_0().flex_wrap().items_start().gap_2();
+                    // The agent name as a muted sub-label over its rows.
+                    let mut block = v_flex().min_w_0().pb_1().child(
+                        div()
+                            .px_3()
+                            .pt_2()
+                            .pb_1()
+                            .text_xs()
+                            .font_weight(gpui::FontWeight::MEDIUM)
+                            .text_color(muted)
+                            .child(SharedString::from(label)),
+                    );
                     for group in &section {
-                        grid = grid.child(self.render_card(index, group, now_epoch, cx));
+                        block = block.child(self.render_row(
+                            index,
+                            group,
+                            &own_device_id,
+                            &caps,
+                            now_epoch,
+                            cx,
+                        ));
                         index += 1;
                     }
-                    block = block.child(grid);
                     column = column.child(block);
                 }
             }
         }
-
-        page_scaffold("usage-screen-scroll", &self.scroll, column)
+        column
     }
 }
 
@@ -726,7 +847,7 @@ mod tests {
     /// section, after the known ones.
     #[test]
     fn sections_follow_the_contract_agent_order() {
-        let sections = UsageView::sections(vec![
+        let sections = AccountsSection::sections(vec![
             group("pi", "pi:a"),
             group("zed", "zed:a"),
             group("codex", "codex:a"),
@@ -751,21 +872,21 @@ mod tests {
                 .into_iter()
                 .collect();
         let mine = row("claude");
-        assert!(UsageView::can_refresh(&mine, &caps));
+        assert!(AccountsSection::can_refresh(&mine, &caps));
 
         let mut theirs = row("claude");
         theirs.mine = false;
-        assert!(!UsageView::can_refresh(&theirs, &caps));
+        assert!(!AccountsSection::can_refresh(&theirs, &caps));
 
         let mut offline = row("claude");
         offline.online = false;
-        assert!(!UsageView::can_refresh(&offline, &caps));
+        assert!(!AccountsSection::can_refresh(&offline, &caps));
 
         // An older build that never advertised the cap.
-        assert!(!UsageView::can_refresh(&mine, &HashMap::new()));
+        assert!(!AccountsSection::can_refresh(&mine, &HashMap::new()));
         let capless: HashMap<String, Vec<String>> =
             [("dev-1".to_string(), Vec::new())].into_iter().collect();
-        assert!(!UsageView::can_refresh(&mine, &capless));
+        assert!(!AccountsSection::can_refresh(&mine, &capless));
     }
 
     /// The chip names the machine, and the profile only when it is not the
@@ -773,21 +894,27 @@ mod tests {
     #[test]
     fn chips_name_the_machine_and_a_named_profile() {
         let mut studio = row("claude");
-        assert_eq!(UsageView::chip_label(&studio), "Studio");
+        assert_eq!(AccountsSection::chip_label(&studio), "Studio");
         studio.profile_id = "0a1b2c3d".into();
         studio.profile_label = "Personal".into();
-        assert_eq!(UsageView::chip_label(&studio), "Studio · Personal");
+        assert_eq!(AccountsSection::chip_label(&studio), "Studio · Personal");
         studio.device_label = String::new();
-        assert_eq!(UsageView::chip_label(&studio), "dev-1 · Personal");
+        assert_eq!(AccountsSection::chip_label(&studio), "dev-1 · Personal");
 
         let now = crate::comments::parse_epoch("2026-08-28T12:00:00.000Z").unwrap();
         let mut quiet = row("claude");
-        assert_eq!(UsageView::chip_tooltip(&quiet, now), "online · no usage reported");
+        // EXP-818: the active login on that machine says so.
+        assert_eq!(
+            AccountsSection::chip_tooltip(&quiet, now),
+            "online · active here · no usage reported"
+        );
+        quiet.active = false;
+        assert_eq!(AccountsSection::chip_tooltip(&quiet, now), "online · no usage reported");
         quiet.online = false;
         quiet.signed_in = false;
         quiet.checked_at = Some("2026-08-28T10:00:00.000Z".into());
         assert_eq!(
-            UsageView::chip_tooltip(&quiet, now),
+            AccountsSection::chip_tooltip(&quiet, now),
             "offline · not signed in · as of 2 hours ago"
         );
     }

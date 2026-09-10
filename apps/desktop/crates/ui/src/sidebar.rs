@@ -2195,22 +2195,35 @@ impl SidebarPanel {
     /// (web parity — the inbox/support pills are left-aligned rows there);
     /// trailing controls ride the strip's right edge absolutely. Same height
     /// as [`Self::tool_header`] so the lists below don't shift between tools.
-    fn tool_tab_strip(&self, tabs: Vec<gpui::AnyElement>) -> gpui::Div {
+    /// EXP-818: the strip is the SEGMENTED capsule the start-coding dialog's
+    /// Issues | Actions | Chat wears (`controls::segmented`) — the tabs fill
+    /// it equally — with the strip's trailing control (Filter, Mark all read)
+    /// inline on its right, never floating over the capsule.
+    fn tool_tab_strip(
+        &self,
+        tabs: Vec<gpui::AnyElement>,
+        trailing: Option<gpui::AnyElement>,
+        cx: &App,
+    ) -> gpui::Div {
         h_flex()
-            .relative()
             .flex_shrink_0()
             .w_full()
-            .h(px(30.))
             .px_2()
+            .py_1p5()
+            .gap_1p5()
             .items_center()
-            .justify_start()
-            .child(h_flex().gap_1().items_center().children(tabs))
+            .child(
+                crate::controls::segmented(cx)
+                    .flex_1()
+                    .min_w_0()
+                    .h(px(32.))
+                    .children(tabs),
+            )
+            .children(trailing)
     }
 
-    /// One chip of [`Self::tool_tab_strip`] — EXP-698: a small SELECT pill
-    /// (`surface::glass_pill`), the same capsule the helpdesk composer's
-    /// Reply / Internal note modes wear. The tool tabs pick one of a set;
-    /// that is what `PillMode::Select` means.
+    /// One segment of [`Self::tool_tab_strip`] — EXP-818: a
+    /// `controls::segmented_item`, the same segment every tab strip wears.
     fn tool_tab(
         &self,
         id: &'static str,
@@ -2219,14 +2232,10 @@ impl SidebarPanel {
         selected: bool,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
-        crate::surface::glass_pill(
-            id,
-            crate::surface::PillSize::Sm,
-            crate::surface::PillMode::Select { selected },
-            cx,
-        )
-        .child(icon.with_size(px(crate::surface::PillSize::Sm.glyph())))
-        .child(label)
+        crate::controls::segmented_item(selected, cx)
+            .id(id)
+            .child(icon.with_size(px(14.)))
+            .child(label)
     }
 
     fn list_skeleton(&self, _cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
@@ -2286,24 +2295,13 @@ impl SidebarPanel {
                 this.set_inbox_tab(InboxTab::MyIssues, cx);
             }))
             .into_any_element();
-        let header = self.tool_tab_strip(vec![inbox_tab, mine_tab]);
-
         if tab == InboxTab::MyIssues {
             // EXP-525: the Filter trigger moved INTO the strip (web parity —
-            // no dedicated filter row above the list).
+            // no dedicated filter row above the list). EXP-818: icon-only.
             let trigger = self
                 .board_my
                 .update(cx, |board, cx| board.filter_trigger(cx));
-            let header = header.child(
-                div()
-                    .absolute()
-                    .right_2()
-                    .top_0()
-                    .bottom_0()
-                    .flex()
-                    .items_center()
-                    .child(trigger),
-            );
+            let header = self.tool_tab_strip(vec![inbox_tab, mine_tab], Some(trigger), cx);
             return v_flex()
                 .flex_1()
                 .min_h_0()
@@ -2314,43 +2312,32 @@ impl SidebarPanel {
         }
 
         let data = queries::inbox(cx);
-        // "Mark all read" rides the strip's trailing edge absolutely so the
-        // tab chips stay centered whether or not it is there (EXP-282).
-        let header = header.when(data.total_unread > 0, |this| {
-            this.child(
-                div()
-                    .absolute()
-                    .right_2()
-                    .top_0()
-                    .bottom_0()
-                    .flex()
-                    .items_center()
-                    .child(
-                        Button::new("inbox-mark-all-read")
-                            .ghost().cursor_pointer()
-                            .xsmall()
-                            .icon(Icon::from(registry::NOTIFICATION_MARK_READ))
-                            .tooltip("Mark all read")
-                            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| {
-                                if let Some(trpc) = queries::trpc_client(cx) {
-                                    cx.background_executor()
-                                        .spawn(async move {
-                                            if let Err(err) =
-                                                api::notifications::notifications_mark_all_read(
-                                                    &trpc,
-                                                )
-                                            {
-                                                log::warn!(
-                                                    "[ui] notifications.markAllRead failed: {err}"
-                                                );
-                                            }
-                                        })
-                                        .detach();
-                                }
-                            })),
-                    ),
+        // "Mark all read" is the strip's trailing control (EXP-818: the same
+        // 32px glass icon button the Filter trigger is), only while there is
+        // something to mark.
+        let mark_all_read = (data.total_unread > 0).then(|| {
+            crate::controls::glass_icon_button(
+                "inbox-mark-all-read",
+                Icon::from(registry::NOTIFICATION_MARK_READ),
+                cx,
             )
+            .tooltip("Mark all read")
+            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| {
+                if let Some(trpc) = queries::trpc_client(cx) {
+                    cx.background_executor()
+                        .spawn(async move {
+                            if let Err(err) =
+                                api::notifications::notifications_mark_all_read(&trpc)
+                            {
+                                log::warn!("[ui] notifications.markAllRead failed: {err}");
+                            }
+                        })
+                        .detach();
+                }
+            }))
+            .into_any_element()
         });
+        let header = self.tool_tab_strip(vec![inbox_tab, mine_tab], mark_all_read, cx);
 
         // Single Linear-style activity stream: one row per issue group, the
         // LATEST notification's type icon + sentence. (The old trailing
@@ -2791,7 +2778,7 @@ impl SidebarPanel {
                 this.set_support_filter(SupportFilter::Resolved, cx);
             }))
             .into_any_element();
-        let header = self.tool_tab_strip(vec![open_tab, resolved_tab]);
+        let header = self.tool_tab_strip(vec![open_tab, resolved_tab], None, cx);
 
         let key = team_id.map(|id| (id, filter));
         let threads: Option<Vec<api::helpdesk::SupportThreadSummary>> = self
@@ -2841,8 +2828,8 @@ impl SidebarPanel {
                         .flex_1()
                         .min_h_0()
                         .overflow_y_scrollbar()
-                        // EXP-642: gapped glass row CARDS (web parity).
-                        .child(v_flex().p_2().gap_2().children(rows))
+                        // EXP-818: flat rows, no gap (web `ListRow` parity).
+                        .child(v_flex().p_2().children(rows))
                         .into_any_element()
                 }
             }
@@ -2909,7 +2896,7 @@ impl SidebarPanel {
         let nav_id = thread.id.clone();
         let nav_title = thread.title.clone();
 
-        crate::surface::glass_row_card()
+        crate::surface::flat_row()
             .id(SharedString::from(format!("support-{}", thread.id)))
             .flex()
             .flex_col()

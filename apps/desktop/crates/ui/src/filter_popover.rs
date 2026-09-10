@@ -108,17 +108,20 @@ impl RenderOnce for IssueFilterPopover {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let count = active_filter_count(&self.filters);
 
-        // EXP-698: the trigger is a pill like every other header action —
-        // the MEDIUM rung, because it HOSTS the small count pill and a
-        // capsule can only nest one rung below itself without touching its
-        // own edges.
-        let trigger = crate::surface::glass_pill_button(
+        // EXP-818: the trigger is the 32px glass ICON button every trailing
+        // control wears (the "Filter" pill was the widest thing in the strip
+        // and said what the glyph already says); the active-filter count
+        // rides it as a small badge, and the tooltip names it.
+        let trigger = crate::controls::glass_icon_button(
             "issue-filter-trigger",
-            crate::surface::PillSize::Md,
+            Icon::from(ExpIcon::ListFilter),
             cx,
         )
-        .icon(Icon::from(ExpIcon::ListFilter))
-        .label("Filter")
+        .tooltip(if count > 0 {
+            SharedString::from(format!("Filter · {count} active"))
+        } else {
+            SharedString::from("Filter")
+        })
         .when(count > 0, |button| {
             button.child(count_badge("filter-trigger-count", count, cx))
         });

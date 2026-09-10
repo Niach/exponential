@@ -693,7 +693,7 @@ impl Render for RepositoriesPane {
                         // EXP-698: the shared glass row card, not a bespoke
                         // bordered-but-unfilled box.
                         body = body.child(
-                            crate::surface::glass_row_card()
+                            crate::surface::flat_row()
                                 .px_3()
                                 .py_2()
                                 .text_sm()
@@ -1098,7 +1098,7 @@ impl RepositoriesPane {
 
         // EXP-698: the shared glass ROW CARD — the repo list around it is
         // gapped, so each repo is its own object.
-        crate::surface::glass_row_card()
+        crate::surface::flat_row()
             .flex()
             .flex_col()
             .gap_1p5()

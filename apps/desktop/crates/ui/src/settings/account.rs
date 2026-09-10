@@ -13,7 +13,7 @@ use gpui::{
     div, px, FontWeight, IntoElement, ParentElement, Render, SharedString, Styled, Subscription,
     Window,
 };
-use gpui_component::{button::Button, h_flex, v_flex, ActiveTheme as _};
+use gpui_component::{button::Button, v_flex, ActiveTheme as _};
 
 use super::spawn_trpc;
 use crate::controls::WebControl as _;
@@ -204,10 +204,9 @@ impl AccountPane {
             .map(|account| account.user_id.clone())
             .unwrap_or_default();
 
-        h_flex()
-            .w_full()
-            .gap_3()
-            .items_center()
+        // EXP-818: the Linear profile card — one grouped row: the picture
+        // leading, the name over the address.
+        crate::surface::glass_group_rows(vec![crate::surface::glass_row_shell()
             .child(crate::user_avatar::user_avatar(
                 &user_id,
                 &full_name,
@@ -233,7 +232,7 @@ impl AccountPane {
                             .truncate()
                             .child(email)
                     })),
-            )
+            )])
     }
 }
 

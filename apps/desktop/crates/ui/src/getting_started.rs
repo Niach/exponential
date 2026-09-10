@@ -1305,7 +1305,7 @@ fn render_suggestion_row(
         .map(crate::action_suggestions::SuggestedAutomation::to_trigger);
     let chip = if automation.is_some() { "Automation" } else { "Action" };
     let no_agent = crate::coding_flow::no_agent_reason(cx);
-    crate::surface::glass_row_card()
+    crate::surface::flat_row()
         // Keyed by the stable seed id, not the render index.
         .id(SharedString::from(format!(
             "action-suggestion-{}",

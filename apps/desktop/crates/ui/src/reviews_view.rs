@@ -344,7 +344,7 @@ impl ReviewsView {
         let nav_id = issue.id.clone();
         // EXP-642: one glass row CARD per PR (web parity) — selected wears the
         // active fill, hover half of it.
-        crate::surface::glass_row_card()
+        crate::surface::flat_row()
             .id(SharedString::from(format!("review-{}", issue.id)))
             .flex()
             .flex_row()
@@ -520,7 +520,7 @@ impl ReviewsView {
         };
 
         let url = run.pr_url.clone().unwrap_or_default();
-        crate::surface::glass_row_card()
+        crate::surface::flat_row()
             .id(SharedString::from(format!("run-{}", run.id)))
             .flex()
             .flex_row()
@@ -673,7 +673,7 @@ impl ReviewsView {
         };
 
         let url = pull.url.clone();
-        crate::surface::glass_row_card()
+        crate::surface::flat_row()
             .id(SharedString::from(format!("pull-{key}")))
             .flex()
             .flex_row()
@@ -831,11 +831,16 @@ impl Render for ReviewsView {
             // deliberately has NO title — the first group header IS the top.
             let mut children: Vec<gpui::AnyElement> = Vec::new();
             for group in &groups {
-                let mut block = v_flex().min_w_0().gap_2().pb_2().child(
+                let mut block = v_flex().min_w_0().pb_2().child(
+                    // EXP-818: the group BAND (`surface::glass_section_band`).
                     h_flex()
+                        .w_full()
                         .min_w_0()
-                        .px_1()
-                        .pt_1()
+                        .px_3()
+                        .py_1p5()
+                        .mb_1()
+                        .rounded(gpui::px(theme::tokens::radius::MD))
+                        .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
                         .gap_1p5()
                         .items_center()
                         .child(
@@ -870,11 +875,16 @@ impl Render for ReviewsView {
             // run's own PR is the team's work (unlike an outside contributor's
             // branch), but it completes no issue, so it gets its own block.
             if !runs.is_empty() {
-                let mut block = v_flex().min_w_0().gap_2().pb_2().child(
+                let mut block = v_flex().min_w_0().pb_2().child(
+                    // EXP-818: the group BAND (`surface::glass_section_band`).
                     h_flex()
+                        .w_full()
                         .min_w_0()
-                        .px_1()
-                        .pt_1()
+                        .px_3()
+                        .py_1p5()
+                        .mb_1()
+                        .rounded(gpui::px(theme::tokens::radius::MD))
+                        .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
                         .gap_1p5()
                         .items_center()
                         .child(
@@ -913,11 +923,16 @@ impl Render for ReviewsView {
                 children.push(block.into_any_element());
             }
             for repo in &pull_repos {
-                let mut block = v_flex().min_w_0().gap_2().pb_2().child(
+                let mut block = v_flex().min_w_0().pb_2().child(
+                    // EXP-818: the group BAND (`surface::glass_section_band`).
                     h_flex()
+                        .w_full()
                         .min_w_0()
-                        .px_1()
-                        .pt_1()
+                        .px_3()
+                        .py_1p5()
+                        .mb_1()
+                        .rounded(gpui::px(theme::tokens::radius::MD))
+                        .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
                         .gap_1p5()
                         .items_center()
                         .child(

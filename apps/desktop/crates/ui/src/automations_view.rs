@@ -161,7 +161,7 @@ impl AutomationsView {
 
         let toggle_id = automation.id.clone();
         let enabled = automation.enabled;
-        crate::surface::glass_row_card()
+        crate::surface::flat_row()
             .flex()
             .w_full()
             .min_w_0()
@@ -335,7 +335,7 @@ impl AutomationsView {
         let recent = gpui_component::v_flex()
             .min_w_0()
             .child(glass_section_header("Recent automated runs", None, cx));
-        let mut run_rows_column = gpui_component::v_flex().min_w_0().gap_2();
+        let mut run_rows_column = gpui_component::v_flex().min_w_0();
         if runs.is_empty() {
             run_rows_column = run_rows_column.child(
                 div()

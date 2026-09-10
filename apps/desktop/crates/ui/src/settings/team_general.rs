@@ -18,7 +18,7 @@ use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
     input::{InputEvent, InputState},
-    v_flex, ActiveTheme as _, Disableable as _,
+    v_flex, ActiveTheme as _,
 };
 use sync::Store;
 
@@ -91,11 +91,12 @@ impl GeneralPane {
             }),
             cx.observe(&collections.team_members, |_, _, cx| cx.notify()),
             cx.observe(&collections.users, |_, _, cx| cx.notify()),
-            // Live dirty tracking: typing enables/disables Save.
-            cx.subscribe(&name_input, |_, _, event: &InputEvent, cx| {
-                if matches!(event, InputEvent::Change) {
-                    cx.notify();
-                }
+            // EXP-818: the name row saves ITSELF — on blur and on Enter, the
+            // Linear way (web `GlassInputRow` twin). No Save button.
+            cx.subscribe(&name_input, |this, _, event: &InputEvent, cx| match event {
+                InputEvent::Change => cx.notify(),
+                InputEvent::PressEnter { .. } | InputEvent::Blur => this.save(cx),
+                _ => {}
             }),
         ];
 
@@ -440,21 +441,29 @@ impl Render for GeneralPane {
         let dirty = self.dirty(cx);
         let saving = self.saving;
 
+        // EXP-818: label left, value right, saves on blur/Enter — the row
+        // vocabulary the device editor's Name row wears; a "Saving…" caption
+        // trails while the write is out.
+        let name_row = crate::surface::glass_input_row(
+            "Name",
+            crate::surface::glass_row_input(
+                glass_input(&self.name_input, window, cx).disabled(!owner),
+            )
+            .into_any_element(),
+            cx,
+        )
+        .when(saving || dirty, |row| {
+            row.child(
+                div()
+                    .flex_shrink_0()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(if saving { "Saving…" } else { "Unsaved" }),
+            )
+        });
         let mut general = section(cx)
             .child(card_title("General"))
-            .child(
-                v_flex()
-                    .gap_1()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("Name"),
-                    )
-                    .child(
-                        glass_input(&self.name_input, window, cx).web_input_sm().disabled(!owner),
-                    ),
-            );
+            .child(crate::surface::glass_group_rows(vec![name_row]));
 
         if let Some(error) = &self.error {
             general = general.child(
@@ -464,18 +473,6 @@ impl Render for GeneralPane {
                     .child(error.clone()),
             );
         }
-
-        general = general.child(
-            h_flex().justify_end().child(
-                Button::new("team-save")
-                    .primary()
-                    .web_sm()
-                    .label(if saving { "Saving…" } else { "Save changes" })
-                    .disabled(!owner || !dirty || saving)
-                    .loading(saving)
-                    .on_click(cx.listener(|this, _, _, cx| this.save(cx))),
-            ),
-        );
 
         let mut pane = v_flex().gap_4().child(general);
 

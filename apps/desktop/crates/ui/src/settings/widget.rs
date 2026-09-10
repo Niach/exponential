@@ -166,7 +166,7 @@ impl WidgetPane {
 
         // EXP-721: a widget config is an OBJECT — the gapped row card every
         // team-settings entity list wears.
-        crate::surface::glass_row_card()
+        crate::surface::flat_row()
             .flex()
             .flex_col()
             .w_full()

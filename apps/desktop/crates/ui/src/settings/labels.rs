@@ -369,7 +369,7 @@ impl LabelsPane {
 
         // EXP-698: the shared glass ROW CARD — the list around it is gapped,
         // so each label is its own object.
-        let mut row = crate::surface::glass_row_card()
+        let mut row = crate::surface::flat_row()
             .flex()
             .w_full()
             .min_w_0()
@@ -576,7 +576,7 @@ impl Render for LabelsPane {
             // EXP-698: the inline create form is one more object in the gapped
             // list, so it wears the glass row card.
             body = body.child(
-                crate::surface::glass_row_card()
+                crate::surface::flat_row()
                     .flex()
                     .flex_col()
                     .gap_3()
