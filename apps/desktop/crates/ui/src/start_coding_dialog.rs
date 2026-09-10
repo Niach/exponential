@@ -292,8 +292,8 @@ fn open(
     preselect_device: Option<String>,
 ) {
     // EXP-268: widescreen two-column layout (web `sm:max-w-3xl` parity —
-    // picker left, options right); the launched terminal tab lands back in
-    // the OPENER window (EXP-284: the dialog is its own native window).
+    // picker left, options right); the launched session lands back in the
+    // OPENER window (EXP-284: the dialog is its own native window).
     let opener = window.window_handle();
     // EXP-285: trimmed 640 → 560 and user-resizable — the two-column layout
     // tolerates it (both lists are max_h-capped). EXP-635: 520 → 540 — with
@@ -393,8 +393,8 @@ enum RepoState {
 
 pub struct StartCodingDialogView {
     team_id: String,
-    /// The window that opened this dialog — the launched terminal tab spawns
-    /// into ITS dock (EXP-284: the dialog is its own native window).
+    /// The window that opened this dialog — the launched session spawns into
+    /// IT (EXP-284: the dialog is its own native window).
     opener: AnyWindowHandle,
     /// EXP-257: which subject half is showing — Issues (the checklist) or
     /// Actions (the single-select action list + input fields).
@@ -483,7 +483,6 @@ pub struct StartCodingDialogView {
     /// Guards the one-shot fetch (a failure is not retried under the open
     /// dialog: no servers simply hides the row).
     mcp_fetched: bool,
-    /// EXP-746 (D7): run the agent in a TERMINAL tab (today's PTY path)
     /// EXP-696: the machine the run starts on (`None` before the first
     /// settle). The routing switch is its candidate's `is_own` flag: this
     /// machine takes the LOCAL launch paths, anything else goes out as one
@@ -1529,7 +1528,7 @@ impl StartCodingDialogView {
     /// but cannot speak ACP with it, so a run there would be refused. Never
     /// a blocker on its own (a machine that never advertised readiness — an
     /// older build — says nothing), a muted line beside one.
-    fn terminal_note(&self) -> Option<SharedString> {
+    fn no_session_note(&self) -> Option<SharedString> {
         let device = self.remote_device()?;
         launch_options::cannot_run_session(device.acp_agents.as_deref(), self.launch.agent).then(
             || {
@@ -1870,7 +1869,7 @@ impl StartCodingDialogView {
             };
             let inputs = self.collect_action_inputs(&action, cx);
             let options = self.options(cx);
-            // The runner's terminal tab targets the OPENER window — this
+            // The runner's session tab targets the OPENER window — this
             // dialog window is about to be gone.
             let handle = self.opener;
             native_dialog::close_dialog_window(window, cx);
@@ -2112,8 +2111,6 @@ impl StartCodingDialogView {
         self.error = None;
         cx.notify();
 
-        // EXP-761: the PTY sidecars come up inside `prepare`, and only when
-        // this launch resolves to the terminal transport.
         let opener = self.opener;
         cx.spawn_in(window, async move |this, window| {
             let prepared = window
@@ -2122,9 +2119,9 @@ impl StartCodingDialogView {
                     coding::prepare(&request, &deps)
                 })
                 .await;
-            // The terminal tab spawns into the OPENER window's dock
-            // (EXP-284) — a fresh cross-window update from the async
-            // context, never from inside this window's update.
+            // The session tab spawns into the OPENER window (EXP-284) — a
+            // fresh cross-window update from the async context, never from
+            // inside this window's update.
             let outcome: Result<(), SharedString> = match prepared {
                 Ok(Prepared::Ready(prepared)) => {
                     match opener.update(window, |_, window, cx| {
@@ -2849,7 +2846,7 @@ impl StartCodingDialogView {
     fn footer(
         &self,
         blocker: Option<SharedString>,
-        terminal_note: Option<SharedString>,
+        no_session_note: Option<SharedString>,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let mut footer = h_flex()
@@ -2872,8 +2869,9 @@ impl StartCodingDialogView {
                         .child(reason.clone()),
                 );
             }
-            // EXP-749: the run is fine, it just lands on the PTY path there.
-            if let Some(note) = &terminal_note {
+            // EXP-749/EXP-773: the machine has the agent but cannot drive
+            // it, so the start is refused — a muted line, not a blocker.
+            if let Some(note) = &no_session_note {
                 any = true;
                 lines = lines.child(
                     div()
@@ -3005,7 +3003,7 @@ impl Render for StartCodingDialogView {
 
         let blocker = self.launch_blocker(cx);
         // EXP-749: not a blocker — the transport the target machine would use.
-        let terminal_note = self.terminal_note();
+        let no_session_note = self.no_session_note();
         // EXP-268: two-column widescreen layout (web `launch-dialog.tsx`
         // parity) — subject tabs full-width on top, then picker LEFT /
         // options RIGHT, error + footer full-width below. EXP-525: the
@@ -3200,7 +3198,7 @@ impl Render for StartCodingDialogView {
                             .child(Scrollbar::new(&body_scroll).axis(ScrollbarAxis::Vertical)),
                     ),
             )
-            .child(self.footer(blocker, terminal_note, cx))
+            .child(self.footer(blocker, no_session_note, cx))
             .into_any_element()
     }
 }

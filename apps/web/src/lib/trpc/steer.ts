@@ -1107,7 +1107,7 @@ export const steerRouter = router({
   // Kill-switch: flip the synced row to ended (the desktop watches its own
   // coding_sessions row over Electric, so this aborts the run even if the
   // relay is unreachable) AND best-effort fan a kill through the relay so the
-  // live terminal tears down immediately.
+  // live run tears down immediately.
   killSession: authedProcedure
     .input(z.object({ sessionId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {

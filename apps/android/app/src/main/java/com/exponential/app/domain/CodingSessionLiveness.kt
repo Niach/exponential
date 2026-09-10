@@ -13,7 +13,7 @@ import kotlinx.coroutines.flow.flow
 // lags or isn't running.
 //
 // EXP-194: a session is live in both the `running` and `in_review` states (the
-// PR-open parking spot — terminal still alive, "ready for review"); only
+// PR-open parking spot — the run still alive, "ready for review"); only
 // `ended` and stale rows drop out. Merging ends the session (EXP-498), so
 // there is no post-merge parking spot to keep alive (EXP-540).
 object CodingSessionLiveness {

@@ -701,8 +701,8 @@ export const comments = pgTable(
 )
 
 // The live "coding now" record — one row per interactive desktop coding
-// session (one terminal tab + one agent CLI child — claude/codex/pi,
-// EXP-201). SYNCED as an Electric shape
+// session (one session tab + one agent CLI child driven over ACP —
+// claude/codex/pi, EXP-201). SYNCED as an Electric shape
 // so every coordination client shows the badge + Watch/Steer button. No
 // plan/approval state, no run history, no slot pool — PR outcome lives on
 // `issues` (prUrl/prNumber/prState/branch). Three session subjects: issue-
@@ -1244,9 +1244,9 @@ export const devices = pgTable(
     // EXP-749: the subset of `agents` the machine's ACP engine can drive
     // (the doctor's per-agent `acp` verdict), refreshed on register. NULL =
     // the build never reported (pre-EXP-749) and clients assume every
-    // runnable agent, exactly the old behaviour; an agent listed in
-    // `agents` but not here starts in a terminal tab, and remote pickers
-    // say so instead of falling back silently.
+    // runnable agent, exactly the old behaviour; EXP-773: an agent listed
+    // in `agents` but not here cannot start a session there at all, and
+    // remote pickers say so instead of letting the launch fail.
     acpAgents: jsonb(`acp_agents`).$type<string[]>(),
     // EXP-481: server-authoritative launch defaults (see the doc block on
     // DeviceLaunchDefaults above). NULL = the device never reported and no

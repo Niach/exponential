@@ -2773,13 +2773,13 @@ pub(crate) const ENDED_BANNER: &str = "Read-only — this session has ended";
 /// A Past row opened off its recorded transcript.
 pub(crate) const REPLAY_BANNER: &str = "Replaying transcript…";
 
-/// …and the same row when the run left nothing to replay (it ran on the
-/// terminal transport, or its workspace is gone).
+/// …and the same row when the run left nothing to replay (its workspace,
+/// and with it the device journal, is gone).
 pub(crate) const REPLAY_EMPTY_BANNER: &str = "No transcript for this run";
 
-/// EXP-746: the confirm body for a run hosted IN this app. The remote copy
-/// talks about "the terminal", which an ACP run does not have — and the
-/// worktree promise is the part that matters either way.
+/// EXP-746: the confirm body for a run hosted IN this app — the remote
+/// copy's "on <machine>" has nothing to name here, and the worktree promise
+/// is the part that matters either way.
 pub(crate) const LOCAL_KILL_DESCRIPTION: &str =
     "The agent stops immediately and the session ends. Uncommitted work in the worktree is kept.";
 
@@ -5059,8 +5059,8 @@ impl SteerSessionView {
         // EXP-746: a replay says what it is BEFORE anything else — its feed
         // is history, and every other banner would read as live state. A run
         // that ended with NOTHING to show says why: its transcript is not on
-        // this machine (it ran on the terminal transport, or elsewhere), and
-        // an ended session's relay room is gone.
+        // this machine (it ran elsewhere, or its journal is gone), and an
+        // ended session's relay room is gone.
         // Once the replay has ended, the ended banner below says it all.
         if self.source.read_only() && !matches!(self.phase, ViewerPhase::Ended { .. }) {
             banners.push(banner(REPLAY_BANNER.to_string()));

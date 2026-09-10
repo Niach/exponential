@@ -749,8 +749,9 @@ pub enum EngineError {
     Handshake(String),
     /// A tRPC call the start depends on failed.
     Api(api::error::ApiError),
-    /// The agent has no ACP adapter on this build — the caller falls back to
-    /// the terminal transport.
+    /// The agent has no ACP adapter on this build. EXP-773: there is no
+    /// terminal transport to fall back to, so the caller REFUSES the start
+    /// and shows this.
     Unsupported(&'static str),
 }
 

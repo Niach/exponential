@@ -5,7 +5,7 @@
 //! stall — the desktop reads the buffered close frame on wake). It is a
 //! transport-level signal, NOT a session end: the publisher must treat it as
 //! a plain drop — reconnect + re-hello — and NEVER fire the kill hook, which
-//! tears down the live agent child and the whole terminal tab. Real kills
+//! tears down the live agent child and the whole run. Real kills
 //! ride the explicit relay `kill` frame (covered by relay_integration.rs)
 //! and the §8.8 own-row Electric flip (sync::kill_watch).
 

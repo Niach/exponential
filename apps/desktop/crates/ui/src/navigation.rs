@@ -81,14 +81,14 @@ pub enum Screen {
     /// `coding_sessions` ROW id — never the issue, the branch or the tab: a
     /// resume mints a NEW row, and the two runs are two screens (the resumed
     /// one takes the old one's tab slot, see `ScreensPanel::sync_session_tabs`).
-    /// A run THIS process hosts on the PTY path is not one of these: its
-    /// terminal is the surface ([`Screen::Terminal`]), which is why every entry
-    /// point funnels through [`crate::session_screen::open_session`] rather
-    /// than navigating here directly. EXP-769: a session's tab lives in the
+    /// EXP-773: EVERY coding run is one of these — there is no terminal
+    /// surface left for a run to live on — which is why every entry point
+    /// funnels through [`crate::session_screen::open_session`] rather than
+    /// navigating here directly. EXP-769: a session's tab lives in the
     /// BOTTOM session bar, not the top strip ([`Screen::is_dock_tab`]).
     Session { session_id: String },
     /// One PTY terminal of this window's `TerminalManager` (EXP-769): a plain
-    /// shell, an agent login, or a coding run hosted on the PTY path. The
+    /// shell or an agent login, never a coding run (EXP-773). The
     /// terminal used to live in a sliding bottom dock; it renders FULLSCREEN
     /// in the center now, like every other screen, and its tab sits in the
     /// bottom session bar beside the session tabs (web `AgentDock` parity).

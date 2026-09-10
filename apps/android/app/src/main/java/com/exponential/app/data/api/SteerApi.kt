@@ -442,7 +442,7 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
      * `steer.killSession` (EXP-268) — force-end a running session: the server
      * flips the synced coding_sessions row to `ended` (the desktop watches its
      * own row, so this aborts the run even with the relay unreachable) and
-     * best-effort fans a kill through the relay so the terminal tears down
+     * best-effort fans a kill through the relay so the run tears down
      * immediately. Owner-or-team-owner gated server-side; idempotent.
      */
     suspend fun killSession(accountId: String, codingSessionId: String) {

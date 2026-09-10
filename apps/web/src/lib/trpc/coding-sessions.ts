@@ -593,7 +593,7 @@ export const codingSessionsRouter = router({
   // running/in_review from the issue's own status so a post-PR session
   // resurfaces with the right badge). An EXISTING `ended` row is NEVER
   // resurrected: `ended` is an explicit end/kill and must stay final.
-  // `in_review` rows (PR open, terminal still alive — EXP-194) heartbeat
+  // `in_review` rows (PR open, the run still alive — EXP-194) heartbeat
   // like running ones, but the ping only ever advances updated_at — it can
   // never downgrade in_review back to running.
   // Fire-and-forget on the client: failures are reported, never thrown.
@@ -669,8 +669,8 @@ export const codingSessionsRouter = router({
             // from the issue so the re-created row doesn't claim
             // "coding now" on a parked issue. Merge always closes (EXP-498):
             // a merged PR resurrects the row as `ended`, so the owner's
-            // kill_watch tears the resumed terminal down instead of the
-            // session outliving its merge.
+            // kill_watch tears the resumed run down instead of the session
+            // outliving its merge.
             const [issue] = await ctx.db
               .select({ status: issues.status, prState: issues.prState })
               .from(issues)

@@ -124,7 +124,7 @@ pub enum Adapter {
 impl Adapter {
     /// Build the adapter `spec.kind` names. Errors here are start-time
     /// errors (a missing external binary, an agent with no adapter on this
-    /// build) and let the caller fall back to the terminal transport.
+    /// build) and REFUSE the launch — EXP-773 left nothing to fall back to.
     ///
     /// Claude spawns lazily (at `session/new`), so a missing `claude` surfaces
     /// as a handshake failure through `EngineExit`; codex and pi spawn HERE,

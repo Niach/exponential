@@ -6,7 +6,7 @@ import Foundation
 /// server sweep's DELETE (never as `ended`, that flip is the desktop
 /// kill-switch signal) — so a crashed desktop can't pin a phantom
 /// "coding now" badge when the sweep lags or isn't running.
-/// EXP-194: liveness spans both `running` and `in_review` — the terminal stays
+/// EXP-194: liveness spans both `running` and `in_review` — the run stays
 /// alive (watchable/steerable) after the PR opens and the issue parks in
 /// review, so the badge and the bottom-nav agents dot both keep counting it.
 /// Those two ARE the live set: a PR merge ends the session (EXP-498), and

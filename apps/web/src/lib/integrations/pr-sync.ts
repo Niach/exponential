@@ -638,7 +638,7 @@ export async function applyPrMergeState(opts: {
   // "it's merged" notification on in-app + push + email.
   if (result.applied) {
     // Post-commit: the durable teardown signal is the synced →ended flip
-    // above; the relay kill only makes the live terminal/mirror teardown
+    // above; the relay kill only makes the live run/mirror teardown
     // immediate (a pre-commit kill would race the desktop re-reading a
     // still-running row).
     await tearDownEndedSessions(result.endedSessionIds ?? [])
@@ -701,7 +701,7 @@ export async function endLiveIssueSessionsInTx(
 }
 
 // Best-effort teardown for just-ended sessions — the durable signal is the
-// synced →ended row flip; this only makes the live terminal/mirror teardown
+// synced →ended row flip; this only makes the live run/mirror teardown
 // immediate (relayPostKill never throws). Post-commit only.
 //
 // EXP-700: a merge-ended run may be an agent-started CHILD, and its parent is

@@ -902,7 +902,7 @@ final class AgentSessionModel {
     /// Force-end the session: `steer.killSession` flips the synced row to
     /// `ended` (the desktop watches its own row over Electric, so the run
     /// aborts even when the relay is unreachable) and best-effort fans a kill
-    /// through the relay so the terminal tears down immediately. On success
+    /// through the relay so the run tears down immediately. On success
     /// nothing changes locally — the synced row flips and the view reacts.
     func killSession() async {
         killError = nil

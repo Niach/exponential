@@ -7,8 +7,6 @@
 //! | Repos root     | Where repositories/worktrees live (`~` works)        |
 //! | Branch prefix  | Prepended to the issue identifier (`exp/EXP-42`)     |
 //! | Terminal shell | Program new `+` terminal tabs spawn (blank = auto)   |
-//! | Start in terminal | EXP-746: run coding sessions on the PTY path      |
-//! |                | instead of the in-process session engine             |
 //! | Tooling doctor | The shared [`super::doctor_section::DoctorPanel`]    |
 //! |                | (EXP-367 — moved here from Agents; also the wizard's |
 //! |                | tools step)                                          |

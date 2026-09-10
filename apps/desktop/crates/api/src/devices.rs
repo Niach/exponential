@@ -42,8 +42,8 @@ pub struct RegisterDevice<'a> {
     /// ALWAYS sent by a build that knows about it, empty list included — the
     /// column's NULL means "an older build registered this row, assume every
     /// agent", so an omitted field and an empty one are different answers.
-    /// Remote pickers never FILTER on it; they say which agents would start
-    /// in a terminal tab on that machine.
+    /// Remote pickers never FILTER on it; they say which agents cannot run
+    /// a session on that machine (EXP-773: there is no fallback transport).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub acp_agents: Option<&'a [String]>,
     pub caps: &'a [String],
