@@ -1,3 +1,9 @@
+- Korlátozva, nem elakadva: ha egy ügynök futás közben kimeríti a keretét, a munkamenet korlátozottként jelenik meg a visszaállítás idejével, és aktív és irányítható marad ahelyett, hogy elnémulna
+- Irányítómező: a munkamenet mezője elfogadja a @ jelet csapattagokhoz, a # jelet ügyekhez és a : jelet emojihoz, ugyanazt a hármat, amit a megjegyzésmező már tudott
+- Szerkesztések beágyazva: egy szerkesztés diffje a sora alatt jelenik meg az átiratban, összecsukva, amíg rá nem koppintasz
+- Eszközcsoportok, amelyek elmondják, mi történt: egy összecsukott eszközhívás-sorozat így olvasható: „4 parancs lefutott, 2 fájl szerkesztve, 1 sikertelen”, számlálás helyett
+- A kilátástalan indítást elutasítjuk: egy olyan gépen való indítás, amelynek ügynöke már kimerítette a keretét, ezt jelzi és megnevezi a visszaállítás idejét
+- Használati sávok egy második ügynökfiókhoz ugyanazon a gépen
 - Irányítás: az élő munkamenetben válts a „Plan” és a „Build” között; a modellt és a ráfordítást induláskor választod ki egyszer, a kontextus- és használati értékek pedig frissülnek, ahogy a futtatás jelenti őket
 - Korábbi futtatások: a befejezett munkamenetek eszközönként, „Resume” gombbal jelennek meg, így egy lezárt futtatás újra folytatható
 - Chat repository nélkül: a „Start coding” lapról indított chathez már nem kell repository, és ideiglenes mappában fut, csak az Exponential eszközeivel

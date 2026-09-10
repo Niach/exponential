@@ -1,3 +1,9 @@
+- Limitado, não bloqueado: quando um agente esgota a quota a meio da execução, a sessão é marcada como limitada com a hora de reposição, e continua ativa e orientável em vez de ficar em silêncio
+- Campo de orientação: o campo da sessão aceita @ para colegas, # para issues e : para emoji, os mesmos três que a caixa de comentários já tinha
+- Edições em linha: o diff de uma edição aparece sob a sua linha na transcrição, recolhido até lhe tocar
+- Grupos de ferramentas que dizem o que aconteceu: uma sequência recolhida de chamadas a ferramentas lê-se como «4 comandos executados, 2 ficheiros editados, 1 falhado» em vez de uma contagem
+- Um arranque sem saída é recusado: arrancar numa máquina cujo agente já não tem quota avisa e indica quando é reposta
+- Barras de utilização para uma segunda conta de agente na mesma máquina
 - Orientação: alterne entre «Plan» e «Build» a partir da sessão em curso; o modelo e o esforço escolhem-se uma vez no arranque, e as leituras de contexto e de utilização atualizam-se à medida que a execução as reporta
 - Execuções anteriores: as sessões terminadas são listadas por dispositivo com «Resume», para retomar uma execução que já acabou
 - Chat sem repositório: um chat aberto a partir da folha «Start coding» já não precisa de repositório e corre numa pasta temporária apenas com as ferramentas do Exponential

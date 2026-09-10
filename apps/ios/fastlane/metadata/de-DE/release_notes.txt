@@ -1,3 +1,9 @@
+- Limitiert statt hängend: geht einem Agenten mitten im Lauf das Kontingent aus, wird die Session als limitiert markiert, mit der Zeit, zu der es zurückgesetzt wird; sie bleibt aktiv und steuerbar, statt still zu werden
+- Steuerungs-Eingabe: das Session-Feld nimmt @ für Teammitglieder, # für Issues und : für Emoji, dieselben drei wie das Kommentarfeld
+- Änderungen inline: der Diff einer Bearbeitung erscheint unter ihrer Zeile im Transkript, eingeklappt, bis du ihn antippst
+- Werkzeuggruppen sagen, was passiert ist: eine eingeklappte Folge von Werkzeugaufrufen liest sich als „4 Befehle ausgeführt, 2 Dateien bearbeitet, 1 fehlgeschlagen“ statt als Zählung
+- Ein aussichtsloser Start wird abgelehnt: der Start auf einem Gerät, dessen Agent bereits kein Kontingent mehr hat, sagt das und nennt die Rücksetzzeit
+- Verbrauchsbalken für ein zweites Agentenkonto auf demselben Gerät
 - Steuerung: wechsle in der laufenden Session zwischen „Plan“ und „Build“; Modell und Aufwand wählst du einmal beim Start, und Kontext- und Verbrauchsanzeigen aktualisieren sich, sobald der Lauf sie meldet
 - Frühere Läufe: beendete Sessions stehen pro Gerät mit „Resume“ in der Liste, sodass ein beendeter Lauf wieder aufgenommen werden kann
 - Chat ohne Repository: ein Chat aus dem Sheet „Start coding“ braucht kein Repository mehr und läuft in einem temporären Ordner mit nur den Exponential-Werkzeugen

@@ -1,3 +1,9 @@
+- Omezeno, ne zaseknuto: když agentovi uprostřed běhu dojde kvóta, relace se označí jako omezená s časem obnovení a zůstane živá a řiditelná, místo aby ztichla
+- Pole řízení: pole relace přijímá @ pro kolegy, # pro issues a : pro emoji, stejné tři jako pole komentáře
+- Úpravy v řádku: diff úpravy se zobrazí pod jejím řádkem v přepisu, sbalený, dokud na něj neklepnete
+- Skupiny nástrojů říkají, co se stalo: sbalená řada volání nástrojů zní „Spuštěny 4 příkazy, upraveny 2 soubory, 1 selhalo“ místo počítání volání
+- Bezvýchodný start je odmítnut: spuštění na stroji, jehož agent už nemá kvótu, to oznámí a uvede čas obnovení
+- Sloupce využití pro druhý účet agenta na stejném stroji
 - Řízení: v běžící relaci přepínáte mezi „Plan“ a „Build“; model a úsilí volíte jednou při startu a údaje o kontextu a spotřebě se obnovují, jak je běh hlásí
 - Minulé běhy: dokončené relace se vypisují u každého zařízení s tlačítkem „Resume“, takže ukončený běh můžete znovu rozjet
 - Chat bez repozitáře: chat spuštěný z panelu „Start coding“ už repozitář nepotřebuje a běží v pracovní složce jen s nástroji Exponential

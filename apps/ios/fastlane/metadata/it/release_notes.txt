@@ -1,3 +1,9 @@
+- Limitato, non bloccato: quando un agente esaurisce la quota a metà esecuzione, la sessione viene contrassegnata come limitata con l'ora del ripristino, e resta attiva e guidabile invece di ammutolire
+- Campo di guida: il campo della sessione accetta @ per i colleghi, # per le issue e : per le emoji, gli stessi tre della casella dei commenti
+- Modifiche inline: il diff di una modifica compare sotto la sua riga nella trascrizione, ripiegato finché non lo tocchi
+- Gruppi di strumenti che dicono cosa è successo: una sequenza ripiegata di chiamate a strumenti si legge come «4 comandi eseguiti, 2 file modificati, 1 fallito» invece di un conteggio
+- Un avvio senza sbocco viene rifiutato: avviare su una macchina il cui agente ha già esaurito la quota lo segnala e indica quando si ripristina
+- Barre di utilizzo per un secondo account agente sulla stessa macchina
 - Guida: passa tra «Plan» e «Build» dalla sessione in corso; modello e sforzo si scelgono una volta all'avvio, e le letture di contesto e di utilizzo si aggiornano man mano che l'esecuzione le riporta
 - Esecuzioni passate: le sessioni concluse sono elencate per dispositivo con «Resume», così un'esecuzione finita si può riprendere
 - Chat senza repository: una chat avviata dal foglio «Start coding» non richiede più un repository e gira in una cartella temporanea con i soli strumenti di Exponential

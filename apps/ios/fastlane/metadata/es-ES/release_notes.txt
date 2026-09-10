@@ -1,3 +1,9 @@
+- Limitado, no atascado: cuando un agente agota su cuota a mitad de la ejecución, la sesión se marca como limitada con la hora en que se restablece, y sigue activa y dirigible en vez de quedarse en silencio
+- Campo de dirección: el campo de sesión admite @ para compañeros, # para issues y : para emoji, los mismos tres que ya tenía el cuadro de comentarios
+- Ediciones en línea: el diff de una edición se muestra bajo su fila en la transcripción, plegado hasta que lo tocas
+- Grupos de herramientas que dicen qué pasó: una serie plegada de llamadas a herramientas se lee como «4 comandos ejecutados, 2 archivos editados, 1 fallido» en lugar de contar llamadas
+- Se rechaza un inicio que no llevaría a nada: iniciar en una máquina cuyo agente ya no tiene cuota lo indica y dice cuándo se restablece
+- Barras de uso para una segunda cuenta de agente en la misma máquina
 - Dirección: cambia entre «Plan» y «Build» desde la sesión en marcha; el modelo y el esfuerzo se eligen una vez al arrancar, y las lecturas de contexto y de uso se actualizan según las informa la ejecución
 - Ejecuciones anteriores: las sesiones terminadas se listan por dispositivo con «Resume», así que una ejecución acabada se puede retomar
 - Chat sin repositorio: un chat abierto desde la hoja «Start coding» ya no necesita repositorio y se ejecuta en una carpeta temporal solo con las herramientas de Exponential

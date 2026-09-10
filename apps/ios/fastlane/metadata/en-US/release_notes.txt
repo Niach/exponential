@@ -1,3 +1,9 @@
+- Rate limited, not stuck: when an agent runs out of usage mid-run, the session is marked as rate limited with the time it resets, and stays live and steerable instead of going quiet
+- Steer composer: the session field takes @ for teammates, # for issues and : for emoji, the same three the comment box already had
+- Edits inline: an edit's diff renders under its row in the transcript, folded away until you tap it
+- Tool groups that say what happened: a collapsed run of tool calls reads "Ran 4 commands, edited 2 files, 1 failed" instead of counting calls
+- A start that would go nowhere is refused: starting on a machine whose agent is already out of usage says so and names when it resets
+- Usage bars for a second agent account on the same machine
 - Steering: switch between Plan and Build from the live session; model and effort are chosen once when you start, and context and usage readouts update as the run reports them
 - Past runs: finished sessions are listed per machine with Resume, so an ended run can be picked up again
 - Chat without a repository: a chat started from the Start coding sheet no longer needs a repository and runs in a scratch folder with only the Exponential tools

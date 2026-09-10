@@ -1,3 +1,9 @@
+- Ograniczony, nie zawieszony: gdy agent wyczerpie limit w trakcie uruchomienia, sesja jest oznaczana jako ograniczona z godziną resetu i pozostaje aktywna i sterowalna, zamiast milknąć
+- Pole sterowania: pole sesji przyjmuje @ dla członków zespołu, # dla zgłoszeń i : dla emoji, te same trzy, które miało już pole komentarza
+- Edycje w treści: diff edycji pojawia się pod jej wierszem w transkrypcji, zwinięty do dotknięcia
+- Grupy narzędzi mówią, co się stało: zwinięta seria wywołań narzędzi brzmi „Wykonano 4 polecenia, zmieniono 2 pliki, 1 nieudane” zamiast liczenia wywołań
+- Bezcelowy start jest odrzucany: uruchomienie na maszynie, której agent już wyczerpał limit, informuje o tym i podaje godzinę resetu
+- Paski użycia dla drugiego konta agenta na tej samej maszynie
 - Sterowanie: w trwającej sesji przełączasz się między „Plan” a „Build”; model i wysiłek wybierasz raz przy starcie, a odczyty kontekstu i zużycia odświeżają się, gdy uruchomienie je zgłasza
 - Poprzednie uruchomienia: zakończone sesje są wypisane przy każdym urządzeniu z „Resume”, więc zakończone uruchomienie można podjąć na nowo
 - Czat bez repozytorium: czat otwarty z panelu „Start coding” nie potrzebuje już repozytorium i działa w tymczasowym folderze wyłącznie z narzędziami Exponential
