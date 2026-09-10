@@ -980,7 +980,7 @@ impl IssueDetailView {
                 .items_center()
                 .min_w_0()
                 .text_sm()
-                .bg(cx.theme().accent.opacity(0.3))
+                .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
                 .border_b_1()
                 .border_color(cx.theme().border)
                 .child(

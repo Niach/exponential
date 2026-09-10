@@ -199,8 +199,8 @@ impl ActionsView {
     ) -> gpui::AnyElement {
         let theme = cx.theme();
         let muted = theme.muted_foreground;
-        // EXP-642: the web `GlassRow` hover (`hover:bg-glass-active/50`).
-        let row_hover = theme.list_active.opacity(0.5);
+        // EXP-811: the ONE row hover, `list_hover` (glass fillRow) on every client.
+        let row_hover = theme.list_hover;
         let run_id = action.id.clone();
 
         // EXP-697 retired the FEED-15 "runs in a repository" glyph: the name

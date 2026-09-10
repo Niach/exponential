@@ -681,7 +681,7 @@ impl DiffView {
         let muted = theme.muted_foreground;
         let danger = theme.danger;
         let green = theme.green.lighten(0.2);
-        let row_hover = theme.list_active.opacity(0.5);
+        let row_hover = theme.list_hover;
         let (letter, letter_color) = status_letter(status.as_ref(), danger);
 
         // The header row is the file's anchor — its index IS `row_index`.

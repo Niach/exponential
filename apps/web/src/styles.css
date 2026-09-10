@@ -146,15 +146,15 @@ html {
   --glass-background-top: #050507;
   --glass-background-bottom: #111114;
   --glass-fill-section: oklch(1 0 0 / 4%);
-  --glass-fill-row: oklch(1 0 0 / 5%);
+  --glass-fill-row: oklch(1 0 0 / 6%);
   --glass-fill-card: oklch(1 0 0 / 6%);
   --glass-fill-panel: oklch(1 0 0 / 4%);
-  --glass-fill-active: oklch(1 0 0 / 9%);
+  --glass-fill-active: oklch(1 0 0 / 11%);
   --glass-stroke-row: oklch(1 0 0 / 6%);
   --glass-stroke-section: oklch(1 0 0 / 8%);
   --glass-stroke-card: oklch(1 0 0 / 10%);
   --glass-stroke-strong: oklch(1 0 0 / 12%);
-  --glass-stroke-active: oklch(1 0 0 / 14%);
+  --glass-stroke-active: oklch(1 0 0 / 16%);
   /* EXP-698 r3: inline-code tint of the agent chat feeds — tokens.json `semantic.code*`. */
   --code-text: #8AB4F8;
   --code-fill: #8AB4F81F;
@@ -244,15 +244,15 @@ html {
   --glass-background-top: #050507;
   --glass-background-bottom: #111114;
   --glass-fill-section: oklch(1 0 0 / 4%);
-  --glass-fill-row: oklch(1 0 0 / 5%);
+  --glass-fill-row: oklch(1 0 0 / 6%);
   --glass-fill-card: oklch(1 0 0 / 6%);
   --glass-fill-panel: oklch(1 0 0 / 4%);
-  --glass-fill-active: oklch(1 0 0 / 9%);
+  --glass-fill-active: oklch(1 0 0 / 11%);
   --glass-stroke-row: oklch(1 0 0 / 6%);
   --glass-stroke-section: oklch(1 0 0 / 8%);
   --glass-stroke-card: oklch(1 0 0 / 10%);
   --glass-stroke-strong: oklch(1 0 0 / 12%);
-  --glass-stroke-active: oklch(1 0 0 / 14%);
+  --glass-stroke-active: oklch(1 0 0 / 16%);
   /* EXP-698 r3: inline-code tint of the agent chat feeds — tokens.json `semantic.code*`. */
   --code-text: #8AB4F8;
   --code-fill: #8AB4F81F;

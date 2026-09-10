@@ -969,7 +969,11 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     blurb: `180–280 wide, padding 4, radius 12. Opaque by construction: the card fill is composited over the popover solid so nothing shows through.`,
     status: {
       web: ok(`DropdownMenuContent`, `apps/web/src/components/ui/dropdown-menu.tsx`),
-      desktop: na(`gpui-component PopupMenu, theme-driven`),
+      desktop: ok(
+        `theme::exponential_dark (accent = glass fillActive)`,
+        `apps/desktop/crates/theme/src/lib.rs`,
+        `PopupMenu reads theme.accent; EXP-811 points it at the glass active fill.`
+      ),
       ios: ok(`GlassMenu + GlassMenuTokens`, `apps/ios/ExpUI/Sources/GlassMenu.swift`),
       android: ok(`GlassDropdownMenu + GlassMenuDefaults`, `${ANDROID_COMPONENTS}/GlassMenu.kt`),
     },

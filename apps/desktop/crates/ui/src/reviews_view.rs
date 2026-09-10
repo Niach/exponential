@@ -466,7 +466,7 @@ impl ReviewsView {
         let fg = theme.foreground;
         let muted = theme.muted_foreground;
         let danger = theme.danger;
-        let row_hover = theme.list_active.opacity(0.5);
+        let row_hover = theme.list_hover;
         let pr_green = theme::tokens::GREEN.to_hsla();
 
         let key = crate::pr_merge::session_merge_key(&run.id);
@@ -616,7 +616,7 @@ impl ReviewsView {
         let fg = theme.foreground;
         let muted = theme.muted_foreground;
         let danger = theme.danger;
-        let row_hover = theme.list_active.opacity(0.5);
+        let row_hover = theme.list_hover;
         let pr_green = theme::tokens::GREEN.to_hsla();
 
         let key = pull_merge_key(repository_id, pull.number);

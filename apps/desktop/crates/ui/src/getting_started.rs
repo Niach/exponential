@@ -1280,8 +1280,8 @@ fn render_suggestion_row(
 ) -> gpui::AnyElement {
     let theme = cx.theme();
     let muted = theme.muted_foreground;
-    // EXP-642: the web `GlassRow` hover (`hover:bg-glass-active/50`).
-    let row_hover = theme.list_active.opacity(0.5);
+    // EXP-811: the ONE row hover, `list_hover` (glass fillRow) on every client.
+    let row_hover = theme.list_hover;
     let description = suggestion.description.to_string();
     let icon = suggestion.icon.to_string();
     // EXP-583: an "Action + automation" seed hands the create dialog a

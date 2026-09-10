@@ -436,7 +436,7 @@ impl MachinesSection {
         // icon · (name · version · default star · "Shared") over the status
         // line · ▶ · ⋯ — `min_w_0` down the name side so only the NAME gives
         // way.
-        let row_hover = theme.list_active.opacity(0.5);
+        let row_hover = theme.list_hover;
         crate::surface::glass_row_card()
             .id(SharedString::from(format!("machine-{}", device.device_id)))
             .flex()
