@@ -49,6 +49,18 @@ class PushDeepLinksTest {
     }
 
     @Test
+    fun `an agent message push targets the inbox`() {
+        assertEquals(
+            PushDeepLinks.Target.Inbox,
+            PushDeepLinks.target(type = PushDeepLinks.TYPE_AGENT_MESSAGE, issueId = null, threadId = null),
+        )
+        assertEquals(
+            "exponential://inbox?userId=user-1",
+            PushDeepLinks.uri(PushDeepLinks.Target.Inbox, "user-1"),
+        )
+    }
+
+    @Test
     fun `a thread id without the support type is ignored`() {
         assertNull(PushDeepLinks.target(type = "issue_comment", issueId = null, threadId = "t1"))
     }

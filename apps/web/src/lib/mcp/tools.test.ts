@@ -207,6 +207,8 @@ vi.mock(`@/lib/integrations/pr-actor-claims`, () => ({
 vi.mock(`@/lib/integrations/activity`, () => ({ recordIssueEvent: vi.fn() }))
 vi.mock(`@/lib/integrations/notifications`, () => ({
   fireAndForgetPrNotify: vi.fn(),
+  // EXP-801: the synchronous agent-message fan-out.
+  sendAgentMessage: vi.fn(),
 }))
 vi.mock(`@/lib/widget/agent-report`, () => ({
   createAgentBugReport: h.createAgentBugReport,
@@ -232,7 +234,10 @@ vi.mock(`@/lib/steer-child-messages`, async (importOriginal) => ({
 import { loadRepositoryForTeam } from "@/lib/trpc/repositories"
 import { recordIssueEvent } from "@/lib/integrations/activity"
 import { applyPrLifecycleStatusInTx } from "@/lib/integrations/pr-sync"
-import { fireAndForgetPrNotify } from "@/lib/integrations/notifications"
+import {
+  fireAndForgetPrNotify,
+  sendAgentMessage,
+} from "@/lib/integrations/notifications"
 import { noteAgentIssueActivity } from "@/lib/integrations/pr-actor-claims"
 import { endSessionByAgent } from "@/lib/coding-session-end"
 import { getSteerRelayConfig, relayPostInput } from "@/lib/steer"
@@ -802,6 +807,92 @@ describe(`exponential_notifications_list`, () => {
     const { sql } = new PgDialect().sqlToQuery(state.capturedWhere as never)
     expect(sql).toContain(`"board_deleted_at" is null`)
     expect(sql).toContain(`"board_archived_at" is null`)
+  })
+})
+
+// ── notifications_send (EXP-801) ─────────────────────────────────────────────
+
+describe(`exponential_notifications_send`, () => {
+  const send = vi.mocked(sendAgentMessage)
+  beforeEach(() => {
+    send.mockReset()
+    dbRows.current = [
+      { id: `user-1`, email: `u@example.com` },
+      { id: `user-2`, email: `Two@Example.com` },
+    ]
+  })
+
+  it(`resolves ids and emails against the team's members and reports each bucket`, async () => {
+    send.mockResolvedValue({
+      delivered: [`user-2`],
+      declined: [],
+      notMembers: [],
+      deduped: [`user-1`],
+    })
+    const result = await tool(`exponential_notifications_send`)({
+      teamId: WS,
+      recipients: [`user-1`, `two@example.com`, `ghost@example.com`],
+      title: `  Build finished  `,
+      body: `All green.`,
+    })
+    expect(parseOk(result)).toEqual({
+      ok: true,
+      delivered: [{ id: `user-2`, email: `Two@Example.com` }],
+      declined: [],
+      deduped: [{ id: `user-1`, email: `u@example.com` }],
+      notMembers: [],
+      unknown: [`ghost@example.com`],
+    })
+    expect(send).toHaveBeenCalledWith({
+      teamId: WS,
+      senderUserId: `user-1`,
+      recipientIds: [`user-1`, `user-2`],
+      title: `Build finished`,
+      body: `All green.`,
+    })
+    expect(membership.resolveTeamAccess).toHaveBeenCalledWith(`user-1`, WS)
+  })
+
+  it(`reports a recipient who blocked teammates' agents as declined, not an error`, async () => {
+    send.mockResolvedValue({
+      delivered: [],
+      declined: [`user-2`],
+      notMembers: [],
+      deduped: [],
+    })
+    const result = await tool(`exponential_notifications_send`)({
+      teamId: WS,
+      recipients: [`user-2`],
+      title: `Ping`,
+    })
+    expect(parseOk(result)).toMatchObject({
+      ok: false,
+      declined: [{ id: `user-2`, email: `Two@Example.com` }],
+    })
+  })
+
+  it(`refuses when no recipient is a member, without sending`, async () => {
+    const result = await tool(`exponential_notifications_send`)({
+      teamId: WS,
+      recipients: [`nobody@example.com`],
+      title: `Ping`,
+    })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`exponential_members_list`)
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it(`denies a non-member sender before touching the fan-out`, async () => {
+    membership.resolveTeamAccess.mockRejectedValueOnce(
+      new TRPCError({ code: `FORBIDDEN`, message: `Not a member` })
+    )
+    const result = await tool(`exponential_notifications_send`)({
+      teamId: WS,
+      recipients: [`user-2`],
+      title: `Ping`,
+    })
+    expect(result.isError).toBe(true)
+    expect(send).not.toHaveBeenCalled()
   })
 })
 

@@ -54,6 +54,16 @@ struct InboxListContent: View {
                                 }
                                 viewModel.markSupportGroupRead(group)
                             })
+                        case .message(let entry):
+                            // An agent's message (EXP-801) opens nothing —
+                            // the row IS the content; tapping marks it read.
+                            Button {
+                                viewModel.markMessageRead(entry)
+                            } label: {
+                                messageRow(entry)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("notification-row")
                         }
                     }
                 }
@@ -173,6 +183,59 @@ struct InboxListContent: View {
         .opacity(unread ? 1 : 0.6)
     }
 
+    /// One agent message row (EXP-801): the bot badge, the sentence
+    /// ("Ada's agent: Build finished") as the headline, the team name when
+    /// the user is in more than one team, the body underneath.
+    private func messageRow(_ entry: InboxViewModel.MessageEntry) -> some View {
+        let unread = entry.unread > 0
+        let n = entry.notification
+        return HStack(alignment: .top, spacing: 10) {
+            AppIcon(AppIcons.notificationAgentMessage, size: AppIcon.Size.small)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .frame(width: 28, height: 28)
+                .background(Color.white.opacity(0.08), in: Circle())
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(n.title)
+                        .font(.subheadline.weight(unread ? .semibold : .regular))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    if let teamName = entry.teamName, viewModel.hasMultipleTeams {
+                        Text(teamName)
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            .lineLimit(1)
+                    }
+                }
+                if let body = n.body, !body.isEmpty {
+                    Text(body)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .lineLimit(2)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            HStack(spacing: 6) {
+                Text(relativeDate(n.createdAt))
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                if unread {
+                    Circle()
+                        .fill(DesignTokens.Palette.primary)
+                        .frame(width: 8, height: 8)
+                }
+            }
+            .padding(.top, 3)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .opacity(unread ? 1 : 0.6)
+    }
+
     /// Locked cross-platform type → shared-registry icon mapping (EXP-273).
     private func typeIcon(_ type: String?) -> String {
         switch type {
@@ -190,6 +253,8 @@ struct InboxListContent: View {
             return AppIcons.notificationPrOpened
         case DomainContract.notificationTypePrMerged:
             return AppIcons.notificationPrMerged
+        case DomainContract.notificationTypeAgentMessage:
+            return AppIcons.notificationAgentMessage
         default:
             return AppIcons.navNotifications
         }

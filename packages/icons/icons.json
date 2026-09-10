@@ -157,6 +157,7 @@
     "notification-pr-opened": "git-pull-request",
     "notification-pr-merged": "git-merge",
     "notification-support-reply": "life-buoy",
+    "notification-agent-message": "bot",
     "notification-mark-read": "list-checks",
     "notification-mute": "bell-off",
 

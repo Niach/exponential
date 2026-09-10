@@ -119,6 +119,7 @@ export const notificationsRouter = router({
       typePrefs: prefs.typePrefs,
       digest: prefs.digest,
       digestHour: prefs.digestHour,
+      allowAgentMessages: prefs.allowAgentMessages,
       transportConfigured: emailEnabled,
     }
   }),
@@ -132,6 +133,9 @@ export const notificationsRouter = router({
         // Local hour the daily digest goes out at — FULL HOURS only, so the
         // 10-minute sweep can resolve every user's send point.
         digestHour: z.number().int().min(0).max(23).optional(),
+        // EXP-801: false BLOCKS other members' agents from messaging this
+        // user over MCP (no inbox row, no push) — not a delivery mute.
+        allowAgentMessages: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -141,6 +145,7 @@ export const notificationsRouter = router({
         typePrefs: prefs.typePrefs,
         digest: prefs.digest,
         digestHour: prefs.digestHour,
+        allowAgentMessages: prefs.allowAgentMessages,
         transportConfigured: emailEnabled,
       }
     }),

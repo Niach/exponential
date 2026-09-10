@@ -19,7 +19,7 @@ object DomainContract {
     val boardIconValues: List<String> = listOf("code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle", "palette", "pen-tool", "database", "server", "cloud", "cpu", "layers", "boxes", "folder", "file-text", "calendar", "clock", "users", "user", "flag", "target", "trophy", "lock", "key", "mail", "phone", "bell", "git-branch", "bot", "sparkles", "flask-conical", "shopping-cart", "credit-card", "map-pin", "compass", "briefcase", "graduation-cap", "puzzle", "gamepad-2", "coffee", "plane", "house", "building", "leaf", "sun", "activity", "chart-line", "scale", "car")
     val commentKindValues: List<String> = listOf("regular")
     val commentSourceValues: List<String> = listOf("user", "mcp")
-    val notificationTypeValues: List<String> = listOf("issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged", "support_reply")
+    val notificationTypeValues: List<String> = listOf("issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged", "support_reply", "agent_message")
     val prStateValues: List<String> = listOf("open", "closed", "merged", "draft")
     val codingSessionStatusValues: List<String> = listOf("running", "in_review", "ended")
     val codingSessionEndedByValues: List<String> = listOf("agent", "user", "client", "merge", "system")
@@ -93,6 +93,7 @@ object DomainContract {
     const val notificationTypePrOpened: String = "pr_opened"
     const val notificationTypePrMerged: String = "pr_merged"
     const val notificationTypeSupportReply: String = "support_reply"
+    const val notificationTypeAgentMessage: String = "agent_message"
     const val prStateOpen: String = "open"
     const val prStateClosed: String = "closed"
     const val prStateMerged: String = "merged"

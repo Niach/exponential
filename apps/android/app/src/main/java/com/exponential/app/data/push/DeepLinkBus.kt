@@ -22,6 +22,10 @@ class DeepLinkBus @Inject constructor() {
         // so it works whichever team of the active account it belongs to).
         data class SupportThread(val id: String) : Target
 
+        // exponential://inbox — an agent_message push tap (EXP-801). The row
+        // renders in the My Work inbox and nowhere else.
+        data object Inbox : Target
+
         // A verified https App Link (EXP-92): carries the web URL's slugs +
         // identifier; AppNavHost resolves them against the local DB of the
         // account matching `host` (falling back to a Custom Tab). `uri` is
@@ -70,6 +74,10 @@ class DeepLinkBus @Inject constructor() {
 
     fun openSupportThread(id: String) {
         _target.value = Target.SupportThread(id)
+    }
+
+    fun openInbox() {
+        _target.value = Target.Inbox
     }
 
     fun openWebIssueRef(

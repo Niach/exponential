@@ -70,6 +70,17 @@ sealed interface InboxEntry {
         override val unread: Int get() = group.unread
         override val key: String get() = "support:${group.teamId ?: "generic"}"
     }
+
+    /**
+     * One agent message (EXP-801): an issue-less `agent_message` row is its
+     * own entry — never bundled, each is a distinct thing someone's agent
+     * said. Tapping marks it read; there is nowhere to navigate.
+     * `teamName` resolves the row's synced team (null when unknown).
+     */
+    data class Message(val notification: NotificationEntity, val teamName: String?) : InboxEntry {
+        override val unread: Int get() = if (notification.readAt == null) 1 else 0
+        override val key: String get() = "message:${notification.id}"
+    }
 }
 
 data class InboxState(
@@ -81,6 +92,7 @@ data class InboxState(
 private sealed interface GroupKey {
     data class Issue(val issueId: String) : GroupKey
     data class Support(val teamId: String?) : GroupKey
+    data class Message(val notificationId: String) : GroupKey
 }
 
 /**
@@ -102,10 +114,15 @@ internal fun buildInboxState(
         val iid = n.issueId
         val key = if (iid == null) {
             // Issue-less rows are the helpdesk fan-out (`support_reply`,
-            // EXP-180) — group them per ticket team instead of dropping them.
-            // NULL/unknown team ids collapse into one generic bucket.
-            if (n.type != DomainContract.notificationTypeSupportReply) continue
-            GroupKey.Support(n.teamId?.takeIf { teamMap.containsKey(it) })
+            // EXP-180) — grouped per ticket team instead of dropped, with
+            // NULL/unknown team ids collapsing into one generic bucket — or
+            // an agent's message (`agent_message`, EXP-801), one entry each.
+            when (n.type) {
+                DomainContract.notificationTypeSupportReply ->
+                    GroupKey.Support(n.teamId?.takeIf { teamMap.containsKey(it) })
+                DomainContract.notificationTypeAgentMessage -> GroupKey.Message(n.id)
+                else -> continue
+            }
         } else {
             if (!issueMap.containsKey(iid)) continue
             GroupKey.Issue(iid)
@@ -125,6 +142,10 @@ internal fun buildInboxState(
                     notifications = ns,
                     unread = unread,
                 ),
+            )
+            is GroupKey.Message -> InboxEntry.Message(
+                notification = ns.single(),
+                teamName = ns.single().teamId?.let { teamMap[it]?.name },
             )
         }
     }
@@ -163,6 +184,9 @@ class InboxViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), InboxState())
 
     fun markGroupRead(group: InboxGroup) = markRead(group.notifications)
+
+    /** Tap on an agent message (EXP-801): mark that one row read. */
+    fun markMessageRead(notification: NotificationEntity) = markRead(listOf(notification))
 
     /**
      * Tap on a Support group: mark it read and select its team (when known)

@@ -1968,6 +1968,10 @@ export const userNotificationPrefs = pgTable(`user_notification_prefs`, {
   // Local hour (0–23, full hours only) the DAILY digest goes out at, read in
   // the user's `users.timezone`. Ignored by the legacy hourly (`off`) cadence.
   digestHour: integer(`digest_hour`).notNull().default(8),
+  // EXP-801: may OTHER members' agents send this user an `agent_message`
+  // over MCP? False blocks the send outright (no inbox row, no push) — unlike
+  // type_prefs, which only mutes delivery. The user's own agents always pass.
+  allowAgentMessages: boolean(`allow_agent_messages`).notNull().default(true),
   // Stable per-user secret embedded in one-click List-Unsubscribe links.
   unsubscribeToken: varchar(`unsubscribe_token`, { length: 64 })
     .notNull()

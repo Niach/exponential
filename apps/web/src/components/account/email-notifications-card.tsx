@@ -78,6 +78,10 @@ export function EmailNotificationsCard({
   >(emailPrefs.typePrefs ?? {})
   const [digest, setDigest] = useState(emailPrefs.digest)
   const [digestHour, setDigestHour] = useState(emailPrefs.digestHour)
+  // EXP-801: servers predating the pref omit the field — treat as allowed.
+  const [allowAgentMessages, setAllowAgentMessages] = useState(
+    emailPrefs.allowAgentMessages !== false
+  )
   const transportConfigured = emailPrefs.transportConfigured
 
   const handleEmailEnabled = (next: boolean) => {
@@ -106,6 +110,13 @@ export function EmailNotificationsCard({
     setDigestHour(next)
     void trpc.notifications.updateEmailPrefs
       .mutate({ digestHour: next })
+      .catch((err) => console.error(`[prefs] update failed:`, err))
+  }
+
+  const handleAllowAgentMessages = (next: boolean) => {
+    setAllowAgentMessages(next)
+    void trpc.notifications.updateEmailPrefs
+      .mutate({ allowAgentMessages: next })
       .catch((err) => console.error(`[prefs] update failed:`, err))
   }
 
@@ -161,6 +172,20 @@ export function EmailNotificationsCard({
             disabled={!transportConfigured}
           />
         ))}
+      </GlassGroup>
+
+      {/* EXP-801: a BLOCK, not a delivery mute — off means another member's
+          agent cannot message this user over MCP at all (no inbox row, no
+          push). The user's own agents always get through, so the row stays
+          live whatever the email transport says. */}
+      <GlassGroup>
+        <GlassToggleRow
+          id="allow-agent-messages"
+          label="Messages from teammates' agents"
+          description="Let other members' agents send you a notification over MCP. Your own agents can always reach you."
+          checked={allowAgentMessages}
+          onCheckedChange={handleAllowAgentMessages}
+        />
       </GlassGroup>
 
       <GlassGroup>

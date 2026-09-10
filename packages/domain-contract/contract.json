@@ -171,7 +171,8 @@
       "issue_created",
       "pr_opened",
       "pr_merged",
-      "support_reply"
+      "support_reply",
+      "agent_message"
     ]
   },
   "prState": {

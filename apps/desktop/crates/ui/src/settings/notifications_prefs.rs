@@ -2,7 +2,8 @@
 //!
 //! Web parity: `routes/_authenticated/account/notifications.tsx` — a master
 //! email `Switch`, the eight per-type rows (labels + hints verbatim), the
-//! delivery cadence select and (EXP-369) the daily send-time hour.
+//! EXP-801 "messages from teammates' agents" block, the delivery cadence
+//! select and (EXP-369) the daily send-time hour.
 //! **Desktop-only, no web counterpart:** the "Desktop notifications" row
 //! above the email group (EXP-638) — the per-MACHINE switch for real OS
 //! notifications, persisted in the local settings.json
@@ -252,6 +253,21 @@ impl NotificationsPrefsPane {
         );
     }
 
+    /// EXP-801: the "messages from teammates' agents" block — a BLOCK, not
+    /// a delivery mute, so it stays live whatever the mail transport says.
+    fn set_allow_agent_messages(&mut self, allowed: bool, cx: &mut gpui::Context<Self>) {
+        self.apply(
+            |prefs| {
+                prefs.allow_agent_messages = Some(allowed);
+                UpdateEmailPrefsInput {
+                    allow_agent_messages: Some(allowed),
+                    ..Default::default()
+                }
+            },
+            cx,
+        );
+    }
+
     fn set_digest_hour(&mut self, hour: i64, cx: &mut gpui::Context<Self>) {
         self.apply(
             |prefs| {
@@ -391,6 +407,28 @@ impl Render for NotificationsPrefsPane {
                     ));
                 }
                 body = body.child(glass_group_rows(rows));
+
+                // EXP-801: web's "Messages from teammates' agents" group —
+                // off means another member's agent cannot message this
+                // account over MCP at all (no inbox row, no push); the
+                // account's own agents always get through. Absent on an
+                // older server reads as allowed (the server default).
+                let allow_agent_messages = prefs.allow_agent_messages.unwrap_or(true);
+                body = body.child(glass_group_rows(vec![glass_toggle_row(
+                    "Messages from teammates' agents",
+                    Some(
+                        "Let other members' agents send you a notification over MCP. \
+                         Your own agents can always reach you."
+                            .into(),
+                    ),
+                    Switch::new("allow-agent-messages")
+                        .checked(allow_agent_messages)
+                        .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.set_allow_agent_messages(*checked, cx);
+                        }))
+                        .into_any_element(),
+                    cx,
+                )]));
 
                 let digest = prefs.digest.clone().unwrap_or_else(|| DIGEST_OFF.to_string());
                 let digest_label: SharedString = if digest == DIGEST_DAILY {

@@ -562,3 +562,9 @@ export function buildIssueDeepLinkPath(args: {
 export function buildSupportDeepLinkPath(teamSlug: string): string {
   return `/t/${encodeURIComponent(teamSlug)}/support`
 }
+
+// The team's Inbox — the link target for issue-less `agent_message` digest
+// items (EXP-801): the row renders there, and nowhere else.
+export function buildInboxDeepLinkPath(teamSlug: string): string {
+  return `/t/${encodeURIComponent(teamSlug)}/inbox`
+}

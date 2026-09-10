@@ -21,7 +21,10 @@ import {
   notificationTypeAllowed,
   shouldSendReporterResolution,
 } from "@/lib/notification-email-policy"
-import { getTypePrefsMap } from "@/lib/notification-prefs"
+import {
+  getAgentMessageBlocklist,
+  getTypePrefsMap,
+} from "@/lib/notification-prefs"
 import { peekAgentIssueActors } from "@/lib/integrations/pr-actor-claims"
 import { recordNotificationFanout } from "@/lib/metrics/registry"
 import type { NotificationType } from "@/lib/domain"
@@ -730,11 +733,15 @@ async function deliverToTeam(args: {
   title: string
   body: string | null
   pushData: Record<string, string>
-}): Promise<void> {
+}): Promise<TeamDelivery> {
   const recipients = await deliverableRecipients(args.teamId, [
     ...new Set(args.recipientIds),
   ])
-  if (recipients.length === 0) return
+  const outcome: TeamDelivery = {
+    members: recipients,
+    delivered: [],
+  }
+  if (recipients.length === 0) return outcome
 
   const now = new Date()
 
@@ -769,12 +776,13 @@ async function deliverToTeam(args: {
     requested: recipients.length,
     inserted: delivered.length,
   })
-  if (delivered.length === 0) return
+  outcome.delivered = delivered.map((d) => d.userId)
+  if (delivered.length === 0) return outcome
 
   // Same EXP-264 contract as deliver(): each recipient's push carries the id
   // of the row that was actually written for them.
   const pushable = await pushRecipients(delivered, args.type)
-  if (pushable.length === 0) return
+  if (pushable.length === 0) return outcome
   await sendToUsers(
     pushable.map((d) => ({
       userId: d.userId,
@@ -788,6 +796,79 @@ async function deliverToTeam(args: {
   ).catch((err) => {
     console.error(`[notify] push fan-out failed:`, err)
   })
+  return outcome
+}
+
+// What deliverToTeam did, for callers that answer synchronously (EXP-801):
+// `members` = the requested ids that passed the membership guard, `delivered`
+// = those that got a NEW row (the rest hit the dedupe window).
+interface TeamDelivery {
+  members: string[]
+  delivered: string[]
+}
+
+/** Per-recipient result of one `sendAgentMessage` call. Every requested id
+ * lands in exactly one bucket. */
+export interface AgentMessageOutcome {
+  delivered: string[]
+  /** Turned off "messages from teammates' agents" — nothing was written. */
+  declined: string[]
+  /** Not (or no longer) a member of the team. */
+  notMembers: string[]
+  /** An identical message reached them inside the dedupe window. */
+  deduped: string[]
+}
+
+/**
+ * EXP-801: an agent messages team members (or its own user) over MCP —
+ * `exponential_notifications_send`. Synchronous, unlike the fire-and-forget
+ * fan-outs: the agent gets told who received it. An issue-less inbox row
+ * (`agent_message`, team-scoped like support_reply) + the usual push-first
+ * delivery (per-type prefs still mute push; email follows via the digest).
+ * The recipient's `allow_agent_messages` pref is a BLOCK, not a mute: a
+ * declined recipient gets no row at all. The sender's own user always
+ * passes — asking your own agent to ping you is the whole point.
+ */
+export async function sendAgentMessage(args: {
+  teamId: string
+  senderUserId: string
+  recipientIds: string[]
+  title: string
+  body: string | null
+}): Promise<AgentMessageOutcome> {
+  const requested = [...new Set(args.recipientIds)]
+  const [team] = await db
+    .select({ slug: teams.slug })
+    .from(teams)
+    .where(eq(teams.id, args.teamId))
+    .limit(1)
+  if (!team) throw new Error(`Team not found`)
+
+  const blocked = await getAgentMessageBlocklist(
+    requested.filter((id) => id !== args.senderUserId)
+  )
+  const declined = requested.filter((id) => blocked.has(id))
+  const candidates = requested.filter((id) => !blocked.has(id))
+
+  const name = await actorName(args.senderUserId)
+  const result = await deliverToTeam({
+    teamId: args.teamId,
+    recipientIds: candidates,
+    type: `agent_message`,
+    // The row carries no actor column, so the sentence names the sender —
+    // the reader must know whose agent is talking (and whom to mute).
+    title: `${name}'s agent: ${args.title}`,
+    body: args.body,
+    pushData: { teamId: args.teamId, teamSlug: team.slug },
+  })
+  const members = new Set(result.members)
+  const delivered = new Set(result.delivered)
+  return {
+    delivered: candidates.filter((id) => delivered.has(id)),
+    declined,
+    notMembers: candidates.filter((id) => !members.has(id)),
+    deduped: candidates.filter((id) => members.has(id) && !delivered.has(id)),
+  }
 }
 
 /**

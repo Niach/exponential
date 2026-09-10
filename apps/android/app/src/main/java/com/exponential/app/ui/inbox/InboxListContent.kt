@@ -89,6 +89,11 @@ fun InboxListContent(
                         viewModel.markGroupRead(entry.group)
                         onOpenIssue(entry.group.issue.id)
                     }
+                    // An agent's message (EXP-801) opens nothing — the row IS
+                    // the content; tapping marks it read.
+                    is InboxEntry.Message -> MessageInboxRow(entry) {
+                        viewModel.markMessageRead(entry.notification)
+                    }
                 }
             }
         }
@@ -198,6 +203,65 @@ private fun SupportInboxRow(group: SupportGroup, onClick: () -> Unit) {
     }
 }
 
+/**
+ * One agent message row (EXP-801): the bot badge, the sentence ("Ada's
+ * agent: Build finished") as the headline, the team name when known, the
+ * body underneath. Same unread styling as the other rows.
+ */
+@Composable
+private fun MessageInboxRow(entry: InboxEntry.Message, onClick: () -> Unit) {
+    val read = entry.unread == 0
+    val n = entry.notification
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .testTag("notification-row")
+            .alpha(if (read) 0.6f else 1f)
+            .glassRow()
+            .clickable(onClick = onClick)
+            .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TypeIconBadge(ExpIcons.notificationAgentMessage)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    n.title,
+                    fontWeight = if (read) FontWeight.Normal else FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (entry.teamName != null) {
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        entry.teamName,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            val body = n.body
+            if (!body.isNullOrBlank()) {
+                Text(
+                    body,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        Spacer(Modifier.width(8.dp))
+        TrailingTimeAndDot(time = relativeTime(n.createdAt), unread = entry.unread)
+    }
+}
+
 /** Circular muted container with a small type icon (shared row leading). */
 @Composable
 private fun TypeIconBadge(icon: ImageVector) {
@@ -261,5 +325,6 @@ private fun notificationTypeIcon(type: String): ImageVector = when (type) {
     DomainContract.notificationTypePrOpened -> ExpIcons.notificationPrOpened
     DomainContract.notificationTypePrMerged -> ExpIcons.notificationPrMerged
     DomainContract.notificationTypeSupportReply -> ExpIcons.notificationSupportReply
+    DomainContract.notificationTypeAgentMessage -> ExpIcons.notificationAgentMessage
     else -> ExpIcons.navNotifications
 }

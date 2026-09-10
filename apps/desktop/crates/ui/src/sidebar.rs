@@ -2110,6 +2110,10 @@ fn notification_type_icon(kind: Option<&str>) -> Icon {
         Some(domain::contract::NOTIFICATION_TYPE_SUPPORT_REPLY) => {
             Icon::from(ExpIcon::MessageSquare)
         }
+        // EXP-801: an agent's message — the registry's bot glyph.
+        Some(domain::contract::NOTIFICATION_TYPE_AGENT_MESSAGE) => {
+            Icon::new(registry::NOTIFICATION_AGENT_MESSAGE)
+        }
         _ => Icon::new(registry::NAV_NOTIFICATIONS),
     }
 }
@@ -2353,6 +2357,7 @@ impl SidebarPanel {
                 .map(|entry| match entry {
                     queries::InboxEntry::Issue(group) => self.inbox_issue_row(group, cx),
                     queries::InboxEntry::Support(group) => self.inbox_support_row(group, cx),
+                    queries::InboxEntry::Message(entry) => self.inbox_message_row(entry, cx),
                 })
                 .collect();
             div()
@@ -2630,6 +2635,130 @@ impl SidebarPanel {
                             .text_color(theme.muted_foreground)
                             .child(sentence),
                     ),
+            )
+            .child(
+                h_flex()
+                    .flex_shrink_0()
+                    .items_center()
+                    .gap_1p5()
+                    .pt_0p5()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child(time),
+                    )
+                    .child(
+                        div()
+                            .size_2()
+                            .flex_shrink_0()
+                            .rounded_full()
+                            .when(unread, |this| this.bg(theme.primary)),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    /// One agent message row (EXP-801): the bot badge, the sentence ("Ada's
+    /// agent: Build finished") as the headline, the team name when synced,
+    /// the body underneath. Click marks the row read — the row IS the
+    /// content, there is nowhere to go.
+    fn inbox_message_row(
+        &self,
+        entry: &queries::MessageInboxEntry,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let theme = cx.theme();
+        let theme_radius = theme.radius;
+        let unread = entry.unread() > 0;
+        let unread_ids: Vec<String> = if unread {
+            vec![entry.item.id.clone()]
+        } else {
+            Vec::new()
+        };
+        let time: SharedString = entry
+            .item
+            .created_at
+            .as_deref()
+            .map(crate::inbox::relative_time)
+            .unwrap_or_default()
+            .into();
+        let sentence: SharedString = entry.item.title.clone().unwrap_or_default().into();
+        let body: Option<SharedString> = entry
+            .item
+            .body
+            .clone()
+            .filter(|body| !body.trim().is_empty())
+            .map(Into::into);
+        let team_name: Option<SharedString> = entry.team_name.clone().map(Into::into);
+        let type_icon =
+            notification_type_icon(Some(domain::contract::NOTIFICATION_TYPE_AGENT_MESSAGE));
+        h_flex()
+            .id(SharedString::from(format!("mini-inbox-message-{}", entry.item.id)))
+            .w_full()
+            .items_start()
+            .gap_2()
+            .px_2()
+            .py_1p5()
+            .rounded(theme_radius)
+            .hover(|this| this.bg(theme.list_hover))
+            .cursor_pointer()
+            .on_click(cx.listener(move |_, _, _, cx| {
+                mark_group_read(&unread_ids, cx);
+            }))
+            .child(
+                h_flex()
+                    .size_6()
+                    .flex_shrink_0()
+                    .items_center()
+                    .justify_center()
+                    .rounded_full()
+                    .bg(theme.muted)
+                    .child(type_icon.xsmall().text_color(theme.muted_foreground)),
+            )
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .items_center()
+                            .gap_1p5()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_xs()
+                                    .truncate()
+                                    .when(unread, |this| this.font_weight(FontWeight::MEDIUM))
+                                    .text_color(if unread {
+                                        theme.foreground
+                                    } else {
+                                        theme.muted_foreground
+                                    })
+                                    .child(sentence),
+                            )
+                            .when_some(team_name, |this, name| {
+                                this.child(
+                                    div()
+                                        .flex_shrink_0()
+                                        .text_xs()
+                                        .text_color(theme.muted_foreground)
+                                        .child(name),
+                                )
+                            }),
+                    )
+                    .when_some(body, |this, body| {
+                        this.child(
+                            div()
+                                .w_full()
+                                .text_xs()
+                                .truncate()
+                                .text_color(theme.muted_foreground)
+                                .child(body),
+                        )
+                    }),
             )
             .child(
                 h_flex()

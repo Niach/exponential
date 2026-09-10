@@ -31,16 +31,29 @@ final class InboxViewModel {
         var latest: NotificationEntity? { notifications.first }
     }
 
-    /// One merged stream (web parity): issue groups and Support groups
-    /// interleaved by latest activity, newest first.
+    /// One agent message (EXP-801): an issue-less `agent_message` row is its
+    /// own entry — never bundled, each is a distinct thing someone's agent
+    /// said. Tapping marks it read; there is nowhere to navigate.
+    struct MessageEntry: Identifiable {
+        let notification: NotificationEntity
+        /// Resolved team name (nil when unresolved); shown only with >1 team.
+        let teamName: String?
+        var id: String { "message:\(notification.id)" }
+        var unread: Int { notification.readAt == nil ? 1 : 0 }
+    }
+
+    /// One merged stream (web parity): issue groups, Support groups and
+    /// agent messages interleaved by latest activity, newest first.
     enum Entry: Identifiable {
         case issue(Group)
         case support(SupportGroup)
+        case message(MessageEntry)
 
         var id: String {
             switch self {
             case .issue(let group): return "issue:\(group.id)"
             case .support(let group): return group.id
+            case .message(let entry): return entry.id
             }
         }
 
@@ -48,6 +61,7 @@ final class InboxViewModel {
             switch self {
             case .issue(let group): return group.unread
             case .support(let group): return group.unread
+            case .message(let entry): return entry.unread
             }
         }
     }
@@ -131,12 +145,14 @@ final class InboxViewModel {
     /// issue-keyed rows need their issue in the local store (the notifications
     /// shape is static per user, so delivered rows outlive membership and a
     /// left team's rows keep syncing without their issues), and issue-less
-    /// rows are helpdesk support replies. MainNavigator's tab-bar dot applies
-    /// the same rule (REV-15) so the dot can never stay lit over an inbox
-    /// that shows "You're all caught up" with no Mark-all-read escape.
+    /// rows are helpdesk support replies or agent messages (EXP-801).
+    /// MainNavigator's tab-bar dot applies the same rule (REV-15) so the dot
+    /// can never stay lit over an inbox that shows "You're all caught up"
+    /// with no Mark-all-read escape.
     nonisolated static func isRenderable(_ notification: NotificationEntity, issueIds: Set<String>) -> Bool {
         guard let issueId = notification.issueId else {
             return notification.type == DomainContract.notificationTypeSupportReply
+                || notification.type == DomainContract.notificationTypeAgentMessage
         }
         return issueIds.contains(issueId)
     }
@@ -152,12 +168,19 @@ final class InboxViewModel {
         var byIssue: [String: [NotificationEntity]] = [:]
         // Keyed by resolved team id; "" is the generic (NULL/unknown) bucket.
         var supportByTeam: [String: [NotificationEntity]] = [:]
+        var messagesById: [String: NotificationEntity] = [:]
         for n in sorted {
             guard Self.isRenderable(n, issueIds: issueIds) else { continue }
             guard let iid = n.issueId else {
-                // Issue-less rows: only support_reply is expected (helpdesk
+                // Issue-less rows: an agent message (EXP-801) is one entry
+                // per row; everything else here is support_reply (helpdesk
                 // tickets have no issue). A team_id that doesn't resolve to a
                 // synced team collapses into the generic group — web parity.
+                if n.type == DomainContract.notificationTypeAgentMessage {
+                    order.append("message:\(n.id)")
+                    messagesById[n.id] = n
+                    continue
+                }
                 let teamKey = n.teamId.flatMap { teamsById[$0]?.id } ?? ""
                 if supportByTeam[teamKey] == nil {
                     order.append("support:\(teamKey)")
@@ -174,6 +197,12 @@ final class InboxViewModel {
         }
         hasMultipleTeams = teams.count > 1
         entries = order.compactMap { key in
+            if key.hasPrefix("message:") {
+                let id = String(key.dropFirst("message:".count))
+                guard let n = messagesById[id] else { return nil }
+                let teamName = n.teamId.flatMap { teamsById[$0]?.name }
+                return .message(MessageEntry(notification: n, teamName: teamName))
+            }
             if key.hasPrefix("support:") {
                 let teamKey = String(key.dropFirst("support:".count))
                 guard let ns = supportByTeam[teamKey] else { return nil }
@@ -195,6 +224,10 @@ final class InboxViewModel {
 
     func markSupportGroupRead(_ group: SupportGroup) {
         markRead(group.notifications)
+    }
+
+    func markMessageRead(_ entry: MessageEntry) {
+        markRead([entry.notification])
     }
 
     private func markRead(_ notifications: [NotificationEntity]) {
