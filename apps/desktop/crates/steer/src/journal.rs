@@ -145,7 +145,7 @@ impl ActivityJournal {
         // (EXP-483), so a replay must keep the same position too; moving it
         // to the tail would reorder it behind later narration.
         let re_emitted = match &event {
-            ActivityEvent::Question { id: Some(id), .. } => self
+            ActivityEvent::Question { id, .. } => self
                 .entries
                 .iter()
                 .position(|entry| entry.pinned_question.as_deref() == Some(id.as_str())),
@@ -167,7 +167,7 @@ impl ActivityJournal {
         }
         let bytes = serialized_bytes(&event);
         let pinned_question = match &event {
-            ActivityEvent::Question { id, .. } => id.clone(),
+            ActivityEvent::Question { id, .. } => Some(id.clone()),
             _ => None,
         };
         // EXP-748: a tool call the agent attributed to a subagent — the only
@@ -426,7 +426,7 @@ mod tests {
             options: vec![QuestionOption::new("Yes", "1")],
             multi_select: None,
             plan_mode: None,
-            id: Some(id.to_string()),
+            id: id.to_string(),
             ask_id: id.split_once('#').map(|(ask, _)| ask.to_string()),
             index: None,
             total: None,
@@ -610,7 +610,7 @@ mod tests {
             ],
             multi_select: None,
             plan_mode: None,
-            id: Some("toolu_1#0".to_string()),
+            id: "toolu_1#0".to_string(),
             ask_id: Some("toolu_1".to_string()),
             index: None,
             total: None,

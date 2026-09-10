@@ -1048,8 +1048,6 @@ export interface DeviceLaunchDefaults {
 // key from a newer or older client is dropped, not a reason to 400 the
 // register.
 export const deviceLaunchDefaultsSchema = z.object({
-  // EXP-773 removed `startInTerminal`: the strip-mode object above means an
-  // older desktop still sending it is simply dropped, never a 400.
   defaultAgent: z.string().min(1).max(32).nullish(),
   agents: z
     .record(

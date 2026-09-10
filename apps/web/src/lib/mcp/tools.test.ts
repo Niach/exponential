@@ -186,9 +186,6 @@ vi.mock(`@/lib/billing`, () => ({
 // pr_open-only deps — mocked so the module import stays side-effect free.
 vi.mock(`@/lib/integrations/github-pr`, () => ({
   createPullRequest: vi.fn(),
-  // EXP-639: pr_merge reads a chore PR's head ref to decide whether the
-  // caller is merging its OWN PR.
-  getPullRequest: vi.fn(),
 }))
 vi.mock(`@/lib/integrations/github-app`, () => ({
   resolveRepoInstallationToken: vi.fn(),
@@ -240,10 +237,7 @@ import { noteAgentIssueActivity } from "@/lib/integrations/pr-actor-claims"
 import { endSessionByAgent } from "@/lib/coding-session-end"
 import { getSteerRelayConfig, relayPostInput } from "@/lib/steer"
 import { notifyParentOfChildEnd } from "@/lib/steer-child-messages"
-import {
-  createPullRequest,
-  getPullRequest,
-} from "@/lib/integrations/github-pr"
+import { createPullRequest } from "@/lib/integrations/github-pr"
 import { resolveRepoInstallationTokenInfo } from "@/lib/integrations/github-app"
 import { isInstallationLinkedToTeam } from "@/lib/trpc/integrations"
 import { registerExponentialTools } from "@/lib/mcp/tools"
@@ -2112,29 +2106,23 @@ describe(`exponential_pr_merge — repository path and the self-merge spare`, ()
     return () => db.select.mockImplementation(() => builder)
   }
 
-  // The chore-PR own-merge test: repositoryId + prNumber names no branch, so
-  // the tool asks GitHub for the PR's head ref. `CHORE_BRANCH` is the branch
-  // the caller's own run sits on.
+  // The chore-PR own-merge test: `repositoryId + prNumber` is matched against
+  // the PR `exponential_pr_open` stamped on the caller's own run (EXP-734).
+  // `CHORE_BRANCH` is the branch that run sits on; `ownChorePr()` gives it the
+  // PR row shape pr_open leaves behind.
   const CHORE_BRANCH = `exp/chore-1a2b3c4d`
-  function stageChorePr(headRef: string): void {
+  const ownChorePr = (prNumber = 9) => ({
+    branch: CHORE_BRANCH,
+    prUrl: `https://github.com/acme/app/pull/${prNumber}`,
+    prNumber,
+  })
+  function stageChoreRepo(): void {
     vi.mocked(loadRepositoryForTeam).mockResolvedValue({
       repositoryId: REPO,
       teamId: WS,
       fullName: `acme/app`,
       defaultBranch: `main`,
     } as never)
-    vi.mocked(resolveRepoInstallationTokenInfo).mockResolvedValue({
-      token: `ghs_x`,
-      installationId: 1,
-    } as never)
-    vi.mocked(getPullRequest).mockResolvedValue({
-      state: `open`,
-      merged: false,
-      headRef,
-      baseRef: `main`,
-      mergeable: true,
-      mergeableState: `clean`,
-    })
   }
 
   const runRow = (over: Record<string, unknown> = {}) => ({
@@ -2142,6 +2130,8 @@ describe(`exponential_pr_merge — repository path and the self-merge spare`, ()
     teamId: WS,
     issueId: null,
     branch: null,
+    prUrl: null,
+    prNumber: null,
     status: `in_review`,
     needsInput: false,
     mergedOwnPr: false,
@@ -2152,10 +2142,10 @@ describe(`exponential_pr_merge — repository path and the self-merge spare`, ()
 
   it(`stamps merged_own_pr on the header session BEFORE merging (decision 6)`, async () => {
     const updates = captureUpdates()
-    // An issue-less run parked on the chore branch it opened the PR from —
-    // the only row shape the branch-keyed merge sweep can reach.
-    dbRows.current = [runRow({ branch: CHORE_BRANCH })]
-    stageChorePr(CHORE_BRANCH)
+    // An issue-less run parked on the chore PR it opened — the only row
+    // shape a merge-driven end can reach.
+    dbRows.current = [runRow(ownChorePr())]
+    stageChoreRepo()
     caller.repositories.mergePull.mockResolvedValue({ merged: true })
 
     await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({
@@ -2191,8 +2181,8 @@ describe(`exponential_pr_merge — repository path and the self-merge spare`, ()
 
   it(`reverts the stamp when the chore merge fails (EXP-639)`, async () => {
     const updates = captureUpdates()
-    dbRows.current = [runRow({ branch: CHORE_BRANCH })]
-    stageChorePr(CHORE_BRANCH)
+    dbRows.current = [runRow(ownChorePr())]
+    stageChoreRepo()
     caller.repositories.mergePull.mockRejectedValue(
       new TRPCError({ code: `PRECONDITION_FAILED`, message: `not mergeable` })
     )
@@ -2220,8 +2210,8 @@ describe(`exponential_pr_merge — repository path and the self-merge spare`, ()
     })
 
     expect(updates).toHaveLength(0)
-    // No stampable row ⇒ no reason to ask GitHub anything.
-    expect(getPullRequest).not.toHaveBeenCalled()
+    // No stampable row ⇒ no reason to resolve the repo at all.
+    expect(loadRepositoryForTeam).not.toHaveBeenCalled()
   })
 
   // The durable spare filters EVERY merge-driven end, so a chat/batch/action
@@ -2229,8 +2219,9 @@ describe(`exponential_pr_merge — repository path and the self-merge spare`, ()
   // survive the merge of its own PR, and then nothing would ever end it.
   it(`spares nothing when an issue-less run lands a FOREIGN chore PR`, async () => {
     const updates = captureUpdates()
-    dbRows.current = [runRow({ branch: CHORE_BRANCH })]
-    stageChorePr(`exp/somebody-elses-branch`)
+    // The run's own PR is #7; #9 belongs to somebody else.
+    dbRows.current = [runRow(ownChorePr(7))]
+    stageChoreRepo()
     caller.repositories.mergePull.mockResolvedValue({ merged: true })
 
     await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({
@@ -2239,15 +2230,15 @@ describe(`exponential_pr_merge — repository path and the self-merge spare`, ()
     })
 
     expect(caller.repositories.mergePull).toHaveBeenCalled()
-    expect(getPullRequest).toHaveBeenCalledWith(`acme/app`, 9, `ghs_x`)
     expect(updates).toHaveLength(0)
   })
 
-  it(`leaves the stamp off when the head-ref lookup fails`, async () => {
+  it(`leaves the stamp off when the repo lookup fails`, async () => {
     const updates = captureUpdates()
-    dbRows.current = [runRow({ branch: CHORE_BRANCH })]
-    stageChorePr(CHORE_BRANCH)
-    vi.mocked(getPullRequest).mockRejectedValue(new Error(`GitHub returned 502`))
+    dbRows.current = [runRow(ownChorePr())]
+    vi.mocked(loadRepositoryForTeam).mockRejectedValue(
+      new Error(`GitHub returned 502`)
+    )
     caller.repositories.mergePull.mockResolvedValue({ merged: true })
 
     await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({

@@ -245,9 +245,10 @@ export function createActivityCoalescer<Op>(
 }
 
 /** The feed `question` item the helpers reason over. `questionId` is the wire
- *  id (protocol v2): present ⇒ resolution arrives as explicit events and the
- *  card is answerable through the `answer` frame; absent ⇒ a card from a
- *  desktop too old to publish ids, which renders READ-ONLY (EXP-672). */
+ *  id (protocol v2) every card carries: resolution arrives as explicit events
+ *  naming it, and the card is answerable through the `answer` frame. It is
+ *  declared optional only because these helpers walk a MIXED feed, whose
+ *  other kinds have none. */
 export interface QuestionLike {
   id: number
   kind: string
@@ -359,13 +360,10 @@ export function applyQuestionResolved<T extends QuestionLike>(
   return matched ? next : null
 }
 
-/** Ids of the `question` items still answerable — the identity-scoped cards
- *  only (a wire `questionId`): they stay answerable until an explicit
- *  `question_resolved` retires them, no matter what flushes in behind them.
- *
- *  EXP-672: an ID-LESS card (a desktop too old to publish question ids) is
- *  never answerable. The raw-keystroke fallback and its positional
- *  trailing-run heuristic are gone — such a card renders read-only. */
+/** Ids of the `question` items still answerable. Every card carries a wire
+ *  `questionId` and those are IDENTITY-scoped: they stay answerable until an
+ *  explicit `question_resolved` retires them, no matter what flushes in
+ *  behind them. */
 export function activeQuestionIds(
   feed: readonly {
     id: number
@@ -376,12 +374,7 @@ export function activeQuestionIds(
 ): Set<number> {
   const ids = new Set<number>()
   for (const item of feed) {
-    if (
-      item.kind === `question` &&
-      item.questionId !== undefined &&
-      item.resolved !== true
-    )
-      ids.add(item.id)
+    if (item.kind === `question` && item.resolved !== true) ids.add(item.id)
   }
   return ids
 }
@@ -407,9 +400,9 @@ export type AnswerStates = Record<string, AnswerState>
  *  iOS/Android parity, move all three in lockstep. */
 export const ANSWER_ACK_TIMEOUT_MS = 8_000
 
-/** The key a card's answer state is tracked under: the wire question id when
- *  the desktop publishes one, else the local feed id — an id-less card never
- *  gets an answer state, the fallback only keeps lookups total. */
+/** The key a card's answer state is tracked under: its wire question id. The
+ *  local-id fallback only keeps the lookup TOTAL over a mixed feed — a row
+ *  that is not a question card never carries answer state. */
 export function answerKey(item: { id: number; questionId?: string }): string {
   return item.questionId ?? `#${item.id}`
 }

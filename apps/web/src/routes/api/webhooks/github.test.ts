@@ -88,7 +88,6 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
   applyPrOpenedState: vi.fn(async () => {}),
   applyPrReopenedState: vi.fn(async () => {}),
   findIssueIdByBranch: vi.fn(async () => null),
-  endSessionsOnMergedBranch: vi.fn(async () => {}),
   applySessionPrState: vi.fn(async () => ({ endedSessionIds: [] })),
 }))
 // EXP-617: the resolver itself (bot filter, id-over-login rule) is covered in
@@ -297,17 +296,10 @@ describe(`github webhook — batch PR fan-out (multi-issue pr_url resolution)`, 
     expect(res.status).toBe(200)
     expect(prSyncMock.applyPrMergeState).not.toHaveBeenCalled()
     expect(prSyncMock.applyPrClosedState).not.toHaveBeenCalled()
-    // EXP-637/EXP-626: no issue resolved means the PR may still be an
-    // issue-less chore PR an action run opened — the branch is the only
-    // handle on the session that opened it.
-    // EXP-711: no claim ⇒ no endSessions override.
-    expect(prSyncMock.endSessionsOnMergedBranch).toHaveBeenCalledWith(
-      `org/repo`,
-      `exp/batch-a1b2c3d4`,
-      undefined
-    )
-    // EXP-734: the run's own PR row (pr_url on coding_sessions) is flipped
-    // to merged on the same delivery, with no override to carry.
+    // EXP-637/EXP-626/EXP-734: no issue resolved means the PR may still be
+    // an issue-less chore PR an action run opened — its session row carries
+    // the PR, so the state flip on the same delivery is the whole handle on
+    // that run. EXP-711: no claim ⇒ no endSessions override.
     expect(prSyncMock.applySessionPrState).toHaveBeenCalledWith({
       prUrl: HTML_URL,
       state: `merged`,

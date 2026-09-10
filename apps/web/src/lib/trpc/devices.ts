@@ -870,16 +870,6 @@ export const devicesRouter = router({
             message: `The code must be a single line of printable characters`,
           })
         }
-        // Typing into the waiting login is a newer executor than the login
-        // itself: a build that only runs `agent_login` would report the code
-        // command "unsupported", so requesters hide the field and the server
-        // refuses here, on the cap that names the executor.
-        if (!(row.caps ?? []).includes(`agent-login-code`)) {
-          throw new TRPCError({
-            code: `PRECONDITION_FAILED`,
-            message: `That device does not declare the agent-login-code capability`,
-          })
-        }
         payload = { agent: input.agent, code: input.code }
       }
 

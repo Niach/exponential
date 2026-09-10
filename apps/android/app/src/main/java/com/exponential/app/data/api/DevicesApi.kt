@@ -263,8 +263,7 @@ fun agentLoginCommand(deviceId: String, agent: String, switchAccount: Boolean): 
  * The `agent_login_code` input for [DevicesApi.createCommand] (EXP-765) — hand
  * the authorization code the browser showed back to the sign-in still waiting
  * on the machine, which types it into that login's prompt. The server trims
- * [code] and refuses an empty one, `pi`, and a machine without the cap. Gated
- * on [SteerDevice.canAgentLoginCode].
+ * [code] and refuses an empty one and `pi`.
  */
 fun agentLoginCodeCommand(deviceId: String, agent: String, code: String): JsonObject =
     buildJsonObject {

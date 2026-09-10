@@ -47,8 +47,7 @@ fun composerAnswerTarget(
 ): ComposerAnswerTarget? {
     if (text.trimStart().startsWith("/")) return null
     val open = feed.filterIsInstance<AgentFeedItem.Question>().filter { card ->
-        val wireId = card.wireId ?: return@filter false
-        !card.resolved && !card.isSubmitStep && !answerLocks[wireId].locksCard()
+        !card.resolved && !card.isSubmitStep && !answerLocks[card.wireId].locksCard()
     }
     val newest = open.lastOrNull() ?: return null
     val card = newest.askId?.let { askId -> open.firstOrNull { it.askId == askId } } ?: newest

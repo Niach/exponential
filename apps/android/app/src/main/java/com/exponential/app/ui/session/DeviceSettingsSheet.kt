@@ -359,10 +359,8 @@ fun DeviceSettingsSheet(
                         },
                         // EXP-765: claude's login URL carries `code=true`, so
                         // the browser hands back a code the waiting CLI still
-                        // wants. Same gate as the login itself, plus the cap
-                        // for the machine that can type it in.
-                        canEnterCode = device.canAgentLoginCode && device.online &&
-                            device.isMine,
+                        // wants. Same gate as the login itself.
+                        canEnterCode = device.online && device.isMine,
                         onEnterCode = { code ->
                             viewModel.agentLoginCode(
                                 device.deviceId,

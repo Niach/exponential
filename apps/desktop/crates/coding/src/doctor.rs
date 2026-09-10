@@ -102,8 +102,10 @@ pub const MIN_CODEX_ACP_VERSION: (u32, u32, u32) = (0, 144, 0);
 ///   `set_config`/`set_mode` frames, `config_state`/`usage` kinds.
 /// - `agent-login-code` (EXP-765) — this build runs `agent_login_code`: it
 ///   types the authorization code claude's browser page hands the requester
-///   into the login PTY still waiting for it. A build without it reports the
-///   command "unsupported", so requesters hide the code field.
+///   into the login PTY still waiting for it. EXP-745 dropped the server and
+///   current-client gates on it (every device runs the command), but SHIPPED
+///   iOS/Android builds still hide their code field for a machine that does
+///   not advertise it, so the cap stays declared.
 /// - `mcp` (EXP-792) — this build runs `mcp_oauth_start`/`mcp_oauth_code`
 ///   and reports per-server MCP readiness on the heartbeat; the server
 ///   refuses `beginOAuth` against a device without it.

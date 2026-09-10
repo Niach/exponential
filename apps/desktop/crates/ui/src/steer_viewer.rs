@@ -858,8 +858,7 @@ impl SteerSessionView {
         self.picked.retain(|key, _| {
             items.iter().any(|item| {
                 item.question()
-                    .and_then(|card| card.question_id.as_deref())
-                    == Some(key.as_str())
+                    .is_some_and(|card| card.question_id == *key)
             })
         });
         self.extras.prune_before(first);
@@ -1542,15 +1541,14 @@ impl SteerSessionView {
 
     // ── Answering ──────────────────────────────────────────────────────────
 
-    /// Whether this card's answer is in flight (an id-less card never is —
+    /// Whether this card's answer is in flight (a non-question row never is —
     /// it has no answer key).
     fn is_answer_locked(&self, item: &FeedItem) -> bool {
         answer_key(item).is_some_and(|key| self.feed.is_answer_locked(&key))
     }
 
     /// Send one answer and lock the card. Always semantic: EXP-730 retired
-    /// the raw-keystroke path, so a card with no wire id is not answerable at
-    /// all (it renders read-only, as on web and Android).
+    /// the raw-keystroke path, so every card is answered by its wire id.
     fn answer(
         &mut self,
         item_id: FeedItemId,
@@ -1562,7 +1560,7 @@ impl SteerSessionView {
         let Some(item) = self.feed.items().iter().find(|item| item.id == item_id) else {
             return;
         };
-        // An id-less card carries no key: nothing to send, nothing to lock.
+        // Not a question card: nothing to send, nothing to lock.
         let Some(key) = answer_key(item) else {
             return;
         };
@@ -1572,9 +1570,7 @@ impl SteerSessionView {
         let Some(card) = item.question().cloned() else {
             return;
         };
-        let Some(question_id) = card.question_id.as_deref() else {
-            return;
-        };
+        let question_id = card.question_id.as_str();
         // EXP-746: the OPTION KEYS are the same either way — an ACP option id
         // travels the wire verbatim (D3 retired the keystroke path), so the
         // only difference is who receives them.
@@ -4075,8 +4071,8 @@ impl SteerSessionView {
         let Some(card) = item.question() else {
             return div().into_any_element();
         };
-        let key = answer_key(item);
-        let state = key.as_deref().and_then(|key| self.feed.answer_state(key));
+        let key = card.question_id.clone();
+        let state = self.feed.answer_state(&key);
         let locked = state.is_some_and(|state| state.is_locked());
         let errored = state.is_some_and(|state| state.status == AnswerStatus::Error);
 
@@ -4158,11 +4154,6 @@ impl SteerSessionView {
                 .into_any_element();
         }
 
-        // Past the read-only gate a wire id is guaranteed: an id-less card is
-        // never active (EXP-730).
-        let Some(key) = key else {
-            return div().into_any_element();
-        };
         let picked = self.picked.get(&key).cloned().unwrap_or_default();
         let promote_first = card.plan_mode || submit_step;
         let item_id = item.id;

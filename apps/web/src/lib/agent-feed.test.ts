@@ -90,42 +90,6 @@ describe(`local-echo dedupe`, () => {
   })
 })
 
-// ── Id-less cards (a desktop too old to publish question ids) ────────────────
-
-describe(`activeQuestionIds — id-less cards`, () => {
-  // EXP-672: the raw-keystroke answer path is gone, so a card with no wire id
-  // is never answerable — not even the trailing one, and not a plan card.
-  it(`never answers a trailing question run`, () => {
-    const feed = [
-      { id: 1, kind: `narration` },
-      { id: 2, kind: `question` },
-      { id: 3, kind: `tool` },
-      { id: 4, kind: `question` },
-      { id: 5, kind: `question` },
-    ]
-    expect(activeQuestionIds(feed)).toEqual(new Set())
-  })
-
-  it(`never answers a plan card, and mixes safely with id-carrying ones`, () => {
-    const feed = [
-      { id: 1, kind: `question` },
-      { id: 2, kind: `question`, questionId: `tu_1` },
-      { id: 3, kind: `tool` },
-    ]
-    expect(activeQuestionIds(feed)).toEqual(new Set([2]))
-  })
-
-  it(`handles an all-question feed and an empty feed`, () => {
-    expect(
-      activeQuestionIds([
-        { id: 1, kind: `question` },
-        { id: 2, kind: `question` },
-      ])
-    ).toEqual(new Set())
-    expect(activeQuestionIds([])).toEqual(new Set())
-  })
-})
-
 describe(`activeQuestionIds — protocol v2 cards`, () => {
   it(`an id-carrying card stays answerable behind any later event`, () => {
     const feed = [
@@ -165,7 +129,9 @@ describe(`resolved cards`, () => {
       ])
     ).toEqual(new Set())
     expect(
-      activeQuestionIds([{ id: 1, kind: `question`, resolved: true }])
+      activeQuestionIds([
+        { id: 1, kind: `question`, questionId: `tu_2`, resolved: true },
+      ])
     ).toEqual(new Set())
   })
 })
@@ -325,7 +291,7 @@ describe(`applyQuestionResolved`, () => {
 // ── Answer lock state machine ────────────────────────────────────────────────
 
 describe(`answer locks`, () => {
-  it(`keys on the wire id, falling back to the feed id`, () => {
+  it(`keys on the wire id; the feed id only keeps the lookup total`, () => {
     expect(answerKey({ id: 4, questionId: `tu_1#0` })).toBe(`tu_1#0`)
     expect(answerKey({ id: 4 })).toBe(`#4`)
   })

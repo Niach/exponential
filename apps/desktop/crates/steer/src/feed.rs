@@ -281,9 +281,9 @@ impl FeedItem {
     }
 }
 
-/// An interactive question card. The wire identity fields are `None` on a
-/// LEGACY card (a desktop that publishes no question ids), which is answerable
-/// by raw keystroke only and retired positionally.
+/// An interactive question card. `question_id` is the wire identity every
+/// publisher stamps; `ask_id`/`index`/`total` group the steps of one
+/// multi-question ask.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct QuestionCard {
     pub text: String,
@@ -291,9 +291,9 @@ pub struct QuestionCard {
     pub multi_select: bool,
     /// An `ExitPlanMode` plan-approval picker (EXP-97) — a dedicated card.
     pub plan_mode: bool,
-    /// The wire id (protocol v2): present ⇒ answerable through the semantic
-    /// `answer` frame, and a re-emission replaces the card in place.
-    pub question_id: Option<String>,
+    /// The wire id (protocol v2): what the semantic `answer` frame echoes,
+    /// and a re-emission of it replaces the card in place.
+    pub question_id: String,
     /// Groups the steps of one multi-question ask. A card with `ask_id` and
     /// no `index` is that ask's final review/submit step.
     pub ask_id: Option<String>,
@@ -308,13 +308,9 @@ pub struct QuestionCard {
 }
 
 /// The key a card's answer state is tracked under: its wire question id (web
-/// `answerKey`).
-///
-/// `None` for an id-less card — EXP-730 retired the blind-keystroke answer
-/// path, so such a card is read-only and can never carry answer state.
+/// `answerKey`). `None` only when the item is not a question card.
 pub fn answer_key(item: &FeedItem) -> Option<String> {
-    item.question()
-        .and_then(|card| card.question_id.clone())
+    item.question().map(|card| card.question_id.clone())
 }
 
 // ---------------------------------------------------------------------------
@@ -877,26 +873,26 @@ impl SteerFeed {
                 // A re-emission of a known id replaces the card IN PLACE (the
                 // desktop augments the options as it learns them), keeping
                 // the feed position, the local id and any resolution.
-                if let Some(question_id) = card.question_id.clone() {
-                    if let Some(existing) = self.items.iter_mut().find(|item| {
-                        item.question()
-                            .is_some_and(|c| c.question_id.as_deref() == Some(question_id.as_str()))
-                    }) {
-                        let previous = existing
-                            .question()
-                            .cloned()
-                            .expect("the item matched as a question");
-                        let before = item_bytes(&existing.kind);
-                        *existing.question_mut().expect("still a question") = QuestionCard {
-                            resolved: previous.resolved,
-                            answer: previous.answer,
-                            dismissed: previous.dismissed,
-                            ..card
-                        };
-                        let after = item_bytes(&existing.kind);
-                        self.bytes = self.bytes.saturating_sub(before) + after;
-                        return;
-                    }
+                let question_id = card.question_id.clone();
+                if let Some(existing) = self
+                    .items
+                    .iter_mut()
+                    .find(|item| item.question().is_some_and(|c| c.question_id == question_id))
+                {
+                    let previous = existing
+                        .question()
+                        .cloned()
+                        .expect("the item matched as a question");
+                    let before = item_bytes(&existing.kind);
+                    *existing.question_mut().expect("still a question") = QuestionCard {
+                        resolved: previous.resolved,
+                        answer: previous.answer,
+                        dismissed: previous.dismissed,
+                        ..card
+                    };
+                    let after = item_bytes(&existing.kind);
+                    self.bytes = self.bytes.saturating_sub(before) + after;
+                    return;
                 }
                 self.push_item(FeedKind::Question(card));
             }
@@ -1028,8 +1024,7 @@ impl SteerFeed {
     fn question_position(&self, anchor: &str) -> Option<usize> {
         self.items.iter().position(|item| {
             item.question().is_some_and(|card| {
-                card.ask_id.as_deref() == Some(anchor)
-                    || card.question_id.as_deref() == Some(anchor)
+                card.ask_id.as_deref() == Some(anchor) || card.question_id == anchor
             })
         })
     }
@@ -1053,7 +1048,7 @@ impl SteerFeed {
                 continue;
             };
             let matches = match (&id, &ask_id) {
-                (Some(id), _) => card.question_id.as_deref() == Some(id.as_str()),
+                (Some(id), _) => &card.question_id == id,
                 (None, Some(ask)) => card.ask_id.as_deref() == Some(ask.as_str()),
                 (None, None) => !card.resolved,
             };
@@ -1321,16 +1316,11 @@ fn item_bytes(kind: &FeedKind) -> usize {
 /// Every card carries a wire `question_id` (EXP-730: publishers stamp one on
 /// every card), and those are IDENTITY-scoped — they stay answerable until an
 /// explicit `question_resolved` retires them, no matter what flushes in behind
-/// them. An id-less card is NOT answerable: the blind-keystroke path it used
-/// (and the EXP-174 trailing-run heuristic that fed it) is gone, so it renders
-/// read-only, exactly as on web and Android.
+/// them.
 pub fn active_question_ids(items: &[FeedItem]) -> HashSet<FeedItemId> {
     items
         .iter()
-        .filter(|item| {
-            item.question()
-                .is_some_and(|card| card.question_id.is_some() && !card.resolved)
-        })
+        .filter(|item| item.question().is_some_and(|card| !card.resolved))
         .map(|item| item.id)
         .collect()
 }
@@ -1866,13 +1856,13 @@ mod tests {
     // Ported from apps/web/src/lib/steer-session-store.test.ts (the reducer
     // half — the socket half lives in `viewer`) and the agent-feed helpers.
 
-    fn question(id: Option<&str>, text: &str) -> ActivityEvent {
+    fn question(id: &str, text: &str) -> ActivityEvent {
         ActivityEvent::Question {
             text: text.into(),
             options: vec![QuestionOption::new("Yes", "1"), QuestionOption::new("No", "2")],
             multi_select: None,
             plan_mode: None,
-            id: id.map(str::to_string),
+            id: id.to_string(),
             ask_id: None,
             index: None,
             total: None,
@@ -2059,7 +2049,7 @@ mod tests {
             options: vec![],
             multi_select: None,
             plan_mode: None,
-            id: None,
+            id: "q1".into(),
             ask_id: None,
             index: None,
             total: None,
@@ -2431,7 +2421,7 @@ mod tests {
     #[test]
     fn a_re_emitted_question_replaces_its_card_in_place() {
         let mut feed = SteerFeed::new();
-        feed.apply(question(Some("toolu_01"), "Which color?"));
+        feed.apply(question("toolu_01", "Which color?"));
         feed.apply(ActivityEvent::narration("thinking"));
         let card_id = feed.items()[0].id;
 
@@ -2448,7 +2438,7 @@ mod tests {
             ],
             multi_select: None,
             plan_mode: None,
-            id: Some("toolu_01".into()),
+            id: "toolu_01".into(),
             ask_id: None,
             index: None,
             total: None,
@@ -2467,7 +2457,7 @@ mod tests {
     #[test]
     fn a_re_emission_never_un_resolves_a_card() {
         let mut feed = SteerFeed::new();
-        feed.apply(question(Some("toolu_01"), "Which color?"));
+        feed.apply(question("toolu_01", "Which color?"));
         feed.apply(ActivityEvent::QuestionResolved {
             id: Some("toolu_01".into()),
             ask_id: None,
@@ -2475,7 +2465,7 @@ mod tests {
             dismissed: None,
             at: None,
         });
-        feed.apply(question(Some("toolu_01"), "Which color?"));
+        feed.apply(question("toolu_01", "Which color?"));
         let card = feed.items()[0].question().unwrap();
         assert!(card.resolved);
         assert_eq!(card.answer.as_deref(), Some("Red"));
@@ -2486,8 +2476,8 @@ mod tests {
     #[test]
     fn a_by_id_resolution_folds_every_answer_into_that_card() {
         let mut feed = SteerFeed::new();
-        feed.apply(question(Some("q1"), "Which?"));
-        feed.apply(question(Some("q2"), "And?"));
+        feed.apply(question("q1", "Which?"));
+        feed.apply(question("q2", "And?"));
         feed.apply(ActivityEvent::QuestionResolved {
             id: Some("q1".into()),
             ask_id: None,
@@ -2510,7 +2500,7 @@ mod tests {
                 options: vec![QuestionOption::new("Yes", "1")],
                 multi_select: None,
                 plan_mode: None,
-                id: Some(format!("ask#{index}")),
+                id: format!("ask#{index}"),
                 ask_id: Some("ask".into()),
                 index: Some(index),
                 total: Some(2),
@@ -2524,7 +2514,7 @@ mod tests {
             options: vec![QuestionOption::new("Submit", "\r")],
             multi_select: None,
             plan_mode: None,
-            id: Some("ask#submit".into()),
+            id: "ask#submit".into(),
             ask_id: Some("ask".into()),
             index: None,
             total: None,
@@ -2565,7 +2555,7 @@ mod tests {
             options: vec![QuestionOption::new("Yes", "1")],
             multi_select: None,
             plan_mode: None,
-            id: Some("ask#1".into()),
+            id: "ask#1".into(),
             ask_id: Some("ask".into()),
             index: Some(1),
             total: Some(1),
@@ -2587,8 +2577,8 @@ mod tests {
     #[test]
     fn an_id_less_ask_less_resolution_retires_every_pending_card() {
         let mut feed = SteerFeed::new();
-        feed.apply(question(None, "Legacy one"));
-        feed.apply(question(None, "Legacy two"));
+        feed.apply(question("q1", "One"));
+        feed.apply(question("q2", "Two"));
         feed.apply(ActivityEvent::QuestionResolved {
             id: None,
             ask_id: None,
@@ -2611,7 +2601,7 @@ mod tests {
     fn anchored_narration_splices_above_its_question_by_ask_or_question_id() {
         let mut feed = SteerFeed::new();
         feed.apply(ActivityEvent::narration("before"));
-        feed.apply(question(Some("toolu_01"), "Approve?"));
+        feed.apply(question("toolu_01", "Approve?"));
         feed.apply(ActivityEvent::Narration {
             text: "the prose that was withheld".into(),
             before_question_id: Some("toolu_01".into()),
@@ -2644,7 +2634,7 @@ mod tests {
     #[test]
     fn an_answer_locks_its_card_until_the_ack_or_the_timeout() {
         let mut feed = SteerFeed::new();
-        feed.apply(question(Some("q1"), "Which?"));
+        feed.apply(question("q1", "Which?"));
         let key = answer_key(&feed.items()[0]).unwrap();
         assert!(!feed.is_answer_locked(&key));
 
@@ -2668,7 +2658,7 @@ mod tests {
     #[test]
     fn a_missing_ack_re_enables_the_card() {
         let mut feed = SteerFeed::new();
-        feed.apply(question(Some("q1"), "Which?"));
+        feed.apply(question("q1", "Which?"));
         let key = answer_key(&feed.items()[0]).unwrap();
         feed.note_answer_sent(&key, vec!["1".into()], vec!["Yes".into()]);
         feed.fail_answer(&key);
@@ -2679,7 +2669,7 @@ mod tests {
     #[test]
     fn a_resolution_drops_the_lock_so_a_stale_deadline_cannot_reopen_it() {
         let mut feed = SteerFeed::new();
-        feed.apply(question(Some("q1"), "Which?"));
+        feed.apply(question("q1", "Which?"));
         let key = answer_key(&feed.items()[0]).unwrap();
         feed.note_answer_sent(&key, vec!["1".into()], vec!["Yes".into()]);
         feed.apply(ActivityEvent::QuestionResolved {
@@ -2692,17 +2682,6 @@ mod tests {
         assert!(feed.answer_state(&key).is_none());
         feed.fail_answer(&key);
         assert!(feed.answer_state(&key).is_none());
-    }
-
-    #[test]
-    fn an_id_less_card_is_not_answerable() {
-        // EXP-730: no wire id, no answer key and no active id — the card
-        // renders read-only instead of falling back to raw keystrokes.
-        let mut feed = SteerFeed::new();
-        feed.apply(question(None, "Id-less"));
-        let item = &feed.items()[0];
-        assert_eq!(answer_key(item), None);
-        assert!(feed.active_question_ids().is_empty());
     }
 
     // ── EXP-656 staged replay ──────────────────────────────────────────────
@@ -2813,13 +2792,13 @@ mod tests {
     #[test]
     fn an_in_flight_answer_lock_survives_the_swap() {
         let mut feed = SteerFeed::new();
-        feed.apply(question(Some("q1"), "Which?"));
+        feed.apply(question("q1", "Which?"));
         let key = answer_key(&feed.items()[0]).unwrap();
         feed.note_answer_sent(&key, vec!["1".into()], vec!["Yes".into()]);
 
         // The reconnect replays the card as UNANSWERED — the tap must stand.
         feed.apply_reset();
-        feed.apply(question(Some("q1"), "Which?"));
+        feed.apply(question("q1", "Which?"));
         feed.apply_synced();
         assert!(feed.is_answer_locked(&key));
         assert_eq!(feed.answer_state(&key).unwrap().labels, vec!["Yes"]);
@@ -2828,7 +2807,7 @@ mod tests {
     #[test]
     fn a_lock_for_a_card_the_replay_dropped_is_not_carried() {
         let mut feed = SteerFeed::new();
-        feed.apply(question(Some("q1"), "Which?"));
+        feed.apply(question("q1", "Which?"));
         let key = answer_key(&feed.items()[0]).unwrap();
         feed.note_answer_sent(&key, vec!["1".into()], vec!["Yes".into()]);
         feed.apply_reset();
@@ -2901,7 +2880,7 @@ mod tests {
                 options: vec![QuestionOption::new("Yes", "1")],
                 multi_select: None,
                 plan_mode: None,
-                id: Some(format!("q{index}")),
+                id: format!("q{index}"),
                 ask_id: Some("ask_1".into()),
                 index: Some(index),
                 total: Some(2),
@@ -2960,7 +2939,7 @@ mod tests {
                 options: vec![QuestionOption::new("Yes", "1")],
                 multi_select: None,
                 plan_mode: None,
-                id: Some(format!("ask#{index}")),
+                id: format!("ask#{index}"),
                 ask_id: Some("ask".into()),
                 index: Some(index),
                 total: Some(2),
@@ -3214,7 +3193,7 @@ mod tests {
     #[test]
     fn v2_cards_stay_answerable_until_they_are_resolved() {
         let mut feed = SteerFeed::new();
-        feed.apply(question(Some("q1"), "Which?"));
+        feed.apply(question("q1", "Which?"));
         feed.apply(ActivityEvent::tool("Read", None));
         feed.apply(ActivityEvent::narration("still thinking"));
         let card_id = feed.items()[0].id;
@@ -3239,7 +3218,7 @@ mod tests {
             options: vec![QuestionOption::new("Approve", "1")],
             multi_select: None,
             plan_mode: Some(true),
-            id: Some("plan-1".into()),
+            id: "plan-1".into(),
             ask_id: None,
             index: None,
             total: None,
@@ -3252,7 +3231,7 @@ mod tests {
         // retires it either, only its own resolution does.
         feed.apply(ActivityEvent::tool("Read", None));
         feed.apply(ActivityEvent::narration("prose"));
-        feed.apply(question(Some("q2"), "Something else"));
+        feed.apply(question("q2", "Something else"));
         let newer_id = feed.items().last().unwrap().id;
         let active = feed.active_question_ids();
         assert!(active.contains(&plan_id));
@@ -3441,14 +3420,14 @@ mod tests {
             options: vec![QuestionOption::new("Yes", "1")],
             multi_select: None,
             plan_mode: None,
-            id: Some("q1".into()),
+            id: "q1".into(),
             ask_id: Some("ask1".into()),
             index: Some(1),
             total: Some(1),
             header: None,
             at: None,
         });
-        feed.apply(question(Some("q2"), "And this?"));
+        feed.apply(question("q2", "And this?"));
 
         let rows = feed.rows();
         assert_eq!(

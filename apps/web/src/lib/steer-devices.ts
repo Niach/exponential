@@ -213,16 +213,6 @@ export function deviceCanAgentLogin(
   return (device.caps ?? []).includes(`agent-login`)
 }
 
-/** EXP-765: the machine runs `agent_login_code` — it types the authorization
- * code claude's browser page hands the requester into the login still
- * waiting for it. A build with only `agent-login` would report the command
- * unsupported, so requesters show the code field only behind this cap. */
-export function deviceCanAgentLoginCode(
-  device: Pick<SteerDevice, `caps`>
-): boolean {
-  return (device.caps ?? []).includes(`agent-login-code`)
-}
-
 /** EXP-792: the machine runs the `mcp_oauth_*` device commands and reports
  * MCP readiness on its heartbeat. Without the cap a queued sign-in would sit
  * pending forever, so the settings pane hides "Sign in on <device>". */

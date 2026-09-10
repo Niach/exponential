@@ -415,13 +415,6 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// affordances — an old build would never pick the command up.
     public var canAgentLogin: Bool { caps?.contains("agent-login") == true }
 
-    /// EXP-765: whether this machine can take the authorization CODE back (the
-    /// `agent_login_code` device command, typed into the login still waiting
-    /// on its PTY). Claude's sign-in link is the one that hands the code to
-    /// the BROWSER; without this cap there is no way back, so the code field
-    /// stays hidden on an older build that only advertises `agent-login`.
-    public var canAgentLoginCode: Bool { caps?.contains("agent-login-code") == true }
-
     /// EXP-437: the machine's configured default agent, clamped to what it can
     /// actually RUN. Nil when it advertises none (older desktop) or names an
     /// agent it no longer runs — the caller keeps its own choice then.

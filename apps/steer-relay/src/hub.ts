@@ -112,10 +112,6 @@ interface Room {
   /** EXP-773: fires HISTORY_TIMEOUT_MS after the ask went down the device's
    *  control socket — the device is online but produced nothing. */
   historyTimer: ReturnType<typeof setTimeout> | null
-  /** EXP-773: the log was filled by a device REPLAYING its journal. A second
-   *  replay into the same room would append the whole transcript again, so
-   *  the next publisher's hello starts from an empty log. */
-  historyLog: boolean
   /** EXP-746: latest-wins STATE by kind (`diff`, `config_state`, `usage`,
    *  `rate_limit`) —
    *  the newest one replaces its predecessor, stays OUT of the count/byte
@@ -204,10 +200,9 @@ const PUBLISHER_IDLE_CHECK_INTERVAL_MS = 30_000
 // Same 3-missed-ticks ratio as the publisher's 30s ping / 90s idle window.
 const VIEWER_KEEPALIVE_INTERVAL_MS = 15_000
 // A frame the schema rejects is dropped on the floor; without a log line a
-// publisher/client version skew (EXP-730 made `question.id` required, so a
-// pre-0.14.31 desktop's id-less card now fails the parse) is invisible from
-// the relay side. One warning per SOCKET per window keeps a chatty or hostile
-// client from filling the log.
+// publisher/client version skew is invisible from the relay side. One warning
+// per SOCKET per window keeps a chatty or hostile client from filling the
+// log.
 const FRAME_WARN_INTERVAL_MS = 30_000
 // EXP-773: how long a pending history room waits for the device to hello. It
 // has to mint a publisher ticket (a tRPC round trip) and read a file back, so
@@ -500,21 +495,12 @@ export class Hub {
             clearTimeout(room.lingerTimer)
             room.lingerTimer = null
           }
-          const servingHistory = room.pendingHistory || room.historyServed
           room.pendingHistory = false
           room.historyServed = false
-          // A previous replay already filled this log: a second one would
-          // append the same transcript again, so start it empty. The
-          // publisher's own `activity_reset` does this too, but only devices
-          // new enough to send one.
-          if (room.historyLog && room.publisher !== conn) {
-            this.clearActivityLog(room)
-            this.fanoutActivity(room, frame({ t: `activity_reset` }))
-          }
-          room.historyLog = servingHistory
-          // Re-hello after a drop: resume the same room. The publisher clears
-          // and re-publishes its own history via `activity_reset` — the relay
-          // never guesses what survived the gap.
+          // Re-hello after a drop, a live publisher taking a replay's room
+          // back, or a second replay: every publisher opens with its own
+          // `activity_reset`, which clears this log and tells the viewers —
+          // the relay never guesses what survived the gap.
           if (room.staleTimer) {
             clearTimeout(room.staleTimer)
             room.staleTimer = null
@@ -1025,7 +1011,6 @@ export class Hub {
       lastPublisherActivity: Date.now(), // REV2-X
       pendingHistory: publisher === null,
       historyTimer: null,
-      historyLog: false,
       activityMembers: new Set(),
       activityLog: [],
       activityBytes: 0,

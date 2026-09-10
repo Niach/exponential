@@ -1992,7 +1992,7 @@ mod tests {
             options: vec![QuestionOption::new("Yes", "1")],
             multi_select: None,
             plan_mode: None,
-            id: Some("/tmp/w/.exp-steer-images/img.png".into()),
+            id: "/tmp/w/.exp-steer-images/img.png".into(),
             ask_id: None,
             index: None,
             total: None,
@@ -2003,7 +2003,7 @@ mod tests {
         match question {
             ActivityEvent::Question { text, id, .. } => {
                 assert_eq!(text, format!("Use {EMBED}?"));
-                assert_eq!(id.as_deref(), Some("/tmp/w/.exp-steer-images/img.png"));
+                assert_eq!(id, "/tmp/w/.exp-steer-images/img.png");
             }
             other => panic!("expected Question, got {other:?}"),
         }

@@ -1188,9 +1188,7 @@ describe(`devices.createCommand — agent_login`, () => {
 
 // EXP-765: handing claude's authorization code back to the waiting login.
 describe(`devices.createCommand — agent_login_code`, () => {
-  const codeCapableProbe = () => [
-    [{ id: `row-1`, caps: [`agent-login`, `agent-login-code`] }],
-  ]
+  const codeCapableProbe = () => [[{ id: `row-1`, caps: [`agent-login`] }]]
 
   it(`queues the agent and the trimmed code`, async () => {
     h.state.selectQueue = [...codeCapableProbe(), []]
@@ -1295,22 +1293,6 @@ describe(`devices.createCommand — agent_login_code`, () => {
         code: `abc`,
       })
     ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
-  })
-
-  it(`refuses a machine that runs the login but not the code command`, async () => {
-    h.state.selectQueue = [[{ id: `row-1`, caps: [`agent-login`] }]]
-    await expect(
-      caller.createCommand({
-        deviceId: `dev-1`,
-        kind: `agent_login_code`,
-        agent: `claude`,
-        code: `abc`,
-      })
-    ).rejects.toMatchObject({
-      code: `PRECONDITION_FAILED`,
-      message: `That device does not declare the agent-login-code capability`,
-    })
-    expect(h.state.inserted).toHaveLength(0)
   })
 })
 

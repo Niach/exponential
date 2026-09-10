@@ -153,12 +153,11 @@ fn login_code_key(agent: CodingAgent) -> String {
     format!("login-code {}", agent.id())
 }
 
-/// EXP-765: whether the machine's build types a handed-back code into its
-/// waiting login (`agent_login_code`). Its own cap: a build with only
-/// `agent-login` would report the command unsupported, so the field stays
-/// hidden without it. Mirrors the web `deviceCanAgentLoginCode`.
-pub(crate) fn can_enter_login_code(own: bool, caps: &[String]) -> bool {
-    !own && caps.iter().any(|cap| cap == "agent-login-code")
+/// EXP-765: whether to offer the field that hands a code back to a waiting
+/// login (`agent_login_code`). Every machine runs the command; only the OWN
+/// machine has no use for it — its login tab is right there to type into.
+pub(crate) fn can_enter_login_code(own: bool) -> bool {
+    !own
 }
 
 /// EXP-484: what a finished `agent_login` command handed back — the CLI's
@@ -1879,7 +1878,7 @@ impl DeviceSettingsView {
             );
         }
         if let Some(note) = self.login_notes.get(agent.id()).cloned() {
-            let can_enter_code = can_enter_login_code(self.own, &status.caps);
+            let can_enter_code = can_enter_login_code(self.own);
             let note = self.render_login_note(agent, &note, can_enter_code, window, cx);
             rows.push(surface::glass_row_shell().child(div().flex_1().min_w_0().child(note)));
         }
@@ -2297,16 +2296,12 @@ mod tests {
         assert!(!row_is_online(None, now_ms));
     }
 
-    /// EXP-765: the code field rides its OWN cap, and never on the own
-    /// machine (its login tab is right there to type into).
+    /// EXP-765: the code field is offered for a REMOTE machine only — the own
+    /// machine's login tab is right there to type into.
     #[test]
-    fn login_code_field_gates_on_its_own_cap() {
-        let both = vec!["agent-login".to_string(), "agent-login-code".to_string()];
-        let login_only = vec!["agent-login".to_string()];
-        assert!(can_enter_login_code(false, &both));
-        assert!(!can_enter_login_code(false, &login_only));
-        assert!(!can_enter_login_code(false, &[]));
-        assert!(!can_enter_login_code(true, &both));
+    fn login_code_field_is_remote_only() {
+        assert!(can_enter_login_code(false));
+        assert!(!can_enter_login_code(true));
     }
 
     /// EXP-484/694: the line, byte-identical to the web `accountLine` — the

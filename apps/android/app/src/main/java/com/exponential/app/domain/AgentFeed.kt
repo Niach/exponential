@@ -162,11 +162,10 @@ sealed interface AgentFeedItem {
         val resolved: Boolean = false,
         val answer: String? = null,
         /** Stable wire identity (EXP-249) and the key of the card's answer
-         *  lock. Present ⇒ answerable with a semantic `answer` frame and
-         *  re-emissions replace the card in place; absent ⇒ a card from a
-         *  pre-EXP-249 desktop, which renders READ-ONLY (EXP-672 retired the
-         *  raw-keystroke fallback that used to drive those). */
-        val wireId: String? = null,
+         *  lock: the semantic `answer` frame names it, and a re-emission of
+         *  it replaces the card in place. Every publisher stamps one, and a
+         *  frame without one is dropped at decode. */
+        val wireId: String,
         /** Groups the steps of one multi-question ask into a stepper card. */
         val askId: String? = null,
         /** 1-based step position; absent on the ask's final submit step. */
@@ -402,8 +401,7 @@ fun modeChip(config: SessionConfigState?): ModeChip? {
  *  discovers later) and must never stack a second card. The local feed id and
  *  any resolution already folded in are preserved. */
 fun upsertQuestion(feed: List<AgentFeedItem>, item: AgentFeedItem.Question): List<AgentFeedItem> {
-    val wireId = item.wireId ?: return feed + item
-    val index = feed.indexOfFirst { it is AgentFeedItem.Question && it.wireId == wireId }
+    val index = feed.indexOfFirst { it is AgentFeedItem.Question && it.wireId == item.wireId }
     if (index < 0) return feed + item
     val existing = feed[index] as AgentFeedItem.Question
     return feed.toMutableList().apply {
@@ -552,15 +550,12 @@ fun completeSubagent(
  * `question_resolved`. The desktop's structured stream states question
  * lifetime outright, so no position guessing applies.
  *
- * A card WITHOUT a wire id was published by a pre-EXP-249 desktop and is never
- * answerable from here (EXP-672 retired the raw-keystroke fallback) — the
- * screen renders it read-only with an update hint. Mirrors iOS
- * `AgentFeed.activeQuestionIds` and web `activeQuestionIds`.
+ * Mirrors iOS `AgentFeed.activeQuestionIds` and web `activeQuestionIds`.
  */
 fun activeQuestionIds(feed: List<AgentFeedItem>): Set<Long> {
     val ids = mutableSetOf<Long>()
     for (item in feed) {
-        if (item is AgentFeedItem.Question && item.wireId != null && !item.resolved) ids.add(item.id)
+        if (item is AgentFeedItem.Question && !item.resolved) ids.add(item.id)
     }
     return ids
 }
@@ -787,7 +782,7 @@ fun currentStepperStep(
     steps: List<AgentFeedItem.Question>,
     answered: Set<String>,
 ): AgentFeedItem.Question? =
-    steps.firstOrNull { step -> !step.resolved && step.wireId?.let { it in answered } != true }
+    steps.firstOrNull { step -> !step.resolved && step.wireId !in answered }
 
 // Wire-field readers: a field of an unexpected shape reads as absent, never
 // throws — one malformed event must not tear down the socket.
@@ -960,10 +955,13 @@ fun ActivityFeedState.applyActivityEvent(
                 )
             }
         }.getOrDefault(emptyList())
-        if (text.isNullOrBlank() || options.isEmpty()) {
+        // The wire id is REQUIRED: it addresses the `answer` frame and every
+        // resolution event, so a card without one could never be answered nor
+        // retired. No publisher emits one, and the relay rejects it.
+        val wireId = event.str("id")?.takeIf { it.isNotBlank() }
+        if (text.isNullOrBlank() || options.isEmpty() || wireId == null) {
             this
         } else {
-            val wireId = event.str("id")?.takeIf { it.isNotBlank() }
             val question = AgentFeedItem.Question(
                 id = nextEventId,
                 text = text,
@@ -1188,7 +1186,7 @@ fun ActivityFeedState.failUnacknowledged(lockKey: String): ActivityFeedState =
 fun ActivityFeedState.releaseResolvedLocks(): ActivityFeedState {
     val done = feed.filterIsInstance<AgentFeedItem.Question>()
         .filter { it.resolved }
-        .mapNotNull { it.wireId }
+        .map { it.wireId }
         .toSet()
     val next = answerLocks - done
     return if (next.size == answerLocks.size) this else copy(answerLocks = next)

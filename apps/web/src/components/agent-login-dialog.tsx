@@ -10,7 +10,6 @@ import { useEffect, useRef } from "react"
 import { LoaderCircle } from "lucide-react"
 import { useAgentLogin } from "@/hooks/use-agent-login"
 import {
-  deviceCanAgentLoginCode,
   deviceIsOnline,
   type SteerDevice,
 } from "@/lib/steer-devices"
@@ -88,9 +87,6 @@ export function AgentLoginDialog({
           {state.result && (
             <AgentLoginOutcome
               result={state.result}
-              canEnterCode={deviceCanAgentLoginCode({
-                caps: device?.caps ?? [],
-              })}
               codePending={state.codePending}
               onEnterCode={(code) => login.queueLoginCode(agent, code)}
             />

@@ -8,8 +8,8 @@
 //! ticket, joins the one audience there is (`channel: "activity"`), turns
 //! everything that arrives into [`ViewerEvent`]s on a channel, and sends
 //! steering back up: whole composer messages and semantic answers (EXP-730:
-//! a question is answered ONLY by its wire id — the id-less blind-keystroke
-//! path is gone, and an id-less card renders read-only).
+//! a question is answered ONLY by its wire id — the blind-keystroke path is
+//! gone).
 //!
 //! [`publisher`]: crate::publisher
 //! [`control_channel`]: crate::control_channel

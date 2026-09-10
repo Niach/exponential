@@ -10,10 +10,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const h = vi.hoisted(() => ({
   updates: [] as { set: Record<string, unknown>; where: unknown }[],
   returning: [] as { id: string }[],
-  // What the ONE db-level select of each sweep resolves to: the repo→teams
-  // lookup endSessionsOnMergedBranch does first (EXP-637), or the issues
-  // whose team still ends sessions on merge (EXP-711) for
-  // endMergedPrSessions.
+  // What the ONE db-level select of a sweep resolves to: the issues whose
+  // team still ends sessions on merge (EXP-711) for endMergedPrSessions.
   selectRows: [] as Record<string, string>[],
   selectWheres: [] as unknown[],
   getSteerRelayConfig: vi.fn(),
@@ -78,7 +76,6 @@ import {
   applySessionPrState,
   endLiveIssueSessionsInTx,
   endMergedPrSessions,
-  endSessionsOnMergedBranch,
 } from "@/lib/integrations/pr-sync"
 
 const ISSUE = `11111111-1111-4111-8111-111111111111`
@@ -248,82 +245,6 @@ describe(`endMergedPrSessions`, () => {
 
     expect(h.updates).toHaveLength(0)
     expect(h.relayPostKill).not.toHaveBeenCalled()
-  })
-})
-
-// EXP-637/EXP-626: an issue-LESS chore PR (opened with
-// `exponential_pr_open({ repositoryId, head })`) resolves to no issue at all,
-// so the branch recorded on the coding_sessions row is the only handle on the
-// run that opened it.
-describe(`endSessionsOnMergedBranch`, () => {
-  const BRANCH = `exp/refresh-screenshots-1a2b3c4d`
-
-  it(`ends issue-less rows on the merged branch in the repo's teams`, async () => {
-    h.selectRows = [{ teamId: `team-1` }, { teamId: `team-2` }, { teamId: `team-1` }]
-    h.returning = [{ id: `sess-1` }]
-
-    await endSessionsOnMergedBranch(`org/repo`, BRANCH)
-
-    // EXP-711: the repo→teams lookup drops teams that keep sessions on merge.
-    expect(whereShape(h.selectWheres[0])).toEqual([
-      `col:full_name`,
-      `org/repo`,
-      `col:end_sessions_on_merge`,
-      true,
-    ])
-    expect(h.updates).toHaveLength(1)
-    expect(h.updates[0]!.set).toMatchObject({
-      status: `ended`,
-      endedAt: expect.any(Date),
-      endedBy: `merge`,
-      updatedAt: expect.any(Date),
-    })
-    // Duplicate team ids collapse; the spare and the issue-less shape are
-    // both part of the clause.
-    expect(whereShape(h.updates[0]!.where)).toEqual([
-      `col:issue_id`,
-      `col:branch`,
-      BRANCH,
-      `col:team_id`,
-      `team-1`,
-      `team-2`,
-      `col:status`,
-      `running`,
-      `in_review`,
-      `col:merged_own_pr`,
-      false,
-    ])
-    expect(h.relayPostKill).toHaveBeenCalledTimes(1)
-    expect(h.relayPostKill).toHaveBeenCalledWith(expect.anything(), `sess-1`)
-    // EXP-700: a chore-PR run can be an agent-started child too.
-    expect(h.notifyParentOfChildEnd).toHaveBeenCalledWith(
-      expect.anything(),
-      `sess-1`,
-      { summary: null, endedBy: `merge` }
-    )
-  })
-
-  it(`is a no-op when nothing registered the repo, or the inputs are blank`, async () => {
-    h.selectRows = []
-    await endSessionsOnMergedBranch(`org/repo`, BRANCH)
-    expect(h.updates).toHaveLength(0)
-
-    await endSessionsOnMergedBranch(``, BRANCH)
-    await endSessionsOnMergedBranch(`org/repo`, ``)
-    expect(h.selectWheres).toHaveLength(1)
-    expect(h.updates).toHaveLength(0)
-  })
-
-  // EXP-711: the merge claim's per-call override.
-  it(`honours the endSessions override either way`, async () => {
-    await endSessionsOnMergedBranch(`org/repo`, BRANCH, false)
-    expect(h.selectWheres).toHaveLength(0)
-    expect(h.updates).toHaveLength(0)
-
-    h.selectRows = [{ teamId: `team-1` }]
-    await endSessionsOnMergedBranch(`org/repo`, BRANCH, true)
-    expect(whereShape(h.selectWheres[0])).toEqual([`col:full_name`, `org/repo`])
-    expect(h.updates).toHaveLength(1)
   })
 })
 

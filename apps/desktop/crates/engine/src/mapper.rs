@@ -636,7 +636,7 @@ impl Mapper {
                 options,
                 multi_select: None,
                 plan_mode: plan_mode.then_some(true),
-                id: Some(question_id.clone()),
+                id: question_id.clone(),
                 ask_id: None,
                 index: None,
                 total: None,
@@ -1804,7 +1804,7 @@ impl Mapper {
                 options: vec![QuestionOption::new("Submit", "submit")],
                 multi_select: None,
                 plan_mode: None,
-                id: Some(question_id.clone()),
+                id: question_id.clone(),
                 ask_id: Some(ask_id.to_string()),
                 index: None,
                 total: None,
@@ -1818,7 +1818,7 @@ impl Mapper {
                 options: step.options.clone(),
                 multi_select: step.multi_select.then_some(true),
                 plan_mode: None,
-                id: Some(question_id.clone()),
+                id: question_id.clone(),
                 ask_id: Some(ask_id.to_string()),
                 index: Some(ask.current as u32 + 1),
                 total: Some(total as u32),
@@ -2637,7 +2637,7 @@ mod tests {
         assert_eq!(out.needs_input, Some(true));
         match &out.wire[0] {
             ActivityEvent::Question { id, options, plan_mode, header, .. } => {
-                assert_eq!(id.as_deref(), Some("tc-9"));
+                assert_eq!(id, "tc-9");
                 // Allow sorts first, reject last.
                 assert_eq!(options[0].key, "allow");
                 assert_eq!(options[1].key, "reject");
