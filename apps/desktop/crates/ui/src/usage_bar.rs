@@ -434,6 +434,91 @@ fn render_usage_card(card: &UsageCard, compact: bool, cx: &App) -> gpui::Div {
     body
 }
 
+/// EXP-817: [`render_usage_cards`] in the usage page's DENSE rhythm — the
+/// caption folded onto the title line (`All models   resets in 2h · 61% used`)
+/// and a thinner track, so an account card is two lines per window. The
+/// strings are the same; only the rhythm is tighter (web `dense`).
+pub(crate) fn render_usage_cards_dense(
+    agent: coding::CodingAgent,
+    usage: &AgentUsage,
+    now_epoch: i64,
+    cx: &App,
+) -> AnyElement {
+    let groups = usage_groups(usage, now_epoch);
+    if groups.is_empty() {
+        return div().into_any_element();
+    }
+    let muted = cx.theme().muted_foreground;
+    let mut body = v_flex()
+        .id(SharedString::from(format!("usage-cards-dense-{}", agent.id())))
+        .w_full()
+        .gap(px(6.))
+        .when(usage.stale, |this| this.opacity(0.55));
+    for group in groups {
+        let mut column = v_flex().w_full().gap(px(4.));
+        if !group.title.is_empty() && group.key != "session" {
+            column = column.child(
+                div()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(SharedString::from(group.title)),
+            );
+        }
+        for card in group.cards {
+            column = column.child(
+                v_flex()
+                    .w_full()
+                    .gap(px(4.))
+                    .child(
+                        gpui_component::h_flex()
+                            .w_full()
+                            .items_baseline()
+                            .gap_2()
+                            .text_xs()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate()
+                                    .child(SharedString::from(card.title.clone())),
+                            )
+                            .when(!card.caption.is_empty(), |this| {
+                                this.child(
+                                    div()
+                                        .min_w_0()
+                                        .truncate()
+                                        .text_color(muted)
+                                        .child(SharedString::from(card.caption.clone())),
+                                )
+                            })
+                            .child(
+                                div()
+                                    .flex_shrink_0()
+                                    .text_color(muted)
+                                    .child(SharedString::from(format!("{}% used", card.percent))),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .w_full()
+                            .h(px(4.))
+                            .rounded_full()
+                            .bg(theme::tokens::glass::STROKE_STRONG.to_hsla())
+                            .child(
+                                div()
+                                    .h_full()
+                                    .rounded_full()
+                                    .w(gpui::relative(card.percent as f32 / 100.))
+                                    .bg(severity_color(card.severity, cx)),
+                            ),
+                    ),
+            );
+        }
+        body = body.child(column);
+    }
+    body.into_any_element()
+}
+
 // ---------------------------------------------------------------------------
 // EXP-746: the per-SESSION context meter
 // ---------------------------------------------------------------------------
@@ -734,11 +819,17 @@ pub(crate) fn peak_percent(usage: Option<&AgentUsage>) -> u8 {
 }
 
 /// Attention-first bucket: signed-out rows lead (there is something to do),
-/// then rows at or over [`DANGER_PERCENT`], then everything else.
+/// then rows at or over [`DANGER_PERCENT`], then everything else. The web
+/// twin takes `Pick<…, signedIn | usage>` so it ranks account groups too;
+/// here [`attention_bucket`] is that shared core.
 pub(crate) fn attention_rank(row: &AgentProfileUsageRow) -> u8 {
-    if !row.signed_in {
+    attention_bucket(row.signed_in, row.usage.as_ref())
+}
+
+fn attention_bucket(signed_in: bool, usage: Option<&AgentUsage>) -> u8 {
+    if !signed_in {
         0
-    } else if peak_percent(row.usage.as_ref()) >= DANGER_PERCENT {
+    } else if peak_percent(usage) >= DANGER_PERCENT {
         1
     } else {
         2
@@ -771,6 +862,153 @@ pub(crate) fn refresh_allowed_at(usage: Option<&AgentUsage>, now_epoch: i64) -> 
     let fetched = crate::comments::parse_epoch(&usage.fetched_at)?;
     let next = fetched + RATE_LIMITED_FLOOR_SECS;
     (next > now_epoch).then_some(next)
+}
+
+// ---------------------------------------------------------------------------
+// EXP-817: one card per ACCOUNT
+// ---------------------------------------------------------------------------
+//
+// The page rows above are device × profile; the same login on two machines
+// reported the same numbers twice (and, before the poll-pin fix in
+// `coding::usage_cache`, at two different ages). So the page renders one
+// card per ACCOUNT — an agent plus the email the machine named — and lists
+// the machines that hold it as chips. Mirrored with the web `agent-usage.ts`
+// (`accountUsageGroups` / `sortAccountGroupsAttentionFirst`), same tests.
+
+/// One account card of the usage page.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct AgentAccountUsageGroup {
+    /// `<agent>:<email>` for a named login; a row with no email (pi names a
+    /// provider, a signed-out row names nobody) can never be told apart from
+    /// another machine's, so it keeps its own `<agent>:<deviceId>:<profileId>`.
+    pub key: String,
+    pub agent: String,
+    pub signed_in: bool,
+    pub email: Option<String>,
+    pub plan: Option<String>,
+    /// The machines (× profile) holding this account: online first, then by
+    /// label, then profile — a heartbeat cannot reshuffle the chips.
+    pub rows: Vec<AgentProfileUsageRow>,
+    /// The FRESHEST member's numbers: newest `fetched_at`, a non-stale report
+    /// winning a tie, a report with windows beating one without.
+    pub usage: Option<AgentUsage>,
+    /// The newest probe stamp among the members — the "as of …" fallback.
+    pub checked_at: Option<String>,
+    /// Where a refresh is queued: the eligible member (`can_refresh`) that
+    /// reported the freshest numbers, or `None` when no member may run one.
+    pub refresh_target: Option<AgentProfileUsageRow>,
+}
+
+fn stamp_epoch(stamp: Option<&str>) -> i64 {
+    stamp
+        .and_then(crate::comments::parse_epoch)
+        .unwrap_or(i64::MIN)
+}
+
+/// Whether `candidate` is a fresher report than `current`.
+fn fresher_usage(candidate: Option<&AgentUsage>, current: Option<&AgentUsage>) -> bool {
+    let Some(candidate) = candidate else {
+        return false;
+    };
+    let Some(current) = current else {
+        return true;
+    };
+    let by_stamp = stamp_epoch(Some(&candidate.fetched_at)) - stamp_epoch(Some(&current.fetched_at));
+    if by_stamp != 0 {
+        return by_stamp > 0;
+    }
+    if candidate.stale != current.stale {
+        return current.stale;
+    }
+    !candidate.windows.is_empty() && current.windows.is_empty()
+}
+
+pub(crate) fn account_group_key(row: &AgentProfileUsageRow) -> String {
+    let email = row
+        .signed_in
+        .then(|| row.email.as_deref())
+        .flatten()
+        .map(|email| email.trim().to_ascii_lowercase())
+        .filter(|email| !email.is_empty());
+    match email {
+        Some(email) => format!("{}:{email}", row.agent),
+        None => format!("{}:{}:{}", row.agent, row.device_id, row.profile_id),
+    }
+}
+
+/// Fold the page rows into account groups. `can_refresh` decides which
+/// members may run `agent_usage_refresh` (mine + online + the cap) —
+/// injected so the derivation stays a pure function of the rows. Nothing is
+/// sorted across groups here: [`sort_account_groups_attention_first`] owns
+/// that.
+pub(crate) fn account_usage_groups(
+    rows: Vec<AgentProfileUsageRow>,
+    can_refresh: impl Fn(&AgentProfileUsageRow) -> bool,
+) -> Vec<AgentAccountUsageGroup> {
+    let mut groups: Vec<AgentAccountUsageGroup> = Vec::new();
+    for row in rows {
+        let key = account_group_key(&row);
+        let index = match groups.iter().position(|group| group.key == key) {
+            Some(index) => index,
+            None => {
+                groups.push(AgentAccountUsageGroup {
+                    key,
+                    agent: row.agent.clone(),
+                    signed_in: row.signed_in,
+                    email: row.email.clone(),
+                    plan: row.plan.clone(),
+                    rows: Vec::new(),
+                    usage: None,
+                    checked_at: None,
+                    refresh_target: None,
+                });
+                groups.len() - 1
+            }
+        };
+        let group = &mut groups[index];
+        if group.plan.is_none() && row.plan.is_some() {
+            group.plan = row.plan.clone();
+        }
+        if fresher_usage(row.usage.as_ref(), group.usage.as_ref()) {
+            group.usage = row.usage.clone();
+        }
+        if stamp_epoch(row.checked_at.as_deref()) > stamp_epoch(group.checked_at.as_deref()) {
+            group.checked_at = row.checked_at.clone();
+        }
+        if can_refresh(&row)
+            && group.refresh_target.as_ref().is_none_or(|target| {
+                fresher_usage(row.usage.as_ref(), target.usage.as_ref())
+            })
+        {
+            group.refresh_target = Some(row.clone());
+        }
+        group.rows.push(row);
+    }
+    for group in &mut groups {
+        group.rows.sort_by(|a, b| {
+            b.online
+                .cmp(&a.online)
+                .then_with(|| a.device_label.cmp(&b.device_label))
+                .then_with(|| a.profile_id.cmp(&b.profile_id))
+        });
+    }
+    groups
+}
+
+/// [`attention_rank`] over groups, then the fuller group, then agent, then
+/// the key (email or device) — the page order.
+pub(crate) fn sort_account_groups_attention_first(
+    groups: Vec<AgentAccountUsageGroup>,
+) -> Vec<AgentAccountUsageGroup> {
+    let mut groups = groups;
+    groups.sort_by(|a, b| {
+        attention_bucket(a.signed_in, a.usage.as_ref())
+            .cmp(&attention_bucket(b.signed_in, b.usage.as_ref()))
+            .then_with(|| peak_percent(b.usage.as_ref()).cmp(&peak_percent(a.usage.as_ref())))
+            .then_with(|| a.agent.cmp(&b.agent))
+            .then_with(|| a.key.cmp(&b.key))
+    });
+    groups
 }
 
 #[cfg(test)]
@@ -1357,5 +1595,154 @@ mod tests {
         assert_eq!(refresh_allowed_at(Some(&usage(String::new())), now), None);
         assert_eq!(refresh_allowed_at(Some(&usage("garbage".into())), now), None);
         assert_eq!(refresh_allowed_at(None, now), None);
+    }
+
+    // ── EXP-817: the usage page's ACCOUNT groups (web `accountUsageGroups`) ─
+
+    fn page_row(device: &str, agent: &str) -> AgentProfileUsageRow {
+        AgentProfileUsageRow {
+            key: format!("{device}:{agent}:system"),
+            device_id: device.to_string(),
+            device_label: device.to_string(),
+            mine: true,
+            online: true,
+            agent: agent.to_string(),
+            profile_id: SYSTEM_PROFILE_ID.to_string(),
+            profile_label: "Default".to_string(),
+            active: true,
+            signed_in: true,
+            email: None,
+            plan: None,
+            usage: None,
+            checked_at: None,
+        }
+    }
+
+    fn weekly(fetched_at: &str, percent: u8, stale: bool) -> AgentUsage {
+        AgentUsage {
+            fetched_at: fetched_at.to_string(),
+            stale,
+            windows: vec![window("weekly", "Week", percent, None)],
+        }
+    }
+
+    #[test]
+    fn account_groups_merge_the_same_email_across_machines_freshest_report_first() {
+        let mut server = page_row("server", "claude");
+        server.email = Some("Dev@Acme.test".into());
+        server.plan = Some("max".into());
+        server.online = false;
+        server.usage = Some(weekly("2026-08-26T10:00:00.000Z", 69, false));
+        server.checked_at = Some("2026-08-27T10:00:00.000Z".into());
+        let mut macbook = page_row("macbook", "claude");
+        macbook.email = Some("dev@acme.test".into());
+        macbook.usage = Some(weekly("2026-08-28T11:00:00.000Z", 75, false));
+        macbook.checked_at = Some("2026-08-28T11:00:00.000Z".into());
+        let mut mint = page_row("mint", "claude");
+        mint.email = Some("other@acme.test".into());
+        mint.usage = Some(weekly("2026-08-28T11:30:00.000Z", 46, false));
+
+        let groups = account_usage_groups(vec![server, macbook, mint], |_| false);
+        assert_eq!(
+            groups.iter().map(|group| group.key.as_str()).collect::<Vec<_>>(),
+            vec!["claude:dev@acme.test", "claude:other@acme.test"]
+        );
+        let shared = &groups[0];
+        // The chips: online machines lead.
+        assert_eq!(
+            shared.rows.iter().map(|row| row.device_id.as_str()).collect::<Vec<_>>(),
+            vec!["macbook", "server"]
+        );
+        // The numbers are the FRESHEST member's, the plan the first one named.
+        assert_eq!(peak_percent(shared.usage.as_ref()), 75);
+        assert_eq!(shared.plan.as_deref(), Some("max"));
+        assert_eq!(shared.checked_at.as_deref(), Some("2026-08-28T11:00:00.000Z"));
+        assert!(shared.refresh_target.is_none());
+    }
+
+    #[test]
+    fn account_groups_keep_email_less_and_signed_out_rows_apart() {
+        let mut a = page_row("a", "pi");
+        a.plan = Some("openai-codex (oauth)".into());
+        let mut b = page_row("b", "pi");
+        b.plan = Some("openai-codex (oauth)".into());
+        let mut out_a = page_row("a", "claude");
+        out_a.signed_in = false;
+        out_a.email = Some("x@y.z".into());
+        let mut out_b = page_row("b", "claude");
+        out_b.signed_in = false;
+        let groups = account_usage_groups(vec![a, b, out_a, out_b], |_| false);
+        assert_eq!(
+            groups.iter().map(|group| group.key.as_str()).collect::<Vec<_>>(),
+            vec!["pi:a:system", "pi:b:system", "claude:a:system", "claude:b:system"]
+        );
+        assert!(!groups[2].signed_in);
+    }
+
+    #[test]
+    fn account_groups_prefer_a_non_stale_report_on_a_tie_and_windows_over_none() {
+        let mut a = page_row("a", "claude");
+        a.email = Some("dev@acme.test".into());
+        a.usage = Some(weekly("2026-08-28T11:00:00.000Z", 10, true));
+        let mut b = page_row("b", "claude");
+        b.email = Some("dev@acme.test".into());
+        b.usage = Some(weekly("2026-08-28T11:00:00.000Z", 20, false));
+        let mut c = page_row("c", "claude");
+        c.email = Some("dev@acme.test".into());
+        let groups = account_usage_groups(vec![a, b, c], |_| false);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(peak_percent(groups[0].usage.as_ref()), 20);
+    }
+
+    #[test]
+    fn account_groups_target_the_refresh_at_the_eligible_member_with_the_freshest_numbers() {
+        let mut stale = page_row("stale-but-capable", "claude");
+        stale.email = Some("dev@acme.test".into());
+        stale.usage = Some(weekly("2026-08-26T10:00:00.000Z", 69, false));
+        let mut fresh = page_row("fresh-and-capable", "claude");
+        fresh.email = Some("dev@acme.test".into());
+        fresh.usage = Some(weekly("2026-08-28T11:00:00.000Z", 75, false));
+        let mut theirs = page_row("freshest-but-not-mine", "claude");
+        theirs.email = Some("dev@acme.test".into());
+        theirs.mine = false;
+        theirs.usage = Some(weekly("2026-08-28T11:30:00.000Z", 75, false));
+        let groups = account_usage_groups(vec![stale, fresh, theirs], |row| row.mine);
+        assert_eq!(
+            groups[0].refresh_target.as_ref().map(|row| row.device_id.as_str()),
+            Some("fresh-and-capable")
+        );
+        // The group's own numbers still come from the freshest member of all.
+        assert_eq!(
+            groups[0].usage.as_ref().map(|usage| usage.fetched_at.as_str()),
+            Some("2026-08-28T11:30:00.000Z")
+        );
+    }
+
+    #[test]
+    fn account_groups_order_attention_first() {
+        let mut low = page_row("a", "claude");
+        low.email = Some("low@acme.test".into());
+        low.usage = Some(weekly("2026-08-28T11:00:00.000Z", 10, false));
+        let mut hot = page_row("a", "codex");
+        hot.email = Some("hot@acme.test".into());
+        hot.usage = Some(weekly("2026-08-28T11:00:00.000Z", 96, false));
+        let mut out = page_row("b", "claude");
+        out.signed_in = false;
+        let mut mid = page_row("a", "claude");
+        mid.email = Some("mid@acme.test".into());
+        mid.usage = Some(weekly("2026-08-28T11:00:00.000Z", 60, false));
+        let groups = sort_account_groups_attention_first(account_usage_groups(
+            vec![low, hot, out, mid],
+            |_| false,
+        ));
+        assert_eq!(
+            groups.iter().map(|group| group.key.as_str()).collect::<Vec<_>>(),
+            vec![
+                "claude:b:system",
+                "codex:hot@acme.test",
+                "claude:mid@acme.test",
+                "claude:low@acme.test",
+            ]
+        );
     }
 }

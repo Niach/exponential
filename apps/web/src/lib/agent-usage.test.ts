@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest"
 import {
   accountCaption,
+  accountUsageGroups,
+  agentProfileUsageRows,
+  sortAccountGroupsAttentionFirst,
+  type AgentProfileUsageRow,
   accountLine,
   accountRow,
   contextPercent,
@@ -561,5 +565,201 @@ describe(`session context usage`, () => {
 
   it(`pins the section title byte for byte`, () => {
     expect(CONTEXT_SECTION_TITLE).toBe(`Context`)
+  })
+})
+
+// EXP-817: the usage page's ACCOUNT groups — mirrored on the desktop
+// (`usage_bar.rs`) under the same test names.
+describe(`accountUsageGroups`, () => {
+  const row = (
+    overrides: Partial<AgentProfileUsageRow> & {
+      deviceId: string
+      agent: string
+    }
+  ): AgentProfileUsageRow => ({
+    key: `${overrides.deviceId}:${overrides.agent}:${overrides.profileId ?? `system`}`,
+    deviceLabel: overrides.deviceId,
+    mine: true,
+    online: true,
+    profileId: `system`,
+    profileLabel: `Default`,
+    active: true,
+    signedIn: true,
+    email: null,
+    plan: null,
+    usage: null,
+    checkedAt: null,
+    ...overrides,
+  })
+  const usage = (
+    fetchedAt: string,
+    percent: number,
+    stale = false
+  ): DeviceAgentUsage => ({
+    fetchedAt,
+    stale,
+    windows: [{ key: `weekly`, label: `Week`, percent, resetsAt: null }],
+  })
+
+  it(`merges the same email across machines, freshest report first`, () => {
+    const groups = accountUsageGroups(
+      [
+        row({
+          deviceId: `server`,
+          agent: `claude`,
+          email: `Dev@Acme.test`,
+          plan: `max`,
+          online: false,
+          usage: usage(`2026-08-26T10:00:00.000Z`, 69),
+          checkedAt: `2026-08-27T10:00:00.000Z`,
+        }),
+        row({
+          deviceId: `macbook`,
+          agent: `claude`,
+          email: `dev@acme.test`,
+          usage: usage(`2026-08-28T11:00:00.000Z`, 75),
+          checkedAt: `2026-08-28T11:00:00.000Z`,
+        }),
+        row({
+          deviceId: `mint`,
+          agent: `claude`,
+          email: `other@acme.test`,
+          usage: usage(`2026-08-28T11:30:00.000Z`, 46),
+        }),
+      ],
+      () => false
+    )
+    expect(groups.map((group) => group.key)).toEqual([
+      `claude:dev@acme.test`,
+      `claude:other@acme.test`,
+    ])
+    const shared = groups[0]!
+    // The chips: online machines lead.
+    expect(shared.rows.map((member) => member.deviceId)).toEqual([
+      `macbook`,
+      `server`,
+    ])
+    // The numbers are the FRESHEST member's, the plan the first one named.
+    expect(shared.usage?.windows[0]?.percent).toBe(75)
+    expect(shared.plan).toBe(`max`)
+    expect(shared.checkedAt).toBe(`2026-08-28T11:00:00.000Z`)
+    expect(shared.refreshTarget).toBeNull()
+  })
+
+  it(`keeps email-less and signed-out rows apart — nothing to merge on`, () => {
+    const groups = accountUsageGroups(
+      [
+        row({ deviceId: `a`, agent: `pi`, plan: `openai-codex (oauth)` }),
+        row({ deviceId: `b`, agent: `pi`, plan: `openai-codex (oauth)` }),
+        row({ deviceId: `a`, agent: `claude`, signedIn: false, email: `x@y.z` }),
+        row({ deviceId: `b`, agent: `claude`, signedIn: false }),
+      ],
+      () => false
+    )
+    expect(groups.map((group) => group.key)).toEqual([
+      `pi:a:system`,
+      `pi:b:system`,
+      `claude:a:system`,
+      `claude:b:system`,
+    ])
+    expect(groups[2]!.signedIn).toBe(false)
+  })
+
+  it(`prefers a non-stale report on a tie and a report with windows over none`, () => {
+    const groups = accountUsageGroups(
+      [
+        row({
+          deviceId: `a`,
+          agent: `claude`,
+          email: `dev@acme.test`,
+          usage: usage(`2026-08-28T11:00:00.000Z`, 10, true),
+        }),
+        row({
+          deviceId: `b`,
+          agent: `claude`,
+          email: `dev@acme.test`,
+          usage: usage(`2026-08-28T11:00:00.000Z`, 20),
+        }),
+        row({ deviceId: `c`, agent: `claude`, email: `dev@acme.test` }),
+      ],
+      () => false
+    )
+    expect(groups).toHaveLength(1)
+    expect(groups[0]!.usage?.windows[0]?.percent).toBe(20)
+  })
+
+  it(`targets the refresh at the eligible member with the freshest numbers`, () => {
+    const groups = accountUsageGroups(
+      [
+        row({
+          deviceId: `stale-but-capable`,
+          agent: `claude`,
+          email: `dev@acme.test`,
+          usage: usage(`2026-08-26T10:00:00.000Z`, 69),
+        }),
+        row({
+          deviceId: `fresh-and-capable`,
+          agent: `claude`,
+          email: `dev@acme.test`,
+          usage: usage(`2026-08-28T11:00:00.000Z`, 75),
+        }),
+        row({
+          deviceId: `freshest-but-not-mine`,
+          agent: `claude`,
+          email: `dev@acme.test`,
+          mine: false,
+          usage: usage(`2026-08-28T11:30:00.000Z`, 75),
+        }),
+      ],
+      (member) => member.mine
+    )
+    expect(groups[0]!.refreshTarget?.deviceId).toBe(`fresh-and-capable`)
+    // The group's own numbers still come from the freshest member of all.
+    expect(groups[0]!.usage?.fetchedAt).toBe(`2026-08-28T11:30:00.000Z`)
+  })
+
+  it(`orders groups attention first — signed out, then danger, then the rest`, () => {
+    const groups = sortAccountGroupsAttentionFirst(
+      accountUsageGroups(
+        [
+          row({ deviceId: `a`, agent: `claude`, email: `low@acme.test`, usage: usage(`2026-08-28T11:00:00.000Z`, 10) }),
+          row({ deviceId: `a`, agent: `codex`, email: `hot@acme.test`, usage: usage(`2026-08-28T11:00:00.000Z`, 96) }),
+          row({ deviceId: `b`, agent: `claude`, signedIn: false }),
+          row({ deviceId: `a`, agent: `claude`, email: `mid@acme.test`, usage: usage(`2026-08-28T11:00:00.000Z`, 60) }),
+        ],
+        () => false
+      )
+    )
+    expect(groups.map((group) => group.key)).toEqual([
+      `claude:b:system`,
+      `codex:hot@acme.test`,
+      `claude:mid@acme.test`,
+      `claude:low@acme.test`,
+    ])
+  })
+
+  it(`folds the synced device rows end to end`, () => {
+    // Two machines, one login: the page shows ONE card with two chips.
+    const devices = [`macbook`, `server`].map((id) => ({
+      deviceId: id,
+      label: id,
+      userId: `me`,
+      agentAccounts: {
+        claude: {
+          signedIn: true,
+          email: `dev@acme.test`,
+          plan: `max`,
+          checkedAt: `2026-08-28T11:00:00.000Z`,
+        },
+      },
+      agentUsage: { claude: usage(`2026-08-28T11:00:00.000Z`, 75) },
+      agentUsageAt: null,
+      lastSeenAt: new Date(`2026-08-28T11:59:00.000Z`),
+    }))
+    const rows = agentProfileUsageRows(devices, `me`, () => true)
+    const groups = accountUsageGroups(rows, () => true)
+    expect(groups).toHaveLength(1)
+    expect(groups[0]!.rows).toHaveLength(2)
+    expect(groups[0]!.refreshTarget?.deviceId).toBe(`macbook`)
   })
 })

@@ -570,7 +570,9 @@ export function peakPercent(usage: DeviceAgentUsage | null | undefined): number 
  * then rows at or over `DANGER_PERCENT`, then everything else. Within a
  * bucket the fuller row comes first, then device label, agent, profile, so
  * a heartbeat cannot shuffle equal rows. */
-export function attentionRank(row: AgentProfileUsageRow): number {
+export function attentionRank(
+  row: Pick<AgentProfileUsageRow, `signedIn` | `usage`>
+): number {
   if (!row.signedIn) return 0
   if (peakPercent(row.usage) >= DANGER_PERCENT) return 1
   return 2
@@ -604,4 +606,125 @@ export function refreshAllowedAt(
   if (Number.isNaN(fetched)) return null
   const next = fetched + RATE_LIMITED_FLOOR_MS
   return next > now.getTime() ? new Date(next) : null
+}
+
+// ── EXP-817: one card per ACCOUNT ───────────────────────────────────────────
+// The page rows above are device × profile; the same login on two machines
+// reported the same numbers twice (and, before the poll-pin fix, at two
+// different ages). So the page renders one card per ACCOUNT — an agent plus
+// the email the machine named — and lists the machines that hold it as
+// chips. Mirrored on the desktop (`usage_bar.rs`, same names, same tests).
+
+export interface AgentAccountUsageGroup {
+  /** `${agent}:${email}` for a named login; a row with no email (pi names a
+   * provider, a signed-out row names nobody) can never be told apart from
+   * another machine's, so it keeps its own `${agent}:${deviceId}:${profileId}`. */
+  key: string
+  agent: string
+  signedIn: boolean
+  email: string | null
+  plan: string | null
+  /** The machines (× profile) holding this account: online first, then by
+   * label, then profile — a heartbeat cannot reshuffle the chips. */
+  rows: AgentProfileUsageRow[]
+  /** The FRESHEST member's numbers: newest `fetchedAt`, a non-stale report
+   * winning a tie, a report with windows beating one without. */
+  usage: DeviceAgentUsage | null
+  /** The newest probe stamp among the members — the "as of …" fallback. */
+  checkedAt: string | null
+  /** Where a refresh is queued: the eligible member (`canRefresh`) that
+   * reported the freshest numbers, or null when no member may run one. */
+  refreshTarget: AgentProfileUsageRow | null
+}
+
+function stampMs(stamp: string | null | undefined): number {
+  if (!stamp) return Number.NEGATIVE_INFINITY
+  const ms = new Date(stamp).getTime()
+  return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms
+}
+
+/** Whether `candidate` is a fresher report than `current`. */
+function fresherUsage(
+  candidate: DeviceAgentUsage | null,
+  current: DeviceAgentUsage | null
+): boolean {
+  if (!candidate) return false
+  if (!current) return true
+  const byStamp = stampMs(candidate.fetchedAt) - stampMs(current.fetchedAt)
+  if (byStamp !== 0) return byStamp > 0
+  if (candidate.stale !== current.stale) return current.stale === true
+  return candidate.windows.length > 0 && current.windows.length === 0
+}
+
+export function accountGroupKey(row: AgentProfileUsageRow): string {
+  const email = row.signedIn ? row.email?.trim().toLowerCase() : null
+  return email
+    ? `${row.agent}:${email}`
+    : `${row.agent}:${row.deviceId}:${row.profileId}`
+}
+
+/** Fold the page rows into account groups. `canRefresh` decides which
+ * members may run `agent_usage_refresh` (mine + online + the cap) — injected
+ * so the derivation stays a pure function of the rows. Nothing is sorted
+ * across groups here: `sortAccountGroupsAttentionFirst` owns that. */
+export function accountUsageGroups(
+  rows: readonly AgentProfileUsageRow[],
+  canRefresh: (row: AgentProfileUsageRow) => boolean
+): AgentAccountUsageGroup[] {
+  const byKey = new Map<string, AgentAccountUsageGroup>()
+  for (const row of rows) {
+    const key = accountGroupKey(row)
+    let group = byKey.get(key)
+    if (!group) {
+      group = {
+        key,
+        agent: row.agent,
+        signedIn: row.signedIn,
+        email: row.email,
+        plan: row.plan,
+        rows: [],
+        usage: null,
+        checkedAt: null,
+        refreshTarget: null,
+      }
+      byKey.set(key, group)
+    }
+    group.rows.push(row)
+    if (!group.plan && row.plan) group.plan = row.plan
+    if (fresherUsage(row.usage, group.usage)) group.usage = row.usage
+    if (stampMs(row.checkedAt) > stampMs(group.checkedAt)) {
+      group.checkedAt = row.checkedAt
+    }
+    if (
+      canRefresh(row) &&
+      (!group.refreshTarget || fresherUsage(row.usage, group.refreshTarget.usage))
+    ) {
+      group.refreshTarget = row
+    }
+  }
+  for (const group of byKey.values()) {
+    group.rows.sort((a, b) => {
+      if (a.online !== b.online) return a.online ? -1 : 1
+      const byDevice = a.deviceLabel.localeCompare(b.deviceLabel)
+      if (byDevice !== 0) return byDevice
+      return a.profileId.localeCompare(b.profileId)
+    })
+  }
+  return [...byKey.values()]
+}
+
+/** `attentionRank` over groups, then the fuller group, then agent, then the
+ * key (email or device) — the page order. */
+export function sortAccountGroupsAttentionFirst(
+  groups: readonly AgentAccountUsageGroup[]
+): AgentAccountUsageGroup[] {
+  return [...groups].sort((a, b) => {
+    const byRank = attentionRank(a) - attentionRank(b)
+    if (byRank !== 0) return byRank
+    const byPeak = peakPercent(b.usage) - peakPercent(a.usage)
+    if (byPeak !== 0) return byPeak
+    const byAgent = a.agent.localeCompare(b.agent)
+    if (byAgent !== 0) return byAgent
+    return a.key.localeCompare(b.key)
+  })
 }

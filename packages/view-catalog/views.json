@@ -1100,7 +1100,7 @@
       "id": "usage",
       "group": "coding",
       "title": "Usage",
-      "blurb": "Every machine's agent usage on one page: one row per device and profile, the signed-out and nearly spent ones first, with a per-row refresh.",
+      "blurb": "Every machine's agent usage on one page: one card per account with the machines that hold it as chips, the signed-out and nearly spent ones first, the freshest report winning, refreshed on its own while open.",
       "order": 10,
       "web": {
         "route": "/t/$teamSlug/usage",
