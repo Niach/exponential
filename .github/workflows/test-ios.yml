@@ -1,0 +1,117 @@
+name: test-ios
+
+# EXP-814: the ONE job that compiles the iOS app target outside a release.
+#
+# Nothing else did. `test.yml` runs on Linux and builds no Swift at all,
+# `bun run ios:test` builds only the ExpCore/ExpUI test targets (the app target
+# is not in them), and `build-ios.yml` runs on an `ios-v*` tag — i.e. after the
+# decision to release. So the first thing to compile `apps/ios/Exponential` was
+# the release itself, and the Swift type checker's Release-only expression
+# budget broke three trains in a row (#644, #656) on a view a Debug build
+# compiles fine.
+#
+# Release configuration on purpose: that is the failure mode. UNSIGNED on
+# purpose too — entitlements exist only inside a code signature, so nothing
+# built here is shippable (EXP-405) and nothing should try; the signed archive
+# stays in build-ios.yml on the same runner image.
+#
+# Path-filtered: every generated Swift file (contract, icons, design tokens) is
+# committed under apps/ios, so that one filter also covers a codegen change
+# arriving from packages/.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'apps/ios/**'
+      - '.github/workflows/test-ios.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'apps/ios/**'
+      - '.github/workflows/test-ios.yml'
+  workflow_dispatch: {}
+
+concurrency:
+  group: test-ios-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    # Same image as build-ios.yml: Xcode 26.x needs macOS Tahoe 26.2+.
+    runs-on: macos-26
+
+    defaults:
+      run:
+        working-directory: apps/ios
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Select the newest RELEASE Xcode 26.x
+        run: |
+          XCODE_APP="$(ls -d /Applications/Xcode_26.*.app 2>/dev/null | sort -V | tail -1)"
+          if [ -z "$XCODE_APP" ]; then
+            echo "::error::No release Xcode 26.x on this image" >&2
+            exit 1
+          fi
+          sudo xcode-select -s "$XCODE_APP"
+          xcodebuild -version
+
+      - name: Install tuist
+        run: |
+          curl -fsSL https://mise.run | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/share/mise/shims" >> "$GITHUB_PATH"
+
+      - name: Pin tuist
+        run: |
+          mise use -g tuist@4.202.6
+          tuist version
+
+      # `tuist install` pulls ~1.7 GB of Firebase binary artifacts, so cache it
+      # on the dependency manifests — the only thing that changes what it
+      # fetches. Paths are repo-relative here (the cache action ignores
+      # defaults.run.working-directory).
+      - name: Cache SPM dependencies
+        uses: actions/cache@v4
+        with:
+          path: apps/ios/Tuist/.build
+          key: ${{ runner.os }}-tuist-spm-${{ hashFiles('apps/ios/Tuist/Package.swift', 'apps/ios/Tuist/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-tuist-spm-
+
+      # A fresh checkout has no Tuist/.build SPM checkouts; `tuist generate`
+      # exits 1 without this.
+      - name: Resolve SPM dependencies
+        run: tuist install
+
+      - name: Compile the app target (Release, unsigned)
+        run: |
+          tuist generate --no-open
+          if ! xcodebuild -workspace Exponential.xcworkspace -scheme Exponential \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            CODE_SIGNING_ALLOWED=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+            build > "$RUNNER_TEMP/build.log" 2>&1; then
+            echo "::group::Compiler errors"
+            grep -E "error: " "$RUNNER_TEMP/build.log" | sort -u | head -40 || true
+            echo "::endgroup::"
+            echo "::group::Tail of the build log"
+            tail -80 "$RUNNER_TEMP/build.log"
+            echo "::endgroup::"
+            exit 1
+          fi
+          grep -q "BUILD SUCCEEDED" "$RUNNER_TEMP/build.log"
+
+      - name: Upload the build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-compile-log
+          path: ${{ runner.temp }}/build.log
+          retention-days: 7
