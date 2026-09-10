@@ -2543,10 +2543,11 @@ describe(`session history on demand (EXP-773)`, () => {
     activity(hub, first, { kind: `narration`, text: `what happened` })
 
     // A second history publisher for the same room (a redial that raced the
-    // first one's bye): its hello starts from an EMPTY log, so the replay it
-    // is about to send is not appended behind the first one's copy.
+    // first one's bye): it opens with its own `activity_reset`, so the replay
+    // it is about to send is not appended behind the first one's copy.
     const resets = member.framesOf(`activity_reset`).length
     const second = connectPublisher(hub, `sess-past`)
+    hub.onMessage(second, JSON.stringify({ t: `activity_reset` }))
     expect(member.framesOf(`activity_reset`)).toHaveLength(resets + 1)
     activity(hub, second, { kind: `narration`, text: `what happened` })
 
@@ -2937,6 +2938,7 @@ describe(`history pages after the replay (EXP-796)`, () => {
     const { viewer, linger } = lingeringRoom(hub)
     const resets = viewer.framesOf(`activity_reset`).length
     const again = connectPublisher(hub, `sess-past`)
+    hub.onMessage(again, JSON.stringify({ t: `activity_reset` }))
     expect(viewer.framesOf(`activity_reset`)).toHaveLength(resets + 1)
     activity(hub, again, { kind: `narration`, text: `tail` }, 40)
     const late = joinWithDevice(hub)

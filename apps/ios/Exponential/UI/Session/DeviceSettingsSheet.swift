@@ -22,9 +22,8 @@ import SwiftUI
 //              the machine publishes only the sign-in link it shows on its own
 //              screen. EXP-765 closes that loop for Claude: the browser hands
 //              back an authorization code, and a field under the link sends it
-//              to the waiting login as an `agent_login_code` command (cap
-//              `agent-login-code`). There is no separate Agents section any
-//              more.
+//              to the waiting login as an `agent_login_code` command. There
+//              is no separate Agents section any more.
 //   Worktrees — the synced inventory (shape 18) with per-row Remove and a
 //              Prune button, queued as devices.createCommand rows the device
 //              runs on its next heartbeat (immediately when online). Progress
@@ -639,7 +638,7 @@ struct DeviceSettingsSheet: View {
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
             }
-            loginOutcome(device, agent: agent)
+            loginOutcome(agent: agent)
         }
     }
 
@@ -704,10 +703,9 @@ struct DeviceSettingsSheet: View {
     /// EXP-765: the two agents point opposite ways. Codex's code goes INTO the
     /// browser, so its link is the whole story. Claude's browser hands the
     /// code back to a CLI still waiting on the machine — so when the payload
-    /// carries no code and the machine advertises `agent-login-code`, the
-    /// field below is the way back.
+    /// carries no code, the field below is the way back.
     @ViewBuilder
-    private func loginOutcome(_ device: SteerDevice, agent: String) -> some View {
+    private func loginOutcome(agent: String) -> some View {
         if let message = commandErrors["login:\(agent)"] {
             Text(message)
                 .font(.caption)
@@ -717,7 +715,7 @@ struct DeviceSettingsSheet: View {
         if let result = loginResults[agent] {
             if let link = AgentUsagePresentation.parseAgentLoginResult(result),
                let url = URL(string: link.url) {
-                let wantsCodeBack = link.code == nil && device.canAgentLoginCode
+                let wantsCodeBack = link.code == nil
                 VStack(alignment: .leading, spacing: 6) {
                     Link(destination: url) {
                         Label("Open the sign-in link", appIcon: AppIcons.uiExternalLink)

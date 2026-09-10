@@ -93,19 +93,6 @@ class AgentFeedTest {
     }
 
     @Test
-    fun `an id-less card is never answerable`() {
-        // EXP-672: no wire id means no `answer` frame can address the card, so
-        // it renders read-only ("Update the desktop app to answer this here.")
-        // instead of offering a dead control.
-        assertEquals(emptySet<Long>(), activeQuestionIds(listOf(idlessQuestion(1), idlessQuestion(2))))
-        assertEquals(emptySet<Long>(), activeQuestionIds(listOf(idlessQuestion(1), tool(2))))
-        // A plan card is no exception, however fresh it looks.
-        assertEquals(emptySet<Long>(), activeQuestionIds(listOf(idlessQuestion(1).copy(planMode = true))))
-        // A wire-id card next to one is unaffected.
-        assertEquals(setOf(2L), activeQuestionIds(listOf(idlessQuestion(1), question(2))))
-    }
-
-    @Test
     fun `a resolved question is never active`() {
         assertEquals(
             emptySet<Long>(),
@@ -144,9 +131,9 @@ class AgentFeedTest {
     }
 
     @Test
-    fun `a card with no wire id always appends`() {
-        val feed = listOf<AgentFeedItem>(idlessQuestion(1))
-        assertEquals(2, upsertQuestion(feed, idlessQuestion(2)).size)
+    fun `a card with an unknown wire id appends`() {
+        val feed = listOf<AgentFeedItem>(question(1).copy(wireId = "q1"))
+        assertEquals(2, upsertQuestion(feed, question(2).copy(wireId = "q2")).size)
     }
 
     // EXP-249: question_resolved retires by id, else by askId.
@@ -1288,9 +1275,6 @@ class AgentFeedTest {
         multiSelect = false,
         wireId = "q$id",
     )
-
-    /** A card from a pre-EXP-249 desktop: no wire id, so it is read-only. */
-    private fun idlessQuestion(id: Long) = question(id).copy(wireId = null)
 
     private fun plan(id: Long) = question(id).copy(planMode = true)
 

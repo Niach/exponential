@@ -1024,7 +1024,7 @@ class SteerConnection internal constructor(
         // A card that survived the replay keeps its in-flight lock (and the
         // labels the stepper renders for it); everything else is released.
         val liveKeys = next.feed.filterIsInstance<AgentFeedItem.Question>()
-            .mapNotNullTo(mutableSetOf()) { it.wireId }
+            .mapTo(mutableSetOf()) { it.wireId }
         val carried = previous.answerLocks
             .filterKeys { it in liveKeys }
             .filterValues { it == AnswerState.Sending }
@@ -1163,7 +1163,7 @@ class SteerConnection internal constructor(
             val state = _activity.value
             val target = composerAnswerTarget(state.feed, state.answerLocks, text)
             if (target != null) {
-                val wireId = target.question.wireId ?: return
+                val wireId = target.question.wireId
                 val reply = text.trim()
                 if (sendQuestionAnswer(wireId, target.question.askId, target.keys, reply, listOf(reply))) {
                     _draft.value = ""

@@ -95,7 +95,7 @@ import { appBaseUrl } from "@/lib/notification-email-policy"
 import { assertWithinStorageLimit } from "@/lib/billing"
 import { appRouter } from "@/routes/api/trpc/$"
 import type { Context } from "@/lib/trpc"
-import { createPullRequest, getPullRequest } from "@/lib/integrations/github-pr"
+import { createPullRequest } from "@/lib/integrations/github-pr"
 import { resolveRepoInstallationTokenInfo } from "@/lib/integrations/github-app"
 import { isInstallationLinkedToTeam } from "@/lib/trpc/integrations"
 import { recordIssueEvent } from "@/lib/integrations/activity"
@@ -507,8 +507,8 @@ export function registerExponentialTools(
     // when a merge it stamped for fails.
     issueId: string | null
     branch: string | null
-    // EXP-734: the chore PR the run opened (null on issue/batch rows and on
-    // rows parked by a pre-column server) — the direct own-PR test.
+    // EXP-734: the chore PR the run opened (null on issue/batch rows) — the
+    // own-PR test.
     prUrl: string | null
     prNumber: number | null
     status: string
@@ -2290,41 +2290,29 @@ export function registerExponentialTools(
         // guards (membership, App config, installation link-gate) and the
         // merge itself; there is no issue row to sync.
         if (repositoryId) {
-          // Own-PR test. The ONLY merge-driven end that can reach an
-          // issue-less row is the webhook's endSessionsOnMergedBranch, keyed
-          // on the `branch` exponential_pr_open stamped when it parked this
-          // run on the PR it opened — so the spare is for exactly that row
-          // shape: an issue-less run sitting on a branch of its own. But
-          // "issue-less run with a branch" is not enough: `repositoryId +
-          // prNumber` names no branch, and a chat/batch/action run landing
-          // SOMEBODY ELSE'S chore PR would stamp a DURABLE spare that also
-          // filters the later merge of its own PR, leaving a run nothing
-          // ends. So read the PR's head ref from GitHub and stamp only when
-          // it IS the caller's branch. A lookup that cannot answer leaves the
-          // stamp off: being ended by a merge is recoverable, a run that
-          // never ends is not. EXP-734: a row parked by pr_open carries the
-          // PR itself, so the stamped url + number answer directly and the
-          // GitHub lookup is only the fallback for pre-column rows.
+          // Own-PR test. The merge-driven end that reaches an issue-less row
+          // is keyed on the PR `exponential_pr_open` stamped when it parked
+          // this run on the PR it opened (EXP-734) — so the spare is for
+          // exactly that row shape. But "issue-less run with a PR" is not
+          // enough: a chat/batch/action run landing SOMEBODY ELSE'S chore PR
+          // would stamp a DURABLE spare that also filters the later merge of
+          // its own PR, leaving a run nothing ends. So stamp only when the
+          // `repositoryId + prNumber` being merged IS the row's own PR. A
+          // test that cannot answer leaves the stamp off: being ended by a
+          // merge is recoverable, a run that never ends is not.
           let ownChorePr = false
-          if (stampable && !stampable.issueId && stampable.branch) {
+          if (
+            stampable &&
+            !stampable.issueId &&
+            stampable.prUrl &&
+            stampable.prNumber != null
+          ) {
             try {
               const choreRepo = await loadRepositoryForTeam(repositoryId)
               await resolveTeamAccess(user.id, choreRepo.teamId)
-              if (stampable.prUrl && stampable.prNumber != null) {
-                ownChorePr =
-                  stampable.prNumber === prNumber &&
-                  repoFromPrUrl(stampable.prUrl) === choreRepo.fullName
-              } else {
-                const resolvedRepo = await resolveRepoInstallationTokenInfo(
-                  choreRepo.fullName
-                )
-                const pull = await getPullRequest(
-                  choreRepo.fullName,
-                  prNumber!,
-                  resolvedRepo?.token
-                )
-                ownChorePr = pull.headRef === stampable.branch
-              }
+              ownChorePr =
+                stampable.prNumber === prNumber &&
+                repoFromPrUrl(stampable.prUrl) === choreRepo.fullName
             } catch {
               ownChorePr = false
             }

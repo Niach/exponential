@@ -308,10 +308,10 @@ pub enum ActivityEvent {
     /// `tool_use_id` (plan = the id itself; ask question `i` (0-based) =
     /// `<id>#<i>`; the review/submit step = `<askId>#submit`). Re-emitting the
     /// SAME id REPLACES that card in place — the options may grow later (a
-    /// "Type something" choice only the TUI grid reveals). `id` stays
-    /// `Option` so decoding an old publisher's frame never fails, but an
-    /// id-less question is READ-ONLY on every client (EXP-730 retired the
-    /// blind-keystroke answer path the desktop kept for it).
+    /// "Type something" choice only the TUI grid reveals). `id` is REQUIRED:
+    /// EXP-730 retired the blind-keystroke answer path an id-less card had,
+    /// and the relay rejects such frames, so a card without an identity has
+    /// no reader left.
     #[serde(rename_all = "camelCase")]
     Question {
         text: String,
@@ -325,8 +325,7 @@ pub enum ActivityEvent {
         /// are absent.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         plan_mode: Option<bool>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
+        id: String,
         /// Groups the steps of ONE multi-question `AskUserQuestion`. A step
         /// carries `index`/`total`; the FINAL review/submit step carries
         /// `askId` with neither.
@@ -1315,7 +1314,7 @@ mod tests {
                     ],
                     multi_select: Some(true),
                     plan_mode: None,
-                    id: None,
+                    id: "toolu_01#0".into(),
                     ask_id: None,
                     index: None,
                     total: None,
@@ -1325,7 +1324,7 @@ mod tests {
                 seq: None,
             }
             .to_json(),
-            r#"{"t":"activity","event":{"kind":"question","text":"Which color?","options":[{"label":"Red","key":"1"},{"label":"Blue","key":"2"}],"multiSelect":true}}"#
+            r#"{"t":"activity","event":{"kind":"question","text":"Which color?","options":[{"label":"Red","key":"1"},{"label":"Blue","key":"2"}],"multiSelect":true,"id":"toolu_01#0"}}"#
         );
         // multiSelect and planMode are omitted when absent.
         assert_eq!(
@@ -1335,7 +1334,7 @@ mod tests {
                     options: vec![QuestionOption::new("Approve", "1")],
                     multi_select: None,
                     plan_mode: None,
-                    id: None,
+                    id: "toolu_02".into(),
                     ask_id: None,
                     index: None,
                     total: None,
@@ -1345,7 +1344,7 @@ mod tests {
                 seq: None,
             }
             .to_json(),
-            r#"{"t":"activity","event":{"kind":"question","text":"Approve?","options":[{"label":"Approve","key":"1"}]}}"#
+            r#"{"t":"activity","event":{"kind":"question","text":"Approve?","options":[{"label":"Approve","key":"1"}],"id":"toolu_02"}}"#
         );
         // A plan-approval question carries the planMode marker (EXP-97).
         assert_eq!(
@@ -1355,7 +1354,7 @@ mod tests {
                     options: vec![QuestionOption::new("Approve — auto-accept edits", "1")],
                     multi_select: None,
                     plan_mode: Some(true),
-                    id: None,
+                    id: "toolu_03".into(),
                     ask_id: None,
                     index: None,
                     total: None,
@@ -1365,7 +1364,7 @@ mod tests {
                 seq: None,
             }
             .to_json(),
-            r#"{"t":"activity","event":{"kind":"question","text":"The plan","options":[{"label":"Approve — auto-accept edits","key":"1"}],"planMode":true}}"#
+            r#"{"t":"activity","event":{"kind":"question","text":"The plan","options":[{"label":"Approve — auto-accept edits","key":"1"}],"planMode":true,"id":"toolu_03"}}"#
         );
     }
 
@@ -1390,7 +1389,7 @@ mod tests {
                     ],
                     multi_select: Some(false),
                     plan_mode: None,
-                    id: Some("toolu_01#1".into()),
+                    id: "toolu_01#1".into(),
                     ask_id: Some("toolu_01".into()),
                     index: Some(2),
                     total: Some(3),
@@ -1410,7 +1409,7 @@ mod tests {
                     options: vec![QuestionOption::new("Submit", "\r")],
                     multi_select: None,
                     plan_mode: None,
-                    id: Some("toolu_01#submit".into()),
+                    id: "toolu_01#submit".into(),
                     ask_id: Some("toolu_01".into()),
                     index: None,
                     total: None,
@@ -1855,7 +1854,7 @@ mod tests {
                 options: vec![QuestionOption::new("a", "1")],
                 multi_select: None,
                 plan_mode: None,
-                id: None,
+                id: "q1".into(),
                 ask_id: None,
                 index: None,
                 total: None,
@@ -2732,7 +2731,7 @@ mod tests {
                 ],
                 multi_select: Some(true),
                 plan_mode: Some(true),
-                id: Some("toolu_01#1".into()),
+                id: "toolu_01#1".into(),
                 ask_id: Some("toolu_01".into()),
                 index: Some(2),
                 total: Some(3),

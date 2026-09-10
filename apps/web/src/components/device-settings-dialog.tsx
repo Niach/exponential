@@ -23,7 +23,6 @@ import {
 } from "@/lib/coding-launch-prefs"
 import {
   deviceCanAgentLogin,
-  deviceCanAgentLoginCode,
   deviceRowIsOnline,
   type SteerDevice,
 } from "@/lib/steer-devices"
@@ -750,9 +749,6 @@ export function DeviceSettingsDialog({
                     pending={state.pending}
                     result={state.result}
                     onLogin={startAgentLogin}
-                    canEnterCode={deviceCanAgentLoginCode({
-                      caps: row?.caps ?? [],
-                    })}
                     codeError={state.codeError}
                     codePending={state.codePending}
                     codeResult={state.codeResult}

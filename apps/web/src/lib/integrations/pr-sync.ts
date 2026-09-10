@@ -782,61 +782,6 @@ export async function endMergedPrSessions(
   await tearDownEndedSessions(endedSessionIds)
 }
 
-// EXP-637/EXP-626: the issue-LESS counterpart. A chore PR opened with
-// `exponential_pr_open({ repositoryId, head })` links no issue, so nothing
-// above can find its session — the only handle is the branch recorded on the
-// row. When a merge webhook resolves to no issues at all, end the live
-// sessions of the teams that registered that repo and whose row sits on the
-// merged head branch. Same `merged_own_pr` spare as every other merge path:
-// the session that merged its own chore PR keeps running. EXP-711: teams
-// that switched merge-ends-sessions off are skipped unless `endSessions`
-// (the merge claim's per-call override) forces it either way.
-export async function endSessionsOnMergedBranch(
-  repoFullName: string,
-  headBranch: string,
-  endSessions?: boolean
-): Promise<void> {
-  if (!repoFullName || !headBranch || endSessions === false) return
-  const teamRows = await db
-    .select({ teamId: repositories.teamId })
-    .from(repositories)
-    .innerJoin(teams, eq(teams.id, repositories.teamId))
-    .where(
-      and(
-        eq(repositories.fullName, repoFullName),
-        ...(endSessions === true ? [] : [eq(teams.endSessionsOnMerge, true)])
-      )
-    )
-  const teamIds = [...new Set(teamRows.map((r) => r.teamId))]
-  if (teamIds.length === 0) return
-
-  const endedSessionIds = await db.transaction(async (tx) => {
-    const txId = await generateTxId(tx)
-    void txId
-    const ended = await tx
-      .update(codingSessions)
-      .set({
-        status: `ended`,
-        endedAt: new Date(),
-        endedBy: `merge`,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          isNull(codingSessions.issueId),
-          eq(codingSessions.branch, headBranch),
-          inArray(codingSessions.teamId, teamIds),
-          inArray(codingSessions.status, [`running`, `in_review`]),
-          eq(codingSessions.mergedOwnPr, false)
-        )
-      )
-      .returning({ id: codingSessions.id })
-    return ended.map((s) => s.id)
-  })
-
-  await tearDownEndedSessions(endedSessionIds)
-}
-
 // EXP-734: the session-PR state writer. An action/chat run's chore PR lives
 // on its `coding_sessions` row (`pr_url/pr_number/pr_state`, stamped by the
 // MCP pr_open chore path) — the issue-side writers above never see it. This

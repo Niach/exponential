@@ -550,7 +550,6 @@ pub fn create_agent_login_command(
 /// `agent_login` is still waiting for it at "Paste code here if prompted".
 /// The device types it into that login PTY and completes the command at
 /// once; the signed-in flip follows on the synced row after the re-probe.
-/// Gated server-side on the `agent-login-code` cap.
 pub fn create_agent_login_code_command(
     trpc: &TrpcClient,
     device_id: &str,

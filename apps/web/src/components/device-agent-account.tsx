@@ -67,7 +67,6 @@ export function AgentAccountBlock({
   pending,
   result,
   onLogin,
-  canEnterCode,
   codeError,
   codePending,
   codeResult,
@@ -84,8 +83,6 @@ export function AgentAccountBlock({
   result: string | null
   /** Queue a login; the dialog owns the Codex switch confirmation. */
   onLogin: (agent: string, switchAccount: boolean) => void
-  /** EXP-765: the machine's build runs `agent_login_code` (caps). */
-  canEnterCode: boolean
   codeError: string
   codePending: boolean
   codeResult: string | null
@@ -139,7 +136,6 @@ export function AgentAccountBlock({
       {result && (
         <AgentLoginOutcome
           result={result}
-          canEnterCode={canEnterCode}
           codePending={codePending}
           onEnterCode={(code) => onEnterCode(agent, code)}
         />
@@ -179,12 +175,10 @@ export function AgentAccountBlock({
  * Anything unparsable renders as the raw text the device sent. */
 export function AgentLoginOutcome({
   result,
-  canEnterCode,
   codePending,
   onEnterCode,
 }: {
   result: string
-  canEnterCode: boolean
   codePending: boolean
   onEnterCode: (code: string) => void
 }) {
@@ -201,7 +195,7 @@ export function AgentLoginOutcome({
     return <p className="text-xs text-muted-foreground">{result}</p>
   }
   const code = progress.code
-  const wantsCodeBack = !code && canEnterCode
+  const wantsCodeBack = !code
   const submit = () => {
     const trimmed = draft.trim()
     if (!trimmed || codePending) return

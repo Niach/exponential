@@ -829,24 +829,20 @@ fun AgentSessionScreen(
                             // renders as a command row, not prose.
                             agentCommands = sessionConfig?.commands.orEmpty(),
                             // Every answer is one semantic `answer` frame keyed
-                            // by the card's wire id (EXP-249); an id-less card
-                            // renders read-only and never reaches this (EXP-672).
+                            // by the card's wire id (EXP-249).
                             onAnswer = { question, keys, text ->
-                                val wireId = question.wireId
-                                if (wireId != null) {
-                                    // The picked labels (a typed free-text reply
-                                    // wins over its row's "Type something"
-                                    // label) — what the stepper shows for this
-                                    // step until the ask resolves (EXP-588).
-                                    val labels = keys.mapNotNull { key ->
-                                        val option = question.options.firstOrNull { it.key == key }
-                                            ?: return@mapNotNull null
-                                        if (option.freeText && !text.isNullOrBlank()) text else option.label
-                                    }
-                                    viewModel.sendQuestionAnswer(
-                                        wireId, question.askId, keys, text, labels,
-                                    )
+                                // The picked labels (a typed free-text reply
+                                // wins over its row's "Type something"
+                                // label) — what the stepper shows for this
+                                // step until the ask resolves (EXP-588).
+                                val labels = keys.mapNotNull { key ->
+                                    val option = question.options.firstOrNull { it.key == key }
+                                        ?: return@mapNotNull null
+                                    if (option.freeText && !text.isNullOrBlank()) text else option.label
                                 }
+                                viewModel.sendQuestionAnswer(
+                                    question.wireId, question.askId, keys, text, labels,
+                                )
                             },
                             // The floating bar overlays the tail of the feed —
                             // the list pads past it so the last message (and
@@ -1948,7 +1944,7 @@ private fun ActivityFeed(
                                 item = item,
                                 active = item.id in activeQuestionIds,
                                 answerEnabled = answerEnabled,
-                                state = item.wireId?.let { answerStates[it] },
+                                state = answerStates[item.wireId],
                                 stepLabel = null,
                                 onAnswer = { keys, text -> onAnswer(item, keys, text) },
                             )
@@ -2397,7 +2393,7 @@ private fun QuestionStepperCard(
         item = current,
         active = current.id in activeQuestionIds,
         answerEnabled = answerEnabled,
-        state = current.wireId?.let { answerStates[it] },
+        state = answerStates[current.wireId],
         stepLabel = when {
             current.index != null && total > 0 -> "Question ${current.index} of $total"
             // No index: the ask's final review step.
@@ -2405,7 +2401,7 @@ private fun QuestionStepperCard(
         },
         priorSteps = prior,
         priorAnswers = prior.map { stepAnswer(it, answerLabels) },
-        localAnswer = current.wireId?.let { answerLabels[it] },
+        localAnswer = answerLabels[current.wireId],
         onAnswer = { keys, text -> onAnswer(current, keys, text) },
     )
 }
@@ -2413,7 +2409,7 @@ private fun QuestionStepperCard(
 /** A step's answer for display: the desktop-resolved text, else what this
  *  client picked (EXP-588); null = answered elsewhere, unknown here. */
 private fun stepAnswer(step: AgentFeedItem.Question, answerLabels: Map<String, String>): String? =
-    step.answer?.takeIf { it.isNotBlank() } ?: step.wireId?.let { answerLabels[it] }
+    step.answer?.takeIf { it.isNotBlank() } ?: answerLabels[step.wireId]
 
 /** One already-answered step of a stepper: the question on the left, folded
  *  to one line, the answer on the right (web `AnsweredStepRow` parity). */
@@ -2695,15 +2691,6 @@ private fun QuestionCard(
                     } else {
                         "Waiting for an answer. You're viewing read-only."
                     },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                )
-            } else if (item.wireId == null && !item.resolved) {
-                // A card from a pre-EXP-249 desktop: it carries no wire id, so
-                // no `answer` frame can address it and the raw-keystroke
-                // fallback is gone (EXP-672). Read-only, and say why.
-                Text(
-                    "Update the desktop app to answer this here.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                 )

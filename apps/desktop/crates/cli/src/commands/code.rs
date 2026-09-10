@@ -310,12 +310,8 @@ fn print_activity(event: &steer::ActivityEvent, state: &Mutex<AttachState>) {
                 println!("  {}) {}", index + 1, option.label);
             }
             println!("  (answer with a number)");
-            let Some(id) = id.clone() else {
-                // EXP-730: an id-less card is read-only everywhere.
-                return;
-            };
             lock(state).pending = Some(PendingQuestion {
-                id,
+                id: id.clone(),
                 ask_id: ask_id.clone(),
                 keys: options.iter().map(|option| option.key.clone()).collect(),
             });

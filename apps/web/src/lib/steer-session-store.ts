@@ -188,7 +188,7 @@ export type ActivityEvent =
       options: QuestionOption[]
       multiSelect?: boolean
       planMode?: boolean
-      id?: string
+      id: string
       askId?: string
       index?: number
       total?: number
@@ -399,9 +399,9 @@ export type FeedItem = FeedSeq &
       options: QuestionOption[]
       multiSelect: boolean
       planMode: boolean
-      /** Wire identity (protocol v2) — absent on cards from a desktop too
-       *  old to publish ids, which render read-only (EXP-672). */
-      questionId?: string
+      /** Wire identity (protocol v2): what the `answer` frame names, and
+       *  what a re-emission replaces the card by. */
+      questionId: string
       askId?: string
       index?: number
       total?: number
@@ -902,7 +902,7 @@ export function createSteerSessionStore(
         }
         // A re-emission of a known id replaces the card in place (the
         // desktop augments options as it learns them).
-        const replaced = event.id ? upsertQuestion(feed, event.id, item) : null
+        const replaced = upsertQuestion(feed, event.id, item)
         if (replaced) {
           // A card replaced IN PLACE: its options grew, so re-derive rather
           // than accumulate.
@@ -1169,9 +1169,7 @@ export function createSteerSessionStore(
     }
     const liveKeys = new Set<string>()
     for (const item of feed) {
-      if (item.kind === `question` && item.questionId !== undefined) {
-        liveKeys.add(item.questionId)
-      }
+      if (item.kind === `question`) liveKeys.add(item.questionId)
     }
     for (const key of Object.keys(answerStates)) {
       if (!liveKeys.has(key)) answerStates = clearAnswer(answerStates, key)
@@ -1859,10 +1857,8 @@ export function createSteerSessionStore(
     /** Submit a card's answer and LOCK it immediately — a locked card never
      *  fires again. `answer_ack` confirms the lock; `question_resolved`
      *  finalizes it; ANSWER_ACK_TIMEOUT_MS without either re-enables the card
-     *  with an inline note. EXP-672: a card carrying no wire id is a no-op —
-     *  an old desktop's card renders read-only, it is never answered blind. */
+     *  with an inline note. */
     answerQuestion(item, keys, labels, text) {
-      if (item.questionId === undefined) return
       const key = answerKey(item)
       if (isAnswerLocked(answerStates[key]) || item.resolved === true) return
       if (!sendAnswerFrame(item.questionId, item.askId, keys, text)) return

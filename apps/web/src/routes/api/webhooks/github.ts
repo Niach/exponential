@@ -14,7 +14,6 @@ import {
   applyPrOpenedState,
   applyPrReopenedState,
   applySessionPrState,
-  endSessionsOnMergedBranch,
   findIssueIdByBranch,
 } from "@/lib/integrations/pr-sync"
 import {
@@ -311,27 +310,20 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
       const githubActorUserId = await resolveAppUserForGithubActor(
         pr.merged_by ?? payload.sender
       )
-      // EXP-637/EXP-626: an issue-LESS chore PR (opened with
-      // `exponential_pr_open({ repositoryId, head })`) resolves to nothing
-      // above, so the branch on the coding_sessions row is the only handle
-      // on the run that opened it. End those rows here — except the session
-      // that merged its own PR, which lives on until sessions_end.
-      // EXP-711: the claim also carries the merger's per-call
-      // `endSessions` override, so the echo of an in-app merge honours it.
+      // EXP-711: the claim also carries the merger's per-call `endSessions`
+      // override, so the echo of an in-app merge honours it.
       const endSessions = claim?.endSessions
-      // EXP-734: a run's own chore PR lives on its session row — flip it to
-      // merged and end the run there (idempotent against the in-app merge
-      // helper that already did so); the branch sweep below still covers
-      // rows parked by a pre-column server.
+      // EXP-637/EXP-626/EXP-734: an issue-LESS chore PR (opened with
+      // `exponential_pr_open({ repositoryId, head })`) resolves to no issue
+      // above — it lives on the coding_sessions row that opened it, so flip
+      // it to merged and end the run there (idempotent against the in-app
+      // merge helper that already did so), except the session that merged
+      // its own PR, which lives on until sessions_end.
       await applySessionPrState({
         prUrl: htmlUrl,
         state: `merged`,
         ...(endSessions !== undefined ? { endSessions } : {}),
       })
-      if (issueIds.length === 0 && repoFullName && headRef) {
-        await endSessionsOnMergedBranch(repoFullName, headRef, endSessions)
-        return jsonResponse(200, { ok: true })
-      }
       for (const issueId of issueIds) {
         await applyPrMergeState({
           githubActorUserId,

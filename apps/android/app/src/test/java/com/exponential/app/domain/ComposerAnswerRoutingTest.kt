@@ -11,7 +11,7 @@ import org.junit.Test
  */
 class ComposerAnswerRoutingTest {
 
-    private fun plan(id: Long, wireId: String? = "p$id") = AgentFeedItem.Question(
+    private fun plan(id: Long, wireId: String = "p$id") = AgentFeedItem.Question(
         id = id,
         text = "## Plan",
         options = listOf(
@@ -24,7 +24,7 @@ class ComposerAnswerRoutingTest {
         wireId = wireId,
     )
 
-    private fun question(id: Long, freeText: Boolean = true, wireId: String? = "q$id") =
+    private fun question(id: Long, freeText: Boolean = true, wireId: String = "q$id") =
         AgentFeedItem.Question(
             id = id,
             text = "Which color?",
@@ -68,9 +68,8 @@ class ComposerAnswerRoutingTest {
     }
 
     @Test
-    fun aResolvedOrIdLessCardNeverTakesTheMessage() {
+    fun aResolvedCardNeverTakesTheMessage() {
         assertNull(composerAnswerTarget(listOf(plan(1).copy(resolved = true)), emptyMap(), "x"))
-        assertNull(composerAnswerTarget(listOf(plan(1, wireId = null)), emptyMap(), "x"))
         assertNull(composerAnswerTarget(emptyList(), emptyMap(), "x"))
     }
 

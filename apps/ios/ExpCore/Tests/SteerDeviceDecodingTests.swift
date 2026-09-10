@@ -178,31 +178,21 @@ final class SteerDeviceDecodingTests: XCTestCase {
         XCTAssertTrue(shared.hasRunnableAgent)
     }
 
-    /// EXP-765: the code-return cap is its OWN entry — a build that runs a
-    /// remote sign-in (`agent-login`) is not automatically one that can take
-    /// the browser's authorization code back (`agent-login-code`), so the two
-    /// are read independently and an older machine simply offers no field.
-    func testDecodesTheAgentLoginCodeCap() throws {
+    /// EXP-484: the remote sign-in cap is read independently of the others —
+    /// a machine that advertises none simply offers no Login control.
+    func testDecodesTheAgentLoginCap() throws {
         let result = try decode("""
         {"devices":[
         {"deviceId":"d20","deviceLabel":"macbook","agents":["claude"],
-        "caps":["actions","agent-login","agent-login-code"],"online":true},
-        {"deviceId":"d21","deviceLabel":"old-box","agents":["claude"],
         "caps":["actions","agent-login"],"online":true},
         {"deviceId":"d22","deviceLabel":"ancient","agents":["claude"],
         "caps":[],"online":true}]}
         """)
         let modern = try XCTUnwrap(result.devices.first)
         XCTAssertTrue(modern.canAgentLogin)
-        XCTAssertTrue(modern.canAgentLoginCode)
 
-        let older = result.devices[1]
-        XCTAssertTrue(older.canAgentLogin)
-        XCTAssertFalse(older.canAgentLoginCode)
-
-        let ancient = result.devices[2]
+        let ancient = result.devices[1]
         XCTAssertFalse(ancient.canAgentLogin)
-        XCTAssertFalse(ancient.canAgentLoginCode)
     }
 
     /// EXP-437: a machine advertises its own per-agent coding defaults so a

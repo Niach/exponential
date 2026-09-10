@@ -909,12 +909,11 @@ describe(`sending`, () => {
   })
 })
 
-// EXP-672: answers go out ONLY as the semantic `answer` frame. The legacy
-// raw-keystroke path (and its multi-select toggle) is gone, so a card an old
-// desktop published without a wire id is inert here — the view renders it
-// read-only with an update hint.
+// EXP-672: answers go out ONLY as the semantic `answer` frame, naming the
+// card's wire id — the legacy raw-keystroke path (and its multi-select
+// toggle) is gone.
 describe(`answering questions`, () => {
-  const card = (questionId?: string) =>
+  const card = (questionId: string) =>
     ({
       id: 1,
       kind: `question` as const,
@@ -937,16 +936,6 @@ describe(`answering questions`, () => {
       status: `sending`,
       labels: [`Refactor`],
     })
-    store.dispose()
-  })
-
-  it(`an id-less card sends nothing and never locks`, async () => {
-    const { store, sockets } = makeStore()
-    const socket = await goLive(store, sockets)
-    socket.sent.length = 0
-    store.answerQuestion(card(), [`1`], [`Refactor`])
-    expect(socket.sent).toEqual([])
-    expect(store.getSnapshot().answerStates).toEqual({})
     store.dispose()
   })
 
