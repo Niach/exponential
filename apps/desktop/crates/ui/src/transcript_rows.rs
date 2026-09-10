@@ -64,6 +64,11 @@ pub(crate) mod facet {
     pub const CARD_PENDING: u32 = 1 << 4;
     /// EXP-788: a multi-select card has picks (its Submit is enabled).
     pub const PICKS_MADE: u32 = 1 << 5;
+    /// EXP-820: the inline free-text field is open under one of its options.
+    pub const INLINE_OPEN: u32 = 1 << 6;
+    /// EXP-820: an answered stepper step re-opened for editing (its one-line
+    /// row unfolds into the whole prompt).
+    pub const STEP_EDITING: u32 = 1 << 7;
 }
 
 /// The height heuristic behind [`RowKey::fingerprint`]. `group_expanded` is

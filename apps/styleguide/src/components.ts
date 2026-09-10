@@ -959,7 +959,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `markdown`,
     title: `Markdown blocks`,
     kind: `Surfaces`,
-    blurb: `The chat-sized set the steer feed is built from. Narration is bare text at 90% behind a 12px glyph at 50% — no bubble, because a wall of them is unreadable. The person's turn IS a bubble: radius 12, active fill, strong hairline. Plan and question share ONE neutral radius-16 card; only the header line is tinted, primary for a plan and yellow for a question. A tool line is a 12px label with a truncated mono detail at 50%, and any long block clamps at 160 behind Show more. Inline code is tinted in chat feeds only — the issue and comment renderers keep the neutral chip.`,
+    blurb: `The chat-sized set the steer feed is built from. Narration is bare text at 90% behind a 12px glyph at 50% — no bubble, because a wall of them is unreadable. The person's turn IS a bubble: radius 12, active fill, strong hairline. Plan and question share ONE neutral radius-16 card; only the header line is tinted, primary for a plan and yellow for a question. Its options are full-width rows: the promoted one wears the primary fill, a pick the glass active fill, never blue; a free-text row opens the composer card inline under itself. A tool line is a 12px label with a truncated mono detail at 50%, and any long block clamps at 160 behind Show more. Inline code is tinted in chat feeds only — the issue and comment renderers keep the neutral chip.`,
     status: {
       web: ok(`QuestionCard / NarrationBubble`, `apps/web/src/components/agent-session.tsx`),
       desktop: ok(`steer_viewer`, `apps/desktop/crates/ui/src/steer_viewer.rs`),

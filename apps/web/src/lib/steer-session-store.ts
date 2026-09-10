@@ -1860,7 +1860,10 @@ export function createSteerSessionStore(
      *  with an inline note. */
     answerQuestion(item, keys, labels, text) {
       const key = answerKey(item)
-      if (isAnswerLocked(answerStates[key]) || item.resolved === true) return
+      if (isAnswerLocked(answerStates[key])) return
+      // EXP-820: a resolved step of an ask can be answered AGAIN while the
+      // ask is open (the engine re-records it); a resolved lone card cannot.
+      if (item.resolved === true && item.askId === undefined) return
       if (!sendAnswerFrame(item.questionId, item.askId, keys, text)) return
       answerStates = beginAnswer(answerStates, key, keys, labels)
       clearAckTimer(key)

@@ -31,6 +31,7 @@ import com.exponential.app.domain.SUBAGENT_FALLBACK_TYPE
 import com.exponential.app.domain.activeQuestionIds
 import com.exponential.app.domain.appendUserMessage
 import com.exponential.app.domain.applyActivityEvent
+import com.exponential.app.domain.askComplete
 import com.exponential.app.domain.FEED_BYTE_CAP
 import com.exponential.app.domain.feedItemBytes
 import com.exponential.app.domain.trimmed
@@ -356,6 +357,82 @@ class AgentFeedTest {
         assertNull(currentStepperStep(steps, setOf("u#0", "u#1", "u#submit")))
         // The dropped-lock rollback: u#1's lock expired, so it is current again.
         assertEquals("u#1", currentStepperStep(steps, setOf("u#0", "u#submit"))?.wireId)
+    }
+
+    // EXP-820: ONE completion rule for an ask (byte-identical ×4) — until it
+    // holds, an answered step can still be re-answered and the stepper waits.
+
+    @Test
+    fun `an ask completes when its submit step resolves`() {
+        val steps = listOf(
+            step("ask1", index = 1, feedId = 1, wireId = "u#0").copy(resolved = true, answer = "Red"),
+            step("ask1", index = 2, feedId = 2, wireId = "u#1").copy(resolved = true, answer = "Blue"),
+            submitStep("ask1", feedId = 3, wireId = "u#submit"),
+        )
+        // Every numbered step resolved, the submit still open: still OPEN —
+        // the engine re-records an earlier step until the submit lands.
+        assertFalse(askComplete(steps))
+        assertTrue(askComplete(steps.dropLast(1) + steps.last().copy(resolved = true)))
+        // Resolved numbered steps with the submit step not yet seen: open too.
+        assertFalse(askComplete(steps.dropLast(1)))
+    }
+
+    @Test
+    fun `a one-question ask completes on its lone step`() {
+        val lone = step("ask1", index = 1, feedId = 1, wireId = "u#0").copy(total = 1)
+        assertFalse(askComplete(listOf(lone)))
+        assertTrue(askComplete(listOf(lone.copy(resolved = true, answer = "Red"))))
+        assertFalse(askComplete(emptyList()))
+    }
+
+    @Test
+    fun `a dismissed step completes the whole ask`() {
+        val steps = listOf(
+            step("ask1", index = 1, feedId = 1, wireId = "u#0").copy(resolved = true, answer = "Red"),
+            step("ask1", index = 2, feedId = 2, wireId = "u#1").copy(resolved = true, dismissed = true),
+            submitStep("ask1", feedId = 3, wireId = "u#submit"),
+        )
+        assertTrue(askComplete(steps))
+    }
+
+    @Test
+    fun `a dismissal naming a step and its ask retires every step`() {
+        // `session/cancel` names the step that was showing AND its ask: the
+        // whole ask is over, so the stepper must not surface the next step
+        // (and keep the composer hidden behind an ask nobody can answer).
+        val feed = listOf<AgentFeedItem>(
+            step("ask1", index = 1, feedId = 1, wireId = "u#0").copy(resolved = true, answer = "Red"),
+            step("ask1", index = 2, feedId = 2, wireId = "u#1"),
+            step("ask1", index = 3, feedId = 3, wireId = "u#2"),
+        )
+        val out = resolveQuestions(feed, id = "u#1", askId = "ask1", dismissed = true)!!
+        val cards = out.filterIsInstance<AgentFeedItem.Question>()
+        assertTrue(cards.all { it.resolved && it.dismissed })
+        assertEquals("Red", cards[0].answer)
+        assertEquals(emptySet<Long>(), activeQuestionIds(out))
+        assertTrue(askComplete(cards))
+    }
+
+    @Test
+    fun `a re-answered step resolves again with its new answer`() {
+        // EXP-820 back and forth: the engine re-records an earlier step and
+        // publishes a fresh `question_resolved` for it — the already-resolved
+        // card takes the new answer, and the lock the re-answer set is
+        // released like a first answer's.
+        val resolvedOnce = ActivityFeedState(
+            feed = listOf(step("ask1", index = 1, feedId = 1, wireId = "u#0").copy(resolved = true, answer = "Red")),
+        )
+        val sent = resolvedOnce.lockAnswer("u#0", listOf("Blue"))
+        assertEquals(AnswerState.Sending, sent.answerLocks["u#0"])
+        val acked = sent.applying(event("""{"kind":"answer_ack","id":"u#0"}"""))
+        assertEquals(AnswerState.Acked, acked.answerLocks["u#0"])
+        val again = acked.applying(
+            event("""{"kind":"question_resolved","id":"u#0","askId":"ask1","answers":["Blue"]}"""),
+        )
+        val card = again.feed.single() as AgentFeedItem.Question
+        assertTrue(card.resolved)
+        assertEquals("Blue", card.answer)
+        assertTrue(again.answerLocks.isEmpty())
     }
 
     @Test

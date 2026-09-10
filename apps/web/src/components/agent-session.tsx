@@ -50,6 +50,9 @@ import {
   collectSubagents,
   diffTruncationNote,
   freeAnswerFor,
+  BACK_TO_CURRENT_STEP,
+  FREE_TEXT_PLACEHOLDER,
+  PLAN_FEEDBACK_PLACEHOLDER,
   groupFeedRows,
   FEED_WINDOW,
   FEED_WINDOW_STEP,
@@ -58,7 +61,7 @@ import {
   optionForHotkey,
   optionHotkey,
   pendingAnswerable,
-  pendingPlaceholder,
+  opensInlineField,
   rateLimitBanner,
   rowClass,
   splitTruncatedDiff,
@@ -114,6 +117,7 @@ import { splitUnifiedDiff } from "@/lib/unified-diff"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Pill } from "@/components/ui/pill"
+import { Textarea } from "@/components/ui/textarea"
 import {
   Composer,
   ComposerSubmit,
@@ -159,6 +163,7 @@ const CodingToolIcon = conceptIcon(`coding-tool`)
 const EditorImageIcon = conceptIcon(`editor-image`)
 const UiDeviceOfflineIcon = conceptIcon(`ui-device-offline`)
 const UiBackIcon = conceptIcon(`ui-back`)
+const UiEditIcon = conceptIcon(`ui-edit`)
 const UiHelpIcon = conceptIcon(`ui-help`)
 const UiLoadingIcon = conceptIcon(`ui-loading`)
 const UiMoreIcon = conceptIcon(`ui-more`)
@@ -419,12 +424,18 @@ export function AgentSessionView({
   // EXP-621: the composer stays MOUNTED through connection flaps (only send
   // is disabled) — unmounting it on a phase change was how a slow-consumer
   // eviction ate a typed draft. It only leaves with the session itself.
-  const composerVisible = !sessionEnded && phase.kind !== `ended`
+  // EXP-820: while a plan or question waits on THIS viewer, the card is the
+  // input — its free-text row opens an inline field — so the composer steps
+  // aside instead of doubling as the answer path (EXP-788 is retired). The
+  // draft survives in the store for when it comes back. (`composerVisible`
+  // is derived below, once the feed's active set is.)
+  const sessionOpen = !sessionEnded && phase.kind !== `ended`
   // EXP-678: an open PR on a still-live run is mergeable right here. The
   // server ends the session on merge (EXP-498) and the prState echo hides
-  // the pill again — no local state to unwind.
+  // the pill again — no local state to unwind. A pending card never hides
+  // the Merge (only the composer steps aside for it).
   const mergeProps = mergeTarget ? mergeTargetProps(mergeTarget) : null
-  const canMerge = composerVisible && mergeProps?.prState === `open`
+  const canMerge = sessionOpen && mergeProps?.prState === `open`
   // EXP-706: a conflicted merge swaps the pill for the "Fix conflicts" run,
   // which needs the relay. The session routes only mount this view for a
   // member with steering on, but the config is the honest gate.
@@ -514,23 +525,17 @@ export function AgentSessionView({
   /** A trailing question/plan means the session is blocked on a human — the
    *  header flips to "Needs your input" so it never looks silently stuck. */
   const awaitingInput = live && questionIds.size > 0
-  /** EXP-788: the card the composer answers — the newest active plan or
-   *  question whose answer is not in flight. The composer's free text IS its
-   *  typed reply (the placeholder says so), the card's number chips are live
-   *  on that card alone, and there is no in-card input any more. */
+  const cardPending = canAnswer && questionIds.size > 0
+  const composerVisible = sessionOpen && !cardPending
+  /** EXP-788/820: the card the keyboard answers — the newest active plan or
+   *  question whose answer is not in flight. Its number chips are live on
+   *  that card alone. */
   const pendingCard = useMemo(
     () =>
       live && canAnswer
         ? pendingAnswerable(feed, questionIds, answerStates)
         : null,
     [live, canAnswer, feed, questionIds, answerStates]
-  )
-  /** The number keys select an option only while the composer is EMPTY —
-   *  read at keypress time off the draft snapshot, so the feed never
-   *  re-renders per keystroke. */
-  const composerEmpty = useCallback(
-    () => store.getDraftSnapshot().text.length === 0,
-    [store]
   )
   /** EXP-724: the slash commands THIS session's agent can run (an agent-less
    *  row is a claude run). Empty catalog = no menu, no hint, no "…" entry.
@@ -983,7 +988,7 @@ export function AgentSessionView({
                           answerStates={answerStates}
                           onAnswer={answerQuestion}
                           pendingId={pendingCard?.id ?? null}
-                          composerEmpty={composerEmpty}
+                          onSend={sendMessage}
                         />
                       )
                     }
@@ -1034,7 +1039,7 @@ export function AgentSessionView({
                             answerState={answerStates[answerKey(item)]}
                             onAnswer={answerQuestion}
                             hotkeys={pendingCard?.id === item.id}
-                            composerEmpty={composerEmpty}
+                            onSend={sendMessage}
                           />
                         )
                     }
@@ -1139,11 +1144,8 @@ export function AgentSessionView({
                 // the send button should dim honestly for that gap.
                 live={live && connected}
                 onSend={sendMessage}
-                // EXP-788: typed text answers the pending card; EXP-790: the
-                // send glyph is Stop while the agent works and nothing is
-                // typed.
-                pending={pendingCard}
-                onAnswer={answerQuestion}
+                // EXP-790: the send glyph is Stop while the agent works and
+                // nothing is typed.
                 working={working}
                 sessionId={session.id}
                 users={teamUsers}
@@ -1153,9 +1155,6 @@ export function AgentSessionView({
                 // keystroke must not re-render the feed), and this view
                 // already holds the full one.
                 config={config}
-                placeholder={
-                  pendingCard ? pendingPlaceholder(pendingCard) : undefined
-                }
               />
             </div>
           )}
@@ -1669,6 +1668,8 @@ type AnswerHandler = (
   text?: string
 ) => void
 
+type SendHandler = (text: string) => boolean
+
 /** The interactive half of a question card: the options, the immediate lock
  *  once an answer goes out, and the resolved answer. ONE answer path (EXP-672):
  *  the card's wire id rides the semantic `answer` frame and the desktop
@@ -1677,18 +1678,23 @@ type AnswerHandler = (
  *  dead control (the raw-keystroke fallback is gone).
  *
  *  EXP-788: ONE panel on all four clients — a vertical list of full-width
- *  option buttons wearing number chips, `1`-`9` and Enter selecting while the
- *  composer is empty, and NO in-card text input: the composer IS the free-text
- *  path (its placeholder says so). A free-text option only moves focus there. */
+ *  option buttons wearing number chips, `1`-`9` and Enter selecting while no
+ *  field has focus. EXP-820: the free answer is typed IN the card — a
+ *  question's "Type something." row and a plan's reject row open an inline
+ *  field under themselves (the composer is hidden while a card is pending).
+ *  `editing` re-opens an answered step of a still-open ask so its answer can
+ *  be changed (the engine re-records and re-resolves it in place). */
 function QuestionPrompt({
   item,
   active,
   canAnswer,
   answerState,
   onAnswer,
+  onSend,
   variant = `default`,
   hotkeys = false,
-  composerEmpty,
+  editing = false,
+  onAnswered,
 }: {
   item: QuestionItem
   /** Still answerable per the feed — the session is blocked on this card. */
@@ -1697,24 +1703,42 @@ function QuestionPrompt({
   canAnswer: boolean
   answerState?: AnswerState
   onAnswer: AnswerHandler
+  /** A plan's typed feedback follows its reject as the next message. */
+  onSend?: SendHandler
   /** `plan`/`submit` promote the first option to the primary action. */
   variant?: `default` | `plan` | `submit`
   /** This is THE pending card: the number keys and Enter act on it. */
   hotkeys?: boolean
-  /** Whether the composer holds nothing typed — the keys only fire then. */
-  composerEmpty?: () => boolean
+  /** EXP-820: an answered step being revisited — answerable although
+   *  resolved, starting from what was chosen. */
+  editing?: boolean
+  /** Fires once an answer went out (the stepper closes its edit on it). */
+  onAnswered?: () => void
 }) {
-  const [picked, setPicked] = useState<string[]>([])
   const locked = isAnswerLocked(answerState)
   /** A card an old desktop published without a wire id — unanswerable here. */
   const unanswerable = item.questionId === undefined
   const answerable =
-    active && canAnswer && !locked && !unanswerable && item.resolved !== true
+    active &&
+    canAnswer &&
+    !locked &&
+    !unanswerable &&
+    (editing || item.resolved !== true)
+  const [picked, setPicked] = useState<string[]>(() =>
+    editing ? recordedKeys(item) : []
+  )
+  /** EXP-820: the option whose inline field is open, by key. */
+  const [typing, setTyping] = useState<string | null>(null)
 
   const labelsFor = (keys: string[]) =>
     item.options.filter((o) => keys.includes(o.key)).map((o) => o.label)
 
-  const choose = (option: QuestionOption) => {
+  const answer = (keys: string[], labels: string[], text?: string) => {
+    onAnswer(item, keys, labels, text)
+    onAnswered?.()
+  }
+
+  const choose = (option: QuestionOption, index: number) => {
     if (!answerable) return
     if (item.multiSelect) {
       // The picks stay local until the answer frame goes out.
@@ -1725,27 +1749,46 @@ function QuestionPrompt({
       )
       return
     }
-    // EXP-788: the typed reply lives in the composer — the row just puts
-    // the caret there.
-    if (option.freeText === true) {
-      focusSteerField()
+    // EXP-820: the free-text row (and a plan's reject) opens its field.
+    if (opensInlineField(item, index)) {
+      setTyping((prev) => (prev === option.key ? null : option.key))
       return
     }
-    onAnswer(item, [option.key], [option.label])
+    answer([option.key], [option.label])
   }
 
   const submitPicked = () => {
     if (!answerable || picked.length === 0) return
-    onAnswer(item, picked, labelsFor(picked))
+    answer(picked, labelsFor(picked))
+  }
+
+  /** The inline field's send: a question's typed reply rides the row's key
+   *  as `text`; a plan's feedback rejects and follows as the next message
+   *  (`freeAnswerFor`), and an EMPTY plan send is the plain reject. */
+  const submitInline = (option: QuestionOption, text: string) => {
+    if (!answerable) return
+    const trimmed = text.trim()
+    if (item.planMode) {
+      if (trimmed.length === 0) {
+        answer([option.key], [option.label])
+        return
+      }
+      const free = freeAnswerFor(item, trimmed)
+      if (!free) return
+      answer(free.keys, free.labels, free.text)
+      if (free.followUp !== undefined) onSend?.(free.followUp)
+      return
+    }
+    if (trimmed.length === 0) return
+    answer([option.key], [trimmed], trimmed)
   }
 
   // EXP-788: `1`-`9` pick the option with that chip, Enter takes the primary
-  // (or submits the multi-select picks) — only while the composer is empty,
-  // so a typed reply never has its first digit eaten, and never with a
-  // modifier, a dialog or a popover in the way. The listener is window-wide:
-  // the composer field has focus most of the time, and its own Enter handler
-  // sends nothing when the field is empty.
-  const hot = answerable && hotkeys
+  // (or submits the multi-select picks) — never while a field has focus (the
+  // inline answer field, a dialog's input), never with a modifier, a dialog
+  // or a popover in the way. The listener is window-wide because the card
+  // itself never holds focus.
+  const hot = answerable && hotkeys && typing === null
   const chooseRef = useRef({ choose, submitPicked })
   chooseRef.current = { choose, submitPicked }
   useEffect(() => {
@@ -1757,13 +1800,11 @@ function QuestionPrompt({
       if (
         target &&
         (target.tagName === `INPUT` ||
-          target.isContentEditable ||
-          (target.tagName === `TEXTAREA` &&
-            (target as HTMLTextAreaElement).value.length > 0))
+          target.tagName === `TEXTAREA` ||
+          target.isContentEditable)
       ) {
         return
       }
-      if (composerEmpty && !composerEmpty()) return
       if (
         document.querySelector(
           `[role="dialog"][data-state="open"], [data-radix-popper-content-wrapper]`
@@ -1781,23 +1822,18 @@ function QuestionPrompt({
         const primary = item.options[0]
         if (!primary) return
         event.preventDefault()
-        chooseRef.current.choose(primary)
+        chooseRef.current.choose(primary, 0)
         return
       }
       const option = optionForHotkey(item.options, event.key)
       if (!option) return
       event.preventDefault()
-      chooseRef.current.choose(option)
+      chooseRef.current.choose(option, item.options.indexOf(option))
     }
     window.addEventListener(`keydown`, onKeyDown)
     return () => window.removeEventListener(`keydown`, onKeyDown)
-  }, [hot, item, composerEmpty])
+  }, [hot, item])
 
-  if (item.resolved === true) {
-    return (
-      <AnsweredLine answer={item.answer} dismissed={item.dismissed === true} />
-    )
-  }
   if (locked) {
     return (
       <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -1811,6 +1847,11 @@ function QuestionPrompt({
       </div>
     )
   }
+  if (item.resolved === true && !editing) {
+    return (
+      <AnsweredLine answer={item.answer} dismissed={item.dismissed === true} />
+    )
+  }
 
   return (
     <>
@@ -1818,6 +1859,7 @@ function QuestionPrompt({
         {item.options.map((option, index) => {
           const primary = variant !== `default` && index === 0
           const selected = picked.includes(option.key)
+          const open = typing === option.key
           const chip = optionHotkey(index)
           const label =
             variant === `submit` && index === 0 ? `Submit answers` : option.label
@@ -1833,52 +1875,72 @@ function QuestionPrompt({
             )
           }
           return (
-            <Button
-              key={option.key}
-              variant={primary ? `default` : `outline`}
-              size="sm"
-              className={cn(
-                `h-auto min-h-8 w-full justify-start whitespace-normal py-1.5 text-left text-xs`,
-                primary &&
-                  `border-transparent bg-blue-500 text-white hover:bg-blue-500/90`,
-                selected && `border-blue-500/60 bg-blue-500/15`
-              )}
-              aria-pressed={item.multiSelect ? selected : undefined}
-              onClick={() => choose(option)}
-            >
-              {item.multiSelect ? (
-                selected ? (
-                  <UiSelectedIcon className="size-3.5 shrink-0 text-foreground" />
-                ) : (
-                  <UiUnselectedIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                )
-              ) : null}
-              <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
-                <span>{label}</span>
-                {option.description && (
-                  <span
+            <Fragment key={option.key}>
+              <Button
+                variant={primary ? `default` : `outline`}
+                size="sm"
+                className={cn(
+                  `h-auto min-h-8 w-full justify-start whitespace-normal py-1.5 text-left text-xs`,
+                  // EXP-820: styleguide — the promoted option is the primary
+                  // fill, a pick (and an open field's row) the glass active
+                  // fill; nothing on this card is blue.
+                  !primary &&
+                    (selected || open) &&
+                    `border-glass-stroke-active bg-glass-active`
+                )}
+                aria-pressed={item.multiSelect ? selected : undefined}
+                aria-expanded={opensInlineField(item, index) ? open : undefined}
+                onClick={() => choose(option, index)}
+              >
+                {item.multiSelect ? (
+                  selected ? (
+                    <UiSelectedIcon className="size-3.5 shrink-0 text-foreground" />
+                  ) : (
+                    <UiUnselectedIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                  )
+                ) : null}
+                <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
+                  <span>{label}</span>
+                  {option.description && (
+                    <span
+                      className={cn(
+                        `font-normal text-[0.6875rem]`,
+                        primary
+                          ? `text-primary-foreground/80`
+                          : `text-muted-foreground`
+                      )}
+                    >
+                      {option.description}
+                    </span>
+                  )}
+                </span>
+                {chip && (
+                  <kbd
                     className={cn(
-                      `font-normal text-[0.6875rem]`,
-                      primary ? `text-white/80` : `text-muted-foreground`
+                      `ml-auto shrink-0 rounded border px-1 font-mono text-[0.625rem] font-normal leading-4`,
+                      primary
+                        ? `border-primary-foreground/30 text-primary-foreground/80`
+                        : `border-glass-stroke-card text-muted-foreground`
                     )}
                   >
-                    {option.description}
-                  </span>
+                    {chip}
+                  </kbd>
                 )}
-              </span>
-              {chip && (
-                <kbd
-                  className={cn(
-                    `ml-auto shrink-0 rounded border px-1 font-mono text-[0.625rem] font-normal leading-4`,
-                    primary
-                      ? `border-white/30 text-white/80`
-                      : `border-glass-stroke-card text-muted-foreground`
-                  )}
-                >
-                  {chip}
-                </kbd>
+              </Button>
+              {open && (
+                <InlineAnswerField
+                  placeholder={
+                    item.planMode
+                      ? PLAN_FEEDBACK_PLACEHOLDER
+                      : FREE_TEXT_PLACEHOLDER
+                  }
+                  // A plan's reject stands on its own; a typed reply needs text.
+                  allowEmpty={item.planMode}
+                  onSubmit={(text) => submitInline(option, text)}
+                  onCancel={() => setTyping(null)}
+                />
               )}
-            </Button>
+            </Fragment>
           )
         })}
       </div>
@@ -1914,14 +1976,61 @@ function QuestionPrompt({
   )
 }
 
-/** EXP-788: the steer composer's field, so a free-text option row can put
- *  the caret there — the card has no input of its own any more. */
-const STEER_FIELD_ATTR = `data-steer-field`
+/** EXP-820: the keys behind a resolved step's answer — the options whose
+ *  labels the resolution lists — so revisiting the step starts from them. */
+function recordedKeys(item: QuestionItem): string[] {
+  if (!item.answer) return []
+  const labels = new Set(item.answer.split(`, `))
+  return item.options.filter((o) => labels.has(o.label)).map((o) => o.key)
+}
 
-function focusSteerField() {
-  document
-    .querySelector<HTMLTextAreaElement>(`[${STEER_FIELD_ATTR}]`)
-    ?.focus()
+/** EXP-820: the inline answer field an option row opens under itself — the
+ *  composer's own card (chrome and send glyph), a plain field inside. Enter
+ *  sends, Shift+Enter breaks the line, Escape closes it. */
+function InlineAnswerField({
+  placeholder,
+  allowEmpty,
+  onSubmit,
+  onCancel,
+}: {
+  placeholder: string
+  /** A plan's reject sends with nothing typed; a typed reply never does. */
+  allowEmpty: boolean
+  onSubmit: (text: string) => void
+  onCancel: () => void
+}) {
+  const [text, setText] = useState(``)
+  const sendable = allowEmpty || text.trim().length > 0
+  return (
+    <Composer
+      className="mt-0.5"
+      submit={
+        <ComposerSubmit disabled={!sendable} onClick={() => onSubmit(text)} />
+      }
+    >
+      <Textarea
+        autoFocus
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder={placeholder}
+        aria-label={placeholder}
+        rows={1}
+        onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing) return
+          if (e.key === `Escape`) {
+            e.preventDefault()
+            onCancel()
+            return
+          }
+          if (e.key === `Enter` && !e.shiftKey) {
+            e.preventDefault()
+            if (sendable) onSubmit(text)
+          }
+        }}
+        className="max-h-32 min-h-9 border-none bg-transparent px-3 pb-1 pt-3 text-sm shadow-none focus-visible:border-transparent"
+      />
+    </Composer>
+  )
 }
 
 /** EXP-784: the agent's rate-limit window, in the status stack beside the
@@ -1964,12 +2073,12 @@ function AnsweredLine({
   )
 }
 
-/** The chrome BOTH ask cards wear (EXP-698): a glass card under ONE accent —
- *  EXP-788: blue (tokens.json `semantic.blue`, Tailwind's `blue-500`) on the
- *  hairline, the glyph, the label and the primary option, plan and question
- *  alike, so the card is the same colour on every client. The two cards below
- *  stay separate components (a single-question card and a multi-step stepper
- *  have almost no body in common) but cannot drift apart on chrome. */
+/** The chrome BOTH ask cards wear (EXP-698): the NEUTRAL glass card, and per
+ *  the styleguide (EXP-820) only the header line is tinted — primary for a
+ *  plan, yellow (tokens.json `semantic.yellow`) for a question — never blue.
+ *  The two cards below stay separate components (a single-question card and a
+ *  multi-step stepper have almost no body in common) but cannot drift apart
+ *  on chrome. */
 function AskCard({
   plan,
   label,
@@ -1983,18 +2092,23 @@ function AskCard({
   children: ReactNode
 }) {
   return (
-    <div className="rounded-xl border border-blue-500/40 bg-glass-card p-3">
+    <div className="rounded-xl border border-glass-stroke-card bg-glass-card p-3">
       <div className="flex items-start gap-2">
         {plan ? (
-          <CodingPlanIcon className="mt-0.5 size-3.5 shrink-0 text-blue-500" />
+          <CodingPlanIcon className="mt-0.5 size-3.5 shrink-0 text-primary" />
         ) : (
-          <UiHelpIcon className="mt-0.5 size-3.5 shrink-0 text-blue-500" />
+          <UiHelpIcon className="mt-0.5 size-3.5 shrink-0 text-yellow-400" />
         )}
         <div className="min-w-0 flex-1">
           {(label !== undefined || meta !== undefined) && (
             <div className="mb-1 flex items-center gap-2">
               {label !== undefined && (
-                <span className="truncate text-xs font-medium text-blue-500">
+                <span
+                  className={cn(
+                    `truncate text-xs font-medium`,
+                    plan ? `text-primary` : `text-yellow-400`
+                  )}
+                >
                   {label}
                 </span>
               )}
@@ -2021,17 +2135,17 @@ function QuestionCard({
   canAnswer,
   answerState,
   onAnswer,
+  onSend,
   hotkeys,
-  composerEmpty,
 }: {
   item: QuestionItem
   active: boolean
   canAnswer: boolean
   answerState?: AnswerState
   onAnswer: AnswerHandler
-  /** EXP-788: this is the card the composer (and the number keys) answer. */
+  onSend: SendHandler
+  /** EXP-788: this is the card the number keys answer. */
   hotkeys: boolean
-  composerEmpty: () => boolean
 }) {
   const plan = item.planMode
   const clamp = useClampToggle(item.text)
@@ -2074,9 +2188,9 @@ function QuestionCard({
             canAnswer={canAnswer}
             answerState={answerState}
             onAnswer={onAnswer}
+            onSend={onSend}
             variant={plan ? `plan` : `default`}
             hotkeys={hotkeys}
-            composerEmpty={composerEmpty}
           />
       </>
     </AskCard>
@@ -2087,24 +2201,31 @@ function QuestionCard({
  *  a time with "k of n" progression, answered steps collapsed behind their
  *  chosen answer, and the ask's final review step rendered with an explicit
  *  "Submit answers" button once the desktop publishes it. The stepper advances
- *  the moment a step locks — `answer_ack` then confirms it. */
+ *  the moment a step locks — `answer_ack` then confirms it.
+ *
+ *  EXP-820: back and forth — while the ask is still open (`view.complete` is
+ *  false) an answered step is a button that re-opens it: the step expands
+ *  with its options (the recorded answer pre-picked) and the step the ask is
+ *  actually on folds into a row that leads back. A new pick sends an `answer`
+ *  for THAT step's id; the engine re-records it and re-resolves the card in
+ *  place, the stepper stays where it was. */
 function AskStepperCard({
   items,
   activeIds,
   canAnswer,
   answerStates,
   onAnswer,
+  onSend,
   pendingId,
-  composerEmpty,
 }: {
   items: QuestionItem[]
   activeIds: Set<number>
   canAnswer: boolean
   answerStates: AnswerStates
   onAnswer: AnswerHandler
-  /** EXP-788: the id of the card the composer answers, if it is one of ours. */
+  onSend: SendHandler
+  /** EXP-788: the id of the card the number keys answer, if it is one of ours. */
   pendingId: number | null
-  composerEmpty: () => boolean
 }) {
   const view = askStepperView(items, answerStates)
   const current =
@@ -2113,6 +2234,17 @@ function AskStepperCard({
   const answered = view.steps.filter((s) => s.phase === `answered`)
   const header = current?.item.header ?? items[0]?.header
   const submitStep = current !== null && current.item.index === undefined
+
+  // EXP-820: the answered step being revisited, while it still can be.
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const editable = canAnswer && !view.complete
+  const editing =
+    editable && editingId !== null
+      ? (answered.find((s) => s.item.id === editingId) ?? null)
+      : null
+  useEffect(() => {
+    if (editingId !== null && editing === null) setEditingId(null)
+  }, [editingId, editing])
 
   return (
     <AskCard
@@ -2128,33 +2260,82 @@ function AskStepperCard({
       }
     >
       <>
-          {answered.map((step) => (
-            <AnsweredStepRow
-              key={step.item.id}
-              text={step.item.text}
-              answer={step.answer}
-              dismissed={step.item.dismissed === true}
-            />
-          ))}
-          {current ? (
-            <div className="mt-1.5">
-              <div className="text-sm text-foreground/90">
-                <FeedText text={current.item.text} ariaLabel="Question" />
+          {answered.map((step) =>
+            editing?.item.id === step.item.id ? (
+              <div key={step.item.id} className="mt-1.5">
+                <div className="text-sm text-foreground/90">
+                  <FeedText text={step.item.text} ariaLabel="Question" />
+                </div>
+                <QuestionPrompt
+                  key={`edit-${step.item.id}`}
+                  item={step.item}
+                  active
+                  canAnswer={canAnswer}
+                  answerState={answerStates[answerKey(step.item)]}
+                  onAnswer={onAnswer}
+                  onSend={onSend}
+                  hotkeys
+                  editing
+                  onAnswered={() => setEditingId(null)}
+                />
+                {current && (
+                  <button
+                    type="button"
+                    className="mt-1.5 text-xs text-muted-foreground hover:text-foreground"
+                    onClick={() => setEditingId(null)}
+                  >
+                    {BACK_TO_CURRENT_STEP}
+                  </button>
+                )}
               </div>
-              <QuestionPrompt
-                // Per-step multi-select state must not survive the step
-                // advancing — the prompt sits at a fixed tree position.
-                key={current.item.id}
-                item={current.item}
-                active={activeIds.has(current.item.id)}
-                canAnswer={canAnswer}
-                answerState={answerStates[answerKey(current.item)]}
-                onAnswer={onAnswer}
-                variant={submitStep ? `submit` : `default`}
-                hotkeys={pendingId === current.item.id}
-                composerEmpty={composerEmpty}
+            ) : (
+              <AnsweredStepRow
+                key={step.item.id}
+                text={step.item.text}
+                answer={step.answer}
+                dismissed={step.item.dismissed === true}
+                onEdit={
+                  editable && !isAnswerLocked(answerStates[answerKey(step.item)])
+                    ? () => setEditingId(step.item.id)
+                    : undefined
+                }
               />
-            </div>
+            )
+          )}
+          {current ? (
+            editing ? (
+              // EXP-820: the step the ask is on, folded while another is
+              // being revisited — the way forward again.
+              <button
+                type="button"
+                className="mt-1 flex w-full items-center gap-1.5 py-1 text-left text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => setEditingId(null)}
+              >
+                <ChevronRight className="size-3 shrink-0" />
+                <span className="min-w-0 flex-1 truncate">
+                  {submitStep ? `Review answers` : current.item.text}
+                </span>
+              </button>
+            ) : (
+              <div className="mt-1.5">
+                <div className="text-sm text-foreground/90">
+                  <FeedText text={current.item.text} ariaLabel="Question" />
+                </div>
+                <QuestionPrompt
+                  // Per-step multi-select state must not survive the step
+                  // advancing — the prompt sits at a fixed tree position.
+                  key={current.item.id}
+                  item={current.item}
+                  active={activeIds.has(current.item.id)}
+                  canAnswer={canAnswer}
+                  answerState={answerStates[answerKey(current.item)]}
+                  onAnswer={onAnswer}
+                  onSend={onSend}
+                  variant={submitStep ? `submit` : `default`}
+                  hotkeys={pendingId === current.item.id}
+                />
+              </div>
+            )
           ) : (
             view.waiting && (
               <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -2169,18 +2350,21 @@ function AskStepperCard({
 }
 
 /** An answered step inside the stepper — the question, folded to one line,
- *  next to what was chosen. */
+ *  next to what was chosen. EXP-820: with `onEdit` the row is a button that
+ *  re-opens the step (a trailing edit glyph says so). */
 function AnsweredStepRow({
   text,
   answer,
   dismissed,
+  onEdit,
 }: {
   text: string
   answer?: string
   dismissed: boolean
+  onEdit?: () => void
 }) {
-  return (
-    <div className="flex items-center gap-1.5 border-b border-border/40 py-1 text-xs last:border-b-0">
+  const body = (
+    <>
       {dismissed ? (
         <X className="size-3 shrink-0 text-muted-foreground" />
       ) : (
@@ -2192,6 +2376,24 @@ function AnsweredStepRow({
       <span className="max-w-[50%] shrink-0 truncate font-medium text-foreground/90">
         {dismissed ? `Dismissed` : (answer ?? `Answered`)}
       </span>
+    </>
+  )
+  if (onEdit) {
+    return (
+      <button
+        type="button"
+        className="-mx-1 flex w-[calc(100%+0.5rem)] items-center gap-1.5 rounded-md border-b border-border/40 px-1 py-1 text-left text-xs last:border-b-0 hover:bg-glass-row"
+        title="Change this answer"
+        onClick={onEdit}
+      >
+        {body}
+        <UiEditIcon className="size-3 shrink-0 text-muted-foreground/70" />
+      </button>
+    )
+  }
+  return (
+    <div className="flex items-center gap-1.5 border-b border-border/40 py-1 text-xs last:border-b-0">
+      {body}
     </div>
   )
 }
@@ -2537,13 +2739,10 @@ function MessageComposer({
   store,
   live,
   onSend,
-  pending,
-  onAnswer,
   working,
   sessionId,
   agent,
   config,
-  placeholder,
   users,
 }: {
   store: SteerSessionStore
@@ -2551,10 +2750,6 @@ function MessageComposer({
    *  (EXP-621), so a connection flap never eats the draft. */
   live: boolean
   onSend: (text: string) => boolean
-  /** EXP-788: the card the typed text answers instead of opening a turn —
-   *  null when nothing is pending. */
-  pending: QuestionItem | null
-  onAnswer: AnswerHandler
   /** EXP-790: the agent is busy — with nothing typed, the send glyph is Stop
    *  and interrupts the turn. */
   working: boolean
@@ -2569,9 +2764,6 @@ function MessageComposer({
    *  the agent's own half of the `/` catalog. Null on a PTY run (and until
    *  the first `config_state` lands), which draws no chips at all. */
   config: SessionConfigState | null
-  /** Context-aware hint (e.g. the plan-approval "Tell Claude what to
-   *  change…"); the default stays the generic prompt. */
-  placeholder?: string
   /** EXP-698: the run's team, for the field's `@` autocomplete — `#` issue
    *  refs and `:` emoji work without it. */
   users: User[]
@@ -2672,18 +2864,6 @@ function MessageComposer({
       }
       if (command.command.confirm && !confirmed) {
         setConfirming(command.command)
-        return
-      }
-    }
-    // EXP-788: a pending card takes the typed text as its answer (a plan
-    // card rejects and forwards the text as the next message). A command or
-    // an image message is never an answer — those open a turn as before.
-    if (pending && !command && pendingImages.length === 0) {
-      const answer = freeAnswerFor(pending, text)
-      if (answer) {
-        onAnswer(pending, answer.keys, answer.labels, answer.text)
-        if (answer.followUp !== undefined && !onSend(answer.followUp)) return
-        store.clearDraftAfterSend()
         return
       }
     }
@@ -2819,7 +2999,6 @@ function MessageComposer({
         <div className="relative">
           <MentionTextarea
             ref={fieldRef}
-            {...{ [STEER_FIELD_ATTR]: `` }}
             value={text}
             onValueChange={(next) => store.setDraftText(next)}
             users={users}
@@ -2838,10 +3017,9 @@ function MessageComposer({
               addFiles(Array.from(e.clipboardData.files))
             }}
             placeholder={
-              placeholder ??
-              (commands.length > 0
+              commands.length > 0
                 ? `Message the agent… (/ for commands)`
-                : `Message the agent…`)
+                : `Message the agent…`
             }
             rows={1}
             className={cn(

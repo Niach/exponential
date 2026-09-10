@@ -23,7 +23,6 @@ import com.exponential.app.domain.MAX_IMAGE_UPLOAD_BYTES
 import com.exponential.app.domain.MAX_STEER_IMAGES
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.appendUserMessage
-import com.exponential.app.domain.composerAnswerTarget
 import com.exponential.app.domain.applyActivityEvent
 import com.exponential.app.domain.buildSteerImageMessage
 import com.exponential.app.domain.canonicalContentType
@@ -1155,21 +1154,10 @@ class SteerConnection internal constructor(
         if (text.isBlank() && images.isEmpty()) return
         if (_steerSending.value) return
         if (images.isEmpty()) {
-            // EXP-788: while a plan or a question waits on the human, the
-            // typed text is that card's free answer — ONE `answer` frame on
-            // the card's free-text (or reject) key — not a new turn. Images
-            // cannot ride an answer frame, so a message carrying any stays a
-            // plain steer.
-            val state = _activity.value
-            val target = composerAnswerTarget(state.feed, state.answerLocks, text)
-            if (target != null) {
-                val wireId = target.question.wireId
-                val reply = text.trim()
-                if (sendQuestionAnswer(wireId, target.question.askId, target.keys, reply, listOf(reply))) {
-                    _draft.value = ""
-                }
-                return
-            }
+            // EXP-820: the draft is ALWAYS a plain steer message. A pending
+            // question or plan hides the composer and takes its free text in
+            // an inline field on the card (`sendQuestionAnswer` /
+            // `answerThenSend`), so nothing typed here answers a card.
             if (sendMessage(text)) _draft.value = ""
             return
         }
@@ -1258,6 +1246,26 @@ class SteerConnection internal constructor(
             }
         }
         return true
+    }
+
+    /**
+     * EXP-820: reject a plan WITH feedback. The card's reject key goes out as
+     * its `answer` frame (the engine resolves a plan approval on the key alone
+     * and ignores `text`), then the typed feedback follows as the NEXT
+     * message, which the agent reads back in planning mode — iOS/web parity.
+     * Nothing is sent when the answer itself cannot go out (a locked card, a
+     * dead socket); the two frames share one FIFO dispatcher, so the answer
+     * always precedes the message on the wire.
+     */
+    fun answerThenSend(
+        questionId: String,
+        askId: String?,
+        keys: List<String>,
+        labels: List<String>,
+        text: String,
+    ): Boolean {
+        if (!sendQuestionAnswer(questionId, askId, keys, null, labels)) return false
+        return sendMessage(text)
     }
 
     /**

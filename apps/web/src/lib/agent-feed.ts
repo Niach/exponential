@@ -466,9 +466,38 @@ export interface AskView<T> {
   /** Every published step is answered, no submit step arrived yet — the
    *  desktop is still walking the picker. */
   waiting: boolean
+  /** EXP-820: the ask is over — its submit step resolved, its lone step
+   *  resolved, or it was dismissed. A complete ask waits for nothing and its
+   *  answered steps can no longer be revisited. */
+  complete: boolean
   /** 1-based position of the current step, and the ask's question count. */
   position: number
   total: number
+}
+
+/** EXP-820: whether an ask is finished — the ONE rule ×4 (desktop
+ *  `ask_complete`, iOS/Android `askComplete`): its submit step resolved, or a
+ *  one-question ask's lone step resolved (the engine submits that on its
+ *  answer, there is no review step), or any step was dismissed. Until then an
+ *  answered step is still open to a change of mind. */
+export function askComplete<
+  T extends {
+    index?: number
+    total?: number
+    resolved?: boolean
+    dismissed?: boolean
+  },
+>(items: readonly T[]): boolean {
+  const numbered = items.filter((i) => i.index !== undefined)
+  const submit = [...items].reverse().find((i) => i.index === undefined)
+  if (submit?.resolved === true) return true
+  if (items.some((i) => i.dismissed === true)) return true
+  const total = numbered[0]?.total ?? numbered.length
+  return (
+    total <= 1 &&
+    numbered.length > 0 &&
+    numbered.every((i) => i.resolved === true)
+  )
 }
 
 /** Project one ask's question cards into a claude-style stepper: answered
@@ -514,14 +543,17 @@ export function askStepperView<T extends QuestionLike>(
 
   const currentStep = steps.find((s) => s.phase === `current`)
   const total = numbered[0]?.total ?? numbered.length
+  const complete = askComplete(items)
   return {
     steps,
     submit,
     waiting:
+      !complete &&
       numbered.length > 0 &&
       !currentTaken &&
       submitItem === null &&
       !numbered.every((i) => i.resolved === true),
+    complete,
     position: currentStep?.item.index ?? total,
     total,
   }
@@ -1179,14 +1211,33 @@ export function optionForHotkey<T>(options: readonly T[], key: string): T | null
   return options[Number(key) - 1] ?? null
 }
 
-/** The composer's hint while a card is pending — plan vs question. */
-export const PLAN_PENDING_PLACEHOLDER = `Tell the agent what to change, or pick an option above`
-export const QUESTION_PENDING_PLACEHOLDER = `Answer directly, or pick an option above`
+// EXP-820: the free answer is typed INSIDE the card — a question's free-text
+// row and a plan's reject row open an inline field in place; the composer is
+// hidden while a card is pending. Copy hand-mirrored ×4 (desktop
+// `steer_viewer`, iOS `QuestionCard`, Android `QuestionCard`).
+/** The inline field under a question's "Type something." row. */
+export const FREE_TEXT_PLACEHOLDER = `Type your answer…`
+/** The inline field under a plan's "No, keep planning" row. */
+export const PLAN_FEEDBACK_PLACEHOLDER = `Tell the agent what to change…`
+/** The way back from an answered step being revisited to the step the ask
+ *  is actually on. */
+export const BACK_TO_CURRENT_STEP = `Back to current step`
 
-export function pendingPlaceholder(item: { planMode?: boolean }): string {
-  return item.planMode === true
-    ? PLAN_PENDING_PLACEHOLDER
-    : QUESTION_PENDING_PLACEHOLDER
+/** EXP-820: whether picking `option` on `item` opens the inline field instead
+ *  of answering at once — a question's free-text row, or a plan's reject
+ *  (its LAST option, the one whose next message goes back to planning). */
+export function opensInlineField(
+  item: { planMode?: boolean; options: readonly { freeText?: boolean }[] },
+  index: number
+): boolean {
+  const option = item.options[index]
+  if (!option) return false
+  if (option.freeText === true) return true
+  return (
+    item.planMode === true &&
+    item.options.length >= 2 &&
+    index === item.options.length - 1
+  )
 }
 
 // ── EXP-785: the collapsed tool group's caption ─────────────────────────────

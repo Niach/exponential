@@ -288,32 +288,6 @@ public struct AgentModeChip: Equatable, Sendable {
 
 /// One rendered feed entry. Diffs never enter the feed — the latest one lives
 /// behind the pinned "Latest changes" chip.
-/// EXP-788: where the composer's typed text goes while a card is pending.
-public enum ComposerAnswerRoute: Equatable, Sendable {
-    /// A plan card: the text is feedback. The card is DENIED with `rejectKey`
-    /// ("No, keep planning" — the engine's deny interrupts the turn) and the
-    /// text follows as the next message, which is what the option's own
-    /// description promises.
-    case plan(question: AgentQuestion, rejectKey: String)
-    /// A question card with a free-text row: the text IS the answer, riding
-    /// the `answer` frame's `text` under that row's key (EXP-513).
-    case freeText(question: AgentQuestion, key: String)
-
-    public var question: AgentQuestion {
-        switch self {
-        case let .plan(question, _), let .freeText(question, _): return question
-        }
-    }
-
-    /// The composer placeholder for this route.
-    public var placeholder: String {
-        switch self {
-        case .plan: return AgentFeed.planPendingPlaceholder
-        case .freeText: return AgentFeed.questionPendingPlaceholder
-        }
-    }
-}
-
 public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     /// `messageId` (EXP-772) is the ACP id of the assistant message this prose
     /// came out of — the engine flushes a message in several events, and
@@ -591,6 +565,10 @@ public struct AgentAnswerTracker: Equatable, Sendable {
 
     public init() {}
 
+    /// EXP-820: a RE-answer of an already-acked step (the stepper's "go back")
+    /// goes through here too — `acked` is left standing, so the step never
+    /// rolls back into the current slot if this second frame goes unconfirmed;
+    /// only its pending spinner and labels move.
     public mutating func markSent(_ key: String, labels: [String] = [], at: Date = Date()) {
         pending[key] = at
         failed.remove(key)
@@ -1003,50 +981,50 @@ public enum AgentFeed {
         windowStart > 0 || (historyTruncated && !historyExhausted && connected)
     }
 
-    // MARK: - Composer answer routing (EXP-788)
+    // MARK: - Inline card answers (EXP-820)
 
-    /// The composer's placeholder while nothing is pending.
+    /// The composer's placeholder. EXP-820: the composer HIDES while a card
+    /// is pending (its free answer is an inline field on the card itself), so
+    /// there is only the one generic prompt.
     public static let composerPlaceholder = "Message the agent…"
-    /// EXP-788: the composer IS the free answer of a pending card, and the
-    /// placeholder says which. Byte-identical ×4 (web `agent-session.tsx`).
-    public static let planPendingPlaceholder = "Tell the agent what to change, or pick an option above"
-    public static let questionPendingPlaceholder = "Answer directly, or pick an option above"
+    /// EXP-820: the inline field a free-text row ("Type something.") expands
+    /// into. Byte-identical ×4 (web `agent-session.tsx`).
+    public static let freeTextPlaceholder = "Type your answer…"
+    /// EXP-820: the inline field a plan's reject row ("No, keep planning")
+    /// expands into — feedback that follows the deny as the next message.
+    public static let planFeedbackPlaceholder = "Tell the agent what to change…"
+    /// EXP-820: the text button under an earlier step being re-answered.
+    public static let backToCurrentStepLabel = "Back to current step"
     /// The multi-select submit label, byte-identical ×4.
     public static let submitLabel = "Submit"
 
-    /// The card the composer answers (EXP-788): the FIRST still-active,
-    /// unlocked question in feed order — an ask's current step, or the lone
-    /// plan/question card the run is blocked on. Feed order rather than the
-    /// newest card because a stepper's steps all stay active until the ask
-    /// resolves and only the earliest unanswered one is the current step.
-    public static func pendingCard(
-        _ feed: [AgentFeedItem], active: Set<Int>, isLocked: (String) -> Bool
-    ) -> AgentQuestion? {
-        for item in feed {
-            guard let question = item.question, active.contains(question.id) else { continue }
-            if isLocked(question.lockKey) { continue }
-            return question
-        }
-        return nil
+    /// EXP-820: the key of a plan card's reject row — the ONE option that
+    /// expands into the inline feedback field. "No, keep planning" is last by
+    /// contract ("Sends your next message back to planning"); `reject` is its
+    /// wire id whenever the engine named one. nil for a non-plan or an
+    /// option-less card.
+    public static func planRejectKey(for question: AgentQuestion) -> String? {
+        guard question.planMode, !question.options.isEmpty else { return nil }
+        let reject = question.options.first(where: { $0.key == "reject" })
+            ?? question.options[question.options.count - 1]
+        return reject.key
     }
 
-    /// How the composer's typed text answers `question` (EXP-788), or nil when
-    /// the card takes no free answer (a plain permission card with fixed
-    /// options): the text then goes out as an ordinary message.
-    public static func composerAnswerRoute(for question: AgentQuestion) -> ComposerAnswerRoute? {
-        guard !question.resolved, !question.options.isEmpty else { return nil }
-        if question.planMode {
-            // "No, keep planning" is last by contract ("Sends your next
-            // message back to planning"); `reject` is its wire id whenever
-            // the engine named one.
-            let reject = question.options.first(where: { $0.key == "reject" })
-                ?? question.options[question.options.count - 1]
-            return .plan(question: question, rejectKey: reject.key)
+    /// EXP-820: whether a multi-question ask is OVER — nothing left to wait
+    /// on, no earlier step to go back to. ONE rule ×4: a submit step exists
+    /// AND is resolved, OR the ask has at most one numbered step and every
+    /// numbered step is resolved (a lone-step ask has no review step), OR any
+    /// step was dismissed (the engine tore the whole ask down).
+    public static func askComplete(_ group: AgentAskGroup) -> Bool {
+        if group.questions.contains(where: \.dismissed) { return true }
+        if let submit = group.questions.first(where: \.isSubmitStep) {
+            if submit.resolved { return true }
         }
-        if let free = question.options.first(where: { $0.freeText }) {
-            return .freeText(question: question, key: free.key)
-        }
-        return nil
+        // The ask's own count, not the published one: a two-question ask
+        // with its first step resolved is still waiting on the second.
+        let numbered = group.questions.filter { !$0.isSubmitStep }
+        let total = numbered.first?.total ?? numbered.count
+        return total <= 1 && !numbered.isEmpty && numbered.allSatisfy(\.resolved)
     }
 
     /// Fold a `usage` activity event. Nil CLEARS the slot — a run whose engine
@@ -1156,6 +1134,9 @@ public enum AgentFeed {
     /// Answers land positionally on the answer-CONSUMING cards (an ask's submit
     /// step consumes none); a by-id resolution folds all of them into that one
     /// card, and a dismissal carries none at all. nil when nothing matched.
+    /// EXP-820: a by-id resolution matches an ALREADY-resolved card too — the
+    /// engine re-publishes `question_resolved` for an earlier step that was
+    /// re-answered, and its new answers replace the recorded ones.
     public static func applyQuestionResolved(
         _ feed: [AgentFeedItem],
         id: String?,

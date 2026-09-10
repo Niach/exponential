@@ -42,11 +42,14 @@
 //! one tab per running subagent, the focused one lingering after it ends)
 //! sits between the header and the feed, and a focused tab projects only
 //! that subagent's rows ([`steer::feed::group_subagent_row_specs_into`]).
-//! EXP-788 moved answering into the composer (numbered option list, digits
-//! and ↑/↓/Enter on an empty field, typed text as the free answer); EXP-790
-//! made the field mention-capable and the send button a Send/Stop toggle.
-//! The only deliberate gap left: no fullscreen toggle — the screen's own
-//! chrome is the desktop's answer to that.
+//! EXP-788 made the options a numbered list the keyboard drives (digits,
+//! ↑/↓, Enter); EXP-790 made the field mention-capable and the send button a
+//! Send/Stop toggle. EXP-820 settled the answering model: the composer HIDES
+//! while a card is pending, free text ("Type something." / a plan's "keep
+//! planning") is typed INLINE in that option row, and an answered step of a
+//! multi-question ask is re-openable until the ask completes
+//! ([`ask_complete`]). The only deliberate gap left: no fullscreen toggle —
+//! the screen's own chrome is the desktop's answer to that.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -62,7 +65,7 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
-    input::{self, InputEvent, TextareaState},
+    input::{self, InputEvent, InputState, TextareaState},
     spinner::Spinner,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
@@ -174,6 +177,23 @@ struct PendingImage {
     /// never re-uploads what already succeeded.
     uploaded_id: Option<String>,
 }
+
+/// EXP-820: the inline free-text field open on ONE option row — a
+/// question's "Type something." row or a plan card's "keep planning" row.
+/// Created when the row is activated, dropped on send or Escape; the
+/// composer is hidden while its card is pending, so this IS the typing
+/// surface for the card.
+struct InlineAnswer {
+    item: FeedItemId,
+    option_key: String,
+    state: Entity<InputState>,
+    _subscription: Subscription,
+}
+
+/// The inline field's hint on a question's free-text row.
+const FREE_TEXT_PLACEHOLDER: &str = "Type your answer…";
+/// …and on a plan card's reject row, where the text is the change request.
+const PLAN_REJECT_PLACEHOLDER: &str = "Tell the agent what to change…";
 
 /// Where a [`SteerSessionView`]'s feed comes from (EXP-746).
 ///
@@ -302,9 +322,16 @@ pub(crate) struct SteerSessionView {
     /// …and whether the tool row is on its own line right now (the
     /// hysteresis state).
     tools_wrapped: std::cell::Cell<bool>,
-    /// EXP-788: which placeholder the field currently shows, so a frame only
-    /// rewrites it on a change.
-    placeholder: ComposerPlaceholder,
+    /// EXP-820: the inline free-text field, open on at most one option row.
+    inline: Option<InlineAnswer>,
+    /// EXP-820: the answered step of a multi-question ask the reader
+    /// re-opened. Honoured only while that ask is still open
+    /// ([`Self::editing_card_id`]).
+    editing_step: Option<FeedItemId>,
+    /// EXP-820: whether the composer rendered LAST frame. Its hide edge (a
+    /// card became pending) moves focus onto this view so the card keyboard
+    /// keeps working; its show edge hands focus back to the field.
+    composer_shown: bool,
     /// EXP-789: the subagent tab in focus (`None` = Main). Only honoured
     /// while that subagent's tab is visible ([`Self::active_subagent`]).
     focused_subagent: Option<String>,
@@ -426,7 +453,7 @@ impl SteerSessionView {
                 // the placeholder is the only hint it exists. Every agent's
                 // catalog is non-empty, which is why this is a constant here
                 // and a conditional on web/Android.
-                .placeholder(ComposerPlaceholder::Message.text())
+                .placeholder(COMPOSER_PLACEHOLDER)
         });
         // EXP-790: the completion overlay rides the same state; the composer
         // card draws the chrome, so the widget draws none of its own.
@@ -528,7 +555,11 @@ impl SteerSessionView {
             mention_team: None,
             composer_width: std::rc::Rc::new(std::cell::Cell::new(px(0.))),
             tools_wrapped: std::cell::Cell::new(false),
-            placeholder: ComposerPlaceholder::Message,
+            inline: None,
+            editing_step: None,
+            // Seeded TRUE: a view built over an already-pending card takes
+            // the keyboard on its first frame (the hide edge fires once).
+            composer_shown: true,
             focused_subagent: None,
             answer_cursor: None,
             answer_cursor_for: None,
@@ -825,6 +856,14 @@ impl SteerSessionView {
             }
             if self.picked.get(&key).is_some_and(|picks| !picks.is_empty()) {
                 facets |= facet::PICKS_MADE;
+            }
+            // EXP-820: the inline field adds a row under one option, and a
+            // re-opened step unfolds from one line to its whole prompt.
+            if self.inline.as_ref().is_some_and(|inline| inline.item == item.id) {
+                facets |= facet::INLINE_OPEN;
+            }
+            if self.editing_card_id() == Some(item.id) {
+                facets |= facet::STEP_EDITING;
             }
         }
         facets
@@ -1564,12 +1603,20 @@ impl SteerSessionView {
         let Some(key) = answer_key(item) else {
             return;
         };
-        if self.feed.is_answer_locked(&key) {
-            return;
-        }
         let Some(card) = item.question().cloned() else {
             return;
         };
+        // The lock guards against a double send. A resolved step being
+        // re-answered (EXP-820) still carries its first answer's `Acked`
+        // state — that lock is history, not a guard — but a re-answer of its
+        // own that is still `Sending` is.
+        let sending = self
+            .feed
+            .answer_state(&key)
+            .is_some_and(|state| state.status == AnswerStatus::Sending);
+        if self.feed.is_answer_locked(&key) && (!card.resolved || sending) {
+            return;
+        }
         let question_id = card.question_id.as_str();
         // EXP-746: the OPTION KEYS are the same either way — an ACP option id
         // travels the wire verbatim (D3 retired the keystroke path), so the
@@ -1605,6 +1652,14 @@ impl SteerSessionView {
         // the next card (an `<ask>` stepper's next step) starts clean.
         self.answer_cursor = None;
         self.answer_cursor_for = None;
+        // EXP-820: an answer closes the card's inline field and, for a
+        // re-opened step, folds it back into its answered row.
+        if self.inline.as_ref().is_some_and(|inline| inline.item == item_id) {
+            self.inline = None;
+        }
+        if self.editing_step == Some(item_id) {
+            self.editing_step = None;
+        }
         // The ack deadline is the CALLER's (the feed reads no clock).
         let deadline_key = key.clone();
         cx.spawn(async move |this, cx| {
@@ -1618,19 +1673,35 @@ impl SteerSessionView {
         cx.notify();
     }
 
-    // ── EXP-788: the answer panel's keyboard ───────────────────────────────
+    // ── EXP-788/EXP-820: the answer panel's keyboard ───────────────────────
     //
-    // The pending card is answered from the COMPOSER: its options are a
-    // numbered list, and while the field is empty the digits 1-9, ↑/↓ and
-    // Enter drive it. Typed text goes out as the card's free answer
-    // ([`Self::send`]). An `<ask>` stepper advances on its own — the next step
-    // is simply the next pending card.
+    // A pending card is answered IN PLACE: its options are a numbered list,
+    // and while no text field holds the keyboard the digits 1-9, ↑/↓ and Enter
+    // drive it. The composer is hidden while a card is pending (EXP-820), so
+    // the captures live on the view's root and the view itself takes focus on
+    // that edge. Free text is typed into the option row's own inline field
+    // ([`InlineAnswer`]); an `<ask>` stepper advances on its own — the next
+    // step is simply the next pending card — and an answered step can be
+    // re-opened while the ask is still open ([`Self::editing_card_id`]).
 
-    /// The card the keyboard targets: the newest answerable, unlocked card
-    /// on a live, connected run. `None` = the composer is a plain composer.
+    /// Whether this viewer may answer at all: a live, connected, unended run
+    /// it is not merely replaying.
+    fn answerable_run(&self) -> bool {
+        self.phase == ViewerPhase::Live
+            && self.connected
+            && !self.row_ended()
+            && !self.source.read_only()
+    }
+
+    /// The card the keyboard targets: the re-opened step while one is open,
+    /// else the newest answerable, unlocked card on a live, connected run.
+    /// `None` = nothing is pending.
     fn pending_card_id(&self) -> Option<FeedItemId> {
-        if self.phase != ViewerPhase::Live || !self.connected || self.row_ended() {
+        if !self.answerable_run() {
             return None;
+        }
+        if let Some(editing) = self.editing_card_id() {
+            return Some(editing);
         }
         self.feed
             .items()
@@ -1645,20 +1716,60 @@ impl SteerSessionView {
         self.feed.items().iter().find(|item| item.id == id)
     }
 
-    /// Whether a plan-approval card is the pending one (the placeholder and
-    /// the free-answer wording fork on it).
-    fn plan_pending(&self) -> bool {
-        self.pending_card()
-            .and_then(FeedItem::question)
-            .is_some_and(|card| card.plan_mode)
+    /// EXP-820: the answered step being edited, if it still can be — the
+    /// row exists, it is a resolved (not dismissed) step of an ask that is
+    /// still OPEN ([`ask_complete`]), and this run is answerable.
+    fn editing_card_id(&self) -> Option<FeedItemId> {
+        let id = self.editing_step?;
+        if !self.answerable_run() {
+            return None;
+        }
+        let item = self.feed.items().iter().find(|item| item.id == id)?;
+        let card = item.question()?;
+        let ask_id = card.ask_id.as_deref()?;
+        (card.resolved && !card.dismissed && !self.ask_complete_for(ask_id)).then_some(id)
     }
 
-    /// The keyboard drives the card ONLY while the field is empty: the moment
-    /// a draft exists, digits are digits and Enter sends.
+    /// [`ask_complete`] over every card of one ask in the feed.
+    fn ask_complete_for(&self, ask_id: &str) -> bool {
+        let items: Vec<&FeedItem> = self
+            .feed
+            .items()
+            .iter()
+            .filter(|item| {
+                item.question()
+                    .is_some_and(|card| card.ask_id.as_deref() == Some(ask_id))
+            })
+            .collect();
+        ask_complete(&items)
+    }
+
+    /// Whether an answered step may be re-opened: the ask is open, the run
+    /// answerable, and the step's own answer has landed (a step whose first
+    /// answer is still in flight is not a step yet).
+    fn step_editable(&self, item: &FeedItem) -> bool {
+        let Some(card) = item.question() else {
+            return false;
+        };
+        let Some(ask_id) = card.ask_id.as_deref() else {
+            return false;
+        };
+        card.resolved
+            && !card.dismissed
+            && self.answerable_run()
+            && !self.ask_complete_for(ask_id)
+    }
+
+    /// The keyboard drives the card only while no text field wants the keys
+    /// ([`keyboard_drives_card`]).
     fn keyboard_answers(&self, cx: &App) -> bool {
-        self.pending_card_id().is_some()
-            && self.input.read(cx).value().trim().is_empty()
-            && self.slash.is_none()
+        keyboard_drives_card(
+            self.pending_card_id().is_some(),
+            self.inline.is_some(),
+            self.composer_visible(),
+            self.input.read(cx).value().trim().is_empty(),
+            self.slash.is_some(),
+        )
     }
 
     /// The highlighted option on the pending card, or `None` when the
@@ -1687,22 +1798,43 @@ impl SteerSessionView {
         cx.notify();
     }
 
-    /// Activate option `index` of the pending card: a single-select answers
-    /// with it, a multi-select toggles it into the picks.
-    fn activate_option(&mut self, index: usize, cx: &mut gpui::Context<Self>) {
+    /// Activate option `index` of the pending card from the keyboard: a
+    /// multi-select toggles it into the picks (and parks the highlight on
+    /// it), anything else goes through [`Self::pick_option`].
+    fn activate_option(&mut self, index: usize, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let Some(item) = self.pending_card() else {
             return;
         };
-        let Some(card) = item.question() else {
+        let item_id = item.id;
+        let multi = item.question().is_some_and(|card| card.multi_select);
+        self.pick_option(item_id, index, window, cx);
+        if multi {
+            self.answer_cursor = Some(index);
+            self.answer_cursor_for = Some(item_id);
+            cx.notify();
+        }
+    }
+
+    /// The ONE option activation (click, digit, Enter on the highlight): a
+    /// multi-select toggles the pick; a free-text row and a plan card's
+    /// reject row OPEN their inline field (EXP-820) instead of sending; any
+    /// other option is the answer.
+    fn pick_option(
+        &mut self,
+        item_id: FeedItemId,
+        index: usize,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let Some(item) = self.feed.items().iter().find(|item| item.id == item_id) else {
+            return;
+        };
+        let (Some(card), Some(key)) = (item.question(), answer_key(item)) else {
             return;
         };
         let Some(option) = card.options.get(index) else {
             return;
         };
-        let Some(key) = answer_key(item) else {
-            return;
-        };
-        let item_id = item.id;
         let (option_key, option_label) = (option.key.clone(), option.label.clone());
         if card.multi_select {
             let picks = self.picked.entry(key).or_default();
@@ -1712,9 +1844,11 @@ impl SteerSessionView {
                 }
                 None => picks.push(option_key),
             }
-            self.answer_cursor = Some(index);
-            self.answer_cursor_for = Some(item_id);
             cx.notify();
+            return;
+        }
+        if let Some(placeholder) = inline_placeholder(card, index) {
+            self.open_inline(item_id, option_key, placeholder, window, cx);
             return;
         }
         self.answer(item_id, vec![option_key], vec![option_label], None, cx);
@@ -1761,72 +1895,205 @@ impl SteerSessionView {
         }
     }
 
-    /// Enter on an empty field with a card pending: the highlighted option,
-    /// or a multi-select's picks. With nothing highlighted and nothing picked
-    /// it does nothing — an empty draft never "sends" an empty answer.
+    /// Enter with a card pending and no field holding the keys: the
+    /// highlighted option, or a multi-select's picks. With nothing
+    /// highlighted and nothing picked it does nothing.
     fn on_answer_enter(
         &mut self,
         action: &input::Enter,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
         if action.shift || !self.keyboard_answers(cx) {
             return;
         }
+        cx.stop_propagation();
+        self.enter_pending(window, cx);
+    }
+
+    /// The Enter half of the card keyboard, shared by the `input::Enter`
+    /// action (a field is focused) and the raw key (the view is).
+    fn enter_pending(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let Some(item) = self.pending_card() else {
             return;
         };
         let id = item.id;
         let multi = item.question().is_some_and(|card| card.multi_select);
-        cx.stop_propagation();
         match self.answer_cursor_on(id) {
-            Some(index) => self.activate_option(index, cx),
+            Some(index) => self.activate_option(index, window, cx),
             None if multi => self.submit_picks(id, cx),
             None => {}
         }
     }
 
     /// The digits: `1`-`9` pick the option at that position (unmodified —
-    /// ⌘1 is the window's, and a shifted digit is punctuation).
+    /// ⌘1 is the window's, and a shifted digit is punctuation). EXP-820:
+    /// with the composer hidden no `input::*` action fires, so ↑/↓/Enter
+    /// arrive here as raw keys too.
     fn on_answer_key_down(
         &mut self,
         event: &gpui::KeyDownEvent,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        let Some(index) = answer_digit(&event.keystroke) else {
-            return;
-        };
         if !self.keyboard_answers(cx) {
             return;
         }
-        let options = self
-            .pending_card()
-            .and_then(FeedItem::question)
-            .map_or(0, |card| card.options.len());
-        if index >= options {
+        if let Some(index) = answer_digit(&event.keystroke) {
+            let options = self
+                .pending_card()
+                .and_then(FeedItem::question)
+                .map_or(0, |card| card.options.len());
+            if index >= options {
+                return;
+            }
+            cx.stop_propagation();
+            self.activate_option(index, window, cx);
             return;
         }
-        cx.stop_propagation();
-        self.activate_option(index, cx);
+        // A focused field turns these into `input::*` actions before any key
+        // listener runs, so reaching here means the view holds the keys.
+        if self.composer_visible() {
+            return;
+        }
+        let modifiers = &event.keystroke.modifiers;
+        if modifiers.control || modifiers.alt || modifiers.platform || modifiers.function {
+            return;
+        }
+        match event.keystroke.key.as_str() {
+            "up" => {
+                cx.stop_propagation();
+                self.move_answer_cursor(-1, cx);
+            }
+            "down" => {
+                cx.stop_propagation();
+                self.move_answer_cursor(1, cx);
+            }
+            "enter" if !modifiers.shift => {
+                cx.stop_propagation();
+                self.enter_pending(window, cx);
+            }
+            _ => {}
+        }
     }
 
-    /// EXP-788: the field's hint follows what the composer is FOR right now.
-    /// Rewritten only on a change — `set_placeholder` notifies the state.
-    fn sync_placeholder(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let next = if self.pending_card_id().is_none() {
-            ComposerPlaceholder::Message
-        } else if self.plan_pending() {
-            ComposerPlaceholder::Plan
-        } else {
-            ComposerPlaceholder::Question
-        };
-        if next == self.placeholder {
+    // ── EXP-820: the inline free-text field ────────────────────────────────
+
+    /// Open the inline field under option `option_key` of `item_id` (closing
+    /// any other) and give it the keyboard.
+    fn open_inline(
+        &mut self,
+        item_id: FeedItemId,
+        option_key: String,
+        placeholder: &'static str,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        if let Some(state) = self
+            .inline
+            .as_ref()
+            .filter(|inline| inline.item == item_id && inline.option_key == option_key)
+            .map(|inline| inline.state.clone())
+        {
+            state.update(cx, |state, cx| state.focus(window, cx));
             return;
         }
-        self.placeholder = next;
-        self.input
-            .update(cx, |state, cx| state.set_placeholder(next.text(), window, cx));
+        let state = cx.new(|cx| InputState::new(window, cx).placeholder(placeholder));
+        let subscription = cx.subscribe_in(
+            &state,
+            window,
+            |this, _, event: &InputEvent, window, cx| match event {
+                InputEvent::PressEnter { shift: false, .. } => this.send_inline(window, cx),
+                // The Send button's enabled state follows the draft.
+                InputEvent::Change => cx.notify(),
+                _ => {}
+            },
+        );
+        state.update(cx, |state, cx| state.focus(window, cx));
+        self.inline = Some(InlineAnswer {
+            item: item_id,
+            option_key,
+            state,
+            _subscription: subscription,
+        });
+        cx.notify();
+    }
+
+    /// Collapse the inline field (Escape) and hand the keys back to the view.
+    fn close_inline(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.inline.take().is_some() {
+            window.focus(&self.focus_handle, cx);
+            cx.notify();
+        }
+    }
+
+    fn on_inline_escape(
+        &mut self,
+        _: &input::Escape,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        if self.inline.is_some() {
+            cx.stop_propagation();
+            self.close_inline(window, cx);
+        }
+    }
+
+    /// Send the inline field. A question's free-text row answers with the
+    /// typed text as the option's label (empty never sends). A plan card's
+    /// reject row answers with the reject option and THEN sends the text as
+    /// an ordinary steer message — with nothing typed it is a plain reject.
+    fn send_inline(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some(inline) = self.inline.as_ref() else {
+            return;
+        };
+        let (item_id, option_key) = (inline.item, inline.option_key.clone());
+        // The web input caps at 4000 chars; gpui-component's has no
+        // maxLength, so the cap lands here (the relay rejects longer).
+        let text: String = inline
+            .state
+            .read(cx)
+            .value()
+            .trim()
+            .chars()
+            .take(FREE_TEXT_MAX)
+            .collect();
+        let Some(item) = self.feed.items().iter().find(|item| item.id == item_id) else {
+            self.close_inline(window, cx);
+            return;
+        };
+        let Some(card) = item.question() else {
+            return;
+        };
+        let Some((index, option)) = card
+            .options
+            .iter()
+            .enumerate()
+            .find(|(_, option)| option.key == option_key)
+        else {
+            self.close_inline(window, cx);
+            return;
+        };
+        let plan_reject = is_plan_reject(card, index);
+        let option_label = option.label.clone();
+        if plan_reject {
+            self.answer(item_id, vec![option_key], vec![option_label], None, cx);
+        } else {
+            if text.is_empty() {
+                return;
+            }
+            self.answer(item_id, vec![option_key], vec![text.clone()], Some(text.clone()), cx);
+        }
+        // `answer` dropped the field once the answer went out; a refused send
+        // (not connected) keeps it — and its text — for a retry.
+        if self.inline.is_some() {
+            return;
+        }
+        if plan_reject && !text.is_empty() && !self.deliver(&text) {
+            self.notice = Some(SharedString::from("The session is no longer connected"));
+        }
+        window.focus(&self.focus_handle, cx);
+        cx.notify();
     }
 
     // ── Composer ───────────────────────────────────────────────────────────
@@ -1847,9 +2114,40 @@ impl SteerSessionView {
 
     fn composer_visible(&self) -> bool {
         // EXP-746: a replay is a transcript — there is nothing to type at.
-        !self.source.read_only()
-            && !self.row_ended()
-            && !matches!(self.phase, ViewerPhase::Ended { .. })
+        if self.source.read_only()
+            || self.row_ended()
+            || matches!(self.phase, ViewerPhase::Ended { .. })
+        {
+            return false;
+        }
+        // EXP-820: a pending card takes the composer's place — free text is
+        // typed in the card, and a message would only race the answer.
+        !(self.phase == ViewerPhase::Live && self.connected && !self.active.is_empty())
+    }
+
+    /// EXP-820: focus follows the composer's visibility EDGES, once per
+    /// flip. A card becoming pending pulls the composer out from under the
+    /// caret, so the view takes the keys (the root captures drive the card);
+    /// the last card resolving brings the composer back, and a view still
+    /// holding focus hands it to the field. Never steals from anything
+    /// outside this view.
+    fn sync_card_focus(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let visible = self.composer_visible();
+        if visible == self.composer_shown {
+            return;
+        }
+        self.composer_shown = visible;
+        let field = self.input.read(cx).focus_handle(cx);
+        if !visible {
+            if self.inline.is_some() || self.pending_card_id().is_none() {
+                return;
+            }
+            if field.is_focused(window) || window.focused(cx).is_none() {
+                window.focus(&self.focus_handle, cx);
+            }
+        } else if self.focus_handle.is_focused(window) {
+            window.focus(&field, cx);
+        }
     }
 
     // ── Slash commands (EXP-724) ───────────────────────────────────────────
@@ -2110,23 +2408,14 @@ impl SteerSessionView {
             return;
         }
         let text = self.input.read(cx).value().to_string();
+        // EXP-820: the draft is always a MESSAGE — a card's free text is
+        // typed in the card itself, and the composer is hidden while one is
+        // pending.
         if let Some(parsed) = parse_command(&text, self.agent()) {
             if parsed.command.confirm {
                 self.prompt_command(parsed.command.name, window, cx);
                 return;
             }
-        } else if let Some(item_id) = self.pending_card_id().filter(|_| self.pending.is_empty()) {
-            // EXP-788: with a card pending the draft IS the answer — a
-            // question's free text, or a plan card's "what to change". The
-            // web input caps at 4000 chars; gpui-component's has no
-            // maxLength, so the cap lands here (the relay rejects longer).
-            let answer: String = text.trim().chars().take(FREE_TEXT_MAX).collect();
-            if answer.is_empty() {
-                return;
-            }
-            self.answer(item_id, Vec::new(), Vec::new(), Some(answer), cx);
-            self.clear_draft(window, cx);
-            return;
         }
         self.send_confirmed(window, cx);
     }
@@ -2712,31 +3001,70 @@ pub(crate) fn clampable(text: &str) -> bool {
     text.len() > CLAMP_CHARS || text.lines().count() > CLAMP_LINES
 }
 
-/// EXP-788 — what the composer's field is FOR right now, and the hint it
-/// shows for it (the web `planPending` placeholder fork, plus the question
-/// case).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ComposerPlaceholder {
-    /// No card pending: a message to the agent.
-    Message,
-    /// A plan-approval card is pending: typed text is "what to change".
-    Plan,
-    /// A question card is pending: typed text is its free answer.
-    Question,
+/// The composer's hint. EXP-724: the `/` menu is invisible until it is
+/// typed, so the placeholder is the only hint it exists (every agent's catalog
+/// is non-empty, which is why this is a constant here and a conditional on
+/// web/Android). EXP-820 retired the per-card forks: a pending card hides the
+/// composer and takes its free text inline.
+pub(crate) const COMPOSER_PLACEHOLDER: &str = "Message the agent… (/ for commands)";
+
+/// EXP-820 — whether the card keyboard (digits, ↑/↓, Enter) is live. A text
+/// field that wants the keys wins: the inline answer field whenever it is
+/// open, and the composer once it holds a draft or a `/` menu. With the
+/// composer hidden (a card is pending) the view itself holds the keys.
+pub(crate) fn keyboard_drives_card(
+    card_pending: bool,
+    inline_open: bool,
+    composer_visible: bool,
+    draft_empty: bool,
+    slash_open: bool,
+) -> bool {
+    card_pending && !inline_open && (!composer_visible || (draft_empty && !slash_open))
 }
 
-impl ComposerPlaceholder {
-    pub(crate) fn text(self) -> &'static str {
-        match self {
-            // EXP-724: the `/` menu is invisible until it is typed, so the
-            // placeholder is the only hint it exists. Every agent's catalog
-            // is non-empty, which is why this is a constant here and a
-            // conditional on web/Android.
-            ComposerPlaceholder::Message => "Message the agent… (/ for commands)",
-            ComposerPlaceholder::Plan => "Tell the agent what to change, or pick an option above",
-            ComposerPlaceholder::Question => "Answer directly, or pick an option above",
-        }
+/// EXP-820 — whether a multi-question ask is OVER, so its stepper stops
+/// waiting for a next step and its answered rows stop being editable. Web,
+/// iOS and Android apply the same rule: the submit step (an `ask_id` card with
+/// no `index`) resolved, or a one-step ask (`total` ≤ 1) with every numbered
+/// step resolved, or any step dismissed.
+pub(crate) fn ask_complete(items: &[&FeedItem]) -> bool {
+    let cards = || items.iter().filter_map(|item| item.question());
+    if cards().any(|card| card.dismissed) {
+        return true;
     }
+    if cards().any(|card| card.ask_id.is_some() && card.index.is_none() && card.resolved) {
+        return true;
+    }
+    let numbered: Vec<&steer::feed::QuestionCard> =
+        cards().filter(|card| card.index.is_some()).collect();
+    let total = numbered
+        .first()
+        .and_then(|card| card.total)
+        .unwrap_or(numbered.len() as u32);
+    total <= 1 && !numbered.is_empty() && numbered.iter().all(|card| card.resolved)
+}
+
+/// EXP-820 — a plan card's LAST option is its reject ("No, keep planning"),
+/// the one whose inline text is a change request.
+fn is_plan_reject(card: &steer::feed::QuestionCard, index: usize) -> bool {
+    card.plan_mode && !card.options.is_empty() && index + 1 == card.options.len()
+}
+
+/// EXP-820 — the inline field an option opens instead of answering, with its
+/// placeholder: a question's free-text row ("Type something.") or a plan
+/// card's reject row. `None` = the option answers directly. A multi-select's
+/// rows only ever toggle (out of scope).
+fn inline_placeholder(card: &steer::feed::QuestionCard, index: usize) -> Option<&'static str> {
+    if card.multi_select {
+        return None;
+    }
+    if is_plan_reject(card, index) {
+        return Some(PLAN_REJECT_PLACEHOLDER);
+    }
+    card.options
+        .get(index)
+        .filter(|option| option.free_text)
+        .map(|_| FREE_TEXT_PLACEHOLDER)
 }
 
 /// EXP-788 — the option a plain digit keystroke names: `1`-`9` → `0..9`,
@@ -3863,8 +4191,9 @@ impl SteerSessionView {
         column.into_any_element()
     }
 
-    /// One `askId` group as a stepper card: the answered steps, then the
-    /// current one (or the waiting line).
+    /// One `askId` group as a stepper card: the answered steps (re-openable
+    /// while the ask is open, EXP-820), then the current one — or, while a
+    /// next step is still owed, the waiting line.
     fn render_ask(
         &self,
         _id: FeedItemId,
@@ -3875,6 +4204,11 @@ impl SteerSessionView {
     ) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         let amber = theme::tokens::YELLOW.to_hsla();
+        let complete = ask_complete(items);
+        // The re-opened step, if it is one of THIS ask's rows.
+        let editing = self
+            .editing_card_id()
+            .filter(|id| items.iter().any(|item| item.id == *id));
         let answered: Vec<&&FeedItem> = items
             .iter()
             .filter(|item| {
@@ -3950,9 +4284,38 @@ impl SteerSessionView {
                     }),
             );
         for item in answered {
-            card = card.child(self.render_answered_step(item, cx));
+            if editing == Some(item.id) {
+                card = card.child(self.render_editing_step(item, active, window, cx));
+                continue;
+            }
+            card = card.child(self.render_answered_step(item, !complete, cx));
         }
         match current {
+            // EXP-820: while an earlier step is re-opened, the current one
+            // folds into a muted row; clicking it comes back.
+            Some(item) if editing.is_some() => {
+                let text = item.question().map(|card| card.text.clone()).unwrap_or_default();
+                card = card.child(
+                    h_flex()
+                        .id(("steer-step-current", item.id as usize))
+                        .w_full()
+                        .min_w_0()
+                        .gap_1p5()
+                        .items_center()
+                        .py_1()
+                        .text_xs()
+                        .text_color(muted)
+                        .cursor_pointer()
+                        .rounded(px(theme::tokens::radius::SM))
+                        .hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
+                        .child(Icon::new(registry::UI_CHEVRON_RIGHT).xsmall().text_color(muted))
+                        .child(div().flex_1().min_w_0().truncate().child(SharedString::from(text)))
+                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                            cx.stop_propagation();
+                            this.stop_editing(window, cx);
+                        })),
+                );
+            }
             Some(item) => {
                 let text = item.question().map(|card| card.text.clone()).unwrap_or_default();
                 card = card
@@ -3961,9 +4324,11 @@ impl SteerSessionView {
                         &text,
                         cx,
                     )))
-                    .child(self.render_prompt(item, active, submit_step, window, cx));
+                    .child(self.render_prompt(item, active, submit_step, false, window, cx));
             }
-            None => {
+            // EXP-820: the spinner only while a next step is actually owed —
+            // a finished ask is just its answered rows.
+            None if !complete => {
                 card = card.child(
                     h_flex()
                         .gap_1p5()
@@ -3977,30 +4342,112 @@ impl SteerSessionView {
                         ),
                 );
             }
+            None => {}
         }
         card.into_any_element()
     }
 
-    fn render_answered_step(&self, item: &FeedItem, cx: &mut gpui::Context<Self>) -> AnyElement {
+    /// EXP-820: the re-opened step — its prompt and options, answerable
+    /// again, with the recorded answer drawn as the pick and a way back.
+    fn render_editing_step(
+        &self,
+        item: &FeedItem,
+        active: &HashSet<FeedItemId>,
+        window: &Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        let text = item.question().map(|card| card.text.clone()).unwrap_or_default();
+        v_flex()
+            .w_full()
+            .min_w_0()
+            .child(body_text(div()).w_full().min_w_0().child(self.render_body(
+                item.id,
+                &text,
+                cx,
+            )))
+            .child(self.render_prompt(item, active, false, true, window, cx))
+            .child(
+                div().mt_1p5().child(
+                    Button::new(("steer-step-back", item.id as usize))
+                        .ghost()
+                        .cursor_pointer()
+                        .xsmall()
+                        .text_color(cx.theme().muted_foreground)
+                        .label("Back to current step")
+                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                            cx.stop_propagation();
+                            this.stop_editing(window, cx);
+                        })),
+                ),
+            )
+            .into_any_element()
+    }
+
+    /// EXP-820: re-open an answered step (its ask must still be open).
+    fn start_editing(
+        &mut self,
+        item_id: FeedItemId,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.editing_step = Some(item_id);
+        self.answer_cursor = None;
+        self.answer_cursor_for = None;
+        self.close_inline(window, cx);
+        // The keyboard follows the re-opened step.
+        window.focus(&self.focus_handle, cx);
+        cx.notify();
+    }
+
+    fn stop_editing(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.editing_step = None;
+        self.answer_cursor = None;
+        self.answer_cursor_for = None;
+        self.close_inline(window, cx);
+        cx.notify();
+    }
+
+    /// One answered (or in-flight) step as a line: check, question, answer.
+    /// `open` = the ask is still open, so a resolved step is clickable to
+    /// change its answer (EXP-820) and wears the edit glyph to say so.
+    fn render_answered_step(
+        &self,
+        item: &FeedItem,
+        open: bool,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         let card = item.question();
         let dismissed = card.is_some_and(|card| card.dismissed);
-        let answer = card
-            .and_then(|card| card.answer.clone())
-            .or_else(|| {
-                answer_key(item)
-                    .and_then(|key| self.feed.answer_state(&key))
-                    .map(|state| state.labels.join(", "))
-                    .filter(|labels| !labels.is_empty())
-            })
+        // The freshest answer wins: a re-sent one is in the lock state until
+        // its `question_resolved` rewrites the card.
+        let in_flight = answer_key(item)
+            .and_then(|key| self.feed.answer_state(&key))
+            .filter(|state| state.is_locked())
+            .map(|state| state.labels.join(", "))
+            .filter(|labels| !labels.is_empty());
+        let answer = in_flight
+            .or_else(|| card.and_then(|card| card.answer.clone()))
             .unwrap_or_else(|| "Answered".to_string());
+        let editable = open && self.step_editable(item);
+        let item_id = item.id;
         h_flex()
+            .id(("steer-step", item_id as usize))
             .w_full()
             .min_w_0()
             .gap_1p5()
             .items_center()
             .py_1()
             .text_xs()
+            .when(editable, |this| {
+                this.cursor_pointer()
+                    .rounded(px(theme::tokens::radius::SM))
+                    .hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        cx.stop_propagation();
+                        this.start_editing(item_id, window, cx);
+                    }))
+            })
             .child(
                 Icon::new(if dismissed {
                     registry::UI_CLOSE
@@ -4034,6 +4481,9 @@ impl SteerSessionView {
                         answer
                     })),
             )
+            .when(editable, |this| {
+                this.child(Icon::new(registry::UI_EDIT).xsmall().text_color(muted))
+            })
             .into_any_element()
     }
 
@@ -4094,21 +4544,23 @@ impl SteerSessionView {
                         self.render_body(item.id, &card.text, cx)
                     }),
             )
-            .child(self.render_prompt(item, active, false, window, cx))
+            .child(self.render_prompt(item, active, false, false, window, cx))
             .into_any_element()
     }
 
     /// The interactive half of a card (EXP-788): the options as a numbered
     /// list of full-width buttons, a multi-select's Submit, the lock and the
-    /// resolution line. There is no in-card text field any more — a typed
-    /// answer goes through the composer ([`Self::send`]), whose placeholder
-    /// says so while a card is pending.
+    /// resolution line. EXP-820: a free-text row (and a plan's reject row)
+    /// unfolds its own inline field ([`Self::render_inline_answer`]) — the
+    /// composer is hidden while the card is pending. `editing` renders a
+    /// RESOLVED step as answerable again (the re-opened stepper step).
     fn render_prompt(
         &self,
         item: &FeedItem,
         active: &HashSet<FeedItemId>,
         submit_step: bool,
-        _window: &Window,
+        editing: bool,
+        window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let muted = cx.theme().muted_foreground;
@@ -4120,7 +4572,7 @@ impl SteerSessionView {
         let locked = state.is_some_and(|state| state.is_locked());
         let errored = state.is_some_and(|state| state.status == AnswerStatus::Error);
 
-        if card.resolved {
+        if card.resolved && !editing {
             let answer = card
                 .answer
                 .clone()
@@ -4150,7 +4602,9 @@ impl SteerSessionView {
                 .into_any_element();
         }
 
-        if locked {
+        // A re-opened step still carries its first answer's lock state; that
+        // lock is history (see `answer`), not a reason to show "Answering…".
+        if locked && !editing {
             let labels = state.map(|state| state.labels.join(", ")).unwrap_or_default();
             return h_flex()
                 .gap_1p5()
@@ -4172,10 +4626,7 @@ impl SteerSessionView {
                 .into_any_element();
         }
 
-        let answerable = active.contains(&item.id)
-            && self.phase == ViewerPhase::Live
-            && self.connected
-            && !self.row_ended();
+        let answerable = (editing || active.contains(&item.id)) && self.answerable_run();
         if !answerable {
             let note = if card.plan_mode {
                 "Waiting for approval. You're viewing read-only."
@@ -4199,6 +4650,8 @@ impl SteerSessionView {
         }
 
         let picked = self.picked.get(&key).cloned().unwrap_or_default();
+        // EXP-820: the re-opened step shows its recorded answer as the pick.
+        let recorded = editing.then(|| card.answer.clone()).flatten();
         let promote_first = card.plan_mode || submit_step;
         let item_id = item.id;
         // Only THE pending card takes the keyboard; an older active card (a
@@ -4206,21 +4659,34 @@ impl SteerSessionView {
         // renders its chips dimmed and answers by click.
         let keyboard = self.pending_card_id() == Some(item_id);
         let cursor = self.answer_cursor_on(item_id);
+        let inline = self
+            .inline
+            .as_ref()
+            .filter(|inline| inline.item == item_id);
         let mut options = v_flex().mt_2().w_full().min_w_0().gap_1();
         for (index, option) in card.options.iter().enumerate() {
+            let inline_here = inline.filter(|inline| inline.option_key == option.key);
             options = options.child(self.render_option(
                 item_id,
-                &key,
-                card.multi_select,
                 promote_first && index == 0,
                 submit_step && index == 0,
                 option,
-                picked.contains(&option.key),
+                picked.contains(&option.key)
+                    || recorded.as_deref() == Some(option.label.as_str())
+                    || inline_here.is_some(),
                 index,
                 keyboard,
                 cursor == Some(index),
                 cx,
             ));
+            if let Some(inline) = inline_here {
+                options = options.child(self.render_inline_answer(
+                    inline,
+                    is_plan_reject(card, index),
+                    window,
+                    cx,
+                ));
+            }
         }
 
         let mut column = v_flex().w_full().min_w_0().child(options);
@@ -4252,17 +4718,60 @@ impl SteerSessionView {
         column.into_any_element()
     }
 
+    /// EXP-820: the inline free-text field under its option row — the glass
+    /// text field plus the composer's round Send. `always_sendable` is the
+    /// plan reject row, where an empty send is a plain reject; a question's
+    /// free-text row needs text.
+    fn render_inline_answer(
+        &self,
+        inline: &InlineAnswer,
+        always_sendable: bool,
+        window: &Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        let has_text = !inline.state.read(cx).value().trim().is_empty();
+        h_flex()
+            .key_context("SteerInlineAnswer")
+            .w_full()
+            .min_w_0()
+            .gap_1()
+            .items_center()
+            // Indented under the row's label (chip 18px + gap 8px).
+            .pl(px(26.))
+            .capture_action(cx.listener(Self::on_inline_escape))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .child(crate::controls::glass_input(&inline.state, window, cx).small()),
+            )
+            .child(
+                crate::composer::composer_submit_kind(
+                    ("steer-inline-send", inline.item as usize),
+                    crate::composer::SubmitKind::Send,
+                    !always_sendable && !has_text,
+                    cx,
+                )
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                    cx.stop_propagation();
+                    this.send_inline(window, cx);
+                })),
+            )
+            .into_any_element()
+    }
+
     /// One option row (EXP-788): a full-width button carrying its numbered
-    /// key chip, its label and — under the label — its description. The
-    /// promoted option (a plan card's "Yes", the stepper's submit) wears the
-    /// BLUE design token; the keyboard highlight is the same tint on the
-    /// hairline, so ↑/↓ read as a cursor and not as a second selection.
+    /// key chip, its label and — under the label — its description. EXP-820
+    /// styleguide: NO blue. The promoted option (a plan card's "Yes", the
+    /// stepper's submit) is the app's PRIMARY button; a picked row (a
+    /// multi-select pick, the recorded answer of a re-opened step, the row
+    /// whose inline field is open) is the glass active fill under the active
+    /// stroke; the keyboard highlight is the strong stroke on the hairline,
+    /// so ↑/↓ read as a cursor and not as a second selection.
     #[allow(clippy::too_many_arguments)] // one call site; every flag is a render decision
     fn render_option(
         &self,
         item_id: FeedItemId,
-        key: &str,
-        multi_select: bool,
         primary: bool,
         submit_label: bool,
         option: &QuestionOption,
@@ -4273,17 +4782,13 @@ impl SteerSessionView {
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let muted = cx.theme().muted_foreground;
-        let blue = theme::tokens::BLUE.to_hsla();
         let label = if submit_label {
             "Submit answers".to_string()
         } else {
             option.label.clone()
         };
-        // EXP-818: WHITE on the blue promoted option (web `bg-blue-500
-        // text-white`) — `primary_foreground` is near-black on the dark-only
-        // desktop and made the plan card's first option unreadable.
         let label_color = if primary {
-            gpui::white()
+            cx.theme().primary_foreground
         } else {
             cx.theme().foreground
         };
@@ -4295,37 +4800,26 @@ impl SteerSessionView {
             .py_1p5()
             .rounded(px(theme::tokens::radius::MD));
         button = if primary {
-            // The token, not `theme.primary` — the plan card's accent is
-            // BLUE on every client (web `bg-blue-500`).
-            button.custom(
-                gpui_component::button::ButtonCustomVariant::new(cx)
-                    .color(blue)
-                    .hover(blue.opacity(0.85))
-                    .active(blue.opacity(0.7))
-                    .foreground(gpui::white()),
-            )
+            button.with_variant(ButtonVariant::Primary)
         } else if picked {
-            // EXP-818: the web `border-blue-500/60 bg-blue-500/15` pick —
-            // an explicit tint, not gpui-component's `selected` outline fill,
-            // whose foreground was never designed against the row's text.
+            let fill = theme::tokens::glass::FILL_ACTIVE.to_hsla();
+            // Hover/pressed step one rung up the same white ladder.
+            let raised = theme::tokens::glass::STROKE_ACTIVE.to_hsla();
             button
                 .custom(
                     gpui_component::button::ButtonCustomVariant::new(cx)
-                        .color(blue.opacity(0.15))
-                        .hover(blue.opacity(0.22))
-                        .active(blue.opacity(0.3))
+                        .color(fill)
+                        .hover(raised)
+                        .active(raised)
                         .foreground(cx.theme().foreground),
                 )
-                .border_color(blue.opacity(0.6))
+                .border_color(theme::tokens::glass::STROKE_ACTIVE.to_hsla())
         } else {
             button.outline()
         };
         if highlighted {
-            button = button.border_color(blue);
+            button = button.border_color(theme::tokens::glass::STROKE_STRONG.to_hsla());
         }
-        let answer_key = key.to_string();
-        let option_key = option.key.clone();
-        let option_label = option.label.clone();
         let description = option.description.clone().filter(|text| !text.trim().is_empty());
         button
             .child(
@@ -4367,26 +4861,9 @@ impl SteerSessionView {
                             }),
                     ),
             )
-            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 cx.stop_propagation();
-                if multi_select {
-                    let picks = this.picked.entry(answer_key.clone()).or_default();
-                    match picks.iter().position(|pick| *pick == option_key) {
-                        Some(at) => {
-                            picks.remove(at);
-                        }
-                        None => picks.push(option_key.clone()),
-                    }
-                    cx.notify();
-                    return;
-                }
-                this.answer(
-                    item_id,
-                    vec![option_key.clone()],
-                    vec![option_label.clone()],
-                    None,
-                    cx,
-                );
+                this.pick_option(item_id, index, window, cx);
             }))
             .into_any_element()
     }
@@ -4655,11 +5132,11 @@ impl SteerSessionView {
                 .child(
                     div()
                         // The captures run before the field's own handlers,
-                        // so with a `/` menu open Enter/Tab accept, and with
-                        // a card pending on an EMPTY field ↑/↓/Enter and the
-                        // digits drive the answer panel (EXP-788) — neither
-                        // ever reaches the textarea, so `PressEnter` (the
-                        // thing that SENDS) never fires for them.
+                        // so with a `/` menu open Enter/Tab accept and never
+                        // reach the textarea (so `PressEnter`, the thing that
+                        // SENDS, never fires for them). EXP-820: the card
+                        // keyboard's captures sit on the view's ROOT, since
+                        // the composer is hidden while a card is pending.
                         .key_context("SteerComposer")
                         .w_full()
                         .min_w_0()
@@ -4668,10 +5145,6 @@ impl SteerSessionView {
                         .capture_action(cx.listener(Self::on_slash_escape))
                         .capture_action(cx.listener(Self::on_slash_enter))
                         .capture_action(cx.listener(Self::on_slash_tab))
-                        .capture_action(cx.listener(Self::on_answer_up))
-                        .capture_action(cx.listener(Self::on_answer_down))
-                        .capture_action(cx.listener(Self::on_answer_enter))
-                        .capture_key_down(cx.listener(Self::on_answer_key_down))
                         // EXP-790: the mention-capable field — `@`, `#` and
                         // `:` complete exactly as they do in a comment.
                         .child(self.mention.clone()),
@@ -5113,7 +5586,7 @@ impl Render for SteerSessionView {
         // EXP-776: the transcript list learns what changed since the last
         // frame here, before anything reads the cached projection.
         self.sync_list(cx);
-        self.sync_placeholder(window, cx);
+        self.sync_card_focus(window, cx);
         let header = self.chrome.then(|| self.render_header(cx));
         // EXP-789: the subagent strip sits between the header and the feed.
         let strip = self.render_subagent_strip(cx);
@@ -5137,6 +5610,14 @@ impl Render for SteerSessionView {
         v_flex()
             .key_context("SteerSession")
             .track_focus(&self.focus_handle)
+            // EXP-820: the card keyboard lives on the ROOT — it has to work
+            // with the composer hidden (a card pending) and while the
+            // composer or the inline field is focused (both are descendants;
+            // the handlers yield to a field that wants the keys).
+            .capture_action(cx.listener(Self::on_answer_up))
+            .capture_action(cx.listener(Self::on_answer_down))
+            .capture_action(cx.listener(Self::on_answer_enter))
+            .capture_key_down(cx.listener(Self::on_answer_key_down))
             .size_full()
             .min_h_0()
             .overflow_hidden()
@@ -5363,6 +5844,132 @@ mod tests {
             phase_label(&ViewerPhase::Live, None, false, true, None),
             "Paused · device is offline"
         );
+    }
+
+    // ── EXP-820: ask completion, the card keyboard, inline rows ────────────
+
+    fn step(id: FeedItemId, ask: &str, index: Option<u32>, total: u32, resolved: bool) -> FeedItem {
+        FeedItem {
+            id,
+            kind: FeedKind::Question(steer::QuestionCard {
+                text: format!("q{id}"),
+                question_id: match index {
+                    Some(n) => format!("{ask}#{n}"),
+                    None => format!("{ask}#submit"),
+                },
+                ask_id: Some(ask.to_string()),
+                index,
+                total: Some(total),
+                resolved,
+                ..Default::default()
+            }),
+            seq: None,
+        }
+    }
+
+    /// The submit step resolving ends the ask; an answered numbered step
+    /// alone does not — the next step (or the submit step) is still owed.
+    #[test]
+    fn an_ask_completes_on_its_resolved_submit_step() {
+        let a = step(1, "ask", Some(1), 3, true);
+        let b = step(2, "ask", Some(2), 3, true);
+        let c = step(3, "ask", Some(3), 3, true);
+        assert!(!ask_complete(&[&a]));
+        assert!(!ask_complete(&[&a, &b, &c]), "every step answered, submit still owed");
+        let submit_open = step(4, "ask", None, 3, false);
+        assert!(!ask_complete(&[&a, &b, &c, &submit_open]));
+        let submit_done = step(4, "ask", None, 3, true);
+        assert!(ask_complete(&[&a, &b, &c, &submit_done]));
+    }
+
+    /// A one-question ask has no submit step: its lone step answered IS the
+    /// end (the bug: the stepper kept "Waiting for the next question…").
+    #[test]
+    fn a_lone_step_ask_completes_when_its_step_resolves() {
+        let open = step(1, "ask", Some(1), 1, false);
+        assert!(!ask_complete(&[&open]));
+        let done = step(1, "ask", Some(1), 1, true);
+        assert!(ask_complete(&[&done]));
+        // `total` missing falls back to the step count.
+        let mut untotaled = step(1, "ask", Some(1), 1, true);
+        untotaled.question_mut().unwrap().total = None;
+        assert!(ask_complete(&[&untotaled]));
+        // No numbered step at all (a submit step alone, still open) is not
+        // vacuously complete.
+        let lone_submit = step(1, "ask", None, 0, false);
+        assert!(!ask_complete(&[&lone_submit]));
+        assert!(!ask_complete(&[]));
+    }
+
+    /// A dismissed step ends the ask whatever else is open.
+    #[test]
+    fn a_dismissed_step_completes_the_ask() {
+        let a = step(1, "ask", Some(1), 3, true);
+        let mut b = step(2, "ask", Some(2), 3, true);
+        b.question_mut().unwrap().dismissed = true;
+        assert!(ask_complete(&[&a, &b]));
+    }
+
+    /// The keyboard drives the card only while no field wants the keys: the
+    /// inline answer field always wins, the composer once it has a draft or
+    /// an open `/` menu; with the composer hidden the view holds the keys.
+    #[test]
+    fn the_card_keyboard_yields_to_a_field_that_wants_the_keys() {
+        // (pending, inline_open, composer_visible, draft_empty, slash_open)
+        assert!(!keyboard_drives_card(false, false, false, true, false), "no card");
+        assert!(keyboard_drives_card(true, false, false, true, false), "composer hidden");
+        assert!(
+            keyboard_drives_card(true, false, false, false, false),
+            "a stale draft never blocks a hidden composer"
+        );
+        assert!(!keyboard_drives_card(true, true, false, true, false), "inline field open");
+        assert!(keyboard_drives_card(true, false, true, true, false), "composer shown, empty");
+        assert!(!keyboard_drives_card(true, false, true, false, false), "composer has a draft");
+        assert!(!keyboard_drives_card(true, false, true, true, true), "slash menu open");
+    }
+
+    fn option(label: &str, free_text: bool) -> QuestionOption {
+        QuestionOption {
+            label: label.to_string(),
+            key: label.to_lowercase(),
+            description: None,
+            free_text,
+        }
+    }
+
+    /// Which rows open the inline field instead of answering: a free-text
+    /// row and a plan card's LAST option, never a multi-select's rows.
+    #[test]
+    fn inline_rows_are_the_free_text_row_and_the_plan_reject() {
+        let question = steer::QuestionCard {
+            options: vec![option("Yes", false), option("Type something.", true)],
+            ..Default::default()
+        };
+        assert_eq!(inline_placeholder(&question, 0), None);
+        assert_eq!(inline_placeholder(&question, 1), Some(FREE_TEXT_PLACEHOLDER));
+        assert_eq!(inline_placeholder(&question, 2), None, "out of range");
+
+        let plan = steer::QuestionCard {
+            plan_mode: true,
+            options: vec![
+                option("Yes, and auto-accept edits", false),
+                option("Yes, and manually approve edits", false),
+                option("No, keep planning", false),
+            ],
+            ..Default::default()
+        };
+        assert_eq!(inline_placeholder(&plan, 0), None);
+        assert_eq!(inline_placeholder(&plan, 1), None);
+        assert_eq!(inline_placeholder(&plan, 2), Some(PLAN_REJECT_PLACEHOLDER));
+        assert!(is_plan_reject(&plan, 2));
+        assert!(!is_plan_reject(&question, 1));
+
+        let multi = steer::QuestionCard {
+            multi_select: true,
+            options: vec![option("A", false), option("Type something.", true)],
+            ..Default::default()
+        };
+        assert_eq!(inline_placeholder(&multi, 1), None, "multi-select rows only toggle");
     }
 
     #[test]
