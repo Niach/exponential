@@ -810,6 +810,106 @@ describe(`exponential_notifications_list`, () => {
   })
 })
 
+// ── EXP-825 compat: retired text/textarea input defs on the MCP tools ────────
+// An old creator run (desktop ≤ 0.14.35) still tells the agent `type: text`;
+// the tools accept the def and drop it (lib/action-inputs.ts), seeding the
+// composer hint. update forwards to actions.update, which drops against the
+// row (the hint seeds only when the row has none).
+
+describe(`exponential_actions_create/update — EXP-825 compat`, () => {
+  beforeEach(() => {
+    caller.actions.create.mockReset()
+    caller.actions.update.mockReset()
+  })
+
+  it(`create accepts a text def, drops it and seeds promptPlaceholder from it`, async () => {
+    caller.actions.create.mockResolvedValue({
+      action: { id: UUID, name: `Release`, inputs: [], promptPlaceholder: `Which platforms` },
+    })
+    const result = await tool(`exponential_actions_create`)({
+      teamId: WS,
+      name: `Release`,
+      body: `# Do the release`,
+      inputs: [
+        { key: `scope`, label: `Scope`, type: `text`, required: true, placeholder: `Which platforms` },
+        { key: `repo`, label: `Repository`, type: `repo` },
+      ],
+    })
+    expect(parseOk(result)).toMatchObject({ id: UUID, inputs: [] })
+    expect(caller.actions.create).toHaveBeenCalledWith({
+      teamId: WS,
+      name: `Release`,
+      body: `# Do the release`,
+      // The harness calls the handler directly (no zod parse), so
+      // `required` keeps whatever the call carried.
+      inputs: [{ key: `repo`, label: `Repository`, type: `repo` }],
+      promptPlaceholder: `Which platforms`,
+    })
+  })
+
+  it(`create keeps a hint the agent sent and seeds from the label otherwise`, async () => {
+    caller.actions.create.mockResolvedValue({ action: { id: UUID } })
+    await tool(`exponential_actions_create`)({
+      teamId: WS,
+      name: `A`,
+      body: `x`,
+      inputs: [{ key: `what`, label: `What to do`, type: `textarea` }],
+      promptPlaceholder: `Agent hint`,
+    })
+    expect(caller.actions.create).toHaveBeenLastCalledWith(
+      expect.objectContaining({ inputs: [], promptPlaceholder: `Agent hint` })
+    )
+    await tool(`exponential_actions_create`)({
+      teamId: WS,
+      name: `B`,
+      body: `x`,
+      inputs: [{ key: `what`, label: `What to do`, type: `textarea` }],
+    })
+    expect(caller.actions.create).toHaveBeenLastCalledWith(
+      expect.objectContaining({ inputs: [], promptPlaceholder: `What to do` })
+    )
+  })
+
+  it(`update accepts a text def and forwards it for the row-aware drop`, async () => {
+    caller.actions.update.mockResolvedValue({ action: { id: UUID, inputs: [] } })
+    const result = await tool(`exponential_actions_update`)({
+      id: UUID,
+      inputs: [
+        { key: `scope`, label: `Scope`, type: `text` },
+        { key: `board`, label: `Board`, type: `board` },
+      ],
+    })
+    expect(parseOk(result)).toMatchObject({ id: UUID })
+    expect(caller.actions.update).toHaveBeenCalledWith({
+      id: UUID,
+      inputs: [
+        { key: `scope`, label: `Scope`, type: `text` },
+        { key: `board`, label: `Board`, type: `board` },
+      ],
+    })
+  })
+
+  it(`still rejects an unknown input kind at the schema`, () => {
+    const schema = collectToolDefs().get(`exponential_actions_create`)!.inputSchema!
+    expect(
+      schema.safeParse({
+        teamId: WS,
+        name: `A`,
+        body: `x`,
+        inputs: [{ key: `n`, label: `N`, type: `number` }],
+      }).success
+    ).toBe(false)
+    expect(
+      schema.safeParse({
+        teamId: WS,
+        name: `A`,
+        body: `x`,
+        inputs: [{ key: `n`, label: `N`, type: `text` }],
+      }).success
+    ).toBe(true)
+  })
+})
+
 // ── notifications_send (EXP-801) ─────────────────────────────────────────────
 
 describe(`exponential_notifications_send`, () => {
@@ -880,6 +980,71 @@ describe(`exponential_notifications_send`, () => {
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toContain(`exponential_members_list`)
     expect(send).not.toHaveBeenCalled()
+  })
+
+  // A team-level WRITE: a board-confined grant can SEE the host team (aux
+  // reads) but may not push to its members.
+  it(`refuses a board-confined grant (team visible, not fully granted) before the fan-out`, async () => {
+    const result = await collectTools(
+      USER,
+      null,
+      ALL_MCP_TOOL_GATES,
+      SCOPED_TO_BOARD
+    ).get(`exponential_notifications_send`)!({
+      teamId: WS,
+      recipients: [`user-2`],
+      title: `Ping`,
+    })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`team-level operations`)
+    expect(send).not.toHaveBeenCalled()
+    expect(membership.resolveTeamAccess).not.toHaveBeenCalled()
+  })
+
+  it(`lets a whole-team grant send`, async () => {
+    send.mockResolvedValue({
+      delivered: [`user-2`],
+      declined: [],
+      notMembers: [],
+      deduped: [],
+    })
+    const result = await collectTools(
+      USER,
+      null,
+      ALL_MCP_TOOL_GATES,
+      SCOPED_TO_WS
+    ).get(`exponential_notifications_send`)!({
+      teamId: WS,
+      recipients: [`user-2`],
+      title: `Ping`,
+    })
+    expect(parseOk(result)).toMatchObject({ ok: true })
+  })
+
+  // The per-sender bucket (capacity 10) is charged AFTER validation: a burst
+  // of rejected calls must not lock out the next valid one.
+  it(`does not burn a burst token on a rejected call`, async () => {
+    for (let i = 0; i < 12; i++) {
+      const rejected = await tool(`exponential_notifications_send`)({
+        teamId: WS,
+        recipients: [`nobody@example.com`],
+        title: `Ping`,
+      })
+      expect(rejected.isError).toBe(true)
+      expect(rejected.content[0].text).not.toContain(`Too many messages`)
+    }
+    send.mockResolvedValue({
+      delivered: [`user-2`],
+      declined: [],
+      notMembers: [],
+      deduped: [],
+    })
+    const result = await tool(`exponential_notifications_send`)({
+      teamId: WS,
+      recipients: [`user-2`],
+      title: `Ping`,
+    })
+    expect(parseOk(result)).toMatchObject({ ok: true })
   })
 
   it(`denies a non-member sender before touching the fan-out`, async () => {

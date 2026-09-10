@@ -2,7 +2,6 @@ import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { contract } from "@exp/domain-contract"
 import {
-  actionInputsSchema,
   automationTriggerSchema,
   customizableStatusCategoryValues,
   dateOnlySchema,
@@ -63,6 +62,12 @@ import {
   builtinFixConflictsAction,
   isBuiltinActionId,
 } from "@/lib/builtin-actions"
+// EXP-825 compat: the retired `text`/`textarea` input kinds are accepted and
+// dropped at the boundary (lib/action-inputs.ts owns the rule + trigger).
+import {
+  compatActionInputsSchema,
+  retireLegacyActionInputs,
+} from "@/lib/action-inputs"
 import {
   assertTeamMember,
   getAttachmentTeamContext,
@@ -3317,16 +3322,10 @@ export function registerExponentialTools(
     },
     async ({ teamId, recipients, title, body }) => {
       try {
-        assertTeamVisible(access, teamId)
+        // A team-level WRITE (it pushes to every named member), so it takes
+        // the full team grant like invites/helpdesk/actions, not visibility.
+        assertTeamFullyGranted(access, teamId)
         await resolveTeamAccess(user.id, teamId)
-        const limit = agentMessageLimiter.tryTake(user.id)
-        if (!limit.ok) {
-          return err(
-            new Error(
-              `Too many messages — retry in ${limit.retryAfterSeconds}s`
-            )
-          )
-        }
         const memberRows = await db
           .select({ id: users.id, email: users.email })
           .from(teamMembers)
@@ -3347,6 +3346,15 @@ export function registerExponentialTools(
         if (resolved.size === 0) {
           throw new Error(
             `No recipient is a member of this team (use exponential_members_list for ids and emails).`
+          )
+        }
+        // Taken AFTER validation so a rejected call burns no burst token.
+        const limit = agentMessageLimiter.tryTake(user.id)
+        if (!limit.ok) {
+          return err(
+            new Error(
+              `Too many messages — retry in ${limit.retryAfterSeconds}s`
+            )
           )
         }
         const outcome = await sendAgentMessage({
@@ -3553,14 +3561,26 @@ export function registerExponentialTools(
         icon: boardIconEnumSchema.nullable().optional(),
         repositoryId: uuidString.nullable().optional(),
         body: z.string().min(1),
-        inputs: actionInputsSchema.optional(),
+        inputs: compatActionInputsSchema.optional(),
         promptPlaceholder: z.string().max(200).nullable().optional(),
       }),
     },
     async (input) => {
       try {
         if (!access.full) assertTeamFullyGranted(access, input.teamId)
-        const result = await caller(user, request).actions.create(input)
+        // EXP-825 compat: an old creator run still declares `type: text`
+        // inputs — dropped here, the hint seeded from the first one.
+        const retired = retireLegacyActionInputs(
+          input.inputs,
+          input.promptPlaceholder
+        )
+        const result = await caller(user, request).actions.create({
+          ...input,
+          ...(retired.inputs !== undefined ? { inputs: retired.inputs } : {}),
+          ...(retired.promptPlaceholder !== undefined
+            ? { promptPlaceholder: retired.promptPlaceholder }
+            : {}),
+        })
         return ok(result.action)
       } catch (e) {
         return err(e)
@@ -3579,7 +3599,7 @@ export function registerExponentialTools(
         icon: boardIconEnumSchema.nullable().optional(),
         repositoryId: uuidString.nullable().optional(),
         body: z.string().min(1).optional(),
-        inputs: actionInputsSchema.optional(),
+        inputs: compatActionInputsSchema.optional(),
         promptPlaceholder: z.string().max(200).nullable().optional(),
         sortOrder: z.number().finite().optional(),
       }),
@@ -3590,6 +3610,9 @@ export function registerExponentialTools(
           const action = await getActionContext(input.id)
           assertTeamFullyGranted(access, action.teamId)
         }
+        // EXP-825 compat: retired text defs ride through to actions.update,
+        // which drops them against the ROW (the hint seeds only when the
+        // row has none — a decision this tool cannot make without it).
         const result = await caller(user, request).actions.update(input)
         return ok(result.action)
       } catch (e) {

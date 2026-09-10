@@ -162,11 +162,12 @@ struct EditActionSheet: View {
                 accessibilityIdentifier: "edit-action-prompt-placeholder"
             )
             .disabled(!canEdit)
-            // Client parity with the server's cap, so a long paste is
-            // refused at the field instead of at submit.
+            // Client parity with the server's cap (UTF-16 units, the JS
+            // length), so a long paste is refused at the field instead of
+            // at submit.
             .onChange(of: promptPlaceholder) { _, value in
-                let cap = ActionDto.promptPlaceholderMaxLength
-                if value.count > cap { promptPlaceholder = String(value.prefix(cap)) }
+                let clamped = ActionDto.clampPromptPlaceholder(value)
+                if clamped != value { promptPlaceholder = clamped }
             }
         }
         .listRowBackground(glassFormRowFill)

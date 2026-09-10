@@ -231,7 +231,7 @@ fun AgentScreen(
     }
     val busy = sending || runState is ActionRunState.Sending
     val canSubmit = device != null && !agentNotReady && !busy && subjectOk &&
-        AgentComposerPrompt.withinLimit(draft)
+        AgentComposerPrompt.withinLimit(draft, images.size)
     val submitLabel = AgentComposerPrompt.submitTitle(
         when {
             actionSubject != null -> AgentComposerPrompt.Subject.Action
@@ -259,7 +259,7 @@ fun AgentScreen(
         overCap -> "At most $MAX_BATCH_ISSUES issues per run. Split the batch."
         selectedAction != null && ActionInputValues.hasUnsupportedType(selectedActionInputs) ->
             "This action needs a newer app version."
-        !AgentComposerPrompt.withinLimit(draft) ->
+        !AgentComposerPrompt.withinLimit(draft, images.size) ->
             "The message is too long (${AgentComposerPrompt.MAX_LENGTH} characters at most)."
         else -> null
     }

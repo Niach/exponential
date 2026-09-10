@@ -62,6 +62,13 @@ final class AgentComposerModel {
     /// by MEMBERSHIP when the options exist, never stomping a manual pick.
     private var pendingPrIssueId: String?
     private var preferredDeviceId: String?
+    /// Whether the user has acted on this composer (picked, typed, attached,
+    /// sent): the page rebuilds a PRISTINE composer with its original seed
+    /// when the team resolves late, a touched one with an empty seed.
+    private var touched = false
+    /// The text a seed dropped into the draft — a draft that still equals
+    /// it has not been typed in.
+    private var seededDraft = ""
 
     /// A batch run is deliberately loose but not unbounded — one session on
     /// one branch; past this the prompt is unwieldy and token-expensive.
@@ -108,7 +115,13 @@ final class AgentComposerModel {
         }
         if let text = seed.text, !text.isEmpty, draftText.isEmpty {
             draftText = text
+            seededDraft = text
         }
+    }
+
+    /// Nothing picked, typed, attached or sent since the seed was applied.
+    var isPristine: Bool {
+        !touched && pendingImages.isEmpty && draftText == seededDraft
     }
 
     // MARK: - Load
@@ -259,6 +272,7 @@ final class AgentComposerModel {
     /// Check or uncheck an issue. Picking an issue REPLACES an action
     /// subject (exclusivity by swap).
     func toggleIssue(_ id: String) {
+        touched = true
         if actionId != nil {
             actionId = nil
             inputValues = [:]
@@ -274,12 +288,14 @@ final class AgentComposerModel {
     /// action's defs start clean (values are keyed per def).
     func pickAction(_ action: ActionDto) {
         guard action.id != actionId else { return }
+        touched = true
         actionId = action.id
         checked = []
         inputValues = [:]
     }
 
     func clearAction() {
+        touched = true
         actionId = nil
         inputValues = [:]
     }
@@ -309,6 +325,7 @@ final class AgentComposerModel {
     }
 
     func setValue(_ value: String, for def: ActionInputDto) {
+        touched = true
         inputValues[def.key] = value
     }
 
@@ -351,6 +368,7 @@ final class AgentComposerModel {
 
     func selectDevice(_ id: String) {
         let switched = id != launch.lastSeededDeviceId
+        touched = true
         deviceId = id
         // The newly selected desktop may not run the chosen agent; a
         // DIFFERENT machine brings its own coding defaults (EXP-437).
@@ -370,6 +388,7 @@ final class AgentComposerModel {
     }
 
     func selectAgent(_ value: String) {
+        touched = true
         launch.selectAgent(value, device: device)
     }
 
@@ -442,6 +461,11 @@ final class AgentComposerModel {
         if let note = LaunchVocabulary.notReadyNote(device: device, agent: launch.agent) {
             return note
         }
+        // A seeded action that never synced, or belongs to another team:
+        // say so instead of leaving a dead disabled button.
+        if actionId != nil, selectedAction == nil {
+            return "That action is not available on this team."
+        }
         if multiRepo { return "Pick issues from a single repository per run." }
         if overCap { return "At most \(Self.maxBatchIssues) issues per run. Split the batch." }
         if let action = selectedAction {
@@ -473,7 +497,9 @@ final class AgentComposerModel {
     }
 
     var canSubmit: Bool {
-        guard blocker == nil, !sending, !messageMissing else { return false }
+        // `blocker` stays nil while the machine pool is still resolving (no
+        // "no desktop" flash) — but nothing can be sent without a machine.
+        guard blocker == nil, device != nil, !sending, !messageMissing else { return false }
         switch subject {
         case .none: return true
         case .issues: return !effectiveChecked.isEmpty
@@ -494,6 +520,7 @@ final class AgentComposerModel {
     /// character the sent text does not.
     func queueImage(_ normalized: PendingCommentAttachment) {
         guard !attachFull else { return }
+        touched = true
         pendingImages.append(PendingSteerImage(
             data: normalized.data,
             filename: normalized.filename,
@@ -569,6 +596,8 @@ final class AgentComposerModel {
                 actionId = nil
                 inputValues = [:]
                 pendingPrIssueId = nil
+                seededDraft = ""
+                touched = true
             } catch {
                 self.error = error.userFacingMessage
                 startWatcher.failed(error.userFacingMessage)

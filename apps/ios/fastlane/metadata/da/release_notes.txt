@@ -1,25 +1,22 @@
+- Ét felt til det hele: feltet på "Agent"-siden starter alt, med issues eller en handling valgt øverst og maskine, agent, model og plantilstand nedenunder; "Start coding"-arket er væk
+- Hver afspilningsknap fører derhen: "Start coding" på en issue, markeringslinjen, "Run" på en handling og "Fix merge conflicts" åbner feltet med det rigtige allerede valgt
+- Instruktioner ved start: det, du skriver ved siden af de valgte issues eller handlingen, når kørslen som ekstra instruktioner; i en chat er det prompten
+- Billeder ved start: vedhæft op til fire billeder i feltet, så har maskinen dem inden første tur
+- Handlinger beholder kun valg: en handling beder om et repository, et board, en pull request eller et ikon; den frie tekst kommer fra feltet, med handlingens eget hint som pladsholder
+- Sessioner ved siden af feltet: "Agent"-siden viser dine igangværende og tidligere kørsler ved siden af prompten, og en kørsel startet af en anden kørsel ligger indlejret under den
+- Svar inde i kortet: en plan eller et spørgsmål besvares i sit eget kort, med et felt i kortet når du hellere vil skrive end vælge; styrefeltet træder til side imens
+- Agentbeskeder: en agent kan sende dit team en notifikation via MCP; den kommer som push og som sin egen række i Inbox
+- Grænser der hænger sammen: en forbrugsadvarsel markerer ikke længere en kørsel som begrænset, og ved en rigtig grænse beskriver vinduet og nulstillingstidspunktet det samme
 - Begrænset, ikke fastlåst: når en agent bruger sin kvote op midt i en kørsel, markeres sessionen som begrænset med tidspunktet for nulstilling, og den forbliver aktiv og styrbar i stedet for at gå stille
 - Styringsfelt: sessionsfeltet tager @ for holdkammerater, # for issues og : for emoji, de samme tre som kommentarfeltet allerede havde
 - Redigeringer inline: en redigerings diff vises under dens række i udskriften, foldet sammen indtil du trykker på den
 - Værktøjsgrupper der siger hvad der skete: en sammenfoldet række værktøjskald læses som "Kørte 4 kommandoer, redigerede 2 filer, 1 fejlede" i stedet for at tælle kald
 - En udsigtsløs start afvises: start på en maskine hvis agent allerede er løbet tør for kvote siger det og nævner nulstillingstidspunktet
 - Forbrugsbjælker for en ekstra agentkonto på samme maskine
-- Styring: skift mellem "Plan" og "Build" fra den kørende session; model og indsats vælges én gang ved start, og kontekst- og forbrugstal opdateres, efterhånden som kørslen melder dem
-- Tidligere kørsler: afsluttede sessioner vises pr. enhed med "Resume", så en afsluttet kørsel kan tages op igen
-- Chat uden repository: en chat, der startes fra "Start coding"-arket, kræver ikke længere et repository og kører i en midlertidig mappe med kun Exponential-værktøjerne
 - Agentvælger: når en agent ikke er klar på en enhed, siger vælgeren det og blokerer starten, indtil du kører doctor der
 - Styringsfeed: issue-identifikatorer som #EXP-12 bliver til chips, du kan trykke på, og agentkommandoer vises som kommandomærker
 - Relationer mellem issues: knyt issues sammen som overordnet, underissue, blokerer, blokeret af, dublet eller relateret fra egenskabsarket; skriver du #EXP-12 i en beskrivelse eller kommentar, knyttes de to issues sammen af sig selv
 - Kommentartråde: svar under en kommentar fra det fastgjorte skrivefelt; tråde går kun ét niveau ned, og en kommentar, som en agent har sendt via MCP, siger det i sin header
 - En guidet første gang: at oprette et team fører dig gennem det første board, invitationer til holdkammerater og opsætning af enheder, i samme rækkefølge som på web og desktop
-- Teamindstillinger: ejere kan lave invitationslinks i "Members"-sektionen
 - Merge fra handlings- og chatkørsler: en kørsel, der har åbnet en pull request, viser "Merge" i sin styringsvisning, og Reviews viser de pull requests under "Agent runs"
-- Større kommentarbilleder: billeder vedhæftet en kommentar vises i fuld bredde og åbner viseren ved tryk
-- Et roligere aktivitetsfeed: hændelser står som én dæmpet linje med et tidspunkt, kommentarer ligger i ét kort
-- "Subscribe"-knappen er væk: du følger et issue automatisk, når du opretter det, kommenterer, bliver tildelt eller bliver nævnt
-- Styring: kontekstlinjen dækker ikke længere udskriften
 - Sessioner bliver på din enhed: udskrifter gemmes på den enhed, der kørte dem, aldrig på serveren; tidligere kørsler åbnes fra Devices, Chat og Automations og hentes fra den enhed, når den er online
-- Subagent-samtaler: en subagents ture vises i deres egen visning, og agentens tekst deles ikke længere midt i en sætning op i flere linjer
-- En kørsel, der bliver stille, siger det: sessionen viser, når agenten er holdt op med at melde fremdrift
-- Fjernlogin for agenter: indsæt koden fra agentens login-link i enhedens indstillinger for at gøre login færdigt fra telefonen
-- "Start coding": ét ark til issues, handlinger og chat med de samme muligheder overalt

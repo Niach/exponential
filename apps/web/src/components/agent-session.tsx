@@ -45,6 +45,7 @@ import {
 } from "@/lib/stale-activity"
 import {
   activeQuestionIds,
+  hasPendingCard,
   answerKey,
   askStepperView,
   collectSubagents,
@@ -525,7 +526,12 @@ export function AgentSessionView({
   /** A trailing question/plan means the session is blocked on a human — the
    *  header flips to "Needs your input" so it never looks silently stuck. */
   const awaitingInput = live && questionIds.size > 0
-  const cardPending = canAnswer && questionIds.size > 0
+  /** The composer steps aside only for a card this viewer can answer on the
+   *  tab it is looking at, and never past a timed-out answer
+   *  (`hasPendingCard`) — an id-less, off-tab or timed-out card must not
+   *  hide the only other input for good. */
+  const cardPending =
+    canAnswer && hasPendingCard(feed, questionIds, answerStates, activeAgent)
   const composerVisible = sessionOpen && !cardPending
   /** EXP-788/820: the card the keyboard answers — the newest active plan or
    *  question whose answer is not in flight. Its number chips are live on

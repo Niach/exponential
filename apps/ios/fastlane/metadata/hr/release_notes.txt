@@ -1,25 +1,22 @@
+- Jedno polje za sve: polje na stranici „Agent“ pokreće sve, sa zadacima ili akcijom odabranima na vrhu i uređajem, agentom, modelom i plan načinom ispod; list „Start coding“ je nestao
+- Svaki gumb za pokretanje vodi ovamo: „Start coding“ na zadatku, traka višestrukog odabira, „Run“ na akciji i „Fix merge conflicts“ otvaraju polje s već odabranim pravim stvarima
+- Upute uz pokretanje: ono što napišeš pored odabranih zadataka ili akcije stiže u izvođenje kao dodatne upute; u chatu je to sam prompt
+- Slike uz pokretanje: priloži polju do četiri slike i uređaj ih ima prije prvog poteza
+- Akcije zadržavaju samo odabire: akcija traži repozitorij, board, pull request ili ikonu; slobodan tekst dolazi iz polja, a natuknica akcije je njegov rezervirani tekst
+- Sesije uz polje: stranica „Agent“ uz prompt navodi tvoja tekuća i prošla izvođenja, a izvođenje koje je pokrenulo drugo izvođenje ugniježđeno je ispod njega
+- Odgovor u samoj kartici: na plan ili pitanje odgovaraš u njegovoj kartici, s poljem unutra kad radije pišeš nego biraš; polje za upravljanje se dotad povlači
+- Poruke agenata: agent može tvojem timu poslati obavijest preko MCP-a; stiže kao push i kao vlastiti redak u Inboxu
+- Ograničenja koja se slažu: upozorenje o potrošnji više ne označava izvođenje ograničenim, a kod pravog ograničenja prozor i vrijeme ponovnog postavljanja opisuju isto
 - Ograničeno, ne zaglavljeno: kad agent usred izvođenja potroši kvotu, sesija se označava kao ograničena s vremenom poništavanja i ostaje aktivna i upravljiva umjesto da utihne
 - Polje upravljanja: polje sesije prima @ za suigrače, # za issue i : za emoji, ista tri koja je polje za komentar već imalo
 - Uređivanja u retku: diff uređivanja prikazuje se ispod svog retka u transkriptu, sklopljen dok ga ne dodirnete
 - Grupe alata koje kažu što se dogodilo: sklopljeni niz poziva alata glasi „Izvršene 4 naredbe, uređene 2 datoteke, 1 neuspješno” umjesto brojanja poziva
 - Besmisleno pokretanje se odbija: pokretanje na stroju čiji agent više nema kvotu to javlja i navodi vrijeme poništavanja
 - Trake potrošnje za drugi račun agenta na istom stroju
-- Upravljanje: u živoj sesiji prebacujete se između „Plan“ i „Build“; model i trud biraju se jednom pri pokretanju, a očitanja konteksta i potrošnje osvježavaju se kako ih izvođenje javlja
-- Prošla izvođenja: završene sesije navode se po uređaju uz „Resume“, pa se završeno izvođenje može nastaviti
-- Chat bez repozitorija: chat pokrenut iz lista „Start coding“ više ne treba repozitorij i radi u privremenoj mapi samo s alatima Exponentiala
 - Odabir agenta: kad agent na uređaju nije spreman, odabir to kaže i blokira pokretanje dok tamo ne pokrenete doctor
 - Pregled upravljanja: identifikatori zadataka poput #EXP-12 postaju čipovi koje možete dodirnuti, a naredbe agenta prikazuju se kao naredbene oznake
 - Veze među zadacima: povežite zadatke kao nadređeni, podzadatak, blokira, blokiran, duplikat ili povezan iz lista svojstava; upisivanje #EXP-12 u opis ili komentar samo poveže dva zadatka
 - Niti komentara: odgovorite ispod komentara iz usidrenog uređivača; niti ostaju na jednoj razini, a komentar koji je agent objavio preko MCP-a to navodi u svom zaglavlju
 - Vođeno prvo pokretanje: stvaranje tima vodi vas kroz prvi board, pozivanje suradnika i postavljanje uređaja, istim redoslijedom kao na webu i desktopu
-- Postavke tima: vlasnici mogu izraditi pozivne poveznice u odjeljku „Members“
 - Merge iz izvođenja akcija i chata: izvođenje koje je otvorilo pull request prikazuje „Merge“ u svom prikazu upravljanja, a Reviews te pull requestove navodi pod „Agent runs“
-- Veće slike u komentarima: slike priložene komentaru prikazuju se punom širinom i dodirom se otvaraju u pregledniku
-- Mirniji pregled aktivnosti: događaji stoje u jednom prigušenom retku s vremenom, komentari su u jednoj kartici
-- Gumb „Subscribe“ je uklonjen: zadatak pratite automatski kad ga stvorite, komentirate, dobijete dodijeljen ili ste u njemu spomenuti
-- Upravljanje: traka konteksta više ne prekriva prijepis
 - Sesije ostaju na vašem uređaju: prijepisi se spremaju na uređaj koji ih je pokrenuo, nikad na poslužitelj; prošla izvođenja otvarate iz odjeljaka Devices, Chat i Automations i dohvaćaju se s tog uređaja kad je na mreži
-- Razgovori subagenata: potezi subagenta prikazuju se u vlastitom prikazu, a tekst agenta više se ne lomi usred rečenice u zasebne retke
-- Izvođenje koje utihne to kaže: sesija pokazuje kad je agent prestao javljati napredak
-- Udaljena prijava agenta: zalijepite kod iz agentove poveznice za prijavu u postavke uređaja i prijavu dovršite s telefona
-- „Start coding“: jedan list za zadatke, akcije i chat s istim mogućnostima svugdje

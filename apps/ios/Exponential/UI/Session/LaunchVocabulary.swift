@@ -3,11 +3,11 @@ import Foundation
 
 // EXP-615: the ONE launch vocabulary. Agent / model / effort labels, the
 // per-agent option lists, the plan-mode capability and the picker captions
-// used to live three times over — StartCodingSheet's statics, a private copy
-// inside DeviceSettingsSheet, and a third set of shims in AutomationFormSheet.
-// Every launch-shaped surface (Start coding, Chat, Create action, the
-// automation editor, device launch defaults) now reads them from here, so a
-// contract change lands once.
+// used to live three times over — the launcher's statics (now the Agent
+// page composer), a private copy inside DeviceSettingsSheet, and a third set
+// of shims in AutomationFormSheet. Every launch-shaped surface (the Agent
+// page composer, the automation editor, device launch defaults) now reads
+// them from here, so a contract change lands once.
 enum LaunchVocabulary {
     /// Sentinel for the blank "CLI default" choice (omit --effort; for
     /// codex/pi also the omit-model default — claude is explicit-always).

@@ -791,10 +791,10 @@ class SteerConnectionTest {
         }
     }
 
-    // ── EXP-788: the composer answers a pending card ─────────────────────
+    // ── EXP-820: the card answers itself, the composer never does ───────
 
     @Test
-    fun aDraftAnswersThePendingPlanCardInsteadOfStartingATurn() = runBlocking {
+    fun aDraftOverAPendingPlanCardIsAPlainSteerMessage() = runBlocking {
         val transport = FakeTransport()
         val connection = connection(transport, stagingTimings)
         try {
@@ -805,22 +805,59 @@ class SteerConnectionTest {
             socket.emit("""{"t":"activity_synced"}""")
             waitUntil("the plan card") { connection.activity.value.feed.size == 1 }
 
+            // EXP-820: a pending card takes its free text in an inline field
+            // on the card (`answerThenSend`); whatever the composer sends is a
+            // plain steer message and never an `answer` frame.
             connection.setDraft("Make the migration reversible")
             connection.sendDraft()
-            waitUntil("the answer frame") { socket.sent.any { it.contains(""""t":"answer"""") } }
-            val answer = socket.sent.single { it.contains(""""t":"answer"""") }
-            // The reject option (the LAST one since EXP-788) carries the text.
+            waitUntil("the input frame") { socket.sent.any { it.contains(""""t":"input"""") } }
+            assertFalse(socket.sent.any { it.contains(""""t":"answer"""") })
+            // The card stays open: nothing locked it.
+            assertEquals(null, connection.activity.value.answerLocks["plan1"])
+            assertEquals("", connection.draft.value)
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
+    fun answerThenSendRejectsThePlanFirstAndFollowsWithTheFeedback() = runBlocking {
+        val transport = FakeTransport()
+        val connection = connection(transport, stagingTimings)
+        try {
+            connection.connect()
+            val socket = transport.awaitOpen()
+            socket.emit("""{"t":"activity_reset"}""")
+            socket.emit(PLAN_FRAME)
+            socket.emit("""{"t":"activity_synced"}""")
+            waitUntil("the plan card") { connection.activity.value.feed.size == 1 }
+
+            // The reject option (the LAST one since EXP-788) carries no text:
+            // the engine resolves the plan on the key alone and the typed
+            // feedback goes out as the NEXT message, in that order.
+            assertTrue(
+                connection.answerThenSend(
+                    "plan1",
+                    askId = null,
+                    keys = listOf("3"),
+                    labels = listOf("No, keep planning"),
+                    text = "Make the migration reversible",
+                ),
+            )
+            waitUntil("the feedback frame") { socket.sent.any { it.contains(""""t":"input"""") } }
+            val answerAt = socket.sent.indexOfFirst { it.contains(""""t":"answer"""") }
+            val inputAt = socket.sent.indexOfFirst { it.contains(""""t":"input"""") }
+            assertTrue(socket.sent.joinToString(), answerAt in 0 until inputAt)
+            val answer = socket.sent[answerAt]
             assertTrue(answer, answer.contains(""""questionId":"plan1""""))
             assertTrue(answer, answer.contains(""""keys":["3"]"""))
-            assertTrue(answer, answer.contains(""""text":"Make the migration reversible""""))
-            // No `input` frame: it was an answer, not a new turn.
-            assertFalse(socket.sent.any { it.contains(""""t":"input"""") })
-            // The card locked and the draft went with the frame.
+            assertFalse(answer, answer.contains("Make the migration reversible"))
+            assertTrue(socket.sent[inputAt], socket.sent[inputAt].contains("Make the migration reversible"))
+            // The card locked on the answer.
             assertEquals(
                 com.exponential.app.domain.AnswerState.Sending,
                 connection.activity.value.answerLocks["plan1"],
             )
-            assertEquals("", connection.draft.value)
         } finally {
             connection.close()
         }

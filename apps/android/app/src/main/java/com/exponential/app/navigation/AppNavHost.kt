@@ -51,6 +51,7 @@ import com.exponential.app.data.electric.SyncHealth
 import androidx.browser.customtabs.CustomTabsIntent
 import com.exponential.app.data.push.DeepLinkBus
 import com.exponential.app.data.push.WebLinkResolver
+import com.exponential.app.domain.AGENT_ROUTE
 import com.exponential.app.domain.AGENT_ROUTE_ARGS
 import com.exponential.app.domain.AGENT_ROUTE_PATTERN
 import com.exponential.app.domain.AgentComposerSeed
@@ -170,6 +171,11 @@ fun AppNavHost() {
                     WebLinkResolver.Resolution.NotFound ->
                         CustomTabsIntent.Builder().build().launchUrl(context, target.uri)
                 }
+            // A claimed-but-unrenderable https link (MainActivity's null
+            // parse): straight to the Custom Tab, which never re-triggers
+            // App Links.
+            is DeepLinkBus.Target.WebUrl ->
+                CustomTabsIntent.Builder().build().launchUrl(context, target.uri)
             is DeepLinkBus.Target.ShareContent -> {
                 // Stash the shared content for the single-screen share composer
                 // to consume (it carries its own inline board selector).
@@ -372,7 +378,19 @@ private fun AuthenticatedNav(
     // EXP-825: every launcher entry point is NAVIGATION onto the Agent page
     // with a preselection seed — the bottom bar's Chat FAB (EXP-631/EXP-694)
     // with an empty one, every play button with what it acts on.
-    val openAgent: (AgentComposerSeed) -> Unit = { seed -> navController.navigate(agentRoute(seed)) }
+    // The seed rides the route string, so the concrete route differs per seed:
+    // an EMPTY seed (the FAB) goes single top, and a seeded tap reuses the
+    // deep-link rule — a no-op when that exact seeded route is already on top,
+    // else a NEW entry whose ViewModel reads the new seed (single top would
+    // keep the old entry's ViewModel, which read its seed once — EXP-528).
+    val openAgent: (AgentComposerSeed) -> Unit = { seed ->
+        val route = agentRoute(seed)
+        if (route == AGENT_ROUTE) {
+            navController.navigate(route) { launchSingleTop = true }
+        } else {
+            navController.navigateDeepLink(route)
+        }
+    }
     // The single add-issue affordance: the FAB shows while a board is in
     // view — the Issues tab root (its resolved current board) or a pushed
     // board route — so it always targets the board on screen.

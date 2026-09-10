@@ -1,25 +1,22 @@
+- Jedno pole na všechno: pole na stránce „Agent“ spouští všechno, s úkoly nebo akcí vybranými nahoře a zařízením, agentem, modelem a režimem plánu pod ním; panel „Start coding“ je pryč
+- Každé tlačítko přehrání vede sem: „Start coding“ u úkolu, panel hromadného výběru, „Run“ u akce i „Fix merge conflicts“ otevřou pole s tím správným už vybraným
+- Pokyny při startu: co napíšeš vedle vybraných úkolů nebo akce, dorazí do běhu jako doplňující pokyny; u chatu je to samotný prompt
+- Obrázky při startu: k poli připojíš až čtyři obrázky a zařízení je má před prvním tahem
+- Akce mají jen výběry: akce se ptá na repozitář, board, pull request nebo ikonu; volný text přichází z pole a nápověda akce je jeho zástupný text
+- Sezení vedle pole: stránka „Agent“ vypisuje běžící i minulé běhy vedle promptu a běh spuštěný jiným během je vnořený pod ním
+- Odpověď přímo v kartě: plán nebo otázku zodpovíš v její vlastní kartě, s polem uvnitř, když chceš raději psát než vybírat; ovládací pole zatím ustoupí
+- Zprávy od agentů: agent může tvému týmu poslat oznámení přes MCP; přijde jako push a jako vlastní řádek v Inboxu
+- Limity, které sedí: varování o spotřebě už neoznačí běh jako omezený a u skutečného limitu popisují okno i čas obnovení totéž
 - Omezeno, ne zaseknuto: když agentovi uprostřed běhu dojde kvóta, relace se označí jako omezená s časem obnovení a zůstane živá a řiditelná, místo aby ztichla
 - Pole řízení: pole relace přijímá @ pro kolegy, # pro issues a : pro emoji, stejné tři jako pole komentáře
 - Úpravy v řádku: diff úpravy se zobrazí pod jejím řádkem v přepisu, sbalený, dokud na něj neklepnete
 - Skupiny nástrojů říkají, co se stalo: sbalená řada volání nástrojů zní „Spuštěny 4 příkazy, upraveny 2 soubory, 1 selhalo“ místo počítání volání
 - Bezvýchodný start je odmítnut: spuštění na stroji, jehož agent už nemá kvótu, to oznámí a uvede čas obnovení
 - Sloupce využití pro druhý účet agenta na stejném stroji
-- Řízení: v běžící relaci přepínáte mezi „Plan“ a „Build“; model a úsilí volíte jednou při startu a údaje o kontextu a spotřebě se obnovují, jak je běh hlásí
-- Minulé běhy: dokončené relace se vypisují u každého zařízení s tlačítkem „Resume“, takže ukončený běh můžete znovu rozjet
-- Chat bez repozitáře: chat spuštěný z panelu „Start coding“ už repozitář nepotřebuje a běží v pracovní složce jen s nástroji Exponential
 - Výběr agenta: když agent na zařízení není připravený, výběr to uvede a zablokuje start, dokud tam nespustíte doctor
 - Přehled řízení: identifikátory úkolů jako #EXP-12 se mění na klepnutelné čipy a příkazy agenta se vykreslují jako štítky příkazů
 - Vazby mezi úkoly: propojte úkoly jako nadřazený, podúkol, blokuje, blokován, duplikát nebo souvisí přímo v panelu vlastností; napsáním #EXP-12 do popisu nebo komentáře se oba úkoly propojí samy
 - Vlákna komentářů: odpovězte pod komentářem přímo v ukotveném editoru; vlákna zůstávají jen o úroveň hlouběji a komentář, který agent poslal přes MCP, to uvádí ve své hlavičce
 - Provázený první start: po vytvoření týmu vás průvodce provede prvním boardem, pozvánkami pro kolegy a nastavením zařízení, ve stejném pořadí jako na webu a na desktopu
-- Nastavení týmu: vlastníci mohou vytvářet zvací odkazy v sekci „Members“
 - Merge z běhů akcí a chatu: běh, který otevřel pull request, ukazuje ve svém zobrazení řízení tlačítko „Merge“ a Reviews tyto pull requesty vypisuje pod „Agent runs“
-- Větší obrázky v komentářích: obrázky přiložené ke komentáři se zobrazují na plnou šířku a klepnutím se otevřou v prohlížeči
-- Klidnější přehled aktivity: události jsou jeden tlumený řádek s časem, komentáře drží v jedné kartě
-- Tlačítko „Subscribe“ zmizelo: úkol sledujete automaticky, když jej vytvoříte, okomentujete, dostanete přidělený nebo jste v něm zmíněni
-- Řízení: kontextová lišta už nepřekrývá přepis
 - Relace zůstávají na vašem zařízení: přepisy se ukládají na zařízení, které je spustilo, nikdy na server; minulé běhy otevřete v sekcích Devices, Chat a Automations a načtou se z daného zařízení, když je online
-- Konverzace subagentů: tahy subagenta se zobrazují ve vlastním pohledu a text agenta se už nedělí uprostřed věty do samostatných řádků
-- Běh, který ztichne, to řekne: relace ukáže, kdy agent přestal hlásit postup
-- Vzdálené přihlášení agenta: vložte kód z přihlašovacího odkazu agenta do nastavení zařízení a přihlášení dokončíte z telefonu
-- „Start coding“: jeden panel pro úkoly, akce i chat se stejnými volbami všude

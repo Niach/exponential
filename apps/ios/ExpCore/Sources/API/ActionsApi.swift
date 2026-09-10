@@ -104,6 +104,20 @@ public struct ActionDto: Decodable, Identifiable, Sendable {
     /// submit.
     public static let promptPlaceholderMaxLength = 200
 
+    /// `promptPlaceholder` cut to the server's cap. The cap is a JS string
+    /// length, i.e. UTF-16 code units — never `String.count` (a grapheme can
+    /// be many units, so a flag-heavy hint would pass here and be refused
+    /// on the wire). A split surrogate pair is dropped rather than shipped.
+    public static func clampPromptPlaceholder(_ value: String) -> String {
+        let cap = promptPlaceholderMaxLength
+        guard value.utf16.count > cap else { return value }
+        var units = Array(value.utf16.prefix(cap))
+        if let last = units.last, UTF16.isLeadSurrogate(last) {
+            units.removeLast()
+        }
+        return String(decoding: units, as: UTF16.self)
+    }
+
     /// The virtual builtin row (EXP-257).
     public var isBuiltin: Bool { builtin == true }
 }

@@ -30,6 +30,8 @@ struct AgentPageView: View {
     @State private var canEditActions = false
     /// The started run's push target, consumed once.
     @State private var sessionTarget: StartedRunWatcher.StartedSession?
+    /// The seed's team has been made the active one (once per push).
+    @State private var alignedSeedTeam = false
 
     var body: some View {
         ZStack {
@@ -87,6 +89,7 @@ struct AgentPageView: View {
             steerEnabled = config.enabled
         }
         .onAppear {
+            alignActiveTeamToSeed()
             ensureModels()
             sessions?.activeTeamId = teamState.activeTeam?.id
             refreshCanEditActions()
@@ -98,9 +101,14 @@ struct AgentPageView: View {
             sessions?.activeTeamId = teamId
             refreshCanEditActions()
             // The composer is bound to ONE team (its pools, its builtins'
-            // teamId) — a team switch under the page starts a fresh one.
-            if let sessions, composer?.teamId != teamId {
-                composer = makeComposer(sessions: sessions, seed: .empty)
+            // teamId) — a team switch under the page starts a fresh one. A
+            // composer nobody touched yet keeps the play button's seed (the
+            // team resolving AFTER onAppear on a cold launch must not drop
+            // the preselection); a touched one starts empty.
+            if let sessions, let composer, composer.teamId != teamId {
+                self.composer = makeComposer(
+                    sessions: sessions, seed: composer.isPristine ? seed : .empty
+                )
             }
         }
         .onDisappear {
@@ -123,6 +131,19 @@ struct AgentPageView: View {
         .navigationDestination(item: $sessionTarget) { target in
             AgentSessionRouteView(sessionId: target.sessionId)
                 .environment(\.accountId, accountId)
+        }
+    }
+
+    /// EXP-825: the subject may sit on a NON-active team (an issue opened
+    /// from the Inbox, Reviews or Search) — point the active team at it
+    /// before the models build, the way the web play button routes to that
+    /// team's `/t/$teamSlug/agent`. `activeTeam` resolves once the team row
+    /// has synced (cold launch: the composer rebuilds on that change).
+    private func alignActiveTeamToSeed() {
+        guard !alignedSeedTeam else { return }
+        alignedSeedTeam = true
+        if let teamId = seed.teamId, teamId != teamState.activeTeamId {
+            teamState.activeTeamId = teamId
         }
     }
 

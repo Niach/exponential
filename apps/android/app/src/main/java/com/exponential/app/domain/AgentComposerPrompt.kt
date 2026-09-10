@@ -30,8 +30,18 @@ object AgentComposerPrompt {
         return buildSteerImageMessage(trimmed, attachmentIds)
     }
 
-    /** Whether the draft (before its embeds) fits the contract cap. */
-    fun withinLimit(text: String): Boolean = text.length <= MAX_LENGTH
+    /**
+     * Whether the COMPOSED prompt — the trimmed draft plus one embed line per
+     * pending image — fits the contract cap; the server measures the whole
+     * string (`startPromptSchema`), not the prose. Attachment ids are UUIDs,
+     * so a fixed-width stand-in measures the embeds exactly before the
+     * upload has minted them.
+     */
+    fun withinLimit(text: String, imageCount: Int = 0): Boolean =
+        (build(text, List(imageCount) { ATTACHMENT_ID_STAND_IN })?.length ?: 0) <= MAX_LENGTH
+
+    /** A 36-char UUID-shaped placeholder for a not-yet-uploaded attachment. */
+    private const val ATTACHMENT_ID_STAND_IN = "00000000-0000-0000-0000-000000000000"
 
     /** What the composer is about to start. */
     sealed interface Subject {

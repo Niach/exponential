@@ -1,25 +1,22 @@
+- Jedno pole do wszystkiego: pole na stronie „Agent” uruchamia wszystko, z zadaniami lub akcją wybranymi u góry i maszyną, agentem, modelem oraz trybem planu pod spodem; panel „Start coding” zniknął
+- Każdy przycisk odtwarzania prowadzi tutaj: „Start coding” na zadaniu, pasek zaznaczenia, „Run” przy akcji i „Fix merge conflicts” otwierają pole z już wybranymi właściwymi rzeczami
+- Instrukcje przy starcie: to, co wpiszesz obok wybranych zadań lub akcji, trafia do uruchomienia jako dodatkowe instrukcje; w czacie jest to prompt
+- Obrazy przy starcie: dołącz do pola nawet cztery obrazy, a maszyna ma je przed pierwszą turą
+- Akcje zachowują tylko wybory: akcja prosi o repozytorium, board, pull request albo ikonę; wolny tekst pochodzi z pola, a podpowiedź akcji jest jego tekstem zastępczym
+- Sesje obok pola: strona „Agent” pokazuje twoje trwające i minione uruchomienia obok promptu, a uruchomienie rozpoczęte przez inne jest zagnieżdżone pod nim
+- Odpowiedź w samej karcie: na plan lub pytanie odpowiadasz w jego karcie, z polem w środku, gdy wolisz napisać niż wybrać; pole sterowania na ten czas ustępuje
+- Wiadomości od agentów: agent może wysłać twojemu zespołowi powiadomienie przez MCP; przychodzi jako push i jako własny wiersz w Inboksie
+- Limity, które się zgadzają: ostrzeżenie o zużyciu nie oznacza już uruchomienia jako ograniczonego, a przy prawdziwym limicie okno i czas resetu opisują to samo
 - Ograniczony, nie zawieszony: gdy agent wyczerpie limit w trakcie uruchomienia, sesja jest oznaczana jako ograniczona z godziną resetu i pozostaje aktywna i sterowalna, zamiast milknąć
 - Pole sterowania: pole sesji przyjmuje @ dla członków zespołu, # dla zgłoszeń i : dla emoji, te same trzy, które miało już pole komentarza
 - Edycje w treści: diff edycji pojawia się pod jej wierszem w transkrypcji, zwinięty do dotknięcia
 - Grupy narzędzi mówią, co się stało: zwinięta seria wywołań narzędzi brzmi „Wykonano 4 polecenia, zmieniono 2 pliki, 1 nieudane” zamiast liczenia wywołań
 - Bezcelowy start jest odrzucany: uruchomienie na maszynie, której agent już wyczerpał limit, informuje o tym i podaje godzinę resetu
 - Paski użycia dla drugiego konta agenta na tej samej maszynie
-- Sterowanie: w trwającej sesji przełączasz się między „Plan” a „Build”; model i wysiłek wybierasz raz przy starcie, a odczyty kontekstu i zużycia odświeżają się, gdy uruchomienie je zgłasza
-- Poprzednie uruchomienia: zakończone sesje są wypisane przy każdym urządzeniu z „Resume”, więc zakończone uruchomienie można podjąć na nowo
-- Czat bez repozytorium: czat otwarty z panelu „Start coding” nie potrzebuje już repozytorium i działa w tymczasowym folderze wyłącznie z narzędziami Exponential
 - Wybór agenta: gdy agent nie jest gotowy na urządzeniu, wybór mówi o tym i blokuje start, dopóki nie uruchomisz tam doctora
 - Strumień sterowania: identyfikatory zadań takie jak #EXP-12 stają się chipami, które można dotknąć, a polecenia agenta pokazują się jako etykiety poleceń
 - Relacje między zadaniami: powiąż zadania jako nadrzędne, podzadanie, blokuje, zablokowane przez, duplikat lub powiązane z panelu właściwości; wpisanie #EXP-12 w opisie lub komentarzu samo łączy oba zadania
 - Wątki komentarzy: odpowiadaj pod komentarzem z zadokowanego pola pisania; wątki mają tylko jeden poziom, a komentarz, który agent wysłał przez MCP, mówi o tym w swoim nagłówku
 - Prowadzony pierwszy start: utworzenie zespołu przeprowadza przez pierwszą tablicę, zapraszanie współpracowników i konfigurację urządzeń, w tej samej kolejności co w wersji web i desktop
-- Ustawienia zespołu: właściciele tworzą linki z zaproszeniem w sekcji „Members”
 - Merge z uruchomień akcji i czatu: uruchomienie, które otworzyło pull request, pokazuje „Merge” w swoim widoku sterowania, a Reviews wypisuje te pull requesty pod „Agent runs”
-- Większe obrazy w komentarzach: obrazy dołączone do komentarza pokazują się na pełnej szerokości, a dotknięcie otwiera podgląd
-- Spokojniejszy strumień aktywności: zdarzenia to jeden przygaszony wiersz z godziną, komentarze siedzą w jednej karcie
-- Przycisk „Subscribe” znika: zadanie obserwujesz automatycznie, gdy je utworzysz, skomentujesz, dostaniesz przypisane lub zostaniesz w nim wspomniany
-- Sterowanie: pasek kontekstu już nie zasłania zapisu rozmowy
 - Sesje zostają na twoim urządzeniu: zapisy rozmów są przechowywane na urządzeniu, które je uruchomiło, nigdy na serwerze; poprzednie uruchomienia otwierasz w sekcjach Devices, Chat i Automations, a pobierają się z tego urządzenia, gdy jest online
-- Rozmowy subagentów: tury subagenta widać we własnym widoku, a tekst agenta nie rozpada się już w połowie zdania na osobne wiersze
-- Uruchomienie, które milknie, mówi o tym: sesja pokazuje, kiedy agent przestał zgłaszać postęp
-- Zdalne logowanie agenta: wklej kod z linku logowania agenta w ustawieniach urządzenia i dokończ logowanie z telefonu
-- „Start coding”: jeden panel dla zadań, akcji i czatu z tymi samymi opcjami wszędzie

@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest"
 import type { ActionInputDef } from "@exp/db-schema/domain"
 import {
   buildInputsPayload,
+  compatActionInputsSchema,
   missingRequiredInputs,
   resolveActionInputs,
+  retireLegacyActionInputs,
   type ActionInputLookups,
 } from "@/lib/action-inputs"
 
@@ -223,5 +225,114 @@ describe(`resolveActionInputs`, () => {
       lookups
     )
     expect(result).toMatchObject({ ok: false })
+  })
+})
+
+// ── EXP-825 compat: retired text/textarea kinds at the write boundary ────────
+
+describe(`compatActionInputsSchema (EXP-825 compat)`, () => {
+  it(`accepts the retired kinds beside the picks, still rejects anything else`, () => {
+    expect(
+      compatActionInputsSchema.safeParse([
+        { key: `scope`, label: `Scope`, type: `text` },
+        { key: `notes`, label: `Notes`, type: `textarea`, placeholder: `p` },
+        { key: `repo`, label: `Repo`, type: `repo` },
+      ]).success
+    ).toBe(true)
+    expect(
+      compatActionInputsSchema.safeParse([{ key: `n`, label: `N`, type: `number` }])
+        .success
+    ).toBe(false)
+  })
+
+  it(`keeps the duplicate-key and count rules`, () => {
+    expect(
+      compatActionInputsSchema.safeParse([
+        { key: `a`, label: `A`, type: `text` },
+        { key: `a`, label: `B`, type: `repo` },
+      ]).success
+    ).toBe(false)
+    const eleven = Array.from({ length: 11 }, (_, i) => ({
+      key: `k${i}`,
+      label: `K`,
+      type: `text`,
+    }))
+    expect(compatActionInputsSchema.safeParse(eleven).success).toBe(false)
+  })
+})
+
+describe(`retireLegacyActionInputs (EXP-825 compat)`, () => {
+  it(`drops the retired defs in place, keeping pick order`, () => {
+    const result = retireLegacyActionInputs(
+      [
+        { key: `scope`, label: `Scope`, type: `text`, required: true, placeholder: `Which?` },
+        { key: `repo`, label: `Repo`, type: `repo`, required: false },
+        { key: `notes`, label: `Notes`, type: `textarea`, required: false },
+        { key: `icon`, label: `Icon`, type: `icon`, required: false },
+      ],
+      null
+    )
+    expect(result.inputs).toEqual([
+      { key: `repo`, label: `Repo`, type: `repo`, required: false },
+      { key: `icon`, label: `Icon`, type: `icon`, required: false },
+    ])
+    expect(result.promptPlaceholder).toBe(`Which?`)
+  })
+
+  it(`seeds from the FIRST dropped def: placeholder, else label, LEFT 200`, () => {
+    expect(
+      retireLegacyActionInputs(
+        [
+          { key: `a`, label: `First label`, type: `text`, required: false },
+          { key: `b`, label: `B`, type: `textarea`, required: false, placeholder: `Second` },
+        ],
+        null
+      ).promptPlaceholder
+    ).toBe(`First label`)
+    // A blank placeholder counts as none (0108: NULLIF(placeholder, '')).
+    expect(
+      retireLegacyActionInputs(
+        [{ key: `a`, label: `Label`, type: `text`, required: false, placeholder: `` }],
+        undefined
+      ).promptPlaceholder
+    ).toBe(`Label`)
+    expect(
+      retireLegacyActionInputs(
+        [{ key: `a`, label: `x`.repeat(100), type: `text`, required: false, placeholder: `y`.repeat(200) }],
+        null
+      ).promptPlaceholder
+    ).toHaveLength(200)
+  })
+
+  it(`never seeds over an existing hint, nor when nothing was dropped`, () => {
+    expect(
+      retireLegacyActionInputs(
+        [{ key: `a`, label: `A`, type: `text`, required: false }],
+        `Keep`
+      ).promptPlaceholder
+    ).toBeUndefined()
+    expect(
+      retireLegacyActionInputs(
+        [{ key: `repo`, label: `Repo`, type: `repo`, required: false }],
+        null
+      )
+    ).toEqual({
+      inputs: [{ key: `repo`, label: `Repo`, type: `repo`, required: false }],
+      promptPlaceholder: undefined,
+    })
+    // A whitespace-only hint counts as none.
+    expect(
+      retireLegacyActionInputs(
+        [{ key: `a`, label: `A`, type: `text`, required: false }],
+        `   `
+      ).promptPlaceholder
+    ).toBe(`A`)
+  })
+
+  it(`passes undefined through (no inputs submitted)`, () => {
+    expect(retireLegacyActionInputs(undefined, null)).toEqual({
+      inputs: undefined,
+      promptPlaceholder: undefined,
+    })
   })
 })

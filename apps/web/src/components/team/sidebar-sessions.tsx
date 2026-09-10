@@ -1,10 +1,8 @@
-import { useEffect } from "react"
 import { useParams } from "@tanstack/react-router"
 import { conceptIcon } from "@/lib/icons.generated"
 import { nestSessions } from "@/lib/session-tree"
 import { sessionIdentity } from "@/lib/session-identity"
 import { sessionDisplayState } from "@/lib/coding-session-display"
-import { retainSteerSessions } from "@/lib/steer-session-store"
 import { cn } from "@/lib/utils"
 import { RunningIndicator } from "@/components/agent-session-row"
 import { rowPrState, useAgentsData, type AgentSessionRow } from "@/hooks/use-agents-data"
@@ -25,9 +23,9 @@ import {
 // bottom dock band (EXP-740/771): a run is opened from here, from the issue's
 // Watch, or from the Agent page's list — never from a strip under the card.
 //
-// It also took over the dock's REAPER duty: the steer stores of the running
-// sessions (plus whatever the route shows) stay alive so navigating back to
-// a session resumes instantly.
+// Render-only: the dock's REAPER duty lives in `useSteerSessionReaper`,
+// mounted by the team layout — this group never mounts on phones (the
+// sidebar is a Sheet there), so it cannot own the sockets' lifetime.
 
 const ActionChatIcon = conceptIcon(`action-chat`)
 
@@ -41,12 +39,6 @@ export function SidebarSessions({
   const { running } = useAgentsData(teamId, currentUserId)
   const { sessionId: routeSessionId } = useParams({ strict: false })
   const openSession = useOpenSession()
-
-  useEffect(() => {
-    const keep = new Set(running.map((row) => row.session.id))
-    if (routeSessionId) keep.add(routeSessionId)
-    retainSteerSessions(keep)
-  }, [running, routeSessionId])
 
   if (running.length === 0) return null
   const byId = new Map(running.map((row) => [row.session.id, row]))

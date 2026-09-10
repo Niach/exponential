@@ -135,7 +135,10 @@ class MainActivity : ComponentActivity() {
                 is WebLinks.Parsed.Invite -> deepLinkBus.openInvite(parsed.token)
                 // EXP-825: the Agent page, on the active account.
                 is WebLinks.Parsed.Agent -> deepLinkBus.openAgent()
-                null -> {}
+                // Claimed by the manifest's pathPattern but not renderable
+                // (a nested `/agent` path, say): the documented Custom Tab
+                // fallback rather than a silently dropped tap.
+                null -> deepLinkBus.openWebUrl(data)
             }
             return
         }

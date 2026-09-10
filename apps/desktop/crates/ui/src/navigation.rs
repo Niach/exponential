@@ -504,6 +504,45 @@ impl Navigation {
     pub fn can_go_forward(&self) -> bool {
         !self.forward_stack.is_empty()
     }
+
+    /// The pure rule behind [`purge_from_history`]: drop every entry
+    /// matching `pred` from BOTH stacks. A screen that must not be
+    /// re-enterable (a dismissed stale PR diff, a closed terminal) is
+    /// reachable through go-forward exactly as through go-back, so purging
+    /// only the back stack left the forward button re-entering it.
+    /// Returns whether anything was dropped.
+    fn purge_history(&mut self, pred: impl Fn(&Screen) -> bool) -> bool {
+        let before = self.back_stack.len() + self.forward_stack.len();
+        self.back_stack.retain(|screen| !pred(screen));
+        self.forward_stack.retain(|screen| !pred(screen));
+        self.back_stack.len() + self.forward_stack.len() != before
+    }
+
+    /// The pure rule behind [`go_back`]: pop the back stack, park the
+    /// current screen for [`go_forward`]. `None` with nothing to go back to.
+    fn step_back(&mut self) -> Option<Screen> {
+        let previous = self.back_stack.pop()?;
+        if let Some(current) = self.screen.take() {
+            self.forward_stack.push(current);
+        }
+        self.screen = Some(previous.clone());
+        self.pending_origin = None;
+        self.pending_chat_seed = None;
+        Some(previous)
+    }
+
+    /// The pure rule behind [`go_forward`]: pop the forward stack, park the
+    /// current screen for [`go_back`]. `None` with nothing forward.
+    fn step_forward(&mut self) -> Option<Screen> {
+        let next = self.forward_stack.pop()?;
+        if let Some(current) = self.screen.take() {
+            self.back_stack.push(current);
+        }
+        self.screen = Some(next.clone());
+        self.pending_origin = None;
+        self.pending_chat_seed = None;
+        Some(next)
+    }
 }
 
 /// DEV-ONLY `EXP_DEV_SCREEN` values: `settings` | `account` | `devices` |
@@ -956,9 +995,11 @@ pub fn set_active_board(window: &Window, cx: &mut App, board_id: String) {
     }
 }
 
-/// Drop every back-stack entry matching `pred` (EXP-525: a dismissed stale
-/// PR diff must not be resurrectable via go-back).
-pub(crate) fn purge_from_back_stack(
+/// Drop every history entry matching `pred` from BOTH the back and the
+/// forward stack (EXP-525: a dismissed stale PR diff must not be
+/// resurrectable via go-back; EXP-818: nor via go-forward, which is the
+/// same history read the other way).
+pub(crate) fn purge_from_history(
     window: &Window,
     cx: &mut App,
     pred: impl Fn(&Screen) -> bool,
@@ -967,9 +1008,7 @@ pub(crate) fn purge_from_back_stack(
         return;
     };
     nav.update(cx, |nav, cx| {
-        let before = nav.back_stack.len();
-        nav.back_stack.retain(|screen| !pred(screen));
-        if nav.back_stack.len() != before {
+        if nav.purge_history(pred) {
             cx.notify();
         }
     });
@@ -984,13 +1023,7 @@ pub fn go_back(window: &Window, cx: &mut App) {
         return;
     };
     let landed = nav.update(cx, |nav, cx| {
-        let previous = nav.back_stack.pop()?;
-        if let Some(current) = nav.screen.take() {
-            nav.forward_stack.push(current);
-        }
-        nav.screen = Some(previous.clone());
-        nav.pending_origin = None;
-        nav.pending_chat_seed = None;
+        let previous = nav.step_back()?;
         cx.notify();
         Some(previous)
     });
@@ -1006,13 +1039,7 @@ pub fn go_forward(window: &Window, cx: &mut App) {
         return;
     };
     let landed = nav.update(cx, |nav, cx| {
-        let next = nav.forward_stack.pop()?;
-        if let Some(current) = nav.screen.take() {
-            nav.back_stack.push(current);
-        }
-        nav.screen = Some(next.clone());
-        nav.pending_origin = None;
-        nav.pending_chat_seed = None;
+        let next = nav.step_forward()?;
         cx.notify();
         Some(next)
     });
@@ -1593,17 +1620,90 @@ mod tests {
         assert!(nav.can_go_back());
         assert!(!nav.can_go_forward());
         // go_back's bookkeeping
-        let previous = nav.back_stack.pop().unwrap();
-        nav.forward_stack.push(nav.screen.take().unwrap());
-        nav.screen = Some(previous);
+        assert_eq!(nav.step_back(), Some(Screen::Reviews));
         assert_eq!(nav.screen, Some(Screen::Reviews));
         assert_eq!(nav.forward_stack, vec![Screen::Devices]);
         assert!(nav.can_go_forward());
+        // go_forward's bookkeeping
+        assert_eq!(nav.step_forward(), Some(Screen::Devices));
+        assert_eq!(nav.back_stack, vec![Screen::Reviews]);
+        assert!(!nav.can_go_forward());
+        assert_eq!(nav.step_back(), Some(Screen::Reviews));
         // a real navigation (navigate_inner's bookkeeping)
         nav.back_stack.push(nav.screen.take().unwrap());
         nav.screen = Some(Screen::Actions);
         nav.forward_stack.clear();
         assert!(!nav.can_go_forward());
+    }
+
+    /// EXP-818: a purge drops matching entries from BOTH stacks — the
+    /// forward stack is the same history read the other way, so purging
+    /// the back stack alone left go-forward re-entering the screen.
+    #[test]
+    fn purge_history_covers_both_stacks() {
+        let diff = Screen::PrDiff { issue_id: "i1".into() };
+        let mut nav = Navigation::new();
+        nav.screen = Some(Screen::Reviews);
+        nav.back_stack = vec![Screen::Devices, diff.clone(), Screen::Actions];
+        nav.forward_stack = vec![diff.clone(), Screen::Settings, diff.clone()];
+        assert!(nav.purge_history(|screen| *screen == diff));
+        assert_eq!(nav.back_stack, vec![Screen::Devices, Screen::Actions]);
+        assert_eq!(nav.forward_stack, vec![Screen::Settings]);
+        // the current screen is not history
+        assert_eq!(nav.screen, Some(Screen::Reviews));
+        // idempotent: a second purge changes nothing
+        assert!(!nav.purge_history(|screen| *screen == diff));
+    }
+
+    /// EXP-525/EXP-818: `screens::dismiss_stale_pr_diff` purges, goes back,
+    /// then purges again — the go-back parks the dismissed diff on the
+    /// forward stack, and the second purge is what keeps Forward alive
+    /// (before it, Forward re-entered the diff, the dismiss fired again and
+    /// the diff landed forward again: a dead button for the window's life).
+    #[test]
+    fn dismissed_pr_diff_never_survives_on_the_forward_stack() {
+        let diff = Screen::PrDiff { issue_id: "i1".into() };
+        let mut nav = Navigation::new();
+        // Reviews → diff → back to Reviews → forward into the diff again:
+        // the diff sits on the current slot, nothing on the back stack but
+        // Reviews, and an unrelated screen is parked forward.
+        nav.screen = Some(diff.clone());
+        nav.back_stack = vec![Screen::Devices, Screen::Reviews];
+        nav.forward_stack = vec![Screen::Settings];
+        // the dismiss sequence
+        nav.purge_history(|screen| *screen == diff);
+        assert_eq!(nav.step_back(), Some(Screen::Reviews));
+        assert_eq!(nav.forward_stack, vec![Screen::Settings, diff.clone()]);
+        nav.purge_history(|screen| *screen == diff);
+        assert!(!nav.forward_stack.contains(&diff));
+        assert!(!nav.back_stack.contains(&diff));
+        // Forward still works and lands somewhere real
+        assert!(nav.can_go_forward());
+        assert_eq!(nav.step_forward(), Some(Screen::Settings));
+        assert_eq!(nav.back_stack, vec![Screen::Devices, Screen::Reviews]);
+    }
+
+    /// EXP-769/EXP-818: a closed terminal is purged from history as a whole
+    /// — went back from it, then closed it: go-forward must not re-enter a
+    /// `Screen::Terminal` with no tab (the ghost-chip case). `close_tab`'s
+    /// predicate is plain screen equality; a `terminal::TabId` cannot be
+    /// minted outside its crate, so the other bottom-bar tab screen stands
+    /// in — the rule is the same for both.
+    #[test]
+    fn purged_terminal_is_not_re_entered_by_go_forward() {
+        let terminal = Screen::Session { session_id: "s1".into() };
+        assert!(terminal.is_dock_tab());
+        let mut nav = Navigation::new();
+        nav.screen = Some(terminal.clone());
+        nav.back_stack = vec![Screen::Reviews];
+        // the user went back from the terminal …
+        assert_eq!(nav.step_back(), Some(Screen::Reviews));
+        assert_eq!(nav.forward_stack, vec![terminal.clone()]);
+        // … then closed it (close_tab's purge)
+        assert!(nav.purge_history(|screen| *screen == terminal));
+        assert!(!nav.can_go_forward());
+        assert_eq!(nav.step_forward(), None);
+        assert_eq!(nav.screen, Some(Screen::Reviews));
     }
 
     /// EXP-771: which screens a navigation checks the undock registry for.

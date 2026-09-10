@@ -1,25 +1,22 @@
+- Um único campo para tudo: o campo da página «Agent» inicia tudo, com as issues ou uma ação escolhidas em cima e a máquina, o agente, o modelo e o modo plano por baixo; a folha «Start coding» desapareceu
+- Cada botão de arranque leva ali: «Start coding» numa issue, a barra de seleção múltipla, o «Run» de uma ação e o «Fix merge conflicts» abrem o campo com o que é preciso já escolhido
+- Instruções no arranque: o que escrever ao lado das issues ou da ação escolhidas chega à execução como instruções adicionais; num chat é o próprio prompt
+- Imagens no arranque: anexe até quatro imagens ao campo e a máquina tem-nas antes do primeiro turno
+- As ações só guardam escolhas: uma ação pede um repositório, um board, um pull request ou um ícone; o texto livre vem do campo, com a dica da ação como texto de exemplo
+- Sessões ao lado do campo: a página «Agent» lista as suas execuções em curso e passadas ao lado do prompt, e uma execução iniciada por outra aparece aninhada por baixo
+- Responder dentro do cartão: um plano ou uma pergunta responde-se no próprio cartão, com um campo lá dentro quando prefere escrever em vez de escolher; o campo de pilotagem sai da frente entretanto
+- Mensagens de agentes: um agente pode enviar uma notificação à sua equipa por MCP; chega como push e como linha própria na Inbox
+- Limites que batem certo: um aviso de consumo já não marca uma execução como limitada e, num limite real, a janela e a hora de reposição descrevem a mesma coisa
 - Limitado, não bloqueado: quando um agente esgota a quota a meio da execução, a sessão é marcada como limitada com a hora de reposição, e continua ativa e orientável em vez de ficar em silêncio
 - Campo de orientação: o campo da sessão aceita @ para colegas, # para issues e : para emoji, os mesmos três que a caixa de comentários já tinha
 - Edições em linha: o diff de uma edição aparece sob a sua linha na transcrição, recolhido até lhe tocar
 - Grupos de ferramentas que dizem o que aconteceu: uma sequência recolhida de chamadas a ferramentas lê-se como «4 comandos executados, 2 ficheiros editados, 1 falhado» em vez de uma contagem
 - Um arranque sem saída é recusado: arrancar numa máquina cujo agente já não tem quota avisa e indica quando é reposta
 - Barras de utilização para uma segunda conta de agente na mesma máquina
-- Orientação: alterne entre «Plan» e «Build» a partir da sessão em curso; o modelo e o esforço escolhem-se uma vez no arranque, e as leituras de contexto e de utilização atualizam-se à medida que a execução as reporta
-- Execuções anteriores: as sessões terminadas são listadas por dispositivo com «Resume», para retomar uma execução que já acabou
-- Chat sem repositório: um chat aberto a partir da folha «Start coding» já não precisa de repositório e corre numa pasta temporária apenas com as ferramentas do Exponential
 - Escolha do agente: quando um agente não está pronto num dispositivo, a escolha di-lo e bloqueia o arranque até correr aí o doctor
 - Fluxo de orientação: os identificadores de issues como #EXP-12 passam a chips em que pode tocar, e os comandos do agente aparecem como etiquetas de comando
 - Relações entre issues: ligue issues como pai, subissue, bloqueia, bloqueada por, duplicado ou relacionada a partir da folha de propriedades; escrever #EXP-12 numa descrição ou num comentário liga as duas issues sozinho
 - Comentários em fio: responda por baixo de um comentário a partir do editor fixo; os fios ficam por um nível, e um comentário publicado por um agente via MCP di-lo no seu cabeçalho
 - Um primeiro arranque guiado: criar uma equipa passa pelo primeiro board, pelos convites a colegas e pela configuração de dispositivos, pela mesma ordem que na web e no desktop
-- Definições da equipa: os proprietários podem criar ligações de convite na secção «Members»
 - Merge a partir de execuções de ações e de chat: uma execução que abriu uma pull request mostra «Merge» na sua vista de orientação, e as Reviews listam essas pull requests em «Agent runs»
-- Imagens maiores nos comentários: as imagens anexadas a um comentário aparecem em largura total e abrem o visualizador ao toque
-- Um fluxo de atividade mais calmo: os eventos ficam numa linha discreta com a hora, os comentários vivem num só cartão
-- O botão «Subscribe» foi retirado: segue uma issue automaticamente quando a cria, comenta, lhe é atribuída ou é mencionado
-- Orientação: a barra de contexto já não sobrepõe a transcrição
 - As sessões ficam no seu dispositivo: as transcrições são guardadas no dispositivo que as executou, nunca no servidor; as execuções anteriores abrem a partir de Devices, Chat e Automations e são obtidas desse dispositivo quando está online
-- Conversas de subagentes: os turnos de um subagente aparecem numa vista própria, e o texto do agente já não se parte a meio da frase em linhas separadas
-- Uma execução que fica calada di-lo: a sessão mostra quando o agente deixou de reportar progresso
-- Início de sessão remoto do agente: cole o código da ligação de login do agente nas definições do dispositivo para terminar o início de sessão a partir do telemóvel
-- «Start coding»: uma folha para issues, ações e chat com as mesmas opções em todo o lado

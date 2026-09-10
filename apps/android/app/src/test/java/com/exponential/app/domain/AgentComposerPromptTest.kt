@@ -43,6 +43,27 @@ class AgentComposerPromptTest {
         assertFalse(AgentComposerPrompt.withinLimit("x".repeat(AgentComposerPrompt.MAX_LENGTH + 1)))
     }
 
+    // The server caps the COMPOSED prompt (`startPromptSchema` covers the
+    // whole string): a draft that fits alone can overflow once its embed
+    // lines ride along, and the gate must measure what is actually sent.
+    @Test
+    fun `the cap measures the draft with its embed lines`() {
+        val embedLine = "\n\n![image](/api/attachments/00000000-0000-0000-0000-000000000000)"
+        val fits = "x".repeat(AgentComposerPrompt.MAX_LENGTH - embedLine.length)
+        assertTrue(AgentComposerPrompt.withinLimit(fits, imageCount = 1))
+        assertFalse(AgentComposerPrompt.withinLimit(fits + "x", imageCount = 1))
+        // The stand-in is UUID-width, so the pre-upload measure equals the
+        // composed length with real ids.
+        val realId = "3f9d2a1c-1111-4aaa-8bbb-000000000001"
+        assertEquals(
+            AgentComposerPrompt.build(fits, listOf(realId))!!.length,
+            AgentComposerPrompt.MAX_LENGTH,
+        )
+        // Images alone count too; surrounding whitespace is trimmed first.
+        assertTrue(AgentComposerPrompt.withinLimit("   ", imageCount = AgentComposerPrompt.MAX_IMAGES))
+        assertTrue(AgentComposerPrompt.withinLimit("x".repeat(AgentComposerPrompt.MAX_LENGTH) + "  "))
+    }
+
     @Test
     fun `submit titles follow the subject`() {
         assertEquals("Start chat", AgentComposerPrompt.submitTitle(AgentComposerPrompt.Subject.None))

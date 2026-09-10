@@ -1425,7 +1425,12 @@ async function main() {
       url: `https://mcp.sentry.dev/mcp`,
       headerNames: [`Authorization`],
       auth: `oauth`,
-      enabledByDefault: true,
+      // Off by default on purpose: a default-on server that needs an OAuth
+      // login the CAPTURE machine never has would put "MCP server Sentry:
+      // not signed in on this machine" under every desktop composer shot
+      // and dim its Start button (the desktop app on the capture Mac is a
+      // registered device and the composer prefers it).
+      enabledByDefault: false,
       createdById: demoId,
       createdAt: daysAgo(24),
       updatedAt: daysAgo(24),

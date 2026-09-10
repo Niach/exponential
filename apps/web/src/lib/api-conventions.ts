@@ -51,6 +51,26 @@
 // that sends the old key is retired by a version floor; until then the
 // procedure accepts the legacy key OR the new one (exactly one required,
 // normalized in the handler) and carries a comment naming its removal
-// trigger. None are open right now (the EXP-707 set went with the
-// 0.14.24/0.14.26/0.14.31 floors, EXP-730).
+// trigger. (The EXP-707 set went with the 0.14.24/0.14.26/0.14.31 floors,
+// EXP-730.) Open right now — the EXP-825 set, every one marked
+// `EXP-825 compat` at its site, removable when ios min >= 0.14.29,
+// android min >= 0.14.31, desktop/cli min >= 0.14.36:
+//
+// - steer.startSession (+ MCP exponential_sessions_start, which forwards
+//   to it): the builtin text INPUTS fold into `prompt` when it is blank —
+//   `inputs.prompt` for builtin:chat, `inputs.description` (+ `name` as a
+//   `Name: <name>` line) for builtin:create-action; the keys leave
+//   `inputs`. `foldLegacyBuiltinInputs` in lib/trpc/steer.ts.
+// - steer.startSession, target side: a device WITHOUT the `start-prompt`
+//   cap gets the two builtins' text back on the legacy input key (`prompt`
+//   / `description`) with no top-level `prompt`; only an embed-carrying
+//   prompt is refused. Every other subject with a prompt refuses
+//   (PRECONDITION_FAILED "older Exponential app that ignores start
+//   instructions") — that refusal is an invariant check and stays.
+// - actions.create / actions.update (+ MCP exponential_actions_create /
+//   _update): `compatActionInputsSchema` accepts the retired `text` /
+//   `textarea` input kinds; `retireLegacyActionInputs` (lib/action-inputs.ts)
+//   drops them and seeds `promptPlaceholder` from the first dropped def
+//   (placeholder, else label, LEFT 200) when the row has none — migration
+//   0108's rule. The stored shape never carries the retired kinds.
 export {}

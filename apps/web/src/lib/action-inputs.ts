@@ -3,7 +3,82 @@
 // and the launch composer (client-side required-field gating). No DB imports:
 // lookups are injected so this stays unit-testable and client-bundle-safe.
 
-import { boardIconValues, type ActionInputDef } from "@exp/db-schema/domain"
+import { z } from "zod"
+import {
+  actionInputDefSchema,
+  actionInputTypeValues,
+  boardIconValues,
+  MAX_ACTION_INPUTS,
+  MAX_ACTION_PROMPT_PLACEHOLDER,
+  type ActionInputDef,
+} from "@exp/db-schema/domain"
+
+// ── EXP-825 compat: the retired free-text input kinds ─────────────────────────
+// EXP-825 compat: action editors below the EXP-825 floor (iOS ≤ 0.14.28,
+// Android ≤ 0.14.30, desktop ≤ 0.14.35 and its creator run telling the agent
+// `type: text`) still submit `text`/`textarea` input definitions. The
+// boundary accepts them and DROPS them, seeding the composer hint
+// (`promptPlaceholder`) from the FIRST dropped definition's placeholder (else
+// its label, LEFT 200) when the row has none yet — exactly what migration
+// 0108 did to the stored rows. The STORED shape never carries these kinds.
+// Remove when ios min >= 0.14.29, android min >= 0.14.31, desktop/cli min
+// >= 0.14.36 (then `actionInputsSchema` goes back on the routers and the MCP
+// tools).
+export const RETIRED_ACTION_INPUT_TYPES = [`text`, `textarea`] as const
+
+export const compatActionInputDefSchema = actionInputDefSchema.extend({
+  type: z.enum([...actionInputTypeValues, ...RETIRED_ACTION_INPUT_TYPES]),
+})
+export type CompatActionInputDef = z.infer<typeof compatActionInputDefSchema>
+
+/** `actionInputsSchema` widened to the retired kinds — the write boundary
+ * only; normalize with `retireLegacyActionInputs` before storing. */
+export const compatActionInputsSchema = z
+  .array(compatActionInputDefSchema)
+  .max(MAX_ACTION_INPUTS)
+  .superRefine((defs, ctx) => {
+    const seen = new Set<string>()
+    for (const def of defs) {
+      if (seen.has(def.key)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Duplicate input key "${def.key}"`,
+        })
+      }
+      seen.add(def.key)
+    }
+  })
+
+export interface RetiredActionInputs {
+  /** The definitions to store — pick kinds only, in order; `undefined`
+   * when none were submitted. */
+  inputs: ActionInputDef[] | undefined
+  /** The composer hint to seed, ONLY when a retired definition was dropped
+   * and `currentPromptPlaceholder` is blank; `undefined` = leave it alone. */
+  promptPlaceholder: string | undefined
+}
+
+/** Drop the retired `text`/`textarea` definitions from a submitted input
+ * schema (migration 0108's rule, applied at the write boundary). */
+export function retireLegacyActionInputs(
+  defs: CompatActionInputDef[] | undefined,
+  currentPromptPlaceholder: string | null | undefined
+): RetiredActionInputs {
+  if (!defs) return { inputs: undefined, promptPlaceholder: undefined }
+  const retired = (RETIRED_ACTION_INPUT_TYPES as readonly string[]).slice()
+  const dropped = defs.filter((def) => retired.includes(def.type))
+  const inputs = defs.filter(
+    (def) => !retired.includes(def.type)
+  ) as ActionInputDef[]
+  const first = dropped[0]
+  const seed =
+    first && !(currentPromptPlaceholder ?? ``).trim()
+      ? (first.placeholder?.trim() || first.label)
+          .slice(0, MAX_ACTION_PROMPT_PLACEHOLDER)
+          .trim()
+      : undefined
+  return { inputs, promptPlaceholder: seed || undefined }
+}
 
 /** One FILLED action input, fully resolved server-side: `display` is the
  * human-readable form (repo fullName / board name / the text itself) so the

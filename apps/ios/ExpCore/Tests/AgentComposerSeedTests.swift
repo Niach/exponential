@@ -14,7 +14,18 @@ final class AgentComposerSeedTests: XCTestCase {
         XCTAssertNil(AgentComposerSeed.empty.prIssueId)
         XCTAssertNil(AgentComposerSeed.empty.text)
         XCTAssertNil(AgentComposerSeed.empty.icon)
+        XCTAssertNil(AgentComposerSeed.empty.teamId)
         XCTAssertEqual(AgentComposerSeed.empty, AgentComposerSeed())
+    }
+
+    // An issue opened from the Inbox/Reviews/Search may sit on a non-active
+    // team: the seed carries that team so the composer's pools match it.
+    func testATeamRidesWithTheSubject() {
+        let seed = AgentComposerSeed(issueIds: ["a"], teamId: "team-2")
+        XCTAssertEqual(seed.teamId, "team-2")
+        XCTAssertTrue(seed.hasSubject)
+        // The team alone names no subject.
+        XCTAssertFalse(AgentComposerSeed(teamId: "team-2").hasSubject)
     }
 
     func testIssuesAreASubjectInPickOrder() {
@@ -51,6 +62,7 @@ final class AgentComposerSeedTests: XCTestCase {
         XCTAssertNotEqual(base, AgentComposerSeed(issueIds: ["a"], deviceId: "e", text: "t", icon: "rocket"))
         XCTAssertNotEqual(base, AgentComposerSeed(issueIds: ["a"], deviceId: "d", text: "u", icon: "rocket"))
         XCTAssertNotEqual(base, AgentComposerSeed(issueIds: ["a"], deviceId: "d", prIssueId: "p", text: "t", icon: "rocket"))
+        XCTAssertNotEqual(base, AgentComposerSeed(issueIds: ["a"], deviceId: "d", text: "t", icon: "rocket", teamId: "team-2"))
         var set: Set<AgentComposerSeed> = [base]
         set.insert(AgentComposerSeed(issueIds: ["a"], deviceId: "d", text: "t", icon: "rocket"))
         XCTAssertEqual(set.count, 1)

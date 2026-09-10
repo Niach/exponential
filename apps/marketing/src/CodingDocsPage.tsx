@@ -231,8 +231,8 @@ export function CodingDocsPage() {
             </ul>
 
             <DocShot
-              view="start-coding-chat"
-              caption="The launcher's Chat tab: a free prompt on a repository, with the same agent options"
+              view="chat-issues"
+              caption="The Agent page composer with two issues chipped above the prompt, the machine and agent pickers under it: one run for a single issue, a batch for several"
             />
             <p>
               Defaults are <strong>per agent, not per mode</strong>: single and

@@ -26,15 +26,17 @@ final class GlassTokensTests: XCTestCase {
         assertSameColor(GlassTokens.fillActive, DesignTokens.Glass.fillActive, "fillActive")
     }
 
-    // The ladder is ordered — a row is dimmer than a card, a card than active.
-    // A reordering would silently invert the visual hierarchy.
+    // The ladder is ordered — a section is dimmer than a row, a card than
+    // active. A reordering would silently invert the visual hierarchy. Since
+    // EXP-811 a row and a card share one notch (6%): a hovered row must read
+    // on a card surface, so the row may equal the card but never exceed it.
     func testFillLadderIsOrdered() {
         let section = channels(of: GlassTokens.fillSection).alpha
         let row = channels(of: GlassTokens.fillRow).alpha
         let card = channels(of: GlassTokens.fillCard).alpha
         let active = channels(of: GlassTokens.fillActive).alpha
         XCTAssertLessThan(section, row)
-        XCTAssertLessThan(row, card)
+        XCTAssertLessThanOrEqual(row, card)
         XCTAssertLessThan(card, active)
     }
 
