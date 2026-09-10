@@ -128,9 +128,47 @@ impl MachinesSection {
         cx.notify();
         self.mutate(
             "devices.requestUpdate",
-            move |trpc| api::devices::request_update(trpc, &device_id),
+            move |trpc| api::devices::request_update(trpc, &device_id, false),
             cx,
         );
+    }
+
+    /// FEED-36: "Update now…" — a queued update is parked behind live
+    /// sessions; this ends them (the daemon's `update_now` command) so the
+    /// update applies right away. Destructive for the sessions, so it
+    /// confirms first (web `MyMachines` twin).
+    fn prompt_update_now(
+        &mut self,
+        device_id: String,
+        label: String,
+        live_sessions: u32,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let section = cx.entity().downgrade();
+        let spec = AlertSpec::new(
+            format!("Update \"{label}\" now?"),
+            format!(
+                "Ends the {live_sessions} live session(s) on this machine (repo-backed runs can be \
+                 resumed from their session page) and restarts it on the new version."
+            ),
+            "Update now",
+        )
+        .ok_variant(ButtonVariant::Danger)
+        .on_ok(move |_, cx| {
+            if let Some(section) = section.upgrade() {
+                let device_id = device_id.clone();
+                section.update(cx, |this, cx| {
+                    this.mutate(
+                        "devices.requestUpdate",
+                        move |trpc| api::devices::request_update(trpc, &device_id, true),
+                        cx,
+                    );
+                });
+            }
+            true
+        });
+        native_dialog::open_alert(window, cx, spec);
     }
 
     // -- dialogs -------------------------------------------------------------
@@ -234,6 +272,7 @@ impl MachinesSection {
                 update_requested,
                 update_blocked: update_requested
                     && row.active_sessions.unwrap_or(0) > 0,
+                active_sessions: row.active_sessions.unwrap_or(0).max(0) as u32,
                 launch_defaults: row.launch_defaults.clone(),
                 shared_team_id: row.shared_team_id.clone(),
                 // EXP-622: a teammate's flag is THEIR preference, never ours.
@@ -325,6 +364,10 @@ impl MachinesSection {
             // EXP-420: offer the update only when a newer CLI version really
             // exists (or one is already in flight — keep its state visible).
             let can_update = server && device.online && (outdated || updating);
+            // FEED-36: the parked update can be forced on a build that runs
+            // `update_now` — it ends the sessions holding it.
+            let can_update_now = queued && device.caps.iter().any(|cap| cap == "update-now");
+            let live_sessions = device.active_sessions;
             // EXP-698: the one 32px glass chrome every row action wears.
             crate::controls::glass_icon_button(
                 ("machine-menu", index),
@@ -339,6 +382,9 @@ impl MachinesSection {
                     let remove_label = menu_label.clone();
                     let update_section = section.clone();
                     let update_id = device_id.clone();
+                    let update_now_section = section.clone();
+                    let update_now_id = device_id.clone();
+                    let update_now_label = menu_label.clone();
                     // EXP-481: Rename + Sharing live INSIDE the Device
                     // settings dialog now (with the defaults editor and the
                     // worktree list) — the menu is Edit/Update/Remove.
@@ -372,6 +418,25 @@ impl MachinesSection {
                                     };
                                     let id = update_id.clone();
                                     section.update(cx, |this, cx| this.request_update(id, cx));
+                                }),
+                        )
+                    })
+                    .when(can_update_now, |menu| {
+                        menu.item(
+                            crate::controls::danger_menu_item(
+                                "Update now…",
+                                Icon::new(registry::UI_UPDATE),
+                                cx,
+                            )
+                                .on_click(move |_, window, cx| {
+                                    let Some(section) = update_now_section.upgrade() else {
+                                        return;
+                                    };
+                                    let id = update_now_id.clone();
+                                    let label = update_now_label.to_string();
+                                    section.update(cx, |this, cx| {
+                                        this.prompt_update_now(id, label, live_sessions, window, cx);
+                                    });
                                 }),
                         )
                     })

@@ -111,10 +111,13 @@ pub const MIN_CODEX_ACP_VERSION: (u32, u32, u32) = (0, 144, 0);
 ///   refuses `beginOAuth` against a device without it.
 /// - `agent-usage-refresh` (EXP-792) — this build runs
 ///   `agent_usage_refresh` (a forced usage re-read, 429 floor kept).
+/// - `update-now` (FEED-36) — this build runs `update_now`: ends every live
+///   session and applies a queued self-update right away (the CLI daemon;
+///   the desktop advertises it too but updates through its own updater).
 ///
-/// Ceiling check: `devices.register`'s `capsInput` accepts 16 caps
-/// (`apps/web/src/lib/trpc/devices.ts`); this is 9 + 6 = 15.
-pub const DEVICE_CAPS: [&str; 9] = [
+/// Ceiling check: `devices.register`'s caps input accepts 24 caps
+/// (`apps/web/src/lib/trpc/devices.ts`); this is 10 + 6 = 16.
+pub const DEVICE_CAPS: [&str; 10] = [
     "resume",
     "worktrees",
     "launch-defaults",
@@ -124,6 +127,7 @@ pub const DEVICE_CAPS: [&str; 9] = [
     "agent-login-code",
     "mcp",
     "agent-usage-refresh",
+    "update-now",
 ];
 
 /// The action-run capabilities — advertised only while at least one agent is
@@ -1754,6 +1758,9 @@ mod tests {
     fn device_caps_include_mcp_and_usage_refresh_under_the_ceiling() {
         assert!(DEVICE_CAPS.contains(&"mcp"));
         assert!(DEVICE_CAPS.contains(&"agent-usage-refresh"));
+        // FEED-36: the web's "Update now" shows only for a build that runs it.
+        assert!(DEVICE_CAPS.contains(&"update-now"));
+        assert!(!ACTION_CAPS.contains(&"update-now"));
         assert!(!ACTION_CAPS.contains(&"mcp"));
         let signed_out = device_caps(&advert(&[]));
         assert!(signed_out.contains(&"mcp".to_string()));

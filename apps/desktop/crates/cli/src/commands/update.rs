@@ -145,6 +145,12 @@ pub fn check_and_install() -> anyhow::Result<UpdateOutcome> {
 /// user) or without a service, say what to do instead. Its own gated/
 /// scheduled check would eventually get there too — but "eventually" is up
 /// to 6h, and a 426-gated daemon is useless meanwhile.
+///
+/// FEED-36: with live sessions the daemon is asked for the update through
+/// the server (`devices.requestUpdate`, best-effort — the same flag the web
+/// "Update" button sets), so it parks the request itself, the machine row
+/// reads "Update queued" with what holds it, and the daemon's idle rule
+/// (`daemon::UPDATE_IDLE_GRACE`) applies it instead of its 6h check.
 fn nudge_running_daemon(data_dir: &std::path::Path, out: &mut impl std::io::Write) {
     use super::daemon;
     let Some(pid) = daemon::daemon_pid(data_dir) else {
@@ -152,11 +158,8 @@ fn nudge_running_daemon(data_dir: &std::path::Path, out: &mut impl std::io::Writ
     };
     let live = crate::registry::sessions_owned_by(data_dir, pid);
     if live > 0 {
-        let _ = writeln!(
-            out,
-            "The daemon (pid {pid}) still runs the previous version and has {live} live session(s); restart it once they finish: {}",
-            daemon::restart_hint()
-        );
+        let queued = request_daemon_update();
+        let _ = writeln!(out, "{}", live_sessions_notice(pid, live, queued, daemon::restart_hint()));
         return;
     }
     match daemon::restart_service() {
@@ -175,6 +178,40 @@ fn nudge_running_daemon(data_dir: &std::path::Path, out: &mut impl std::io::Writ
                 "Could not restart the daemon (pid {pid}): {err:#} — restart it by hand: {}",
                 daemon::restart_hint()
             );
+        }
+    }
+}
+
+/// FEED-36: what `exponential update` says when the daemon still hosts
+/// sessions. `queued` = the server holds the request (the daemon parks it
+/// and applies it by its idle rule); otherwise only the hand restart is
+/// left to name.
+fn live_sessions_notice(pid: u32, live: usize, queued: bool, restart_hint: &str) -> String {
+    let grace_hours = super::daemon::UPDATE_IDLE_GRACE.as_secs() / 3600;
+    let mut text = format!(
+        "The daemon (pid {pid}) still runs the previous version and has {live} live session(s); it restarts once they end or sit idle for {grace_hours}h."
+    );
+    if queued {
+        text.push_str(
+            " The update is queued: the Devices page lists what holds it and offers \"Update now\" to end those sessions.",
+        );
+    }
+    text.push_str(&format!(" To restart it by hand now: {restart_hint}"));
+    text
+}
+
+/// FEED-36: ask the server to flag this device for an update (the web
+/// button's own path). Best-effort — a signed-out CLI or an unreachable
+/// server just means the notice names the hand restart alone.
+fn request_daemon_update() -> bool {
+    let Ok(ctx) = crate::context::load() else {
+        return false;
+    };
+    match api::devices::request_update(&ctx.trpc, &ctx.device_id(), false) {
+        Ok(()) => true,
+        Err(err) => {
+            log::debug!("devices.requestUpdate failed: {err}");
+            false
         }
     }
 }
@@ -270,13 +307,27 @@ fn is_newer(candidate: &str, current: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{heal_deleted_suffix, is_newer};
+    use super::{heal_deleted_suffix, is_newer, live_sessions_notice};
 
     #[test]
     fn numeric_not_lexicographic() {
         assert!(is_newer("0.10.0", "0.9.9"));
         assert!(!is_newer("0.9.0", "0.9.0"));
         assert!(!is_newer("0.8.52", "0.9.0"));
+    }
+
+    /// FEED-36: the notice names the idle rule, the queued state and the
+    /// hand restart — never a bare "restart it once they finish".
+    #[test]
+    fn the_live_sessions_notice_names_the_idle_rule_and_the_queue() {
+        let queued = live_sessions_notice(42, 3, true, "systemctl --user restart exponential-daemon");
+        assert!(queued.starts_with("The daemon (pid 42) still runs the previous version and has 3 live session(s); it restarts once they end or sit idle for 2h."), "{queued}");
+        assert!(queued.contains("The update is queued"), "{queued}");
+        assert!(queued.contains("\"Update now\""), "{queued}");
+        assert!(queued.ends_with("To restart it by hand now: systemctl --user restart exponential-daemon"), "{queued}");
+        let unqueued = live_sessions_notice(42, 1, false, "hint");
+        assert!(!unqueued.contains("queued"), "{unqueued}");
+        assert!(unqueued.ends_with("To restart it by hand now: hint"), "{unqueued}");
     }
 
     #[test]

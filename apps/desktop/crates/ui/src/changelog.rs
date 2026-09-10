@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-rate-limited-means-rate-limited",
+    date: "2026-09-10",
+    title: "Rate limited means rate limited, and a queued update that arrives",
+    summary: "A usage warning no longer marks a run blocked, the wall names its window, and a queued CLI update ends idle sessions instead of waiting forever, with Update now on the Devices page.",
+    body: r#"- **Warnings are not walls**: Claude's "approaching your limit" notice no longer marks the run "Rate limited" or tells the run that started it to wait. A run is blocked only when the agent itself refused a call.
+- **The wall names its window**: a blocked run's window and reset time now describe the same thing (the 5-hour session window, the weekly one or a model's), on the badge, in the session tools and in the message a parent run receives ("rate limited (weekly window) until ...").
+- **Queued updates arrive**: a CLI daemon with an update queued no longer waits for an attended chat that never closes. Sessions idle for 2 hours are ended and the daemon restarts on the new version.
+- **What holds an update**: the Devices page lists the live sessions a queued update is waiting on, who started them and when, and the Update button's tooltip says how the machine will get there.
+- **Update now**: a machine whose daemon supports it offers Update now next to a queued update. It ends every live session on that machine (repo-backed runs can be resumed from their session page) and restarts on the new version."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-one-ui-everywhere",
     date: "2026-09-10",
     title: "Sessions beside their list, one session header, and lists the Linear way",
@@ -61,24 +75,6 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Quieter rate-limit banner**: a warning while the agent keeps working is no longer announced as "rate limited"; the banner shows for a real wall, with a countdown to the reset.
 - **Usage that moves with Claude too**: a running Claude session now feeds its session and weekly windows into this machine's usage numbers on every turn, the way a Codex session already did, so the bar moves while you work instead of waiting for the next poll. The account's other windows keep their last polled numbers rather than disappearing."#,
 };
-
-/// The previous head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-rate-limited-runs",
-    date: "2026-09-09",
-    title: "A run that hits its rate limit says so",
-    summary: "A rate-limited run is marked everywhere instead of going quiet, mobile gets mentions and inline diffs, and the IDE gets a Usage page and MCP servers.",
-    body: r#"- **Rate limited, not stuck**: when an agent runs out of usage mid-run, the session is marked "Rate limited" with the time it resets, on web, desktop, iOS and Android. The run stays live and steerable; it simply cannot make a call until then. Until now it just went quiet and looked healthy.
-- **Agents tell their orchestrator**: a run started by another run reports its wall to the run that started it, once, instead of leaving it waiting on a session that reads fine.
-- **A start that would go nowhere is refused**: starting on a machine whose agent is already out of usage now says so and names when it resets, so you can pick another machine or agent.
-- **Mentions in the mobile composer**: the steer field on iOS and Android takes @ for teammates, # for issues and : for emoji, the same three the comment box already had.
-- **Edits inline on mobile**: an edit's diff renders under its row in the iOS and Android transcripts, folded away until you tap it and capped so a big rewrite stays scrollable.
-- **Usage in the IDE**: the desktop app has the Usage page too, reached from Devices, with every machine and account grouped by agent and a Refresh that respects the provider's limits.
-- **MCP servers in the IDE**: a Settings page listing the team's servers with this machine's readiness, so you can sign in, paste a redirect URL or set a value without leaving the app, and pick servers per run from the Start coding dialog and chat.
-- **Bars for a second account**: a machine holding more than one Claude or Codex login now reports usage for each of them, not just the default one."#,
-};
-
 
 /// Whether the rail's "What's new" card renders, given the stored
 /// `changelogSeenId`. Pure so the rule is testable without a gpui App: a

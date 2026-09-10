@@ -112,6 +112,27 @@ impl Run {
             .collect()
     }
 
+    /// FEED-35: every `blocked` edge the mapper produced for the synced row
+    /// (`None` = lifted), in order — one entry per notification that moved
+    /// it, as `(window, resetsAt)`.
+    fn blocked_edges(&self) -> Vec<Option<(String, Option<String>)>> {
+        let mut mapper = engine::Mapper::new(engine::MapperConfig {
+            redactor: Arc::new(steer::Redactor::new(Vec::new())),
+            cwd: PathBuf::from("/tmp/worktree"),
+            agent: steer::SessionAgent::Claude,
+            session_seed: "sess-1".to_string(),
+        });
+        let mut edges = Vec::new();
+        for notification in &self.updates {
+            let mut out = engine::MapOut::default();
+            mapper.on_update(notification, &mut out);
+            if let Some(edge) = out.blocked {
+                edges.push(edge.map(|wall| (wall.window, wall.resets_at)));
+            }
+        }
+        edges
+    }
+
     fn argv_value(&self, flag: &str) -> Option<&str> {
         let at = self.argv.iter().position(|arg| arg == flag)?;
         self.argv.get(at + 1).map(String::as_str)
@@ -613,6 +634,45 @@ async fn a_plain_turn_streams_once_and_settles_on_end_turn() {
         }
         other => panic!("expected the command list, got {other:?}"),
     }
+}
+
+/// FEED-35/37 (the 2026-09-10 incident): claude files `allowed_warning`
+/// on a turn that works fine — here on the WEEKLY window, with that window's
+/// reset (FEED-34's measured pair). The slot shows it (the viewer's usage
+/// hint); the synced row is NEVER walled by it, so no teammate's list, no
+/// parent agent and no `sessions_get` reads a healthy run as blocked.
+#[tokio::test]
+async fn a_usage_warning_never_walls_the_row() {
+    let _session = one_session_at_a_time();
+    let work = workdir("rate-limit-warning");
+    let run = drive(
+        "rate-limit-warning",
+        &work.0,
+        "Reply with the single word ok.",
+        false,
+        reject_all(),
+        cancel_elicitations(),
+    )
+    .await;
+    assert_eq!(run.stop_reason, StopReason::EndTurn);
+    assert_eq!(
+        run.rate_limits(),
+        vec![serde_json::json!({
+            "status": "allowed_warning",
+            "resetsAt": 1_789_549_200_000i64,
+            "window": "weekly"
+        })],
+        "the slot carries the warning and the window its reset belongs to"
+    );
+    assert!(
+        run.blocked_edges().iter().all(Option::is_none),
+        "a warning is never a wall: {:?}",
+        run.blocked_edges()
+    );
+    // And the plain `allowed` frame of an ordinary turn never touches it.
+    let plain = workdir("basic");
+    let run = drive("basic", &plain.0, "Reply with the single word ok.", false, reject_all(), cancel_elicitations()).await;
+    assert!(run.blocked_edges().iter().all(Option::is_none), "{:?}", run.blocked_edges());
 }
 
 #[tokio::test]
@@ -1258,11 +1318,21 @@ async fn a_rate_limit_notice_is_a_slot_and_never_a_bubble() {
     assert_eq!(
         run.rate_limits(),
         vec![
-            serde_json::json!({"status": "rejected", "resetsAt": 1_788_703_200_000i64}),
-            serde_json::json!({"status": "rejected", "resetsAt": 1_788_703_200_000i64, "message": notice}),
+            serde_json::json!({"status": "rejected", "resetsAt": 1_788_703_200_000i64, "window": "session"}),
+            serde_json::json!({"status": "rejected", "resetsAt": 1_788_703_200_000i64, "message": notice, "window": "session"}),
             serde_json::json!({"status": "ok"}),
         ],
         "the event, the notice once, the clear on the next real answer"
+    );
+
+    // FEED-34/35: the synced row's `blocked` — a real wall, naming the
+    // window the frame's reset belongs to (`five_hour` → `session`), lifted
+    // by the next real answer.
+    let session_wall = Some(("session".to_string(), Some("2026-09-06T14:00:00.000Z".to_string())));
+    assert_eq!(
+        run.blocked_edges(),
+        vec![session_wall.clone(), session_wall, None],
+        "the event walls the row, the notice re-affirms it, the answer lifts it"
     );
 
     // On the wire: exactly one `rate_limit` with the message, then the clear.

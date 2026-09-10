@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-rate-limited-means-rate-limited`,
+    date: `2026-09-10`,
+    title: `Rate limited means rate limited, and a queued update that arrives`,
+    summary: `A usage warning no longer marks a run blocked, the wall names its window, and a queued CLI update ends idle sessions instead of waiting forever, with Update now on the Devices page.`,
+    body: `- **Warnings are not walls**: Claude's "approaching your limit" notice no longer marks the run "Rate limited" or tells the run that started it to wait. A run is blocked only when the agent itself refused a call.
+- **The wall names its window**: a blocked run's window and reset time now describe the same thing (the 5-hour session window, the weekly one or a model's), on the badge, in the session tools and in the message a parent run receives ("rate limited (weekly window) until ...").
+- **Queued updates arrive**: a CLI daemon with an update queued no longer waits for an attended chat that never closes. Sessions idle for 2 hours are ended and the daemon restarts on the new version.
+- **What holds an update**: the Devices page lists the live sessions a queued update is waiting on, who started them and when, and the Update button's tooltip says how the machine will get there.
+- **Update now**: a machine whose daemon supports it offers Update now next to a queued update. It ends every live session on that machine (repo-backed runs can be resumed from their session page) and restarts on the new version.`,
+  },
+  {
     id: `2026-09-one-ui-everywhere`,
     date: `2026-09-10`,
     title: `Sessions beside their list, one session header, and lists the Linear way`,

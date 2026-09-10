@@ -4,17 +4,22 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  describeUpdateBlockers,
   deviceAcpAgentIds,
   deviceAgentLaunchDefaults,
   deviceAgentNotReady,
+  deviceCanUpdateNow,
   deviceDefaultAgent,
   deviceIsMine,
   deviceSupportsAcp,
   deviceProfileUsage,
   deviceUpdateAvailable,
   deviceUsageWallAt,
+  liveUpdateBlockers,
   showDeviceUpdateButton,
+  updateBlockerLabel,
   type SteerDevice,
+  type UpdateBlockerSession,
 } from "./steer-devices"
 import { agentSeed } from "./coding-launch-prefs"
 
@@ -748,5 +753,110 @@ describe(`deviceProfileUsage`, () => {
     }
     expect(deviceProfileUsage(row, `claude`, `other`)).toBeNull()
     expect(deviceUsageWallAt(row, `claude`, `other`, NOW)).toBeNull()
+  })
+})
+
+// FEED-36: a queued CLI update parked behind live sessions names what holds
+// it, and "Update now" is offered only to daemons that run `update_now`.
+describe(`update blockers (FEED-36)`, () => {
+  const NOW = new Date(`2026-09-09T16:30:00Z`)
+  const session = (
+    over: Partial<UpdateBlockerSession> = {}
+  ): UpdateBlockerSession => ({
+    issueIdentifier: null,
+    actionName: null,
+    userId: `u-danny`,
+    startedAt: `2026-09-09T13:12:00Z`,
+    updatedAt: `2026-09-09T16:29:00Z`,
+    ...over,
+  })
+  const users = new Map([
+    [`u-danny`, { name: `Danny Straehhuber`, email: `danny@example.com` }],
+    [`u-lisa`, { name: `Lisa`, email: `lisa@example.com` }],
+  ])
+  // The stamp formats in the LOCAL zone; derive the expected text the same
+  // way so the lock holds on any CI machine.
+  const local = (iso: string) => {
+    const d = new Date(iso)
+    const day = d.getDate()
+    const month = [`Jan`, `Feb`, `Mar`, `Apr`, `May`, `Jun`, `Jul`, `Aug`, `Sep`, `Oct`, `Nov`, `Dec`][d.getMonth()]
+    const hh = String(d.getHours()).padStart(2, `0`)
+    const mm = String(d.getMinutes()).padStart(2, `0`)
+    return `${day} ${month} ${hh}:${mm}`
+  }
+
+  it(`labels a row by issue, then action, then Chat`, () => {
+    expect(
+      updateBlockerLabel({ issueIdentifier: `EXP-12`, actionName: `Nightly` })
+    ).toBe(`EXP-12`)
+    expect(
+      updateBlockerLabel({ issueIdentifier: null, actionName: `Nightly` })
+    ).toBe(`Nightly`)
+    expect(updateBlockerLabel({ issueIdentifier: null, actionName: null })).toBe(
+      `Chat`
+    )
+  })
+
+  it(`drops heartbeat-dead rows and orders oldest first`, () => {
+    const live = liveUpdateBlockers(
+      [
+        session({ startedAt: `2026-09-09T15:00:00Z` }),
+        session({ startedAt: `2026-09-09T09:00:00Z`, updatedAt: `2026-09-09T10:00:00Z` }),
+        session({ startedAt: `2026-09-09T14:00:00Z` }),
+      ],
+      NOW
+    )
+    expect(live.map((s) => s.startedAt)).toEqual([
+      `2026-09-09T14:00:00Z`,
+      `2026-09-09T15:00:00Z`,
+    ])
+  })
+
+  it(`names every live session with its first name and start time`, () => {
+    const text = describeUpdateBlockers(
+      [
+        session(),
+        session({
+          issueIdentifier: `EXP-12`,
+          userId: `u-lisa`,
+          startedAt: `2026-09-09T14:02:00Z`,
+        }),
+      ],
+      users,
+      NOW
+    )
+    expect(text).toBe(
+      `Update queued behind 2 live sessions: Chat · Danny · started ${local(`2026-09-09T13:12:00Z`)}; EXP-12 · Lisa · started ${local(`2026-09-09T14:02:00Z`)}`
+    )
+  })
+
+  it(`uses the singular for one session and a member fallback for an unsynced user`, () => {
+    const text = describeUpdateBlockers(
+      [session({ actionName: `Nightly build`, userId: `u-ghost-ABCD` })],
+      users,
+      NOW
+    )
+    expect(text).toBe(
+      `Update queued behind 1 live session: Nightly build · Member · started ${local(`2026-09-09T13:12:00Z`)}`
+    )
+  })
+
+  it(`still says the update waits when no live row is visible`, () => {
+    expect(describeUpdateBlockers([], users, NOW)).toBe(
+      `Update queued behind a live session on this machine.`
+    )
+    expect(
+      describeUpdateBlockers(
+        [session({ updatedAt: `2026-09-09T10:00:00Z` })],
+        users,
+        NOW
+      )
+    ).toBe(`Update queued behind a live session on this machine.`)
+  })
+
+  it(`offers Update now only behind the update-now cap`, () => {
+    expect(deviceCanUpdateNow(server({ caps: [`update-now`] }))).toBe(true)
+    expect(deviceCanUpdateNow(server({ caps: [`agent-login`] }))).toBe(false)
+    expect(deviceCanUpdateNow(server())).toBe(false)
   })
 })

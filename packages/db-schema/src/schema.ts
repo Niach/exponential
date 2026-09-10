@@ -1349,7 +1349,9 @@ export const deviceWorktrees = pgTable(
 // `{phase:"authorize", url}`) | `mcp_oauth_code` (payload {serverId, state,
 // code} — the callback-relayed authorization code the device exchanges) |
 // `agent_usage_refresh` (EXP-747 C4, payload {agent, profileId} — force a
-// usage collection past the shared TTL, never past the rate-limit floor).
+// usage collection past the shared TTL, never past the rate-limit floor) |
+// `update_now` (FEED-36, payload {} — end every live session on the machine
+// and restart on the queued self-update; cap-gated on `update-now`).
 export const deviceCommands = pgTable(
   `device_commands`,
   {

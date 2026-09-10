@@ -1,4 +1,6 @@
 import { contract } from "@exp/domain-contract"
+import { format } from "date-fns"
+import { isCodingSessionStale } from "@exp/db-schema/domain"
 
 import type {
   Device,
@@ -16,6 +18,7 @@ import {
 } from "./agent-usage"
 import type { DeviceAgentUsage } from "@/db/schema"
 import type { AgentLaunchDefaults } from "./coding-launch-prefs"
+import { displayUserName, firstName } from "./user-display"
 
 // The caller's machines (EXP-403). The ONE source is the synced `devices`
 // shape: `steerDeviceFromRow`/`composeDeviceList` below turn its rows into
@@ -218,6 +221,76 @@ export function deviceCanAgentLogin(
  * pending forever, so the settings pane hides "Sign in on <device>". */
 export function deviceSupportsMcp(device: Pick<SteerDevice, `caps`>): boolean {
   return (device.caps ?? []).includes(`mcp`)
+}
+
+/** FEED-36: the daemon runs `update_now` — ends every live session on the
+ * machine and restarts on the queued self-update. Without the cap the row
+ * would sit pending forever, so the machine list hides "Update now". */
+export function deviceCanUpdateNow(
+  device: Pick<SteerDevice, `caps`>
+): boolean {
+  return (device.caps ?? []).includes(`update-now`)
+}
+
+/** FEED-36: what a queued update is waiting on — the machine's live sessions
+ * as the caller sees them on the synced `coding_sessions` shape, with the
+ * issue identifier already joined by the caller. */
+export interface UpdateBlockerSession {
+  issueIdentifier: string | null
+  actionName: string | null
+  userId: string
+  startedAt: Date | string
+  updatedAt: Date | string
+}
+
+/** `EXP-12` for an issue run, the action's name for an action run, `Chat`
+ * for a repo-less/batch one — the same precedence `childRunLabel` uses. */
+export function updateBlockerLabel(
+  session: Pick<UpdateBlockerSession, `issueIdentifier` | `actionName`>
+): string {
+  return session.issueIdentifier ?? session.actionName ?? `Chat`
+}
+
+/** Drops heartbeat-dead rows (a stale `running` row is not holding anything)
+ * and orders by start time so the list reads oldest first. */
+export function liveUpdateBlockers<T extends Pick<UpdateBlockerSession, `startedAt` | `updatedAt`>>(
+  sessions: T[],
+  now: Date
+): T[] {
+  return sessions
+    .filter((session) => !isCodingSessionStale(new Date(session.updatedAt), now))
+    .sort(
+      (a, b) =>
+        new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime()
+    )
+}
+
+/**
+ * FEED-36: the line under a machine whose queued update is parked behind
+ * live sessions, e.g. `Update queued behind 2 live sessions: Chat · Danny ·
+ * started 9 Sep 15:12; EXP-12 · Lisa · started 9 Sep 16:02`. Heartbeat-dead
+ * rows are dropped first; with nothing visible left (a session the caller
+ * cannot see, or one that just ended) it still says the update is waiting
+ * rather than pretending nothing holds it.
+ */
+export function describeUpdateBlockers(
+  sessions: UpdateBlockerSession[],
+  usersById: Map<string, Pick<User, `name` | `email`>>,
+  now: Date
+): string {
+  const live = liveUpdateBlockers(sessions, now)
+  if (live.length === 0) {
+    return `Update queued behind a live session on this machine.`
+  }
+  const rows = live.map((session) => {
+    const who = firstName(
+      displayUserName(usersById.get(session.userId), session.userId)
+    )
+    const started = format(new Date(session.startedAt), `d MMM HH:mm`)
+    return `${updateBlockerLabel(session)} · ${who} · started ${started}`
+  })
+  const noun = live.length === 1 ? `live session` : `live sessions`
+  return `Update queued behind ${live.length} ${noun}: ${rows.join(`; `)}`
 }
 
 /** EXP-747 C4: the machine runs `agent_usage_refresh` — a forced re-read of

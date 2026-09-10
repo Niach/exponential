@@ -2619,7 +2619,7 @@ export function registerExponentialTools(
     `exponential_sessions_list`,
     {
       annotations: READ_ONLY,
-      description: `List coding sessions (newest first) across your teams or one team: status, issue, action, branch, device, and once ended the run's own summary/endedBy. mine limits to runs you started or host.`,
+      description: `List coding sessions (newest first) across your teams or one team: status, issue, action, branch, device, blocked (a real usage-wall refusal, see exponential_sessions_get), and once ended the run's own summary/endedBy. mine limits to runs you started or host.`,
       inputSchema: strictInput({
         teamId: uuidString.optional(),
         status: z.enum([`running`, `in_review`, `ended`]).optional(),
@@ -2685,7 +2685,7 @@ export function registerExponentialTools(
     `exponential_sessions_get`,
     {
       annotations: READ_ONLY,
-      description: `Get one coding session by id. Poll it after exponential_sessions_start: status running → in_review (PR open) → ended, then summary is the run's own close-out. ackedAt is the device's liveness ack, stamped within seconds of the launch; null for more than a couple of minutes = the launch died on the device. A non-null blocked means the agent hit its usage wall and the run cannot make a call until blocked.resetsAt, even though the row still reads running.`,
+      description: `Get one coding session by id. Poll it after exponential_sessions_start: status running → in_review (PR open) → ended, then summary is the run's own close-out. ackedAt is the device's liveness ack, stamped within seconds of the launch; null for more than a couple of minutes = the launch died on the device. blocked is set only when the agent itself REFUSED a call at its usage wall (never for a usage warning): blocked.window (session = 5h, weekly, model) and blocked.resetsAt describe the SAME window; the run stays running and clears it on its next successful turn.`,
       inputSchema: strictInput({ id: uuidString }),
     },
     async ({ id }) => {
@@ -2865,7 +2865,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_start`,
     {
-      description: `Start a coding session on a registered ONLINE device (exponential_devices_list; agents includes the agent). Offline devices are refused: starts are live, never queued. Exactly one subject: issueId (UUID or identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs) or resumeSessionId (relaunch an ended run). The run gets its own worktree and PR; track it with exponential_sessions_get. The device creates the session row itself; sessionId null = it never reported the run, treat the start as lost. ackedAt null for more than a couple of minutes = the launch died on the device. Started from inside a run, the child is unattended: its question or its finish lands in THIS session as '[Exponential child run ...]' user input — answer with exponential_sessions_message. Read its report before merging its PR (merging first ends the run unreported); polling sessions_get is only a fallback.`,
+      description: `Start a coding session on a registered ONLINE device (exponential_devices_list; agents includes the agent). Offline devices are refused: starts are live, never queued. Exactly one subject: issueId (UUID or identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs) or resumeSessionId (relaunch an ended run). The run gets its own worktree and PR; track it with exponential_sessions_get. sessionId null = the device never reported the run, treat the start as lost; ackedAt null for minutes = the launch died there. Started from inside a run, the child is unattended: its question, its finish or a real usage wall ('... is rate limited (<window> window) until <resetsAt>' = wait, not a failure) lands in THIS session as '[Exponential child run ...]' user input — answer with exponential_sessions_message. Read its report before merging its PR (merging first ends the run unreported); polling sessions_get is only a fallback.`,
       inputSchema: strictInput({
         deviceId: z.string().min(1).max(128),
         issueId: z.string().min(1).optional(),
@@ -3014,7 +3014,7 @@ export function registerExponentialTools(
           // steer.startSession refuses a host that does not).
           ...(sessionId && session
             ? {
-                note: `The child reports into this session as a bracketed [Exponential child run ...] user message when it finishes or asks a question; answer questions with exponential_sessions_message. Poll exponential_sessions_get only as a fallback.`,
+                note: `The child reports into this session as a bracketed [Exponential child run ...] user message when it finishes, asks a question, or hits a real usage wall ('... is rate limited (<window> window) until <resetsAt>' — wait until resetsAt, it is not a failure); answer questions with exponential_sessions_message. Poll exponential_sessions_get only as a fallback.`,
               }
             : {}),
         })
@@ -3032,7 +3032,7 @@ export function registerExponentialTools(
     `exponential_devices_list`,
     {
       annotations: READ_ONLY,
-      description: `List your registered machines (desktop app / CLI daemon), plus servers teammates shared with teamId. Pick an online device whose agents includes the agent you want; caps must include resume-run to resume an ended run.`,
+      description: `List your registered machines (desktop app / CLI daemon), plus servers teammates shared with teamId. Pick an online device whose agents includes the agent you want; caps must include resume-run to resume an ended run. agentUsage.<agent>: windows[] (percent + resetsAt), fetchedAt = when those numbers were read, stale: true = the last refresh failed and they are as old as fetchedAt (a live session on the machine refreshes them per turn); agentUsageAt = when the device last reported.`,
       inputSchema: strictInput({
         teamId: uuidString.optional(),
         ...pageInput,

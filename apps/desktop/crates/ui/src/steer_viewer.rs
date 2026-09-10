@@ -3128,7 +3128,8 @@ pub(crate) fn tool_row_wraps(width: f32, needed: f32, wrapped: bool) -> bool {
 /// `rejected`, or a notice the agent itself wrote, is a banner. Web
 /// `rateLimitBanner` twin.
 pub(crate) fn rate_limit_is_wall(status: &str, message: Option<&str>) -> bool {
-    status.trim() == "rejected" || message.is_some_and(|text| !text.trim().is_empty())
+    // FEED-35: ONE rule with the row's `blocked` (the mapper) and the web.
+    steer::rate_limit_is_wall(status, message)
 }
 
 /// EXP-784 — the rate-limit banner's line: the agent's message (or a generic

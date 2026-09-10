@@ -32,8 +32,8 @@ packages/
 ├── view-catalog/      # views.json — every product view × platform, drift-gated
 ├── shots/             # capture pipeline (sharp diff-skip writer) → shots/
 └── tsconfig/
-docs/                  # third-party-licences.md + licences/ (runbooks outside git)
-shots/                 # COMMITTED webp store, <view>/<platform>.webp (EXP-566)
+docs/                  # third-party-licences.md + licences/
+shots/                 # COMMITTED webp store, <view>/<platform>.webp
 docker-compose.yaml    # DEV backend stack (not the self-host one)
 selfhost/              # Pull-an-image compose; INSTALL.md = agent-followable runbook
 Dockerfile{,.push-relay,.steer-relay}   # build context = repo root
@@ -102,11 +102,11 @@ Workspace scripts: `bun --filter @exp/web <script>`; plain `cargo` from `apps/de
 
 Everything runs on Coolify (`coolify.home.straehhuber.com`, Hetzner), **home-LAN-only, no redeploy webhooks**: after a green Actions run, `coolify deploy uuid <uuid>` from a LAN machine. `build-web.yml` publishes `ghcr.io/niach/exponential-web` on master pushes + `v*` tags, multi-arch; the SAME image is cloud, staging and the self-host distribution (`selfhost/`), so the ghcr package stays PUBLIC and self-hosters pin semver. Its runtime `bun install` is `--filter '@exp/web'` on purpose (EXP-380); non-OSS components + notices rules: `docs/third-party-licences.md`, gated by `lib/third-party-licences.test.ts`. Native releases are tag-triggered (`build-{android,desktop,cli,ios}.yml`): `android-v*` (APK + Play bundle, `make_latest: false`), `desktop-v*` (codegen-drift guard, production + staging × macOS/Linux/Windows, `make_latest: true`, self-update `crates/updater`), `cli-v*` (bare `exponential-<target>` binaries, installed via `apps/marketing/public/install.sh` for cloud AND self-host via `EXP_INSTANCE`), `ios-v*` (ASC upload from a release-macOS runner, beta-macOS ipas rejected; `ASC_*` secrets).
 
-**The operations runbook lives OUTSIDE the repo** (infra uuids/domains stay out of git; buckets, staging, relay `TRUST_PROXY=true`, per-platform release/signing, the release checklist). Consult it before anything deploy-shaped; never re-inline it.
+**The operations runbook lives OUTSIDE the repo** (infra uuids/domains, buckets, staging, relay `TRUST_PROXY=true`, signing, the release checklist). Consult it before anything deploy-shaped; never re-inline.
 
 Every user-facing release PREPENDS a `ChangelogEntry` to `lib/changelog.ts` (gated by `changelog.test.ts`; head id drives "What's new" on web AND the desktop mirror `crates/ui/src/changelog.rs`).
 
-After schema changes, always: `bun run migrate:generate && bun run migrate`. Custom SQL triggers (`db/out/custom/0001_triggers.sql`) auto-apply at every boot (`bootstrap-cloud.ts` `applyCustomSql`, idempotent); only never-booting contexts need manual psql (CI's schema job).
+After schema changes, always: `bun run migrate:generate && bun run migrate`. Custom SQL triggers (`db/out/custom/0001_triggers.sql`) auto-apply at every boot (`bootstrap-cloud.ts` `applyCustomSql`, idempotent); only never-booting contexts (CI's schema job) need manual psql.
 
 ## Web App Structure (`apps/web/src/`)
 
@@ -126,7 +126,7 @@ Issues DUAL-WRITE `status` (the builtin ANCHOR enum) and `statusId` (nullable FK
 
 ### Enum behavior
 
-Values in `contract.json` (§Shared Contracts). `issue_status` — `pr_open` flips linked issues to the team's PR-open target (default `in_review`), merge to the PR-merge target (default `done`). `coding_session_status` (running/in_review/ended): `in_review` = PR open; PR MERGE **ends** live sessions on EVERY path (EXP-498) unless the team's synced `endSessionsOnMerge` is false or MCP `pr_merge({endSessions})` overrides it (EXP-711), and never the session that merged its OWN PR (server-only `merged_own_pr`, EXP-637). Orphan PG labels: `merged` (EXP-540), `todo` (EXP-685); `ended` also comes from `killSession`/`codingSessions.end`; the desktop tab turns read-only on that edge. `ended_by` (agent|user|client|merge|system) records WHICH path; `summary` is written ONLY by `exponential_sessions_end`, REGISTERED only for UNATTENDED runs (`started_reason` schedule|event|`agent` = a `sessions_start` child; synced `parent_session_id` nests it, `session-tree` ×4; EXP-679/818) and ENDING them (EXP-673); a person-started run stays live with NO idle bound (EXP-674); `needs_input` and `blocked` (EXP-804 jsonb: the agent's usage wall, device-written, ORTHOGONAL to status — a walled run stays `running`) land on every live status; Automations lists finished AUTOMATED runs, the Agent page's Running/Past list the person-started ones; `resumed_from_id` links a resumed run to its predecessor. Batch sessions (issue_id NULL) self-close on the desktop when their branch's issues sync `prState=merged`.
+Values in `contract.json` (§Shared Contracts). `issue_status` — `pr_open` flips linked issues to the team's PR-open target (default `in_review`), merge to the PR-merge target (default `done`). `coding_session_status` (running/in_review/ended): `in_review` = PR open; PR MERGE **ends** live sessions on EVERY path (EXP-498) unless the team's synced `endSessionsOnMerge` is false or MCP `pr_merge({endSessions})` overrides it (EXP-711), and never the session that merged its OWN PR (server-only `merged_own_pr`, EXP-637). Orphan PG labels: `merged` (EXP-540), `todo` (EXP-685); `ended` also comes from `killSession`/`codingSessions.end` (the desktop tab turns read-only). `ended_by` (agent|user|client|merge|system) records WHICH path; `summary` is written ONLY by `exponential_sessions_end`, REGISTERED only for UNATTENDED runs (`started_reason` schedule|event|`agent` = a `sessions_start` child; synced `parent_session_id` nests it, `session-tree` ×4; EXP-679/818) and ENDING them (EXP-673); a person-started run has NO idle bound (EXP-674) except a queued daemon update (FEED-36: sessions idle ≥2h end for it; `update_now`/cap `update-now` ends them now); `needs_input` and `blocked` (EXP-804 jsonb, device-written, orthogonal to status — a walled run stays `running`; set ONLY by a refusal (`rejected`/a notice, never `allowed_warning`), `window` from claude's `rateLimitType`, FEED-34/35) land on every live status; Automations lists finished AUTOMATED runs, the Agent page's Running/Past list the person-started ones; `resumed_from_id` links a resumed run to its predecessor. Batch sessions (issue_id NULL) self-close on the desktop when their branch's issues sync `prState=merged`.
 
 ### Custom triggers
 
@@ -149,7 +149,7 @@ Per-TEAM rows in six fixed categories (backlog/unstarted/started/completed/cance
 ### Web plumbing
 
 - **Collections** (`lib/collections.ts`): all use `columnMapper: snakeCamelMapper()` — without it `useLiveQuery` `where` silently fails. `undefined` (not `false`) skips a query; use `and()`/`or()` from `@tanstack/react-db`, not `&&`/`||`.
-- **Auth guard**: `_authenticated.tsx` `beforeLoad` + `throw redirect()`; session fetched once via `fetchSessionOnce()`. Mutations via tRPC; `generateTxId` lets the client await Electric sync.
+- **Auth guard**: `_authenticated.tsx` `beforeLoad` + `throw redirect()`; session fetched once via `fetchSessionOnce()`.
 - **MCP OAuth consent**: `lib/auth/mcp-authorize-guard.ts` pre-flights every `mcp/authorize` (forces `prompt=consent`) → `/auth/consent` team/board multi-select persisted to `mcp_grants` BEFORE the code mints. `lib/mcp/scope.ts` confines OAuth tokens to the grant (no grant row = nothing); OAuth tokens work ONLY at `/api/mcp`; cookies + `expu_` keys keep full access. Login resumes interrupted authorizes (`lib/auth/oauth-resume.ts`).
 - **Issue UI**: issue detail is a full-page route fed a live Electric `issue`; title/description save on blur, other fields mutate immediately; `completedAt` is auto-managed by the update mutation. Filters in `lib/filters.ts`; dialog inputs borderless, icon-only dropdown triggers `Button variant="ghost"` `h-5 w-5 p-0`.
 
@@ -163,7 +163,7 @@ Per-TEAM rows in six fixed categories (backlog/unstarted/started/completed/cance
 - OIDC: `OIDC_PROVIDERS` (JSON array) is the primary mechanism; the single-provider `AUTH_OIDC_ENABLED`/`OIDC_*` vars are legacy and only read when it is unset.
 - GitHub App installations are claimed PER TEAM (`github_installation_links`); `GITHUB_APP_CLIENT_SECRET` unset ⇒ install-page round-trip fallback; `GITHUB_POLLING=true` = outbound merge cron for NAT'd self-hosts.
 - `STEER_RELAY_URL` unset = remote start/steer off (LAN is fine, the desktop dials OUT); the HS256 `STEER_RELAY_SECRET` must match the relay, and BOTH relays need `TRUST_PROXY=true` behind a reverse proxy.
-- `INITIAL_ADMIN_EMAILS` auto-promotes global admins — without it no admin console.
+- `INITIAL_ADMIN_EMAILS` auto-promotes global admins (else no admin console).
 - `CLIENT_MIN_VERSION_{ANDROID,IOS,DESKTOP}` gate with HTTP 426 + a blocking update screen (unset = off); always MARKETING versions, never versionCode/build numbers. `CLIENT_LATEST_VERSION_*` is informational.
 - `BUN_CONFIG_MAX_HTTP_REQUESTS` is baked to 65336 in the image (REV2-6).
 - Widget rate limits: refill `WIDGET_RATE_LIMIT_PER_{KEY,IP}_HOURLY`, burst `WIDGET_RATE_LIMIT_{KEY,IP}_BURST` (no `PER_`). KEY is self-host-only (cloud: per-TEAM plan ceiling, `lib/widget/submit-limit.ts`), IP applies everywhere, `RECIPIENT` bounds support confirmation mail per address; the config GET has `WIDGET_CONFIG_RATE_LIMIT_{PER_IP_HOURLY,IP_BURST}` (REV-25).
@@ -206,7 +206,7 @@ Server: server-only `widget_configs` (public `expw_` key + domain allowlist) + `
 
 ## Conversion tracking (EXP-362, cloud only)
 
-`lib/conversion/` + the `adminConversions` router + `admin/conversions.tsx`, all no-ops unless `CLOUD_INSTANCE=true` — self-hosted never profiles users. COOKIELESS: visitors are a daily-rotating salted HMAC of ip+ua (`anonymous.ts`; needs a proxy-attested `X-Forwarded-For`); attribution rides URL params only (marketing forwards `ref`/`utm_*`; `first-touch.ts` keeps them in memory). `events.ts` owns the closed vocabulary: `landing` ONLY on entry paths `/`+`/auth/*` (anonymous, non-prefetch, non-bot), `return_visit` daily per signed-in user (EXP-522), then the signup→checkout funnel and the Creem lifecycle in `subscription-events.ts`; idempotency = PARTIAL UNIQUE INDEXES + unconditional `onConflictDoNothing`.
+`lib/conversion/` + the `adminConversions` router + `admin/conversions.tsx`, all no-ops unless `CLOUD_INSTANCE=true` — self-hosted never profiles users. COOKIELESS: visitors are a daily-rotating salted HMAC of ip+ua (`anonymous.ts`; needs a proxy-attested `X-Forwarded-For`); attribution rides URL params only (`ref`/`utm_*`, `first-touch.ts`). `events.ts` owns the closed vocabulary: `landing` ONLY on entry paths `/`+`/auth/*` (anonymous, non-prefetch, non-bot), `return_visit` daily per signed-in user (EXP-522), then the signup→checkout funnel and the Creem lifecycle in `subscription-events.ts`; idempotency = PARTIAL UNIQUE INDEXES + unconditional `onConflictDoNothing`.
 
 ## Style Conventions
 
