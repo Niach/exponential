@@ -170,13 +170,21 @@ pub(crate) fn start_remote_login(command: api::devices::PendingCommand, cx: &mut
 ///
 /// The device-settings dialog uses this for REMOTE switches too, so both
 /// clients warn with the same words before the same act.
+///
+/// `then` NEVER runs on the caller's stack (FEED-39). The confirmed path
+/// runs it from the alert's OK, long after the click handler returned; the
+/// unconfirmed one used to call it inline, and a caller sitting inside its
+/// own entity's update (the device-settings dialog handing itself a weak
+/// handle) then re-entered that entity — gpui's double lease, a hard panic
+/// that took the Linux app down on a remote claude "Switch account". Deferred,
+/// both paths reach `then` with every entity released.
 pub(crate) fn confirm_switch_then(
     agent: CodingAgent,
     cx: &mut App,
     then: impl Fn(&mut App) + 'static,
 ) {
     if agent_login::warn_on_switch(agent).is_none() {
-        then(cx);
+        cx.defer(move |cx| then(cx));
         return;
     }
     crate::navigation::on_active_window(cx, move |window, cx| {
@@ -536,4 +544,44 @@ fn notify(note: Notification, cx: &mut App) {
     crate::navigation::on_active_window(cx, move |window, cx| {
         window.push_notification(note, cx);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::AppContext as _;
+
+    /// A stand-in for the device-settings dialog: an entity whose click
+    /// handler starts a switch and, in the callback, updates ITSELF through
+    /// a weak handle (the real dialog queues the `agent_login` command that
+    /// way).
+    struct Requester {
+        queued: usize,
+    }
+
+    /// FEED-39: a remote claude "Switch account" crashed the requesting app.
+    /// claude needs no confirm, so `confirm_switch_then` ran the callback
+    /// inline — inside the dialog's own update — and the callback's
+    /// `view.update` double-leased the entity (gpui panics, the app dies).
+    /// The callback must reach the entity only once the handler has returned.
+    #[gpui::test]
+    async fn unconfirmed_switch_callback_runs_off_the_callers_stack(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let requester = cx.new(|_| Requester { queued: 0 });
+        requester.update(cx, |this, cx| {
+            let view = cx.entity().downgrade();
+            confirm_switch_then(CodingAgent::Claude, cx, move |cx| {
+                let _ = view.update(cx, |this, _| this.queued += 1);
+            });
+            // Still inside the handler: nothing may have touched the entity.
+            assert_eq!(this.queued, 0);
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            requester.read_with(cx, |this, _| this.queued),
+            1,
+            "the deferred callback queues exactly one login"
+        );
+    }
 }
