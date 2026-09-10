@@ -9,6 +9,7 @@ import {
   DEFAULT_ACCENT_COLOR,
   hexColorSchema,
   MAX_ISSUE_DESCRIPTION,
+  MAX_START_PROMPT,
   UUID_RE,
 } from "@exp/db-schema/domain"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
@@ -2865,7 +2866,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_start`,
     {
-      description: `Start a coding session on a registered ONLINE device (exponential_devices_list; agents includes the agent). Offline devices are refused: starts are live, never queued. Exactly one subject: issueId (UUID or identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs) or resumeSessionId (relaunch an ended run). The run gets its own worktree and PR; track it with exponential_sessions_get. sessionId null = the device never reported the run, treat the start as lost; ackedAt null for minutes = the launch died there. Started from inside a run, the child is unattended: its question, its finish or a real usage wall ('... is rate limited (<window> window) until <resetsAt>' = wait, not a failure) lands in THIS session as '[Exponential child run ...]' user input — answer with exponential_sessions_message. Read its report before merging its PR (merging first ends the run unreported); polling sessions_get is only a fallback.`,
+      description: `Start a coding session on an ONLINE device (exponential_devices_list, agents includes it); offline = refused, never queued. Exactly one subject: issueId (UUID or identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs) or resumeSessionId (an ended run). prompt = free text for the run (REQUIRED for builtin:chat / builtin:create-action, extra instructions otherwise). The run gets its own worktree and PR; exponential_sessions_get tracks it: sessionId null = the device never reported it; ackedAt null for minutes = the launch died. Started from inside a run, the child is unattended: its question, finish or usage wall ('... is rate limited (<window> window) until <resetsAt>' = wait, not a failure) lands in THIS session as '[Exponential child run ...]' user input; answer with exponential_sessions_message. Read its report before merging its PR (a merge first ends it unreported).`,
       inputSchema: strictInput({
         deviceId: z.string().min(1).max(128),
         issueId: z.string().min(1).optional(),
@@ -2880,6 +2881,7 @@ export function registerExponentialTools(
         planMode: z.boolean().optional(),
         ultracode: z.boolean().optional(),
         allowRateLimited: z.boolean().optional(),
+        prompt: z.string().max(MAX_START_PROMPT).optional(),
       }),
     },
     async (input) => {
@@ -3542,7 +3544,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_actions_create`,
     {
-      description: `Create a team action (owner only). body = the markdown prompt an agent runs locally; repositoryId targets that repo's trunk clone; icon = a curated icon name; inputs = run-dialog fields injected into the prompt.`,
+      description: `Create a team action (owner only). body = the markdown prompt an agent runs locally; repositoryId targets that repo's trunk clone; icon = a curated icon name; inputs = pick fields (repo/board/pr/icon) injected into the prompt; promptPlaceholder = the composer's hint for the requester's free text.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         teamId: uuidString,
@@ -3552,6 +3554,7 @@ export function registerExponentialTools(
         repositoryId: uuidString.nullable().optional(),
         body: z.string().min(1),
         inputs: actionInputsSchema.optional(),
+        promptPlaceholder: z.string().max(200).nullable().optional(),
       }),
     },
     async (input) => {
@@ -3577,6 +3580,7 @@ export function registerExponentialTools(
         repositoryId: uuidString.nullable().optional(),
         body: z.string().min(1).optional(),
         inputs: actionInputsSchema.optional(),
+        promptPlaceholder: z.string().max(200).nullable().optional(),
         sortOrder: z.number().finite().optional(),
       }),
     },

@@ -1002,6 +1002,12 @@ pub enum ServerFrame {
         /// Absent/`system` = the ambient login.
         #[serde(default)]
         account: Option<String>,
+        /// EXP-825: the composer's free text — the chat prompt / creator
+        /// request for the two builtins, additional instructions for every
+        /// other subject (image embeds in the steer message shape). Never
+        /// on a resume frame; absent on every pre-EXP-825 sender.
+        #[serde(default)]
+        prompt: Option<String>,
     },
     /// EXP-773: a viewer asked for the transcript of a session that is no
     /// longer live, and the relay routed the ask to THIS device (the ticket
@@ -2089,6 +2095,7 @@ mod tests {
                 account: None,
                 resume: false,
                 resume_session_id: None,
+                prompt: None,
             }
         );
     }
@@ -2234,6 +2241,7 @@ mod tests {
                 account: None,
                 resume: false,
                 resume_session_id: None,
+                prompt: None,
             }
         );
     }
@@ -2267,6 +2275,7 @@ mod tests {
                 account: None,
                 resume: false,
                 resume_session_id: None,
+                prompt: None,
             }
         );
         // Absent (every person-started frame, and every pre-EXP-679 sender)
@@ -2307,6 +2316,7 @@ mod tests {
                 account: None,
                 resume: false,
                 resume_session_id: None,
+                prompt: None,
             }
         );
     }
@@ -2342,6 +2352,7 @@ mod tests {
                 account: None,
                 resume: false,
                 resume_session_id: None,
+                prompt: None,
             }
         );
     }
@@ -2378,6 +2389,7 @@ mod tests {
                 account: None,
                 resume: false,
                 resume_session_id: None,
+                prompt: None,
             }
         );
     }
@@ -2428,6 +2440,7 @@ mod tests {
                 account: None,
                 resume: false,
                 resume_session_id: None,
+                prompt: None,
             }
         );
     }
@@ -2464,6 +2477,7 @@ mod tests {
                 account: None,
                 resume: false,
                 resume_session_id: None,
+                prompt: None,
             }
         );
     }

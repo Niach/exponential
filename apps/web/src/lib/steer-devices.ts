@@ -67,7 +67,7 @@ export interface SteerDevice {
    * on the caller's own rows. */
   owner?: { id: string; name: string }
   /** EXP-437: the machine's per-agent launch defaults from its live
-   * presence — the Start-coding dialog seeds its options from the selected
+   * presence — the launch composer seeds its options from the selected
    * device. Absent = old desktop build (or offline row); seed statically. */
   launchDefaults?: DeviceLaunchDefaults
   /** EXP-622: the caller's default machine — pickers prefill it over the

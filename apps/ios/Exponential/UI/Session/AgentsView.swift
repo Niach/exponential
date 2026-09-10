@@ -6,39 +6,29 @@ import SwiftUI
 /// "My machines" — the caller's registered devices (EXP-403:
 /// desktops AND headless `exponential` daemon servers, online or not — since
 /// EXP-481 read from the synced `devices` shape, online-ness derived from
-/// last_seen_at freshness) with a per-machine "Start coding" launcher and an
-/// Edit (device settings sheet: name, sharing, agent defaults, worktrees) /
-/// self-update / remove row menu — then "Team machines" (EXP-432: teammates'
-/// servers shared with the active team, startable but never manageable here)
-/// — above the caller's OWN running coding
-/// sessions in the active account (EXP-312 — teammates' runs are owner-only, so
-/// they are not listed at all). Session rows open the live agent session view
-/// directly when the relay is configured (the same viewer AgentPrCard presents
-/// from an issue), else fall back to the issue detail; the trailing control
-/// (EXP-694) names the run's subject — an issue-identifier pill to the issue,
-/// the action's glyph to its editor, nothing on chat/batch runs. When the relay is off the
-/// machines section is absent (web parity — nothing here can be started) and
-/// the tab shows the full-screen empty state until a session appears.
+/// last_seen_at freshness) with a per-machine play glyph and an Edit (device
+/// settings sheet: name, sharing, agent defaults, worktrees) / self-update /
+/// remove row menu — then "Team machines" (EXP-432: teammates' servers shared
+/// with the active team, startable but never manageable here).
+///
+/// EXP-825: machines ONLY (web parity, EXP-818). The Running/Past sessions
+/// moved to the Agent page, which is also the ONE launcher: a machine's play
+/// glyph pushes it with that machine preselected, and the tab bar's Chat FAB
+/// pushes it with an empty seed. When the relay is off nothing here can be
+/// started, so the tab says so instead of listing machines.
 struct AgentsView: View {
-    /// EXP-631: the mobile tab bar's Chat FAB bumps this counter (the bar
-    /// lives in AppNavigator, the launcher lives here) — every change opens
-    /// the Start coding sheet on its Chat tab.
-    var chatRequest: Int = 0
-
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
+    @Environment(\.pushRoute) private var pushRoute
     @Environment(TeamState.self) private var teamState
     @State private var viewModel: AgentsViewModel?
-    @State private var steerEnabled = false
+    /// nil until the relay config resolves.
+    @State private var steerEnabled: Bool?
     /// EXP-420: the instance's advertised latest versions — gates the
     /// server rows' Update action on an actually-newer CLI build. The one
     /// remaining tRPC read here (instance config, not a shape column):
     /// fetched once per account instead of polled.
     @State private var latestVersions: LatestVersions?
-    @State private var startSheetDevice: SteerDevice?
-    /// The tab bar's Chat launcher (EXP-631) — the same sheet, opened on its
-    /// Chat tab with no machine preference.
-    @State private var chatSheetPresented = false
     // Machine row actions (EXP-403/EXP-481): the settings-sheet target (Edit
     // — rename/sharing/defaults/worktrees live there now), the remove alert
     // target, the optimistic "Updating…" ids (the flag itself lands via
@@ -47,51 +37,6 @@ struct AgentsView: View {
     @State private var removeTarget: SteerDevice?
     @State private var updatingIds: Set<String> = []
     @State private var deviceError: String?
-    // Success feedback (informational, tertiary) vs. failure (red) are kept
-    // separate: a start error must read as an error and not persist forever.
-    // EXP-536: a remote start pushes the live session once the desktop's row
-    // syncs in, instead of saying it'll show up in the list below. The watcher
-    // owns the "waiting for the desktop" caption, the failure and the one-shot
-    // navigation target.
-    @State private var startWatcher = StartedRunWatcher()
-    @State private var sessionTarget: StartedRunWatcher.StartedSession?
-    // Merge (EXP-498: merging always closes the session), keyed by row id:
-    // the confirm target, the in-flight rows, and the per-row failure caption
-    // (inline like the Reviews rows, EXP-323 — never a modal the tab bar can
-    // cover).
-    @State private var mergeConfirm: MergeConfirmTarget?
-    @State private var merging: Set<String> = []
-    @State private var mergeErrors: [String: MergeFailure] = [:]
-    // "Fix conflicts" (EXP-486, Reviews parity EXP-323): a refused merge is
-    // usually a conflict, so the failing row's caption offers the builtin
-    // recovery run on any reachable machine.
-    @State private var fixTarget: FixConflictsTarget?
-    /// EXP-694 (S6): the action/automation editor a session row's trailing
-    /// button opened.
-    @State private var sessionEditTarget: SessionEditTarget?
-    /// Owner-only writes (the actions/automations routers are owner-gated) —
-    /// the same mirror every other surface reads. Resolved ONCE per active
-    /// team (it opens the GRDB pool and reads memberships), never per row on
-    /// every body pass.
-    @State private var canEditActions = false
-
-    /// The row a merge confirm is pending for. Only the ids are captured —
-    /// the row itself may re-sync underneath the alert. EXP-734: the target
-    /// says WHICH mutation merges it (the issue's PR, or the run's own
-    /// issue-less one) and picks the alert's copy.
-    private struct MergeConfirmTarget: Identifiable {
-        let rowId: String
-        let target: MergeTarget
-        var id: String { rowId }
-    }
-
-    /// The row a "Fix conflicts" launch is pending for — the sheet preselects
-    /// the builtin action with this row's PR already picked.
-    private struct FixConflictsTarget: Identifiable {
-        let rowId: String
-        let issueId: String
-        var id: String { rowId }
-    }
 
     /// The machine a settings sheet is open for. EXP-490: the ID only — the
     /// sheet reads the LIVE devices-shape row itself, so a value captured here
@@ -100,98 +45,15 @@ struct AgentsView: View {
         let id: String
     }
 
-    /// EXP-694 (S6): what a session row's trailing button opens. ONE item (not
-    /// two `.sheet(item:)`s) because the two cases are mutually exclusive and a
-    /// node presents one sheet.
-    private enum SessionEditTarget: Identifiable {
-        case action(ActionDto)
-        case automation(AutomationDto)
-
-        var id: String {
-            switch self {
-            case let .action(action): "action-\(action.id)"
-            case let .automation(automation): "automation-\(automation.id)"
-            }
-        }
-
-        var accessibilityLabel: String {
-            switch self {
-            case .action: "Edit action"
-            case .automation: "Edit automation"
-            }
-        }
-    }
-
     var body: some View {
         ZStack {
-            // The Chat sheet hangs off the background, not the ZStack: that
-            // node already owns the Start coding sheet + the merge alert, and
-            // stacking presentations on one node is where SwiftUI starts
-            // dropping them. The background is always present, so the FAB
-            // works with or without the machines section.
             AppBackground()
-                .sheet(isPresented: $chatSheetPresented) {
-                    StartCodingSheet(
-                        devices: onlineDevices,
-                        issues: viewModel?.startCandidates(teamId: teamState.activeTeam?.id) ?? [],
-                        preselectedIds: [],
-                        teamId: teamState.activeTeam?.id,
-                        initialTab: .chat,
-                        worktrees: viewModel?.worktrees,
-                        onStart: { chosenDevice, issueIds, options in
-                            start(on: chosenDevice, issueIds: issueIds, options: options)
-                        },
-                        onRunAction: { chosenDevice, action, options, inputs in
-                            runAction(on: chosenDevice, action: action, options: options, inputs: inputs)
-                        }
-                    )
-                }
 
-            // EXP-694 (S6): the session rows' action/automation editor, on its
-            // own zero-size node for the same one-presentation-per-node reason
-            // the Chat sheet has one.
-            Color.clear
-                .frame(width: 0, height: 0)
-                .allowsHitTesting(false)
-                .sheet(item: $sessionEditTarget) { target in
-                    switch target {
-                    case let .action(action):
-                        EditActionSheet(action: action, canEdit: canEditActions)
-                            .environment(\.accountId, accountId)
-                    case let .automation(automation):
-                        AutomationFormSheet(
-                            teamId: automation.teamId,
-                            // The VM observes actions ACCOUNT-wide (a session
-                            // names its own team), so the picker has to scope
-                            // itself — an automation only ever targets an
-                            // action of its own team.
-                            actions: (viewModel?.actions ?? []).filter {
-                                $0.teamId == automation.teamId
-                            },
-                            devices: (viewModel?.devices ?? []).filter(\.canRunAutomations),
-                            editing: automation,
-                            onSubmit: { actionId, deviceId, trigger, launch in
-                                saveAutomation(
-                                    automation,
-                                    actionId: actionId,
-                                    deviceId: deviceId,
-                                    trigger: trigger,
-                                    launch: launch
-                                )
-                            }
-                        )
-                        .environment(\.accountId, accountId)
-                    }
-                }
-
-            if let vm = viewModel {
+            if let vm = viewModel, let steerEnabled {
                 if steerEnabled {
-                    // Machines section present — no full-screen empty state.
-                    agentsContent(vm)
-                } else if vm.rows.isEmpty {
-                    emptyState
+                    machinesContent(vm)
                 } else {
-                    sessionList(vm)
+                    relayOffState
                 }
             }
         }
@@ -208,95 +70,29 @@ struct AgentsView: View {
                     accountId: accountId, userId: deps.auth.userId, db: deps.db
                 )
             }
-            // The list is scoped to the active team like web's Agents page —
-            // the VM observes the account's sessions, the view owns the team.
+            // The list is scoped to the active team — the VM observes the
+            // account's rows, the view owns the team.
             viewModel?.activeTeamId = teamState.activeTeam?.id
-            refreshCanEditActions()
-            // Re-arm on every appear: pushing an issue detail stops the
-            // observation (onDisappear), popping back must resume it.
+            // Re-arm on every appear: pushing a detail stops the observation
+            // (onDisappear), popping back must resume it.
             viewModel?.startObserving()
         }
         .onChange(of: teamState.activeTeam?.id) { _, teamId in
             // EXP-432/EXP-481: the shared rows belong to the ACTIVE team —
             // the VM recomposes on the team switch.
             viewModel?.activeTeamId = teamId
-            refreshCanEditActions()
-        }
-        .onChange(of: chatRequest) { _, _ in
-            chatSheetPresented = true
         }
         .onDisappear {
             viewModel?.stopObserving()
-            startWatcher.stop()
-        }
-        // The desktop picked the start up — push the live steer screen ONCE
-        // (the same destination the .agentSession route arm builds).
-        .onChange(of: startWatcher.startedSession) { _, started in
-            if let started {
-                startWatcher.startedSession = nil
-                sessionTarget = started
-            }
-        }
-        .navigationDestination(item: $sessionTarget) { target in
-            AgentSessionRouteView(sessionId: target.sessionId)
-                .environment(\.accountId, accountId)
-        }
-        .sheet(item: $startSheetDevice) { device in
-            // EXP-257: wiring teamId + onRunAction gives the sheet its
-            // Issues | Actions segmented control — actions launch from the
-            // same unified dialog.
-            StartCodingSheet(
-                // Offline machines are listed but can't be started on — the
-                // picker's pool stays online-only.
-                devices: onlineDevices,
-                issues: viewModel?.startCandidates(teamId: teamState.activeTeam?.id) ?? [],
-                preselectedIds: [],
-                preferredDeviceId: device.deviceId,
-                teamId: teamState.activeTeam?.id,
-                // EXP-481: the live inventory backs the resume offer.
-                worktrees: viewModel?.worktrees,
-                onStart: { chosenDevice, issueIds, options in
-                    start(on: chosenDevice, issueIds: issueIds, options: options)
-                },
-                onRunAction: { chosenDevice, action, options, inputs in
-                    runAction(on: chosenDevice, action: action, options: options, inputs: inputs)
-                }
-            )
-        }
-        .alert(
-            "Merge pull request?",
-            isPresented: Binding(
-                get: { mergeConfirm != nil },
-                set: { if !$0 { mergeConfirm = nil } }
-            ),
-            presenting: mergeConfirm
-        ) { confirm in
-            Button("Merge", role: .destructive) { merge(confirm) }
-            Button("Cancel", role: .cancel) { mergeConfirm = nil }
-        } message: { confirm in
-            // EXP-734: a run's OWN pull request links no issue, so promising
-            // completed issues would be a lie.
-            switch confirm.target {
-            case .issue:
-                Text("Merges the pull request, completes every linked issue, and closes the coding session.")
-            case .session:
-                Text("Merges this run's pull request and closes the coding session.")
-            }
         }
     }
 
     // MARK: - My machines
 
-    /// The machines a run can be sent to (EXP-403: the list itself includes
-    /// offline rows; EXP-432: and teammates' shared servers). The sheet
-    /// narrows this further — EXP-409 drops machines whose every installed
-    /// agent is signed out.
+    /// The machines list (EXP-403: offline rows included; EXP-432: and
+    /// teammates' shared servers).
     private var devices: [SteerDevice]? {
         viewModel?.devices
-    }
-
-    private var onlineDevices: [SteerDevice] {
-        (devices ?? []).filter(\.isOnline)
     }
 
     /// The caller's own machines — the only ones with row actions.
@@ -314,57 +110,21 @@ struct AgentsView: View {
     /// only network read left is the latest-version hint (instance config),
     /// once per account.
     private func refreshLatestVersions() async {
-        guard steerEnabled else { return }
+        guard steerEnabled == true else { return }
         let result = try? await deps.devicesApi.latestVersions(accountId: accountId)
         latestVersions = result ?? latestVersions
     }
 
-    // MARK: - Past (EXP-746)
-
-    /// The caller's finished runs: title + byline, and a tap opens that run's
-    /// fullscreen session view — where its transcript, its close-out summary
-    /// and its Resume live since EXP-773. The row itself holds no state.
-    ///
-    /// This re-adds what EXP-676 removed, for a different reason: a session is
-    /// a screen now, so a finished run is where its transcript and its Resume
-    /// live. Automation runs stay under Automations (`PastRuns.select` drops
-    /// every `started_reason` row).
-    @ViewBuilder
-    private func pastSection(_ vm: AgentsViewModel) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            GlassSectionHeader("Past")
-            ForEach(vm.pastRows) { row in
-                EndedRunRow(
-                    title: PastRuns.title(row.session, issue: row.issue),
-                    identifier: row.issue?.identifier,
-                    byline: pastByline(row),
-                    onOpen: { sessionTarget = .init(sessionId: row.session.id) }
-                )
-                .accessibilityIdentifier("past-run-row")
-            }
-        }
-    }
-
-    /// "macbook · Claude Code · ended by you · 5m ago" — the ×4 rule, fed the
-    /// LIVE devices row's label (a rename never rewrites the session's
-    /// start-time snapshot) and this client's own relative time.
-    private func pastByline(_ row: AgentsViewModel.PastRow) -> String {
-        PastRuns.byline(
-            device: row.device.displayLabel,
-            agent: row.session.agent.map { LaunchVocabulary.agentLabel($0) },
-            endedBy: row.session.endedBy,
-            relativeTime: relativeDate(PastRuns.endedAt(row.session))
-        )
-    }
-
-    private var emptyState: some View {
+    /// Web parity: without the relay there is nothing to start on, and the
+    /// machines list would only ever be decorative.
+    private var relayOffState: some View {
         VStack(spacing: 12) {
             AppIcon(AppIcons.navDevices, size: 28)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            Text("No agents running")
+            Text("Remote start isn't available on this server")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            Text("Start coding on an issue from the desktop IDE. Live sessions show up here.")
+            Text("Machines and remote starts need the steer relay. Live sessions still show up on the Agent page.")
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .multilineTextAlignment(.center)
@@ -372,10 +132,10 @@ struct AgentsView: View {
         .padding(.horizontal, 40)
     }
 
-    // MARK: - Combined content (relay on)
+    // MARK: - Machines content (relay on)
 
     @ViewBuilder
-    private func agentsContent(_ vm: AgentsViewModel) -> some View {
+    private func machinesContent(_ vm: AgentsViewModel) -> some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 8) {
                 GlassSectionHeader("My machines")
@@ -402,69 +162,8 @@ struct AgentsView: View {
                         .padding(.horizontal, 4)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                if let sentCaption = startWatcher.sentCaption {
-                    Text(sentCaption)
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .padding(.horizontal, 4)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                if let startError = startWatcher.failure {
-                    Text(startError)
-                        .font(.caption2)
-                        .foregroundStyle(DesignTokens.Semantic.red)
-                        .padding(.horizontal, 4)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                GlassSectionHeader("Running")
-                if vm.rows.isEmpty {
-                    noAgentsRow
-                } else {
-                    // EXP-818: a run started by another run nests under its
-                    // parent, indented (`SessionTree`, the ×4 rule).
-                    ForEach(
-                        SessionTree.nest(
-                            vm.rows,
-                            id: { $0.session.id },
-                            parent: { $0.session.parentSessionId },
-                            startedAt: { $0.session.startedAt }
-                        ),
-                        id: \.session.id
-                    ) { entry in
-                        sessionRow(entry.session)
-                            .padding(.leading, CGFloat(entry.depth) * 16)
-                    }
-                }
-
-                // EXP-746: the caller's finished runs. Absent entirely when
-                // there are none — an empty history is not news.
-                if !vm.pastRows.isEmpty {
-                    pastSection(vm)
-                }
             }
             .padding()
-            // Its own node, NOT the ScrollView (that one owns the settings
-            // sheet + remove alert) and NOT the body ZStack (the start sheet
-            // + merge alert) — same one-presentation-per-node rule as below.
-            .sheet(item: $fixTarget) { target in
-                StartCodingSheet(
-                    devices: onlineDevices,
-                    issues: viewModel?.startCandidates(teamId: teamState.activeTeam?.id) ?? [],
-                    preselectedIds: [],
-                    teamId: teamState.activeTeam?.id,
-                    initialTab: .actions,
-                    preselectedActionId: DomainContract.builtinFixConflictsId,
-                    preselectedPrIssueId: target.issueId,
-                    worktrees: viewModel?.worktrees,
-                    onStart: { chosenDevice, issueIds, options in
-                        start(on: chosenDevice, issueIds: issueIds, options: options)
-                    },
-                    onRunAction: { chosenDevice, action, options, inputs in
-                        runAction(on: chosenDevice, action: action, options: options, inputs: inputs)
-                    }
-                )
-            }
         }
         // Clearance for the floating tab bar (EXP-36).
         .tabBarBottomInset()
@@ -481,9 +180,8 @@ struct AgentsView: View {
                 )
             }
         }
-        // The machine alert hangs off THIS view, not the body's ZStack: that
-        // one already owns the merge-and-close alert, and stacking several
-        // `.alert`s on one node is where SwiftUI starts dropping presentations.
+        // The machine alert hangs off the ScrollView's own node — one
+        // presentation per node, or SwiftUI starts dropping them.
         .alert(
             "Remove machine?",
             isPresented: Binding(
@@ -558,8 +256,12 @@ struct AgentsView: View {
             if device.isOnline, device.hasRunnableAgent {
                 // EXP-615: the play glyph, not a "Start coding" pill — the
                 // same affordance web and desktop wear on their machine rows.
+                // EXP-825: it pushes the Agent page with THIS machine picked.
                 CircleIconButton(AppIcons.actionRun, accessibilityLabel: "Start coding") {
-                    startSheetDevice = device
+                    pushRoute(.agent(
+                        accountId: accountId,
+                        seed: AgentComposerSeed(deviceId: device.deviceId)
+                    ))
                 }
             }
 
@@ -696,18 +398,6 @@ struct AgentsView: View {
         .glassRow()
     }
 
-    private var noAgentsRow: some View {
-        HStack(spacing: 8) {
-            Text("No agents running right now.")
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 12)
-        .glassRow()
-    }
-
     // MARK: - Machine actions
 
     /// EXP-481: outcomes land via sync (the devices shape), so the handlers
@@ -742,411 +432,13 @@ struct AgentsView: View {
         }
     }
 
-    // MARK: - Session list (relay off, sessions present)
-
-    @ViewBuilder
-    private func sessionList(_ vm: AgentsViewModel) -> some View {
-        ScrollView {
-            LazyVStack(spacing: 8) {
-                ForEach(vm.rows) { row in
-                    sessionRow(row)
-                }
-            }
-            .padding()
-        }
-        // Clearance for the floating tab bar (EXP-36).
-        .tabBarBottomInset()
-    }
-
-    // The primary tap target and the trailing affordances (merge-and-close,
-    // info) are siblings (not nested controls) so every hit area stays
-    // reliable.
-    @ViewBuilder
-    private func sessionRow(_ row: AgentsViewModel.Row) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            sessionRowBody(row)
-            if let failure = mergeErrors[row.id] {
-                mergeErrorCaption(row, failure: failure)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 12)
-        .glassRow()
-        .accessibilityIdentifier("agent-session-row")
-        // EXP-698: the row's tap goes to the LIVE session when steering is on,
-        // and the identifier pill that used to be the way to the issue is gone
-        // (the title already prints the identifier). The issue keeps a route:
-        // press and hold. The steering screen's "…" menu carries the twin.
-        .contextMenu {
-            if let issue = row.issue, !(issue.identifier ?? "").isEmpty {
-                // A NavigationLink inside a context menu is lowered to a
-                // UIMenu outside the NavigationStack and never fires; route
-                // through the deep-link bus like the steering screen does.
-                Button {
-                    deps.deepLinkBus.navigateToIssue(issue.id, accountId: accountId)
-                } label: {
-                    Label("Open issue", appIcon: AppIcons.uiIssue)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func sessionRowBody(_ row: AgentsViewModel.Row) -> some View {
-        HStack(spacing: 12) {
-            // Every listed row is the caller's own (EXP-312: live sessions are
-            // owner-only), so with the relay configured the row jumps straight
-            // into the live agent session; without it, into the issue detail,
-            // where the card shows whatever is available.
-            Group {
-                if steerEnabled {
-                    NavigationLink(value: AppRoute.agentSession(
-                        accountId: accountId, sessionId: row.session.id
-                    )) {
-                        sessionRowContent(row)
-                    }
-                    .buttonStyle(.plain)
-                } else if let issue = row.issue {
-                    NavigationLink(value: AppRoute.issue(accountId: accountId, id: issue.id)) {
-                        sessionRowContent(row)
-                    }
-                    .buttonStyle(.plain)
-                } else {
-                    sessionRowContent(row)
-                }
-            }
-
-            // Merge shortcut — merging always closes the run too (EXP-498),
-            // so it only shows while there IS an open PR to merge. EXP-535:
-            // batch rows merge through their resolved PR's representative
-            // issue — same button, same server call (the server resolves a
-            // batch PR to EVERY linked issue by exact pr_url).
-            if let target = row.mergeTarget {
-                if merging.contains(row.id) {
-                    ProgressView()
-                        .controlSize(.mini)
-                        .tint(.white)
-                        .frame(width: GlassTokens.controlSize, height: GlassTokens.controlSize)
-                        .accessibilityLabel("Merging")
-                } else {
-                    CircleIconButton(AppIcons.prMerged, accessibilityLabel: "Merge") {
-                        mergeConfirm = MergeConfirmTarget(rowId: row.id, target: target)
-                    }
-                }
-            }
-
-            sessionTrailingControl(row)
-        }
-        .frame(minHeight: sessionTrailingColumnHeight)
-    }
-
-    /// EXP-694 (S6): the row's trailing affordance names WHAT the run is
-    /// about, instead of the old `ui-info` glyph that only ever appeared on
-    /// issue runs. An action or automation run wears that action's own glyph
-    /// and opens its editor. A chat or batch run points at nothing, so it gets
-    /// nothing.
-    ///
-    /// EXP-698: an ISSUE run gets nothing here either — `SessionRowTitle`
-    /// already prints the identifier as the title's prefix, so the trailing
-    /// pill printed it a second time and stole the width the (truncating)
-    /// title needed.
-    @ViewBuilder
-    private func sessionTrailingControl(_ row: AgentsViewModel.Row) -> some View {
-        if !(row.issue?.identifier ?? "").isEmpty {
-            // The title carries the identifier; nothing to repeat here.
-            EmptyView()
-        } else if let action = sessionAction(row) {
-            let target = editTarget(for: row, action: action)
-            CircleIconButton(
-                action.icon ?? AppIcons.actionDefault,
-                accessibilityLabel: target.accessibilityLabel
-            ) {
-                sessionEditTarget = target
-            }
-        }
-    }
-
-    /// The row's trailing column: `controlMd` tall whatever it holds, so the
-    /// merge circle, the action button and the "…" of the machine rows above
-    /// all sit on one centre line (EXP-698).
-    private var sessionTrailingColumnHeight: CGFloat { GlassTokens.controlSize }
-
-    /// The action a run came from, off the synced store (`action_id` nulls
-    /// when the action is deleted — the row keeps its name snapshot, but there
-    /// is nothing left to edit, so no button).
-    private func sessionAction(_ row: AgentsViewModel.Row) -> ActionDto? {
-        guard let actionId = row.session.actionId else { return nil }
-        return viewModel?.actions.first { $0.id == actionId }
-    }
-
-    /// The automation that fired the run (EXP-583: `automation_id`, NULL on
-    /// person-started runs and on pre-EXP-583 automated ones).
-    private func sessionAutomation(_ row: AgentsViewModel.Row) -> AutomationDto? {
-        guard let automationId = row.session.automationId else { return nil }
-        return viewModel?.automations.first { $0.id == automationId }
-    }
-
-    /// An automation-started run edits the AUTOMATION when we can resolve it
-    /// and the caller owns the team (the form is a write surface with no
-    /// read-only mode); everything else lands in the action editor, which is
-    /// read-only for non-owners by itself.
-    private func editTarget(for row: AgentsViewModel.Row, action: ActionDto) -> SessionEditTarget {
-        if let automation = sessionAutomation(row), canEditActions {
-            return .automation(automation)
-        }
-        return .action(action)
-    }
-
-    /// Re-resolves the owner mirror for the team on screen. Called on appear
-    /// and on every team switch — nothing else can change the answer while
-    /// the tab is up.
-    private func refreshCanEditActions() {
-        guard let pool = try? deps.db.pool(forAccountId: accountId) else {
-            canEditActions = false
-            return
-        }
-        canEditActions = TeamPermissions.resolve(
-            team: teamState.activeTeam,
-            currentUserId: deps.auth.userId,
-            isAdmin: deps.auth.isAdmin,
-            dbPool: pool
-        ).isOwner
-    }
-
-    /// Saves an edited automation (EXP-583's owner-gated `automations.update`).
-    /// The synced row echoes the change back, so there is no local write.
-    private func saveAutomation(
-        _ automation: AutomationDto,
-        actionId: String,
-        deviceId: String,
-        trigger: AutomationTrigger,
-        launch: AutomationLaunchPatch
-    ) {
-        Task {
-            do {
-                try await deps.automationsApi.update(
-                    accountId: accountId,
-                    id: automation.id,
-                    actionId: actionId,
-                    deviceId: deviceId,
-                    trigger: trigger,
-                    launch: launch
-                )
-            } catch {
-                deviceError = error.userFacingMessage
-            }
-        }
-    }
-
-    /// A refused merge (conflicts, branch protection, GitHub App errors)
-    /// captions THIS row — and a conflict is the common case, so the builtin
-    /// recovery run sits right next to the reason (EXP-486, the same shape as
-    /// the Reviews rows, EXP-323).
-    @ViewBuilder
-    private func mergeErrorCaption(_ row: AgentsViewModel.Row, failure: MergeFailure) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(failure.message)
-                .font(.caption)
-                .foregroundStyle(DesignTokens.Semantic.red)
-                .fixedSize(horizontal: false, vertical: true)
-
-            // EXP-535: a batch row's refused merge recovers through the same
-            // representative issue its Merge button used — the sheet's PR
-            // picker normalizes any linked issue id to its option.
-            if failure.isConflict, let issue = row.issue ?? row.batchPrIssue, canFixConflicts(issue) {
-                GlassPill("Fix conflicts", icon: AppIcons.uiBranch, mode: .action {
-                    fixTarget = FixConflictsTarget(rowId: row.id, issueId: issue.id)
-                })
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    /// The recovery run rebases the PR's branch, so it needs one recorded —
-    /// the same gate the Reviews rows apply. The caption already implies a
-    /// failed merge and the caller already checked it was a REAL conflict
-    /// (EXP-533), so only steer + branch remain to check.
-    private func canFixConflicts(_ issue: IssueEntity) -> Bool {
-        steerEnabled && !(issue.branch ?? "").isEmpty
-    }
-
-    /// Merge the row's PR — the server always ends its session too (EXP-498).
-    /// No local list surgery: the server flips the row to `ended`, which drops
-    /// it out of the live query through sync. A refusal (conflicts, branch
-    /// protection) captions THIS row.
-    private func merge(_ confirm: MergeConfirmTarget) {
-        mergeConfirm = nil
-        mergeErrors[confirm.rowId] = nil
-        merging.insert(confirm.rowId)
-        Task {
-            do {
-                // EXP-734: an action or chat run's PR links no issue — it
-                // merges through the session row the server stamped it on.
-                switch confirm.target {
-                case let .issue(issueId):
-                    try await deps.issuesApi.mergePr(
-                        accountId: accountId,
-                        issueId: issueId
-                    )
-                case let .session(sessionId):
-                    try await deps.codingSessionsApi.mergePr(
-                        accountId: accountId,
-                        sessionId: sessionId
-                    )
-                }
-            } catch {
-                mergeErrors[confirm.rowId] = MergeFailure(error: error)
-            }
-            merging.remove(confirm.rowId)
-        }
-    }
-
-    @ViewBuilder
-    private func sessionRowContent(_ row: AgentsViewModel.Row) -> some View {
-        // The parked states render a static dot/label instead of the
-        // pulsing-green "Coding now": review green, done blue (once the PR
-        // merges), needs-input amber while the agent waits on a picker
-        // (EXP-194/EXP-214).
-        // EXP-734: a run that opened its own issue-less PR carries the state
-        // on its OWN row — otherwise a merged chore PR still read "review".
-        let state = CodingSessionDisplayState.of(
-            session: row.session, prState: row.issue?.prState ?? row.session.prState
-        )
-        // EXP-550: the host machine stopped heartbeating (lid closed) — the
-        // run is PAUSED, not ended, and resumes when the machine returns. A
-        // pulsing "coding now" dot would be a lie, so it goes neutral.
-        let paused = row.device.isPaused(state)
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                // EXP-688: line 1 is shared with the steering screen's header
-                // (SessionRowTitle) so the two can never drift.
-                SessionRowTitle(
-                    identifier: row.issue?.identifier,
-                    title: title(row),
-                    state: state,
-                    paused: paused
-                )
-                HStack(spacing: 6) {
-                    if paused {
-                        Text("Paused")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            .lineLimit(1)
-                    } else if let label = sessionStateLabel(state) {
-                        Text(label)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(sessionStateColor(state))
-                            .lineLimit(1)
-                    }
-                    // EXP-804: BESIDE the state, never instead of it — a
-                    // walled run still reads `running`.
-                    SessionBlockedBadge(blocked: row.session.blocked)
-                    Text(byline(row, paused: paused))
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .lineLimit(1)
-                }
-            }
-
-            Spacer(minLength: 0)
-        }
-        .contentShape(Rectangle())
-    }
-
-    /// An issueless (nil session issueId) run is an action run when the row
-    /// carries its action_name snapshot (EXP-253), else a batch run — never
-    /// "Untitled issue". A single-issue session whose issue row simply hasn't
-    /// synced yet still reads "Untitled issue".
-    private func title(_ row: AgentsViewModel.Row) -> String {
-        sessionRowTitle(issue: row.issue, session: row.session)
-    }
-
-    /// EXP-549: the machine name comes from the LIVE devices row (a rename
-    /// never rewrites the session's start-time snapshot). EXP-550: a paused
-    /// row says WHY instead of how long ago it started.
-    private func byline(_ row: AgentsViewModel.Row, paused: Bool) -> String {
-        let device = row.device.displayLabel
-        if paused { return "\(device) · offline" }
-        let started = relativeDate(row.session.startedAt)
-        return started.isEmpty ? device : "\(device) · started \(started)"
-    }
-
     private func relativeDate(_ s: String) -> String {
-        // Electric syncs started_at as Postgres text (space separator, hour-only
-        // offset), which ISO8601DateFormatter alone rejects — WireTimestamps
-        // handles both wire forms (EXP-169).
+        // Electric syncs timestamps as Postgres text (space separator,
+        // hour-only offset), which ISO8601DateFormatter alone rejects —
+        // WireTimestamps handles both wire forms (EXP-169).
         guard let date = WireTimestamps.parse(s) else { return "" }
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .short
         return formatter.localizedString(for: date, relativeTo: Date())
-    }
-
-    // MARK: - Remote start
-
-    private func start(on device: SteerDevice, issueIds: [String], options: SteerStartOptions) {
-        guard let key = StartedRunKey.forIssues(issueIds) else { return }
-        startWatcher.sending()
-        Task {
-            do {
-                if issueIds.count > 1 {
-                    try await deps.steerApi.startSession(
-                        accountId: accountId,
-                        issueIds: issueIds,
-                        deviceId: device.deviceId,
-                        options: options
-                    )
-                } else {
-                    try await deps.steerApi.startSession(
-                        accountId: accountId,
-                        issueId: issueIds[0],
-                        deviceId: device.deviceId,
-                        options: options
-                    )
-                }
-                startWatcher.begin(
-                    key: key,
-                    userId: deps.auth.userId,
-                    device: device,
-                    db: deps.db,
-                    accountId: accountId
-                )
-            } catch {
-                startWatcher.failed(error.userFacingMessage)
-            }
-        }
-    }
-
-    /// Actions-mode launch from the unified sheet (EXP-257): full option set,
-    /// typed input values, `teamId` only for the builtin "Create action" (its
-    /// virtual row has no server-resolvable id). EXP-536: like an issue start,
-    /// the run is pushed as soon as its synced row lands.
-    private func runAction(
-        on device: SteerDevice,
-        action: ActionDto,
-        options: SteerStartOptions,
-        inputs: [String: String]
-    ) {
-        startWatcher.sending()
-        Task {
-            do {
-                try await deps.steerApi.startSession(
-                    accountId: accountId,
-                    actionId: action.id,
-                    deviceId: device.deviceId,
-                    teamId: action.isBuiltin ? action.teamId : nil,
-                    options: options,
-                    inputs: inputs.isEmpty ? nil : inputs
-                )
-                startWatcher.begin(
-                    key: .action(name: action.name),
-                    userId: deps.auth.userId,
-                    device: device,
-                    db: deps.db,
-                    accountId: accountId
-                )
-            } catch {
-                startWatcher.failed(error.userFacingMessage)
-            }
-        }
     }
 }

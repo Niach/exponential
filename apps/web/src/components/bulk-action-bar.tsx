@@ -3,7 +3,6 @@ import {
   Check,
   Flag,
   ListTodo,
-  LoaderCircle,
   Minus,
   Tag,
   Trash2,
@@ -20,7 +19,7 @@ import { useTeamBoards } from "@/hooks/use-team-data"
 import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useSteerConfig } from "@/components/agent-session"
 import { useIsTeamMember } from "@/components/issue-coding-rows"
-import { LaunchDialog } from "@/components/launch-dialog/launch-dialog"
+import { useOpenComposer } from "@/hooks/use-open-composer"
 import { trpc } from "@/lib/trpc-client"
 import { issuePriorityOptions } from "@/lib/domain"
 import type { IssuePriority } from "@/lib/domain"
@@ -475,9 +474,9 @@ const StartCodingIcon = conceptIcon(`action-run`)
 // EXP-642: bulk "Start coding" — the desktop/iOS/Android selection bars have
 // had it since EXP-439, only web lacked it. Gates, in order: member, relay
 // configured, at least one selected issue on a REPO-BACKED board. That last
-// one matters because LaunchDialog seeds its checkboxes from
-// `initialIssueIds` but only LISTS repo-backed boards, so an unfiltered seed
-// would silently include issues the dialog can neither show nor start.
+// one matters because the composer (EXP-825) seeds its chips from the ids
+// but only LISTS repo-backed boards, so an unfiltered seed would silently
+// include issues the composer can neither show nor start.
 function BulkStartCodingButton({
   teamId,
   issues,
@@ -535,59 +534,31 @@ function BulkStartCodingControl({
   onClear: () => void
 }) {
   const remote = useRemoteStart({ currentUserId, teamId })
-  const [dialogOpen, setDialogOpen] = useState(false)
+  const openComposer = useOpenComposer()
 
   // Devices still resolving, or nothing to start on: stay quiet rather than
   // spend a slot in an already-crowded bar on an explanation (the issue view
   // carries that copy).
   if (remote.devices === null || remote.devices.length === 0) return null
 
-  const busy = remote.starting || remote.sentTo !== null
   return (
-    <>
-      {/* EXP-698 r5: the row's ONE call to action — the accent pill every
-          client paints here, text and all, on phones too. */}
-      <Pill
-        size="md"
-        mode="action"
-        primary
-        className="mx-1 max-md:mx-0 max-md:gap-1 max-md:px-2.5 max-md:text-xs"
-        disabled={busy}
-        aria-label="Start coding"
-        onClick={() => setDialogOpen(true)}
-      >
-        {busy ? (
-          <LoaderCircle className="size-4 animate-spin" />
-        ) : (
-          <StartCodingIcon className="size-4" />
-        )}
-        Start coding
-      </Pill>
-      <LaunchDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        devices={remote.devices}
-        starting={remote.starting}
-        teamId={teamId}
-        initialTab="issues"
-        initialIssueIds={issueIds}
-        onStartIssues={(device, options, ids) => {
-          remote
-            .startIssues(device, options, ids)
-            .then(() => {
-              setDialogOpen(false)
-              // Desktop parity (EXP-439): a launched selection is done with.
-              onClear()
-            })
-            .catch(() => {})
-        }}
-        onRunAction={(device, action, options, inputs) => {
-          remote
-            .runAction(device, action, options, inputs)
-            .then(() => setDialogOpen(false))
-            .catch(() => {})
-        }}
-      />
-    </>
+    /* EXP-698 r5: the row's ONE call to action — the accent pill every
+       client paints here, text and all, on phones too. EXP-825: it lands
+       the selection on the Agent page composer as chips (2+ = a batch). */
+    <Pill
+      size="md"
+      mode="action"
+      primary
+      className="mx-1 max-md:mx-0 max-md:gap-1 max-md:px-2.5 max-md:text-xs"
+      aria-label="Start coding"
+      onClick={() => {
+        openComposer({ issueIds })
+        // Desktop parity (EXP-439): a launched selection is done with.
+        onClear()
+      }}
+    >
+      <StartCodingIcon className="size-4" />
+      Start coding
+    </Pill>
   )
 }

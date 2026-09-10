@@ -87,6 +87,29 @@ public final class AttachmentsApi: Sendable {
         )
     }
 
+    /// EXP-825: an image attached in the Agent page composer BEFORE any
+    /// session exists — a start is only a command, the desktop inserts the
+    /// row later. `POST /api/teams/{teamId}/session-files` stores it as a
+    /// `session_attachments` row with `session_id NULL` that the start binds
+    /// (`codingSessions.start` `attachmentIds`); an abandoned upload is
+    /// reclaimed by the server's orphan sweep. Same multipart part and
+    /// response as the session route; the server gates on team membership.
+    public func uploadTeamSessionImage(
+        accountId: String,
+        teamId: String,
+        data: Data,
+        filename: String,
+        contentType: String
+    ) async throws -> UploadedAttachment {
+        try await upload(
+            accountId: accountId,
+            path: "/api/teams/\(teamId)/session-files",
+            data: data,
+            filename: filename,
+            contentType: contentType
+        )
+    }
+
     private func upload(
         accountId: String,
         path: String,

@@ -230,9 +230,14 @@ import androidx.room.RoomDatabase
     //      lists nest a child under its parent. New column on the
     //      coding-sessions shape allowlist; destructive fallback wipes +
     //      resyncs so every row arrives carrying it.
+    // v51 (EXP-825): actions.prompt_placeholder — the composer's field hint
+    //      while the action is picked (what the requester should type beside
+    //      it), NULL = the generic prompt. New column on the actions shape
+    //      allowlist; destructive fallback wipes + resyncs so every action
+    //      row arrives carrying it.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 50,
+    version = 51,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

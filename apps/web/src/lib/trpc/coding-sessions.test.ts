@@ -53,7 +53,7 @@ vi.mock(`@/lib/steer-child-messages`, () => ({
 }))
 
 import { codingSessionsRouter } from "@/lib/trpc/coding-sessions"
-import { codingSessions } from "@/db/schema"
+import { codingSessions, sessionAttachments } from "@/db/schema"
 import { notifyParentOfChildEnd } from "@/lib/steer-child-messages"
 
 const ISSUE_ID = `11111111-1111-4111-8111-111111111111`
@@ -122,13 +122,19 @@ const fakeDb = {
   }),
   update: (table: unknown) => ({
     set: (values: Record<string, unknown>) => ({
-      where: (cond: unknown) => ({
-        returning: async () => {
+      where: (cond: unknown) => {
+        const run = () => {
           updates.push({ table, values })
           updateWheres.push(cond)
           return updateResults.shift() ?? [{ id: SESSION_ID }]
-        },
-      }),
+        }
+        return {
+          returning: async () => run(),
+          // EXP-825: the attachment bind is awaited without .returning().
+          then: (resolve: (value: unknown) => unknown) =>
+            Promise.resolve(run()).then(resolve),
+        }
+      },
     }),
   }),
 }
@@ -783,6 +789,30 @@ describe(`codingSessions — builtin create-action (EXP-257)`, () => {
     })
     expect(`issueId` in inserts[0]!.values).toBe(false)
     expect(result.session).toMatchObject({ actionName: `Create action` })
+  })
+
+  // EXP-825: the start's pending images (uploaded before the row existed)
+  // bind to the new row — scoped to the requester's own pending uploads.
+  it(`start binds the prompt's pending images to the new row`, async () => {
+    const IMG = `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`
+    await caller.start({
+      actionId: BUILTIN_ID,
+      teamId: TEAM_ID,
+      attachmentIds: [IMG],
+    })
+    expect(updates).toHaveLength(1)
+    expect(updates[0]!.table).toBe(sessionAttachments)
+    expect(updates[0]!.values).toEqual({ sessionId: SESSION_ID })
+    const shape = whereShape(updateWheres[0])
+    expect(shape).toContain(IMG)
+    expect(shape).toContain(TEAM_ID)
+    expect(shape).toContain(`actor`)
+    expect(shape).toContain(`col:session_id`)
+  })
+
+  it(`start issues no bind without attachmentIds`, async () => {
+    await caller.start({ actionId: BUILTIN_ID, teamId: TEAM_ID })
+    expect(updates).toHaveLength(0)
   })
 
   it(`heartbeat resurrects a builtin row actionId-NULL with the server-constant name`, async () => {

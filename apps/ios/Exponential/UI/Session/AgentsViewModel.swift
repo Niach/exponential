@@ -2,12 +2,14 @@ import ExpCore
 import Foundation
 import GRDB
 
-/// Backs the Agents tab: the signed-in user's own live coding sessions in the
-/// ACTIVE TEAM of the active account (the synced `coding_sessions` shape) —
-/// running AND in_review (EXP-194), joined to their issues for display. Desktop
-/// is the only session runner — this list is the mobile window into what YOU are
-/// coding right now; teammates' runs are owner-only (EXP-312) and never listed
-/// here, and the team scoping mirrors web's `use-agents-data.ts`.
+/// Backs the Devices tab (machines) AND the Agent page (EXP-825: the
+/// sessions and the composer's pools): the signed-in user's own live coding
+/// sessions in the ACTIVE TEAM of the active account (the synced
+/// `coding_sessions` shape) — running AND in_review (EXP-194), joined to
+/// their issues for display. Desktop is the only session runner — this list
+/// is the mobile window into what YOU are coding right now; teammates' runs
+/// are owner-only (EXP-312) and never listed here, and the team scoping
+/// mirrors web's `use-agents-data.ts`.
 @MainActor @Observable
 final class AgentsViewModel {
     struct Row: Identifiable {
@@ -59,8 +61,8 @@ final class AgentsViewModel {
     /// `devices.list` poll. nil until the first observation emission, so the
     /// view can tell "loading" from "no machines".
     var devices: [SteerDevice]?
-    /// EXP-481: the synced worktree inventory (shape 18) — the Start-coding
-    /// sheet's resume probe and the device-settings worktree list.
+    /// EXP-481: the synced worktree inventory (shape 18) — the composer's
+    /// resume probe and the device-settings worktree list.
     var worktrees: [DeviceWorktreeEntity] = []
     /// EXP-694: the synced actions/automations, account-wide (a session names
     /// its own team). The session rows' trailing control resolves its glyph and
@@ -117,7 +119,7 @@ final class AgentsViewModel {
     private var sessions: [CodingSessionEntity] = []
     private var endedSessions: [CodingSessionEntity] = []
     private var issues: [IssueEntity] = []
-    // Observed so the Start-coding picker can resolve repo-backed boards
+    // Observed so the composer's issue pool can resolve repo-backed boards
     // (EXP-156) and so the batch-PR resolution can scope issues to the
     // active team (EXP-535 — issues don't sync team_id).
     private var boards: [BoardEntity] = []
@@ -170,7 +172,7 @@ final class AgentsViewModel {
             } catch {}
         }
 
-        // Boards back the Start-coding picker's eligibility filter AND scope
+        // Boards back the composer's issue-pool eligibility filter AND scope
         // the batch-PR resolution (EXP-535: issues don't sync team_id), so
         // the running-session list rebuilds on these too.
         let boardObservation = ValueObservation.tracking { db in
@@ -397,45 +399,43 @@ final class AgentsViewModel {
         }
     }
 
-    /// Candidate issues for the Agents-tab Start-coding sheet (EXP-156): every
+    /// Candidate issues for the Agent page composer (EXP-156/EXP-825): every
     /// eligible issue in `teamId` (nil = across all synced teams),
-    /// recency-ordered, no preselection. Same eligibility as the issue-detail
-    /// card minus the current-issue exemption. Reads the already-observed
-    /// boards/issues (no DB round-trip).
-    func startCandidates(teamId: String?) -> [StartCodingSheet.IssueOption] {
-        // Repo-backed boards only — boardId → repositoryId.
-        var repoByBoard: [String: String] = [:]
-        for board in boards {
-            if let teamId, board.teamId != teamId { continue }
-            if let repoId = board.repositoryId {
-                repoByBoard[board.id] = repoId
-            }
-        }
-        // ANCHOR set (EXP-314): custom statuses anchor to one of these enum
-        // values, so the check keeps gating them correctly.
-        let terminal: Set<String> = [
-            IssueStatus.done.rawValue,
-            IssueStatus.cancelled.rawValue,
-            IssueStatus.duplicate.rawValue,
-        ]
-        return issues
-            .filter { row in
-                guard repoByBoard[row.boardId] != nil else { return false }
-                if terminal.contains(row.status) { return false }
-                if row.prState == DomainContract.prStateMerged { return false }
-                return true
-            }
-            .sorted { $0.updatedAt > $1.updatedAt }
-            .map { row in
-                StartCodingSheet.IssueOption(
-                    id: row.id,
-                    identifier: row.identifier,
-                    title: row.title,
-                    repositoryId: repoByBoard[row.boardId],
-                    status: row.status,
-                    priority: row.priority
-                )
-            }
+    /// recency-ordered; `exempt` ids (the composer's checked set) skip the
+    /// issue-level checks so a seeded issue stays on offer. Reads the
+    /// already-observed boards/issues (no DB round-trip), so the pool is LIVE.
+    func startCandidates(teamId: String?, exempt: Set<String> = []) -> [IssueOption] {
+        IssueOption.build(issues: issues, boards: boards, teamId: teamId, exempt: exempt)
+    }
+
+    /// EXP-825: the team's synced boards, sortOrder-then-name — the `board`
+    /// inputs pick from them.
+    func teamBoards(teamId: String?) -> [BoardEntity] {
+        guard let teamId else { return [] }
+        return boards
+            .filter { $0.teamId == teamId }
+            .sorted { ($0.sortOrder ?? 0, $0.name) < ($1.sortOrder ?? 0, $1.name) }
+    }
+
+    /// EXP-825: the team's action rows (the composer prepends the builtins
+    /// itself), sortOrder-then-name like the server list.
+    func teamActions(teamId: String?) -> [ActionDto] {
+        guard let teamId else { return [] }
+        return actions
+            .filter { $0.teamId == teamId }
+            .sorted { ($0.sortOrder, $0.name) < ($1.sortOrder, $1.name) }
+    }
+
+    /// EXP-825: the team's open issue-linked pull requests, one option per
+    /// PR (EXP-259/EXP-270) — the `pr` inputs pick from them. Issues don't
+    /// sync team_id, so the scope comes from the synced boards.
+    func openPullRequests(teamId: String?) -> [StartPullRequestOption] {
+        guard let teamId else { return [] }
+        let boardIds = Set(boards.filter { $0.teamId == teamId }.map(\.id))
+        return StartPullRequestOption.build(
+            from: issues.filter { $0.prState == DomainContract.prStateOpen },
+            teamBoardIds: boardIds
+        )
     }
 
     private func rebuild() {

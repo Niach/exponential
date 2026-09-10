@@ -21,7 +21,7 @@
     {
       "id": "coding",
       "label": "Coding",
-      "blurb": "The Actions surface plus the start-coding launcher, the chat page and one live session being steered.",
+      "blurb": "The Actions surface, the Devices page, the Agent composer that launches every run, and one live session being steered.",
       "order": 4
     },
     {
@@ -862,111 +862,104 @@
       }
     },
     {
-      "id": "start-coding",
+      "id": "chat",
       "group": "coding",
-      "title": "Start coding · Issues",
-      "blurb": "The launcher: pick the machine, the agent and the options, then hand the issue to a coding session.",
+      "title": "Agent",
+      "blurb": "The Agent page: the sessions list (running, then past) beside the composer — the ONE launcher since EXP-825 — here empty: a free prompt bound to no issue that needs no repository.",
       "order": 3,
       "web": {
-        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-3",
+        "route": "/t/$teamSlug/agent",
         "anchor": {
-          "text": "Start coding",
+          "text": "Running",
           "timeoutMs": 30000
         },
-        "recipe": "openStartCoding",
         "settleMs": 800
       },
       "webMobile": "inherit",
       "ios": {
-        "shot": "03_start-coding",
-        "lane": "store"
+        "shot": "sg_chat",
+        "lane": "styleguide"
       },
       "android": {
-        "shot": "3_start-coding",
-        "lane": "store"
+        "shot": "sg_chat",
+        "lane": "styleguide"
       },
       "notes": {
-        "desktop": "The desktop dialog is the REAL launcher, not a remote-start picker: it probes the issue’s repository and gates the Start button on the doctor (git plus the selected agent). Capture it on a machine with the repo cloned and a signed-in agent CLI, or the shot carries a red \"claude not found on PATH\" footer."
+        "desktop": "The IDE's Agent rail entry is the same master-detail: the Sessions tool window beside the Chat screen. `EXP_DEV_SCREEN=chat` opens it, and the desktop lane pairs every chat drive with `EXP_DEV_TOOL=agent` the way the rail does."
       },
       "desktop": {
         "drive": {
-          "kind": "dialog",
-          "value": "start-coding"
-        },
-        "anchorDelayMs": 600,
-        "env": {
-          "EXP_DEV_TOOL": "board"
+          "kind": "screen",
+          "value": "chat"
         }
       }
     },
     {
-      "id": "start-coding-actions",
+      "id": "chat-issues",
       "group": "coding",
-      "title": "Start coding · Actions",
-      "blurb": "The launcher's Actions tab: pick a saved action, fill its typed inputs, pick the machine that runs it.",
+      "title": "Agent · Issues",
+      "blurb": "The composer with work attached: one chip per picked issue above the prompt, the machine and agent pickers under it. Two issues off the board, handed to one run.",
       "order": 4,
       "web": {
-        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-3",
+        "route": "/t/$teamSlug/agent?issues=$issueA,$issueB",
         "anchor": {
-          "text": "Run action",
+          "testId": "agent-composer-chip-issue-APP-3",
           "timeoutMs": 30000
         },
-        "recipe": "openStartCodingActions",
         "settleMs": 800
       },
       "webMobile": "inherit",
-      "desktop": {
-        "drive": {
-          "kind": "dialog",
-          "value": "start-coding-actions"
-        },
-        "anchorDelayMs": 600,
-        "env": {
-          "EXP_DEV_SCREEN": "devices"
-        }
-      },
       "ios": {
-        "shot": "sg_start-coding-actions",
+        "shot": "sg_chat-issues",
         "lane": "styleguide"
       },
       "android": {
-        "shot": "sg_start-coding-actions",
+        "shot": "sg_chat-issues",
         "lane": "styleguide"
+      },
+      "notes": {
+        "web": "`issues` is a one-shot search param, a csv of issue uuids. `$issueA`/`$issueB` resolve to APP-3 and APP-6 (apps/web/scripts/lib/demo-ids.ts): two codeable issues on the repo-backed board that no seeded session runs on, the first being the issue the phone store slide starts coding from — hence the anchor on its chip. Needs `bun run screenshots:desktop`: without an online machine the device picker is empty.",
+        "desktop": "The same query string on the dev screen, `EXP_DEV_SCREEN=chat?issues=<a>,<b>` (EXP-825), paired with `EXP_DEV_TOOL=agent` by the lane."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "chat?issues=$issueA,$issueB"
+        }
       }
     },
     {
-      "id": "start-coding-chat",
+      "id": "chat-action",
       "group": "coding",
-      "title": "Start coding · Chat",
-      "blurb": "The launcher's Chat tab (EXP-615): a free prompt on a repository's default branch, no issue attached.",
+      "title": "Agent · Action",
+      "blurb": "The composer running a saved action: the action chip above the prompt and the action's typed inputs under it — here the builtin Fix merge conflicts with an open PR already filled in.",
       "order": 5,
       "web": {
-        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-3",
+        "route": "/t/$teamSlug/agent?action=builtin:fix-conflicts&pr=$prIssue",
         "anchor": {
-          "text": "Repository",
+          "testId": "agent-composer-chip-action",
           "timeoutMs": 30000
         },
-        "recipe": "openStartCodingChat",
         "settleMs": 800
       },
       "webMobile": "inherit",
-      "desktop": {
-        "drive": {
-          "kind": "dialog",
-          "value": "start-coding-chat"
-        },
-        "anchorDelayMs": 600,
-        "env": {
-          "EXP_DEV_SCREEN": "devices"
-        }
-      },
       "ios": {
-        "shot": "sg_start-coding-chat",
+        "shot": "sg_chat-action",
         "lane": "styleguide"
       },
       "android": {
-        "shot": "sg_start-coding-chat",
+        "shot": "sg_chat-action",
         "lane": "styleguide"
+      },
+      "notes": {
+        "web": "`action` names the action (a row id or a builtin id), `pr` the issue whose open PR prefills the builtin's required `pr` input: `$prIssue` resolves to APP-14, the seeded issue on the real review PR. Needs `bun run screenshots:desktop` like chat-issues.",
+        "desktop": "`EXP_DEV_SCREEN=chat?action=builtin:fix-conflicts&pr=<issue-uuid>`, paired with `EXP_DEV_TOOL=agent` by the lane."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "chat?action=builtin:fix-conflicts&pr=$prIssue"
+        }
       }
     },
     {
@@ -1005,29 +998,23 @@
       }
     },
     {
-      "id": "chat",
+      "id": "chat-from-issue",
       "group": "coding",
-      "title": "Agent",
-      "blurb": "The Agent page: the sessions list (running, then past) beside the chat prompt — a conversation with the agent that is bound to no issue and needs no repository.",
+      "title": "Start coding from an issue (mobile)",
+      "blurb": "The phone's way into the composer: the issue's Start coding button lands on the Agent page with that one issue already chipped. The store slide keeps its start-coding filename.",
       "order": 7,
-      "web": {
-        "route": "/t/$teamSlug/agent",
-        "anchor": {
-          "text": "Running",
-          "timeoutMs": 30000
-        },
-        "settleMs": 800
+      "ios": {
+        "shot": "03_start-coding",
+        "lane": "store"
       },
-      "webMobile": "inherit",
+      "android": {
+        "shot": "3_start-coding",
+        "lane": "store"
+      },
       "notes": {
-        "desktop": "The IDE's Agent rail entry is the same master-detail: the Sessions tool window beside the Chat prompt. Capture it by hand from the rail (EXP_DEV_TOOL=agent).",
-        "ios": "EXP-739 is web + desktop first; the phone still starts a chat from the launcher's Chat tab (start-coding-chat) and steers it on the session screen.",
-        "android": "See ios."
-      },
-      "desktop": {
-        "drive": {
-          "kind": "manual"
-        }
+        "web": "The same composer chat-issues photographs, with one chip instead of two — the browser has no separate view.",
+        "web-mobile": "See web.",
+        "desktop": "See web: the IDE's Start coding button opens the same chat-issues screen."
       }
     },
     {

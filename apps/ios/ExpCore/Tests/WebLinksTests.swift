@@ -34,6 +34,24 @@ final class WebLinksTests: XCTestCase {
         )
     }
 
+    // EXP-825: the team's Agent page — the ONE launcher — is linkable too.
+    func testParseAgentUrl() {
+        let url = URL(string: "https://app.exponential.at/t/acme/agent")!
+        XCTAssertEqual(WebLinks.parse(url), .agent(teamSlug: "acme"))
+        let trailing = URL(string: "https://app.exponential.at/t/acme/agent/")!
+        XCTAssertEqual(WebLinks.parse(trailing), .agent(teamSlug: "acme"))
+    }
+
+    func testAgentLinkMintParseRoundTrip() throws {
+        let minted = try XCTUnwrap(
+            WebLinks.agent(instanceUrl: "https://app.exponential.at/", teamSlug: "acme")
+        )
+        XCTAssertEqual(minted.absoluteString, "https://app.exponential.at/t/acme/agent")
+        XCTAssertEqual(WebLinks.parse(minted), .agent(teamSlug: "acme"))
+        XCTAssertNil(WebLinks.agent(instanceUrl: nil, teamSlug: "acme"))
+        XCTAssertNil(WebLinks.agent(instanceUrl: "https://app.exponential.at", teamSlug: " "))
+    }
+
     func testTrailingSlashTolerated() {
         let url = URL(string: "https://app.exponential.at/t/acme/boards/web/issues/EXP-42/")!
         XCTAssertEqual(
@@ -50,6 +68,9 @@ final class WebLinksTests: XCTestCase {
             // exist on the web, so the app must not claim them either.
             "/w/acme/projects/web/issues/EXP-42", "/w/acme/boards/web/issues/EXP-42",
             "/t/acme/projects/web/issues/EXP-42",
+            // Only the Agent page itself — a session under the team, or a
+            // deeper agent path, is not something the app renders from a link.
+            "/t/acme/sessions/abc", "/t/acme/agent/extra", "/agent",
             "/invite", "/auth/login",
         ] {
             let url = URL(string: "https://app.exponential.at\(path)")!

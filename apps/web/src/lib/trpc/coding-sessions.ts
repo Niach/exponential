@@ -1,19 +1,27 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, desc, eq, gte, inArray, ne, or, sql } from "drizzle-orm"
+import { and, desc, eq, gte, inArray, isNull, ne, or, sql } from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
 import {
   CODING_SESSION_STALE_MS,
   codingSessionBlockedSchema,
   startedReasonValues,
   type CodingSessionBlocked,
+  MAX_START_PROMPT_IMAGES,
 } from "@exp/db-schema/domain"
 import { router, authedProcedure, type Context } from "@/lib/trpc"
 import {
   notifyParentOfChildBlocked,
   notifyParentOfChildEnd,
 } from "@/lib/steer-child-messages"
-import { actions, automations, codingSessions, devices, issues } from "@/db/schema"
+import {
+  actions,
+  automations,
+  codingSessions,
+  devices,
+  issues,
+  sessionAttachments,
+} from "@/db/schema"
 import {
   assertTeamMember,
   getIssueTeamContext,
@@ -164,6 +172,33 @@ async function resolveAutomationId(
     .where(and(eq(automations.id, automationId), eq(automations.actionId, actionId)))
     .limit(1)
   return row?.id ?? null
+}
+
+
+/**
+ * EXP-825: bind the start's pending images (`session_attachments` rows the
+ * requester uploaded to the team store before this row existed) to the run.
+ * Lenient on purpose: the row insert is the device's launch handshake and
+ * must never fail on an image; an id that is not the requester's own
+ * pending upload for this team is simply left for the orphan sweep.
+ */
+async function bindStartAttachments(
+  tx: Context[`db`],
+  session: { id: string; teamId: string; userId: string },
+  attachmentIds: string[] | undefined
+) {
+  if (!attachmentIds || attachmentIds.length === 0) return
+  await tx
+    .update(sessionAttachments)
+    .set({ sessionId: session.id })
+    .where(
+      and(
+        inArray(sessionAttachments.id, attachmentIds),
+        eq(sessionAttachments.teamId, session.teamId),
+        eq(sessionAttachments.uploaderId, session.userId),
+        isNull(sessionAttachments.sessionId)
+      )
+    )
 }
 
 export const codingSessionsRouter = router({
@@ -329,6 +364,13 @@ export const codingSessionsRouter = router({
           // EXP-432 shared-device attribution (see resolveStartAttribution).
           startedById: z.string().min(1).max(128).optional(),
           deviceId: z.string().min(1).max(128).optional(),
+          // EXP-825: the images the start's `prompt` embedded — uploaded to
+          // the team's pending store before this row existed (session_id
+          // NULL). Parsed out of the frame by the device; bound here.
+          attachmentIds: z
+            .array(z.string().uuid())
+            .max(MAX_START_PROMPT_IMAGES)
+            .optional(),
           // EXP-530: set by a device's automation host when an automation
           // fires. NULL/absent = a person started the run. EXP-583: the
           // firing automation's row id rides along for per-automation history.
@@ -441,6 +483,7 @@ export const codingSessionsRouter = router({
             status: `running`,
           })
           .returning()
+        await bindStartAttachments(ctx.db, session!, input.attachmentIds)
 
         return { session }
       }
@@ -498,6 +541,7 @@ export const codingSessionsRouter = router({
             status: `running`,
           })
           .returning()
+        await bindStartAttachments(ctx.db, session!, input.attachmentIds)
 
         return { session }
       }
@@ -537,6 +581,7 @@ export const codingSessionsRouter = router({
             status: `running`,
           })
           .returning()
+        await bindStartAttachments(ctx.db, session!, input.attachmentIds)
 
         return { session }
       }
@@ -574,6 +619,7 @@ export const codingSessionsRouter = router({
           status: `running`,
         })
         .returning()
+      await bindStartAttachments(ctx.db, session!, input.attachmentIds)
 
       return { session }
     }),

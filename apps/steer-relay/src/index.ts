@@ -13,6 +13,7 @@
 
 import { timingSafeEqual } from "node:crypto"
 import { Hono } from "hono"
+import { contract } from "@exp/domain-contract"
 import type { ServerWebSocket } from "bun"
 import { verifySteerTicket, type SteerTicketClaims } from "@exp/steer-ticket"
 import { Hub, type RelaySocket, type StartSubject } from "./hub"
@@ -326,6 +327,20 @@ app.post(`/start`, async (c) => {
       return c.json({ error: `Bad request` }, 400)
     }
   }
+  // EXP-825: prompt is an OPTIONAL pass-through on the three subject forms
+  // (never on a resume, which keeps its recorded first turn) — a PRESENT key
+  // must be a non-empty string within the contract cap, else 400.
+  let prompt: string | undefined
+  if (body && `prompt` in body) {
+    prompt = asString(body.prompt)
+    if (
+      hasResume ||
+      !prompt ||
+      prompt.length > contract.startPrompt.maxLength
+    ) {
+      return c.json({ error: `Bad request` }, 400)
+    }
+  }
 
   const options: StartSessionOptions = {
     ...(startedBy ? { startedBy } : {}),
@@ -338,6 +353,7 @@ app.post(`/start`, async (c) => {
     resume: asBoolean(body?.resume),
     ...(mcpServerIds ? { mcpServerIds } : {}),
     ...(account ? { account } : {}),
+    ...(prompt ? { prompt } : {}),
   }
   const result = hub.startSession(userId, deviceId, subject, options)
   if (!result.ok) return c.json({ error: result.reason }, 404)

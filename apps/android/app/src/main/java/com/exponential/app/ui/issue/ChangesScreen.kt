@@ -57,19 +57,18 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.PrFilesApi
 import com.exponential.app.data.api.PullFile
 import com.exponential.app.data.api.RepositoriesApi
-import com.exponential.app.data.api.SteerDevice
-import com.exponential.app.data.api.SteerStartOptions
+
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.TeamPermissions
@@ -79,9 +78,7 @@ import com.exponential.app.ui.components.PillMode
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.steer.ActionRunState
 import com.exponential.app.ui.steer.SteerLaunchDelegate
-import com.exponential.app.ui.steer.SteerRunCaptionRow
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.Motion
@@ -201,21 +198,9 @@ class ChangesViewModel @Inject constructor(
     // ── Remote start (EXP-323) ───────────────────────────────────────────────
     // A refused merge is usually a conflict, so the bar offers the builtin
     // "Fix merge conflicts" run right under the error — desktop parity.
+    // EXP-825: the run itself starts on the Agent page composer; only the
+    // relay gate (is a start possible at all?) is still read here.
     val steerEnabled: StateFlow<Boolean?> get() = steerLaunch.enabled
-    val steerDevices: StateFlow<List<SteerDevice>?> get() = steerLaunch.devices
-    val startCandidates: StateFlow<List<StartIssueOption>> get() = steerLaunch.startCandidates
-    val runState: StateFlow<ActionRunState> get() = steerLaunch.runState
-    val startedSessionId: StateFlow<String?> get() = steerLaunch.startedSessionId
-
-    fun consumeStartedSession() = steerLaunch.consumeStartedSession()
-    fun runAction(
-        device: SteerDevice,
-        action: ActionDto,
-        options: SteerStartOptions,
-        inputs: Map<String, String>,
-    ) = steerLaunch.runAction(device, action, options, inputs)
-    fun startCoding(device: SteerDevice, issueIds: List<String>, options: SteerStartOptions) =
-        steerLaunch.startCoding(device, issueIds, options)
 
     init {
         steerLaunch.attach(viewModelScope)
@@ -295,7 +280,8 @@ class ChangesViewModel @Inject constructor(
 @Composable
 fun ChangesScreen(
     onBack: () -> Unit,
-    onOpenSteer: (String) -> Unit,
+    // EXP-825: "Fix conflicts" navigates to the composer with this PR picked.
+    onOpenAgent: (AgentComposerSeed) -> Unit,
     viewModel: ChangesViewModel = hiltViewModel(),
 ) {
     val issue by viewModel.issue.collectAsStateWithLifecycle()
@@ -307,20 +293,8 @@ fun ChangesScreen(
     val actionErrorFrom by viewModel.actionErrorFrom.collectAsStateWithLifecycle()
     val actionErrorIsConflict by viewModel.actionErrorIsConflict.collectAsStateWithLifecycle()
 
-    // "Fix conflicts" (EXP-323): the launcher, its start feedback, and the
-    // jump into the session the desktop reports back.
+    // "Fix conflicts" (EXP-323): gated on the relay being configured.
     val steerEnabled by viewModel.steerEnabled.collectAsStateWithLifecycle()
-    val steerDevices by viewModel.steerDevices.collectAsStateWithLifecycle()
-    val startCandidates by viewModel.startCandidates.collectAsStateWithLifecycle()
-    val runState by viewModel.runState.collectAsStateWithLifecycle()
-    val startedSessionId by viewModel.startedSessionId.collectAsStateWithLifecycle()
-    var fixSheetOpen by remember { mutableStateOf(false) }
-    LaunchedEffect(startedSessionId) {
-        startedSessionId?.let {
-            viewModel.consumeStartedSession()
-            onOpenSteer(it)
-        }
-    }
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -419,7 +393,6 @@ fun ChangesScreen(
                 merging = merging,
                 closing = closing,
                 actionError = actionError,
-                runState = runState,
                 // A REAL conflict only (EXP-533); the recovery run rebases the
                 // PR's branch, so it needs one recorded (EXP-323). MERGE
                 // failures only — the run ends in a merge, the opposite of what
@@ -432,23 +405,17 @@ fun ChangesScreen(
                     !issue?.branch.isNullOrBlank(),
                 onMerge = { mergeConfirmOpen = true },
                 onClosePr = { closeConfirmOpen = true },
-                onFixConflicts = { fixSheetOpen = true },
+                onFixConflicts = {
+                    onOpenAgent(
+                        AgentComposerSeed(
+                            actionId = DomainContract.builtinFixConflictsId,
+                            prIssueId = viewModel.issueId,
+                        ),
+                    )
+                },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .onSizeChanged { barHeightPx = it.height },
-            )
-        }
-
-        if (fixSheetOpen) {
-            StartCodingSheet(
-                devices = steerDevices ?: emptyList(),
-                issues = startCandidates,
-                preselectedIds = emptySet(),
-                preselectedActionId = DomainContract.builtinFixConflictsId,
-                preselectedPrIssueId = viewModel.issueId,
-                onStart = viewModel::startCoding,
-                onRunAction = viewModel::runAction,
-                onDismiss = { fixSheetOpen = false },
             )
         }
 
@@ -516,7 +483,6 @@ private fun ChangesBottomBar(
     merging: Boolean,
     closing: Boolean,
     actionError: String?,
-    runState: ActionRunState,
     canFixConflicts: Boolean,
     onMerge: () -> Unit,
     onClosePr: () -> Unit,
@@ -539,8 +505,6 @@ private fun ChangesBottomBar(
         if (actionError != null) {
             ChangesRefusalNotice(message = actionError)
         }
-        // Floating: this caption sits on top of the scrolling diff too.
-        SteerRunCaptionRow(runState, modifier = Modifier.padding(top = 6.dp), floating = true)
         Row(
             modifier = Modifier.padding(top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,

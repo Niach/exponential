@@ -135,6 +135,7 @@ import com.exponential.app.domain.ToolGroupSummary
 import com.exponential.app.domain.AnswerState
 import com.exponential.app.domain.COMPACTED_LABEL
 import com.exponential.app.domain.COMPACTING_LABEL
+import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.HistoryState
 import com.exponential.app.domain.RunResumeTarget
@@ -196,7 +197,6 @@ import com.exponential.app.ui.issue.DiffDelColor
 import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.issue.PatchLines
 import com.exponential.app.ui.issue.PulsingDot
-import com.exponential.app.ui.issue.StartCodingSheet
 import com.exponential.app.ui.issue.StaticDot
 import com.exponential.app.ui.issue.splitUnifiedDiff
 import com.exponential.app.ui.issue.unifiedDiffStats
@@ -276,7 +276,9 @@ fun AgentSessionScreen(
     // session, which the caller navigates to (Reviews / Changes pattern).
     onOpenSteer: (String) -> Unit,
     // EXP-760: a chipped identifier in the feed opens that issue.
-    onOpenIssue: (String) -> Unit = {},
+    onOpenIssue: (String) -> Unit,
+    // EXP-825: "Fix conflicts" navigates to the Agent page composer.
+    onOpenAgent: (AgentComposerSeed) -> Unit = {},
     viewModel: AgentSessionViewModel = hiltViewModel(),
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
@@ -313,11 +315,8 @@ fun AgentSessionScreen(
     // "Fix merge conflicts" run — the launcher, its start feedback, and the
     // jump into the session the desktop reports back.
     val steerLaunchEnabled by viewModel.steerLaunchEnabled.collectAsStateWithLifecycle()
-    val steerLaunchDevices by viewModel.steerDevices.collectAsStateWithLifecycle()
-    val startCandidates by viewModel.startCandidates.collectAsStateWithLifecycle()
     val launchRunState by viewModel.runState.collectAsStateWithLifecycle()
     val startedSessionId by viewModel.startedSessionId.collectAsStateWithLifecycle()
-    var fixSheetOpen by remember { mutableStateOf(false) }
     LaunchedEffect(startedSessionId) {
         startedSessionId?.let {
             viewModel.consumeStartedSession()
@@ -967,7 +966,14 @@ fun AgentSessionScreen(
                                 if (canFixConflicts) "Fix conflicts" else "Merge",
                                 onClick = {
                                     if (canFixConflicts) {
-                                        fixSheetOpen = true
+                                        // EXP-706/EXP-825: the composer opens
+                                        // on the builtin with THIS run's PR.
+                                        onOpenAgent(
+                                            AgentComposerSeed(
+                                                actionId = DomainContract.builtinFixConflictsId,
+                                                prIssueId = mergeIssue?.id,
+                                            ),
+                                        )
                                     } else {
                                         mergeConfirmOpen = true
                                     }
@@ -1334,21 +1340,6 @@ fun AgentSessionScreen(
         UnifiedDiffPanel(
             diff = latestDiff!!,
             onDismiss = { diffSheetOpen = false },
-        )
-    }
-
-    // "Fix conflicts" (EXP-706, Reviews parity EXP-323): the unified sheet
-    // opened on the builtin action with THIS run's pull request already picked.
-    if (fixSheetOpen) {
-        StartCodingSheet(
-            devices = steerLaunchDevices ?: emptyList(),
-            issues = startCandidates,
-            preselectedIds = emptySet(),
-            preselectedActionId = DomainContract.builtinFixConflictsId,
-            preselectedPrIssueId = mergeIssue?.id,
-            onStart = viewModel::startCoding,
-            onRunAction = viewModel::runAction,
-            onDismiss = { fixSheetOpen = false },
         )
     }
 

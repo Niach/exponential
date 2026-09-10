@@ -55,9 +55,9 @@ import { cn } from "@/lib/utils"
 // The reusable Automation editing PIECES (EXP-530, reshaped in EXP-583 when
 // automations became their own rows): the trigger panes + event filters, the
 // "Runs on" device picker, and the agent/model/effort picker. The automation
-// dialog composes all three; the suggestion-prefilled create-action dialog
-// composes the same three inside its "Automation" block. Everything is
-// CONTROLLED — the parent holds an `AutomationDraft` (the when-part only,
+// dialog composes all three (EXP-825: a suggestion seed no longer has an
+// "Automation" block of its own — it rides the create-action request as the
+// `formatAutomationBlock` text instead). Everything is CONTROLLED — the parent holds an `AutomationDraft` (the when-part only,
 // exactly what an `AutomationTrigger` carries) and seeds it in its open-reset
 // effect, the same pattern as every other dialog field here.
 

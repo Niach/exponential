@@ -46,6 +46,21 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-one-composer",
+    date: "2026-09-11",
+    title: "One composer for chat, coding and actions",
+    summary: "The Agent page composer starts everything: pick issues or an action, type instructions, attach images, choose the machine and agent. The Start coding dialog is gone on every platform.",
+    body: r#"- **One place to start anything**: the Agent page composer is the launcher on web, desktop, iOS and Android. Pick issues with # or an action with the play button, or type to chat. The three-tab Start coding dialog and the Create action form are gone.
+- **Every play button lands here**: Start coding on an issue, the bulk bar, an action's Run, a machine's play button and Fix merge conflicts all open the composer with the right things preselected.
+- **Instructions with a start**: whatever you type beside the picked issues or action reaches the run as additional instructions. For a chat it is the prompt, for Create action it is the request.
+- **Images on a start**: attach up to four images to the composer. The machine downloads them before the first turn, the same way steering images work.
+- **Actions keep only picks**: text fields on actions are retired. An action declares repository, board, pull request or icon inputs; the free text comes from the composer. Existing text fields were removed from your actions.
+- **Options where you need them**: machine, agent, model and plan mode sit under the composer; effort, ultracode, MCP servers and the account are one click away."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-rate-limited-means-rate-limited",
     date: "2026-09-10",
     title: "Rate limited means rate limited, and a queued update that arrives",
@@ -56,25 +71,6 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **What holds an update**: the Devices page lists the live sessions a queued update is waiting on, who started them and when, and the Update button's tooltip says how the machine will get there.
 - **Update now**: a machine whose daemon supports it offers Update now next to a queued update. It ends every live session on that machine (repo-backed runs can be resumed from their session page) and restarts on the new version.
 - **Switch account on another machine**: clicking Switch account in a remote machine's device settings crashed the desktop app on the machine you were sitting at. The switch now queues on the remote machine as intended."#,
-};
-
-/// The previous head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-one-ui-everywhere",
-    date: "2026-09-10",
-    title: "Sessions beside their list, one session header, and lists the Linear way",
-    summary: "Sessions open next to the list you came from with a back you can mouse, the header is the same on every device, hover is visible again, Usage lives under Devices, and lists are flat rows under group bands.",
-    body: r#"- **Sessions beside their list**: a coding session opens as a screen of its own next to the list you came from (the Inbox stays when you click a running session from it, a board stays when you watch a run from one of its issues), and the Agent page lists every running and past run beside the chat prompt, on the desktop app and on the web. The web's bottom dock band is gone; running sessions sit in the sidebar instead.
-- **Back and forward with the mouse**: the desktop app's history has a forward stack, and the mouse's back and forward buttons walk it everywhere, next to Alt+Left and Alt+Right.
-- **One session header**: back, the run's identity, Usage, Resume and ONE Stop, identical whether you sit on the machine that runs the agent or watch it from another. The "Back to issue" row and the small kill icon are gone; the issue's property tray shows Start coding, or Watch for your own live run.
-- **Honest sidebar rows**: a session row leads with its state dot, names the machine it runs on, nests the runs it started under it, and spins only while the agent is actually working.
-- **Readable plan options**: the highlighted option on a plan card is white on blue again; the composer's attach button is the image glyph every other composer wears; "Latest changes" is "Changes".
-- **Hover you can see**: the desktop app's context menus and list rows had an invisible hover; the whole glass ladder got one notch lighter on every client.
-- **Usage under Devices**: the Usage page folded into the Devices page as its Accounts section. Each account lists the machines that hold it; a check marks the machine where it is the active login, and clicking a chip signs in or switches the account there.
-- **Lists the Linear way**: group headers are filled bands and rows are flat, gapless lines under them, on Devices, Actions, Automations, Reviews, Inbox and Support; the Inbox and Support tabs are the segmented capsule; Filter is a small icon button; settings sections are grouped cards whose rows save themselves.
-- **Quieter rate-limit banner**: a warning while the agent keeps working is no longer announced as "rate limited"; the banner shows for a real wall, with a countdown to the reset.
-- **Usage that moves with Claude too**: a running Claude session now feeds its session and weekly windows into this machine's usage numbers on every turn, the way a Codex session already did, so the bar moves while you work instead of waiting for the next poll. The account's other windows keep their last polled numbers rather than disappearing."#,
 };
 
 /// Whether the rail's "What's new" card renders, given the stored

@@ -44,10 +44,12 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.data.db.AutomationEntity
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.domain.AutomationTrigger
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.formatAutomationBlock
 import com.exponential.app.domain.triggerSummary
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.CircleIconButton
@@ -66,8 +68,6 @@ import com.exponential.app.ui.components.effortLabel
 import com.exponential.app.ui.components.glassSwitchColors
 import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.issue.StartCodingSheet
-import com.exponential.app.ui.issue.SubjectTab
 import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.steer.ActionRunState
 import com.exponential.app.ui.steer.SteerRunCaptionRow
@@ -77,16 +77,16 @@ import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
 
 // The Actions screen (EXP-253, view + run only — no manual edit on mobile):
-// the selected team's action prompts, each with a Run affordance that opens
-// the unified Start-coding sheet (EXP-257) preselected on that action — one
-// launcher for issue runs AND action runs, with typed input fields and the
-// full agent/model/effort/toggle options. Neither client builtin is listed:
-// "Create action" left in EXP-431 (the "Actions" section header's "New action"
-// button, web-parity placement per EXP-574, opens the dedicated
-// [CreateActionSheet] (EXP-615) instead) and "Fix merge conflicts" in EXP-686
-// (it stays launchable from Reviews and the start-coding sheet). After a
-// successful send the screen waits for the desktop's synced coding_sessions
-// row and jumps into the existing agent session viewer once.
+// the selected team's action prompts, each with a Run affordance. EXP-825:
+// Run NAVIGATES to the Agent page composer with the action preselected (the
+// ONE launcher — typed inputs, free text and the agent/model/device options
+// live there), the "Actions" header's "New action" (web-parity placement per
+// EXP-574) lands there on the "Create action" builtin, and a used suggestion
+// seeds that builtin with its description (+ automation note) and icon.
+// Neither client builtin is listed here: "Create action" left in EXP-431 and
+// "Fix merge conflicts" in EXP-686 (both pick from the composer's ▶ menu).
+// The Automations segment's Resume still reports back on this screen and
+// jumps into the desktop's row once it syncs.
 //
 // EXP-686 gave it its own bottom-bar tab (it used to be a push off the Agents
 // header, now Devices), so the screen is a ROOT surface: a plain header row,
@@ -109,17 +109,13 @@ private const val SEGMENT_SUGGESTIONS = "suggestions"
 @Composable
 fun ActionsScreen(
     onOpenSteer: (codingSessionId: String) -> Unit,
-    // EXP-694: the bottom bar's Chat FAB reaches the Actions tab too (the bar
-    // lives in AppNavHost, the launcher lives here) — every bump opens the
-    // Start-coding sheet on its Chat tab, exactly like AgentsScreen.
-    chatRequest: Int = 0,
+    // EXP-825: Run / New action / a suggestion navigate to the composer.
+    onOpenAgent: (AgentComposerSeed) -> Unit,
     viewModel: ActionsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val devices by viewModel.devices.collectAsStateWithLifecycle()
     val runState by viewModel.runState.collectAsStateWithLifecycle()
     val startedSessionId by viewModel.startedSessionId.collectAsStateWithLifecycle()
-    val startCandidates by viewModel.startCandidates.collectAsStateWithLifecycle()
     val selectedTeamId by viewModel.selectedTeamId.collectAsStateWithLifecycle()
     val syncedDevices by viewModel.syncedDevices.collectAsStateWithLifecycle()
     val automationRuns by viewModel.automationRuns.collectAsStateWithLifecycle()
@@ -132,35 +128,13 @@ fun ActionsScreen(
 
     var segment by rememberSaveable { mutableStateOf(SEGMENT_ACTIONS) }
 
-    // The action the unified sheet was opened for (non-null = sheet open).
-    var sheetAction by remember { mutableStateOf<ActionDto?>(null) }
-    // EXP-615: authoring lives in its own sheet now (true = open).
-    var createOpen by remember { mutableStateOf(false) }
-    // EXP-530: a used suggestion's description + icon, seeded into the create
-    // sheet's input values (the iOS prefilledInputs pattern).
-    var suggestionPrefill by remember { mutableStateOf<Map<String, String>?>(null) }
-    // EXP-583: an "Action + automation" suggestion's proposed trigger, which
-    // seeds the create sheet's Automation row.
-    var suggestionAutomation by remember { mutableStateOf<AutomationTrigger?>(null) }
     // The owner-only automation form: true = creating, non-null row = editing.
     var automationForm by remember { mutableStateOf(false) }
     var automationEditTarget by remember { mutableStateOf<AutomationEntity?>(null) }
     // EXP-694: the action whose editor is open (non-null = sheet open).
     var editActionId by remember { mutableStateOf<String?>(null) }
 
-    // The tab bar's Chat launcher — the same sheet AgentsScreen opens, on its
-    // Chat tab. Skips the initial composition so returning to the tab doesn't
-    // re-open it.
-    var chatSheetOpen by remember { mutableStateOf(false) }
-    var seenChatRequest by remember { mutableStateOf(chatRequest) }
-    LaunchedEffect(chatRequest) {
-        if (chatRequest != seenChatRequest) {
-            seenChatRequest = chatRequest
-            chatSheetOpen = true
-        }
-    }
-
-    // The desktop picked the start up — jump into the live viewer ONCE.
+    // The desktop picked a Resume up — jump into the live viewer ONCE.
     LaunchedEffect(startedSessionId) {
         startedSessionId?.let {
             viewModel.consumeStartedSession()
@@ -226,12 +200,30 @@ fun ActionsScreen(
                     )
                     SEGMENT_SUGGESTIONS -> SuggestionsContent(
                         onUse = { suggestion ->
-                            suggestionPrefill = mapOf(
-                                "description" to suggestion.description,
-                                "icon" to suggestion.icon,
+                            // EXP-825: the creator run reads the request off
+                            // the composer text — the suggestion's
+                            // description, plus (EXP-583) the machine-readable
+                            // automation note the agent copies verbatim into
+                            // exponential_automations_create, bound to the
+                            // caller's default automation-capable machine
+                            // (EXP-622) when one exists. The icon seeds the
+                            // builtin's `icon` pick.
+                            val trigger = suggestion.automation
+                            val runner = automationDevices.firstOrNull { it.isDefault }
+                                ?: automationDevices.firstOrNull()
+                            val text = if (trigger != null && runner != null) {
+                                suggestion.description +
+                                    formatAutomationBlock(trigger, deviceId = runner.deviceId)
+                            } else {
+                                suggestion.description
+                            }
+                            onOpenAgent(
+                                AgentComposerSeed(
+                                    actionId = DomainContract.builtinCreateActionId,
+                                    text = text,
+                                    icon = suggestion.icon,
+                                ),
                             )
-                            suggestionAutomation = suggestion.automation
-                            createOpen = true
                         },
                     )
                     else -> when {
@@ -254,7 +246,13 @@ fun ActionsScreen(
                                         "New action",
                                         icon = ExpIcons.actionCreate,
                                         enabled = selectedTeamId != null,
-                                        onClick = { createOpen = true },
+                                        onClick = {
+                                            onOpenAgent(
+                                                AgentComposerSeed(
+                                                    actionId = DomainContract.builtinCreateActionId,
+                                                ),
+                                            )
+                                        },
                                         modifier = Modifier.testTag("new-action"),
                                     )
                                 }
@@ -274,7 +272,7 @@ fun ActionsScreen(
                                     automationCount = automations.count {
                                         it.actionId == action.id
                                     },
-                                    onRun = { sheetAction = action },
+                                    onRun = { onOpenAgent(AgentComposerSeed(actionId = action.id)) },
                                     // EXP-694: editing an action is a mobile
                                     // affordance now; the sheet itself is
                                     // read-only for non-owners.
@@ -288,53 +286,10 @@ fun ActionsScreen(
         }
     }
 
-    val action = sheetAction
-    if (action != null) {
-        StartCodingSheet(
-            devices = devices ?: emptyList(),
-            issues = startCandidates,
-            preselectedIds = emptySet(),
-            preselectedActionId = action.id,
-            onStart = viewModel::startCoding,
-            onRunAction = viewModel::runAction,
-            onDismiss = { sheetAction = null },
-        )
-    }
-
-    if (chatSheetOpen) {
-        StartCodingSheet(
-            devices = devices ?: emptyList(),
-            issues = startCandidates,
-            preselectedIds = emptySet(),
-            initialTab = SubjectTab.Chat,
-            onStart = viewModel::startCoding,
-            onRunAction = viewModel::runAction,
-            onDismiss = { chatSheetOpen = false },
-        )
-    }
-
     // EXP-694: the full action editor (icon, name, description, repository and
     // the tRPC-fetched prompt body).
     editActionId?.let { id ->
         ActionEditSheet(actionId = id, onDismiss = { editActionId = null })
-    }
-
-    // EXP-615: authoring an action is its own sheet — a form, not a run picker.
-    if (createOpen) {
-        selectedTeamId?.let { teamId ->
-            CreateActionSheet(
-                teamId = teamId,
-                devices = devices ?: emptyList(),
-                prefilledInputs = suggestionPrefill,
-                suggestionAutomation = suggestionAutomation,
-                onRunAction = viewModel::runAction,
-                onDismiss = {
-                    createOpen = false
-                    suggestionPrefill = null
-                    suggestionAutomation = null
-                },
-            )
-        }
     }
 
     if (automationForm || automationEditTarget != null) {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { TRPCClientError } from "@trpc/client"
-import type { BoardIcon } from "@exp/db-schema/domain"
+import { MAX_ACTION_PROMPT_PLACEHOLDER, type BoardIcon } from "@exp/db-schema/domain"
 import type { SyncedAction } from "@/db/schema"
 import { BOARD_ICON_OPTIONS } from "@/lib/board-icons"
 import { IconPicker } from "@/components/ui/icon-picker"
@@ -73,6 +73,8 @@ export function ActionEditorDialog({
 }) {
   const [name, setName] = useState(``)
   const [description, setDescription] = useState(``)
+  // EXP-825: the composer's field hint while this action is picked.
+  const [promptPlaceholder, setPromptPlaceholder] = useState(``)
   const [repoValue, setRepoValue] = useState(NO_REPO)
   // EXP-273: the action's display glyph, from the same curated set as boards.
   const [icon, setIcon] = useState<BoardIcon>(BOARD_ICON_OPTIONS[0].name)
@@ -91,6 +93,7 @@ export function ActionEditorDialog({
     if (!open) return
     setName(action.name)
     setDescription(action.description ?? ``)
+    setPromptPlaceholder(action.promptPlaceholder ?? ``)
     setRepoValue(action.repositoryId ?? NO_REPO)
     setIcon((action.icon as BoardIcon | null) ?? BOARD_ICON_OPTIONS[0].name)
     setBody(``)
@@ -134,6 +137,8 @@ export function ActionEditorDialog({
           icon,
           repositoryId: repoValue === NO_REPO ? null : repoValue,
           body,
+          promptPlaceholder:
+            promptPlaceholder.trim() === `` ? null : promptPlaceholder.trim(),
         },
         { context: { skipErrorToast: true } }
       )
@@ -207,6 +212,17 @@ export function ActionEditorDialog({
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Description"
                   className={`${GROUPED_FIELD_ROW} min-h-16`}
+                  readOnly={readOnly}
+                />
+                {/* EXP-825: what the requester should type beside this action
+                    — shown as the composer's field hint. */}
+                <Input
+                  id="action-prompt-placeholder"
+                  value={promptPlaceholder}
+                  onChange={(e) => setPromptPlaceholder(e.target.value)}
+                  placeholder="Composer hint, e.g. Scope: which platforms, which version"
+                  maxLength={MAX_ACTION_PROMPT_PLACEHOLDER}
+                  className={GROUPED_FIELD_ROW}
                   readOnly={readOnly}
                 />
               </GlassGroup>

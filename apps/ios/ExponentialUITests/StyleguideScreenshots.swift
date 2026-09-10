@@ -18,7 +18,7 @@ import XCTest
 ///   sg_board-filters · sg_board-empty ·
 ///   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
 ///   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
-///   sg_start-coding-actions · sg_start-coding-chat ·
+///   sg_chat · sg_chat-issues · sg_chat-action ·
 ///   sg_machine-settings · sg_action-create · sg_automations-list ·
 ///   sg_automations · sg_action-suggestions · sg_reviews ·
 ///   sg_support-thread · sg_settings-root · sg_settings-team ·
@@ -52,7 +52,7 @@ import XCTest
 /// automations, helpdesk threads) PLUS, since EXP-642, the relay stub:
 /// `bun run screenshots:desktop` (apps/web) registers the demo user's OWN
 /// device row, which is what `sg_machine-settings` (gated `isMine &&
-/// registered`) and the two `sg_start-coding-*` shots photograph. No steer
+/// registered`) and the three `sg_chat*` shots photograph. No steer
 /// RELAY traffic is needed beyond that registration — nothing here watches a
 /// live session.
 ///
@@ -369,36 +369,61 @@ final class StyleguideScreenshots: XCTestCase {
         )
         snapshot("sg_agents", settle: 2)
 
-        // ── sg_start-coding-actions / -chat: the unified launch sheet ────────
-        // The machine row's play glyph opens the sheet the Devices surface owns;
-        // it wires teamId + onRunAction, so the Issues | Actions | Chat
-        // segmented control is there. The tabs carry identifiers because
-        // "Actions" and "Chat" also read as ordinary buttons elsewhere.
-        // Nothing is ever submitted — a run would land on a real machine.
+        // ── sg_chat / sg_chat-issues / sg_chat-action: the Agent page ────────
+        // EXP-825: the ONE launcher. The machine row's play glyph pushes the
+        // Agent page with that machine preselected: an empty composer is a
+        // chat; the `#` tool checks issues (two chips, a batch); the ▶ tool
+        // picks an action (the Fix merge conflicts builtin, with its PR
+        // input). Nothing is ever submitted — a run would land on a real
+        // machine.
         let startCoding = app.buttons["Start coding"].firstMatch
         XCTAssertTrue(
             startCoding.waitForExistence(timeout: 20),
             "The machine row offers no start action — is the stub device online with an agent?"
         )
         startCoding.tap()
-        let startSheet = anyElement(app, identified: "start-coding-sheet")
-        XCTAssertTrue(startSheet.waitForExistence(timeout: 20), "Start-coding sheet did not open")
-
-        let actionsTab = anyElement(app, identified: "start-coding-tab-actions")
-        XCTAssertTrue(actionsTab.waitForExistence(timeout: 15), "Start-coding sheet has no Actions tab")
-        actionsTab.tap()
+        let composer = anyElement(app, identified: "agent-composer")
+        XCTAssertTrue(composer.waitForExistence(timeout: 20), "Agent page did not open")
+        // The submit label proves the composer resolved its subject (a chat).
         XCTAssertTrue(
-            app.staticTexts[Self.seededActionName].firstMatch.waitForExistence(timeout: 60),
-            "The Actions tab never listed the team's actions"
+            app.buttons["Start chat"].firstMatch.waitForExistence(timeout: 15),
+            "The composer never settled on the chat subject"
         )
-        snapshot("sg_start-coding-actions", settle: 2)
+        snapshot("sg_chat", settle: 2)
 
-        let chatTab = anyElement(app, identified: "start-coding-tab-chat")
-        XCTAssertTrue(chatTab.waitForExistence(timeout: 15), "Start-coding sheet has no Chat tab")
-        chatTab.tap()
-        snapshot("sg_start-coding-chat", settle: 2)
-        dismissSheet(app, whileVisible: startSheet)
-        _ = startSheet.waitForNonExistence(timeout: 10)
+        anyElement(app, identified: "agent-composer-issues-button").tap()
+        let issuePicker = anyElement(app, identified: "agent-composer-issues-picker")
+        XCTAssertTrue(issuePicker.waitForExistence(timeout: 20), "Issue picker did not open")
+        for title in [Self.bulkFirstTitle, Self.bulkSecondTitle] {
+            let row = app.staticTexts[title].firstMatch
+            XCTAssertTrue(row.waitForExistence(timeout: 60), "Issue picker never listed \"\(title)\"")
+            row.tap()
+        }
+        app.buttons["Done"].firstMatch.tap()
+        _ = issuePicker.waitForNonExistence(timeout: 10)
+        let issueChip = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "agent-composer-chip-issue-")
+        ).firstMatch
+        XCTAssertTrue(issueChip.waitForExistence(timeout: 15), "No issue chip after picking")
+        snapshot("sg_chat-issues", settle: 2)
+
+        anyElement(app, identified: "agent-composer-actions-button").tap()
+        let actionPicker = anyElement(app, identified: "agent-composer-actions-picker")
+        XCTAssertTrue(actionPicker.waitForExistence(timeout: 20), "Action picker did not open")
+        let fixRow = app.staticTexts["Fix merge conflicts"].firstMatch
+        XCTAssertTrue(fixRow.waitForExistence(timeout: 20), "Action picker never listed the builtin")
+        fixRow.tap()
+        _ = actionPicker.waitForNonExistence(timeout: 10)
+        XCTAssertTrue(
+            anyElement(app, identified: "agent-composer-chip-action").waitForExistence(timeout: 15),
+            "No action chip after picking"
+        )
+        snapshot("sg_chat-action", settle: 2)
+        goBack(app)
+        XCTAssertTrue(
+            app.navigationBars["Devices"].waitForExistence(timeout: 30),
+            "Did not return to the Devices surface"
+        )
         settle(1)
 
         // ── sg_machine-settings: the device settings sheet ───────────────────

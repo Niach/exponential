@@ -304,7 +304,7 @@ export function TeamMcpServersSection({
       ) : servers.length === 0 ? (
         <GlassRow className="text-sm text-muted-foreground">
           {isOwner
-            ? `No MCP servers yet. Add one to offer it in the start-coding dialog.`
+            ? `No MCP servers yet. Add one to offer it on the Agent page.`
             : `No MCP servers yet. The team owner can add one.`}
         </GlassRow>
       ) : (
@@ -408,7 +408,7 @@ function ServerRow({
             {server.enabledByDefault && (
               <Pill
                 size="sm"
-                title="Preselected in the start-coding dialog"
+                title="Preselected on the Agent page"
               >
                 Default
               </Pill>
@@ -693,7 +693,7 @@ function McpServerDialog({
             <GlassToggleRow
               id="mcp-enabled-by-default"
               label="Enabled by default"
-              description="Preselected in the start-coding dialog."
+              description="Preselected on the Agent page."
               checked={draft.enabledByDefault}
               onCheckedChange={(enabledByDefault) => patch({ enabledByDefault })}
             />

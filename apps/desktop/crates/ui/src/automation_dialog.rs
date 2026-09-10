@@ -10,9 +10,9 @@
 //! ("Create action", "Fix merge conflicts") are excluded the same way the
 //! server excludes them: they aren't DB rows and can never be automated.
 //!
-//! Everything below the action picker is [`AutomationEditorState`], shared
-//! with the suggestion-prefilled create flow in
-//! [`crate::start_coding_dialog`].
+//! Everything below the action picker is [`AutomationEditorState`] (the
+//! suggestion-seeded creator flow appends its wire JSON to the composer's
+//! request instead — `automation_editor::trigger_note`, EXP-825).
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{

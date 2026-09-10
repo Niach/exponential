@@ -1,4 +1,3 @@
-import { MonitorOff } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
 import {
   GlassGroup,
@@ -17,23 +16,12 @@ import {
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
 import { deviceAgentNotReady, type SteerDevice } from "@/lib/steer-devices"
-import { McpServerPicker } from "@/components/launch-dialog/mcp-server-picker"
-import type { McpServerRow } from "@/lib/mcp-servers"
 
-/** EXP-792: the "MCP servers" row's inputs — rendered only when the team has
- * servers at all (the caller passes null otherwise). */
-export interface McpRowProps {
-  servers: readonly McpServerRow[]
-  selectedIds: readonly string[]
-  onToggle: (id: string) => void
-  now: Date
-}
-
-// The options column of the unified launch dialog (EXP-257) — a
-// presentational extraction of the Start-coding dialog's right half: device
-// select, agent tab strip, model/effort selects, and the capability
-// toggles. All state and the touched/clamp logic stay in the dialog shell.
-// EXP-481 splits the agent strip + model/effort/toggles cluster into
+// The agent options cluster (EXP-257; the launch dialog's right half until
+// EXP-825 retired that dialog for the Agent page composer, whose inline
+// options line lives in `launch-options-line.tsx`). What remains here is
+// shared by the device-settings defaults editor and the automations editor:
+// EXP-481 split the agent strip + model/effort/toggles cluster into
 // `AgentOptionsFields` so the device-settings dialog's defaults editor
 // renders the identical controls without duplicating them.
 // EXP-615 adds the `automation` variant of that cluster: the exact same
@@ -47,7 +35,7 @@ export interface McpRowProps {
 // — no "Agent" label above it, no floating capsule — and model, effort, the
 // run-time toggles and whatever `renderAgentFooter` adds are the rows under
 // it. The device/"Runs on" picker is NOT part of this card: the caller keeps
-// it in its own group ABOVE (see `LaunchOptionsPane`).
+// it in its own group ABOVE.
 
 export const AGENT_LABELS: Record<string, string> = {
   claude: `Claude Code`,
@@ -119,7 +107,7 @@ type AgentOptionsFieldsProps = {
    * EXP-688: what to render UNDER the selected agent's toggles — the device
    * settings dialog puts that agent's account and usage there, so the tab you
    * are editing is the tab that tells you whose account it runs as. The
-   * launch dialog passes nothing: a run in flight is no place to sign in.
+   * launcher passes nothing: a run in flight is no place to sign in.
    * EXP-694: these are the card's FINAL ROWS, so what it returns must be
    * row-shaped (`px-4 py-3`), not a loose block.
    */
@@ -145,7 +133,7 @@ type AgentOptionsFieldsProps = {
 )
 
 /** The agent strip + model/effort selects + capability toggles — shared
- * verbatim by the launch dialog and the device-settings defaults editor.
+ * by the automation editor and the device-settings defaults editor.
  * `idPrefix` keeps element ids unique when both render at once. */
 export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
   const {
@@ -276,122 +264,5 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
       )}
       {renderAgentFooter?.(agent)}
     </GlassGroup>
-  )
-}
-
-export function LaunchOptionsPane({
-  devices,
-  device,
-  onDeviceChange,
-  noDeviceNote,
-  agent,
-  availableAgents,
-  onAgentChange,
-  model,
-  onModelChange,
-  effortValue,
-  onEffortChange,
-  ultracode,
-  onUltracodeChange,
-  planMode,
-  onPlanModeChange,
-  planModeHidden,
-  resumeRow,
-  mcpRow,
-}: {
-  /** The tab's CANDIDATE devices (capability-filtered by the shell). */
-  devices: SteerDevice[]
-  device: SteerDevice | undefined
-  onDeviceChange: (deviceId: string) => void
-  /** Rendered when the candidate list is empty (e.g. no actions-capable
-   * desktop online). */
-  noDeviceNote: string
-  agent: string
-  availableAgents: string[]
-  onAgentChange: (agent: string) => void
-  model: string
-  onModelChange: (model: string) => void
-  effortValue: string
-  onEffortChange: (effort: string) => void
-  ultracode: boolean
-  onUltracodeChange: (value: boolean) => void
-  planMode: boolean
-  onPlanModeChange: (value: boolean) => void
-  planModeHidden?: boolean
-  /** EXP-481: rendered when the shell computed a resumable worktree. */
-  resumeRow?: ResumeRowProps | null
-  /** EXP-792: the team's MCP servers multiselect; null/absent hides the row. */
-  mcpRow?: McpRowProps | null
-}) {
-  if (devices.length === 0) {
-    return (
-      <div className="flex shrink-0 flex-col gap-3 sm:min-h-0 sm:shrink sm:overflow-y-auto">
-        <div className="flex items-start gap-2 py-2 text-sm text-muted-foreground">
-          <MonitorOff className="mt-0.5 size-4 shrink-0" />
-          {noDeviceNote}
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    // EXP-694: 8px between groups, the same rhythm the native sheets use.
-    <div className="flex shrink-0 flex-col gap-2 sm:min-h-0 sm:shrink sm:overflow-y-auto">
-      {devices.length > 1 && (
-        /* EXP-694: WHERE it runs is its own card above WHAT it runs with —
-           mirrors the automations sheet's "Runs on" group.
-           EXP-615: "Device", byte-identical on all four clients — a machine
-           here can equally be a headless CLI daemon. */
-        <GlassGroup>
-          <GlassPickerRow
-            label="Device"
-            value={device?.deviceId ?? ``}
-            onValueChange={onDeviceChange}
-            placeholder="Select a device"
-            options={devices.map((candidate) => ({
-              value: candidate.deviceId,
-              // EXP-432: teammates' shared servers carry their owner.
-              label: `${candidate.deviceLabel || candidate.deviceId}${
-                candidate.owner ? ` — ${candidate.owner.name}` : ``
-              }`,
-            }))}
-          />
-        </GlassGroup>
-      )}
-      <AgentOptionsFields
-        idPrefix="start-coding"
-        device={device}
-        agent={agent}
-        availableAgents={availableAgents}
-        onAgentChange={onAgentChange}
-        model={model}
-        onModelChange={onModelChange}
-        effortValue={effortValue}
-        onEffortChange={onEffortChange}
-        ultracode={ultracode}
-        onUltracodeChange={onUltracodeChange}
-        planMode={planMode}
-        onPlanModeChange={onPlanModeChange}
-        planModeHidden={planModeHidden}
-        resumeRow={resumeRow}
-      />
-      {mcpRow && (
-        /* EXP-792: WHICH team servers the run connects to — its own card
-           under the agent options, a label-leading row with the multiselect
-           pill trailing (the picker greys rows the machine is not ready for). */
-        <GlassGroup>
-          <div className="flex items-center gap-3 px-4 py-3">
-            <span className="flex-1 text-sm text-foreground">MCP servers</span>
-            <McpServerPicker
-              servers={mcpRow.servers}
-              selectedIds={mcpRow.selectedIds}
-              onToggle={mcpRow.onToggle}
-              device={device}
-              now={mcpRow.now}
-            />
-          </div>
-        </GlassGroup>
-      )}
-    </div>
   )
 }

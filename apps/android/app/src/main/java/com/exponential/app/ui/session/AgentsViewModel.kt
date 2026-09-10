@@ -4,15 +4,12 @@ import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
-import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.CodingSessionsApi
 import com.exponential.app.data.api.DeviceLatestVersions
 import com.exponential.app.data.api.DevicesApi
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
-import com.exponential.app.data.api.SteerStartOptions
-import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.CodingSessionEntity
@@ -31,15 +28,11 @@ import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.MergeTarget
 import com.exponential.app.domain.RunResumeTarget
 import com.exponential.app.domain.SessionDevicePresentation
-import com.exponential.app.domain.StartedRunKey
-import com.exponential.app.domain.StartedRunMatch
 import com.exponential.app.domain.resolveMergeTarget
 import com.exponential.app.domain.resolveSessionDevice
 import com.exponential.app.domain.resumeTargetFor
 import com.exponential.app.domain.stableDeviceOrder
 import com.exponential.app.domain.toSteerDevice
-import com.exponential.app.ui.issue.StartIssueOption
-import com.exponential.app.ui.issue.SteerStartState
 import com.exponential.app.ui.steer.steerDeviceFlow
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -55,11 +48,12 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-// The Agents tab: the signed-in user's OWN coding sessions currently running
-// (synced coding_sessions shape joined to its issue), plus a remote-start
-// launcher against the user's machines (EXP-156). The desktop remains the only
-// session runner — this tab lists live sessions and kicks off new (single or
-// batch) runs on a picked machine.
+// The Devices tab's model: the caller's machines (EXP-403 registry) plus the
+// signed-in user's OWN coding sessions — running (synced coding_sessions shape
+// joined to its issue) and finished (EXP-746). EXP-825: the sessions render on
+// the Agent page (which reuses this model) and every start goes through the
+// composer there, so the remote-start launcher this model used to carry is
+// gone; the desktop remains the only session runner.
 //
 // The machine list is the SYNCED devices shape (EXP-481 — the EXP-403
 // registry became server-authoritative synced state): own rows plus (EXP-432)
@@ -156,16 +150,7 @@ class AgentsViewModel @Inject constructor(
     private val _deviceBusy = MutableStateFlow<Set<String>>(emptySet())
     val deviceBusy: StateFlow<Set<String>> = _deviceBusy
 
-    private val _startState = MutableStateFlow<SteerStartState>(SteerStartState.Idle)
-    val startState: StateFlow<SteerStartState> = _startState
-
-    // EXP-536: the freshly-started run's session id — consumed exactly once
-    // by the screen, which opens the live viewer on it.
-    private val _startedSessionId = MutableStateFlow<String?>(null)
-    val startedSessionId: StateFlow<String?> = _startedSessionId
-
-    // The live rows the post-send watch scans (the same DAO flow the list
-    // renders from — a start is only a command; the desktop writes the row).
+    // The live rows the list renders from.
     private val liveSessionRows = dbFlow.scopedQuery(emptyList()) {
         it.codingSessionDao().observeByStatuses(CodingSessionLiveness.liveStatuses)
     }
@@ -252,52 +237,6 @@ class AgentsViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    // Session ids with a resume in flight — the row swaps its Resume pill for
-    // a spinner until the desktop's new row lands (or the watch gives up).
-    // Disjoint from ActionsViewModel's own set BY CONSTRUCTION: that one lists
-    // `started_reason != null` runs and this one only `started_reason == null`
-    // ones, so the two Resume paths can never double-fire on the same id.
-    private val _resuming = MutableStateFlow<Set<String>>(emptySet())
-    val resuming: StateFlow<Set<String>> = _resuming
-
-    // Issues the Start-coding sheet can queue, scoped to the SELECTED team
-    // (no current-issue exemption here — this tab has no "current" issue):
-    // repo-backed, live boards; open issues, `updatedAt` desc.
-    val startCandidates: StateFlow<List<StartIssueOption>> = combine(
-        dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
-        dbFlow.scopedQuery(emptyList()) { it.boardDao().observeAll() },
-        selection.selectedId,
-    ) { issues, boards, teamId ->
-        if (teamId == null) {
-            emptyList()
-        } else {
-            val eligibleBoards = boards
-                .filter {
-                    it.teamId == teamId &&
-                        it.repositoryId != null &&
-                        it.deletedAt == null
-                }
-                .associateBy { it.id }
-            issues
-                .filter {
-                    it.boardId in eligibleBoards.keys &&
-                        it.status !in TERMINAL_ISSUE_STATUSES &&
-                        it.prState != DomainContract.prStateMerged
-                }
-                .sortedByDescending { it.updatedAt }
-                .map { issue ->
-                    StartIssueOption(
-                        id = issue.id,
-                        identifier = issue.identifier,
-                        title = issue.title,
-                        repositoryId = eligibleBoards[issue.boardId]?.repositoryId,
-                        status = issue.status,
-                        priority = issue.priority,
-                    )
-                }
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
     // The account steer.config was last resolved for. steer.config is
     // env-derived and static per INSTANCE, so a team switch must not re-run it
     // — that would blank `steerEnabled` and flicker the whole tab (EXP-432).
@@ -311,7 +250,6 @@ class AgentsViewModel @Inject constructor(
         viewModelScope.launch {
             auth.activeAccountId.collectLatest { accountId ->
                 _latestVersions.value = DeviceLatestVersions()
-                _startState.value = SteerStartState.Idle
                 if (accountId == null) {
                     configuredAccountId = null
                     _steerEnabled.value = false
@@ -332,11 +270,6 @@ class AgentsViewModel @Inject constructor(
                 }
             }
         }
-    }
-
-    /** Clears the one-shot navigation signal once the screen has acted on it. */
-    fun consumeStartedSession() {
-        _startedSessionId.value = null
     }
 
     /** Rename a machine (its registry label wins over the relay's). */
@@ -363,125 +296,6 @@ class AgentsViewModel @Inject constructor(
             _deviceBusy.value = _deviceBusy.value + deviceId
             runCatching { block(accountId) }
             _deviceBusy.value = _deviceBusy.value - deviceId
-        }
-    }
-
-    /**
-     * Remote-start on a picked desktop (EXP-156): [issueIds] of size 1 launches
-     * a plain single session, 2+ a batch. EXP-536: both then WAIT for the
-     * desktop's coding_sessions row and surface it as [startedSessionId], so
-     * the screen opens the live session instead of listing it.
-     */
-    fun startCoding(device: SteerDevice, issueIds: List<String>, options: SteerStartOptions) {
-        val key = StartedRunKey.forIssues(issueIds) ?: return
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            _startState.value = SteerStartState.Sending
-            try {
-                if (issueIds.size >= 2) {
-                    steerApi.startSession(accountId, issueIds, device.deviceId, options)
-                } else {
-                    steerApi.startSession(accountId, issueIds.first(), device.deviceId, options)
-                }
-                awaitStartedRun(key, device)
-            } catch (t: Throwable) {
-                if (t is CancellationException) throw t
-                _startState.value = SteerStartState.Failed(
-                    trpcErrorMessage(t, "The start command could not be delivered"),
-                )
-            }
-        }
-    }
-
-    /**
-     * Remote-run a team action from the unified sheet's Actions tab (EXP-257)
-     * with the full option set + filled inputs; the builtin "Create action"
-     * id additionally rides its teamId (server-required there, forbidden
-     * otherwise). Same Sent/grace-window handling as [startCoding].
-     */
-    fun runAction(
-        device: SteerDevice,
-        action: ActionDto,
-        options: SteerStartOptions,
-        inputs: Map<String, String>,
-    ) {
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            _startState.value = SteerStartState.Sending
-            try {
-                steerApi.startActionSession(
-                    accountId,
-                    actionId = action.id,
-                    deviceId = device.deviceId,
-                    options = options,
-                    // Required for EVERY builtin (there is no DB row to derive
-                    // the team from), forbidden otherwise — the server rejects
-                    // both mistakes.
-                    teamId = action.teamId.takeIf { action.isBuiltin },
-                    inputs = inputs.takeIf { it.isNotEmpty() },
-                )
-                awaitStartedRun(StartedRunKey.Action(action.name), device)
-            } catch (t: Throwable) {
-                if (t is CancellationException) throw t
-                _startState.value = SteerStartState.Failed(
-                    trpcErrorMessage(t, "The start command could not be delivered"),
-                )
-            }
-        }
-    }
-
-    /**
-     * EXP-746: continue an ENDED run on the machine that ran it — the agent
-     * picks up in the same workspace with its own transcript. The resumed run
-     * keeps its recorded agent and options, so nothing else rides along; the
-     * new row is matched by its `resumed_from_id`, which is exact.
-     */
-    fun resumeRun(target: RunResumeTarget) {
-        if (target.sessionId in _resuming.value) return
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            _resuming.value = _resuming.value + target.sessionId
-            _startState.value = SteerStartState.Sending
-            try {
-                steerApi.resumeSession(accountId, target.sessionId, target.deviceId)
-                awaitStartedRun(StartedRunKey.Resumed(target.sessionId), target.deviceLabel)
-            } catch (t: Throwable) {
-                if (t is CancellationException) throw t
-                _startState.value = SteerStartState.Failed(
-                    trpcErrorMessage(t, "The run could not be resumed"),
-                )
-            } finally {
-                _resuming.value = _resuming.value - target.sessionId
-            }
-        }
-    }
-
-    /**
-     * EXP-536: hold a "waiting for the desktop" caption until the run's
-     * synced row appears (then hand it to the screen's navigation), or until
-     * the deadline passes — a start the desktop REFUSED (conflicted worktree,
-     * failed doctor) would otherwise just leave the caption hanging forever,
-     * which is exactly the chip-never-disappears bug.
-     */
-    private suspend fun awaitStartedRun(key: StartedRunKey, device: SteerDevice) =
-        awaitStartedRun(key, device.deviceLabel.ifBlank { device.deviceId })
-
-    private suspend fun awaitStartedRun(key: StartedRunKey, label: String) {
-        _startState.value = SteerStartState.Sent(label)
-        val userId = auth.userId.value
-        val sessionId = if (userId == null) {
-            null
-        } else {
-            StartedRunMatch.await(liveSessionRows, key, userId)
-        }
-        if (sessionId != null) {
-            _startState.value = SteerStartState.Idle
-            _startedSessionId.value = sessionId
-        } else {
-            _startState.value = SteerStartState.Failed(
-                "$label never started this run. Open the Exponential desktop app " +
-                    "there to see why.",
-            )
         }
     }
 
@@ -747,5 +561,3 @@ fun composeDeviceList(
     return own + shared
 }
 
-// Terminal issue statuses ineligible to start a new coding run.
-private val TERMINAL_ISSUE_STATUSES = setOf("done", "cancelled", "duplicate")

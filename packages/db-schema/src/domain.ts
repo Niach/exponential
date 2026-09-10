@@ -524,16 +524,12 @@ export const codingSessionSummarySchema = z
 // whose value is not an id, so it validates against the contract enum instead
 // of a team-scoped lookup.
 
-export const actionInputTypeValues = [
-  `text`,
-  `repo`,
-  `board`,
-  `pr`,
-  `icon`,
-  // EXP-530: multi-line free text; identical validation/limits to `text`,
-  // only the widget differs (Textarea vs single-line input).
-  `textarea`,
-] as const
+// EXP-825: every input is a PICK. The free-text kinds (`text`, EXP-530's
+// `textarea`) are retired — whatever the requester types beside a subject
+// rides the start as `prompt` (see MAX_START_PROMPT) and reaches the run as
+// an "Additional instructions" section, so an action never declares a field
+// for it.
+export const actionInputTypeValues = [`repo`, `board`, `pr`, `icon`] as const
 export type ActionInputType = (typeof actionInputTypeValues)[number]
 
 // EXP-792: team MCP servers (server-only `mcp_servers` rows, never synced).
@@ -563,8 +559,28 @@ export const MAX_ACTION_INPUTS = 10
 export const MAX_ACTION_INPUT_KEY = 32
 export const MAX_ACTION_INPUT_LABEL = 100
 export const MAX_ACTION_INPUT_PLACEHOLDER = 200
-/** Max chars a filled `text` input value may carry (injected into the prompt). */
+/** EXP-825: the composer's field hint while the action is picked. */
+export const MAX_ACTION_PROMPT_PLACEHOLDER = 200
+export const actionPromptPlaceholderSchema = z
+  .string()
+  .trim()
+  .max(MAX_ACTION_PROMPT_PLACEHOLDER)
+/** Max chars a filled input VALUE may carry (ids and icon names in practice; the cap is contract-locked). */
 export const MAX_ACTION_INPUT_TEXT = 4096
+
+/**
+ * EXP-825: the free text a start carries beside its subject — the chat
+ * prompt, or additional instructions for an issue/batch/action run — in the
+ * steer-image-message shape (prose, then up to MAX_START_PROMPT_IMAGES
+ * trailing `![image](/api/attachments/<id>)` embed lines). The cap covers
+ * the WHOLE string. Parity-locked with contract.json `startPrompt`.
+ */
+export const MAX_START_PROMPT = 16384
+export const MAX_START_PROMPT_IMAGES = 4
+export const startPromptSchema = z
+  .string()
+  .max(MAX_START_PROMPT)
+  .refine((value) => !value.includes(`\u0000`), `contains NUL bytes`)
 
 // snake_case identifier — the stable key prompt injection and run values use.
 const actionInputKeySchema = z

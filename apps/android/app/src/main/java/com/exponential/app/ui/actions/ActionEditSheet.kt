@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.data.api.ActionDto
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.IconPicker
@@ -36,7 +37,7 @@ import com.exponential.app.ui.components.PickerRow
 import com.exponential.app.ui.components.SheetHeight
 import com.exponential.app.ui.components.SheetPrimaryAction
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.issue.StartCodingSheetViewModel
+import com.exponential.app.ui.agent.AgentLaunchDataViewModel
 import com.exponential.app.ui.theme.TextEmphasis
 
 // The action editor (EXP-694): mobile stopped being view + run only, so an
@@ -61,7 +62,7 @@ fun ActionEditSheet(
     actionId: String,
     onDismiss: () -> Unit,
     viewModel: ActionEditViewModel = hiltViewModel(),
-    dataViewModel: StartCodingSheetViewModel = hiltViewModel(),
+    dataViewModel: AgentLaunchDataViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val isOwner by viewModel.isTeamOwner.collectAsStateWithLifecycle()
@@ -80,6 +81,8 @@ fun ActionEditSheet(
     var icon by remember { mutableStateOf("") }
     var repoId by remember { mutableStateOf("") }
     var body by remember { mutableStateOf("") }
+    // EXP-825: the composer's field hint while this action is picked.
+    var promptPlaceholder by remember { mutableStateOf("") }
 
     // Seed the form ONCE per fetched row: `state.action` is rewritten by a
     // successful save too, and re-seeding then would stomp nothing but would
@@ -95,6 +98,7 @@ fun ActionEditSheet(
         icon = row.icon.orEmpty()
         repoId = row.repositoryId.orEmpty()
         body = row.body
+        promptPlaceholder = row.promptPlaceholder.orEmpty()
     }
 
     val editable = isOwner && loaded != null && !state.saving
@@ -103,7 +107,8 @@ fun ActionEditSheet(
             description.trim() != loaded.description.orEmpty().trim() ||
             icon != loaded.icon.orEmpty() ||
             repoId != loaded.repositoryId.orEmpty() ||
-            body != loaded.body
+            body != loaded.body ||
+            promptPlaceholder.trim() != loaded.promptPlaceholder.orEmpty()
         )
     val canSave = editable && dirty && name.isNotBlank() && body.isNotBlank()
 
@@ -128,6 +133,7 @@ fun ActionEditSheet(
                         icon = icon,
                         repositoryId = repoId,
                         body = body,
+                        promptPlaceholder = promptPlaceholder,
                         onDone = onDismiss,
                     )
                 },
@@ -191,6 +197,22 @@ fun ActionEditSheet(
                     modifier = Modifier.fillMaxWidth(),
                     placeholder = "Description",
                     minLines = 2,
+                    enabled = editable,
+                    bordered = false,
+                )
+                // EXP-825: what the requester should type beside this action
+                // — shown as the composer field's placeholder while it is
+                // picked (the web dialog's field, same string). Blank clears.
+                GlassTextField(
+                    value = promptPlaceholder,
+                    onValueChange = {
+                        promptPlaceholder = it.take(ActionDto.PROMPT_PLACEHOLDER_MAX_LENGTH)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("action-edit-prompt-placeholder"),
+                    placeholder = "Composer hint, e.g. Scope: which platforms, which version",
+                    singleLine = true,
                     enabled = editable,
                     bordered = false,
                 )

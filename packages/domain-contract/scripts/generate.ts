@@ -76,6 +76,7 @@ interface Contract {
     chatId: string
   }
   actionInputs: { max: number; maxTextLength: number }
+  startPrompt: { maxLength: number; maxImages: number }
   actionTrigger: {
     eventValues: string[]
     scheduleIntervalValues: string[]
@@ -289,6 +290,8 @@ ${swiftBoolArray("steerCommandConfirm", steerCommandConfirm)}
     public static let builtinChatId: String = "${contract.builtinAction.chatId}"
     public static let actionInputsMax: Int = ${contract.actionInputs.max}
     public static let actionInputTextMax: Int = ${contract.actionInputs.maxTextLength}
+    public static let startPromptMaxLength: Int = ${contract.startPrompt.maxLength}
+    public static let startPromptMaxImages: Int = ${contract.startPrompt.maxImages}
     public static let actionTriggerMaxFilterIds: Int = ${contract.actionTrigger.maxFilterIds}
     public static let automationCooldownMs: Int = ${automationCooldownMs}
     public static let automationEventCatchupMs: Int = ${automationEventCatchupMs}
@@ -376,6 +379,8 @@ ${kotlinBoolArray("steerCommandConfirm", steerCommandConfirm)}
     const val builtinChatId: String = "${contract.builtinAction.chatId}"
     const val actionInputsMax: Int = ${contract.actionInputs.max}
     const val actionInputTextMax: Int = ${contract.actionInputs.maxTextLength}
+    const val startPromptMaxLength: Int = ${contract.startPrompt.maxLength}
+    const val startPromptMaxImages: Int = ${contract.startPrompt.maxImages}
     const val actionTriggerMaxFilterIds: Int = ${contract.actionTrigger.maxFilterIds}
     const val automationCooldownMs: Long = ${automationCooldownMs}L
     const val automationEventCatchupMs: Long = ${automationEventCatchupMs}L
@@ -465,6 +470,8 @@ pub const BUILTIN_FIX_CONFLICTS_ID: &str = "${contract.builtinAction.fixConflict
 pub const BUILTIN_CHAT_ID: &str = "${contract.builtinAction.chatId}";
 pub const ACTION_INPUTS_MAX: usize = ${contract.actionInputs.max};
 pub const ACTION_INPUT_TEXT_MAX: usize = ${contract.actionInputs.maxTextLength};
+pub const START_PROMPT_MAX_LENGTH: usize = ${contract.startPrompt.maxLength};
+pub const START_PROMPT_MAX_IMAGES: usize = ${contract.startPrompt.maxImages};
 pub const ACTION_TRIGGER_MAX_FILTER_IDS: usize = ${contract.actionTrigger.maxFilterIds};
 pub const AUTOMATION_COOLDOWN_MS: i64 = ${automationCooldownMs};
 pub const AUTOMATION_EVENT_CATCHUP_MS: i64 = ${automationEventCatchupMs};

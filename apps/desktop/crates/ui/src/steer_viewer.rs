@@ -60,7 +60,7 @@ use gpui::{
     AnimationExt as _, AnyElement, App, AppContext as _, ClickEvent, Entity, FocusHandle,
     Focusable, FollowMode, InteractiveElement as _, IntoElement, ListAlignment, ListState,
     ParentElement as _, Pixels, Render, SharedString, StatefulInteractiveElement as _,
-    StyledImage as _, Styled, Subscription, Task, Window,
+    Styled, Subscription, Task, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
@@ -73,10 +73,10 @@ use steer::activity::SessionAgent;
 use steer::commands::parse_command;
 use steer::feed::{COMPACTED_LABEL, COMPACTING_LABEL, COMPACTION_TIMEOUT};
 use steer::{
-    answer_key, build_steer_image_message, insert_image_marker, parse_steer_message,
-    renumber_image_markers, summarize_subagent_row, transcript_gap, AnswerStatus, FeedItem,
+    answer_key, build_steer_image_message, parse_steer_message,
+    summarize_subagent_row, transcript_gap, AnswerStatus, FeedItem,
     FeedItemId, FeedKind, FeedRow, FeedRowSpec, Gap, QuestionOption, RowClass, SteerFeed,
-    SubagentStatus, ViewerEvent, ViewerHandle, ViewerPhase, ANSWER_ACK_TIMEOUT, MAX_STEER_IMAGES,
+    SubagentStatus, ViewerEvent, ViewerHandle, ViewerPhase, ANSWER_ACK_TIMEOUT,
     REPLAY_MAX, REPLAY_QUIET,
 };
 use theme::tokens::transcript;
@@ -84,9 +84,7 @@ use theme::tokens::transcript;
 use crate::controls::WebText as _;
 use crate::icons::registry;
 use crate::slash_commands;
-use crate::markdown::image_paste::{
-    self, max_upload_bytes_for, pasted_image_parts, read_image_file, validate_image,
-};
+use crate::composer_images::{self, PendingImages};
 use crate::native_dialog::{self, AlertSpec};
 use crate::transcript_rows::{self, facet, plan_list_sync, ItemFacets, ListOp, RowKey};
 
@@ -152,30 +150,11 @@ pub(crate) const STALE_ACTIVITY_AFTER: Duration = Duration::from_secs(10 * 60);
 const STALE_TICK: Duration = Duration::from_secs(30);
 
 /// The pending strip's thumbnail edge (web/iOS parity).
-const PENDING_THUMB: f32 = 48.;
-
-/// EXP-724: the open `/` command menu. `items` is already filtered for the
-/// session's agent and the typed prefix ([`slash_commands::menu_matches`]);
-/// `selected` wraps under ↑/↓.
+/// EXP-724: the `/` command menu over the composer — the catalog entries
+/// matching the typed prefix, and the highlighted one.
 struct SlashMenu {
     items: Vec<slash_commands::MenuCommand>,
     selected: usize,
-}
-
-/// One image staged in the composer, uploaded on send.
-struct PendingImage {
-    key: u64,
-    filename: String,
-    content_type: String,
-    /// EXP-698: the staged bytes, wrapped for `img()` — the thumbnail's
-    /// source AND the upload's. `gpui::Image` owns a public `bytes: Vec<u8>`,
-    /// so the ONE buffer serves both: a separate `Arc<Vec<u8>>` beside it
-    /// would hold a second copy of every pasted screenshot for as long as the
-    /// draft lives. Built once here, never per repaint.
-    preview: Arc<gpui::Image>,
-    /// Set once the attachment landed — a retry after a mid-batch failure
-    /// never re-uploads what already succeeded.
-    uploaded_id: Option<String>,
 }
 
 /// EXP-820: the inline free-text field open on ONE option row — a
@@ -346,8 +325,8 @@ pub(crate) struct SteerSessionView {
     /// the draft changes again (and after an accept, so inserting `/clear`
     /// does not immediately re-open the menu on its own result).
     slash_dismissed_for: Option<String>,
-    pending: Vec<PendingImage>,
-    next_pending_key: u64,
+    /// EXP-698/EXP-825: the staged images (the shared composer strip).
+    pending_images: PendingImages,
     sending: bool,
     notice: Option<SharedString>,
     /// Question-card local state, keyed by `answer_key`.
@@ -565,8 +544,7 @@ impl SteerSessionView {
             answer_cursor_for: None,
             slash: None,
             slash_dismissed_for: None,
-            pending: Vec::new(),
-            next_pending_key: 0,
+            pending_images: PendingImages::default(),
             sending: false,
             notice: None,
             picked: HashMap::new(),
@@ -2103,7 +2081,7 @@ impl SteerSessionView {
     /// the button) over a row that has not ended.
     fn can_send(&self, cx: &App) -> bool {
         let has_content =
-            !self.input.read(cx).value().trim().is_empty() || !self.pending.is_empty();
+            !self.input.read(cx).value().trim().is_empty() || !self.pending_images.is_empty();
         !self.sending
             && !self.source.read_only()
             && self.phase == ViewerPhase::Live
@@ -2444,7 +2422,7 @@ impl SteerSessionView {
     /// Send otherwise, and always once there is a draft to send.
     fn shows_stop(&self, cx: &App) -> bool {
         let has_draft =
-            !self.input.read(cx).value().trim().is_empty() || !self.pending.is_empty();
+            !self.input.read(cx).value().trim().is_empty() || !self.pending_images.is_empty();
         self.working && !has_draft && !self.source.read_only()
     }
 
@@ -2454,7 +2432,7 @@ impl SteerSessionView {
         }
         let text = self.input.read(cx).value().to_string();
         self.notice = None;
-        if self.pending.is_empty() {
+        if self.pending_images.is_empty() {
             if self.deliver(&text) {
                 self.clear_draft(window, cx);
             } else {
@@ -2475,51 +2453,23 @@ impl SteerSessionView {
         };
         // Sequential + idempotent per image: a mid-batch failure keeps the
         // composer intact and a retry only uploads the rest (web parity).
-        let jobs: Vec<(u64, Option<String>, String, String, Arc<gpui::Image>)> = self
-            .pending
-            .iter()
-            .map(|image| {
-                (
-                    image.key,
-                    image.uploaded_id.clone(),
-                    image.filename.clone(),
-                    image.content_type.clone(),
-                    // An Arc clone — the bytes themselves are never copied.
-                    image.preview.clone(),
-                )
-            })
-            .collect();
+        let jobs = self.pending_images.jobs();
         self.sending = true;
         cx.notify();
         cx.spawn_in(window, async move |this, cx| {
             let outcome = cx
                 .background_executor()
                 .spawn(async move {
-                    let mut resolved: Vec<(u64, String)> = Vec::with_capacity(jobs.len());
-                    for (key, uploaded, filename, content_type, staged) in jobs {
-                        match uploaded {
-                            Some(id) => resolved.push((key, id)),
-                            None => {
-                                let image = transport
-                                    .upload_session(
-                                        &session_id,
-                                        &filename,
-                                        &content_type,
-                                        &staged.bytes,
-                                    )
-                                    .map_err(|err| (resolved.clone(), err.to_string()))?;
-                                resolved.push((key, image.id));
-                            }
-                        }
-                    }
-                    Ok(resolved)
+                    composer_images::upload_all(jobs, |filename, content_type, bytes| {
+                        transport.upload_session(&session_id, filename, content_type, bytes)
+                    })
                 })
                 .await;
             let _ = this.update_in(cx, |this, window, cx| {
                 this.sending = false;
                 match outcome {
                     Ok(resolved) => {
-                        this.note_uploaded(&resolved);
+                        this.pending_images.note_uploaded(&resolved);
                         let ids: Vec<String> =
                             resolved.into_iter().map(|(_, id)| id).collect();
                         let message = build_steer_image_message(&text, &ids);
@@ -2532,7 +2482,7 @@ impl SteerSessionView {
                     }
                     Err((resolved, error)) => {
                         // Keep what landed so a retry uploads only the rest.
-                        this.note_uploaded(&resolved);
+                        this.pending_images.note_uploaded(&resolved);
                         log::warn!("[ui] steer composer upload failed: {error}");
                         this.notice = Some(SharedString::from("Couldn't upload image"));
                     }
@@ -2541,14 +2491,6 @@ impl SteerSessionView {
             });
         })
         .detach();
-    }
-
-    fn note_uploaded(&mut self, resolved: &[(u64, String)]) {
-        for (key, id) in resolved {
-            if let Some(image) = self.pending.iter_mut().find(|image| image.key == *key) {
-                image.uploaded_id = Some(id.clone());
-            }
-        }
     }
 
     /// Push a composed message at the agent. `false` = it did not go out and
@@ -2573,7 +2515,7 @@ impl SteerSessionView {
     }
 
     fn clear_draft(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        self.pending.clear();
+        self.pending_images.clear();
         self.notice = None;
         self.slash = None;
         self.slash_dismissed_for = None;
@@ -2581,126 +2523,27 @@ impl SteerSessionView {
             .update(cx, |state, cx| state.set_value("", window, cx));
     }
 
-    /// Add clipboard / picked images to the draft, applying the same caps as
-    /// the web composer (type + 10 MB + at most [`MAX_STEER_IMAGES`]).
-    ///
-    /// EXP-698: staging the k-th image also drops `[Image #k]` at the caret,
-    /// so a sentence can NAME the picture it means ("crop [Image #2]") and
-    /// the agent's numbered manifest lines up with it. The insertion is the
-    /// contract's ([`insert_image_marker`]) — only the caret handling is the
-    /// component's, so a marker never splits a word.
+    /// Add clipboard / picked images to the draft — the shared composer
+    /// strip's rules (type + 10 MB + at most `MAX_STEER_IMAGES`, an
+    /// `[Image #k]` marker at the caret per image; EXP-698/EXP-825).
     fn stage_images(
         &mut self,
-        images: Vec<(String, String, Vec<u8>)>,
+        images: Vec<composer_images::StagedFile>,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        let mut rejected = false;
-        let mut overflow = false;
-        for (filename, content_type, bytes) in images {
-            if validate_image(&content_type, bytes.len()).is_err()
-                || bytes.len() > max_upload_bytes_for(&content_type)
-            {
-                rejected = true;
-                continue;
-            }
-            if self.pending.len() >= MAX_STEER_IMAGES {
-                overflow = true;
-                continue;
-            }
-            let preview = pending_preview(&content_type, bytes);
-            self.pending.push(PendingImage {
-                key: self.next_pending_key,
-                filename,
-                content_type,
-                preview,
-                uploaded_id: None,
-            });
-            self.next_pending_key += 1;
-            self.insert_marker(self.pending.len() as u32, window, cx);
-        }
-        self.notice = if overflow {
-            Some(SharedString::from(format!(
-                "Up to {MAX_STEER_IMAGES} images per message"
-            )))
-        } else if rejected {
-            Some(SharedString::from(
-                "Only images up to 10 MB can be attached",
-            ))
-        } else {
-            None
-        };
+        self.notice = self.pending_images.stage(images, &self.input, window, cx);
         cx.notify();
     }
 
-    /// Insert `[Image #index]` at the composer's caret, padded exactly as the
-    /// shared contract pads it. The component does the actual insert so it
-    /// owns the caret and the undo entry; the SLICE it inserts is the one
-    /// [`insert_image_marker`] would have produced.
-    fn insert_marker(&mut self, index: u32, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let (text, caret) = {
-            let state = self.input.read(cx);
-            (state.value().to_string(), state.cursor())
-        };
-        let (next, after) = insert_image_marker(&text, caret, index);
-        let Some(inserted) = next.get(caret..after) else {
-            return;
-        };
-        let inserted = inserted.to_string();
-        self.input
-            .update(cx, |state, cx| state.insert(inserted, window, cx));
-    }
-
-    /// Drop a staged image and renumber the draft's markers behind it: the
-    /// removed image's own `[Image #k]` goes and every higher one slides
-    /// down, so the markers keep naming the right pictures.
+    /// Drop a staged image and renumber the draft's markers behind it.
     fn remove_pending(&mut self, key: u64, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some(position) = self.pending.iter().position(|image| image.key == key) else {
-            return;
-        };
-        self.pending.remove(position);
-        self.input.update(cx, |state, cx| {
-            let text = state.value().to_string();
-            let next = renumber_image_markers(&text, position as u32 + 1);
-            if next == text {
-                return;
-            }
-            // `set_value` parks the caret at the start of a multi-line field
-            // (upstream `InputState::set_value`), which would throw the
-            // writer back to the top of their draft for removing a
-            // thumbnail. Carry the caret over, clamped into the shortened
-            // text and snapped to a char boundary — the same restore the
-            // markdown toolbar's transforms do. It focuses the field, which
-            // is where the writer was anyway: they are mid-draft.
-            let caret = clamp_to_char_boundary(&next, state.cursor());
-            let caret = crate::markdown::byte_offset_to_position(&next, caret);
-            state.set_value(next, window, cx);
-            state.set_cursor_position(caret, window, cx);
-        });
+        self.pending_images.remove(key, &self.input, window, cx);
         cx.notify();
     }
 
     fn on_paste(&mut self, _: &input::Paste, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some(item) = cx.read_from_clipboard() else {
-            return;
-        };
-        let mut images = Vec::new();
-        for entry in item.entries() {
-            match entry {
-                gpui::ClipboardEntry::Image(image) => {
-                    let (mime, filename) = pasted_image_parts(image.format());
-                    images.push((filename, mime.to_string(), image.bytes().to_vec()));
-                }
-                gpui::ClipboardEntry::ExternalPaths(paths) => {
-                    for path in paths.paths() {
-                        if let Ok((filename, mime, bytes)) = read_image_file(path) {
-                            images.push((filename, mime, bytes));
-                        }
-                    }
-                }
-                gpui::ClipboardEntry::String(_) => {}
-            }
-        }
+        let images = composer_images::clipboard_images(cx);
         if images.is_empty() {
             return;
         }
@@ -2709,27 +2552,9 @@ impl SteerSessionView {
     }
 
     fn pick_images(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let receiver = cx.prompt_for_paths(gpui::PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: true,
-            prompt: Some("Attach".into()),
+        composer_images::pick_image_files(window, cx, |this, read, window, cx| {
+            this.stage_images(read, window, cx)
         });
-        cx.spawn_in(window, async move |this, cx| {
-            let Ok(Ok(Some(paths))) = receiver.await else {
-                return;
-            };
-            let read: Vec<(String, String, Vec<u8>)> = paths
-                .into_iter()
-                .filter(|path| image_paste::is_inline_image_path(path))
-                .filter_map(|path| read_image_file(&path).ok())
-                .collect();
-            if read.is_empty() {
-                return;
-            }
-            let _ = this.update_in(cx, |this, window, cx| this.stage_images(read, window, cx));
-        })
-        .detach();
     }
 
     // ── Kill ───────────────────────────────────────────────────────────────
@@ -5153,7 +4978,7 @@ impl SteerSessionView {
                 .into_any_element(),
         )
         .inline_tools(!wrapped)
-        .strip((!self.pending.is_empty()).then(|| self.render_pending_strip(cx)))
+        .strip((!self.pending_images.is_empty()).then(|| self.render_pending_strip(cx)))
         // EXP-698: the attach tool is ALWAYS offered — steer images upload to
         // the session route, so a batch/action run (no issue at all) attaches
         // exactly like an issue run. EXP-818: its glyph is `editor-image`,
@@ -5336,59 +5161,8 @@ impl SteerSessionView {
     /// least useful thing about a picture; a chip survives only as the
     /// fallback for bytes nothing can decode.
     fn render_pending_strip(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let muted = cx.theme().muted_foreground;
-        let mut strip = h_flex().w_full().flex_wrap().gap_1p5();
-        for image in &self.pending {
-            let key = image.key;
-            // EXP-698: a 24px hit target (`size::CONTROL_SM`) overlaid on the
-            // 48px tile — `xsmall()` alone sized the glyph, not the box, and
-            // left a corner ✕ that was hard to actually hit.
-            let remove = Button::new(("steer-pending-remove", key as usize))
-                .ghost()
-                .cursor_pointer()
-                .with_size(px(theme::tokens::size::CONTROL_SM))
-                .rounded_full()
-                .icon(registry::UI_CLOSE)
-                .tooltip("Remove image")
-                .disabled(self.sending)
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                    this.remove_pending(key, window, cx);
-                }));
-            let preview = image.preview.clone();
-            let filename = SharedString::from(image.filename.clone());
-            strip = strip.child(
-                div()
-                    .relative()
-                    .flex_shrink_0()
-                    .size(px(PENDING_THUMB))
-                    .rounded(px(theme::tokens::radius::SM))
-                    .border_1()
-                    .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-                    .bg(theme::tokens::glass::FILL_CARD.to_hsla())
-                    .overflow_hidden()
-                    .child(
-                        gpui::img(preview)
-                            .size_full()
-                            .object_fit(gpui::ObjectFit::Cover)
-                            // Bytes gpui cannot decode fall back to the
-                            // filename, so a tile is never a silent blank
-                            // square — that is the old chip's whole job.
-                            .with_fallback(move || {
-                                div()
-                                    .size_full()
-                                    .p_1()
-                                    .text_xs()
-                                    .truncate()
-                                    .text_color(muted)
-                                    .child(filename.clone())
-                                    .into_any_element()
-                            }),
-                    )
-                    // The ✕ rides the tile's top-right corner (web/iOS).
-                    .child(div().absolute().top_0().right_0().child(remove)),
-            );
-        }
-        strip.into_any_element()
+        self.pending_images
+            .render_strip("steer-pending-remove", self.sending, Self::remove_pending, cx)
     }
 }
 
@@ -5424,14 +5198,6 @@ pub(crate) enum MarkerSegment {
 /// The largest char boundary at or before `at` (and never past the end) —
 /// gpui carries the caret as a BYTE offset, and a renumbered draft is shorter
 /// than the one the offset was taken from.
-fn clamp_to_char_boundary(text: &str, at: usize) -> usize {
-    let mut at = at.min(text.len());
-    while at > 0 && !text.is_char_boundary(at) {
-        at -= 1;
-    }
-    at
-}
-
 /// Whether `number` names one of a message's `count` embeds — the web rule:
 /// markers are 1-based and a number outside the range references nothing, so
 /// it is not a chip, it is the text the sender typed.
@@ -5501,14 +5267,6 @@ fn push_text(runs: &mut Vec<MarkerSegment>, body: &str) {
         return;
     }
     runs.push(MarkerSegment::Text(body.to_string()));
-}
-
-/// EXP-698: wrap staged bytes for `img()`, using the same magic-byte sniff
-/// the editor's image slots use. Bytes gpui cannot decode simply paint the
-/// element's `with_fallback` (the filename), so this never has to guess right.
-fn pending_preview(content_type: &str, bytes: Vec<u8>) -> Arc<gpui::Image> {
-    let format = crate::markdown::sniff_format(content_type, &bytes);
-    Arc::new(gpui::Image::from_bytes(format, bytes))
 }
 
 fn status_dot(color: gpui::Hsla) -> impl IntoElement {

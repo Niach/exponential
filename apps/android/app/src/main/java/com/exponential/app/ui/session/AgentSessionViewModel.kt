@@ -5,14 +5,12 @@ import android.os.SystemClock
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.AgentAccount
 import com.exponential.app.data.api.AgentUsage
 import com.exponential.app.data.api.CodingSessionsApi
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
-import com.exponential.app.data.api.SteerStartOptions
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.BoardEntity
@@ -47,7 +45,6 @@ import com.exponential.app.domain.resolveMergeTarget
 import com.exponential.app.domain.resumeTargetFor
 import com.exponential.app.domain.toSteerDevice
 import com.exponential.app.domain.resolveSessionDevice
-import com.exponential.app.ui.issue.StartIssueOption
 import com.exponential.app.ui.markdown.AttachmentDims
 import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.MentionMember
@@ -573,27 +570,15 @@ class AgentSessionViewModel @Inject constructor(
         }
     }
 
-    // ── Remote start (EXP-706) ───────────────────────────────────────────────
-    // A conflict-refused merge swaps the bar's Merge pill for the builtin
-    // "Fix merge conflicts" run — the same rails Reviews and the Changes tab
-    // already ride, so the plumbing is the shared delegate, not a copy.
+    // ── Remote rails (EXP-706 / EXP-773) ─────────────────────────────────────
+    // EXP-825: a conflict-refused merge's "Fix conflicts" navigates to the
+    // Agent page composer; what stays here is Resume, which rides the shared
+    // delegate and reports back through the same captions.
     val steerLaunchEnabled: StateFlow<Boolean?> get() = steerLaunch.enabled
-    val steerDevices: StateFlow<List<SteerDevice>?> get() = steerLaunch.devices
-    val startCandidates: StateFlow<List<StartIssueOption>> get() = steerLaunch.startCandidates
     val runState: StateFlow<ActionRunState> get() = steerLaunch.runState
     val startedSessionId: StateFlow<String?> get() = steerLaunch.startedSessionId
 
     fun consumeStartedSession() = steerLaunch.consumeStartedSession()
-
-    fun runAction(
-        device: SteerDevice,
-        action: ActionDto,
-        options: SteerStartOptions,
-        inputs: Map<String, String>,
-    ) = steerLaunch.runAction(device, action, options, inputs)
-
-    fun startCoding(device: SteerDevice, issueIds: List<String>, options: SteerStartOptions) =
-        steerLaunch.startCoding(device, issueIds, options)
 
     /** EXP-773: Resume this finished run on the machine that ran it. Rides the
      *  same rails a remote start does — the desktop's new row lands in

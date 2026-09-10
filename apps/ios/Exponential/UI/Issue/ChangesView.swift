@@ -197,6 +197,7 @@ struct ChangesView: View {
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
+    @Environment(\.pushRoute) private var pushRoute
     /// EXP-706: the file rows' chevron rotates instead of swapping glyph, so
     /// the screen needs the shared motion tokens (nil under Reduce Motion).
     @Environment(\.motion) private var motion
@@ -205,17 +206,9 @@ struct ChangesView: View {
     @State private var closeConfirm = false
 
     // "Fix conflicts" (EXP-323, desktop parity): a refused merge is usually a
-    // conflict, so the bar offers the builtin recovery run on the user's own
-    // desktop, seeded with THIS pull request.
-    @State private var fixSheetOpen = false
+    // conflict, so the bar offers the builtin recovery run seeded with THIS
+    // pull request. EXP-825: NAVIGATION into the Agent page composer.
     @State private var steerEnabled = false
-    @State private var devices: [SteerDevice]?
-    @State private var startCandidates: [StartCodingSheet.IssueOption] = []
-    // EXP-536: a remote start pushes the live session once the desktop's row
-    // syncs in, instead of pointing at Agents. The watcher owns the "waiting
-    // for the desktop" caption, the failure and the navigation target.
-    @State private var startWatcher = StartedRunWatcher()
-    @State private var sessionTarget: StartedRunWatcher.StartedSession?
 
     var body: some View {
         ZStack {
@@ -251,45 +244,13 @@ struct ChangesView: View {
             // Re-arm on every appear: pushing another screen stops the
             // observation (onDisappear), popping back must resume it.
             viewModel?.startObserving()
-            Task { await refreshSteer() }
         }
         .task(id: accountId) {
             let config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
             steerEnabled = config.enabled
-            await refreshSteer()
-        }
-        .sheet(isPresented: $fixSheetOpen) {
-            StartCodingSheet(
-                devices: devices ?? [],
-                issues: startCandidates,
-                preselectedIds: [],
-                teamId: viewModel?.teamId,
-                initialTab: .actions,
-                preselectedActionId: DomainContract.builtinFixConflictsId,
-                preselectedPrIssueId: issueId,
-                onStart: { device, issueIds, options in
-                    start(on: device, issueIds: issueIds, options: options)
-                },
-                onRunAction: { device, action, options, inputs in
-                    runAction(on: device, action: action, options: options, inputs: inputs)
-                }
-            )
         }
         .onDisappear {
             viewModel?.stopObserving()
-            startWatcher.stop()
-        }
-        // The desktop picked the start up — push the live steer screen ONCE
-        // (the same destination the .agentSession route arm builds).
-        .onChange(of: startWatcher.startedSession) { _, started in
-            if let started {
-                startWatcher.startedSession = nil
-                sessionTarget = started
-            }
-        }
-        .navigationDestination(item: $sessionTarget) { target in
-            AgentSessionRouteView(sessionId: target.sessionId)
-                .environment(\.accountId, accountId)
         }
         // Squash-merge (EXP-131) — confirm-gated like the Reviews list.
         .alert("Merge pull request?", isPresented: $mergeConfirm) {
@@ -439,19 +400,6 @@ struct ChangesView: View {
                             .font(.caption)
                             .foregroundStyle(DesignTokens.Semantic.red)
                             .multilineTextAlignment(.center)
-
-                        if let runCaption = startWatcher.sentCaption {
-                            Text(runCaption)
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                                .multilineTextAlignment(.center)
-                        }
-                        if let runError = startWatcher.failure {
-                            Text(runError)
-                                .font(.caption)
-                                .foregroundStyle(DesignTokens.Semantic.red)
-                                .multilineTextAlignment(.center)
-                        }
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
@@ -489,7 +437,7 @@ struct ChangesView: View {
                         // one thing to press.
                         if fixConflicts {
                             Button {
-                                fixSheetOpen = true
+                                openFixConflicts()
                             } label: {
                                 barPill {
                                     AppIcon(AppIcons.uiBranch, size: AppIcon.Size.medium, weight: .medium)
@@ -543,89 +491,16 @@ struct ChangesView: View {
 
     // MARK: - Fix conflicts (EXP-323)
 
-    private func refreshSteer() async {
-        guard steerEnabled else {
-            devices = nil
-            return
-        }
-        // EXP-432: team-scoped, so a teammate's shared server can host the
-        // run. EXP-481: read off the synced devices shape, not the network.
-        devices = await DeviceQueries.onlineStartTargets(
-            db: deps.db, accountId: accountId,
-            teamId: viewModel?.teamId, userId: deps.auth.userId
-        )
-        startCandidates = await StartCodingSheet.IssueOption.loadCandidates(
-            db: deps.db,
+    /// EXP-825: the recovery run is the composer with the "Fix merge
+    /// conflicts" builtin picked and THIS pull request pre-picked.
+    private func openFixConflicts() {
+        pushRoute(.agent(
             accountId: accountId,
-            teamId: viewModel?.teamId
-        )
-    }
-
-    /// Actions-mode launch from the unified sheet — the "Fix merge conflicts"
-    /// builtin, which always rides its teamId. The run surfaces under Agents
-    /// via sync like any other session.
-    private func runAction(
-        on device: SteerDevice,
-        action: ActionDto,
-        options: SteerStartOptions,
-        inputs: [String: String]
-    ) {
-        startWatcher.sending()
-        Task {
-            do {
-                try await deps.steerApi.startSession(
-                    accountId: accountId,
-                    actionId: action.id,
-                    deviceId: device.deviceId,
-                    teamId: action.isBuiltin ? action.teamId : nil,
-                    options: options,
-                    inputs: inputs.isEmpty ? nil : inputs
-                )
-                startWatcher.begin(
-                    key: .action(name: action.name),
-                    userId: deps.auth.userId,
-                    device: device,
-                    db: deps.db,
-                    accountId: accountId
-                )
-            } catch {
-                startWatcher.failed(error.userFacingMessage)
-            }
-        }
-    }
-
-    /// Issues-tab launch from the same sheet (flipping tabs must not dead-end).
-    private func start(on device: SteerDevice, issueIds: [String], options: SteerStartOptions) {
-        guard let key = StartedRunKey.forIssues(issueIds) else { return }
-        startWatcher.sending()
-        Task {
-            do {
-                if issueIds.count > 1 {
-                    try await deps.steerApi.startSession(
-                        accountId: accountId,
-                        issueIds: issueIds,
-                        deviceId: device.deviceId,
-                        options: options
-                    )
-                } else {
-                    try await deps.steerApi.startSession(
-                        accountId: accountId,
-                        issueId: issueIds[0],
-                        deviceId: device.deviceId,
-                        options: options
-                    )
-                }
-                startWatcher.begin(
-                    key: key,
-                    userId: deps.auth.userId,
-                    device: device,
-                    db: deps.db,
-                    accountId: accountId
-                )
-            } catch {
-                startWatcher.failed(error.userFacingMessage)
-            }
-        }
+            seed: AgentComposerSeed(
+                actionId: DomainContract.builtinFixConflictsId,
+                prIssueId: issueId
+            )
+        ))
     }
 
     /// Whether the bar offers the recovery run in place of Merge (EXP-323 /

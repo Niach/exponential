@@ -11,7 +11,6 @@ import {
   ChevronRight,
   GitBranch,
   GitPullRequest,
-  LoaderCircle,
   MonitorUp,
 } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
@@ -33,7 +32,7 @@ import { GlassRow } from "@/components/ui/glass-rows"
 import { useSteerConfig } from "@/components/agent-session"
 import { useOpenSession } from "@/hooks/use-open-session"
 import { useRemoteStart } from "@/hooks/use-remote-start"
-import { LaunchDialog } from "@/components/launch-dialog/launch-dialog"
+import { useOpenComposer } from "@/hooks/use-open-composer"
 
 // EXP-317: the "no desktop online" hint draws the same glyph here and in
 // the native apps (`ui-device-offline`).
@@ -520,8 +519,11 @@ function RemoteStartRow({
   variant: CodingControlVariant
   tone: CodingStartTone
 }) {
+  // EXP-825: the devices ride only the "No desktop online" caption now —
+  // the click itself is a navigation to the Agent page composer with this
+  // issue as the subject chip (the launch dialog is gone).
   const remote = useRemoteStart({ currentUserId, teamId })
-  const [dialogOpen, setDialogOpen] = useState(false)
+  const openComposer = useOpenComposer()
 
   // Presence lookup still in flight — keep the section quiet.
   if (remote.devices === null) return null
@@ -540,48 +542,18 @@ function RemoteStartRow({
     )
   }
 
-  const busy = remote.starting || remote.sentTo !== null
-  const dialog = (
-    <LaunchDialog
-      open={dialogOpen}
-      onOpenChange={setDialogOpen}
-      devices={remote.devices}
-      starting={remote.starting}
-      teamId={teamId}
-      initialIssueIds={[issue.id]}
-      onStartIssues={(device, options, issueIds) => {
-        remote
-          .startIssues(device, options, issueIds)
-          .then(() => setDialogOpen(false))
-          .catch(() => {})
-      }}
-      onRunAction={(device, action, options, inputs) => {
-        remote
-          .runAction(device, action, options, inputs)
-          .then(() => setDialogOpen(false))
-          .catch(() => {})
-      }}
-    />
-  )
+  const start = () => openComposer({ issueIds: [issue.id] })
 
   if (variant === `fab`) {
     return (
-      <>
-        <button
-          type="button"
-          aria-label="Start coding"
-          disabled={busy}
-          onClick={() => setDialogOpen(true)}
-          className={cn(FAB_CIRCLE_CLASS, `text-foreground disabled:opacity-60`)}
-        >
-          {busy ? (
-            <LoaderCircle className="size-5 animate-spin" />
-          ) : (
-            <ActionRunIcon className="size-5" />
-          )}
-        </button>
-        {dialog}
-      </>
+      <button
+        type="button"
+        aria-label="Start coding"
+        onClick={start}
+        className={cn(FAB_CIRCLE_CLASS, `text-foreground`)}
+      >
+        <ActionRunIcon className="size-5" />
+      </button>
     )
   }
 
@@ -590,22 +562,10 @@ function RemoteStartRow({
   if (variant === `start`) {
     return (
       <div className="flex min-w-0 items-center gap-2">
-        {remote.sentTo && (
-          <span className="hidden min-w-0 items-center gap-1.5 truncate text-xs text-muted-foreground lg:inline-flex">
-            <LoaderCircle className="size-3 shrink-0 animate-spin" />
-            Start sent to {remote.sentTo}. Waiting for the desktop…
-          </span>
-        )}
-        <Pill
-          mode="action"
-          primary={tone === `primary`}
-          onClick={() => setDialogOpen(true)}
-          disabled={busy}
-        >
-          {busy ? <LoaderCircle className="animate-spin" /> : <MonitorUp />}
+        <Pill mode="action" primary={tone === `primary`} onClick={start}>
+          <MonitorUp />
           Start coding
         </Pill>
-        {dialog}
       </div>
     )
   }

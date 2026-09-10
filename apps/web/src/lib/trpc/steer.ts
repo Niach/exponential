@@ -7,6 +7,7 @@ import {
   MAX_ACTION_INPUTS,
   MAX_ACTION_INPUT_KEY,
   MAX_ACTION_INPUT_TEXT,
+  startPromptSchema,
   type ActionInputDef,
 } from "@exp/db-schema/domain"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
@@ -20,6 +21,7 @@ import {
   repositories,
   teamMembers,
   type Device,
+  sessionAttachments,
 } from "@/db/schema"
 import {
   assertTeamMember,
@@ -39,6 +41,10 @@ import {
   type SteerStartRepo,
 } from "@/lib/steer"
 import { resolveActionInputs } from "@/lib/action-inputs"
+import {
+  resolveStartPrompt,
+  type StartPromptLookups,
+} from "@/lib/start-prompt"
 import { deviceRowIsOnline, deviceUsageWallAt } from "@/lib/steer-devices"
 import {
   BUILTIN_CHAT_ID,
@@ -114,6 +120,54 @@ const mintTicketInput = z.discriminatedUnion(`kind`, [
     sessionId: z.string().uuid(),
   }),
 ])
+
+
+/** EXP-825: the attachment lookup `resolveStartPrompt` needs — pending
+ * `session_attachments` rows (NULL session) or rows already bound to a
+ * session, with that session's owner for the "mine" check. */
+function startPromptLookups(
+  // eslint-disable-next-line @typescript-eslint/consistent-type-imports
+  db: typeof import("@/db/connection").db
+): StartPromptLookups {
+  return {
+    attachments: async (ids) => {
+      const rows = await db
+        .select({
+          id: sessionAttachments.id,
+          teamId: sessionAttachments.teamId,
+          uploaderId: sessionAttachments.uploaderId,
+          sessionUserId: codingSessions.userId,
+        })
+        .from(sessionAttachments)
+        .leftJoin(
+          codingSessions,
+          eq(codingSessions.id, sessionAttachments.sessionId)
+        )
+        .where(inArray(sessionAttachments.id, ids))
+      return rows.map(
+        (row: {
+          id: string
+          teamId: string
+          uploaderId: string | null
+          sessionUserId: string | null
+        }) => ({ ...row, sessionUserId: row.sessionUserId ?? null })
+      )
+    },
+  }
+}
+
+async function resolveStartPromptOrThrow(
+  prompt: string | undefined,
+  teamId: string,
+  userId: string,
+  lookups: StartPromptLookups
+): Promise<string | undefined> {
+  const result = await resolveStartPrompt(prompt, teamId, userId, lookups)
+  if (!result.ok) {
+    throw new TRPCError({ code: result.code, message: result.message })
+  }
+  return result.prompt
+}
 
 export const steerRouter = router({
   // Whether remote start + live steering is available on this instance —
@@ -249,6 +303,11 @@ export const steerRouter = router({
               message: `Too many inputs`,
             })
             .optional(),
+          // EXP-825: the requester's free text beside the subject — the chat
+          // text (REQUIRED for the Chat and Create-action builtins, whose
+          // text inputs are gone), additional instructions otherwise — in the
+          // steer-image-message shape; embeds are validated in the mutation.
+          prompt: startPromptSchema.optional(),
           deviceId: z.string().min(1).max(128),
           agent: z.enum(codingAgentValues).optional(),
           model: z.string().max(64).optional(),
@@ -313,6 +372,7 @@ export const steerRouter = router({
                 `planMode`,
                 `mcpServerIds`,
                 `account`,
+                `prompt`,
               ] as const
             ).filter((key) => value[key] !== undefined)
             for (const key of conflicting) {
@@ -338,6 +398,20 @@ export const steerRouter = router({
               code: z.ZodIssueCode.custom,
               path: [`teamId`],
               message: `teamId rides built-in action starts only`,
+            })
+          }
+          // EXP-825: the two builtins that used to carry their text as an
+          // input now read it from `prompt` — without one there is nothing
+          // to run.
+          if (
+            (value.actionId === BUILTIN_CHAT_ID ||
+              value.actionId === BUILTIN_CREATE_ACTION_ID) &&
+            (value.prompt ?? ``).trim().length === 0
+          ) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: [`prompt`],
+              message: `prompt is required for the Chat and Create action builtins`,
             })
           }
           if (value.inputs && !value.actionId) {
@@ -823,6 +897,12 @@ export const steerRouter = router({
             message: resolved.message,
           })
         }
+        const prompt = await resolveStartPromptOrThrow(
+          input.prompt,
+          action.teamId,
+          userId,
+          startPromptLookups(db)
+        )
 
         // Strip to the relay-safe repo group (never installationId). A row
         // gone can't happen (FK SET NULL nulls repositoryId); an archived or
@@ -950,6 +1030,19 @@ export const steerRouter = router({
           })
         }
         requireUsageHeadroom(device, actionAgent, input.account)
+        // EXP-825: the Chat / Create-action builtins read their text from
+        // the frame's `prompt`; a device below that build would run them
+        // with nothing at all, so it is refused rather than started empty.
+        if (
+          (input.actionId === BUILTIN_CHAT_ID ||
+            input.actionId === BUILTIN_CREATE_ACTION_ID) &&
+          !device.caps.includes(`start-prompt`)
+        ) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `Update the Exponential app on that device to start a chat from here`,
+          })
+        }
 
         const result = await relayPostStart(config, {
           userId: ownerId,
@@ -961,6 +1054,7 @@ export const steerRouter = router({
           teamId: action.teamId,
           ...(repo ? { repo } : {}),
           ...(resolved.inputs.length > 0 ? { inputs: resolved.inputs } : {}),
+          ...(prompt ? { prompt } : {}),
           agent: input.agent,
           model: input.model,
           effort: input.effort,
@@ -1005,6 +1099,13 @@ export const steerRouter = router({
       }
       const teamId = contexts[0]!.teamId
       await assertTeamMember(userId, teamId)
+      const { db } = await import(`@/db/connection`)
+      const prompt = await resolveStartPromptOrThrow(
+        input.prompt,
+        teamId,
+        userId,
+        startPromptLookups(db)
+      )
 
       // The launcher can't do anything without a linked repo, and a batch must
       // land in ONE repo (mirrors the MCP pr_open loop) — resolve per distinct
@@ -1076,6 +1177,7 @@ export const steerRouter = router({
             ...(shared ? { startedBy: userId } : {}),
             ...agentStarted,
             issueId: input.issueId,
+            ...(prompt ? { prompt } : {}),
             ...options,
           })
         : await relayPostStart(config, {
@@ -1086,6 +1188,7 @@ export const steerRouter = router({
             issueIds: ids,
             teamId,
             repo: repo!,
+            ...(prompt ? { prompt } : {}),
             ...options,
           })
       if (!result.ok) {

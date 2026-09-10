@@ -2,8 +2,11 @@
 // device localizes each embed to a file path before the agent sees it, and the
 // activity echo restores the embed, so this exact shape is load-bearing across
 // web, iOS (SteerImageMessage.swift) and Android (SteerImageMessage.kt) — keep
-// the three builders byte-identical.
-export const MAX_STEER_IMAGES = 4
+// the three builders byte-identical. EXP-825: the same shape carries a START's
+// free text (`steer.startSession` `prompt`), so the cap is the contract's.
+import { MAX_START_PROMPT_IMAGES } from "@exp/db-schema/domain"
+
+export const MAX_STEER_IMAGES: number = MAX_START_PROMPT_IMAGES
 
 // EXP-698: a POSITIONAL reference to one of the message's images. The composer
 // drops `[Image #k]` at the caret when the k-th image is attached, so the

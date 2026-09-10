@@ -220,16 +220,14 @@ export function DeviceStatusLine({
 
 export function MyMachines({
   devices,
-  runBusy,
-  sentTo,
   onStartCoding,
   onChanged,
   latestVersions,
   teamId,
 }: {
   devices: SteerDevice[] | null
-  runBusy: boolean
-  sentTo: string | null
+  /** EXP-825: a navigation to the Agent page composer with this machine
+   * pre-picked — the row itself never starts anything. */
   onStartCoding: (deviceId: string) => void
   onChanged: () => void
   latestVersions: { desktop: string | null; cli: string | null } | null
@@ -498,7 +496,7 @@ export function MyMachines({
                     <Button
                       variant="glass"
                       size="icon"
-                      disabled={runBusy || !online || signInNeeded}
+                      disabled={!online || signInNeeded}
                       onClick={() => onStartCoding(device.deviceId)}
                       aria-label="Start coding"
                       // The wrapping span explains a sign-in block; its tooltip
@@ -589,7 +587,7 @@ export function MyMachines({
                     <Button
                       variant="glass"
                       size="icon"
-                      disabled={runBusy || !online || signInNeeded}
+                      disabled={!online || signInNeeded}
                       onClick={() => onStartCoding(device.deviceId)}
                       aria-label="Start coding"
                       title="Start coding"
@@ -602,13 +600,6 @@ export function MyMachines({
               )
             })}
           </div>
-        </div>
-      )}
-
-      {sentTo && (
-        <div className="flex items-center gap-1.5 px-1 py-2 text-xs text-muted-foreground">
-          <LoaderCircle className="size-3 animate-spin" />
-          Start sent to {sentTo}. Waiting for the machine…
         </div>
       )}
 

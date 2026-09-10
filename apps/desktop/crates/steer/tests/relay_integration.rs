@@ -612,6 +612,7 @@ fn full_protocol_flow_against_the_real_relay() {
             session_id: SESSION_ID.to_string(),
             issue_id: Some("issue-int-1".to_string()),
             journal_dir: None,
+            embeds: steer::ImageEmbeds::default(),
         },
         Arc::new(BunTickets {
             relay_port: relay.port,
@@ -789,6 +790,7 @@ fn publisher_reconnects_and_resumes_the_room_after_a_socket_drop() {
             session_id: SESSION_ID.to_string(),
             issue_id: Some("issue-int-2".to_string()),
             journal_dir: None,
+            embeds: steer::ImageEmbeds::default(),
         },
         Arc::new(BunTickets {
             relay_port: relay.port,
@@ -873,6 +875,7 @@ fn the_production_viewer_watches_and_steers_a_real_room() {
             session_id: SESSION_ID.to_string(),
             issue_id: None,
             journal_dir: None,
+            embeds: steer::ImageEmbeds::default(),
         },
         Arc::new(BunTickets {
             relay_port: relay.port,

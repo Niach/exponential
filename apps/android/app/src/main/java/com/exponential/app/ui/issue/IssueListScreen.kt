@@ -72,6 +72,7 @@ import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.IssueStatusCategory
@@ -138,6 +139,9 @@ fun IssueListScreen(
     // EXP-536: a remote start jumps straight into the live session once the
     // desktop's row syncs in, instead of parking a chip pointing at Devices.
     onOpenSteer: (codingSessionId: String) -> Unit = {},
+    // EXP-825: the selection bar's Start coding navigates to the Agent page
+    // composer with the checked issues chipped.
+    onOpenAgent: (AgentComposerSeed) -> Unit = {},
     // EXP-686: search left the bottom bar and rides the board header instead,
     // next to the filter trigger.
     onOpenSearch: () -> Unit = {},
@@ -170,7 +174,6 @@ fun IssueListScreen(
     // the floating selection bar acts on the whole selection. Mode is active
     // exactly while the selection is non-empty.
     var selectedIds by remember { mutableStateOf(emptySet<String>()) }
-    var showStartSheet by remember { mutableStateOf(false) }
     var noDesktopHint by remember { mutableStateOf(false) }
     // Which bulk-property sheet the selection bar has open (null = none).
     var bulkSheet by remember { mutableStateOf<BulkSheet?>(null) }
@@ -192,17 +195,6 @@ fun IssueListScreen(
     val soloMemberId by viewModel.soloMemberId.collectAsStateWithLifecycle()
     val steerEnabled by viewModel.steerEnabled.collectAsStateWithLifecycle()
     val steerDevices by viewModel.devices.collectAsStateWithLifecycle()
-    val startState by viewModel.startState.collectAsStateWithLifecycle()
-    val startCandidates by viewModel.startCandidates.collectAsStateWithLifecycle()
-
-    // The desktop picked the start up — open the live session ONCE (EXP-536).
-    val startedSessionId by viewModel.startedSessionId.collectAsStateWithLifecycle()
-    LaunchedEffect(startedSessionId) {
-        startedSessionId?.let {
-            viewModel.consumeStartedSession()
-            onOpenSteer(it)
-        }
-    }
 
     // Selected rows resolved back to their entries — drives the selection
     // bar's shared status/priority glyphs and the bulk property sheets. A
@@ -472,12 +464,10 @@ fun IssueListScreen(
             }
         }
 
-        // Floating selection bar + transient start feedback, above the app's
+        // Floating selection bar + the no-desktop notice, above the app's
         // bottom bar zone (EXP-405 — back to the bottom overlay so entering
         // multi-select never reflows the list; mirrors GatedServersBanner).
-        val startNoticeVisible =
-            startState is SteerStartState.Sent || startState is SteerStartState.Failed
-        if (startNoticeVisible || noDesktopHint || selectionActive) {
+        if (noDesktopHint || selectionActive) {
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -492,24 +482,6 @@ fun IssueListScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                when (val sent = startState) {
-                    // EXP-536: a pure WAITING caption — the screen opens the
-                    // session itself once the desktop's row syncs in, so
-                    // nothing points at the Agents tab any more.
-                    is SteerStartState.Sent -> NoticeChip(
-                        text = "Start sent to " +
-                            sent.deviceLabel.ifEmpty { "your desktop" } +
-                            ". Waiting for the desktop…",
-                        isError = false,
-                        onClick = null,
-                    )
-                    is SteerStartState.Failed -> NoticeChip(
-                        text = sent.message,
-                        isError = true,
-                        onClick = viewModel::dismissStartState,
-                    )
-                    else -> {}
-                }
                 if (noDesktopHint) {
                     NoticeChip(
                         text = "No desktop online. Open the Exponential desktop app to run here.",
@@ -541,7 +513,12 @@ fun IssueListScreen(
                             when {
                                 online == null -> {} // presence still resolving
                                 online.isEmpty() -> noDesktopHint = true
-                                else -> showStartSheet = true
+                                // EXP-825: the composer IS the launcher; the
+                                // selection clears at once (web parity).
+                                else -> {
+                                    onOpenAgent(AgentComposerSeed(issueIds = selectedIds.toList()))
+                                    selectedIds = emptySet()
+                                }
                             }
                         },
                         onDelete = { confirmBulkDelete = true },
@@ -571,20 +548,6 @@ fun IssueListScreen(
             dismissButton = {
                 TextButton(onClick = { confirmBulkDelete = false }) { Text("Cancel") }
             },
-        )
-    }
-
-    if (showStartSheet) {
-        StartCodingSheet(
-            devices = steerDevices ?: emptyList(),
-            issues = startCandidates,
-            preselectedIds = selectedIds,
-            onStart = { device, ids, options ->
-                selectedIds = emptySet()
-                viewModel.startCoding(device, ids, options)
-            },
-            onRunAction = viewModel::runAction,
-            onDismiss = { showStartSheet = false },
         )
     }
 

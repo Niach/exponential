@@ -1,9 +1,8 @@
-import { useState } from "react"
 import { createFileRoute, redirect } from "@tanstack/react-router"
 import { MyMachines } from "@/components/my-machines"
 import { AgentAccountsSection } from "@/components/agent-usage-page"
 import { useSteerConfig } from "@/components/agent-session"
-import { LaunchDialog } from "@/components/launch-dialog/launch-dialog"
+import { useOpenComposer } from "@/hooks/use-open-composer"
 import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug } from "@/hooks/use-team-data"
@@ -13,12 +12,9 @@ import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 // Team Devices view (EXP-686 — the old Agents route, minus the actions
 // surface: Actions and Automations are their own routes now): the caller's
 // online desktops and servers, the remote-start entry point, and the native
-// apps' Running section below them on every viewport (EXP-697). The
-// LaunchDialog here serves the device rows' "Start coding".
-//
-// EXP-739: the mobile chat FAB is a LINK to `/t/$teamSlug/chat` now — the
-// launcher's Chat tab keeps working from the dialog, but this route no longer
-// carries a `?chat=1` one-shot.
+// apps' Running section below them on every viewport (EXP-697). EXP-825: a
+// device row's play button is a navigation to the Agent page composer with
+// that machine pre-picked (`?device=`) — the launch dialog is gone.
 
 export const Route = createFileRoute(`/t/$teamSlug/devices`)({
   beforeLoad: async ({ context, location }) => {
@@ -51,13 +47,7 @@ function DevicesPage() {
     currentUserId,
     teamId,
   })
-  const runBusy = remote.starting || remote.sentTo !== null
-
-  // The device rows' "Start coding" dialog, opened on the Issues tab
-  // pre-targeted at the picked machine.
-  const [launchDeviceId, setLaunchDeviceId] = useState<string | null>(null)
-
-  const closeLaunch = () => setLaunchDeviceId(null)
+  const openComposer = useOpenComposer()
 
   if (!team) {
     return <div className="text-muted-foreground text-sm p-6">Loading…</div>
@@ -75,9 +65,7 @@ function DevicesPage() {
           {isMember && steerConfig?.enabled && (
             <MyMachines
               devices={remote.devices}
-              runBusy={runBusy}
-              sentTo={remote.sentTo}
-              onStartCoding={(deviceId) => setLaunchDeviceId(deviceId)}
+              onStartCoding={(deviceId) => openComposer({ deviceId })}
               onChanged={remote.refresh}
               latestVersions={remote.latestVersions}
               teamId={teamId}
@@ -96,30 +84,6 @@ function DevicesPage() {
           )}
         </div>
       </div>
-
-      <LaunchDialog
-        open={launchDeviceId !== null}
-        onOpenChange={(next) => {
-          if (!next) setLaunchDeviceId(null)
-        }}
-        devices={remote.devices ?? []}
-        starting={remote.starting}
-        teamId={team.id}
-        initialTab="issues"
-        initialDeviceId={launchDeviceId ?? undefined}
-        onStartIssues={(device, options, issueIds) => {
-          remote
-            .startIssues(device, options, issueIds)
-            .then(() => closeLaunch())
-            .catch(() => {})
-        }}
-        onRunAction={(device, action, options, inputs) => {
-          remote
-            .runAction(device, action, options, inputs)
-            .then(() => closeLaunch())
-            .catch(() => {})
-        }}
-      />
     </>
   )
 }

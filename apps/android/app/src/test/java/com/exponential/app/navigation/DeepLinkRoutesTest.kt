@@ -65,6 +65,30 @@ class DeepLinkRoutesTest {
         )
     }
 
+    /**
+     * EXP-825: the Agent page's route carries its seed as `?k={v}` query
+     * placeholders — the filler treats them like path ones, so a re-tap of a
+     * web `/t/{team}/agent` link on an already-open page still compares.
+     */
+    @Test
+    fun `fills query placeholders`() {
+        assertEquals(
+            "agent?issues=a,b&action=builtin:fix-conflicts",
+            DeepLinkRoutes.concreteRoute(
+                "agent?issues={issues}&action={action}",
+                args("issues" to "a,b", "action" to "builtin:fix-conflicts"),
+            ),
+        )
+        // A nullable query arg the entry does not carry is an INCOMPLETE fill:
+        // null, so the drain pushes rather than assumes.
+        assertNull(
+            DeepLinkRoutes.concreteRoute(
+                "agent?issues={issues}&action={action}",
+                args("issues" to "a,b"),
+            ),
+        )
+    }
+
     @Test
     fun `an unresolvable placeholder yields null`() {
         assertNull(DeepLinkRoutes.concreteRoute("issue/{issueId}", args()))

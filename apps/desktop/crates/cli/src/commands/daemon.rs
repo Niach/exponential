@@ -1295,12 +1295,15 @@ fn handle_remote_start(
             // EXP-481: honor the remote resume flag — the launcher's marker
             // gate degrades a missing/foreign worktree to a fresh session.
             start.resume,
+            start.prompt.clone(),
         ),
         RemoteStartSubject::Batch { issue_ids, team_id, repo } => remote_batch_start(
             ctx, runtime, sessions, personal_key, options, origin, issue_ids, team_id, repo,
+            start.prompt.clone(),
         ),
         RemoteStartSubject::Action { action_id, team_id, repo, inputs, .. } => remote_action_start(
             ctx, runtime, sessions, personal_key, options, origin, action_id, team_id, repo, inputs,
+            start.prompt.clone(),
         ),
         // EXP-637: the run registry holds everything else (agent, workspace,
         // branch, options), so the frame's launch options are ignored by
@@ -1360,6 +1363,7 @@ fn remote_issue_start(
     origin: coding::LaunchOrigin,
     issue_id: String,
     start_resume: bool,
+    prompt: Option<String>,
 ) -> anyhow::Result<()> {
     if let Some(reason) = issue_start_blocker(ctx, sessions, &issue_id) {
         log::info!("{reason}");
@@ -1381,12 +1385,14 @@ fn remote_issue_start(
             origin,
             model: None,
             effort: None,
+            prompt,
         }),
         None => PrepareRequest::Issue(launch::issue_launch_request(
             &issue,
             options,
             origin,
             start_resume,
+            prompt,
         )),
     };
     let prepared = coding::prepare(&request, &deps)
@@ -1408,6 +1414,7 @@ fn remote_batch_start(
     issue_ids: Vec<String>,
     team_id: String,
     repo: steer::StartRepoGroup,
+    prompt: Option<String>,
 ) -> anyhow::Result<()> {
     let mut issues = Vec::new();
     let mut seeds = HashMap::new();
@@ -1474,6 +1481,7 @@ fn remote_batch_start(
         device_label: coding::default_device_label(),
         origin,
         options,
+        prompt,
     };
     let deps = launch::coding_deps(ctx, seeds, launch::LaunchHost::Daemon, runtime);
     let request = PrepareRequest::Batch(request);
@@ -1494,6 +1502,7 @@ fn remote_action_start(
     team_id: String,
     repo: Option<steer::StartRepoGroup>,
     inputs: Vec<steer::StartInput>,
+    prompt: Option<String>,
 ) -> anyhow::Result<()> {
     let inputs: Vec<coding::ActionInputValue> = inputs
         .into_iter()
@@ -1521,6 +1530,7 @@ fn remote_action_start(
         // A relay frame is a person pressing Run — never automation-started.
         None,
         None,
+        prompt,
     )?;
 
     // Fix-conflicts branch takeover (desktop `take_over_branch`): a live
@@ -1615,6 +1625,8 @@ repo-less run, which is purged when it ends"
         origin,
         model: None,
         effort: None,
+        // The server never sends a prompt on a resume frame (EXP-825).
+        prompt: None,
     };
     let deps = launch::coding_deps(ctx, seeds, launch::LaunchHost::Daemon, runtime);
     let request = PrepareRequest::ResumeRun(request);
@@ -2630,6 +2642,8 @@ impl AutomationHost {
             coding::LaunchOrigin::Local,
             Some(note),
             Some(action.triggered.automation_id.clone()),
+            // An automation fires with no composer text.
+            None,
         )?;
         let deps = launch::coding_deps(
             &self.ctx,

@@ -570,7 +570,7 @@ impl IssueHeader {
         Some(column.into_any_element())
     }
 
-    /// The "Fix conflicts" button (EXP-313): opens the Start-coding dialog
+    /// The "Fix conflicts" button (EXP-313): opens the Agent page composer
     /// with the fix-conflicts builtin and this issue's PR preselected.
     /// EXP-799: it wears the PRIMARY paint — while it is up it holds the
     /// tray's Merge slot (see [`merge_slot_swapped`]), so it is the header's
@@ -601,20 +601,21 @@ impl IssueHeader {
                     .unwrap_or_else(|| "Run the fix-conflicts action on this pull request".into()),
             )
             .on_click(cx.listener(move |_, _, window, cx| {
-                let Some(team_id) = Store::global(cx)
+                if Store::global(cx)
                     .collections()
                     .boards
                     .read(cx)
                     .get(&board_id)
-                    .map(|board| board.team_id.clone())
-                else {
+                    .is_none()
+                {
                     return;
-                };
-                crate::start_coding_dialog::open_for_fix_conflicts(
+                }
+                // EXP-825: the composer with the fix-conflicts builtin and
+                // this PR preselected.
+                crate::navigation::navigate_to_chat(
                     window,
                     cx,
-                    team_id,
-                    issue_id.clone(),
+                    crate::navigation::ChatSeed::fix_conflicts(issue_id.clone()),
                 );
             }));
         if fixing || no_agent.is_some() {

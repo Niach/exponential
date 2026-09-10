@@ -25,10 +25,9 @@
 //!   (EXP-201: `git` plus ANY usable agent enables the affordance; a launch
 //!   additionally gates on the SELECTED agent via `first_failure_for`);
 //!   disabled states carry the EXACT §7 reasons (never a false "not
-//!   connected", never an unexplained block). Click → the shared
-//!   Start-coding dialog
-//!   (`crate::start_coding_dialog`), which owns the model/effort/plan-mode
-//!   choices and the prepare→spawn task.
+//!   connected", never an unexplained block). Click → the Agent page
+//!   composer (`crate::chat_screen`, EXP-825), which owns the
+//!   model/effort/plan-mode choices and the prepare→spawn task.
 //!
 //! The relay-origin `start_session` path (§08) is the SAME sequence — its
 //! control channel builds the same [`build_launch`] input and calls the same
@@ -1147,18 +1146,21 @@ pub fn coding_data_dir(cx: &App) -> PathBuf {
 
 /// Everything `coding::prepare` needs for an ISSUE launch, assembled from the
 /// signed-in app state. `None` when signed out or the issue isn't synced
-/// (both make Start coding meaningless). Shared by the Start-coding dialog
+/// (both make Start coding meaningless). Shared by the Agent page composer
 /// and — via the same construction — the §08 relay `start_session` path
 /// (which passes settings-default `options` with plan mode forced OFF).
 ///
 /// EXP-662: `resume_prompt` only seeds the RESUME prompt (and clamps plan
 /// mode) — an exact resume goes through [`build_resume_deps`] +
 /// `PrepareRequest::ResumeRun` instead, off a `run_registry` record.
+/// `prompt` (EXP-825): the composer's free text — the prompt's
+/// additional-instructions section.
 pub fn build_launch(
     issue_id: &str,
     origin: LaunchOrigin,
     options: LaunchOptions,
     resume_prompt: bool,
+    prompt: Option<String>,
     cx: &mut App,
 ) -> Option<(LaunchRequest, CodingDeps)> {
     let account = queries::active_account(cx)?;
@@ -1189,6 +1191,7 @@ pub fn build_launch(
         origin,
         options,
         resume_prompt,
+        prompt,
     };
     let deps = CodingDeps {
         trpc,
@@ -1380,7 +1383,7 @@ impl engine::EngineHost for DesktopEngineHost {
 ///
 /// EXP-773: the ONE spawn path. A coding session has no tab, so a window
 /// without a terminal dock is a perfectly good host. Every caller — the
-/// Start-coding dialog, the three relay start handlers,
+/// Agent page composer, the three relay start handlers,
 /// `action_run::resume_run`, the chat launch — funnels through here.
 pub fn spawn_into_window(
     mut prepared: coding::PreparedLaunch,
@@ -1655,13 +1658,18 @@ impl StartCodingControl {
         cx.notify();
     }
 
-    /// The click: open the shared Start-coding dialog (it owns the
-    /// model/effort/plan-mode choices AND the prepare→spawn task).
+    /// The click: open the Agent page composer with this issue picked
+    /// (EXP-825 — it owns the model/effort/plan-mode choices AND the
+    /// prepare→spawn task).
     fn launch(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let Some(issue_id) = self.issue_id.clone() else {
             return;
         };
-        crate::start_coding_dialog::open_for_issue(window, cx, issue_id);
+        crate::navigation::navigate_to_chat(
+            window,
+            cx,
+            crate::navigation::ChatSeed::issues(vec![issue_id]),
+        );
     }
 
     /// Whether the control renders anything at all: an issue is set AND its

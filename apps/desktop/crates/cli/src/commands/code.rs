@@ -47,7 +47,7 @@ pub fn run(args: &[String]) -> CommandResult {
     let issue = fetched.issue;
     println!("Starting {} — {}", issue.identifier, issue.title);
 
-    let request = launch::issue_launch_request(&issue, options, coding::LaunchOrigin::Local, false);
+    let request = launch::issue_launch_request(&issue, options, coding::LaunchOrigin::Local, false, None);
     let mut seeds = HashMap::new();
     seeds.insert(issue.id.clone(), launch::issue_seed(&issue));
     // EXP-746: the runtime is resolved BEFORE `prepare` — it decides the

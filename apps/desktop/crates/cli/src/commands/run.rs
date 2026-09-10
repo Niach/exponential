@@ -26,10 +26,13 @@ pub fn run(args: &[String]) -> CommandResult {
     };
     let team_flag = take_value(&mut args, "--team");
     let raw_inputs = take_values(&mut args, "--input");
+    // EXP-825: the composer's free text — the whole request for the
+    // Create-action builtin, additional instructions for everything else.
+    let prompt = take_value(&mut args, "--prompt").filter(|text| !text.trim().is_empty());
     let detach = take_flag(&mut args, "--detach");
     reject_unknown_flags(&args)?;
     let Some(action_ref) = args.first() else {
-        bail!("usage: exponential run <action-id-or-name> [--team <team-id>] [--input k=v ...] [--agent ...] [--detach]");
+        bail!("usage: exponential run <action-id-or-name> [--team <team-id>] [--input k=v ...] [--prompt <text>] [--agent ...] [--detach]");
     };
 
     let ctx = context::load()?;
@@ -46,6 +49,9 @@ pub fn run(args: &[String]) -> CommandResult {
 
     let (action_id, input_defs) = resolve_action_ref(&ctx, action_ref, &team_id)?;
     let inputs = build_inputs(&raw_inputs, &input_defs, &action_id)?;
+    if action_id == BUILTIN_CREATE_ACTION_ID && prompt.is_none() {
+        bail!("the Create-action builtin needs the request text: --prompt \"<what the action should do>\"");
+    }
 
     let request = launch::resolve_action_request(
         &ctx,
@@ -58,6 +64,7 @@ pub fn run(args: &[String]) -> CommandResult {
         // A hand-typed `run` is never automation-started.
         None,
         None,
+        prompt,
     )?;
     println!("Running action: {}", request.action_name);
 
@@ -148,6 +155,11 @@ fn resolve_action_ref(
     Ok((matched.id, matched.inputs))
 }
 
+/// EXP-825: the input types a run can still be handed. `text`/`textarea`
+/// are retired — a stale row still declaring one is refused here so the
+/// owner removes it on the web (what used to be typed there is `--prompt`).
+const PICK_INPUT_TYPES: [&str; 4] = ["repo", "board", "pr", "icon"];
+
 /// `--input k=v` values mapped onto the action's input definitions —
 /// required ones enforced, unknown keys rejected (typos must not silently
 /// drop an input the prompt expects).
@@ -171,6 +183,14 @@ fn build_inputs(
     let mut inputs = Vec::new();
     for def in defs {
         let required = def.required;
+        if !PICK_INPUT_TYPES.contains(&def.input_type.as_str()) {
+            bail!(
+                "action `{action_id}` still declares the free-text input `{}` ({}); remove it on \
+the web and pass that text with --prompt instead",
+                def.key,
+                def.input_type
+            );
+        }
         match provided.remove(&def.key) {
             Some(value) => inputs.push(ActionInputValue {
                 key: def.key.clone(),

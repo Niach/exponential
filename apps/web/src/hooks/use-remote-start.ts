@@ -46,8 +46,9 @@ import {
 // matches on actionId — the builtin "Create action" run is inserted with
 // actionId NULL.
 
-/** The resolved launch-dialog choices sent with `steer.startSession` — the
- * same shape the prefs module persists. */
+/** The resolved launch choices sent with `steer.startSession` — the same
+ * shape the prefs module persists. EXP-825: the ONE home of the alias (it
+ * used to be re-exported by the launch dialog, which is gone). */
 export type StartCodingOptions = CodingLaunchPrefs
 
 /** EXP-792 (EXP-747 A2): the failure toast, with a "Sign in" action when the
@@ -103,18 +104,24 @@ export interface RemoteStart {
    * synced row appears (its session page opens) or once the watch deadline
    * passes without one. */
   sentTo: string | null
-  /** Resolves on delivery, rejects on failure (toast already shown). */
+  /** Resolves on delivery, rejects on failure (toast already shown).
+   * EXP-825: `prompt` is the composer's free text (with its image embeds,
+   * `buildSteerImageMessage`) — the run's "Additional instructions". */
   startIssues: (
     device: SteerDevice,
     options: StartCodingOptions,
-    issueIds: string[]
+    issueIds: string[],
+    prompt?: string
   ) => Promise<void>
-  /** Resolves on delivery, rejects on failure (toast already shown). */
+  /** Resolves on delivery, rejects on failure (toast already shown).
+   * EXP-825: `prompt` is REQUIRED for the Chat and Create action builtins
+   * (it IS the request) and optional instructions for any other action. */
   runAction: (
     device: SteerDevice,
     action: RemoteStartAction,
     options: StartCodingOptions,
-    inputs?: Record<string, string>
+    inputs?: Record<string, string>,
+    prompt?: string
   ) => Promise<void>
   /** Re-fetch `latestVersions` now (device rows themselves are synced —
    * mutations stream in without any refetch). */
@@ -245,7 +252,8 @@ export function useRemoteStart({
   const startIssues = async (
     device: SteerDevice,
     options: StartCodingOptions,
-    issueIds: string[]
+    issueIds: string[],
+    prompt?: string
   ) => {
     const key = startedRunKeyForIssues(issueIds)
     if (!key) return
@@ -254,7 +262,13 @@ export function useRemoteStart({
       // EXP-481: `resume` rides SINGLE-issue starts only (a batch has no
       // per-issue worktree; the server rejects it there).
       const { resume, ...rest } = options
-      const base = { deviceId: device.deviceId, ...rest }
+      const base = {
+        deviceId: device.deviceId,
+        ...rest,
+        // A blank prompt is OMITTED — the server drops whitespace-only
+        // anyway, and older relays never see the key.
+        ...(prompt && prompt.trim() ? { prompt } : {}),
+      }
       await trpc.steer.startSession.mutate(
         // 1 issue → plain single-issue session; 2+ → one batch session on a
         // single pushed branch (the server contract owns the fan-out).
@@ -281,7 +295,8 @@ export function useRemoteStart({
     device: SteerDevice,
     action: RemoteStartAction,
     options: StartCodingOptions,
-    inputs?: Record<string, string>
+    inputs?: Record<string, string>,
+    prompt?: string
   ) => {
     setStarting(true)
     try {
@@ -295,6 +310,7 @@ export function useRemoteStart({
           // row to derive the team from) and forbidden otherwise.
           ...(isBuiltinActionId(action.id) ? { teamId: action.teamId } : {}),
           ...(inputs ? { inputs } : {}),
+          ...(prompt && prompt.trim() ? { prompt } : {}),
           ...rest,
         },
         { context: { skipErrorToast: true } }

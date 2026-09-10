@@ -3,11 +3,8 @@ package com.exponential.app.ui.reviews
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
-import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.CodingSessionsApi
 import com.exponential.app.data.api.IssuesApi
-import com.exponential.app.data.api.SteerDevice
-import com.exponential.app.data.api.SteerStartOptions
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
@@ -16,9 +13,6 @@ import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.sortableTimestamp
-import com.exponential.app.ui.issue.StartIssueOption
-import com.exponential.app.ui.steer.ActionRunState
-import com.exponential.app.ui.steer.SteerLaunchDelegate
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -125,15 +119,10 @@ class ReviewsViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val issuesApi: IssuesApi,
     private val codingSessionsApi: CodingSessionsApi,
-    private val steerLaunch: SteerLaunchDelegate,
     selection: TeamSelection,
 ) : ViewModel() {
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
-
-    init {
-        steerLaunch.attach(viewModelScope)
-    }
 
     val state: StateFlow<ReviewsState> =
         combine(dbFlow, selection.selectedId) { db, teamId -> db to teamId }
@@ -261,23 +250,4 @@ class ReviewsViewModel @Inject constructor(
 
     private val _merging = MutableStateFlow<Set<String>>(emptySet())
     val merging: StateFlow<Set<String>> = _merging
-
-    // ── Remote start (EXP-323) ───────────────────────────────────────────────
-    // A merge refused for a REAL conflict (EXP-533) offers the builtin "Fix
-    // merge conflicts" run — desktop parity (its Reviews list has the same
-    // button). The launcher plumbing is the shared delegate's.
-    val steerDevices: StateFlow<List<SteerDevice>?> get() = steerLaunch.devices
-    val startCandidates: StateFlow<List<StartIssueOption>> get() = steerLaunch.startCandidates
-    val runState: StateFlow<ActionRunState> get() = steerLaunch.runState
-    val startedSessionId: StateFlow<String?> get() = steerLaunch.startedSessionId
-
-    fun consumeStartedSession() = steerLaunch.consumeStartedSession()
-    fun runAction(
-        device: SteerDevice,
-        action: ActionDto,
-        options: SteerStartOptions,
-        inputs: Map<String, String>,
-    ) = steerLaunch.runAction(device, action, options, inputs)
-    fun startCoding(device: SteerDevice, issueIds: List<String>, options: SteerStartOptions) =
-        steerLaunch.startCoding(device, issueIds, options)
 }

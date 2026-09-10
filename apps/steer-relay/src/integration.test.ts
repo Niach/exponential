@@ -689,6 +689,69 @@ describe(`steer relay end-to-end`, () => {
     desktop.close()
   })
 
+  test(`prompt rides /start on every subject; a resume or a bad shape is 400 (EXP-825)`, async () => {
+    const desktop = await connect(ticket({ role: `control`, sub: `owner-8` }))
+    const desktopIn = collector(desktop)
+    desktop.send(JSON.stringify({ t: `online`, deviceId: `dev-8` }))
+
+    const prompt = `Keep the tokens.\n\n![image](/api/attachments/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa)`
+    const start = await startWhenOnline({
+      userId: `owner-8`,
+      deviceId: `dev-8`,
+      issueId: `issue-80`,
+      prompt,
+    })
+    expect(start.ok).toBe(true)
+    expect(await desktopIn.nextJson()).toEqual({
+      t: `start_session`,
+      issueId: `issue-80`,
+      prompt,
+    })
+
+    const action = await fetch(`${base}/start`, {
+      method: `POST`,
+      headers: {
+        "x-relay-secret": `integration-secret`,
+        "content-type": `application/json`,
+      },
+      body: JSON.stringify({
+        userId: `owner-8`,
+        deviceId: `dev-8`,
+        actionId: `builtin:chat`,
+        actionName: `Chat`,
+        teamId: `team-8`,
+        prompt: `hello`,
+      }),
+    })
+    expect(action.ok).toBe(true)
+    expect(await desktopIn.nextJson()).toEqual({
+      t: `start_session`,
+      actionId: `builtin:chat`,
+      actionName: `Chat`,
+      teamId: `team-8`,
+      prompt: `hello`,
+    })
+
+    for (const bad of [
+      { issueId: `issue-81`, prompt: 42 },
+      { issueId: `issue-81`, prompt: `` },
+      { issueId: `issue-81`, prompt: `x`.repeat(16385) },
+      { resumeSessionId: `run-1`, teamId: `team-8`, prompt: `x` },
+    ]) {
+      const res = await fetch(`${base}/start`, {
+        method: `POST`,
+        headers: {
+          "x-relay-secret": `integration-secret`,
+          "content-type": `application/json`,
+        },
+        body: JSON.stringify({ userId: `owner-8`, deviceId: `dev-8`, ...bad }),
+      })
+      expect(res.status, JSON.stringify(bad).slice(0, 80)).toBe(400)
+      await res.text()
+    }
+    desktop.close()
+  })
+
   test(`mcpServerIds + account ride /start; malformed ones are 400 (EXP-792)`, async () => {
     const desktop = await connect(ticket({ role: `control`, sub: `owner-7` }))
     const desktopIn = collector(desktop)

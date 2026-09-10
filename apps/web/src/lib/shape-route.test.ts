@@ -486,6 +486,8 @@ describe(`shape column + trash contracts`, () => {
       `description`,
       `icon`,
       `inputs`,
+      // EXP-825: the composer hint rides the shape (older natives drop it).
+      `prompt_placeholder`,
       `sort_order`,
       `created_at`,
       `updated_at`,

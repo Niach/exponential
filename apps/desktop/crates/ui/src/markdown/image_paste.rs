@@ -132,6 +132,20 @@ pub trait AttachmentTransport: Send + Sync {
         bytes: &[u8],
     ) -> anyhow::Result<UploadedImage>;
 
+    /// EXP-825: upload one image BEFORE a session exists —
+    /// `POST /api/teams/{id}/session-files`, the same multipart part and
+    /// response shape as [`Self::upload_session`]. The row is created with
+    /// `session_id NULL`; the start that embeds it binds it through
+    /// `codingSessions.start`'s `attachmentIds`, and an abandoned upload is
+    /// reclaimed by the server's orphan sweep.
+    fn upload_team_session_file(
+        &self,
+        team_id: &str,
+        filename: &str,
+        content_type: &str,
+        bytes: &[u8],
+    ) -> anyhow::Result<UploadedImage>;
+
     /// GET attachment bytes. `url` may be the canonical relative form or
     /// absolute; relative resolves against the instance base URL.
     fn fetch(&self, url: &str) -> anyhow::Result<Vec<u8>>;
@@ -269,6 +283,17 @@ impl AttachmentTransport for HttpAttachmentTransport {
         bytes: &[u8],
     ) -> anyhow::Result<UploadedImage> {
         let url = format!("{}/api/sessions/{session_id}/files", self.base_url);
+        self.post_multipart(&url, filename, content_type, bytes)
+    }
+
+    fn upload_team_session_file(
+        &self,
+        team_id: &str,
+        filename: &str,
+        content_type: &str,
+        bytes: &[u8],
+    ) -> anyhow::Result<UploadedImage> {
+        let url = format!("{}/api/teams/{team_id}/session-files", self.base_url);
         self.post_multipart(&url, filename, content_type, bytes)
     }
 

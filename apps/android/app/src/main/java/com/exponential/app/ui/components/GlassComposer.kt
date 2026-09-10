@@ -97,8 +97,11 @@ fun ComposerToolButton(
     contentDescription: String,
     onClick: () -> Unit,
     enabled: Boolean = true,
+    // EXP-825: the Agent page composer tags its three tools for the capture
+    // suites (byte-identical with the iOS identifiers).
+    modifier: Modifier = Modifier,
 ) {
-    IconButton(onClick = onClick, enabled = enabled) {
+    IconButton(onClick = onClick, enabled = enabled, modifier = modifier) {
         Icon(
             icon,
             contentDescription = contentDescription,

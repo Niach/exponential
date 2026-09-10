@@ -7,7 +7,6 @@ import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.AutomationsApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
-import com.exponential.app.data.api.SteerStartOptions
 import com.exponential.app.data.api.toActionDto
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
@@ -26,9 +25,7 @@ import com.exponential.app.domain.StartedRunMatch
 import com.exponential.app.domain.resumeTargetFor
 import com.exponential.app.domain.stableDeviceOrder
 import com.exponential.app.domain.toSteerDevice
-import com.exponential.app.ui.issue.StartIssueOption
 import com.exponential.app.ui.steer.ActionRunState
-import com.exponential.app.ui.steer.onlineStartTargets
 import com.exponential.app.ui.steer.steerDeviceFlow
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -49,14 +46,13 @@ import kotlinx.serialization.json.Json
 
 // The Actions surface (EXP-253, mobile = view + run only): the selected
 // team's action prompts LIVE from the synced actions shape (EXP-268 — the
-// local Room flow, body-less by design; the virtual "Fix merge conflicts"
-// builtin is prepended client-side, while "Create action" hides behind the
-// screen's "New action" button since EXP-431) plus the remote-run flow.
-// After the server accepts ANY start — an action run or an issue/batch run
-// off the sheet's Issues tab (EXP-536) — the model watches the synced
-// coding_sessions DAO flow for the row the desktop inserts (StartedRunMatch
-// owns the matching rules) and surfaces its id exactly once so the screen can
-// jump into the existing agent session viewer.
+// local Room flow, body-less by design; no client builtin is listed, EXP-431 /
+// EXP-686) plus the Automations tab's rows and mutations. EXP-825: starts left
+// for the Agent page composer; what remains of the remote rails here is the
+// Automations tab's Resume (EXP-637), which watches the synced coding_sessions
+// DAO flow for the row the desktop inserts (StartedRunMatch owns the matching
+// rules) and surfaces its id exactly once so the screen can jump into the
+// existing agent session viewer.
 
 data class ActionsState(
     val actions: List<ActionDto> = emptyList(),
@@ -79,16 +75,6 @@ class ActionsViewModel @Inject constructor(
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
     private val _steerEnabled = MutableStateFlow<Boolean?>(null)
-
-    // The online machines a run can go to: the caller's own plus (EXP-432) the
-    // selected team's shared servers, filtered to ONLINE so the flow keeps the
-    // presence-only semantics the screen gates on. Off the synced devices
-    // shape since EXP-485. null = not resolved yet.
-    val devices: StateFlow<List<SteerDevice>?> = combine(
-        steerDeviceFlow(dbFlow, selection.selectedId, auth.userId),
-        _steerEnabled,
-    ) { devices, enabled -> onlineStartTargets(devices, enabled) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val _runState = MutableStateFlow<ActionRunState>(ActionRunState.Idle)
     val runState: StateFlow<ActionRunState> = _runState
@@ -351,44 +337,6 @@ class ActionsViewModel @Inject constructor(
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ActionsState())
 
-    // Issues the unified sheet's Issues tab can queue (AgentsViewModel's
-    // candidate rules): the selected team's repo-backed, live boards;
-    // open issues, `updatedAt` desc.
-    val startCandidates: StateFlow<List<StartIssueOption>> = combine(
-        dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
-        dbFlow.scopedQuery(emptyList()) { it.boardDao().observeAll() },
-        selection.selectedId,
-    ) { issues, boards, teamId ->
-        if (teamId == null) {
-            emptyList()
-        } else {
-            val eligibleBoards = boards
-                .filter {
-                    it.teamId == teamId &&
-                        it.repositoryId != null &&
-                        it.deletedAt == null
-                }
-                .associateBy { it.id }
-            issues
-                .filter {
-                    it.boardId in eligibleBoards.keys &&
-                        it.status !in TERMINAL_ISSUE_STATUSES &&
-                        it.prState != DomainContract.prStateMerged
-                }
-                .sortedByDescending { it.updatedAt }
-                .map { issue ->
-                    StartIssueOption(
-                        id = issue.id,
-                        identifier = issue.identifier,
-                        title = issue.title,
-                        repositoryId = eligibleBoards[issue.boardId]?.repositoryId,
-                        status = issue.status,
-                        priority = issue.priority,
-                    )
-                }
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
     // The account steer.config was last resolved for — it is env-derived and
     // static per INSTANCE, so a team switch must not re-run it (that would
     // blank `steerEnabled` and flicker the screen's run affordances).
@@ -418,72 +366,6 @@ class ActionsViewModel @Inject constructor(
 
     fun consumeStartedSession() {
         _startedSessionId.value = null
-    }
-
-    /**
-     * Remote-run [action] on [device] with the unified sheet's full [options]
-     * + filled [inputs] (EXP-257 — same per-agent vocabulary as issue runs),
-     * then watch the synced coding_sessions flow for the desktop's row. The
-     * builtin "Create action" id additionally rides its teamId (the server
-     * requires it there and forbids it otherwise). Sent state re-enables
-     * after a grace window in case the desktop never picks up.
-     */
-    fun runAction(
-        device: SteerDevice,
-        action: ActionDto,
-        options: SteerStartOptions,
-        inputs: Map<String, String>,
-    ) {
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            _runState.value = ActionRunState.Sending
-            try {
-                steerApi.startActionSession(
-                    accountId,
-                    actionId = action.id,
-                    deviceId = device.deviceId,
-                    options = options,
-                    // Required for EVERY builtin (there is no DB row to derive
-                    // the team from), forbidden otherwise — the server rejects
-                    // both mistakes.
-                    teamId = action.teamId.takeIf { action.isBuiltin },
-                    inputs = inputs.takeIf { it.isNotEmpty() },
-                )
-                awaitStartedRun(StartedRunKey.Action(action.name), device)
-            } catch (t: Throwable) {
-                if (t is CancellationException) throw t
-                _runState.value = ActionRunState.Failed(
-                    trpcErrorMessage(t, "The start command could not be delivered"),
-                )
-            }
-        }
-    }
-
-    /**
-     * Remote-start issues from the unified sheet's Issues tab (the
-     * AgentsViewModel.startCoding twin, surfaced through the run captions):
-     * 1 id launches a plain single session, 2+ a batch. EXP-536: both wait
-     * for the desktop's row and jump into it, exactly like an action run.
-     */
-    fun startCoding(device: SteerDevice, issueIds: List<String>, options: SteerStartOptions) {
-        val key = StartedRunKey.forIssues(issueIds) ?: return
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            _runState.value = ActionRunState.Sending
-            try {
-                if (issueIds.size >= 2) {
-                    steerApi.startSession(accountId, issueIds, device.deviceId, options)
-                } else {
-                    steerApi.startSession(accountId, issueIds.first(), device.deviceId, options)
-                }
-                awaitStartedRun(key, device)
-            } catch (t: Throwable) {
-                if (t is CancellationException) throw t
-                _runState.value = ActionRunState.Failed(
-                    trpcErrorMessage(t, "The start command could not be delivered"),
-                )
-            }
-        }
     }
 
     /**
@@ -542,5 +424,3 @@ class ActionsViewModel @Inject constructor(
     }
 }
 
-// Terminal issue statuses ineligible to start a new coding run.
-private val TERMINAL_ISSUE_STATUSES = setOf("done", "cancelled", "duplicate")

@@ -22,8 +22,7 @@ import {
   useTeamBoards,
 } from "@/hooks/use-team-data"
 import { useChromeHeightVar } from "@/hooks/use-chrome-height-var"
-import { useRemoteStart } from "@/hooks/use-remote-start"
-import { useSession } from "@/hooks/use-session"
+import { useOpenComposer } from "@/hooks/use-open-composer"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
 import { mergeFailure, type MergeFailure } from "@/lib/merge-failure"
@@ -45,7 +44,6 @@ import {
   type PullFile,
 } from "@/components/diff-view"
 import { useSteerConfig } from "@/components/agent-session"
-import { LaunchDialog } from "@/components/launch-dialog/launch-dialog"
 
 // Review-detail (EXP-106): the PR/branch diff for one review, with Merge/Close
 // actions moved off the issue detail. The representative issue carries the PR;
@@ -214,19 +212,16 @@ function ReviewDetailPage() {
   // an action has actually failed — opening a review must not poll for
   // desktops, but waiting for the click would open the dialog on a momentary
   // "no desktop online".
-  const [fixOpen, setFixOpen] = useState(false)
-  const { data: session } = useSession()
-  const currentUserId = session?.user?.id
   const { isMember } = useTeamPermissions(team)
   const steerConfig = useSteerConfig()
   const steerEnabled = Boolean(isMember && steerConfig?.enabled)
-  // Only a REAL conflict can be fixed by the recovery run (EXP-533), so only a
-  // real conflict is worth polling for an online desktop.
-  const remote = useRemoteStart({
-    enabled: steerEnabled && actionError?.conflict === true,
-    currentUserId,
-    teamId: team?.id,
-  })
+  // EXP-825: "Fix conflicts" is a navigation to the Agent page composer with
+  // the builtin picked and this PR pre-filled (the launch dialog is gone).
+  const openComposer = useOpenComposer()
+  const openFixConflicts = () => {
+    if (!issue) return
+    openComposer({ actionId: BUILTIN_FIX_CONFLICTS_ID, prIssueId: issue.id })
+  }
 
   const confirmMerge = () => {
     if (!issue) return
@@ -314,7 +309,7 @@ function ReviewDetailPage() {
   // control at the SAME weight — one `Pill size="md" mode="action"`, never a
   // filled Button here and an outline Button there.
   const mergeControl = canFixConflicts ? (
-    <Pill size="md" mode="action" onClick={() => setFixOpen(true)}>
+    <Pill size="md" mode="action" onClick={openFixConflicts}>
       <GitBranch className="size-3.5" />
       Fix conflicts
     </Pill>
@@ -576,7 +571,7 @@ function ReviewDetailPage() {
               (canFixConflicts ? (
                 <Button
                   className="h-11 flex-1 rounded-full px-6"
-                  onClick={() => setFixOpen(true)}
+                  onClick={openFixConflicts}
                 >
                   <GitBranch className="size-4" />
                   Fix conflicts
@@ -620,33 +615,6 @@ function ReviewDetailPage() {
             )}
           </div>
         </div>
-      )}
-
-      {fixOpen && (
-        <LaunchDialog
-          open
-          onOpenChange={(next) => {
-            if (!next) setFixOpen(false)
-          }}
-          devices={remote.devices ?? []}
-          starting={remote.starting}
-          teamId={team.id}
-          initialTab="actions"
-          initialActionId={BUILTIN_FIX_CONFLICTS_ID}
-          initialPrIssueId={issue.id}
-          onStartIssues={(device, options, issueIds) => {
-            remote
-              .startIssues(device, options, issueIds)
-              .then(() => setFixOpen(false))
-              .catch(() => {})
-          }}
-          onRunAction={(device, action, options, inputs) => {
-            remote
-              .runAction(device, action, options, inputs)
-              .then(() => setFixOpen(false))
-              .catch(() => {})
-          }}
-        />
       )}
 
       <Dialog open={confirmMergeOpen} onOpenChange={setConfirmMergeOpen}>

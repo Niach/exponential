@@ -279,11 +279,9 @@ fn attach_publisher(
             }) as Arc<dyn Fn(String) + Send + Sync>
         }),
         // EXP-511: image embeds in a steered message become local files the
-        // agent can read.
-        attachments: Some(steer::image_localizer(
-            Arc::clone(&ctx.trpc),
-            crate::host::steer_images_dir(&ctx.run.worktree),
-        )),
+        // agent can read. EXP-825: the session's ONE hook (the seed prompt
+        // used it before this publisher existed).
+        attachments: ctx.attachments.clone(),
         commands: Some(Arc::clone(&command_link)),
         config: Some(Arc::clone(&config_link)),
     };
@@ -301,6 +299,9 @@ fn attach_publisher(
             // `{data_dir}/journal/<sessionId>.jsonl`, so the transcript
             // outlives the process and can be served back on demand.
             journal_dir: Some(ctx.data_dir.clone()),
+            // EXP-825: the shared restore map — the seed prompt's images
+            // were localized into it before this publisher came up.
+            embeds: ctx.embeds.clone(),
         },
         tickets,
         hooks,

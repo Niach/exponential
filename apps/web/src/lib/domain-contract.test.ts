@@ -33,10 +33,13 @@ import {
   mcpTransportValues,
   MAX_ACTION_INPUTS,
   MAX_ACTION_INPUT_TEXT,
+  MAX_START_PROMPT,
+  MAX_START_PROMPT_IMAGES,
   actionTriggerEventValues,
   actionScheduleIntervalValues,
   MAX_TRIGGER_FILTER_IDS,
 } from "@exp/db-schema/domain"
+import { MAX_STEER_IMAGES } from "@/lib/steer-image-message"
 import {
   BUILTIN_CREATE_ACTION_ID,
   BUILTIN_FIX_CONFLICTS_ID,
@@ -238,6 +241,10 @@ describe(`domain-contract parity`, () => {
     ])
     expect(MAX_ACTION_INPUTS).toBe(contract.actionInputs.max)
     expect(MAX_ACTION_INPUT_TEXT).toBe(contract.actionInputs.maxTextLength)
+    // EXP-825: the start's free text + its image embeds.
+    expect(MAX_START_PROMPT).toBe(contract.startPrompt.maxLength)
+    expect(MAX_START_PROMPT_IMAGES).toBe(contract.startPrompt.maxImages)
+    expect(MAX_STEER_IMAGES).toBe(contract.startPrompt.maxImages)
     expect(BUILTIN_CREATE_ACTION_ID).toBe(contract.builtinAction.createActionId)
     expect(BUILTIN_FIX_CONFLICTS_ID).toBe(
       contract.builtinAction.fixConflictsId

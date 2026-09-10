@@ -1,11 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { Check } from "lucide-react"
-import {
-  type ActionInputDef,
-  type BoardIcon,
-  MAX_ACTION_INPUT_TEXT,
-} from "@exp/db-schema/domain"
+import { type ActionInputDef, type BoardIcon } from "@exp/db-schema/domain"
 import { IconPicker } from "@/components/ui/icon-picker"
 import type { Board, Issue } from "@/db/schema"
 import { boardCollection, issueCollection } from "@/lib/collections"
@@ -25,9 +21,7 @@ import {
   CommandList,
 } from "@/components/ui/command"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { BoardGlyph } from "@/components/board-glyph"
 import {
   GLASS_SELECT_TRIGGER,
@@ -36,7 +30,8 @@ import {
 } from "@/components/ui/glass-rows"
 import { cn } from "@/lib/utils"
 
-// The selected action's typed input fields (EXP-257): text → plain Input,
+// The selected action's typed input fields (EXP-257; EXP-825 retired the
+// free-text kinds — the composer's own text is the run's instructions):
 // repo → compact Select over the team's connected repos, board → a
 // MobilePopover + Command picker over the synced boards (the board-picker
 // pattern), pr (EXP-259) → the same picker over the team's OPEN issue-linked
@@ -73,40 +68,6 @@ export function ActionInputFields({
     <div className="space-y-3">
       {defs.map((def) => {
         const label = def.required ? def.label : `${def.label} (optional)`
-        const fieldId = `launch-action-input-${def.key}`
-        if (def.type === `text`) {
-          return (
-            <div key={def.key} className="space-y-2">
-              <Label htmlFor={fieldId}>{label}</Label>
-              <Input
-                id={fieldId}
-                value={values[def.key] ?? ``}
-                onChange={(e) => onChange(def.key, e.target.value)}
-                placeholder={def.placeholder}
-                // Client parity with the server's per-value cap, so a long
-                // paste is refused at the field instead of at submit.
-                maxLength={MAX_ACTION_INPUT_TEXT}
-              />
-            </div>
-          )
-        }
-        if (def.type === `textarea`) {
-          // EXP-530: identical value plumbing and limits to `text` — only the
-          // widget differs (multi-line).
-          return (
-            <div key={def.key} className="space-y-2">
-              <Label htmlFor={fieldId}>{label}</Label>
-              <Textarea
-                id={fieldId}
-                value={values[def.key] ?? ``}
-                onChange={(e) => onChange(def.key, e.target.value)}
-                placeholder={def.placeholder}
-                className="min-h-24"
-                maxLength={MAX_ACTION_INPUT_TEXT}
-              />
-            </div>
-          )
-        }
         if (def.type === `repo`) {
           // EXP-616: a pure single-select carries its label INSIDE the row
           // (the iOS grouped-form shape); the free-text fields above keep

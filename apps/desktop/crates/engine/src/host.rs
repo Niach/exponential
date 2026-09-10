@@ -911,6 +911,15 @@ pub(crate) struct SessionCtx {
     pub(crate) resume: Option<ResumeHandle>,
     /// The seed prompt, sent once the session exists.
     pub(crate) prompt: Option<String>,
+    /// EXP-825: the image-embed restore map this run shares with its
+    /// publisher ([`steer::PublishSpec::embeds`]) — built ONCE here so the
+    /// seed prompt's images (localized before any publisher exists) and every
+    /// steered image restore through the same map.
+    pub(crate) embeds: steer::ImageEmbeds,
+    /// EXP-825: the image localizer for the host's OWN prompts (the seed and
+    /// a local composer message); the publisher gets the same hook. `None`
+    /// on a replay, which sends nothing.
+    pub(crate) attachments: Option<steer::AttachmentHook>,
     pub(crate) mapper: Mutex<Mapper>,
     /// The relay sink. Set ONCE — by `start_with` (a test's recording sink)
     /// or by the lifecycle when the publisher comes up; absent means this run
@@ -1417,7 +1426,18 @@ where
             // turn early. EXP-784: it also carries the turn-slot semaphore.
             let turns = Arc::new(TurnGate::new());
             if let Some(prompt) = ctx.prompt.clone() {
-                start_turn(&cx, &ctx, &session_id, text_blocks(&prompt), &turns);
+                // EXP-825: a composer prompt may embed images (the shared
+                // steer message shape); the agent gets the localized
+                // manifest, the feed and journal the original text.
+                let localized =
+                    localize_for_agent(prompt, ctx.attachments.as_ref(), &ctx.embeds).await;
+                start_turn(
+                    &cx,
+                    &ctx,
+                    &session_id,
+                    TurnPrompt::Ready(localized),
+                    &turns,
+                );
             }
             loop {
                 tokio::select! {
@@ -1485,7 +1505,21 @@ fn handle_command(
     command: EngineCommand,
 ) -> bool {
     match command {
-        EngineCommand::Prompt(blocks) => start_turn(cx, ctx, session_id, blocks, turns),
+        // EXP-825: a local composer message with image embeds is localized on
+        // the spawned turn path (never a download inline in this loop) —
+        // the same manifest the publisher builds for a steered one.
+        EngineCommand::Prompt(blocks) => {
+            let text = blocks_text(&blocks);
+            let prompt = if ctx.attachments.is_some() && steer::has_image_embed(&text) {
+                TurnPrompt::Localize(text)
+            } else {
+                TurnPrompt::Ready(LocalizedPrompt {
+                    announce: text,
+                    blocks,
+                })
+            };
+            start_turn(cx, ctx, session_id, prompt, turns)
+        }
         // Mid-turn steering: a `session/prompt` that arrives while a turn is
         // running IS the steer seam — the adapter folds it into the live turn
         // (codex `turn/steer`, claude's queued or folded-in user message).
@@ -1493,7 +1527,13 @@ fn handle_command(
         // it answers, so `idle` waits for the follow-up instead of firing on
         // the first prompt's `result` and letting an `AfterTurn` kill
         // (EXP-637) end the run mid-answer.
-        EngineCommand::Steer(text) => start_turn(cx, ctx, session_id, text_blocks(&text), turns),
+        EngineCommand::Steer(text) => start_turn(
+            cx,
+            ctx,
+            session_id,
+            TurnPrompt::Ready(LocalizedPrompt::plain(text)),
+            turns,
+        ),
         EngineCommand::Cancel => cancel_turn(cx, ctx, session_id, true),
         EngineCommand::Interrupt => cancel_turn(cx, ctx, session_id, false),
         EngineCommand::SetConfig { id, value } => {
@@ -1577,7 +1617,13 @@ fn handle_command(
             } else {
                 format!("/{name} {args}")
             };
-            start_turn(cx, ctx, session_id, text_blocks(&text), turns);
+            start_turn(
+                cx,
+                ctx,
+                session_id,
+                TurnPrompt::Ready(LocalizedPrompt::plain(text)),
+                turns,
+            );
         }
         EngineCommand::LoadHistory => {
             let sent = cx.send_request(LoadSessionRequest::new(
@@ -1648,6 +1694,60 @@ impl TurnGate {
     }
 }
 
+/// EXP-825: one prompt split into what the FEED sees and what the AGENT
+/// gets. `announce` is the text as the person wrote it — image embeds as the
+/// `![image](/api/attachments/<id>)` tokens every viewer renders and dedupes
+/// against — while `blocks` carry the localized `Image #N: <path>` manifest
+/// the agent can actually read. For a prompt without images the two are the
+/// same text.
+pub(crate) struct LocalizedPrompt {
+    pub(crate) announce: String,
+    pub(crate) blocks: Vec<ContentBlock>,
+}
+
+impl LocalizedPrompt {
+    /// A prompt that needs no localization (or already had it — a steered
+    /// message crosses the publisher's localizer first).
+    pub(crate) fn plain(text: String) -> LocalizedPrompt {
+        LocalizedPrompt {
+            blocks: text_blocks(&text),
+            announce: text,
+        }
+    }
+}
+
+/// EXP-825: localize a host-side prompt's image embeds for the agent. The
+/// download runs through `attachments` (the publisher's own hook —
+/// `steer::image_localizer`), the restore pairs land in `embeds`, and the
+/// original text stays the announced one. No hook, or no embed in the text,
+/// costs nothing: the text is sent as it is.
+pub(crate) async fn localize_for_agent(
+    text: String,
+    attachments: Option<&steer::AttachmentHook>,
+    embeds: &steer::ImageEmbeds,
+) -> LocalizedPrompt {
+    let agent_text = match attachments {
+        Some(hook) if steer::has_image_embed(&text) => {
+            steer::localize_message(text.clone(), hook, embeds).await
+        }
+        _ => text.clone(),
+    };
+    LocalizedPrompt {
+        announce: text,
+        blocks: text_blocks(&agent_text),
+    }
+}
+
+/// What [`start_turn`] is handed: a prompt ready to send, or one whose
+/// image embeds still have to be localized on the spawned path (EXP-825 —
+/// the local composer's message; never a download inline in the command
+/// loop). A prompt that localizes asynchronously can be overtaken by a
+/// steer arriving during the download — accepted.
+pub(crate) enum TurnPrompt {
+    Ready(LocalizedPrompt),
+    Localize(String),
+}
+
 /// Send one `session/prompt` as a TURN: spawned (never inline) so a `Cancel`
 /// arriving mid-turn is still dispatched, with the stop reason folded back
 /// through the mapper when the last in-flight turn answers.
@@ -1659,24 +1759,35 @@ impl TurnGate {
 /// later prompt never overtakes a parked one. The user's row and the idle
 /// edge are published immediately either way: the message is accepted, it
 /// is only its delivery to the agent that waits.
+///
+/// EXP-825: the user's row announces [`LocalizedPrompt::announce`] (the
+/// original text); the agent receives the localized blocks. A
+/// [`TurnPrompt::Localize`] prompt announces at once too, then localizes
+/// inside the spawned task before taking its slot.
 fn start_turn(
     cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Agent>,
     ctx: &Arc<SessionCtx>,
     session_id: &SessionId,
-    blocks: Vec<ContentBlock>,
+    prompt: TurnPrompt,
     turns: &Arc<TurnGate>,
 ) {
-    announce_prompt(ctx, &blocks_text(&blocks));
+    let (announce, ready_blocks, localize) = match prompt {
+        TurnPrompt::Ready(localized) => (localized.announce, Some(localized.blocks), None),
+        TurnPrompt::Localize(text) => (text.clone(), None, Some(text)),
+    };
+    announce_prompt(ctx, &announce);
     turns.in_flight.fetch_add(1, Ordering::SeqCst);
     ctx.turn_signal.set_idle(false);
-    let request = PromptRequest::new(session_id.clone(), blocks);
-    let ready = turns.slots.try_acquire().ok().map(|permit| {
-        // Held by the spawned task below; the permit's own lifetime is tied
-        // to the gate through the `Arc` the task owns.
-        permit.forget();
-        cx.send_request(request.clone())
+    let request = ready_blocks.map(|blocks| PromptRequest::new(session_id.clone(), blocks));
+    let ready = request.as_ref().and_then(|request| {
+        turns.slots.try_acquire().ok().map(|permit| {
+            // Held by the spawned task below; the permit's own lifetime is
+            // tied to the gate through the `Arc` the task owns.
+            permit.forget();
+            cx.send_request(request.clone())
+        })
     });
-    if ready.is_none() {
+    if ready.is_none() && localize.is_none() {
         log::debug!(
             "engine: session {} has {TURN_SLOTS} prompts in flight, queueing the next one",
             ctx.session_id
@@ -1685,10 +1796,20 @@ fn start_turn(
     let sent_cx = cx.clone();
     let ctx = ctx.clone();
     let turns = turns.clone();
+    let session_id = session_id.clone();
     let _ = cx.spawn(async move {
         let sent = match ready {
             Some(sent) => sent,
             None => {
+                let request = match (request, localize) {
+                    (Some(request), _) => request,
+                    (None, Some(text)) => {
+                        let localized =
+                            localize_for_agent(text, ctx.attachments.as_ref(), &ctx.embeds).await;
+                        PromptRequest::new(session_id, localized.blocks)
+                    }
+                    (None, None) => unreachable!("a turn prompt is ready or localizable"),
+                };
                 match turns.slots.acquire().await {
                     Ok(permit) => permit.forget(),
                     // The gate is never closed; a closed semaphore would mean
@@ -2535,5 +2656,60 @@ mod tests {
 
         assert!(out.wire.is_empty(), "published {:?}", out.wire);
         assert_eq!(current_mode(&[mapper.config_state()]), vec!["default"]);
+    }
+
+    /// EXP-825: a start prompt with image embeds is split — the announced
+    /// text keeps the `![image](/api/attachments/<id>)` tokens every viewer
+    /// renders, the agent's block carries the `Image #N: <path>` manifest,
+    /// and the restore pairs land in the shared map. Without a hook, or
+    /// without an embed, the text goes through untouched and nothing is
+    /// recorded.
+    #[test]
+    fn localize_for_agent_splits_announce_from_the_agent_manifest() {
+        let embed = "![image](/api/attachments/11111111-2222-3333-4444-555555555555)";
+        let hook: steer::AttachmentHook = Arc::new(|id| {
+            assert_eq!(id, "11111111-2222-3333-4444-555555555555");
+            Ok(PathBuf::from("/wt/.exp-steer-images/a.png"))
+        });
+        let embeds = steer::ImageEmbeds::default();
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .unwrap();
+        let text = format!("Please read the issue.\n\n## Additional instructions from the requester\n\nMatch [Image #1].\n\n{embed}\n");
+        let localized = runtime.block_on(localize_for_agent(
+            text.clone(),
+            Some(&hook),
+            &embeds,
+        ));
+        assert_eq!(localized.announce, text);
+        assert_eq!(
+            blocks_text(&localized.blocks),
+            "Please read the issue.\n\n## Additional instructions from the requester\n\nMatch [Image #1].\n\nImage #1: /wt/.exp-steer-images/a.png"
+        );
+        assert_eq!(
+            embeds.snapshot(),
+            vec![
+                (
+                    "Image #1: /wt/.exp-steer-images/a.png".to_string(),
+                    embed.to_string()
+                ),
+                ("/wt/.exp-steer-images/a.png".to_string(), embed.to_string()),
+            ]
+        );
+
+        // No embed: same text both sides, no download.
+        let plain = runtime.block_on(localize_for_agent(
+            "just words".to_string(),
+            Some(&hook),
+            &embeds,
+        ));
+        assert_eq!(plain.announce, "just words");
+        assert_eq!(blocks_text(&plain.blocks), "just words");
+        // No hook (a replay): the embed rides to the agent as it is.
+        let unhooked = runtime.block_on(localize_for_agent(text.clone(), None, &embeds));
+        assert_eq!(blocks_text(&unhooked.blocks), text);
+        assert_eq!(embeds.snapshot().len(), 2);
     }
 }

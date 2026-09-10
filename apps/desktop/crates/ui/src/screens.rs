@@ -2280,9 +2280,7 @@ impl Focusable for ScreensPanel {
 // ---------------------------------------------------------------------------
 
 /// DEV-ONLY `EXP_DEV_DIALOG` values: `create-issue` | `search` |
-/// `start-coding` (the active board's first synced issue) |
-/// `start-coding-actions` (the builtin "Fix merge conflicts" run) |
-/// `start-coding-chat` | `create-action` | `action-editor:<uuid>` |
+/// `action-editor:<uuid>` |
 /// `automation-new` | `automation-edit:<uuid>` | `create-board` |
 /// `create-team` | `join-team[:<invite-token>]` (a token prefills the paste
 /// field and previews the invite) | `add-server` | `device-settings:<uuid>` |
@@ -2294,10 +2292,6 @@ impl Focusable for ScreensPanel {
 enum DevDialog {
     CreateIssue,
     Search,
-    StartCoding,
-    StartCodingActions,
-    StartCodingChat,
-    CreateAction,
     ActionEditor(String),
     AutomationNew,
     AutomationEdit(String),
@@ -2313,8 +2307,7 @@ enum DevDialog {
 
 /// The accepted [`DevDialog`] spellings, for the parse-failure log — a typo
 /// in a capture recipe must name its alternatives, not fail silently.
-const DEV_DIALOG_SPECS: &str = "create-issue | search | start-coding | \
-    start-coding-actions | start-coding-chat | create-action | \
+const DEV_DIALOG_SPECS: &str = "create-issue | search | \
     action-editor:<uuid> | automation-new | automation-edit:<uuid> | \
     create-board | create-team | join-team[:<invite-token>] | add-server | \
     device-settings:<uuid> | duplicate-picker:<issue-uuid>";
@@ -2323,10 +2316,6 @@ fn parse_dev_dialog(spec: &str) -> Option<DevDialog> {
     match spec {
         "create-issue" => Some(DevDialog::CreateIssue),
         "search" => Some(DevDialog::Search),
-        "start-coding" => Some(DevDialog::StartCoding),
-        "start-coding-actions" => Some(DevDialog::StartCodingActions),
-        "start-coding-chat" => Some(DevDialog::StartCodingChat),
-        "create-action" => Some(DevDialog::CreateAction),
         "automation-new" => Some(DevDialog::AutomationNew),
         "create-board" => Some(DevDialog::CreateBoard),
         "create-team" => Some(DevDialog::CreateTeam),
@@ -2359,10 +2348,6 @@ fn parse_dev_dialog(spec: &str) -> Option<DevDialog> {
 enum DevDialogTarget {
     CreateIssue { board_id: String },
     Search,
-    StartCodingIssue { issue_id: String },
-    StartCodingAction { team_id: String, action_id: String },
-    StartCodingChat { team_id: String },
-    CreateAction { team_id: String },
     ActionEditor { action_id: String },
     AutomationNew { team_id: String },
     AutomationEdit { automation_id: String },
@@ -2380,18 +2365,6 @@ fn open_dev_dialog(target: DevDialogTarget, window: &mut Window, cx: &mut App) {
             crate::create_issue_dialog::open(window, cx, board_id)
         }
         DevDialogTarget::Search => crate::search_sheet::open_search(window, cx),
-        DevDialogTarget::StartCodingIssue { issue_id } => {
-            crate::start_coding_dialog::open_for_issue(window, cx, issue_id)
-        }
-        DevDialogTarget::StartCodingAction { team_id, action_id } => {
-            crate::start_coding_dialog::open_for_action(window, cx, team_id, action_id)
-        }
-        DevDialogTarget::StartCodingChat { team_id } => {
-            crate::start_coding_dialog::open_for_chat(window, cx, team_id)
-        }
-        DevDialogTarget::CreateAction { team_id } => {
-            crate::create_action_dialog::open(window, cx, team_id)
-        }
         DevDialogTarget::ActionEditor { action_id } => {
             crate::action_editor_dialog::open(window, cx, action_id)
         }
@@ -2461,24 +2434,6 @@ impl ScreensPanel {
                 active_team_id(&self.nav, cx)?;
                 DevDialogTarget::Search
             }
-            DevDialog::StartCoding => DevDialogTarget::StartCodingIssue {
-                issue_id: store
-                    .collections()
-                    .issues_in_board(&active_board_id(&self.nav, cx)?, cx)
-                    .first()?
-                    .id
-                    .clone(),
-            },
-            DevDialog::StartCodingActions => DevDialogTarget::StartCodingAction {
-                team_id: active_team_id(&self.nav, cx)?,
-                action_id: api::actions::BUILTIN_FIX_CONFLICTS_ID.to_string(),
-            },
-            DevDialog::StartCodingChat => DevDialogTarget::StartCodingChat {
-                team_id: active_team_id(&self.nav, cx)?,
-            },
-            DevDialog::CreateAction => DevDialogTarget::CreateAction {
-                team_id: active_team_id(&self.nav, cx)?,
-            },
             DevDialog::ActionEditor(action_id) => {
                 store.collections().actions.read(cx).get(action_id)?;
                 DevDialogTarget::ActionEditor {

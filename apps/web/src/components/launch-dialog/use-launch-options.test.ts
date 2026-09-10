@@ -64,3 +64,64 @@ describe(`useLaunchOptions readiness`, () => {
     expect(result.current.agentNotReady).toBe(true)
   })
 })
+
+// EXP-825 (EXP-747 B7): the ⋯ popover's Account picker — the agent profiles
+// the settled device reports, the active one seeding the pick, and only a
+// NAMED, non-system profile riding out as `account`.
+describe(`useLaunchOptions account`, () => {
+  const profiled: SteerDevice = {
+    ...device,
+    agents: [`claude`, `codex`],
+    agentAccounts: {
+      claude: {
+        signedIn: true,
+        profiles: [
+          { id: `work`, label: `Work`, signedIn: true },
+          { id: `system`, signedIn: true, active: true },
+        ],
+      },
+      codex: {
+        signedIn: true,
+        profiles: [{ id: `only`, label: `Only`, signedIn: true, active: true }],
+      },
+    },
+  }
+
+  it(`lists the device's profiles active-first and seeds the active one`, () => {
+    const { result } = renderHook(() =>
+      useLaunchOptions({ open: true, devices: [profiled] })
+    )
+    expect(result.current.accountProfiles.map((p) => p.id)).toEqual([
+      `system`,
+      `work`,
+    ])
+    expect(result.current.accountProfiles[0]!.label).toBe(`Default`)
+    expect(result.current.account).toBe(`system`)
+    // The ambient login is the server's default — nothing rides out.
+    expect(result.current.buildOptions().account).toBeUndefined()
+  })
+
+  it(`emits a named profile and reseeds on an agent switch`, () => {
+    const { result } = renderHook(() =>
+      useLaunchOptions({ open: true, devices: [profiled] })
+    )
+    act(() => result.current.setAccount(`work`))
+    expect(result.current.buildOptions().account).toBe(`work`)
+
+    act(() => result.current.switchAgent(`codex`))
+    expect(result.current.accountProfiles.map((p) => p.id)).toEqual([`only`])
+    expect(result.current.account).toBe(`only`)
+    expect(result.current.buildOptions().account).toBe(`only`)
+  })
+
+  it(`sends nothing for a device that reports no profiles`, () => {
+    const { result } = renderHook(() =>
+      useLaunchOptions({ open: true, devices: [device] })
+    )
+    expect(result.current.accountProfiles).toEqual([])
+    expect(result.current.account).toBeUndefined()
+    // A stale pick for a profile the machine does not have never rides out.
+    act(() => result.current.setAccount(`ghost`))
+    expect(result.current.buildOptions().account).toBeUndefined()
+  })
+})

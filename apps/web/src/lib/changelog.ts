@@ -25,6 +25,19 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-one-composer`,
+    date: `2026-09-11`,
+    title: `One composer for chat, coding and actions`,
+    summary: `The Agent page composer starts everything: pick issues or an action, type instructions, attach images, choose the machine and agent. The Start coding dialog is gone on every platform.`,
+    body: `- **One place to start anything**: the Agent page composer is the launcher on web, desktop, iOS and Android. Pick issues with # or an action with the play button, or type to chat. The three-tab Start coding dialog and the Create action form are gone.
+- **Every play button lands here**: Start coding on an issue, the bulk bar, an action's Run, a machine's play button and Fix merge conflicts all open the composer with the right things preselected.
+- **Instructions with a start**: whatever you type beside the picked issues or action reaches the run as additional instructions. For a chat it is the prompt, for Create action it is the request.
+- **Images on a start**: attach up to four images to the composer. The machine downloads them before the first turn, the same way steering images work.
+- **Actions keep only picks**: text fields on actions are retired. An action declares repository, board, pull request or icon inputs; the free text comes from the composer. Existing text fields were removed from your actions, and each one's hint became the action's composer hint.
+- **Composer hint per action**: an action can say what to type (Scope, Focus, a version). It shows as the field's placeholder once the action is picked, editable with the action and via MCP.
+- **Options where you need them**: machine, agent, model and plan mode sit under the composer; effort, ultracode, MCP servers and the account are one click away.`,
+  },
+  {
     id: `2026-09-rate-limited-means-rate-limited`,
     date: `2026-09-10`,
     title: `Rate limited means rate limited, and a queued update that arrives`,

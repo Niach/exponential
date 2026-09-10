@@ -24,8 +24,8 @@ are documented for users.
 | Var | Values | Effect |
 | --- | --- | --- |
 | `EXP_DEV_TEAM` | team uuid | Pre-select the team (wins over the persisted last-team/board pair). |
-| `EXP_DEV_SCREEN` | `settings` \| `account` (= settings) \| `devices` \| `actions` \| `automations` \| `reviews` \| `getting-started` \| `issue:<issue-uuid>` \| `pr:<issue-uuid>` \| `support:<thread-uuid>` \| `session:<coding_sessions row id>` | Pre-route the first screen. **New:** the `pr:` and `support:` arms. `pr:` is keyed by the ISSUE whose linked PR the diff shows (the Reviews rows open it the same way), `support:` by the support thread id. `reviews` (EXP-706) is the full-page Reviews list — it used to be a rail tool, and the legacy `EXP_DEV_TOOL=reviews` spelling still lands on it. `session:` (EXP-746) opens one coding session as a `Screen::Session` tab, keyed by the `coding_sessions` ROW id, never the issue or the branch; with no engine in this process the tab dials the relay as a viewer, so it shows a Reconnecting state unless a machine is publishing that session (the `steering` capture pairs it with `bun run screenshots:desktop`). Unset = the rail tool's own center content. |
-| `EXP_DEV_TOOL` | `inbox` \| `my-issues` \| `board` (also `board-issues`, `issues`) \| `support` \| `files` \| `source-control` | **New.** Pre-select the rail tool window. Default `board`. `my-issues` selects the Inbox tool AND seeds its My Issues tab. (`reviews` was retired by EXP-706 — it is a screen now, see `EXP_DEV_SCREEN`.) |
+| `EXP_DEV_SCREEN` | `settings` \| `account` (= settings) \| `devices` \| `actions` \| `automations` \| `chat` \| `chat?issues=<a>,<b>&action=<id>&pr=<issue-uuid>&device=<id>&text=<text>` \| `reviews` \| `getting-started` \| `issue:<issue-uuid>` \| `pr:<issue-uuid>` \| `support:<thread-uuid>` \| `session:<coding_sessions row id>` | Pre-route the first screen. `chat` (EXP-825) is the Agent page's composer, the ONE launcher; its optional query mirrors the web route's one-shot search params — `issues` a csv of issue uuids (one chip each), `action` an action id or `builtin:…` (the action chip), `pr` the issue whose open PR prefills the fix-conflicts `pr` input, `device`/`text` presets. The lane pairs every chat drive with `EXP_DEV_TOOL=agent`. **New:** the `pr:` and `support:` arms. `pr:` is keyed by the ISSUE whose linked PR the diff shows (the Reviews rows open it the same way), `support:` by the support thread id. `reviews` (EXP-706) is the full-page Reviews list — it used to be a rail tool, and the legacy `EXP_DEV_TOOL=reviews` spelling still lands on it. `session:` (EXP-746) opens one coding session as a `Screen::Session` tab, keyed by the `coding_sessions` ROW id, never the issue or the branch; with no engine in this process the tab dials the relay as a viewer, so it shows a Reconnecting state unless a machine is publishing that session (the `steering` capture pairs it with `bun run screenshots:desktop`). Unset = the rail tool's own center content. |
+| `EXP_DEV_TOOL` | `inbox` \| `my-issues` \| `board` (also `board-issues`, `issues`) \| `support` \| `agent` (also `sessions`) \| `files` \| `source-control` | **New.** Pre-select the rail tool window. `agent` (EXP-818) is the Agent page's sessions list, the rail entry behind `EXP_DEV_SCREEN=chat`. Default `board`. `my-issues` selects the Inbox tool AND seeds its My Issues tab. (`reviews` was retired by EXP-706 — it is a screen now, see `EXP_DEV_SCREEN`.) |
 | `EXP_DEV_INBOX_TAB` | `inbox` \| `my-issues` | **New.** The Inbox tool window's active tab. Default `inbox`; wins over the `my-issues` seed above. |
 | `EXP_DEV_BOARD_ID` | board uuid | **New.** Pre-select the board, for the cases the last-visited one is the wrong one (the empty-board view). `EXP_DEV_BOARD=1` was already taken by an unrelated debug tab, hence the `_ID`. Only assigned when nothing else already picked a board. |
 | `EXP_DEV_DIALOG` | see below | Open ONE dialog, once, from the render path after the state it needs resolves. Every desktop dialog is its own OS window centred over the opener, so it lands inside the main window's rect. |
@@ -36,17 +36,17 @@ are documented for users.
 Parsed by `screens::parse_dev_dialog`; an unrecognised spec logs once and opens
 nothing (and releases the ready probe, so the run fails fast instead of hanging).
 
-Bare: `create-issue`, `search`, `start-coding`, `start-coding-actions`,
-`start-coding-chat`, `create-action`, `automation-new`, `create-board`,
-`create-team`, `join-team`, `add-server`.
+Bare: `create-issue`, `search`, `create-action`, `automation-new`,
+`create-board`, `create-team`, `join-team`, `add-server`. (The three
+`start-coding*` dialogs went with EXP-825 — the composer is a screen now.)
 
 With an argument: `join-team:<invite-token>`, `action-editor:<action-uuid>`,
 `automation-edit:<automation-uuid>`, `device-settings:<device-uuid>`,
 `duplicate-picker:<issue-uuid>`.
 
 Pair the spec with whatever should be BEHIND it via a second var — the catalog
-does this with `EXP_DEV_TOOL=board` under the search palette, `EXP_DEV_SCREEN=actions`
-under the launcher.
+does this with `EXP_DEV_TOOL=board` under the search palette, `EXP_DEV_SCREEN=devices`
+under the device dialogs.
 
 ## Pre-seeded state on the opened screen
 

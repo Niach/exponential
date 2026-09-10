@@ -115,15 +115,19 @@ describe(`desktop attribution`, () => {
     expect(views(result, `desktop`)).toEqual([`settings-notifications`])
   })
 
-  test(`a tabbed surface claims every one of its tabs`, () => {
-    // The ONE start-coding dialog draws all three tabs, so matching only the
-    // exact stem would leave two of them stale.
-    const result = scope(`apps/desktop/crates/ui/src/start_coding_dialog.rs`)
-    expect(views(result, `desktop`).sort()).toEqual([
-      `start-coding`,
-      `start-coding-actions`,
-      `start-coding-chat`,
-    ])
+  test(`a surface with several subjects claims every one of them`, () => {
+    // The ONE Agent composer screen draws the empty prompt, the issue chips and
+    // the action chip (EXP-825), so matching only the exact stem would leave
+    // two of the three stale.
+    const result = scope(`apps/desktop/crates/ui/src/chat_screen.rs`)
+    expect(views(result, `desktop`).sort()).toEqual([`chat`, `chat-action`, `chat-issues`])
+  })
+
+  test(`the session screen narrows to the session it draws`, () => {
+    // `_screen` is a wrapper suffix like `_dialog`: `session_screen.rs` is the
+    // steering view's own module, not the auth glue `session.rs` names.
+    const result = scope(`apps/desktop/crates/ui/src/session_screen.rs`)
+    expect(views(result, `desktop`)).toEqual([`steering`])
   })
 
   test(`a component reused across screens still widens`, () => {
@@ -575,16 +579,19 @@ describe(`fail-safe`, () => {
     }
   })
 
-  test(`a manual-drive view is never pulled in by the missing-image rule`, () => {
-    // EXP-647: a `drive: manual` desktop view cannot be produced by an
-    // unattended run, so it must not sit in every refresh's scope forever.
-    // `chat` is the one left (EXP-732 automated `steering`): the IDE has no
-    // chat page — the dock strip's glyph STARTS one — so the shot is a hand
-    // capture of a started chat.
-    expect(viewById(`chat`)?.desktop?.drive.kind).toBe(`manual`)
-    const result = affectedScope({ changedFiles: [], platforms: [`desktop`] })
-    expect(result.byPlatform.get(`desktop`)).not.toContain(`chat`)
-    // A diff that names it still attributes to it — only the missing rule skips.
+  test(`every desktop view is automatable (EXP-825)`, () => {
+    // EXP-647 taught the missing-image rule to skip `drive: manual` views, and
+    // `chat` was the last one: EXP-732 automated `steering`, EXP-825 gave the
+    // Agent page a dev screen (`chat`, `chat?issues=…`, `chat?action=…`). With
+    // none left, a hole in the desktop store is a real hole again — never a
+    // hand capture nobody will make — so nothing may be marked manual without
+    // a reason written next to it.
+    const manual = viewsFor(`desktop`)
+      .filter((view) => view.desktop?.drive.kind === `manual`)
+      .map((view) => view.id)
+    expect(manual).toEqual([])
+    expect(viewById(`chat`)?.desktop?.drive).toEqual({ kind: `screen`, value: `chat` })
+    // A diff that names it attributes to it like any other view.
     const named = affectedScope({
       changedFiles: [`packages/view-catalog/views.json`],
       catalogChanges: [`chat`],

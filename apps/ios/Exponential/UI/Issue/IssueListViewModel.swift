@@ -312,39 +312,6 @@ final class IssueListViewModel {
 
     // MARK: - Multi-select (EXP-239)
 
-    /// Candidate issues for the selection bar's Start-coding sheet: this
-    /// board's eligible issues — repo-backed board only, non-terminal, not
-    /// merged — recency-ordered. Mirrors AgentsViewModel.startCandidates but
-    /// board-scoped (the bar lives on one board, which also guarantees the
-    /// one-repository-per-run rule).
-    func startCodingCandidates() -> [StartCodingSheet.IssueOption] {
-        guard let board, let repoId = board.repositoryId else { return [] }
-        // ANCHOR set (EXP-314): a custom status anchors to one of these, so the
-        // enum check keeps gating custom terminal statuses correctly.
-        let terminal: Set<String> = [
-            IssueStatus.done.rawValue,
-            IssueStatus.cancelled.rawValue,
-            IssueStatus.duplicate.rawValue,
-        ]
-        return issues
-            .filter { row in
-                if terminal.contains(row.status) { return false }
-                if row.prState == DomainContract.prStateMerged { return false }
-                return true
-            }
-            .sorted { $0.updatedAt > $1.updatedAt }
-            .map { row in
-                StartCodingSheet.IssueOption(
-                    id: row.id,
-                    identifier: row.identifier,
-                    title: row.title,
-                    repositoryId: repoId,
-                    status: row.status,
-                    priority: row.priority
-                )
-            }
-    }
-
     // MARK: - Mutations
 
     /// Enum-only convenience write (swipe actions). Deliberately keeps sending

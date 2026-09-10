@@ -4,8 +4,7 @@ import { conceptIcon } from "@/lib/icons.generated"
 import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
 import { mergeFailure, type MergeFailure } from "@/lib/merge-failure"
 import { trpc } from "@/lib/trpc-client"
-import { useRemoteStart } from "@/hooks/use-remote-start"
-import { LaunchDialog } from "@/components/launch-dialog/launch-dialog"
+import { useOpenComposer } from "@/hooks/use-open-composer"
 import { Button, type buttonVariants } from "@/components/ui/button"
 import type { VariantProps } from "class-variance-authority"
 import {
@@ -61,7 +60,6 @@ export function SessionMergeButton({
   label,
   branch,
   teamId,
-  currentUserId,
   steerEnabled = false,
 }: {
   prState: string | null
@@ -84,8 +82,6 @@ export function SessionMergeButton({
   branch?: string | null
   /** The team the recovery run belongs to. */
   teamId?: string | null
-  /** Keys the launcher's device list to the caller's own machines. */
-  currentUserId?: string
   /** Member + relay configured (`useSteerConfig`), resolved by the caller. */
   steerEnabled?: boolean
 }) {
@@ -164,8 +160,6 @@ export function SessionMergeButton({
         <>
           <FixConflictsButton
             issueId={issueId}
-            teamId={teamId}
-            currentUserId={currentUserId}
             variant={variant}
             size={size}
             className={className}
@@ -253,12 +247,10 @@ export function SessionMergeButton({
   )
 }
 
-// Mounted ONLY once a conflict has been seen — the device lookup behind
-// `useRemoteStart` must not run for every idle Merge button on the page.
+// EXP-825: a navigation to the Agent page composer with the builtin picked
+// and this PR pre-filled — no dialog, no device lookup here.
 function FixConflictsButton({
   issueId,
-  teamId,
-  currentUserId,
   variant,
   size,
   className,
@@ -266,59 +258,28 @@ function FixConflictsButton({
   message,
 }: {
   issueId: string
-  teamId: string
-  currentUserId?: string
   variant?: VariantProps<typeof buttonVariants>[`variant`]
   size?: VariantProps<typeof buttonVariants>[`size`]
   className?: string
   label?: string
   message?: string
 }) {
-  const [open, setOpen] = useState(false)
-  const remote = useRemoteStart({ enabled: true, currentUserId, teamId })
+  const openComposer = useOpenComposer()
 
   return (
-    <>
-      <Button
-        variant={variant}
-        size={size}
-        className={className}
-        aria-label="Fix merge conflicts"
-        title={message ?? `Fix merge conflicts`}
-        onClick={(e) => {
-          e.stopPropagation()
-          setOpen(true)
-        }}
-      >
-        <UiBranchIcon />
-        {label ? `Fix conflicts` : null}
-      </Button>
-      {open && (
-        <LaunchDialog
-          open
-          onOpenChange={(next) => {
-            if (!next) setOpen(false)
-          }}
-          devices={remote.devices ?? []}
-          starting={remote.starting}
-          teamId={teamId}
-          initialTab="actions"
-          initialActionId={BUILTIN_FIX_CONFLICTS_ID}
-          initialPrIssueId={issueId}
-          onStartIssues={(device, options, issueIds) => {
-            remote
-              .startIssues(device, options, issueIds)
-              .then(() => setOpen(false))
-              .catch(() => {})
-          }}
-          onRunAction={(device, action, options, inputs) => {
-            remote
-              .runAction(device, action, options, inputs)
-              .then(() => setOpen(false))
-              .catch(() => {})
-          }}
-        />
-      )}
-    </>
+    <Button
+      variant={variant}
+      size={size}
+      className={className}
+      aria-label="Fix merge conflicts"
+      title={message ?? `Fix merge conflicts`}
+      onClick={(e) => {
+        e.stopPropagation()
+        openComposer({ actionId: BUILTIN_FIX_CONFLICTS_ID, prIssueId: issueId })
+      }}
+    >
+      <UiBranchIcon />
+      {label ? `Fix conflicts` : null}
+    </Button>
   )
 }

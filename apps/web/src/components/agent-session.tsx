@@ -188,7 +188,7 @@ const UiUnselectedIcon = conceptIcon(`ui-unselected`)
 // path since EXP-672; a card from a desktop that publishes no question id
 // renders read-only.
 // EXP-740: this view is mounted by the two SESSION ROUTES —
-// `/t/$teamSlug/sessions/$sessionId` and the team's `/t/$teamSlug/chat` —
+// `/t/$teamSlug/sessions/$sessionId` and the team's `/t/$teamSlug/agent` —
 // filling the content panel on every breakpoint. It always auto-connects; the
 // route owns the membership + config.enabled gating (the relay enforces both
 // regardless) and supplies `identity` + `onBack`. The "coding now" rows +
@@ -691,7 +691,6 @@ export function AgentSessionView({
                 size="sm"
                 label="Merge"
                 {...mergeProps}
-                currentUserId={currentUserId}
                 steerEnabled={steerEnabled}
               />
             </div>

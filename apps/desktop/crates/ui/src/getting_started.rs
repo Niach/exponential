@@ -916,7 +916,12 @@ fn entry_cta(
             .icon(Icon::new(registry::ACTION_CREATE))
             .label(copy::ACTION_ACTION)
             .on_click(move |_, window, cx| {
-                crate::create_action_dialog::open(window, cx, team.clone());
+                let _ = &team;
+                crate::navigation::navigate_to_chat(
+                    window,
+                    cx,
+                    crate::navigation::ChatSeed::action(api::actions::BUILTIN_CREATE_ACTION_ID),
+                );
             })
             .into_any_element(),
         // The one-liner goes straight to the clipboard (the shared
@@ -1327,15 +1332,26 @@ fn render_suggestion_row(
             this.cursor_pointer()
                 .hover(move |this| this.bg(row_hover))
                 .on_click(move |_: &ClickEvent, window, cx| {
-                    // The brief is a SEED, not a commitment — the creator
-                    // dialog opens with it in the editable Description field.
-                    crate::create_action_dialog::open_prefilled(
+                    // The brief is a SEED, not a commitment — the composer
+                    // opens with it as the editable request (EXP-825), the
+                    // creator builtin picked and the glyph seeded. An
+                    // automation suggestion appends the web's block.
+                    let _ = &team_id;
+                    let block = automation
+                        .clone()
+                        .map(|trigger| {
+                            crate::automation_editor::suggestion_automation_block(trigger, cx)
+                        })
+                        .unwrap_or_default();
+                    crate::navigation::navigate_to_chat(
                         window,
                         cx,
-                        team_id.clone(),
-                        Some(description.clone()),
-                        Some(icon.clone()),
-                        automation.clone(),
+                        crate::navigation::ChatSeed {
+                            action_id: Some(api::actions::BUILTIN_CREATE_ACTION_ID.to_string()),
+                            text: Some(format!("{description}{block}")),
+                            icon: Some(icon.clone()),
+                            ..Default::default()
+                        },
                     );
                 })
         })

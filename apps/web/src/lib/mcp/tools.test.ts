@@ -3055,6 +3055,7 @@ describe(`exponential_sessions_start`, () => {
         deviceId: `mac-1`,
         issueId: `exp-7`,
         agent: `codex`,
+        prompt: `Keep the tokens.`,
       })
     } finally {
       db.select.mockImplementation(() => builder)
@@ -3066,8 +3067,14 @@ describe(`exponential_sessions_start`, () => {
       sessionId: RUN,
       session: startedRow,
     })
+    // EXP-825: the free text rides the start as `prompt`.
     expect(caller.steer.startSession).toHaveBeenCalledWith(
-      expect.objectContaining({ deviceId: `mac-1`, issueId: UUID, agent: `codex` })
+      expect.objectContaining({
+        deviceId: `mac-1`,
+        issueId: UUID,
+        agent: `codex`,
+        prompt: `Keep the tokens.`,
+      })
     )
     const { sql, params } = renderWhere()
     expect(sql).toContain(`"user_id" =`)

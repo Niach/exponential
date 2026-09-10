@@ -11,8 +11,8 @@
 // everything after that confidently wrong.
 //
 // The rule lives here so the picker's option list, its default and the
-// inputs the start carries are one testable thing, shared with the launch
-// dialog's `ChatPane` sentinel semantics.
+// inputs the start carries are one testable thing (EXP-825: the Agent page
+// composer is the only chat launcher left).
 
 /** The team's connected repos, as `repositories.list` returns them. */
 export interface ChatRepoOption {
@@ -22,7 +22,7 @@ export interface ChatRepoOption {
 
 /** Radix/the dropdown forbid an empty item value, so repo-less rides a
  * sentinel inside the picker only; `` is what the server reads (an absent
- * `repo` input, `lib/trpc/steer.ts`). Same idea as `ChatPane`'s own. */
+ * `repo` input, `lib/trpc/steer.ts`). */
 export const NO_REPO = `no-repo`
 
 export const NO_REPO_LABEL = `No repository`
@@ -41,7 +41,7 @@ export function chatRepoOptions(
 }
 
 /** What the picker starts on. Exactly one repo pre-picks it (the rule the
- * launch dialog has used since EXP-615: there is nothing to pick); with
+ * launcher has used since EXP-615: there is nothing to pick); with
  * several, repo-less stays the default and the run's own prompt makes the
  * agent ASK which one rather than guess. */
 export function defaultChatRepoId(repos: ChatRepoOption[]): string {
@@ -50,10 +50,11 @@ export function defaultChatRepoId(repos: ChatRepoOption[]): string {
 
 /** The chat builtin's input values for a start. The `repo` key is emitted
  * ONLY when one is picked — an absent key is what the server reads as
- * repo-less, and an empty-string value is not the same thing. */
+ * repo-less, and an empty-string value is not the same thing. EXP-825: the
+ * chat text is the start's `prompt` now, not an input, so with no repo there
+ * are no inputs at all (`undefined`, the `buildInputsPayload` convention). */
 export function chatStartInputs(
-  prompt: string,
   repoId: string
-): Record<string, string> {
-  return { prompt, ...(repoId ? { repo: repoId } : {}) }
+): Record<string, string> | undefined {
+  return repoId ? { repo: repoId } : undefined
 }

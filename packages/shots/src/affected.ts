@@ -30,7 +30,7 @@
  *                     and drive value (`issue_detail.rs` → `issue-detail`,
  *                     `settings/general.rs` → `settings-general`), and its
  *                     wrapper-stripped path as a family prefix
- *                     (`start_coding_dialog.rs` → the three start-coding tabs).
+ *                     (`chat_screen.rs` → the three Agent composer views).
  *                     Everything else under `apps/desktop` — shell, theme, sync,
  *                     an unmatched ui module — widens to every desktop view. The
  *                     win that matters is a web-only PR skipping the desktop
@@ -617,11 +617,12 @@ function captured(viewId: string, platform: Platform): boolean {
 
 /**
  * Can an unattended run produce this pair at all? A `drive: manual` desktop
- * view (`chat`, started from the dock strip; `steering` was one until EXP-732
- * automated it) is captured by hand with `--manual`, so the missing-image rule
- * must not keep listing it (EXP-647): it would sit in every scope forever and
- * cost the same "drop it" judgement on every run. A diff that names it still
- * attributes to it — the log then says so.
+ * view (`steering` was one until EXP-732 automated it, `chat` until EXP-825
+ * gave the Agent page a dev screen) is captured by hand with `--manual`, so the
+ * missing-image rule must not keep listing it (EXP-647): it would sit in every
+ * scope forever and cost the same "drop it" judgement on every run. A diff
+ * that names it still attributes to it — the log then says so. Nothing in the
+ * catalog is manual today; the rule stays for the next view that has to be.
  */
 function automatable(view: View, platform: Platform): boolean {
   if (platform === `desktop`) return view.desktop?.drive.kind !== `manual`
@@ -650,7 +651,9 @@ function desktopTokens(view: View): string[] {
   const tokens = new Set<string>([view.id.replace(/-/g, `_`)])
   const drive = view.desktop?.drive
   if (drive && `value` in drive) {
-    for (const part of drive.value.split(`:`)) {
+    // A screen may carry a query (`chat?issues=$issueA,$issueB`, EXP-825): the
+    // module is named after the screen, never after what it was opened with.
+    for (const part of drive.value.split(`?`)[0]!.split(`:`)) {
       if (!part || part.startsWith(`$`)) continue
       tokens.add(part.replace(/-/g, `_`).toLowerCase())
     }
@@ -660,8 +663,9 @@ function desktopTokens(view: View): string[] {
 
 /**
  * WRAPPER suffixes a desktop module carries on top of the thing it draws —
- * `notifications_prefs` is the notifications pane, `start_coding_dialog` is the
- * start-coding surface. Stripping one yields the view family the file belongs to.
+ * `notifications_prefs` is the notifications pane, `chat_screen` is the Agent
+ * composer, `session_screen` a coding session. Stripping one yields the view
+ * family the file belongs to.
  *
  * `_list`, `_row`, `_card` and `_view` are deliberately NOT here: they name
  * distinct components reused across screens, not wrappers. `issue_list.rs` is
@@ -669,7 +673,7 @@ function desktopTokens(view: View): string[] {
  * to the issue views would silently commit a stale board shot — exactly the
  * asymmetry this module refuses to trade away.
  */
-const DESKTOP_WRAPPER = /_(prefs|pane|section|dialog|popover|sheet)$/
+const DESKTOP_WRAPPER = /_(prefs|pane|section|dialog|popover|sheet|screen)$/
 
 /**
  * Modules whose NAME lies about what they draw, matched before anything else
@@ -691,10 +695,11 @@ function desktopMatches(path: RepoPath): string[] {
   const segments = match[1]!.split(`/`).filter((segment) => segment !== `mod`)
   const candidates = new Set([...segments, segments.join(`_`)])
   // The wrapper-stripped FULL path, matched as a family PREFIX so a file that
-  // draws a tabbed surface claims every tab: `start_coding_dialog.rs` renders
-  // start-coding, -actions and -chat, and matching only the exact stem would
-  // drop two of them. Bare segments never get the prefix treatment — that would
-  // turn `settings/account.rs` into all thirteen settings views.
+  // draws one surface in several states claims every state: `chat_screen.rs`
+  // renders chat, chat-issues and chat-action (one composer, three subjects),
+  // and matching only the exact stem would drop two of them. Bare segments
+  // never get the prefix treatment — that would turn `settings/account.rs`
+  // into all thirteen settings views.
   const stem = segments
     .map((segment) => segment.replace(DESKTOP_WRAPPER, ``))
     .filter(Boolean)
@@ -730,11 +735,11 @@ const NATIVE_DIRS: { dir: string; views: RegExp }[] = [
   { dir: `support`, views: /^support-/ },
   { dir: `settings`, views: /^settings-/ },
   { dir: `actions`, views: /^(agents|actions-mobile|action-|automations)/ },
-  // The coding family: the launcher's three tabs, the agents surface, the
-  // machine dialogs and the steering dock all live in one folder on both
-  // platforms and share their view models.
-  { dir: `session`, views: /^(steering|start-coding|agents|machine-settings|add-server)/ },
-  { dir: `steer`, views: /^(steering|start-coding)/ },
+  // The coding family: the Agent composer, the agents surface, the machine
+  // dialogs and the steering screen all live in one folder on both platforms
+  // and share their view models.
+  { dir: `session`, views: /^(steering|chat|agents|machine-settings|add-server)/ },
+  { dir: `steer`, views: /^(steering|chat)/ },
 ]
 
 /** Role suffixes a screen's filename carries on one platform or the other. */

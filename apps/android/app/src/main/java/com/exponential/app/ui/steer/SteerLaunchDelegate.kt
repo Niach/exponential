@@ -15,7 +15,7 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.RunResumeTarget
 import com.exponential.app.domain.StartedRunKey
 import com.exponential.app.domain.StartedRunMatch
-import com.exponential.app.ui.issue.StartIssueOption
+import com.exponential.app.ui.agent.IssueOption
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -28,13 +28,11 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-// Remote-start plumbing shared by the screens that host the unified
-// StartCodingSheet without owning an agents surface of their own (EXP-323:
-// Reviews and the Changes tab, whose "Fix conflicts" buttons launch the
-// builtin action). Steer availability + device presence + the issue candidate
-// pool + the post-start session watch are screen-agnostic, so they live here
-// instead of being copy-pasted into another ViewModel. The older hosts
-// (Actions, Agents, IssueList, IssueDetail) still carry their own copies.
+// Remote-start plumbing (EXP-323): steer availability + device presence + the
+// issue candidate pool + the post-start session watch. EXP-825: the Agent page
+// composer is the ONE launcher, so this is composed by AgentComposerViewModel
+// (starts, action runs) and by AgentSessionViewModel (Resume) — the per-screen
+// copies the old Start-coding sheet's hosts carried are gone with the sheet.
 
 /** Run feedback: an informational Sent caption vs a persistent red Failed. */
 sealed interface ActionRunState {
@@ -85,15 +83,14 @@ class SteerLaunchDelegate @Inject constructor(
         it.codingSessionDao().observeByStatuses(CodingSessionLiveness.liveStatuses)
     }
 
-    private val noCandidates = MutableStateFlow<List<StartIssueOption>>(emptyList())
-    private var _startCandidates: StateFlow<List<StartIssueOption>>? = null
+    private val noCandidates = MutableStateFlow<List<IssueOption>>(emptyList())
+    private var _startCandidates: StateFlow<List<IssueOption>>? = null
 
     /**
-     * Issues the sheet's Issues tab can queue (the AgentsViewModel candidate
-     * rules): the selected team's repo-backed, live boards; open issues,
-     * `updatedAt` desc. Empty until [attach].
+     * Issues the composer's picker can chip: the selected team's repo-backed,
+     * live boards; open issues, `updatedAt` desc. Empty until [attach].
      */
-    val startCandidates: StateFlow<List<StartIssueOption>>
+    val startCandidates: StateFlow<List<IssueOption>>
         get() = _startCandidates ?: noCandidates
 
     /** Bind to the hosting ViewModel's scope — call once from its `init`. */
@@ -123,7 +120,7 @@ class SteerLaunchDelegate @Inject constructor(
                     }
                     .sortedByDescending { it.updatedAt }
                     .map { issue ->
-                        StartIssueOption(
+                        IssueOption(
                             id = issue.id,
                             identifier = issue.identifier,
                             title = issue.title,
@@ -171,65 +168,83 @@ class SteerLaunchDelegate @Inject constructor(
     }
 
     /**
-     * Remote-run [action] on [device] with the sheet's full [options] + filled
-     * [inputs], then watch the synced coding_sessions flow for the desktop's
-     * row. EVERY builtin additionally rides its teamId (there is no DB row to
-     * derive the team from); the server rejects it on a non-builtin.
+     * Remote-run [action] on [device] with the composer's full [options] +
+     * filled [inputs] and its [prompt] (EXP-825: the chat message, the
+     * create-action request, or additional instructions). EVERY builtin
+     * additionally rides its teamId (there is no DB row to derive the team
+     * from); the server rejects it on a non-builtin. Returns whether the SEND
+     * was accepted — the caller clears its draft only then — and, on success,
+     * watches the synced coding_sessions flow for the desktop's row in the
+     * background.
      */
-    fun runAction(
+    suspend fun runAction(
         device: SteerDevice,
         action: ActionDto,
         options: SteerStartOptions,
         inputs: Map<String, String>,
-    ) {
-        val scope = scope ?: return
-        scope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            _runState.value = ActionRunState.Sending
-            try {
-                steerApi.startActionSession(
-                    accountId,
-                    actionId = action.id,
-                    deviceId = device.deviceId,
-                    options = options,
-                    teamId = action.teamId.takeIf { action.isBuiltin },
-                    inputs = inputs.takeIf { it.isNotEmpty() },
-                )
-                awaitStartedRun(StartedRunKey.Action(action.name), device)
-            } catch (t: Throwable) {
-                if (t is CancellationException) throw t
-                _runState.value = ActionRunState.Failed(
-                    trpcErrorMessage(t, "The start command could not be delivered"),
-                )
-            }
+        prompt: String? = null,
+    ): Boolean {
+        val scope = scope ?: return false
+        val accountId = auth.activeAccountId.value ?: return false
+        _runState.value = ActionRunState.Sending
+        try {
+            steerApi.startActionSession(
+                accountId,
+                actionId = action.id,
+                deviceId = device.deviceId,
+                options = options,
+                teamId = action.teamId.takeIf { action.isBuiltin },
+                inputs = inputs.takeIf { it.isNotEmpty() },
+                prompt = prompt,
+            )
+        } catch (t: Throwable) {
+            if (t is CancellationException) throw t
+            _runState.value = ActionRunState.Failed(
+                trpcErrorMessage(t, "The start command could not be delivered"),
+            )
+            return false
         }
+        scope.launch { awaitStartedRun(StartedRunKey.Action(action.name), device) }
+        return true
     }
 
     /**
-     * Remote-start issues from the sheet's Issues tab: 1 id plain, 2+ a
-     * batch. EXP-536: both then wait for the desktop's row and surface it as
-     * [startedSessionId], so the host screen opens the live session.
+     * Remote-start issues off the composer's chips: 1 id plain, 2+ a batch,
+     * [prompt] riding as additional instructions (EXP-825). Same send/watch
+     * contract as [runAction]: EXP-536 waits for the desktop's row and
+     * surfaces it as [startedSessionId], so the host screen opens the live
+     * session.
      */
-    fun startCoding(device: SteerDevice, issueIds: List<String>, options: SteerStartOptions) {
-        val key = StartedRunKey.forIssues(issueIds) ?: return
-        val scope = scope ?: return
-        scope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            _runState.value = ActionRunState.Sending
-            try {
-                if (issueIds.size >= 2) {
-                    steerApi.startSession(accountId, issueIds, device.deviceId, options)
-                } else {
-                    steerApi.startSession(accountId, issueIds.first(), device.deviceId, options)
-                }
-                awaitStartedRun(key, device)
-            } catch (t: Throwable) {
-                if (t is CancellationException) throw t
-                _runState.value = ActionRunState.Failed(
-                    trpcErrorMessage(t, "The start command could not be delivered"),
-                )
+    suspend fun startIssues(
+        device: SteerDevice,
+        issueIds: List<String>,
+        options: SteerStartOptions,
+        prompt: String? = null,
+    ): Boolean {
+        val key = StartedRunKey.forIssues(issueIds) ?: return false
+        val scope = scope ?: return false
+        val accountId = auth.activeAccountId.value ?: return false
+        _runState.value = ActionRunState.Sending
+        try {
+            if (issueIds.size >= 2) {
+                steerApi.startSession(accountId, issueIds, device.deviceId, options, prompt)
+            } else {
+                steerApi.startSession(accountId, issueIds.first(), device.deviceId, options, prompt)
             }
+        } catch (t: Throwable) {
+            if (t is CancellationException) throw t
+            _runState.value = ActionRunState.Failed(
+                trpcErrorMessage(t, "The start command could not be delivered"),
+            )
+            return false
         }
+        scope.launch { awaitStartedRun(key, device) }
+        return true
+    }
+
+    /** Drop a stale Failed caption once the composer has shown it. */
+    fun clearFailure() {
+        if (_runState.value is ActionRunState.Failed) _runState.value = ActionRunState.Idle
     }
 
     /**

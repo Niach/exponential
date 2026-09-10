@@ -361,6 +361,64 @@ fn session_tab_title(session_id: &str, cx: &App) -> gpui::SharedString {
         .unwrap_or_else(|| "Batch run".into())
 }
 
+/// EXP-825: what a play button hands the Agent page's composer — the
+/// desktop twin of the web `/t/$teamSlug/agent` search params (`issues`,
+/// `action`, `device`, `pr`, `text`, `icon`) and the mobile `AgentComposerSeed`.
+/// Consumed ONCE by `ChatScreenView` ([`take_pending_chat_seed`]); every
+/// field is optional, an action wins over issues when both arrive.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ChatSeed {
+    /// Issues to pre-check (1 = Start coding, 2+ = a batch).
+    pub(crate) issue_ids: Vec<String>,
+    /// The action to pre-pick (a row id or a builtin literal).
+    pub(crate) action_id: Option<String>,
+    /// The machine to preselect in the Device pick (a machines-row ▶).
+    pub(crate) device_id: Option<String>,
+    /// The representative issue of an open PR — fills the fix-conflicts
+    /// builtin's `pr` input.
+    pub(crate) pr_issue_id: Option<String>,
+    /// Text inserted into an EMPTY draft (a suggestion's brief).
+    pub(crate) text: Option<String>,
+    /// A curated icon name seeding the Create-action builtin's `icon` pick.
+    pub(crate) icon: Option<String>,
+}
+
+impl ChatSeed {
+    /// A seed naming only `issue_ids`.
+    pub(crate) fn issues(issue_ids: Vec<String>) -> Self {
+        Self {
+            issue_ids,
+            ..Default::default()
+        }
+    }
+
+    /// A seed naming only an action.
+    pub(crate) fn action(action_id: impl Into<String>) -> Self {
+        Self {
+            action_id: Some(action_id.into()),
+            ..Default::default()
+        }
+    }
+
+    /// The fix-conflicts builtin with its PR preselected (Reviews, the PR
+    /// diff, the issue header).
+    pub(crate) fn fix_conflicts(pr_issue_id: impl Into<String>) -> Self {
+        Self {
+            action_id: Some(api::actions::BUILTIN_FIX_CONFLICTS_ID.to_string()),
+            pr_issue_id: Some(pr_issue_id.into()),
+            ..Default::default()
+        }
+    }
+
+    /// A seed naming only the machine (the machines list's ▶).
+    pub(crate) fn device(device_id: impl Into<String>) -> Self {
+        Self {
+            device_id: Some(device_id.into()),
+            ..Default::default()
+        }
+    }
+}
+
 /// Per-window navigation state. Mutate through [`navigate`] /
 /// [`switch_team`] / [`go_back`] so observers fire consistently.
 pub struct Navigation {
@@ -383,6 +441,11 @@ pub struct Navigation {
     /// [`set_screen`]/[`go_back`]/[`switch_team`] so tab activation never
     /// rewrites a tab's remembered origin.
     pending_origin: Option<PendingOrigin>,
+    /// EXP-825: the composer preselection the next `Screen::Chat` render
+    /// consumes ([`take_pending_chat_seed`]). Set by [`navigate_to_chat`]
+    /// (and the dev `chat?…` route); cleared wherever `pending_origin` is,
+    /// so a tab click or go-back never replays a stale seed.
+    pending_chat_seed: Option<ChatSeed>,
 }
 
 impl Navigation {
@@ -409,6 +472,13 @@ impl Navigation {
                 .map(|id| id.trim().to_string())
                 .filter(|id| !id.is_empty()),
             pending_origin: None,
+            // DEV-ONLY (EXP-825): `EXP_DEV_SCREEN='chat?issues=a,b&action=…'`
+            // seeds the composer the way a play button would, so a capture
+            // run photographs the chips without synthetic input.
+            pending_chat_seed: std::env::var("EXP_DEV_SCREEN")
+                .ok()
+                .as_deref()
+                .and_then(parse_dev_chat_seed),
         }
     }
 
@@ -437,7 +507,9 @@ impl Navigation {
 }
 
 /// DEV-ONLY `EXP_DEV_SCREEN` values: `settings` | `account` | `devices` |
-/// `actions` | `automations` | `usage` | `chat` | `reviews` |
+/// `actions` | `automations` | `usage` | `chat` | `chat?<seed>` (EXP-825:
+/// `issues=<a>,<b>&action=<id>&pr=<issue>&device=<id>&text=<url-encoded>`
+/// &icon=<name>`, any subset — [`parse_dev_chat_seed`]) | `reviews` |
 /// `getting-started` | `issue:<uuid>` |
 /// `pr:<issue-uuid>` (the PR-diff screen, keyed by the ISSUE whose linked PR
 /// it shows) | `support:<uuid>` | `session:<uuid>` (a coding session, keyed by
@@ -446,6 +518,11 @@ impl Navigation {
 /// ([`parse_getting_started_tab`]) so a capture run can land on the
 /// suggestions tab without synthetic input.
 fn parse_dev_screen(spec: &str) -> Option<Screen> {
+    // EXP-825: the seeded composer route — the query is parsed separately
+    // into the nav's `pending_chat_seed`.
+    if spec.starts_with("chat?") {
+        return Some(Screen::Chat);
+    }
     match spec {
         "settings" => Some(Screen::Settings),
         // EXP-238: Account merged into Settings — the dev value keeps working.
@@ -489,6 +566,75 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
                 })
         }
     }
+}
+
+/// EXP-825 (DEV-ONLY): the composer seed of a `chat?k=v&…` spec — the web
+/// route's search params, spelled the same (`issues` csv, `action`, `pr`,
+/// `device`, `text`, `icon`), percent-decoded, `+` as a space (the web
+/// encodes `+` itself, so this is safe). `None` for anything but a `chat?`
+/// spec; a spec with no known key yields an EMPTY seed, which the composer
+/// consumes as a no-op.
+fn parse_dev_chat_seed(spec: &str) -> Option<ChatSeed> {
+    let query = spec.strip_prefix("chat?")?;
+    let mut seed = ChatSeed::default();
+    for pair in query.split('&') {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        let value = percent_decode(value);
+        let value = value.trim();
+        if value.is_empty() {
+            continue;
+        }
+        match key {
+            "issues" => {
+                seed.issue_ids = value
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty())
+                    .map(str::to_string)
+                    .collect()
+            }
+            "action" => seed.action_id = Some(value.to_string()),
+            "pr" => seed.pr_issue_id = Some(value.to_string()),
+            "device" => seed.device_id = Some(value.to_string()),
+            "text" => seed.text = Some(value.to_string()),
+            "icon" => seed.icon = Some(value.to_string()),
+            _ => {}
+        }
+    }
+    Some(seed)
+}
+
+/// `%XX` → byte, `+` → space; malformed escapes are kept verbatim.
+fn percent_decode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut at = 0;
+    while at < bytes.len() {
+        match bytes[at] {
+            b'+' => {
+                out.push(b' ');
+                at += 1;
+            }
+            b'%' if at + 2 < bytes.len() => {
+                let hex = std::str::from_utf8(&bytes[at + 1..at + 3]).unwrap_or("");
+                match u8::from_str_radix(hex, 16) {
+                    Ok(byte) => {
+                        out.push(byte);
+                        at += 3;
+                    }
+                    Err(_) => {
+                        out.push(b'%');
+                        at += 1;
+                    }
+                }
+            }
+            byte => {
+                out.push(byte);
+                at += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// DEV-ONLY back-compat for capture runs (EXP-706): Reviews used to be a rail
@@ -716,6 +862,52 @@ fn navigate_inner(window: &Window, cx: &mut App, screen: Screen, origin: Pending
     });
 }
 
+/// EXP-825: open the Agent page's composer with `seed` preselected — what
+/// every play button does now (issue detail, the bulk bar, an action's Run,
+/// a machine's ▶, Fix conflicts). The rail flips to the Sessions tool (the
+/// Agent page's list column), the seed lands on the nav the composer reads,
+/// and the navigation itself is the ordinary [`navigate`].
+///
+/// An UNDOCKED window (an issue in its own window) mounts no screens panel,
+/// so the seed goes to the shell it was undocked from and that window is
+/// raised — the `forward_to_owner_shell` shape, only with the seed carried
+/// along (writing it onto the undocked window's nav would lose it).
+pub(crate) fn navigate_to_chat(window: &mut Window, cx: &mut App, seed: ChatSeed) {
+    if crate::screens::screens_for_window(window, cx).is_none() {
+        let window_id = window.window_handle().window_id();
+        if let Some(owner) = crate::undock::owner_shell_for_window(window_id, cx) {
+            // Deferred: a cross-window `update` from inside this window's
+            // update silently no-ops.
+            cx.defer(move |cx| {
+                let _ = owner.update(cx, |_, window, cx| {
+                    navigate_to_chat(window, cx, seed.clone());
+                    window.activate_window();
+                });
+            });
+            return;
+        }
+    }
+    crate::sidebar::select_tool_for_tab(window, cx, crate::sidebar::ToolWindow::Sessions);
+    if let Some(nav) = nav_for_window_readonly(window, cx) {
+        nav.update(cx, |nav, cx| {
+            nav.pending_chat_seed = Some(seed);
+            cx.notify();
+        });
+    }
+    navigate(window, cx, Screen::Chat);
+}
+
+/// EXP-825: consume the composer seed (`None` = nothing pending). The chat
+/// screen calls this at the top of every render, so a seed set while the
+/// page is already up (Run clicked twice, a second issue's Start coding) is
+/// applied on the notify it triggers.
+pub(crate) fn take_pending_chat_seed(nav: &Entity<Navigation>, cx: &mut App) -> Option<ChatSeed> {
+    if nav.read(cx).pending_chat_seed.is_none() {
+        return None;
+    }
+    nav.update(cx, |nav, _| nav.pending_chat_seed.take())
+}
+
 /// Consume the pending tab-origin marker (EXP-288). `None` = the screen
 /// change wasn't a real navigation (tab click / close-reactivation /
 /// go-back) — the tab keeps whatever origin it has.
@@ -737,6 +929,7 @@ pub fn set_screen(window: &Window, cx: &mut App, screen: Option<Screen>) {
         if nav.screen != screen {
             nav.screen = screen;
             nav.pending_origin = None;
+            nav.pending_chat_seed = None;
             cx.notify();
         }
     });
@@ -797,6 +990,7 @@ pub fn go_back(window: &Window, cx: &mut App) {
         }
         nav.screen = Some(previous.clone());
         nav.pending_origin = None;
+        nav.pending_chat_seed = None;
         cx.notify();
         Some(previous)
     });
@@ -818,6 +1012,7 @@ pub fn go_forward(window: &Window, cx: &mut App) {
         }
         nav.screen = Some(next.clone());
         nav.pending_origin = None;
+        nav.pending_chat_seed = None;
         cx.notify();
         Some(next)
     });
@@ -843,6 +1038,7 @@ pub fn switch_team(window: &Window, cx: &mut App, team_id: String) {
         nav.forward_stack.clear();
         nav.last_board_id = None;
         nav.pending_origin = None;
+        nav.pending_chat_seed = None;
         cx.notify();
         true
     });
@@ -1453,5 +1649,54 @@ mod tests {
                 "the tab never changes the page's identity"
             );
         });
+    }
+
+    /// EXP-825: the dev `chat?…` spec parses the web route's search params
+    /// — any subset, csv issues, percent-decoded text — and a plain `chat`
+    /// (or any other spec) seeds nothing.
+    #[test]
+    fn dev_chat_seed_parses_the_web_search_params() {
+        assert_eq!(parse_dev_chat_seed("chat"), None);
+        assert_eq!(parse_dev_chat_seed("devices"), None);
+        assert_eq!(parse_dev_chat_seed("chat?"), Some(ChatSeed::default()));
+        assert_eq!(parse_dev_screen("chat?issues=a"), Some(Screen::Chat));
+        let full = parse_dev_chat_seed(
+            "chat?issues=a,b,%20&action=builtin:fix-conflicts&pr=i-1&device=dev-1\
+&text=Review%20%23EXP-1+please&icon=bug&bogus=1",
+        )
+        .unwrap();
+        assert_eq!(
+            full,
+            ChatSeed {
+                issue_ids: vec!["a".into(), "b".into()],
+                action_id: Some("builtin:fix-conflicts".into()),
+                device_id: Some("dev-1".into()),
+                pr_issue_id: Some("i-1".into()),
+                text: Some("Review #EXP-1 please".into()),
+                icon: Some("bug".into()),
+            }
+        );
+        // A subset leaves the rest empty; blank values are absent.
+        assert_eq!(
+            parse_dev_chat_seed("chat?action=&text=hi"),
+            Some(ChatSeed {
+                text: Some("hi".into()),
+                ..Default::default()
+            })
+        );
+        assert_eq!(percent_decode("a%2Bb%zz"), "a+b%zz");
+    }
+
+    /// The seed constructors name exactly one thing each, and the
+    /// fix-conflicts one pins the builtin beside its PR.
+    #[test]
+    fn chat_seed_constructors() {
+        assert_eq!(ChatSeed::issues(vec!["i".into()]).issue_ids, vec!["i".to_string()]);
+        assert_eq!(ChatSeed::action("act").action_id.as_deref(), Some("act"));
+        assert_eq!(ChatSeed::device("dev").device_id.as_deref(), Some("dev"));
+        let fix = ChatSeed::fix_conflicts("issue-9");
+        assert_eq!(fix.action_id.as_deref(), Some("builtin:fix-conflicts"));
+        assert_eq!(fix.pr_issue_id.as_deref(), Some("issue-9"));
+        assert!(fix.issue_ids.is_empty());
     }
 }

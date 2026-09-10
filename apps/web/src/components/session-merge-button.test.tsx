@@ -6,6 +6,7 @@ import { SessionMergeButton } from "@/components/session-merge-button"
 const mockState = vi.hoisted(() => ({
   mergeMutate: vi.fn(),
   sessionMergeMutate: vi.fn(),
+  navigate: vi.fn(),
 }))
 
 vi.mock(`@/lib/trpc-client`, () => ({
@@ -23,22 +24,12 @@ vi.mock(`@/lib/trpc-client`, () => ({
   },
 }))
 
-// The conflict swap's launcher: stubbed so the test never drags the synced
-// device collections (and the whole launch dialog) into jsdom.
-vi.mock(`@/hooks/use-remote-start`, () => ({
-  useRemoteStart: () => ({
-    devices: [],
-    starting: false,
-    sentTo: null,
-    startIssues: vi.fn(),
-    runAction: vi.fn(),
-    refresh: vi.fn(),
-    latestVersions: null,
-  }),
-}))
-
-vi.mock(`@/components/launch-dialog/launch-dialog`, () => ({
-  LaunchDialog: () => null,
+// EXP-825: the conflict swap's "Fix conflicts" is a NAVIGATION to the Agent
+// page composer (no dialog, no device lookup) — the router is the only thing
+// to stub.
+vi.mock(`@tanstack/react-router`, () => ({
+  useNavigate: () => mockState.navigate,
+  useParams: () => ({ teamSlug: `acme` }),
 }))
 
 vi.mock(`sonner`, () => ({
@@ -59,6 +50,7 @@ describe(`SessionMergeButton`, () => {
     mockState.mergeMutate.mockResolvedValue({ merged: true })
     mockState.sessionMergeMutate.mockReset()
     mockState.sessionMergeMutate.mockResolvedValue({ merged: true })
+    mockState.navigate.mockReset()
   })
 
   it(`renders nothing unless the PR is open`, () => {
@@ -128,7 +120,6 @@ describe(`SessionMergeButton`, () => {
         label="Merge"
         branch="exp/MET-12"
         teamId="t1"
-        currentUserId="u1"
         steerEnabled
       />
     )
@@ -142,6 +133,15 @@ describe(`SessionMergeButton`, () => {
     expect(fix.textContent).toContain(`Fix conflicts`)
     // One trailing action, not two.
     expect(screen.queryByRole(`button`, { name: `Merge pull request` })).toBeNull()
+
+    // EXP-825: the click lands on the composer with the builtin picked and
+    // this PR pre-filled (any linked issue id resolves the PR, EXP-323).
+    fireEvent.click(fix)
+    expect(mockState.navigate).toHaveBeenCalledWith({
+      to: `/t/$teamSlug/agent`,
+      params: { teamSlug: `acme` },
+      search: { action: `builtin:fix-conflicts`, pr: `i1` },
+    })
   })
 
   // The swap must never be a dead end: a conflict resolved OUTSIDE the
@@ -156,7 +156,6 @@ describe(`SessionMergeButton`, () => {
         label="Merge"
         branch="exp/MET-12"
         teamId="t1"
-        currentUserId="u1"
         steerEnabled
       />
     )
@@ -191,7 +190,6 @@ describe(`SessionMergeButton`, () => {
         label="Merge"
         branch="exp/MET-12"
         teamId="t1"
-        currentUserId="u1"
         steerEnabled
       />
     )
@@ -209,7 +207,6 @@ describe(`SessionMergeButton`, () => {
         label="Merge"
         branch="exp/MET-12"
         teamId="t1"
-        currentUserId="u1"
         steerEnabled
       />
     )
@@ -237,7 +234,6 @@ describe(`SessionMergeButton`, () => {
         label="Merge"
         branch="exp/chat-abcd1234"
         teamId="t1"
-        currentUserId="u1"
         steerEnabled
       />
     )

@@ -56,19 +56,24 @@ const h = vi.hoisted(() => {
     })
   const makeChain = () => {
     let cond: unknown
+    const resolveRows = () => {
+      const rows = (dbQueue.shift() ?? []) as Record<string, unknown>[]
+      const parts = walkWhere(cond)
+      return Promise.resolve(rows.filter((row) => matches(row, parts)))
+    }
     const chain = {
       from: () => chain,
       innerJoin: () => chain,
+      leftJoin: () => chain,
       where: (value: unknown) => {
         cond = value
         return chain
       },
       orderBy: () => chain,
-      limit: () => {
-        const rows = (dbQueue.shift() ?? []) as Record<string, unknown>[]
-        const parts = walkWhere(cond)
-        return Promise.resolve(rows.filter((row) => matches(row, parts)))
-      },
+      limit: resolveRows,
+      // EXP-825: the attachment lookup awaits the where() directly.
+      then: (resolve: (rows: unknown) => unknown, reject?: (e: unknown) => unknown) =>
+        resolveRows().then(resolve, reject),
     }
     return chain
   }
@@ -630,22 +635,44 @@ describe(`steer.startSession — action runs (EXP-257)`, () => {
 
   it(`carries inputs to a row advertising no caps`, async () => {
     queueAction({
-      inputs: [{ key: `topic`, label: `Topic`, type: `text`, required: false }],
+      inputs: [{ key: `icon`, label: `Icon`, type: `icon`, required: false }],
     })
     queueOwnDevice()
     await caller.startSession({
       actionId: ACTION_ID,
       deviceId: `dev-1`,
-      inputs: { topic: `perf` },
+      inputs: { icon: `rocket` },
     })
     expect(lastStartBody()).toMatchObject({
-      inputs: [{ key: `topic`, value: `perf` }],
+      inputs: [{ key: `icon`, value: `rocket` }],
     })
+  })
+
+  // EXP-825: the free text beside an action is the start's `prompt`, never
+  // an input — forwarded byte-identical; blank is dropped.
+  it(`carries prompt on an action start and drops a blank one`, async () => {
+    queueAction()
+    queueOwnDevice()
+    await caller.startSession({
+      actionId: ACTION_ID,
+      deviceId: `dev-1`,
+      prompt: `Skip the Android lane.\n`,
+    })
+    expect(lastStartBody()).toMatchObject({ prompt: `Skip the Android lane.\n` })
+
+    queueAction()
+    queueOwnDevice()
+    await caller.startSession({
+      actionId: ACTION_ID,
+      deviceId: `dev-1`,
+      prompt: `   `,
+    })
+    expect(`prompt` in lastStartBody()).toBe(false)
   })
 
   it(`validates values against the schema — missing required, unknown key`, async () => {
     // Both calls fail before the device resolve, so no row is queued.
-    const defs = [{ key: `topic`, label: `Topic`, type: `text`, required: true }]
+    const defs = [{ key: `icon`, label: `Icon`, type: `icon`, required: true }]
     queueAction({ inputs: defs })
     let error = await rejectionOf(
       caller.startSession({ actionId: ACTION_ID, deviceId: `dev-1` })
@@ -658,7 +685,7 @@ describe(`steer.startSession — action runs (EXP-257)`, () => {
       caller.startSession({
         actionId: ACTION_ID,
         deviceId: `dev-1`,
-        inputs: { topic: `x`, bogus: `y` },
+        inputs: { icon: `rocket`, bogus: `y` },
       })
     )
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
@@ -724,36 +751,29 @@ describe(`steer.startSession — builtin create-action (EXP-257)`, () => {
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 
-  it(`routes a builtin start with no DB action load and the resolved inputs`, async () => {
+  it(`routes a builtin start with no DB action load and the request as prompt`, async () => {
     // The device row is the ONLY queued select — the builtin never loads a
-    // DB action.
-    queueOwnDevice({ caps: [`actions`, `action-inputs`] })
+    // DB action. EXP-825: the request is the start's `prompt`, not an input.
+    queueOwnDevice({ caps: [`actions`, `action-inputs`, `start-prompt`] })
     const teamId = `55555555-5555-4555-8555-555555555555`
     await caller.startSession({
       actionId: BUILTIN_ID,
       teamId,
       deviceId: `dev-1`,
-      inputs: { description: `Review PRs weekly` },
+      prompt: `Review PRs weekly`,
     })
     expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, teamId)
     expect(lastStartBody()).toMatchObject({
       actionId: BUILTIN_ID,
       actionName: `Create action`,
       teamId,
-      inputs: [
-        {
-          key: `description`,
-          label: `Description`,
-          type: `text`,
-          value: `Review PRs weekly`,
-          display: `Review PRs weekly`,
-        },
-      ],
+      prompt: `Review PRs weekly`,
     })
+    expect(`inputs` in lastStartBody()).toBe(false)
     expect(`repo` in lastStartBody()).toBe(false)
   })
 
-  it(`enforces the builtin's required description`, async () => {
+  it(`enforces the builtin's required prompt`, async () => {
     const error = await rejectionOf(
       caller.startSession({
         actionId: BUILTIN_ID,
@@ -762,18 +782,31 @@ describe(`steer.startSession — builtin create-action (EXP-257)`, () => {
       })
     )
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
-    expect((error as TRPCError).message).toContain(
-      `Missing required input "description"`
-    )
+    expect((error as TRPCError).message).toContain(`prompt is required`)
   })
 
-  it(`builtin starts need no caps on the row (EXP-639)`, async () => {
-    queueOwnDevice()
+  it(`refuses a device without the start-prompt cap (it would run the builtin empty)`, async () => {
+    queueOwnDevice({ caps: [`actions`, `action-inputs`] })
+    const error = await rejectionOf(
+      caller.startSession({
+        actionId: BUILTIN_ID,
+        teamId: `55555555-5555-4555-8555-555555555555`,
+        deviceId: `dev-1`,
+        prompt: `x`,
+      })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toContain(`Update the Exponential app`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`builtin starts need no other caps on the row (EXP-639)`, async () => {
+    queueOwnDevice({ caps: [`start-prompt`] })
     await caller.startSession({
       actionId: BUILTIN_ID,
       teamId: `55555555-5555-4555-8555-555555555555`,
       deviceId: `dev-1`,
-      inputs: { description: `x` },
+      prompt: `x`,
     })
     expect(h.relayPostStart).toHaveBeenCalledTimes(1)
   })
@@ -807,12 +840,13 @@ describe(`steer.startSession — builtin chat (EXP-615)`, () => {
         defaultBranchOverride: `develop`,
       },
     ])
-    queueOwnDevice({ caps: [`actions`, `action-inputs`, `chat`] })
+    queueOwnDevice({ caps: [`actions`, `action-inputs`, `chat`, `start-prompt`] })
     await caller.startSession({
       actionId: CHAT_ID,
       teamId: BUILTIN_TEAM_ID,
       deviceId: `dev-1`,
-      inputs: { prompt: `Fix the flaky retry test`, repo: REPO_INPUT_ID },
+      prompt: `Fix the flaky retry test`,
+      inputs: { repo: REPO_INPUT_ID },
     })
     expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, BUILTIN_TEAM_ID)
     expect(lastStartBody()).toMatchObject({
@@ -825,14 +859,8 @@ describe(`steer.startSession — builtin chat (EXP-615)`, () => {
         defaultBranch: `develop`,
       },
     })
+    expect(lastStartBody().prompt).toBe(`Fix the flaky retry test`)
     expect(lastStartBody().inputs).toEqual([
-      {
-        key: `prompt`,
-        label: `Prompt`,
-        type: `textarea`,
-        value: `Fix the flaky retry test`,
-        display: `Fix the flaky retry test`,
-      },
       {
         key: `repo`,
         label: `Repository`,
@@ -853,39 +881,79 @@ describe(`steer.startSession — builtin chat (EXP-615)`, () => {
       })
     )
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
-    expect((error as TRPCError).message).toContain(
-      `Missing required input "prompt"`
-    )
+    expect((error as TRPCError).message).toContain(`prompt is required`)
     expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  // EXP-825: the old wire sent the chat text as a `prompt` INPUT — that
+  // input is gone, so the key is unknown now.
+  it(`rejects the retired prompt input`, async () => {
+    const error = await rejectionOf(
+      caller.startSession({
+        actionId: CHAT_ID,
+        teamId: BUILTIN_TEAM_ID,
+        deviceId: `dev-1`,
+        prompt: `hello`,
+        inputs: { prompt: `hello` },
+      })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect((error as TRPCError).message).toContain(`Unknown input`)
   })
 
   // EXP-739: the repo is OPTIONAL now — a chat without one runs in the
   // agent's scratch dir, so the frame must carry no `repo` group at all
   // (the launcher keys its whole git/worktree path on its presence).
   it(`a repo-less chat start carries no repo on the frame`, async () => {
-    queueOwnDevice({ caps: [`actions`, `action-inputs`] })
+    queueOwnDevice({ caps: [`actions`, `action-inputs`, `start-prompt`] })
     const result = await caller.startSession({
       actionId: CHAT_ID,
       teamId: BUILTIN_TEAM_ID,
       deviceId: `dev-1`,
-      inputs: { prompt: `What is on my plate?` },
+      prompt: `What is on my plate?`,
     })
     expect(result).toEqual({ ok: true })
     expect(lastStartBody()).toMatchObject({
       actionId: CHAT_ID,
       actionName: `Chat`,
       teamId: BUILTIN_TEAM_ID,
+      prompt: `What is on my plate?`,
     })
     expect(lastStartBody().repo).toBeUndefined()
-    expect(lastStartBody().inputs).toEqual([
-      {
-        key: `prompt`,
-        label: `Prompt`,
-        type: `textarea`,
-        value: `What is on my plate?`,
-        display: `What is on my plate?`,
-      },
+    expect(lastStartBody().inputs).toBeUndefined()
+  })
+
+  // EXP-825: images ride the prompt as steer embeds; every embed must be
+  // one of the caller's own pending uploads for the team.
+  it(`validates the prompt's image embeds against the caller's pending uploads`, async () => {
+    const IMG = `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`
+    const prompt = `crop [Image #1]\n\n![image](/api/attachments/${IMG})`
+    // The attachment select, then the device resolve.
+    h.dbQueue.push([
+      { id: IMG, teamId: BUILTIN_TEAM_ID, uploaderId: `actor`, sessionUserId: null },
     ])
+    queueOwnDevice({ caps: [`start-prompt`] })
+    await caller.startSession({
+      actionId: CHAT_ID,
+      teamId: BUILTIN_TEAM_ID,
+      deviceId: `dev-1`,
+      prompt,
+    })
+    expect(lastStartBody().prompt).toBe(prompt)
+
+    h.dbQueue.push([
+      { id: IMG, teamId: BUILTIN_TEAM_ID, uploaderId: `someone-else`, sessionUserId: null },
+    ])
+    const error = await rejectionOf(
+      caller.startSession({
+        actionId: CHAT_ID,
+        teamId: BUILTIN_TEAM_ID,
+        deviceId: `dev-1`,
+        prompt,
+      })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect(h.relayPostStart).toHaveBeenCalledTimes(1)
   })
 
   it(`starts without the chat cap — actions + action-inputs is enough (EXP-624)`, async () => {
@@ -900,12 +968,13 @@ describe(`steer.startSession — builtin chat (EXP-615)`, () => {
         defaultBranchOverride: null,
       },
     ])
-    queueOwnDevice({ caps: [`actions`, `action-inputs`] })
+    queueOwnDevice({ caps: [`actions`, `action-inputs`, `start-prompt`] })
     const result = await caller.startSession({
       actionId: CHAT_ID,
       teamId: BUILTIN_TEAM_ID,
       deviceId: `dev-1`,
-      inputs: { prompt: `hello`, repo: REPO_INPUT_ID },
+      prompt: `hello`,
+      inputs: { repo: REPO_INPUT_ID },
     })
     expect(result).toEqual({ ok: true })
     expect(lastStartBody()).toMatchObject({
@@ -1089,14 +1158,15 @@ describe(`steer.startSession — shared devices (EXP-432)`, () => {
   })
 
   it(`routes a builtin start on a shared device with startedBy`, async () => {
-    // EXP-639: a capless owner row is fine — only the agent list gates.
-    queueSharedDevice({ sharedTeamId: BUILTIN_TEAM_ID })
+    // EXP-639: only the agent list gates (EXP-825: plus the start-prompt
+    // cap, since the builtin reads its request from the frame's prompt).
+    queueSharedDevice({ sharedTeamId: BUILTIN_TEAM_ID, caps: [`start-prompt`] })
 
     await caller.startSession({
       actionId: BUILTIN_ID,
       teamId: BUILTIN_TEAM_ID,
       deviceId: SHARED_DEVICE,
-      inputs: { description: `Review PRs weekly` },
+      prompt: `Review PRs weekly`,
     })
 
     expect(lastStartBody()).toMatchObject({
@@ -1842,5 +1912,45 @@ describe(`steer.startSession — usage headroom (EXP-804)`, () => {
     )
     expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
     expect((error as TRPCError).message).toContain(`out of usage`)
+  })
+})
+
+// ── EXP-825: prompt on issue and batch starts ────────────────────────────────
+
+describe(`steer.startSession — prompt (EXP-825)`, () => {
+  it(`rides a single-issue start and a batch start`, async () => {
+    queueOwnDevice()
+    await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      prompt: `Keep the OKLCH tokens.`,
+    })
+    expect(lastStartBody()).toMatchObject({
+      issueId: ISSUE_A,
+      prompt: `Keep the OKLCH tokens.`,
+    })
+
+    queueOwnDevice()
+    await caller.startSession({
+      issueIds: [ISSUE_A, ISSUE_B],
+      deviceId: `dev-1`,
+      prompt: `One PR, please.`,
+    })
+    expect(lastStartBody()).toMatchObject({
+      issueIds: [ISSUE_A, ISSUE_B],
+      prompt: `One PR, please.`,
+    })
+  })
+
+  it(`never rides a resume (the run keeps its recorded first turn)`, async () => {
+    const error = await rejectionOf(
+      caller.startSession({
+        resumeSessionId: `66666666-6666-4666-8666-666666666666`,
+        deviceId: `dev-1`,
+        prompt: `x`,
+      })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 })

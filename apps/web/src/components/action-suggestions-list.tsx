@@ -1,31 +1,32 @@
-import { useEffect, useMemo, useState } from "react"
+import { useMemo } from "react"
 import type { BoardIcon } from "@exp/db-schema/domain"
 import type { Team } from "@/db/schema"
 import {
   ACTION_SUGGESTIONS,
   type ActionSuggestion,
 } from "@/lib/action-suggestions"
-import {
-  BUILTIN_CREATE_ACTION_ID,
-  BUILTIN_CREATE_ACTION_NAME,
-} from "@/lib/builtin-actions"
+import { BUILTIN_CREATE_ACTION_ID } from "@/lib/builtin-actions"
+import { formatAutomationBlock } from "@/lib/action-triggers"
 import { conceptIcon } from "@/lib/icons.generated"
-import { trpc } from "@/lib/trpc-client"
+import { automationDevices } from "@/components/automation-section"
 import { useSteerConfig } from "@/components/agent-session"
+import { useOpenComposer } from "@/hooks/use-open-composer"
 import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
-import type { ActionRepoOption } from "@/components/action-editor-dialog"
-import { CreateActionDialog } from "@/components/launch-dialog/create-action-dialog"
+import { defaultDeviceId } from "@/lib/steer-devices"
 import { Pill } from "@/components/ui/pill"
 import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import { BOARD_ICON_COMPONENTS } from "@/lib/board-icons"
 
 // EXP-686: the suggestion seeds left the Actions surface and became the
 // "Suggested actions" tab of Getting started — the Actions and Automations
-// pages only keep the lightbulb that opens it. Everything a seed needs to
-// actually launch the builtin creator run (the steer devices, the team's
-// repositories, the create dialog) lives here so the tab is self-contained.
+// pages only keep the lightbulb that opens it. EXP-825: a row is a
+// navigation to the Agent page composer with the Create action builtin
+// picked, the description as the draft text and the icon as its input; an
+// automation seed appends the machine-readable trigger block the creator
+// agent copies into `exponential_automations_create` (EXP-583) — that block
+// needs a runner device, so the devices are still read here for it.
 
 // EXP-530: the suggestion glyph is a cross-client concept, never a raw glyph.
 const ActionSuggestionIcon = conceptIcon(`action-suggestion`)
@@ -33,10 +34,10 @@ const ActionAutomationIcon = conceptIcon(`action-automation`)
 
 // One suggestion seed as a row (EXP-530; rows since EXP-618 — native-app
 // parity). EXP-694: the trailing "Use" button is gone on every client — the
-// WHOLE row is the affordance, opening the create-action dialog with the
-// description/icon prefilled. Same owner+steer gate as the "New action"
-// button, since it launches the same builtin creator run; without it the row
-// is inert (no visual button, nothing to press).
+// WHOLE row is the affordance, opening the composer with the description/icon
+// prefilled. Same owner+steer gate as the "New action" button, since it
+// launches the same builtin creator run; without it the row is inert (no
+// visual button, nothing to press).
 function SuggestionRow({
   suggestion,
   canUse,
@@ -78,9 +79,8 @@ function SuggestionRow({
   )
 }
 
-/** The seed list plus the create-action dialog it prefills — the Getting
- * started sheet's second tab (desktop web) and the mobile Actions page's
- * third tab. */
+/** The seed list — the Getting started sheet's second tab (desktop web) and
+ * the mobile Actions page's third tab. */
 export function ActionSuggestionsPanel({ team }: { team: Team }) {
   const { data: session } = useSession()
   const { isMember, isOwner } = useTeamPermissions(team)
@@ -98,32 +98,32 @@ export function ActionSuggestionsPanel({ team }: { team: Team }) {
     currentUserId,
     teamId,
   })
-  const runBusy = remote.starting || remote.sentTo !== null
-
-  // The creator run writes into a repository when one is picked, so the
-  // dialog needs the team's registry.
-  const [repos, setRepos] = useState<ActionRepoOption[]>([])
-  useEffect(() => {
-    if (!isMember) return
-    let active = true
-    trpc.repositories.list
-      .query({ teamId })
-      .then(
-        (rows) =>
-          active &&
-          setRepos(rows.map((r) => ({ id: r.id, fullName: r.fullName })))
-      )
-      .catch(() => {})
-    return () => {
-      active = false
-    }
-  }, [teamId, isMember])
-
-  const [createOpen, setCreateOpen] = useState(false)
-  const [prefill, setPrefill] = useState<ActionSuggestion | null>(null)
+  const openComposer = useOpenComposer()
+  // The automation's runner — automation-capable machines, online or not (a
+  // schedule catches up on reconnect): the caller's default one, else the
+  // first. Without one the block is simply left off, as the old dialog did.
+  const automationDeviceId = useMemo(() => {
+    const candidates = automationDevices(remote.devices ?? [])
+    return defaultDeviceId(candidates) ?? candidates[0]?.deviceId ?? null
+  }, [remote.devices])
   const suggestions = useMemo(() => ACTION_SUGGESTIONS, [])
 
   if (!isMember) return null
+
+  const use = (suggestion: ActionSuggestion) => {
+    const block =
+      suggestion.automation && automationDeviceId
+        ? formatAutomationBlock({
+            trigger: suggestion.automation,
+            deviceId: automationDeviceId,
+          })
+        : ``
+    openComposer({
+      actionId: BUILTIN_CREATE_ACTION_ID,
+      text: `${suggestion.description}${block}`,
+      icon: suggestion.icon,
+    })
+  }
 
   return (
     <>
@@ -134,47 +134,11 @@ export function ActionSuggestionsPanel({ team }: { team: Team }) {
             key={suggestion.id}
             suggestion={suggestion}
             canUse={steerEnabled && isOwner}
-            disabled={runBusy}
-            onUse={() => {
-              setPrefill(suggestion)
-              setCreateOpen(true)
-            }}
+            disabled={false}
+            onUse={() => use(suggestion)}
           />
         ))}
       </div>
-
-      <CreateActionDialog
-        open={createOpen}
-        onOpenChange={(next) => {
-          if (!next) {
-            setCreateOpen(false)
-            // A later plain "New action" open must start blank again.
-            setPrefill(null)
-          }
-        }}
-        devices={remote.devices ?? []}
-        starting={remote.starting}
-        teamId={teamId}
-        repos={repos}
-        initialDescription={prefill?.description}
-        initialIcon={prefill?.icon}
-        automationPrefill={prefill?.automation}
-        onCreate={(device, options, inputs) => {
-          remote
-            .runAction(
-              device,
-              {
-                id: BUILTIN_CREATE_ACTION_ID,
-                name: BUILTIN_CREATE_ACTION_NAME,
-                teamId,
-              },
-              options,
-              inputs
-            )
-            .then(() => setCreateOpen(false))
-            .catch(() => {})
-        }}
-      />
     </>
   )
 }

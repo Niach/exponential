@@ -69,6 +69,12 @@ pub struct PublishSpec {
     /// from disk long after the process is gone. `None` = don't record (the
     /// examples and the relay integration tests).
     pub journal_dir: Option<PathBuf>,
+    /// EXP-825: the session's image-embed restore map, SHARED with the
+    /// engine — a start prompt's images are localized before the publisher
+    /// exists ([`localize_message`] on the host), and the agent's echoes of
+    /// those paths must restore to tokens exactly like a steered image's.
+    /// `Default` = a fresh map (tests, the PTY-less examples).
+    pub embeds: ImageEmbeds,
 }
 
 /// Publisher-ticket source, injectable for tests. Blocking (reqwest) — the loop
@@ -200,7 +206,50 @@ fn image_embed_pattern() -> &'static regex::Regex {
 /// AHEAD of the new line — replacing it first would strand the `Image #3: `
 /// prefix in the feed. [`restore_image_embeds`] therefore runs the LINE
 /// needles in a first pass and the bare paths in a second.
-type ImageEmbedMap = Arc<Mutex<Vec<(String, String)>>>;
+///
+/// EXP-825: a shareable handle — the engine creates it once per session
+/// ([`PublishSpec::embeds`]), so the START prompt's images (localized on the
+/// host before any publisher exists) and every steered image land in the
+/// same map.
+#[derive(Clone, Debug, Default)]
+pub struct ImageEmbeds(Arc<Mutex<Vec<(String, String)>>>);
+
+impl ImageEmbeds {
+    /// Record `(needle, token)` pairs; a needle already known is kept as is.
+    fn record(&self, restores: Vec<(String, String)>) {
+        if let Ok(mut embeds) = self.0.lock() {
+            for (needle, token) in restores {
+                if !embeds.iter().any(|(known, _)| *known == needle) {
+                    embeds.push((needle, token));
+                }
+            }
+        }
+    }
+
+    /// The recorded `(needle, token)` pairs, in push order (tests).
+    pub fn snapshot(&self) -> Vec<(String, String)> {
+        self.0
+            .lock()
+            .map(|embeds| embeds.clone())
+            .unwrap_or_default()
+    }
+}
+
+type ImageEmbedMap = ImageEmbeds;
+
+/// EXP-825: does `text` carry at least one steer image embed? The host asks
+/// before spending a download task on a prompt (the overwhelmingly common
+/// prompt has none).
+pub fn has_image_embed(text: &str) -> bool {
+    image_embed_pattern().is_match(text)
+}
+
+/// EXP-825: [`localize_image_embeds`] for the host's own prompts — the start
+/// prompt's images (and a local composer's) go through the same download +
+/// manifest + restore-map path a steered message takes.
+pub async fn localize_message(text: String, hook: &AttachmentHook, embeds: &ImageEmbeds) -> String {
+    localize_image_embeds(text, hook, embeds).await
+}
 
 /// The prefix every manifest-line needle starts with — how
 /// [`restore_image_embeds`] tells a line needle from a bare path.
@@ -278,13 +327,7 @@ async fn localize_image_embeds(
             }
         }
     }
-    if let Ok(mut embeds) = embeds.lock() {
-        for (needle, token) in restores {
-            if !embeds.iter().any(|(known, _)| *known == needle) {
-                embeds.push((needle, token));
-            }
-        }
-    }
+    embeds.record(restores);
     // Strip the embed block out of the prose, then hang the manifest off it.
     // A line that held NOTHING but an embed goes entirely (the composer puts
     // them on their own lines); an inline one leaves its line tidied, so the
@@ -351,7 +394,7 @@ fn tidy_gaps(line: &str) -> String {
 /// attachment under a different number puts its bare path in the map ahead of
 /// the new line. The pass split makes the precedence structural.
 fn restore_image_embeds(event: &mut ActivityEvent, embeds: &ImageEmbedMap) {
-    let Ok(embeds) = embeds.lock() else { return };
+    let Ok(embeds) = embeds.0.lock() else { return };
     if embeds.is_empty() {
         return; // the overwhelmingly common case — no allocation, no walk
     }
@@ -581,7 +624,9 @@ async fn run_publisher_loop(
     let hooks = Arc::new(hooks);
     // EXP-511: the session's localized image embeds — filled by the input
     // path, read by the activity path, and shared across reconnects.
-    let embeds: ImageEmbedMap = Arc::new(Mutex::new(Vec::new()));
+    // EXP-825: the spec's handle, so the engine's own localizations (the
+    // start prompt) restore here too.
+    let embeds: ImageEmbedMap = spec.embeds.clone();
     // EXP-514: remote input is handled on its own session-lived task, fed in
     // order over this channel — the pump loop must never await a download.
     let input_tx = spawn_input_pump(hooks.clone(), embeds.clone());
@@ -1378,6 +1423,7 @@ mod tests {
                 session_id: "sess-j".to_string(),
                 issue_id: None,
                 journal_dir: Some(data_dir.clone()),
+                embeds: ImageEmbeds::default(),
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -1417,6 +1463,7 @@ mod tests {
                 session_id: "sess-t".to_string(),
                 issue_id: Some("issue-t".to_string()),
                 journal_dir: None,
+                embeds: ImageEmbeds::default(),
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -1506,6 +1553,7 @@ mod tests {
                 session_id: "sess-cfg-none".to_string(),
                 issue_id: None,
                 journal_dir: None,
+                embeds: ImageEmbeds::default(),
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -1556,6 +1604,7 @@ mod tests {
                 session_id: "sess-cfg".to_string(),
                 issue_id: None,
                 journal_dir: None,
+                embeds: ImageEmbeds::default(),
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -1617,6 +1666,7 @@ mod tests {
                 session_id: "sess-cmd".to_string(),
                 issue_id: None,
                 journal_dir: None,
+                embeds: ImageEmbeds::default(),
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -1694,6 +1744,7 @@ mod tests {
                 session_id: "sess-cmd-pi".to_string(),
                 issue_id: None,
                 journal_dir: None,
+                embeds: ImageEmbeds::default(),
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -1735,6 +1786,49 @@ mod tests {
 
     // ── EXP-511: steered image embeds → local files → tokens again ─────────
 
+    /// EXP-825: the host localizes a START prompt through the exported
+    /// [`localize_message`] with a shared [`ImageEmbeds`] — the agent reads
+    /// the numbered manifest, and an echo of the line OR the bare path
+    /// restores to the token through the same map the publisher uses.
+    #[test]
+    fn localize_message_shares_the_restore_map_with_the_publisher() {
+        let runtime = SteerRuntime::new().unwrap();
+        let embeds = ImageEmbeds::default();
+        let local = image_dir("start").join("11111111-2222-3333-4444-555555555555.png");
+        let localized = local.clone();
+        let hook: AttachmentHook = Arc::new(move |id| {
+            assert_eq!(id, "11111111-2222-3333-4444-555555555555");
+            Ok(localized.clone())
+        });
+        assert!(has_image_embed(&format!("fix [Image #1]\n\n{EMBED}")));
+        assert!(!has_image_embed("fix the login flicker"));
+        let text = format!("fix [Image #1]\n\n{EMBED}");
+        let agent_text = runtime
+            .handle()
+            .block_on(localize_message(text, &hook, &embeds));
+        let path = local.display().to_string();
+        assert_eq!(agent_text, format!("fix [Image #1]\n\nImage #1: {path}"));
+        assert_eq!(
+            embeds.snapshot(),
+            vec![
+                (format!("Image #1: {path}"), EMBED.to_string()),
+                (path.clone(), EMBED.to_string()),
+            ]
+        );
+        // The round trip: an agent echo restores to the steerer's token.
+        let mut echo = ActivityEvent::user_message(format!("fix [Image #1]\n\nImage #1: {path}"));
+        restore_image_embeds(&mut echo, &embeds);
+        assert_eq!(echo, ActivityEvent::user_message(format!("fix [Image #1]\n\n{EMBED}")));
+        let mut tool = ActivityEvent::tool("Read", Some(path.clone()));
+        restore_image_embeds(&mut tool, &embeds);
+        assert_eq!(tool, ActivityEvent::tool("Read", Some(EMBED.to_string())));
+        // No embed = no download, text untouched.
+        let plain = runtime
+            .handle()
+            .block_on(localize_message("plain".to_string(), &hook, &embeds));
+        assert_eq!(plain, "plain");
+    }
+
     /// The exact token shape the shared `buildSteerImageMessage` template
     /// emits on web/iOS/Android.
     const EMBED: &str = "![image](/api/attachments/11111111-2222-3333-4444-555555555555)";
@@ -1763,6 +1857,7 @@ mod tests {
                 session_id: "sess-img".to_string(),
                 issue_id: None,
                 journal_dir: None,
+                embeds: ImageEmbeds::default(),
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -1820,6 +1915,7 @@ mod tests {
                 session_id: "sess-img-err".to_string(),
                 issue_id: None,
                 journal_dir: None,
+                embeds: ImageEmbeds::default(),
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -1872,6 +1968,7 @@ mod tests {
                 session_id: "sess-img-slow".to_string(),
                 issue_id: None,
                 journal_dir: None,
+                embeds: ImageEmbeds::default(),
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -1936,6 +2033,7 @@ mod tests {
                 session_id: "sess-img-pi".to_string(),
                 issue_id: None,
                 journal_dir: None,
+                embeds: ImageEmbeds::default(),
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -1974,7 +2072,8 @@ mod tests {
 
         // The reverse rewrite covers every text field an agent could quote a
         // path into, never the machine fields (ids, option keys).
-        let embeds: ImageEmbedMap = Arc::new(Mutex::new(vec![
+        let embeds = ImageEmbeds::default();
+        embeds.record(vec![
             (
                 "Image #1: /tmp/w/.exp-steer-images/img.png".to_string(),
                 EMBED.to_string(),
@@ -1983,7 +2082,7 @@ mod tests {
                 "/tmp/w/.exp-steer-images/img.png".to_string(),
                 EMBED.to_string(),
             ),
-        ]));
+        ]);
         let mut tool = ActivityEvent::tool("Read", Some("/tmp/w/.exp-steer-images/img.png".into()));
         restore_image_embeds(&mut tool, &embeds);
         assert_eq!(tool, ActivityEvent::tool("Read", Some(EMBED.to_string())));
@@ -2021,7 +2120,7 @@ mod tests {
             let n = counter.fetch_add(1, Ordering::SeqCst) + 1;
             Ok(PathBuf::from(format!("/img/{n}.png")))
         });
-        let embeds: ImageEmbedMap = Arc::new(Mutex::new(Vec::new()));
+        let embeds = ImageEmbeds::default();
         let runtime = SteerRuntime::new().unwrap();
         let out = runtime.handle().block_on(localize_image_embeds(
             message.to_string(),
@@ -2077,7 +2176,7 @@ mod tests {
             // however many messages carry it.
             Ok(PathBuf::from(format!("/img/{id}.png")))
         });
-        let embeds: ImageEmbedMap = Arc::new(Mutex::new(Vec::new()));
+        let embeds = ImageEmbeds::default();
         let runtime = SteerRuntime::new().unwrap();
         let first = runtime.handle().block_on(localize_image_embeds(
             format!("look [Image #1]\n\n{EMBED}"),
@@ -2173,6 +2272,7 @@ mod tests {
                 session_id: "sess-j".to_string(),
                 issue_id: None,
                 journal_dir: None,
+                embeds: ImageEmbeds::default(),
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -2234,6 +2334,7 @@ mod tests {
                 session_id: "sess-x".to_string(),
                 issue_id: None,
                 journal_dir: None,
+                embeds: ImageEmbeds::default(),
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -2272,6 +2373,7 @@ mod tests {
                 session_id: "sess-d".to_string(),
                 issue_id: None,
                 journal_dir: None,
+                embeds: ImageEmbeds::default(),
             },
             Arc::new(DisabledTickets),
             recording_hooks(recorded.clone()),

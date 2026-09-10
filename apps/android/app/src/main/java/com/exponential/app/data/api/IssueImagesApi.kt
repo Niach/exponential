@@ -89,6 +89,23 @@ class IssueImagesApi @Inject constructor(
     ): UploadedImage =
         post(accountId, "api/sessions/$sessionId/files", bytes, filename, contentType)
 
+    /**
+     * EXP-825: an image attached BEFORE a session exists — the Agent page
+     * composer uploads against the TEAM (`session_attachments` row with a NULL
+     * session id) and the start binds it to the run the desktop creates
+     * (`codingSessions.start` `attachmentIds`). Same multipart part, same
+     * response, same size/type rules as the session route; unbound rows are
+     * swept after seven days.
+     */
+    suspend fun uploadTeamSessionImage(
+        accountId: String,
+        teamId: String,
+        bytes: ByteArray,
+        filename: String,
+        contentType: String,
+    ): UploadedImage =
+        post(accountId, "api/teams/$teamId/session-files", bytes, filename, contentType)
+
     private suspend fun post(
         accountId: String,
         path: String,

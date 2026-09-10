@@ -64,12 +64,15 @@ const CORE_SERVICES = [`postgres`, `electric`, `caddy`]
 /**
  * Views whose content only EXISTS when a desktop is online on the steer relay
  * (EXP-393): without one they render "Live steering is unavailable on this
- * instance" or hide the Start-coding entry point entirely. `machine-settings`
- * (EXP-733) opens the stub's OWN device row (`$device`) — captured without
- * the stub it has no row to open and skips outright.
+ * instance", hide the Start-coding entry point entirely, or (the Agent
+ * composer's chipped views, EXP-825) offer no machine to run on. `chat` itself
+ * stays out: its sessions list and empty prompt render without a device.
+ * `machine-settings` (EXP-733) opens the stub's OWN device row (`$device`) —
+ * captured without the stub it has no row to open and skips outright.
  */
 const STEER_DEPENDENT_VIEWS = new Set([
-  `start-coding`,
+  `chat-issues`,
+  `chat-action`,
   `steering`,
   `issue-detail`,
   `board`,

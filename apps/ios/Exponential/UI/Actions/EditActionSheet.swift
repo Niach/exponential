@@ -29,6 +29,8 @@ struct EditActionSheet: View {
 
     @State private var name = ""
     @State private var descriptionText = ""
+    /// EXP-825: the composer's field hint while this action is picked.
+    @State private var promptPlaceholder = ""
     @State private var icon = ""
     @State private var repoId = ""
     @State private var prompt = ""
@@ -59,6 +61,11 @@ struct EditActionSheet: View {
         }
         if repoId != (action.repositoryId ?? "") {
             patch.repositoryId = .some(repoId.isEmpty ? nil : repoId)
+        }
+        let trimmedHint = promptPlaceholder.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedHint != (action.promptPlaceholder ?? "") {
+            // Blank clears (an explicit null, like the description).
+            patch.promptPlaceholder = .some(trimmedHint.isEmpty ? nil : trimmedHint)
         }
         if let loadedBody, prompt != loadedBody { patch.body = prompt }
         return patch
@@ -134,7 +141,10 @@ struct EditActionSheet: View {
         .listRowBackground(glassFormRowFill)
     }
 
-    /// Inline placeholder title (S7) — no label above the field.
+    /// Inline placeholder title (S7) — no label above the field. EXP-825:
+    /// the composer hint sits under the description (the web dialog's
+    /// order) — what the requester should type beside this action, shown as
+    /// the composer field's placeholder while it is picked.
     private var descriptionSection: some View {
         Section {
             GlassTextField(
@@ -145,6 +155,19 @@ struct EditActionSheet: View {
                 accessibilityIdentifier: "edit-action-description"
             )
             .disabled(!canEdit)
+            GlassTextField(
+                "Composer hint, e.g. Scope: which platforms, which version",
+                text: $promptPlaceholder,
+                bordered: false,
+                accessibilityIdentifier: "edit-action-prompt-placeholder"
+            )
+            .disabled(!canEdit)
+            // Client parity with the server's cap, so a long paste is
+            // refused at the field instead of at submit.
+            .onChange(of: promptPlaceholder) { _, value in
+                let cap = ActionDto.promptPlaceholderMaxLength
+                if value.count > cap { promptPlaceholder = String(value.prefix(cap)) }
+            }
         }
         .listRowBackground(glassFormRowFill)
     }
@@ -201,6 +224,7 @@ struct EditActionSheet: View {
         // blank while the body is in flight.
         name = action.name
         descriptionText = action.description ?? ""
+        promptPlaceholder = action.promptPlaceholder ?? ""
         icon = action.icon ?? ""
         repoId = action.repositoryId ?? ""
         repos = (try? await deps.repositoriesApi.list(

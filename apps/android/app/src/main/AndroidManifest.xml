@@ -83,6 +83,7 @@
                      /projects/ routes are dead on the web (no redirects), so
                      claiming them would swallow links nothing can render. -->
                 <data android:pathPattern="/t/.*/boards/.*/issues/.*" />
+                <data android:pathPattern="/t/.*/agent" />
                 <data android:pathPrefix="/invite/" />
             </intent-filter>
 

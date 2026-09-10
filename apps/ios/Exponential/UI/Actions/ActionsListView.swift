@@ -3,39 +3,24 @@ import ExpUI
 import SwiftUI
 
 /// The Actions surface (EXP-253): the active team's action prompts, each with
-/// a Run affordance that remote-starts the action on one of the caller's
-/// online desktops.
-/// The "New action" button (EXP-431, in the web-parity "Actions" section
-/// header since EXP-574) opens the dedicated `CreateActionSheet` (EXP-615) —
-/// the "Create action" builtin left the list. EXP-694 added the row menu's
+/// a Run affordance. EXP-825: Run, "New action" (EXP-431, in the web-parity
+/// "Actions" section header since EXP-574) and a suggestion's tap are all
+/// NAVIGATION into the Agent page composer, seeded with the action (or the
+/// Create action builtin plus the suggestion's text and icon) — the
+/// dedicated run and create sheets are gone. EXP-694 added the row menu's
 /// "Edit" (the `EditActionSheet`, read-only for non-owners) — editing is no
 /// longer web/desktop-only.
-/// After a successful send the screen waits for the desktop's synced
-/// coding_sessions row and jumps into the existing live steer screen once.
 struct ActionsListView: View {
-    /// EXP-694: the mobile tab bar's Chat FAB is on this tab too now — the bar
-    /// lives in AppNavigator, the launcher here, so a tap just bumps a counter
-    /// (the AgentsView contract, unchanged).
-    var chatRequest: Int = 0
-
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
+    @Environment(\.pushRoute) private var pushRoute
     @Environment(TeamState.self) private var teamState
     @State private var viewModel: ActionsViewModel?
-    @State private var devices: [SteerDevice]?
     @State private var steerEnabled = false
-    /// The action the run sheet was opened for (non-nil = sheet up).
-    @State private var runTarget: ActionDto?
-    /// EXP-615: creation has its own sheet — non-nil presents it, carrying a
-    /// suggestion's seed when one opened it.
-    @State private var createTarget: CreateActionSeed?
     /// EXP-694: the action being edited (nil = closed). Owners edit, everyone
     /// else reads.
     @State private var editTarget: ActionDto?
-    /// EXP-694: the tab bar's Chat FAB — the same Start-coding sheet the
-    /// Devices tab opens, on its Chat tab.
-    @State private var chatSheetPresented = false
-    /// Consumed-once navigation target (the SettingsView pendingTeam idiom).
+    /// The automated-run rows' tap target (the SettingsView pendingTeam idiom).
     @State private var sessionTarget: StartedRunWatcher.StartedSession?
     /// EXP-583: the automation form sheet's target (nil = closed; a nil
     /// `automation` inside = create).
@@ -51,16 +36,6 @@ struct ActionsListView: View {
     private struct AutomationFormTarget: Identifiable {
         let id: String
         let automation: AutomationDto?
-    }
-
-    /// Sheet item for the create-action sheet (EXP-615): `id` distinguishes a
-    /// plain "New action" from a suggestion seed, so switching between them
-    /// rebuilds the sheet's state.
-    private struct CreateActionSeed: Identifiable {
-        let id: String
-        var description = ""
-        var icon = ""
-        var automation: AutomationTrigger?
     }
 
     private enum Segment: String, CaseIterable {
@@ -83,38 +58,11 @@ struct ActionsListView: View {
 
     var body: some View {
         ZStack {
-            // The Chat sheet hangs off the background and the action editor off
-            // its own zero-size node: this ZStack already owns the run/create/
-            // automation sheets, and stacking presentations on one node is
-            // where SwiftUI starts dropping them (the AgentsView rule).
             AppBackground()
-                .sheet(isPresented: $chatSheetPresented) {
-                    StartCodingSheet(
-                        devices: devices ?? [],
-                        issues: viewModel?.startCandidates ?? [],
-                        preselectedIds: [],
-                        teamId: teamState.activeTeam?.id,
-                        initialTab: .chat,
-                        onStart: { device, issueIds, options in
-                            viewModel?.startCoding(
-                                device: device,
-                                issueIds: issueIds,
-                                options: options,
-                                userId: deps.auth.userId
-                            )
-                        },
-                        onRunAction: { device, chosen, options, inputs in
-                            viewModel?.run(
-                                action: chosen,
-                                device: device,
-                                options: options,
-                                inputs: inputs,
-                                userId: deps.auth.userId
-                            )
-                        }
-                    )
-                }
 
+            // The action editor hangs off its own zero-size node: this ZStack
+            // owns the automation sheet, and stacking presentations on one
+            // node is where SwiftUI starts dropping them.
             Color.clear
                 .frame(width: 0, height: 0)
                 .allowsHitTesting(false)
@@ -137,7 +85,6 @@ struct ActionsListView: View {
         .task(id: accountId) {
             let config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
             steerEnabled = config.enabled
-            await refreshDevices()
         }
         // Reload when the active team changes (and on first mount).
         .task(id: teamState.activeTeam?.id) {
@@ -148,73 +95,6 @@ struct ActionsListView: View {
         }
         .onAppear {
             ensureViewModel()
-            // Refresh presence on every appear (the .task doesn't re-run on
-            // pop-back). A no-op until steering resolves enabled.
-            Task { await refreshDevices() }
-        }
-        .onChange(of: chatRequest) { _, _ in
-            chatSheetPresented = true
-        }
-        .onDisappear {
-            viewModel?.stopWatching()
-        }
-        // EXP-257: the unified Start-coding sheet, opened in Actions mode
-        // preselected on the tapped row (it filters device candidates by
-        // capability itself). The Issues tab carries the team's real
-        // candidate pool (Android parity) so flipping over never dead-ends.
-        .sheet(item: $runTarget) { action in
-            StartCodingSheet(
-                devices: devices ?? [],
-                issues: viewModel?.startCandidates ?? [],
-                preselectedIds: [],
-                teamId: teamState.activeTeam?.id,
-                initialTab: .actions,
-                preselectedActionId: action.id,
-                onStart: { device, issueIds, options in
-                    viewModel?.startCoding(
-                        device: device,
-                        issueIds: issueIds,
-                        options: options,
-                        userId: deps.auth.userId
-                    )
-                },
-                onRunAction: { device, chosen, options, inputs in
-                    viewModel?.run(
-                        action: chosen,
-                        device: device,
-                        options: options,
-                        inputs: inputs,
-                        userId: deps.auth.userId
-                    )
-                }
-            )
-        }
-        // EXP-615: creation is its own sheet — the builtin create run behind
-        // an icon/name/description/repository form with an optional
-        // automation. Suggestions seed it.
-        .sheet(item: $createTarget) { seed in
-            if let teamId = teamState.activeTeam?.id {
-                CreateActionSheet(
-                    teamId: teamId,
-                    // EXP-672: online with a runnable agent is the whole rule —
-                    // every build above the version floor runs the builtin.
-                    devices: (devices ?? []).filter { $0.isOnline && $0.hasRunnableAgent },
-                    automationDevices: viewModel?.allDevices.filter(\.canRunAutomations) ?? [],
-                    prefillDescription: seed.description,
-                    prefillIcon: seed.icon,
-                    prefillAutomation: seed.automation,
-                    onSubmit: { device, action, options, inputs in
-                        viewModel?.run(
-                            action: action,
-                            device: device,
-                            options: options,
-                            inputs: inputs,
-                            userId: deps.auth.userId
-                        )
-                    }
-                )
-                .environment(\.accountId, accountId)
-            }
         }
         // EXP-583: the owner-only automation form, in create or edit mode.
         .sheet(item: $formTarget) { target in
@@ -256,14 +136,6 @@ struct ActionsListView: View {
                 actionName: viewModel?.actions.first { $0.id == automation.actionId }?.name
             ))
         }
-        // The desktop picked the start up — jump into the live steer screen
-        // ONCE (the same destination the .agentSession route arm builds).
-        .onChange(of: viewModel?.startWatcher.startedSession) { _, started in
-            if let started {
-                viewModel?.startWatcher.startedSession = nil
-                sessionTarget = started
-            }
-        }
         .navigationDestination(item: $sessionTarget) { target in
             AgentSessionRouteView(sessionId: target.sessionId)
                 .environment(\.accountId, accountId)
@@ -275,24 +147,16 @@ struct ActionsListView: View {
             viewModel = ActionsViewModel(
                 accountId: accountId,
                 db: deps.db,
-                steerApi: deps.steerApi,
                 automationsApi: deps.automationsApi,
                 auth: deps.auth
             )
         }
     }
 
-    private func refreshDevices() async {
-        guard steerEnabled else {
-            devices = nil
-            return
-        }
-        // EXP-432: team-scoped, so a teammate's shared server can host the
-        // run. EXP-481: read off the synced devices shape, not the network.
-        devices = await DeviceQueries.onlineStartTargets(
-            db: deps.db, accountId: accountId,
-            teamId: teamState.activeTeam?.id, userId: deps.auth.userId
-        )
+    /// EXP-825: every launch here is a push into the Agent page composer.
+    private func openComposer(_ seed: AgentComposerSeed) {
+        guard teamState.activeTeam != nil else { return }
+        pushRoute(.agent(accountId: accountId, seed: seed))
     }
 
     // MARK: - Content
@@ -343,23 +207,6 @@ struct ActionsListView: View {
                     GlassSectionHeader("Actions") {
                         newActionButton
                     }
-                    if let sentCaption = vm.startWatcher.sentCaption {
-                        HStack(spacing: 6) {
-                            ProgressView().controlSize(.small).tint(.white)
-                            Text(sentCaption)
-                                .font(.caption2)
-                        }
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .padding(.horizontal, 4)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    if let startError = vm.startWatcher.failure {
-                        Text(startError)
-                            .font(.caption2)
-                            .foregroundStyle(DesignTokens.Semantic.red)
-                            .padding(.horizontal, 4)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
                     ForEach(vm.actions) { actionRow($0) }
                 }
                 .padding()
@@ -371,14 +218,14 @@ struct ActionsListView: View {
     }
 
     /// EXP-431: creation left the list ("Create action" no longer poses as a
-    /// row); EXP-615 gave it its own sheet.
+    /// row); EXP-825: it is the composer with the Create action builtin
+    /// picked — describe it, and the creator run writes it.
     private var newActionButton: some View {
         GlassPill(
             "New action",
             icon: AppIcons.actionCreate,
             mode: .action {
-                guard teamState.activeTeam != nil else { return }
-                createTarget = CreateActionSeed(id: "new")
+                openComposer(AgentComposerSeed(actionId: DomainContract.builtinCreateActionId))
             },
             enabled: teamState.activeTeam != nil
         )
@@ -433,25 +280,6 @@ struct ActionsListView: View {
         VStack(alignment: .leading, spacing: 8) {
             GlassSectionHeader("Recent automated runs")
                 .padding(.top, 12)
-            // EXP-637: a resume is a remote start like any other — the same
-            // "waiting for the desktop" caption reports it here too.
-            if let sentCaption = vm.startWatcher.sentCaption {
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.small).tint(.white)
-                    Text(sentCaption)
-                        .font(.caption2)
-                }
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                .padding(.horizontal, 4)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            if let startError = vm.startWatcher.failure {
-                Text(startError)
-                    .font(.caption2)
-                    .foregroundStyle(DesignTokens.Semantic.red)
-                    .padding(.horizontal, 4)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
             ForEach(vm.automationRuns) { automatedRunRow($0, vm: vm) }
         }
     }
@@ -705,19 +533,30 @@ struct ActionsListView: View {
         .accessibilityIdentifier("suggestion-row")
     }
 
-    /// Tapping a suggestion opens the create sheet, prefilled with the
-    /// suggestion's
-    /// description + icon and, for an "Action + automation" seed, its
-    /// suggested trigger (EXP-615: the sheet always offers an automation —
-    /// the seed only pre-fills one).
+    /// Tapping a suggestion opens the composer on the Create action builtin
+    /// with the suggestion's description as the request and its icon picked.
+    /// EXP-583: an "Action + automation" seed appends the machine-readable
+    /// trigger block the creator agent copies into
+    /// `exponential_automations_create` (byte-identical across the four
+    /// clients — `AutomationNote.format`), bound to the caller's default
+    /// automation-capable machine, else the first one (offline included: a
+    /// sleeping box still owns the binding). No such machine = no block.
     private func useSuggestion(_ suggestion: ActionSuggestion) {
-        guard teamState.activeTeam != nil else { return }
-        createTarget = CreateActionSeed(
-            id: suggestion.id,
-            description: suggestion.description,
-            icon: suggestion.icon,
-            automation: suggestion.automation
-        )
+        var text = suggestion.description
+        if let trigger = suggestion.automation, let device = automationDevice {
+            text += AutomationNote.format(AutomationSpec(trigger: trigger, deviceId: device.deviceId))
+        }
+        openComposer(AgentComposerSeed(
+            actionId: DomainContract.builtinCreateActionId,
+            text: text,
+            icon: suggestion.icon
+        ))
+    }
+
+    /// The automation's runner (web `automationDevices` + `defaultDeviceId`).
+    private var automationDevice: SteerDevice? {
+        let candidates = (viewModel?.allDevices ?? []).filter(\.canRunAutomations)
+        return candidates.first(where: \.isDefaultDevice) ?? candidates.first
     }
 
     private var emptyState: some View {
@@ -790,12 +629,10 @@ struct ActionsListView: View {
             Spacer(minLength: 0)
 
             // EXP-615: the play glyph, not a "Run" pill — the same affordance
-            // web and desktop wear on their action cards.
+            // web and desktop wear on their action cards. EXP-825: it pushes
+            // the composer with this action picked.
             CircleIconButton(AppIcons.actionRun, accessibilityLabel: "Run") {
-                runTarget = action
-                // Rebuild the Issues-tab pool at open time — the sheet
-                // self-heals if the read lands after presentation.
-                Task { await viewModel?.refreshStartCandidates() }
+                openComposer(AgentComposerSeed(actionId: action.id))
             }
 
             // EXP-694: editing reached mobile. The builtins have no row to

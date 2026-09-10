@@ -60,6 +60,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatusCategory
@@ -100,7 +101,7 @@ import kotlinx.coroutines.launch
 // The per-property/combined sheets the detail screen can present (EXP-240).
 // One nullable slot: children opened from the Properties sheet stack over it
 // (propertiesOpen stays true beneath).
-private enum class IssueSheet { Status, Priority, Assignee, Labels, DueDate, Duplicate, AddRelation, MoveBoard, StartCoding }
+private enum class IssueSheet { Status, Priority, Assignee, Labels, DueDate, Duplicate, AddRelation, MoveBoard }
 
 // Linear-mobile-style issue detail (EXP-240): centered "Issue" nav title,
 // identifier chip + overflow header row, large editable title, the property
@@ -115,6 +116,9 @@ fun IssueDetailScreen(
     onOpenIssue: (String) -> Unit = {},
     onOpenSteer: (String) -> Unit = {},
     onOpenChanges: () -> Unit = {},
+    // EXP-825: the bottom bar's start circle navigates to the Agent page
+    // composer with THIS issue chipped.
+    onOpenAgent: (AgentComposerSeed) -> Unit = {},
     viewModel: IssueDetailViewModel = hiltViewModel(),
     commentViewModel: CommentThreadViewModel = hiltViewModel(),
 ) {
@@ -125,8 +129,6 @@ fun IssueDetailScreen(
     val steerEnabled by viewModel.steerEnabled.collectAsStateWithLifecycle()
     val widgetSubmission by viewModel.widgetSubmission.collectAsStateWithLifecycle()
     val steerDevices by viewModel.steerDevices.collectAsStateWithLifecycle()
-    val startState by viewModel.startState.collectAsStateWithLifecycle()
-    val startCandidates by viewModel.startCandidates.collectAsStateWithLifecycle()
     val missing by viewModel.missing.collectAsStateWithLifecycle()
     val duplicateOf by viewModel.duplicateOf.collectAsStateWithLifecycle()
     val duplicateCandidates by viewModel.duplicateCandidates.collectAsStateWithLifecycle()
@@ -263,25 +265,6 @@ fun IssueDetailScreen(
         }
     }
 
-    // Remote-start feedback (EXP-240 — the inline captions left with the
-    // card's start strip): failures surface as a snackbar. EXP-536: a
-    // successful send says nothing — single and batch alike keep spinning in
-    // the start circle until the session row syncs in, and the screen then
-    // opens the live session below.
-    LaunchedEffect(startState) {
-        (startState as? SteerStartState.Failed)?.let {
-            snackbarHostState.showSnackbar(it.message)
-        }
-    }
-
-    // The desktop picked the start up — open the live session ONCE (EXP-536).
-    val startedSessionId by viewModel.startedSessionId.collectAsStateWithLifecycle()
-    LaunchedEffect(startedSessionId) {
-        startedSessionId?.let {
-            viewModel.consumeStartedSession()
-            onOpenSteer(it)
-        }
-    }
 
     // Inline `#IDENTIFIER` pills + editor #-autocomplete (masterplan §5e):
     // resolve against this team's synced issues; a tap navigates to the
@@ -464,7 +447,6 @@ fun IssueDetailScreen(
         val startUi: StartButtonUi? = when {
             !startAllowed -> null
             ownSession != null -> StartButtonUi.Session(codingSessionDisplayState(ownSession, issue.prState))
-            startState is SteerStartState.Sending || startState is SteerStartState.Sent -> StartButtonUi.Sending
             devices == null -> null
             else -> StartButtonUi.Start(enabled = devices.isNotEmpty())
         }
@@ -769,13 +751,13 @@ fun IssueDetailScreen(
                         onStartClick = {
                             when {
                                 ownSession != null -> onOpenSteer(ownSession.id)
-                                startState is SteerStartState.Sending || startState is SteerStartState.Sent -> Unit
                                 steerDevices.isNullOrEmpty() -> scope.launch {
                                     snackbarHostState.showSnackbar(
                                         "No desktop online. Open the Exponential desktop app to run here.",
                                     )
                                 }
-                                else -> activeSheet = IssueSheet.StartCoding
+                                // EXP-825: the composer IS the launcher.
+                                else -> onOpenAgent(AgentComposerSeed(issueIds = listOf(issue.id)))
                             }
                         },
                         draft = commentDraft,
@@ -920,17 +902,6 @@ fun IssueDetailScreen(
             labelOf = { it.name },
             leadingContent = { BoardIcon(it, size = 18.dp) },
             onSelect = { moveTarget = it },
-            onDismiss = { activeSheet = null },
-        )
-    }
-
-    if (activeSheet == IssueSheet.StartCoding && issue != null) {
-        StartCodingSheet(
-            devices = steerDevices ?: emptyList(),
-            issues = startCandidates,
-            preselectedIds = setOf(issue.id),
-            onStart = viewModel::startOnDesktop,
-            onRunAction = viewModel::runAction,
             onDismiss = { activeSheet = null },
         )
     }

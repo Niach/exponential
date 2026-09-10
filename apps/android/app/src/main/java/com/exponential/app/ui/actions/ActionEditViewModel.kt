@@ -111,9 +111,10 @@ class ActionEditViewModel @Inject constructor(
     }
 
     /**
-     * Save the edited row. Blank [description]/[icon]/[repositoryId] clear
-     * those fields (explicit nulls on the wire); [onDone] fires only on
-     * success, so a refusal leaves the sheet open with the server's message.
+     * Save the edited row. Blank [description]/[icon]/[repositoryId]/
+     * [promptPlaceholder] clear those fields (explicit nulls on the wire);
+     * [onDone] fires only on success, so a refusal leaves the sheet open with
+     * the server's message.
      */
     fun save(
         actionId: String,
@@ -122,6 +123,7 @@ class ActionEditViewModel @Inject constructor(
         icon: String,
         repositoryId: String,
         body: String,
+        promptPlaceholder: String,
         onDone: () -> Unit,
     ) {
         if (_state.value.saving) return
@@ -141,6 +143,7 @@ class ActionEditViewModel @Inject constructor(
                     icon = icon.takeIf { it.isNotEmpty() },
                     repositoryId = repositoryId.takeIf { it.isNotEmpty() },
                     body = body,
+                    promptPlaceholder = promptPlaceholder.trim().takeIf { it.isNotEmpty() },
                 )
                 _state.value = _state.value.copy(saving = false, action = saved)
                 onDone()

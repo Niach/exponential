@@ -8,11 +8,13 @@ import Foundation
 // them on a desktop via `steer.startSession({actionId})`; since EXP-694 it also
 // EDITS them (EditActionSheet), which is what `get` (body) and `update` are for.
 
-/// One typed action input (EXP-257): filled in the run dialog and injected
-/// into the prompt by the desktop. `type` is a contract value
-/// (`DomainContract.actionInputTypeValues` — text / repo / board / pr / icon);
-/// tolerate unknown future types by gating the run, never by silently degrading.
-/// `required` absent = optional (the wire omits the default-false flag).
+/// One typed action input (EXP-257): filled in the Agent page composer and
+/// injected into the prompt by the desktop. `type` is a contract value
+/// (`DomainContract.actionInputTypeValues` — repo / board / pr / icon; EXP-825
+/// retired the free-text `text` / `textarea` types, whatever the requester
+/// types is the start's `prompt` now); tolerate unknown future types by gating
+/// the run, never by silently degrading. `required` absent = optional (the
+/// wire omits the default-false flag).
 public struct ActionInputDto: Decodable, Sendable, Equatable {
     public let key: String
     public let label: String
@@ -58,10 +60,13 @@ public struct ActionDto: Decodable, Identifiable, Sendable {
     public let updatedAt: String
     public let inputs: [ActionInputDto]?
     public let builtin: Bool?
+    /// EXP-825: the composer's field hint while this action is picked (≤200
+    /// chars); nil = the generic "Additional instructions (optional)…".
+    public let promptPlaceholder: String?
 
     enum CodingKeys: String, CodingKey {
         case id, teamId, repositoryId, name, description, icon, body
-        case sortOrder, createdAt, updatedAt, inputs, builtin
+        case sortOrder, createdAt, updatedAt, inputs, builtin, promptPlaceholder
     }
 
     public init(
@@ -76,7 +81,8 @@ public struct ActionDto: Decodable, Identifiable, Sendable {
         createdAt: String,
         updatedAt: String,
         inputs: [ActionInputDto]? = nil,
-        builtin: Bool? = nil
+        builtin: Bool? = nil,
+        promptPlaceholder: String? = nil
     ) {
         self.id = id
         self.teamId = teamId
@@ -90,7 +96,13 @@ public struct ActionDto: Decodable, Identifiable, Sendable {
         self.updatedAt = updatedAt
         self.inputs = inputs
         self.builtin = builtin
+        self.promptPlaceholder = promptPlaceholder
     }
+
+    /// The server's cap on `promptPlaceholder` (`MAX_ACTION_PROMPT_PLACEHOLDER`
+    /// in db-schema/domain.ts) — the editor refuses at the field, not at
+    /// submit.
+    public static let promptPlaceholderMaxLength = 200
 
     /// The virtual builtin row (EXP-257).
     public var isBuiltin: Bool { builtin == true }
@@ -104,6 +116,10 @@ public extension ActionDto {
     /// apps/web/src/lib/builtin-actions.ts field-for-field (the huge
     /// sortOrder only keeps naive sortOrder-asc renderers from interleaving
     /// it; pinning goes by the `builtin` flag).
+    ///
+    /// EXP-825: the request itself (what the action should do, and its name
+    /// if the user states one) is the start's `prompt`, never an input — the
+    /// two remaining inputs are PICKS the creator run can't derive from prose.
     static func builtinCreateAction(teamId: String) -> ActionDto {
         ActionDto(
             id: DomainContract.builtinCreateActionId,
@@ -117,26 +133,14 @@ public extension ActionDto {
             createdAt: "1970-01-01T00:00:00.000Z",
             updatedAt: "1970-01-01T00:00:00.000Z",
             inputs: [
-                ActionInputDto(
-                    key: "description",
-                    label: "Description",
-                    type: "text",
-                    required: true,
-                    placeholder: "What should this action do?"
-                ),
-                // EXP-615: an optional name — blank lets the agent pick one.
-                ActionInputDto(
-                    key: "name",
-                    label: "Name",
-                    type: "text",
-                    required: false,
-                    placeholder: "Name (optional)"
-                ),
                 ActionInputDto(key: "repo", label: "Repository", type: "repo", required: false),
                 // EXP-273: the author picks the new action's glyph up front.
                 ActionInputDto(key: "icon", label: "Icon", type: "icon", required: false),
             ],
-            builtin: true
+            builtin: true,
+            // EXP-825: the composer's hint for the request text (the retired
+            // free-text input's placeholder, byte-identical to the web).
+            promptPlaceholder: "Describe the action — what it should do, and its name if you have one…"
         )
     }
 
@@ -161,17 +165,18 @@ public extension ActionDto {
             inputs: [
                 ActionInputDto(key: "pr", label: "Pull request", type: "pr", required: true),
             ],
-            builtin: true
+            builtin: true,
+            promptPlaceholder: nil
         )
     }
 
     /// The HIDDEN "Chat" builtin (EXP-615): a conversation with your agent over
     /// the tracker's MCP tools, OPTIONALLY anchored to a repository (EXP-739) —
     /// the iOS twin of the desktop's chat tab. Unlike the other two it is
-    /// appended to NO list and
-    /// belongs in NO picker: the Start-coding sheet's Chat tab constructs it
-    /// directly for its submit. Mirrors apps/web/src/lib/builtin-actions.ts
-    /// field-for-field.
+    /// appended to NO list and belongs in NO picker: the Agent page composer
+    /// constructs it directly when no subject is picked (EXP-825). The chat
+    /// text is the start's `prompt` (required for this builtin), never an
+    /// input. Mirrors apps/web/src/lib/builtin-actions.ts field-for-field.
     static func builtinChatAction(teamId: String) -> ActionDto {
         ActionDto(
             id: DomainContract.builtinChatId,
@@ -185,16 +190,13 @@ public extension ActionDto {
             createdAt: "1970-01-01T00:00:00.000Z",
             updatedAt: "1970-01-01T00:00:00.000Z",
             inputs: [
-                ActionInputDto(
-                    key: "prompt",
-                    label: "Prompt",
-                    type: "textarea",
-                    required: true,
-                    placeholder: "What should the agent do?"
-                ),
+                // EXP-739: OPTIONAL. A repo-less chat runs in the agent's
+                // scratch dir with only the Exponential MCP server wired up;
+                // with a repo it keeps its own `exp/chat-<id8>` worktree.
                 ActionInputDto(key: "repo", label: "Repository", type: "repo", required: false),
             ],
-            builtin: true
+            builtin: true,
+            promptPlaceholder: nil
         )
     }
 
@@ -227,7 +229,8 @@ public extension ActionDto {
             createdAt: entity.createdAt,
             updatedAt: entity.updatedAt,
             inputs: parsedInputs,
-            builtin: false
+            builtin: false,
+            promptPlaceholder: entity.promptPlaceholder
         )
     }
 }
@@ -253,34 +256,37 @@ public struct ActionResult: Decodable, Sendable {
 /// A partial `actions.update` payload (EXP-694 — mobile edits actions now).
 /// Mirrors the router's optional inputs with the AutomationsApi omit-vs-null
 /// rule, per field: an OMITTED field (nil) keeps what the row has, while the
-/// two CLEARABLE ones are nested optionals, so `.some(nil)` sends an explicit
-/// null — "no icon" / "no repository".
+/// CLEARABLE ones are nested optionals, so `.some(nil)` sends an explicit
+/// null — "no icon" / "no repository" / "no composer hint" (EXP-825).
 public struct ActionPatch: Sendable, Equatable {
     public var name: String?
     public var description: String??
     public var icon: String??
     public var repositoryId: String??
     public var body: String?
+    public var promptPlaceholder: String??
 
     public init(
         name: String? = nil,
         description: String?? = nil,
         icon: String?? = nil,
         repositoryId: String?? = nil,
-        body: String? = nil
+        body: String? = nil,
+        promptPlaceholder: String?? = nil
     ) {
         self.name = name
         self.description = description
         self.icon = icon
         self.repositoryId = repositoryId
         self.body = body
+        self.promptPlaceholder = promptPlaceholder
     }
 
     /// Nothing changed — the editor keeps its Save disabled rather than
     /// sending an id-only mutation.
     public var isEmpty: Bool {
         name == nil && description == nil && icon == nil
-            && repositoryId == nil && body == nil
+            && repositoryId == nil && body == nil && promptPlaceholder == nil
     }
 }
 
@@ -292,12 +298,14 @@ private struct IdInput: Encodable {
     let id: String
 }
 
-private struct UpdateInput: Encodable {
+/// Internal (not private) so the wire-format test can pin the omit-vs-null
+/// encoding per field.
+struct ActionUpdateInput: Encodable {
     let id: String
     let patch: ActionPatch
 
     enum CodingKeys: String, CodingKey {
-        case id, name, description, icon, repositoryId, body
+        case id, name, description, icon, repositoryId, body, promptPlaceholder
     }
 
     func encode(to encoder: Encoder) throws {
@@ -315,6 +323,9 @@ private struct UpdateInput: Encodable {
         }
         if let repositoryId = patch.repositoryId {
             try c.encode(repositoryId, forKey: .repositoryId)
+        }
+        if let promptPlaceholder = patch.promptPlaceholder {
+            try c.encode(promptPlaceholder, forKey: .promptPlaceholder)
         }
     }
 }
@@ -360,7 +371,7 @@ public final class ActionsApi: Sendable {
         let result: ActionResult = try await trpc.mutation(
             accountId: accountId,
             path: "actions.update",
-            input: UpdateInput(id: id, patch: patch)
+            input: ActionUpdateInput(id: id, patch: patch)
         )
         return result.action
     }

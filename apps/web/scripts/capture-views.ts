@@ -106,44 +106,61 @@ interface Credentials {
 }
 
 /**
- * The one route placeholder that needs the DATABASE, not a constant: the
- * reporter's magic link is an HMAC over a thread id that only exists after a
- * seed. Kept out of `resolveRoute` so the browser lane never imports the db
- * layer unless a view it actually wants asks for it.
+ * The route placeholders that need the DATABASE, not a constant: the reporter's
+ * magic link is an HMAC over a thread id that only exists after a seed, and the
+ * Agent composer's subjects (EXP-825: `?issues=$issueA,$issueB`, `&pr=$prIssue`)
+ * are issue uuids the seed mints afresh every run. Kept out of `resolveRoute`
+ * so the browser lane never imports the db layer unless a view it actually
+ * wants asks for it.
  */
-const DB_PLACEHOLDER = `$supportToken`
+const DB_PLACEHOLDERS = [`$supportToken`, `$issueA`, `$issueB`, `$prIssue`] as const
+type DbPlaceholder = (typeof DB_PLACEHOLDERS)[number]
+type DbPlaceholders = Partial<Record<DbPlaceholder, string>>
+
+/** The database placeholders a route carries that the lookup could not fill. */
+function unresolvedDbPlaceholders(route: string, db: DbPlaceholders): DbPlaceholder[] {
+  return DB_PLACEHOLDERS.filter((name) => route.includes(name) && !db[name])
+}
 
 /** Placeholder substitution against the seeded demo instance. */
-function resolveRoute(route: string, ctx: RecipeCtx, supportToken?: string): string {
-  return route
+function resolveRoute(route: string, ctx: RecipeCtx, db: DbPlaceholders): string {
+  let resolved = route
     .replaceAll(`$teamSlug`, ctx.demo.teamSlug)
     .replaceAll(`$boardSlug`, ctx.demo.boardSlug)
     // EXP-740: a session is its own route, and the seed pins the id.
     .replaceAll(`$sessionId`, DEMO_STEERED_SESSION_ID)
     .replaceAll(`$inviteToken`, DEMO_INVITE_TOKEN)
-    .replaceAll(DB_PLACEHOLDER, supportToken ?? ``)
+  for (const name of DB_PLACEHOLDERS) {
+    resolved = resolved.replaceAll(name, db[name] ?? ``)
+  }
+  return resolved
 }
 
 /**
- * Mint the reporter magic link, once, and only when something wants it.
+ * Look the database placeholders up, once, and only when something wants them.
  *
  * DYNAMIC import on purpose: `lib/demo-ids.ts` pulls in `@/db/connection`, and a
  * `--views board` run has no business opening a database connection (or failing
- * because `DATABASE_URL` is not exported on the capture host). Returns
- * `undefined` rather than throwing — the token is a credential the host may
+ * because `DATABASE_URL` is not exported on the capture host). Returns what it
+ * could rather than throwing — the support token is a credential the host may
  * legitimately not be able to mint (no `BETTER_AUTH_SECRET`), and one skipped
  * view is a better outcome than a failed lane.
  */
-async function resolveSupportToken(): Promise<string | undefined> {
+async function resolveDbPlaceholders(): Promise<DbPlaceholders> {
   try {
     const { resolveDemoIds } = await import(`./lib/demo-ids`)
     const ids = await resolveDemoIds()
-    return ids.supportToken
+    return {
+      $supportToken: ids.supportToken,
+      $issueA: ids.issueAId,
+      $issueB: ids.issueBId,
+      $prIssue: ids.prIssueId,
+    }
   } catch (err) {
     console.warn(
-      `  could not resolve ${DB_PLACEHOLDER}: ${err instanceof Error ? err.message : String(err)}`
+      `  could not resolve ${DB_PLACEHOLDERS.join(`/`)}: ${err instanceof Error ? err.message : String(err)}`
     )
-    return undefined
+    return {}
   }
 }
 
@@ -226,9 +243,9 @@ async function captureView(
   capture: WebCapture,
   ctx: RecipeCtx,
   outPath: string,
-  supportToken?: string
+  db: DbPlaceholders
 ): Promise<void> {
-  await page.goto(`${ctx.baseUrl}${resolveRoute(capture.route, ctx, supportToken)}`)
+  await page.goto(`${ctx.baseUrl}${resolveRoute(capture.route, ctx, db)}`)
 
   // Recipe FIRST, anchor after: most recipe-driven views anchor on text the
   // recipe itself reveals ("Create an account", "Priority", "@Composable"), and
@@ -303,16 +320,17 @@ async function main() {
   console.log(`out  ${args.out}`)
 
   // One lookup for the whole run, and only when a wanted view needs it.
-  const wantsToken = FORM_FACTORS_ORDER.some((formFactor) =>
+  const wantsDb = FORM_FACTORS_ORDER.some((formFactor) =>
     args.formFactors.includes(formFactor)
       ? viewsFor(formFactor).some(
           (view) =>
             (!args.viewIds || args.viewIds.includes(view.id)) &&
-            (captureFor(view, formFactor) as WebCapture).route.includes(DB_PLACEHOLDER)
+            unresolvedDbPlaceholders((captureFor(view, formFactor) as WebCapture).route, {})
+              .length > 0
         )
       : false
   )
-  const supportToken = wantsToken ? await resolveSupportToken() : undefined
+  const db = wantsDb ? await resolveDbPlaceholders() : {}
   // Before the first view, so the baseline is the SEEDED state and not
   // whatever the first few captures already cleared.
   const notificationBaseline = await resolveNotificationBaseline()
@@ -357,12 +375,14 @@ async function main() {
           await notificationBaseline?.restore()
           await reporterPresenceBaseline?.restore()
 
-          if (capture.route.includes(DB_PLACEHOLDER) && !supportToken) {
+          const unresolved = unresolvedDbPlaceholders(capture.route, db)
+          if (unresolved.length > 0) {
             // Skipped, not failed: without the token the route 404s and the shot
-            // would be a "link expired" card filed under the view's name.
+            // would be a "link expired" card filed under the view's name; without
+            // the issue ids the composer renders empty under the chipped view's.
             console.warn(
-              `  skip  ${view.id} — no ${DB_PLACEHOLDER} (re-seed, and export ` +
-                `BETTER_AUTH_SECRET so it can be minted)`
+              `  skip  ${view.id} — no ${unresolved.join(`/`)} (re-seed, and export ` +
+                `BETTER_AUTH_SECRET so the support token can be minted)`
             )
             continue
           }
@@ -389,7 +409,7 @@ async function main() {
           }
 
           try {
-            await captureView(page, capture, ctx, outPath, supportToken)
+            await captureView(page, capture, ctx, outPath, db)
             results.push({ formFactor, viewId: view.id, bytes: fileSize(outPath) })
             console.log(`  ok    ${view.id}`)
           } catch (err) {

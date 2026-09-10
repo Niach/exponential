@@ -112,18 +112,10 @@ final class IssueDetailViewModel {
     // Steer state for the bottom bar's Start-coding circle (EXP-240 — moved
     // here from AgentPrCard so the card can stay a pure status glance).
     var steerConfig: SteerConfig?
-    /// The caller's online desktops; nil until presence resolves.
+    /// The caller's online desktops; nil until presence resolves. EXP-825:
+    /// the circle only needs to know whether one exists — the start itself
+    /// happens on the Agent page composer.
     var steerDevices: [SteerDevice]?
-    /// True from "start sent" until the desktop's session row lands (or the
-    /// watch deadline elapses) — renders the circle as a spinner. EXP-536:
-    /// batch runs use it too; their row is issue-LESS so it never syncs into
-    /// this issue's `runningSessions`, but the watcher below recognizes it and
-    /// the screen pushes straight into the session.
-    var startPending = false
-    /// EXP-536: the post-send session watch, shared with every other start
-    /// surface — it resolves the run's row and hands its id to the view's
-    /// navigation exactly once.
-    let startWatcher = StartedRunWatcher()
 
     /// EXP-496: the widget/agent submission metadata behind this issue
     /// (`widgets.submissionForIssue`, server-only). `nil` = loading, fetch
@@ -558,92 +550,6 @@ final class IssueDetailViewModel {
             db: db, accountId: accountId,
             teamId: board?.teamId, userId: auth.userId
         )
-    }
-
-    /// Remote-start on the chosen desktop (ported from AgentPrCard.start):
-    /// 1 issue → single session, 2+ → batch. EXP-536: both spin the start
-    /// circle until the desktop's coding_sessions row syncs in, and the screen
-    /// then PUSHES that session — a batch row is issue-LESS, so it never lands
-    /// in this issue's `runningSessions` and used to be reduced to a "follow
-    /// it in the Agents tab" alert.
-    func startCoding(on device: SteerDevice, issueIds: [String], options: SteerStartOptions) {
-        guard let key = StartedRunKey.forIssues(issueIds) else { return }
-        startPending = true
-        startWatcher.sending()
-        Task {
-            do {
-                if issueIds.count > 1 {
-                    try await steerApi.startSession(
-                        accountId: accountId,
-                        issueIds: issueIds,
-                        deviceId: device.deviceId,
-                        options: options
-                    )
-                } else {
-                    try await steerApi.startSession(
-                        accountId: accountId,
-                        issueId: issueIds[0],
-                        deviceId: device.deviceId,
-                        options: options
-                    )
-                }
-                startWatcher.begin(
-                    key: key,
-                    userId: auth.userId,
-                    device: device,
-                    db: db,
-                    accountId: accountId
-                )
-                // The spinner and the watch share a deadline: one that died
-                // first would strand a late push with no explanation, one that
-                // outlived it would spin forever.
-                Task {
-                    try? await Task.sleep(for: .seconds(StartedRunMatch.deadline))
-                    startPending = false
-                }
-            } catch {
-                startPending = false
-                startWatcher.failed(error.userFacingMessage)
-                self.error = error.userFacingMessage
-            }
-        }
-    }
-
-    /// Actions-mode launch from the SAME unified sheet (EXP-257/EXP-615 —
-    /// mirror of ReviewsView.runAction). The Actions and Chat tabs only render
-    /// when the host wires `teamId` + `onRunAction`, so without this the issue
-    /// detail's Start-coding sheet was Issues-only (EXP-642). Deliberately
-    /// does NOT touch `startPending`: that spinner belongs to the start circle
-    /// on THIS issue, and an action run produces an issue-less session row.
-    func runAction(
-        on device: SteerDevice,
-        action: ActionDto,
-        options: SteerStartOptions,
-        inputs: [String: String]
-    ) {
-        startWatcher.sending()
-        Task {
-            do {
-                try await steerApi.startSession(
-                    accountId: accountId,
-                    actionId: action.id,
-                    deviceId: device.deviceId,
-                    teamId: action.isBuiltin ? action.teamId : nil,
-                    options: options,
-                    inputs: inputs.isEmpty ? nil : inputs
-                )
-                startWatcher.begin(
-                    key: .action(name: action.name),
-                    userId: auth.userId,
-                    device: device,
-                    db: db,
-                    accountId: accountId
-                )
-            } catch {
-                startWatcher.failed(error.userFacingMessage)
-                self.error = error.userFacingMessage
-            }
-        }
     }
 
     /// Same-team boards the issue can move to (EXP-57): the current board is
@@ -1188,74 +1094,6 @@ final class IssueDetailViewModel {
                 .fetchAll(db)
                 .filter { $0.id != issueId }
                 .sorted { $0.updatedAt > $1.updatedAt }
-        }
-        return result ?? []
-    }
-
-    /// Candidate issues for the unified Start-coding sheet (EXP-156): every
-    /// eligible issue in the current issue's team, the current issue pinned
-    /// first (pre-checked) and the rest by recency. Eligibility = the issue's
-    /// board is repo-backed, its status isn't terminal (done/cancelled/
-    /// duplicate) and its PR isn't merged. The CURRENT issue is exempt from
-    /// the issue-level checks (terminal / merged) so it always appears — you
-    /// opened the card from it. One-shot read; the sheet is transient.
-    /// (Trashed boards never reach the local store, so "not deleted" is
-    /// implicit.)
-    func startCodingCandidates() async -> [StartCodingSheet.IssueOption] {
-        guard let issue, let pool = try? db.pool(forAccountId: accountId) else { return [] }
-        let currentId = issue.id
-        let currentBoardId = issue.boardId
-        let result: [StartCodingSheet.IssueOption]? = try? await pool.read { db in
-            guard let current = try BoardEntity.fetchOne(db, key: currentBoardId) else { return [] }
-            let boards = try BoardEntity
-                .filter(Column("team_id") == current.teamId)
-                .fetchAll(db)
-            // boardId → repositoryId for repo-backed boards. A repo-LESS
-            // board isn't in the map, so neither it nor its issues are
-            // eligible.
-            var repoByBoard: [String: String] = [:]
-            for board in boards {
-                guard let repoId = board.repositoryId else { continue }
-                repoByBoard[board.id] = repoId
-            }
-            // ANCHOR set (EXP-314): custom statuses anchor to one of these
-            // enum values, so the check keeps gating them correctly.
-            let terminal: Set<String> = [
-                IssueStatus.done.rawValue,
-                IssueStatus.cancelled.rawValue,
-                IssueStatus.duplicate.rawValue,
-            ]
-            let rows = try IssueEntity
-                .filter(Array(repoByBoard.keys).contains(Column("board_id")))
-                .fetchAll(db)
-                .filter { row in
-                    // The current issue is force-included as long as its board
-                    // is repo-backed — exempt from the terminal / merged rules
-                    // so a checked pre-seed is never a stray. A repo-LESS
-                    // current issue isn't in repoByBoard and correctly stays
-                    // out of the pool entirely.
-                    if row.id == currentId {
-                        return repoByBoard[row.boardId] != nil
-                    }
-                    if terminal.contains(row.status) { return false }
-                    if row.prState == DomainContract.prStateMerged { return false }
-                    return true
-                }
-                .sorted { a, b in
-                    if a.id == currentId { return true }
-                    if b.id == currentId { return false }
-                    return a.updatedAt > b.updatedAt
-                }
-            return rows.map { row in
-                StartCodingSheet.IssueOption(
-                    id: row.id,
-                    identifier: row.identifier,
-                    title: row.title,
-                    repositoryId: repoByBoard[row.boardId],
-                    status: row.status,
-                    priority: row.priority
-                )
-            }
         }
         return result ?? []
     }

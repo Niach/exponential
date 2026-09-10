@@ -16,8 +16,6 @@ enum StartCircleUi: Equatable {
     case start
     /// Same gates but no desktop online — dimmed, tap explains.
     case noDevices
-    /// A start was sent; waiting for the desktop's session row (30s grace).
-    case sending
 }
 
 /// The issue-detail floating bottom bar (EXP-240): properties circle +
@@ -220,12 +218,6 @@ struct IssueDetailBottomBar: View {
             circleButton(action: { showNoDeviceAlert = true }, accessibilityLabel: "Start coding") {
                 AppIcon(AppIcons.actionRun, size: AppIcon.Size.medium, weight: .medium)
                     .foregroundStyle(.white.opacity(TextOpacity.quaternary))
-            }
-        case .sending:
-            circleChrome {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(.white)
             }
         }
     }

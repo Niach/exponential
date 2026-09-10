@@ -1095,7 +1095,7 @@ impl IssueListView {
         };
 
         // Bulk "Start coding": ONE batch coding session over the selection —
-        // opens the unified Start-coding dialog with the selected issues
+        // opens the Agent page composer with the selected issues
         // pre-checked (one repo per run is enforced there).
         let start_coding = {
             let ids = ids.clone();
@@ -1120,19 +1120,15 @@ impl IssueListView {
                 .tooltip(no_agent.clone().unwrap_or_else(|| "Start coding".into()))
                 .disabled(busy || no_agent.is_some())
                 .on_click(move |_, window, cx| {
-                    // EXP-439: a successful launch ends the multiselect — the
-                    // session took the batch over, so the dialog's launch
-                    // callback unselects everything.
-                    let list = list.clone();
-                    crate::start_coding_dialog::open_for_selection(
+                    // EXP-825: the composer takes the selection over — the
+                    // multiselect clears right away (web parity), and the
+                    // seed carries the issues.
+                    let _ = list.update(cx, |this, cx| this.clear_selection(cx));
+                    let _ = &team_id;
+                    crate::navigation::navigate_to_chat(
                         window,
                         cx,
-                        team_id.clone(),
-                        ids.clone(),
-                        Some(Rc::new(move |cx: &mut App| {
-                            let _ = list.update(cx, |this, cx| this.clear_selection(cx));
-                        })),
-                        None,
+                        crate::navigation::ChatSeed::issues(ids.clone()),
                     );
                 })
         };

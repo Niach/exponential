@@ -116,7 +116,7 @@ pub const MIN_CODEX_ACP_VERSION: (u32, u32, u32) = (0, 144, 0);
 ///   the desktop advertises it too but updates through its own updater).
 ///
 /// Ceiling check: `devices.register`'s caps input accepts 24 caps
-/// (`apps/web/src/lib/trpc/devices.ts`); this is 10 + 6 = 16.
+/// (`apps/web/src/lib/trpc/devices.ts`); this is 10 + 7 = 17.
 pub const DEVICE_CAPS: [&str; 10] = [
     "resume",
     "worktrees",
@@ -135,15 +135,23 @@ pub const DEVICE_CAPS: [&str; 10] = [
 /// actions either). EXP-530's `automations` (this host evaluates the triggers
 /// bound to its device id), EXP-615's `chat` (the hidden `builtin:chat`
 /// action) and EXP-637's `resume-run` (resume an ended run out of the local
-/// run registry) ride with them.
-pub const ACTION_CAPS: [&str; 6] = [
+/// run registry) ride with them. EXP-825's `start-prompt` says this build
+/// reads the `prompt` field of a `start_session` frame (the composer's free
+/// text): the server REFUSES a Chat or Create-action start to a device
+/// without it, since those two builtins carry their whole program there
+/// and an older build would spawn a promptless run.
+pub const ACTION_CAPS: [&str; 7] = [
     "actions",
     "action-inputs",
     "fix-conflicts",
     "automations",
     "chat",
     RESUME_RUN_CAP,
+    START_PROMPT_CAP,
 ];
+
+/// EXP-825's start-prompt cap, by name (see [`ACTION_CAPS`]).
+pub const START_PROMPT_CAP: &str = "start-prompt";
 
 /// EXP-637's resume cap, by name: the ONE place the literal lives, so a
 /// client deciding whether another machine can take a resume (EXP-800) never
@@ -1765,7 +1773,19 @@ mod tests {
         let signed_out = device_caps(&advert(&[]));
         assert!(signed_out.contains(&"mcp".to_string()));
         assert!(signed_out.contains(&"agent-usage-refresh".to_string()));
-        assert!(device_caps(&advert(&["claude"])).len() <= 16);
+        assert!(device_caps(&advert(&["claude"])).len() <= 24);
+    }
+
+    /// EXP-825: the server gates Chat/Create-action starts on `start-prompt`
+    /// — an ACTION cap (a promptless machine could not run them anyway),
+    /// advertised only while an agent is runnable.
+    #[test]
+    fn action_caps_advertise_start_prompt() {
+        assert_eq!(START_PROMPT_CAP, "start-prompt");
+        assert!(ACTION_CAPS.contains(&START_PROMPT_CAP));
+        assert!(!DEVICE_CAPS.contains(&START_PROMPT_CAP));
+        assert!(device_caps(&advert(&["claude"])).contains(&"start-prompt".to_string()));
+        assert!(!device_caps(&advert(&[])).contains(&"start-prompt".to_string()));
     }
 
     /// EXP-792 (A3): the signed-out fix is a button, never a command to type.
@@ -1794,13 +1814,13 @@ mod tests {
     /// EXP-746: `acp` is a BUILD cap — it says this binary speaks the engine
     /// and steering v2, not that any agent on this machine is ready today
     /// (per-agent readiness is local, [`AgentAdvertisement::acp_agents`]).
-    /// The whole list stays inside `devices.register`'s 16-cap ceiling.
+    /// The whole list stays inside `devices.register`'s 24-cap ceiling.
     #[test]
     fn build_caps_include_acp() {
         assert!(DEVICE_CAPS.contains(&"acp"));
         assert!(!ACTION_CAPS.contains(&"acp"));
         assert!(device_caps(&advert(&[])).contains(&"acp".to_string()));
-        assert!(device_caps(&advert(&["claude"])).len() <= 16);
+        assert!(device_caps(&advert(&["claude"])).len() <= 24);
     }
 
     /// EXP-746: ACP readiness is not part of the DOCTOR's launch gate — a

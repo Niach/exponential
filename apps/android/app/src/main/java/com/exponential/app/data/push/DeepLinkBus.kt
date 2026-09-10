@@ -26,6 +26,10 @@ class DeepLinkBus @Inject constructor() {
         // renders in the My Work inbox and nowhere else.
         data object Inbox : Target
 
+        // A verified https `/t/{team}/agent` App Link (EXP-825): the Agent
+        // page composer, opened with an empty seed on the active account.
+        data object Agent : Target
+
         // A verified https App Link (EXP-92): carries the web URL's slugs +
         // identifier; AppNavHost resolves them against the local DB of the
         // account matching `host` (falling back to a Custom Tab). `uri` is
@@ -78,6 +82,10 @@ class DeepLinkBus @Inject constructor() {
 
     fun openInbox() {
         _target.value = Target.Inbox
+    }
+
+    fun openAgent() {
+        _target.value = Target.Agent
     }
 
     fun openWebIssueRef(

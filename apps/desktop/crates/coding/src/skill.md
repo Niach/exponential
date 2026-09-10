@@ -39,7 +39,7 @@ One branch `exp/<IDENT>` and one PR per issue; a batch shares one branch and one
 ## Comments and actions
 
 - `exponential_comments_create` posts progress, questions or a summary on the issue; `exponential_comments_list` first, so you answer what was already asked.
-- A workflow the user wants to repeat becomes a team action: `exponential_actions_create` (a markdown prompt with optional typed inputs), run later from any client.
+- A workflow the user wants to repeat becomes a team action: `exponential_actions_create` (a markdown prompt; declare only pick inputs, repo/board/pr/icon, never free text: what the requester types when running it reaches the run as an Additional instructions section), run later from any client.
 
 ## Exponential itself misbehaving
 

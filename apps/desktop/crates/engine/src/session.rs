@@ -526,6 +526,16 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
     // mid-run and keeps the full row backlog; a headless host keeps only the
     // small attach-window ring (`BacklogMode::Headless`).
     let keep_backlog = spec.local_sink.is_some();
+    // EXP-825: the ONE localizer of this run — the seed prompt, a local
+    // composer message and (through the lifecycle's publisher) every steered
+    // message download into the worktree's steer-images dir. A replay sends
+    // nothing and gets none.
+    let attachments = (!spec.replay).then(|| {
+        steer::image_localizer(
+            Arc::clone(&spec.trpc),
+            crate::host::steer_images_dir(&spec.run.worktree),
+        )
+    });
     let mapper = Mapper::new(MapperConfig {
         redactor: Arc::clone(&redactor),
         cwd: spec.run.worktree.clone(),
@@ -550,6 +560,8 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
         replay: spec.replay,
         resume: spec.resume,
         prompt: spec.prompt,
+        embeds: steer::ImageEmbeds::default(),
+        attachments,
         mapper: Mutex::new(mapper),
         sink: OnceLock::new(),
         feed: LocalFeed::new(keep_backlog),

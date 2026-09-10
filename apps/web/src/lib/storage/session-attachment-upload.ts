@@ -5,6 +5,7 @@ import { codingSessions, sessionAttachments } from "@/db/schema"
 import { resolveSession } from "@/lib/auth/resolve-bearer"
 import {
   buildAttachmentUrl,
+  buildPendingSessionAttachmentStorageKey,
   buildSessionAttachmentStorageKey,
   canonicalizeContentType,
   isAcceptedImageContentType,
@@ -18,6 +19,11 @@ import { assertWithinStorageLimit } from "@/lib/billing"
 
 export interface SessionAttachmentUploadContext {
   params: { sessionId: string }
+  request: Request
+}
+
+export interface TeamSessionAttachmentUploadContext {
+  params: { teamId: string }
   request: Request
 }
 
@@ -84,6 +90,54 @@ export async function handleSessionAttachmentUpload({
     })
   }
 
+  return storeSessionImage(request, session.user.id, {
+    teamId: run.teamId,
+    sessionId: run.id,
+  })
+}
+
+/**
+ * EXP-825: an image attached to a START — the Agent page composer, before
+ * any session exists. Same rules as the session route (images only, the
+ * same size cap, the team's storage budget), scoped to the TEAM: the row
+ * carries a NULL session_id until the device that runs the start binds it
+ * (`codingSessions.start` `attachmentIds`); a start that never happens
+ * leaves an orphan the sweep reclaims after its grace window.
+ */
+export async function handleTeamSessionAttachmentUpload({
+  params,
+  request,
+}: TeamSessionAttachmentUploadContext) {
+  const session = await resolveSession(request)
+
+  if (!session?.user) {
+    throw new TRPCError({
+      code: `UNAUTHORIZED`,
+      message: `Unauthorized`,
+    })
+  }
+
+  if (!UUID_RE.test(params.teamId)) {
+    throw new TRPCError({
+      code: `NOT_FOUND`,
+      message: `Team not found`,
+    })
+  }
+
+  await assertTeamMember(session.user.id, params.teamId)
+
+  return storeSessionImage(request, session.user.id, {
+    teamId: params.teamId,
+    sessionId: null,
+  })
+}
+
+/** The shared tail: validate the part, store the object, insert the row. */
+async function storeSessionImage(
+  request: Request,
+  uploaderId: string,
+  scope: { teamId: string; sessionId: string | null }
+) {
   const formData = await request.formData()
   const file = formData.get(`file`)
 
@@ -117,15 +171,22 @@ export async function handleSessionAttachmentUpload({
     })
   }
 
-  await assertWithinStorageLimit(run.teamId, file.size)
+  await assertWithinStorageLimit(scope.teamId, file.size)
 
   const filename = sanitizeUploadFilename(file.name, `image`)
   const attachmentId = crypto.randomUUID()
-  const storageKey = buildSessionAttachmentStorageKey(
-    run.id,
-    attachmentId,
-    filename
-  )
+  const storageKey =
+    scope.sessionId === null
+      ? buildPendingSessionAttachmentStorageKey(
+          scope.teamId,
+          attachmentId,
+          filename
+        )
+      : buildSessionAttachmentStorageKey(
+          scope.sessionId,
+          attachmentId,
+          filename
+        )
   const url = buildAttachmentUrl(attachmentId)
   const body = new Uint8Array(await file.arrayBuffer())
   // Best-effort intrinsic dimensions; never block the upload if probing
@@ -142,9 +203,9 @@ export async function handleSessionAttachmentUpload({
   try {
     await db.insert(sessionAttachments).values({
       id: attachmentId,
-      teamId: run.teamId,
-      sessionId: run.id,
-      uploaderId: session.user.id,
+      teamId: scope.teamId,
+      sessionId: scope.sessionId,
+      uploaderId,
       filename,
       contentType,
       sizeBytes: file.size,

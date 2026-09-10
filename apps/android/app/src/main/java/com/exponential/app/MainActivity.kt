@@ -133,6 +133,8 @@ class MainActivity : ComponentActivity() {
                     identifier = parsed.identifier,
                 )
                 is WebLinks.Parsed.Invite -> deepLinkBus.openInvite(parsed.token)
+                // EXP-825: the Agent page, on the active account.
+                is WebLinks.Parsed.Agent -> deepLinkBus.openAgent()
                 null -> {}
             }
             return

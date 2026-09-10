@@ -44,7 +44,7 @@
 //! (v4 §4.6); NOTHING terminal-side is persisted (EXP-301) and nothing ever
 //! spawns on its own — a terminal only appears from an explicit action.
 //! Chat (EXP-739) is a promptless, repo-less chat run on the device's default
-//! agent; agent-anchored launches stay on the Start-coding dialog.
+//! agent; agent-anchored launches live on the Agent page composer (EXP-825).
 //!
 //! **Phase-5 deferral (§6.7):** "child exit ends the `coding_sessions` row"
 //! is the launcher's wiring — it passes an `ExitHook` into `open_tab`; the
@@ -665,32 +665,17 @@ impl SessionBar {
             return;
         };
         let action = api::actions::builtin_chat_action(&team_id);
-        // The typed first message and, when the chat is anchored to one, the
-        // repository. EXP-739: a repo-less chat emits no `repo` key at all.
-        let input_value = |key: &str, value: String, display: Option<String>| {
-            action
-                .inputs
-                .iter()
-                .find(|input| input.key == key)
-                .map(|input| coding::ActionInputValue {
-                    key: input.key.clone(),
-                    label: input.label.clone(),
-                    input_type: input.input_type.clone(),
-                    value,
-                    display,
-                })
-        };
-        let mut inputs: Vec<coding::ActionInputValue> = Vec::new();
-        if let Some(prompt) = prompt.map(|text| text.trim().to_string()).filter(|text| !text.is_empty()) {
-            inputs.extend(input_value("prompt", prompt, None));
-        }
-        if let Some((repository_id, full_name)) = &repo {
-            inputs.extend(input_value(
-                "repo",
-                repository_id.clone(),
-                Some(full_name.clone()),
-            ));
-        }
+        // EXP-825: the typed first message is the launcher's `prompt`; the
+        // repository, when the chat is anchored to one, stays the builtin's
+        // one input (EXP-739: a repo-less chat emits no `repo` key at all).
+        let prompt = prompt
+            .map(|text| text.trim().to_string())
+            .filter(|text| !text.is_empty());
+        let inputs = crate::chat_launch::chat_repo_input(
+            &team_id,
+            repo.as_ref()
+                .map(|(repository_id, full_name)| (repository_id.as_str(), full_name.as_str())),
+        );
         crate::action_run::start_action_run(
             crate::action_run::StartActionArgs {
                 action_id: action.id,
@@ -705,6 +690,7 @@ impl SessionBar {
                 trigger: None,
                 automation_id: None,
                 on_settled: None,
+                prompt,
             },
             cx,
         );

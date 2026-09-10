@@ -53,7 +53,7 @@ Capture Play Store screenshots on a booted emulator via screengrab. Needs the se
 [bundle exec] fastlane android styleguide_screenshots
 ```
 
-Capture the STYLEGUIDE reference screenshots (EXP-566) on a booted emulator: 24 sg_* shots of the plain app surfaces, into fastlane/styleguide-screenshots/. Same seeded local backend as `screenshots` and no steer relay, but since EXP-642 it DOES need `bun run screenshots:desktop`: sg_machine-settings and the two sg_start-coding-* shots photograph the demo user's own registered device row. Override the instance URL with SCREENGRAB_INSTANCE_URL; `shots:sg_reviews,sg_search` narrows the run to those shot ids (EXP-642). Config lives in fastlane/Screengrabfile-styleguide.
+Capture the STYLEGUIDE reference screenshots (EXP-566) on a booted emulator: 28 sg_* shots of the plain app surfaces, into fastlane/styleguide-screenshots/. Same seeded local backend as `screenshots` and no steer relay, but since EXP-642 it DOES need `bun run screenshots:desktop`: sg_machine-settings and the three sg_chat* shots (the Agent page composer, EXP-825) photograph the demo user's own registered device row. Override the instance URL with SCREENGRAB_INSTANCE_URL; `shots:sg_reviews,sg_search` narrows the run to those shot ids (EXP-642). Config lives in fastlane/Screengrabfile-styleguide.
 
 ### android production
 

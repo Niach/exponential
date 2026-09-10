@@ -1,0 +1,304 @@
+package com.exponential.app.ui.agent
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.exponential.app.data.TeamSelection
+import com.exponential.app.data.api.ActionDto
+import com.exponential.app.data.api.RepositoriesApi
+import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.data.api.TeamRepo
+import com.exponential.app.data.api.builtinCreateAction
+import com.exponential.app.data.api.builtinFixConflictsAction
+import com.exponential.app.data.api.toActionDto
+import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.db.DatabaseHolder
+import com.exponential.app.data.db.DeviceEntity
+import com.exponential.app.data.db.DeviceWorktreeEntity
+import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.data.db.accountDatabaseFlow
+import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.domain.DeviceLiveness
+import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.IssueStatusCategory
+import com.exponential.app.domain.IssueStatusResolver
+import com.exponential.app.domain.stableDeviceOrder
+import com.exponential.app.domain.toSteerDevice
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.serialization.json.Json
+
+// The launcher's LOOKUP data (EXP-257, renamed from StartCodingSheetViewModel
+// in EXP-825 when the three-tab sheet became the Agent page composer): the
+// selected team's actions LIVE from the synced actions shape (EXP-268 — the
+// local Room flow, body-less by design; the virtual builtin rows are prepended
+// client-side) plus the sources the typed input fields render from — the team
+// repo registry for `repo` inputs, the synced boards for `board` inputs, the
+// open pull requests for `pr` inputs — and the worktree inventory behind the
+// Resume offer. Owned by a dedicated ViewModel so the composer, the action
+// editor and the automation form share one fetch; starting stays with
+// AgentComposerViewModel.
+
+/** Actions-list progress: null [actions] with null [error] = still loading. */
+data class SheetActionsState(
+    val actions: List<ActionDto>? = null,
+    val error: String? = null,
+)
+
+/** One pickable board for a `board`-typed action input. */
+data class StartBoardOption(
+    val id: String,
+    val name: String,
+)
+
+/** One pickable label/status/priority for the EXP-530 automation filter pickers. */
+data class StartFilterOption(
+    val id: String,
+    val name: String,
+)
+
+/**
+ * One pickable pull request for a `pr`-typed action input (EXP-259, mobile
+ * parity EXP-270). A batch coding run links several issues to ONE pull
+ * request, so options are deduped by prUrl: [issueId] is the representative
+ * issue the server resolves (team-scoped, open-state checked) and
+ * [identifiers] lists every linked issue. [linkedIssueIds] carries EVERY
+ * linked issue id so a caller holding some other linked id (the Reviews row
+ * picks the NEWEST issue, this builder the lowest one) can resolve the option
+ * — see [optionForIssue].
+ */
+data class StartPullRequestOption(
+    val issueId: String,
+    val prNumber: Int?,
+    val identifiers: List<String>,
+    val linkedIssueIds: List<String> = listOf(issueId),
+) {
+    /** `#42 · EXP-1, EXP-2` — the PR number when known, then the linked issues. */
+    val label: String
+        get() {
+            val joined = identifiers.joinToString(", ")
+            return when {
+                prNumber == null -> joined
+                joined.isEmpty() -> "#$prNumber"
+                else -> "#$prNumber · $joined"
+            }
+        }
+}
+
+@OptIn(ExperimentalCoroutinesApi::class)
+@HiltViewModel
+class AgentLaunchDataViewModel @Inject constructor(
+    auth: AuthRepository,
+    holder: DatabaseHolder,
+    private val repositoriesApi: RepositoriesApi,
+    selection: TeamSelection,
+    private val json: Json,
+) : ViewModel() {
+
+    // Reactive account scoping (no constructor-time DB snapshot).
+    private val dbFlow = accountDatabaseFlow(auth, holder)
+
+    private val scope = combine(auth.activeAccountId, selection.selectedId) { accountId, teamId ->
+        accountId to teamId
+    }
+
+    /**
+     * The selected team — the hidden "Chat" builtin (EXP-615) is constructed
+     * locally by the composer, and every builtin start has to carry its
+     * teamId (there is no DB row for the server to derive it from).
+     */
+    val teamId: StateFlow<String?> = selection.selectedId
+
+    /**
+     * The selected team's actions: the two LISTED builtins pinned first —
+     * "Fix merge conflicts" ahead of "Create action" (the web order, EXP-825)
+     * — then the synced rows in server order. Chat is in NO list: it is what
+     * "no subject" means on the composer.
+     */
+    val actionsState: StateFlow<SheetActionsState> = combine(dbFlow, selection.selectedId) { db, teamId ->
+        db to teamId
+    }.flatMapLatest { (db, teamId) ->
+        if (db == null || teamId == null) {
+            flowOf(SheetActionsState(actions = emptyList()))
+        } else {
+            db.actionDao().observeByTeam(teamId).map { rows ->
+                SheetActionsState(
+                    actions = listOf(
+                        builtinFixConflictsAction(teamId),
+                        builtinCreateAction(teamId),
+                    ) + rows.map { it.toActionDto(json) },
+                )
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SheetActionsState())
+
+    /**
+     * The synced worktree inventory (EXP-481) behind the composer's "Resume
+     * previous session" offer. Owned here — like the actions/board/PR lookup
+     * sources — so the composer needs no plumbing of its own.
+     */
+    val deviceWorktrees: StateFlow<List<DeviceWorktreeEntity>> =
+        dbFlow.scopedQuery(emptyList<DeviceWorktreeEntity>()) { it.deviceWorktreeDao().observeAll() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * The synced device rows (EXP-481) — resolves a picked machine's ROW id
+     * for the worktree join when the composer holds a poll-derived
+     * SteerDevice row (devices.list carries no rowId).
+     */
+    val deviceRows: StateFlow<List<DeviceEntity>> =
+        dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * The machines an automation can be bound to (EXP-583): every synced
+     * device advertising the `automations` cap, ONLINE OR NOT — an automation
+     * outlives a machine's uptime. Feeds the automation form, whose device
+     * pick is INDEPENDENT of the machine running a creator run.
+     */
+    val automationDevices: StateFlow<List<SteerDevice>> = combine(
+        dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() },
+        DeviceLiveness.ticker(),
+        auth.userId,
+    ) { rows, nowMs, userId ->
+        rows.sortedWith(stableDeviceOrder(nowMs))
+            .map { it.toSteerDevice(nowMs, userId) }
+            .filter { it.canRunAutomations }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** The team repo registry — options for `repo`-typed inputs (failure = empty). */
+    val repos: StateFlow<List<TeamRepo>> = scope.flatMapLatest { (accountId, teamId) ->
+        flow {
+            emit(emptyList<TeamRepo>())
+            if (accountId != null && teamId != null) {
+                emit(
+                    runCatching { repositoriesApi.list(accountId, teamId) }.fold(
+                        onSuccess = { it },
+                        onFailure = {
+                            if (it is CancellationException) throw it
+                            emptyList()
+                        },
+                    ),
+                )
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Live, team-scoped boards — options for `board`-typed inputs. */
+    val boardOptions: StateFlow<List<StartBoardOption>> = combine(
+        dbFlow.scopedQuery(emptyList()) { it.boardDao().observeAll() },
+        selection.selectedId,
+    ) { boards, teamId ->
+        if (teamId == null) {
+            emptyList()
+        } else {
+            boards
+                .filter { it.teamId == teamId && it.deletedAt == null }
+                .sortedBy { it.name.lowercase() }
+                .map { StartBoardOption(id = it.id, name = it.name) }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Live, team-scoped labels — the EXP-530 label-added filter picker. */
+    val labelOptions: StateFlow<List<StartFilterOption>> = combine(
+        dbFlow.scopedQuery(emptyList()) { it.labelDao().observeAll() },
+        selection.selectedId,
+    ) { labels, teamId ->
+        if (teamId == null) {
+            emptyList()
+        } else {
+            labels
+                .filter { it.teamId == teamId }
+                .sortedBy { it.name.lowercase() }
+                .map { StartFilterOption(id = it.id, name = it.name) }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * The team's REAL status rows in canonical display order — the EXP-530
+     * status-changed filter picker. Constructed fallbacks (no row id) can't
+     * be a filter target, and duplicate is never pickable (the web
+     * buildStatusOptions rule).
+     */
+    val statusOptions: StateFlow<List<StartFilterOption>> = combine(dbFlow, selection.selectedId) { db, teamId ->
+        db to teamId
+    }.flatMapLatest { (db, teamId) ->
+        if (db == null || teamId == null) {
+            flowOf(emptyList())
+        } else {
+            db.issueStatusDao().observeByTeam(teamId).map { rows ->
+                IssueStatusResolver.teamStatuses(rows)
+                    .filter { it.category != IssueStatusCategory.Duplicate }
+                    .mapNotNull { status ->
+                        status.rowId?.let { StartFilterOption(id = it, name = status.name) }
+                    }
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * Live, team-scoped OPEN pull requests — options for `pr`-typed inputs.
+     * Issues don't sync `team_id`, so the scope comes from the synced boards
+     * (the same derivation the web picker uses).
+     */
+    val pullRequestOptions: StateFlow<List<StartPullRequestOption>> = combine(
+        dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
+        dbFlow.scopedQuery(emptyList()) { it.boardDao().observeAll() },
+        selection.selectedId,
+    ) { issues, boards, teamId ->
+        if (teamId == null) {
+            emptyList()
+        } else {
+            val teamBoardIds = boards.filter { it.teamId == teamId }.map { it.id }.toSet()
+            buildPullRequestOptions(issues, teamBoardIds)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+}
+
+/**
+ * Collapse open-PR issue rows into one option per pull request. Rows outside
+ * [teamBoardIds], rows whose PR isn't open, and rows without a `prUrl` are
+ * skipped (such an id wouldn't resolve server-side anyway). Sorted by label so
+ * the list doesn't reshuffle as sync lands rows; the representative issue is
+ * the lowest id, so it doesn't depend on query order either.
+ */
+fun buildPullRequestOptions(
+    issues: List<IssueEntity>,
+    teamBoardIds: Set<String>,
+): List<StartPullRequestOption> = issues
+    .asSequence()
+    .filter {
+        it.boardId in teamBoardIds &&
+            it.prState == DomainContract.prStateOpen &&
+            !it.prUrl.isNullOrEmpty()
+    }
+    .sortedBy { it.id }
+    .groupBy { it.prUrl!! }
+    .map { (_, linked) ->
+        StartPullRequestOption(
+            issueId = linked.first().id,
+            prNumber = linked.first().prNumber,
+            identifiers = linked.mapNotNull { it.identifier?.takeIf(String::isNotEmpty) }.sorted(),
+            linkedIssueIds = linked.map { it.id },
+        )
+    }
+    .sortedWith(compareBy({ it.label }, { it.issueId }))
+
+/**
+ * The option a given issue id belongs to — by MEMBERSHIP, not by the
+ * representative id. Callers seeding a `pr` input hold whatever issue their
+ * surface acts on (the Reviews row's newest issue, or the batch sibling whose
+ * Changes screen is open); only the representative id renders a label in the
+ * picker, so the seed is normalised through this (EXP-323).
+ */
+fun List<StartPullRequestOption>.optionForIssue(issueId: String): StartPullRequestOption? =
+    firstOrNull { issueId in it.linkedIssueIds }
