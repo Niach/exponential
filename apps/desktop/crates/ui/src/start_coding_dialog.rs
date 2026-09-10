@@ -1106,11 +1106,11 @@ impl StartCodingDialogView {
                     this.seed_action_repo_inputs();
                     // EXP-615: with exactly one repo there is nothing to
                     // pick, so preselect it (web parity). EXP-739 made the
-                    // pick optional; the convenience stands.
+                    // pick optional; the convenience stands. EXP-822 moved
+                    // the rule next to the fetch so the Chat PAGE seeds the
+                    // same way.
                     if this.chat_repo.is_none() {
-                        if let [only] = &this.team_repos[..] {
-                            this.chat_repo = Some(only.clone());
-                        }
+                        this.chat_repo = action_run::preselect_repo(&this.team_repos);
                     }
                     cx.notify();
                 }

@@ -99,6 +99,17 @@ mod tests {
         assert!(!RUN_SKILL.contains("expu_"));
     }
 
+    /// EXP-822: the playbook is the ONLY channel that reaches a run with no
+    /// seed prompt (an attended chat started from the empty prompt box sends
+    /// nothing) and every resume, so the "your cwd is your subject, never
+    /// hunt for the repository" rule lives here rather than in a prompt.
+    #[test]
+    fn the_playbook_pins_the_run_to_its_own_working_directory() {
+        assert!(RUN_SKILL.contains("## Your workspace"));
+        assert!(RUN_SKILL.contains("Never go looking for the repository elsewhere on this machine"));
+        assert!(RUN_SKILL.contains("ask which one"));
+    }
+
     #[test]
     fn mentioned_tools_dedups_and_skips_the_bare_prefix() {
         let names = mentioned_tools(
