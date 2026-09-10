@@ -76,6 +76,20 @@ final class BuiltinActionsTests: XCTestCase {
         XCTAssertEqual(inputs.map(\.label), ["Repository", "Icon"])
         XCTAssertFalse(inputs.contains { $0.isRequired })
         XCTAssertFalse(inputs.contains { $0.type == "text" || $0.type == "textarea" })
+
+        // EXP-825: the retired free-text input's placeholder became the
+        // builtin's composer hint — byte-identical to the web.
+        XCTAssertEqual(
+            create.promptPlaceholder,
+            "Describe the action — what it should do, and its name if you have one…"
+        )
+    }
+
+    // EXP-825: only Create action carries a composer hint; the other two
+    // builtins show the generic "Additional instructions (optional)…".
+    func testOnlyTheCreateBuiltinCarriesAComposerHint() {
+        XCTAssertNil(ActionDto.builtinFixConflictsAction(teamId: "t-1").promptPlaceholder)
+        XCTAssertNil(ActionDto.builtinChatAction(teamId: "t-1").promptPlaceholder)
     }
 
     func testTheFixConflictsBuiltinIsUnchanged() {

@@ -98,7 +98,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v23_agent_status", "v24_drop_coding_session_outcome",
              "v25_board_default_branch", "v26_coding_session_pr",
              "v27_issue_relations", "v28_comment_threads",
-             "v29_device_acp_agents", "v30_coding_session_blocked"]
+             "v29_device_acp_agents", "v30_coding_session_blocked",
+             "v31_coding_session_parent", "v32_action_prompt_placeholder"]
         )
     }
 
@@ -123,7 +124,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v23_agent_status", "v24_drop_coding_session_outcome",
              "v25_board_default_branch", "v26_coding_session_pr",
              "v27_issue_relations", "v28_comment_threads",
-             "v29_device_acp_agents", "v30_coding_session_blocked"]
+             "v29_device_acp_agents", "v30_coding_session_blocked",
+             "v31_coding_session_parent", "v32_action_prompt_placeholder"]
         )
     }
 
@@ -176,7 +178,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v23_agent_status", "v24_drop_coding_session_outcome",
              "v25_board_default_branch", "v26_coding_session_pr",
              "v27_issue_relations", "v28_comment_threads",
-             "v29_device_acp_agents", "v30_coding_session_blocked"]
+             "v29_device_acp_agents", "v30_coding_session_blocked",
+             "v31_coding_session_parent", "v32_action_prompt_placeholder"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -249,7 +252,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v23_agent_status", "v24_drop_coding_session_outcome",
              "v25_board_default_branch", "v26_coding_session_pr",
              "v27_issue_relations", "v28_comment_threads",
-             "v29_device_acp_agents", "v30_coding_session_blocked"]
+             "v29_device_acp_agents", "v30_coding_session_blocked",
+             "v31_coding_session_parent", "v32_action_prompt_placeholder"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }

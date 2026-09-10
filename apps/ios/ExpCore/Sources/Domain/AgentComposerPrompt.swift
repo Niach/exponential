@@ -49,4 +49,21 @@ public enum AgentComposerPrompt {
         case .action: "Run action"
         }
     }
+
+    /// The field's placeholder — web `composerPlaceholder` byte for byte
+    /// (EXP-825): a chat asks for the message; a picked action with a
+    /// non-blank `promptPlaceholder` (`actionHint`, trimmed) shows it; every
+    /// other subject asks for what is optional next to it. Issue chips never
+    /// read an action's hint.
+    public static func placeholder(for subject: Subject, actionHint: String?) -> String {
+        switch subject {
+        case .none:
+            return "Ask the agent…"
+        case .action:
+            let hint = actionHint?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return hint.isEmpty ? "Additional instructions (optional)…" : hint
+        case .issues:
+            return "Additional instructions (optional)…"
+        }
+    }
 }

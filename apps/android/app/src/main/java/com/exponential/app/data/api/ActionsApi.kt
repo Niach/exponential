@@ -61,6 +61,11 @@ data class ActionDto(
     val updatedAt: String = "",
     val inputs: List<ActionInputDto>? = null,
     val builtin: Boolean? = null,
+    /**
+     * EXP-825: the composer's field hint while this action is picked (≤200
+     * chars); null = the generic "Additional instructions (optional)…".
+     */
+    val promptPlaceholder: String? = null,
 ) {
     /** Whether this is the virtual builtin "Create action" row. */
     val isBuiltin: Boolean get() = builtin == true
@@ -71,6 +76,15 @@ data class ActionDto(
      * such an automation. */
     val automatable: Boolean
         get() = !isBuiltin && inputs.orEmpty().none { it.required }
+
+    companion object {
+        /**
+         * The server's cap on [promptPlaceholder] (`MAX_ACTION_PROMPT_PLACEHOLDER`
+         * in db-schema/domain.ts) — the editor refuses at the field, not at
+         * submit.
+         */
+        const val PROMPT_PLACEHOLDER_MAX_LENGTH = 200
+    }
 }
 
 /**
@@ -105,6 +119,9 @@ fun builtinCreateAction(teamId: String): ActionDto = ActionDto(
     ),
     sortOrder = 1e9,
     builtin = true,
+    // EXP-825: the composer's hint for the request text (the retired
+    // free-text input's placeholder, byte-identical to the web).
+    promptPlaceholder = "Describe the action — what it should do, and its name if you have one…",
 )
 
 /**
@@ -130,6 +147,7 @@ fun builtinFixConflictsAction(teamId: String): ActionDto = ActionDto(
     ),
     sortOrder = 1e9 + 1,
     builtin = true,
+    promptPlaceholder = null,
 )
 
 /**
@@ -157,6 +175,7 @@ fun builtinChatAction(teamId: String): ActionDto = ActionDto(
     ),
     sortOrder = 1e9 + 2,
     builtin = true,
+    promptPlaceholder = null,
 )
 
 /**
@@ -184,7 +203,8 @@ private data class ActionIdInput(val id: String)
  * `@Serializable` class outright — hence the hand-built object with [JsonNull],
  * the [setSharedInput] pattern. `inputs` and `sortOrder` are deliberately
  * absent: mobile edits neither, and an omitted key leaves the stored value
- * alone.
+ * alone. EXP-825: [promptPlaceholder] (the composer hint) follows the
+ * description's rule — null clears.
  */
 internal fun updateActionInput(
     id: String,
@@ -193,6 +213,7 @@ internal fun updateActionInput(
     icon: String?,
     repositoryId: String?,
     body: String,
+    promptPlaceholder: String?,
 ): JsonObject = buildJsonObject {
     put("id", id)
     put("name", name)
@@ -200,6 +221,7 @@ internal fun updateActionInput(
     put("icon", icon?.let(::JsonPrimitive) ?: JsonNull)
     put("repositoryId", repositoryId?.let(::JsonPrimitive) ?: JsonNull)
     put("body", body)
+    put("promptPlaceholder", promptPlaceholder?.let(::JsonPrimitive) ?: JsonNull)
 }
 
 /**
@@ -224,9 +246,9 @@ class ActionsApi @Inject constructor(private val trpc: TrpcClient) {
 
     /**
      * `actions.update` from the edit sheet — owner-only server-side. Null
-     * [description]/[icon]/[repositoryId] CLEAR those fields (explicit JSON
-     * nulls, see [updateActionInput]); Electric echoes the new metadata back
-     * into the shape, so a success needs no local write.
+     * [description]/[icon]/[repositoryId]/[promptPlaceholder] CLEAR those
+     * fields (explicit JSON nulls, see [updateActionInput]); Electric echoes
+     * the new metadata back into the shape, so a success needs no local write.
      */
     suspend fun update(
         accountId: String,
@@ -236,6 +258,7 @@ class ActionsApi @Inject constructor(private val trpc: TrpcClient) {
         icon: String?,
         repositoryId: String?,
         body: String,
+        promptPlaceholder: String?,
     ): ActionDto = trpc.mutation(
         accountId,
         path = "actions.update",
@@ -246,6 +269,7 @@ class ActionsApi @Inject constructor(private val trpc: TrpcClient) {
             icon = icon,
             repositoryId = repositoryId,
             body = body,
+            promptPlaceholder = promptPlaceholder,
         ),
         inputSerializer = JsonObject.serializer(),
         outputSerializer = ActionResult.serializer(),
@@ -272,4 +296,5 @@ fun ActionEntity.toActionDto(json: Json): ActionDto = ActionDto(
             json.decodeFromString(ListSerializer(ActionInputDto.serializer()), raw)
         }.getOrNull()
     },
+    promptPlaceholder = promptPlaceholder,
 )

@@ -280,6 +280,62 @@ final class WireDecodingTests: XCTestCase {
         XCTAssertNil(absentForm.inputs)
     }
 
+    // EXP-825: `prompt_placeholder` (the composer hint) rides the actions
+    // shape — present, explicit null and ABSENT (a row synced before the
+    // column existed) must all decode, and the DTO carries it through.
+    func testActionDecodesPromptPlaceholderPresentNullAndAbsent() throws {
+        let present = try decode(ActionEntity.self, #"""
+        {
+          "id": "a1", "team_id": "w1", "name": "Release",
+          "prompt_placeholder": "Scope: which platforms, which version",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertEqual(present.promptPlaceholder, "Scope: which platforms, which version")
+        XCTAssertEqual(
+            ActionDto(entity: present).promptPlaceholder,
+            "Scope: which platforms, which version"
+        )
+
+        let nullForm = try decode(ActionEntity.self, #"""
+        {
+          "id": "a2", "team_id": "w1", "name": "Sweep", "prompt_placeholder": null,
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertNil(nullForm.promptPlaceholder)
+
+        let absentForm = try decode(ActionEntity.self, #"""
+        {
+          "id": "a3", "team_id": "w1", "name": "Report",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertNil(absentForm.promptPlaceholder)
+        XCTAssertNil(ActionDto(entity: absentForm).promptPlaceholder)
+    }
+
+    // The tRPC twin (`actions.get`/`.update` return the camelCase row).
+    func testActionDtoDecodesPromptPlaceholderLeniently() throws {
+        let withHint = try decode(ActionDto.self, #"""
+        {
+          "id": "a1", "teamId": "w1", "repositoryId": null, "name": "Release",
+          "description": null, "icon": null, "body": "Ship", "sortOrder": 1,
+          "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z",
+          "inputs": [], "promptPlaceholder": "Scope: which platforms"
+        }
+        """#)
+        XCTAssertEqual(withHint.promptPlaceholder, "Scope: which platforms")
+
+        let without = try decode(ActionDto.self, #"""
+        {
+          "id": "a1", "teamId": "w1", "name": "Release", "body": "Ship", "sortOrder": 1,
+          "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertNil(without.promptPlaceholder)
+    }
+
     // MARK: - AuthConfig (/api/auth-config)
 
     func testAuthConfigDecodesSignupAndResetFlags() throws {

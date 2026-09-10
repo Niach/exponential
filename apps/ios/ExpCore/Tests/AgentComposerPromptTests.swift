@@ -72,4 +72,61 @@ final class AgentComposerPromptTests: XCTestCase {
         XCTAssertEqual(AgentComposerPrompt.submitTitle(for: .issues(count: 30)), "Start batch · 30")
         XCTAssertEqual(AgentComposerPrompt.submitTitle(for: .action), "Run action")
     }
+
+    // EXP-825: the field placeholder — web `composerPlaceholder` byte for
+    // byte. No subject asks for the message; a picked action with a
+    // non-blank hint shows the hint; everything else the generic prompt.
+    func testPlaceholderFollowsTheSubjectAndTheActionHint() {
+        XCTAssertEqual(
+            AgentComposerPrompt.placeholder(for: .none, actionHint: nil), "Ask the agent…"
+        )
+        XCTAssertEqual(
+            AgentComposerPrompt.placeholder(for: .issues(count: 1), actionHint: nil),
+            "Additional instructions (optional)…"
+        )
+        XCTAssertEqual(
+            AgentComposerPrompt.placeholder(for: .issues(count: 3), actionHint: nil),
+            "Additional instructions (optional)…"
+        )
+        XCTAssertEqual(
+            AgentComposerPrompt.placeholder(for: .action, actionHint: nil),
+            "Additional instructions (optional)…"
+        )
+        XCTAssertEqual(
+            AgentComposerPrompt.placeholder(
+                for: .action, actionHint: "Scope: which platforms, which version"
+            ),
+            "Scope: which platforms, which version"
+        )
+    }
+
+    // A blank hint is no hint; a padded one is shown trimmed. And a hint
+    // never leaks onto the other subjects (the model only passes the PICKED
+    // action's hint, but the rule guards it too).
+    func testBlankHintsFallBackAndPaddedHintsTrim() {
+        XCTAssertEqual(
+            AgentComposerPrompt.placeholder(for: .action, actionHint: "   \n"),
+            "Additional instructions (optional)…"
+        )
+        XCTAssertEqual(
+            AgentComposerPrompt.placeholder(for: .action, actionHint: "  Which version?  "),
+            "Which version?"
+        )
+        XCTAssertEqual(
+            AgentComposerPrompt.placeholder(for: .none, actionHint: "Which version?"),
+            "Ask the agent…"
+        )
+        XCTAssertEqual(
+            AgentComposerPrompt.placeholder(for: .issues(count: 1), actionHint: "Which version?"),
+            "Additional instructions (optional)…"
+        )
+    }
+
+    func testTheCreateBuiltinHintReachesThePlaceholder() {
+        let create = ActionDto.builtinCreateAction(teamId: "t-1")
+        XCTAssertEqual(
+            AgentComposerPrompt.placeholder(for: .action, actionHint: create.promptPlaceholder),
+            "Describe the action — what it should do, and its name if you have one…"
+        )
+    }
 }

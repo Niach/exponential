@@ -391,6 +391,10 @@ data class ActionEntity(
     // NULL now) because removing it would need a Room migration for no gain —
     // nothing reads it. Do not resurrect it.
     @Serializable(with = JsonAsStringSerializer::class) val trigger: String? = null,
+    // EXP-825: the composer's field hint while this action is picked (≤200
+    // chars, server-trimmed); null = the generic "Additional instructions
+    // (optional)…" prompt. Absent on rows synced before the column existed.
+    @ColumnInfo(name = "prompt_placeholder") @SerialName("prompt_placeholder") @JsonNames("promptPlaceholder") val promptPlaceholder: String? = null,
     @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,

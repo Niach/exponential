@@ -26,7 +26,7 @@ class ActionsWireFormatTest {
     fun `cleared fields emit literal nulls`() {
         assertEquals(
             """{"id":"a-1","name":"Ship it","description":null,"icon":null,""" +
-                """"repositoryId":null,"body":"Do the thing"}""",
+                """"repositoryId":null,"body":"Do the thing","promptPlaceholder":null}""",
             updateActionInput(
                 id = "a-1",
                 name = "Ship it",
@@ -34,6 +34,7 @@ class ActionsWireFormatTest {
                 icon = null,
                 repositoryId = null,
                 body = "Do the thing",
+                promptPlaceholder = null,
             ).toString(),
         )
     }
@@ -42,7 +43,8 @@ class ActionsWireFormatTest {
     fun `set fields ride as their values`() {
         assertEquals(
             """{"id":"a-1","name":"Ship it","description":"One-liner","icon":"rocket",""" +
-                """"repositoryId":"repo-1","body":"Do the thing"}""",
+                """"repositoryId":"repo-1","body":"Do the thing",""" +
+                """"promptPlaceholder":"Scope: which platforms, which version"}""",
             updateActionInput(
                 id = "a-1",
                 name = "Ship it",
@@ -50,6 +52,7 @@ class ActionsWireFormatTest {
                 icon = "rocket",
                 repositoryId = "repo-1",
                 body = "Do the thing",
+                promptPlaceholder = "Scope: which platforms, which version",
             ).toString(),
         )
     }
@@ -65,12 +68,46 @@ class ActionsWireFormatTest {
                 icon = null,
                 repositoryId = null,
                 body = "",
+                promptPlaceholder = null,
             ),
         )
         assertEquals(
             """{"id":"a-1","name":"Ship it","description":null,"icon":null,""" +
-                """"repositoryId":null,"body":""}""",
+                """"repositoryId":null,"body":"","promptPlaceholder":null}""",
             encoded,
         )
+    }
+
+    /**
+     * EXP-825: the composer hint round-trips through the tRPC row
+     * (`actions.get`/`.update` answer with it) and is LENIENT: a row from a
+     * server without the column decodes with no hint.
+     */
+    @Test
+    fun `the action row decodes the composer hint present or absent`() {
+        val withHint = json.decodeFromString(
+            ActionDto.serializer(),
+            """{"id":"a-1","teamId":"t-1","name":"Release","body":"Ship","sortOrder":1,""" +
+                """"createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z",""" +
+                """"inputs":[],"promptPlaceholder":"Scope: which platforms"}""",
+        )
+        assertEquals("Scope: which platforms", withHint.promptPlaceholder)
+
+        val without = json.decodeFromString(
+            ActionDto.serializer(),
+            """{"id":"a-1","teamId":"t-1","name":"Release","body":"Ship","sortOrder":1}""",
+        )
+        assertEquals(null, without.promptPlaceholder)
+
+        val explicitNull = json.decodeFromString(
+            ActionDto.serializer(),
+            """{"id":"a-1","teamId":"t-1","name":"Release","promptPlaceholder":null}""",
+        )
+        assertEquals(null, explicitNull.promptPlaceholder)
+    }
+
+    @Test
+    fun `the composer hint cap mirrors the server`() {
+        assertEquals(200, ActionDto.PROMPT_PLACEHOLDER_MAX_LENGTH)
     }
 }

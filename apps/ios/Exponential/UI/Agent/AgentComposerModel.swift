@@ -242,13 +242,14 @@ final class AgentComposerModel {
         AgentComposerPrompt.submitTitle(for: subject)
     }
 
-    /// The field's prompt per subject — a chat asks for the message, a
-    /// subject asks for what is optional next to it.
+    /// The field's prompt per subject (`AgentComposerPrompt.placeholder`,
+    /// web parity): a chat asks for the message, a picked action shows its
+    /// own composer hint (EXP-825), anything else asks for what is optional
+    /// next to it.
     var placeholder: String {
-        switch subject {
-        case .none: "What should the agent do?"
-        case .issues, .action: "Additional instructions (optional)"
-        }
+        AgentComposerPrompt.placeholder(
+            for: subject, actionHint: selectedAction?.promptPlaceholder
+        )
     }
 
     func isChecked(_ id: String) -> Bool {

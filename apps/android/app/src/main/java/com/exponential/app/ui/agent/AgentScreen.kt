@@ -410,13 +410,10 @@ fun AgentScreen(
                             },
                             fieldModifier = Modifier,
                             // The field's prompt per subject — a chat asks for
-                            // the message, a subject for what is optional next
-                            // to it.
-                            placeholder = if (subject == null) {
-                                "What should the agent do?"
-                            } else {
-                                "Additional instructions (optional)"
-                            },
+                            // the message, a picked action shows its own
+                            // composer hint (EXP-825), anything else what is
+                            // optional next to it.
+                            placeholder = composerPlaceholder(subject, selectedAction),
                             issueChips = checkedOptions,
                             onRemoveIssue = viewModel::toggleIssue,
                             actionChip = selectedAction,

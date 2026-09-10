@@ -85,6 +85,21 @@ class BuiltinActionTeamIdTest {
         }
     }
 
+    /**
+     * EXP-825: the retired free-text input's placeholder became Create
+     * action's composer hint — byte-identical to web builtin-actions.ts; the
+     * other two builtins carry none (the generic prompt shows).
+     */
+    @Test
+    fun `only create action carries a composer hint`() {
+        assertEquals(
+            "Describe the action — what it should do, and its name if you have one…",
+            builtinCreateAction(teamId).promptPlaceholder,
+        )
+        assertNull(builtinFixConflictsAction(teamId).promptPlaceholder)
+        assertNull(builtinChatAction(teamId).promptPlaceholder)
+    }
+
     @Test
     fun `synced rows never key a teamId`() {
         val synced = ActionDto(id = "a3f0c9d2-0000-0000-0000-000000000000", teamId = teamId, name = "Deploy")

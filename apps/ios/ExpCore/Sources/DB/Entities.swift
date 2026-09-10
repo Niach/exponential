@@ -594,6 +594,10 @@ public struct ActionEntity: FetchableRecord, PersistableRecord, Identifiable, Se
     /// so this always decodes nil now. The local column stays (dropping it
     /// would mean a table rebuild for nothing) and nothing reads it.
     public let trigger: String?
+    /// EXP-825: the composer's field hint while this action is picked
+    /// (≤200 chars, server-trimmed); nil = the generic "Additional
+    /// instructions (optional)…" prompt.
+    public let promptPlaceholder: String?
     public let sortOrder: Double?
     public let createdAt: String
     public let updatedAt: String
@@ -607,6 +611,7 @@ public struct ActionEntity: FetchableRecord, PersistableRecord, Identifiable, Se
         icon: String?,
         inputs: String?,
         trigger: String? = nil,
+        promptPlaceholder: String? = nil,
         sortOrder: Double?,
         createdAt: String,
         updatedAt: String
@@ -619,6 +624,7 @@ public struct ActionEntity: FetchableRecord, PersistableRecord, Identifiable, Se
         self.icon = icon
         self.inputs = inputs
         self.trigger = trigger
+        self.promptPlaceholder = promptPlaceholder
         self.sortOrder = sortOrder
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -628,6 +634,7 @@ public struct ActionEntity: FetchableRecord, PersistableRecord, Identifiable, Se
         case id, name, description, icon, inputs, trigger
         case teamId = "team_id"
         case repositoryId = "repository_id"
+        case promptPlaceholder = "prompt_placeholder"
         case sortOrder = "sort_order"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
@@ -650,6 +657,8 @@ extension ActionEntity: Codable {
         name = try c.decode(String.self, forKey: .name)
         description = try c.decodeIfPresent(String.self, forKey: .description)
         icon = try c.decodeIfPresent(String.self, forKey: .icon)
+        // EXP-825: absent (an older row / server) and null both read as no hint.
+        promptPlaceholder = try c.decodeIfPresent(String.self, forKey: .promptPlaceholder)
         sortOrder = try c.decodeWireDouble(forKey: .sortOrder)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)

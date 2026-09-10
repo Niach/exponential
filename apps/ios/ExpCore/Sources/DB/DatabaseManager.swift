@@ -1355,6 +1355,28 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v32 (EXP-825 composer hint): `actions.prompt_placeholder` — what the
+        // requester should type beside the action, shown as the composer's
+        // field placeholder while it is picked. Additive column on the
+        // actions shape (v10's shape), plus a re-snapshot so already-synced
+        // rows pick it up (the v30 pattern; the shape key is `actions`).
+        migrator.registerMigration("v32_action_prompt_placeholder") { db in
+            guard try db.tableExists("actions") else { return }
+            let existing = Set(try db.columns(in: "actions").map(\.name))
+            if !existing.contains("prompt_placeholder") {
+                try db.alter(table: "actions") { t in
+                    t.add(column: "prompt_placeholder", .text)
+                }
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'actions'
+                    """)
+            }
+        }
+
         return migrator
     }
 

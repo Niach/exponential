@@ -72,6 +72,20 @@ import kotlinx.coroutines.launch
 // worktrees) stays on [AgentLaunchDataViewModel]; the send + started-run
 // watch is the shared [SteerLaunchDelegate].
 
+/**
+ * The composer field's placeholder — web `composerPlaceholder` byte for byte
+ * (EXP-825): no subject asks for the message; a picked action with a
+ * non-blank `promptPlaceholder` (trimmed) shows it; every other subject asks
+ * for what is optional next to it. [selectedAction] is the PICKED action's
+ * row (null while it has not synced); issue chips never read a hint.
+ */
+internal fun composerPlaceholder(subject: ComposerSubject?, selectedAction: ActionDto?): String {
+    if (subject == null) return "Ask the agent…"
+    val hint = selectedAction?.promptPlaceholder?.trim().orEmpty()
+    if (subject is ComposerSubject.Action && hint.isNotEmpty()) return hint
+    return "Additional instructions (optional)…"
+}
+
 /** What the composer is about — issue chips OR one action chip, never both. */
 sealed interface ComposerSubject {
     data class Issues(val ids: List<String>) : ComposerSubject
