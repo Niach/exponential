@@ -244,7 +244,8 @@ keep answering follow-ups.\n"
 /// the user picked (EXP-273). It must NOT touch git or files — it only calls
 /// the MCP tools. EXP-825 also retired free-text action inputs: the prompt
 /// tells the agent never to declare one, since the composer text reaches
-/// every run as the additional-instructions section instead.
+/// every run as the additional-instructions section instead — and that it
+/// may set `promptPlaceholder`, the composer's hint for that text.
 pub fn create_action_prompt(
     team_id: &str,
     request: &str,
@@ -297,9 +298,13 @@ receives as an \"## Inputs\" prompt section — declare them when the described 
 naturally varies per run (a target repository or board); otherwise omit the field. \
 Never declare free-text inputs: whatever the requester types when running the action \
 reaches the run as an Additional instructions section. `exponential_actions_create` \
-also accepts an optional `trigger` field: when the request contains an \"Automation —\" \
-block, pass that block's JSON as `trigger` verbatim; otherwise omit `trigger`. Do not \
-commit, push, or change any files — only call the MCP tools. {report_rule}"
+also accepts an optional `promptPlaceholder` (≤200 chars): a short hint for what the \
+requester should type there (e.g. \"Scope: which platforms, which version\"), shown as \
+the composer's field placeholder while the action is picked — set one when the action \
+expects that text; otherwise omit it. `exponential_actions_create` also accepts an \
+optional `trigger` field: when the request contains an \"Automation —\" block, pass \
+that block's JSON as `trigger` verbatim; otherwise omit `trigger`. Do not commit, \
+push, or change any files — only call the MCP tools. {report_rule}"
     )
 }
 
@@ -853,6 +858,9 @@ changed:\n\n"));
         assert!(prompt.contains("`inputs` array"));
         assert!(prompt.contains("type: repo|board|pr|icon"));
         assert!(prompt.contains("Never declare free-text inputs"));
+        // EXP-825: the composer hint the authored action may carry.
+        assert!(prompt.contains("optional `promptPlaceholder` (≤200 chars)"));
+        assert!(prompt.contains("otherwise omit it."));
         // EXP-530: an "Automation —" block in the description becomes the
         // `trigger` field, verbatim — otherwise the field stays absent.
         assert!(prompt.contains("optional `trigger` field"));
@@ -912,6 +920,10 @@ prompt section — declare them when the described action naturally varies per r
 target repository or board); otherwise omit the field. Never declare free-text \
 inputs: whatever the requester types when running the action reaches the run as an \
 Additional instructions section. `exponential_actions_create` also accepts an \
+optional `promptPlaceholder` (≤200 chars): a short hint for what the requester \
+should type there (e.g. \"Scope: which platforms, which version\"), shown as the \
+composer's field placeholder while the action is picked — set one when the action \
+expects that text; otherwise omit it. `exponential_actions_create` also accepts an \
 optional `trigger` field: when the request contains an \"Automation —\" block, pass \
 that block's JSON as `trigger` verbatim; otherwise omit `trigger`. Do not commit, \
 push, or change any files — only call the MCP tools. After the action is created, \

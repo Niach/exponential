@@ -40,6 +40,10 @@ use crate::queries;
 /// Open the edit dialog for a non-builtin action, seeded from its synced
 /// row. A native window — never nests, and it is only ever opened from the
 /// main window's card menu (the Actions screen is not undockable).
+/// EXP-825: the composer-hint field's own placeholder — byte-identical to
+/// the web editor's (`action-editor-dialog.tsx`).
+const PROMPT_PLACEHOLDER_HINT: &str = "Composer hint, e.g. Scope: which platforms, which version";
+
 pub(crate) fn open(window: &mut Window, cx: &mut App, action_id: String) {
     if api::actions::is_builtin_action_id(&action_id) {
         return;
@@ -74,6 +78,10 @@ struct ActionEditorDialogView {
     /// EXP-530: a TEXTAREA like the web dialog's — action descriptions are
     /// the Suggestions-tab paragraphs, not one-liners.
     description: gpui::Entity<TextareaState>,
+    /// EXP-825: the composer's field hint while this action is picked
+    /// (`actions.prompt_placeholder`, ≤200 chars; "" clears). A single
+    /// line like the web `Input`, capped at the server's limit.
+    prompt_placeholder: gpui::Entity<InputState>,
     /// The curated registry glyph (`actionIconSchema` — the boards set).
     icon: String,
     /// `None` = repo-less scratch run (the web select's "None").
@@ -111,6 +119,23 @@ impl ActionEditorDialogView {
         description.update(cx, |state, cx| {
             state.set_value(action.description.clone().unwrap_or_default(), window, cx);
         });
+        // EXP-825: the composer hint — the web field's placeholder and
+        // `maxLength` (the server's `actionPromptPlaceholderSchema` cap), so
+        // a save can never 400 on length.
+        let prompt_placeholder = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder(PROMPT_PLACEHOLDER_HINT)
+                .validate(|text, _| {
+                    text.chars().count() <= api::actions::MAX_PROMPT_PLACEHOLDER_CHARS
+                })
+        });
+        prompt_placeholder.update(cx, |state, cx| {
+            state.set_value(
+                action.prompt_placeholder.clone().unwrap_or_default(),
+                window,
+                cx,
+            );
+        });
         // Swapped for "Prompt" the moment `actions.get` lands (web parity).
         // The prompt FILLS its column (h_full below) rather than auto-growing:
         // it is the scrollable field of this dialog, not a form row.
@@ -118,15 +143,18 @@ impl ActionEditorDialogView {
 
         // Enter submits from the one-line fields; in the prompt it inserts a
         // newline (hence no shell-level `on_enter`).
-        let mut subscriptions = vec![cx.subscribe_in(
-            &name,
-            window,
-            |this, _, event: &InputEvent, window, cx| match event {
-                InputEvent::Change => cx.notify(),
-                InputEvent::PressEnter { .. } => this.submit(window, cx),
-                _ => {}
-            },
-        )];
+        let mut subscriptions = Vec::new();
+        for field in [&name, &prompt_placeholder] {
+            subscriptions.push(cx.subscribe_in(
+                field,
+                window,
+                |this, _, event: &InputEvent, window, cx| match event {
+                    InputEvent::Change => cx.notify(),
+                    InputEvent::PressEnter { .. } => this.submit(window, cx),
+                    _ => {}
+                },
+            ));
+        }
         // Save-gating (empty body) follows the editors live. Both are
         // textareas, so Enter inserts a newline instead of submitting.
         for field in [&description, &body] {
@@ -146,6 +174,7 @@ impl ActionEditorDialogView {
             team_id: action.team_id.clone(),
             name,
             description,
+            prompt_placeholder,
             icon: action
                 .icon
                 .clone()
@@ -242,6 +271,17 @@ impl ActionEditorDialogView {
         // EXP-530: the description is a textarea now — newlines are the
         // author's, so only the outer whitespace goes.
         let description = self.description.read(cx).value().trim().to_string();
+        // EXP-825: one logical line, outer whitespace off; "" clears (the
+        // server nulls it — web `promptPlaceholder.trim() === "" ? null`).
+        let prompt_placeholder: String = self
+            .prompt_placeholder
+            .read(cx)
+            .value()
+            .replace(['\r', '\n'], " ")
+            .trim()
+            .chars()
+            .take(api::actions::MAX_PROMPT_PLACEHOLDER_CHARS)
+            .collect();
         let Some(trpc) = queries::trpc_client(cx) else {
             self.error = Some("Not signed in.".into());
             cx.notify();
@@ -256,6 +296,7 @@ impl ActionEditorDialogView {
         input.name = Some(name);
         // "" clears — the existing desktop convention (the server nulls it).
         input.description = Some(description);
+        input.prompt_placeholder = Some(prompt_placeholder);
         input.icon = Some(self.icon.clone());
         input.repository_id = api::Patch::set_or_null(self.repo_id.clone());
         input.body = Some(body);
@@ -338,11 +379,23 @@ impl Render for ActionEditorDialogView {
                 .px_4()
                 .py_3(),
         );
+        // EXP-825: the composer hint — the third row of the web dialog's
+        // metadata group, its placeholder the title like the name's.
+        let prompt_placeholder_row = crate::surface::glass_row_shell().child(
+            div().flex_1().min_w_0().child(
+                glass_input(&self.prompt_placeholder, window, cx)
+                    .appearance(false)
+                    .h_auto()
+                    .px_0()
+                    .py_0(),
+            ),
+        );
         let mut form = v_flex()
             .gap_2()
             .child(crate::surface::glass_group_rows(vec![
                 name_row,
                 description_row,
+                prompt_placeholder_row,
             ]));
         if let Some(name_error) = self.name_error.clone() {
             form = form.child(div().px_1().text_xs().text_color(danger).child(name_error));

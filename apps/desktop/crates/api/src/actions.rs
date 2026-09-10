@@ -61,6 +61,14 @@ pub fn builtin_action_icon(id: &str) -> Option<&'static str> {
 }
 
 const BUILTIN_CREATE_ACTION_NAME: &str = "Create action";
+/// EXP-825: the server's `actionPromptPlaceholderSchema` cap (web
+/// `MAX_ACTION_PROMPT_PLACEHOLDER`) — the editor's single-line field stops
+/// there so a save can never 400.
+pub const MAX_PROMPT_PLACEHOLDER_CHARS: usize = 200;
+/// EXP-825: the Create-action builtin's composer hint — byte-identical to
+/// the web factory (`builtinCreateAction.promptPlaceholder`).
+const BUILTIN_CREATE_ACTION_PROMPT_PLACEHOLDER: &str =
+    "Describe the action — what it should do, and its name if you have one…";
 const BUILTIN_FIX_CONFLICTS_NAME: &str = "Fix merge conflicts";
 const BUILTIN_CHAT_NAME: &str = "Chat";
 
@@ -122,6 +130,12 @@ pub struct Action {
     /// actions and on rows from a pre-inputs server).
     #[serde(default)]
     pub inputs: Vec<ActionInput>,
+    /// EXP-825: the composer's field hint while this action is picked
+    /// (`promptPlaceholder`, ≤[`MAX_PROMPT_PLACEHOLDER_CHARS`]); `None` =
+    /// the generic "Additional instructions" hint. Absent on rows from a
+    /// pre-EXP-825 server.
+    #[serde(default)]
+    pub prompt_placeholder: Option<String>,
     #[serde(default)]
     pub sort_order: f64,
     #[serde(default)]
@@ -179,6 +193,10 @@ struct CreateInput<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     repository_id: Option<&'a str>,
     body: &'a str,
+    /// EXP-825: the composer hint; skipped when `None` (the server schema
+    /// is `.nullable().optional()`, an omitted field leaves it NULL).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    prompt_placeholder: Option<&'a str>,
 }
 
 /// `actions.create` — mutation, owner-only. The server appends to the end of
@@ -190,6 +208,7 @@ pub fn create(
     description: Option<&str>,
     repository_id: Option<&str>,
     body: &str,
+    prompt_placeholder: Option<&str>,
 ) -> Result<Action, ApiError> {
     let response: ActionResponse = trpc.mutation(
         "actions.create",
@@ -199,6 +218,7 @@ pub fn create(
             description,
             repository_id,
             body,
+            prompt_placeholder,
         },
     )?;
     Ok(response.action)
@@ -231,6 +251,11 @@ pub struct ActionUpdate {
     /// `Some(vec![])` deliberately CLEARS it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inputs: Option<Vec<ActionInput>>,
+    /// EXP-825: the composer hint. `None` omits the field; `Some("")` clears
+    /// it (the server nulls an empty string, the desktop's description
+    /// convention).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_placeholder: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sort_order: Option<f64>,
 }
@@ -285,6 +310,7 @@ pub fn from_row(row: &domain::rows::ActionRow) -> Action {
         body: String::new(),
         builtin: false,
         inputs,
+        prompt_placeholder: row.prompt_placeholder.clone(),
         sort_order: row.sort_order.unwrap_or_default(),
         created_at: row.created_at.clone(),
         updated_at: row.updated_at.clone(),
@@ -327,6 +353,9 @@ pub fn builtin_create_action(team_id: &str) -> Action {
                 placeholder: None,
             },
         ],
+        // EXP-825: the composer's hint while the creator is picked (the web
+        // page's old Create-action special case, now the builtin's field).
+        prompt_placeholder: Some(BUILTIN_CREATE_ACTION_PROMPT_PLACEHOLDER.to_string()),
         sort_order: 1e9,
         created_at: None,
         updated_at: None,
@@ -359,6 +388,7 @@ pub fn builtin_fix_conflicts_action(team_id: &str) -> Action {
             required: true,
             placeholder: None,
         }],
+        prompt_placeholder: None,
         sort_order: 1e9 + 1.0,
         created_at: None,
         updated_at: None,
@@ -391,6 +421,7 @@ pub fn builtin_chat_action(team_id: &str) -> Action {
             required: false,
             placeholder: None,
         }],
+        prompt_placeholder: None,
         sort_order: 1e9 + 2.0,
         created_at: None,
         updated_at: None,
@@ -463,8 +494,11 @@ mod tests {
                 "repositoryId":null,"name":"Groom","description":null,
                 "body":"do it","sortOrder":1}}}}"#,
         );
-        let action = create(&client(&base), "team-1", "Groom", None, None, "do it").unwrap();
+        let action =
+            create(&client(&base), "team-1", "Groom", None, None, "do it", None).unwrap();
         assert_eq!(action.id, "act-1");
+        // EXP-825: a pre-hint response decodes hint-less.
+        assert_eq!(action.prompt_placeholder, None);
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/actions.create HTTP/1.1"));
         assert!(request.contains(r#""teamId":"team-1""#));
@@ -472,6 +506,87 @@ mod tests {
         // Omitted optionals stay off the wire (zod .optional()).
         assert!(!request.contains(r#""description""#));
         assert!(!request.contains(r#""repositoryId""#));
+        assert!(!request.contains(r#""promptPlaceholder""#));
+    }
+
+    /// EXP-825: the composer hint rides `actions.create` under its camelCase
+    /// wire key when given.
+    #[test]
+    fn create_sends_the_prompt_placeholder_when_given() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"action":{"id":"act-1","teamId":"team-1",
+                "repositoryId":null,"name":"Groom","description":null,
+                "body":"do it","promptPlaceholder":"Scope: which platforms","sortOrder":1}}}}"#,
+        );
+        let action = create(
+            &client(&base),
+            "team-1",
+            "Groom",
+            None,
+            None,
+            "do it",
+            Some("Scope: which platforms"),
+        )
+        .unwrap();
+        assert_eq!(
+            action.prompt_placeholder.as_deref(),
+            Some("Scope: which platforms")
+        );
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.contains(r#""promptPlaceholder":"Scope: which platforms""#));
+    }
+
+    /// EXP-825: the wire row round-trips the hint — present (camelCase key)
+    /// and absent (a pre-EXP-825 server) alike; a literal `null` reads as
+    /// absent too.
+    #[test]
+    fn action_deserializes_the_prompt_placeholder_present_or_absent() {
+        let present: Action = serde_json::from_str(
+            r#"{"id":"act-1","teamId":"team-1","name":"Groom","body":"do it",
+                "promptPlaceholder":"Scope: which platforms, which version"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            present.prompt_placeholder.as_deref(),
+            Some("Scope: which platforms, which version")
+        );
+        let absent: Action =
+            serde_json::from_str(r#"{"id":"act-1","teamId":"team-1","name":"Groom","body":"do it"}"#)
+                .unwrap();
+        assert_eq!(absent.prompt_placeholder, None);
+        let null: Action = serde_json::from_str(
+            r#"{"id":"act-1","teamId":"team-1","name":"Groom","body":"do it","promptPlaceholder":null}"#,
+        )
+        .unwrap();
+        assert_eq!(null.prompt_placeholder, None);
+        // The snake_case shape key never matches the camelCase wire struct.
+        let snake: Action = serde_json::from_str(
+            r#"{"id":"act-1","teamId":"team-1","name":"Groom","body":"do it","prompt_placeholder":"x"}"#,
+        )
+        .unwrap();
+        assert_eq!(snake.prompt_placeholder, None);
+    }
+
+    /// EXP-825: `actions.update` carries the hint only when set; an empty
+    /// string clears it (the server nulls it), an omitted field leaves it.
+    #[test]
+    fn update_serializes_the_prompt_placeholder() {
+        let mut input = ActionUpdate::new("act-1");
+        input.prompt_placeholder = Some("Scope: which platforms".to_string());
+        let json = serde_json::to_string(&input).unwrap();
+        assert!(json.contains(r#""promptPlaceholder":"Scope: which platforms""#));
+
+        let mut cleared = ActionUpdate::new("act-1");
+        cleared.prompt_placeholder = Some(String::new());
+        assert!(serde_json::to_string(&cleared)
+            .unwrap()
+            .contains(r#""promptPlaceholder":"""#));
+
+        let omitted = ActionUpdate::new("act-1");
+        assert!(!serde_json::to_string(&omitted)
+            .unwrap()
+            .contains("promptPlaceholder"));
     }
 
     #[test]
@@ -602,6 +717,8 @@ mod tests {
             // EXP-583: a pre-drop install can still carry a local `trigger`
             // column — the projection must ignore it, not choke on it.
             "trigger": r#"{"kind":"schedule"}"#,
+            // EXP-825: the synced composer hint (snake_case on the shape).
+            "prompt_placeholder": "Scope: which platforms, which version",
             "sort_order": "1.5"
         }))
         .unwrap();
@@ -616,6 +733,19 @@ mod tests {
         assert_eq!(action.inputs.len(), 1);
         assert_eq!(action.inputs[0].key, "scope");
         assert!(action.inputs[0].required);
+        assert_eq!(
+            action.prompt_placeholder.as_deref(),
+            Some("Scope: which platforms, which version")
+        );
+
+        // A row from a pre-EXP-825 server carries no hint column.
+        let old: domain::rows::ActionRow = serde_json::from_value(serde_json::json!({
+            "id": "act-2",
+            "team_id": "team-1",
+            "name": "Groom",
+        }))
+        .unwrap();
+        assert_eq!(from_row(&old).prompt_placeholder, None);
     }
 
     #[test]
@@ -663,6 +793,8 @@ mod tests {
         assert_eq!(builtin.inputs[0].input_type, "repo");
         assert!(!builtin.inputs[0].required);
         assert_eq!(builtin.inputs[0].placeholder, None);
+        // EXP-825: no composer hint — the chat field asks on its own.
+        assert_eq!(builtin.prompt_placeholder, None);
         assert_eq!(builtin.sort_order, 1e9 + 2.0);
         // The name snapshot the session row carries.
         assert_eq!(builtin_action_name(BUILTIN_CHAT_ID), Some("Chat"));
@@ -697,6 +829,12 @@ mod tests {
             assert!(domain::contract::ACTION_INPUT_TYPE_VALUES.contains(&input.input_type.as_str()));
         }
         assert_eq!(builtin.icon.as_deref(), Some("sparkles"));
+        // EXP-825: the composer's hint while the creator is picked — byte
+        // parity with the web factory's `promptPlaceholder`.
+        assert_eq!(
+            builtin.prompt_placeholder.as_deref(),
+            Some("Describe the action — what it should do, and its name if you have one…")
+        );
         // Pinned first by flag; the huge sortOrder only keeps naive
         // sortOrder-asc renderers from interleaving it.
         assert_eq!(builtin.sort_order, 1e9);
@@ -717,6 +855,8 @@ mod tests {
         assert_eq!(builtin.inputs[0].input_type, "pr");
         assert!(builtin.inputs[0].required);
         assert_eq!(builtin.icon.as_deref(), Some("git-branch"));
+        // EXP-825: no composer hint — the generic extra-instructions one.
+        assert_eq!(builtin.prompt_placeholder, None);
         // Sorts right after "Create action" (web parity: 1e9 + 1).
         assert_eq!(builtin.sort_order, 1e9 + 1.0);
     }

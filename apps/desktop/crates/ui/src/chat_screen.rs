@@ -213,20 +213,40 @@ struct DevicePick {
 
 /// EXP-825: the field's hint follows the subject — byte-identical to the web
 /// `composerPlaceholder` (components/launch-composer.tsx): a chat asks, a
-/// picked subject takes optional extra instructions, the Create-action
-/// builtin takes the request itself.
+/// picked subject takes optional extra instructions, and a picked action
+/// with a non-blank `prompt_placeholder` (the synced column; the
+/// Create-action builtin carries its own) says what to type instead.
 const CHAT_PLACEHOLDER: &str = "Ask the agent…";
 const SUBJECT_PLACEHOLDER: &str = "Additional instructions (optional)…";
-const CREATE_ACTION_PLACEHOLDER: &str =
-    "Describe the action — what it should do, and its name if you have one…";
+
+/// The hint for `subject`, given the picked action's row (if the list holds
+/// it). The web `composerPlaceholder` rule, one for one.
+fn placeholder_for_subject(
+    subject: &Subject,
+    action: Option<&api::actions::Action>,
+) -> SharedString {
+    if matches!(subject, Subject::None) {
+        return CHAT_PLACEHOLDER.into();
+    }
+    if matches!(subject, Subject::Action(_)) {
+        let hint = action
+            .and_then(|action| action.prompt_placeholder.as_deref())
+            .map(str::trim)
+            .filter(|hint| !hint.is_empty());
+        if let Some(hint) = hint {
+            return SharedString::from(hint.to_string());
+        }
+    }
+    SUBJECT_PLACEHOLDER.into()
+}
 
 pub(crate) struct ChatScreenView {
     nav: Entity<Navigation>,
     /// The team the page is scoped to; a switch resets every pick.
     team_id: Option<String>,
     input: Entity<TextareaState>,
-    /// The hint the field currently shows (see [`CHAT_PLACEHOLDER`]).
-    placeholder: &'static str,
+    /// The hint the field currently shows (see [`placeholder_for_subject`]).
+    placeholder: SharedString,
     /// EXP-790: the completion overlay (`@` / `#` / `:`) over `input`; the
     /// composer card draws the chrome, so the widget draws none of its own.
     mention: Entity<MentionInput>,
@@ -355,7 +375,7 @@ impl ChatScreenView {
             nav,
             team_id: None,
             input,
-            placeholder: CHAT_PLACEHOLDER,
+            placeholder: CHAT_PLACEHOLDER.into(),
             mention,
             mention_team: None,
             subject: Subject::None,
@@ -1005,24 +1025,17 @@ impl ChatScreenView {
 
     // ── the gate ──────────────────────────────────────────────────────────
 
-    fn composer_placeholder(&self) -> &'static str {
-        match &self.subject {
-            Subject::None => CHAT_PLACEHOLDER,
-            Subject::Action(action)
-                if action.action_id == api::actions::BUILTIN_CREATE_ACTION_ID =>
-            {
-                CREATE_ACTION_PLACEHOLDER
-            }
-            _ => SUBJECT_PLACEHOLDER,
-        }
+    fn composer_placeholder(&self) -> SharedString {
+        placeholder_for_subject(&self.subject, self.selected_action())
     }
 
-    /// Re-hint the field when the subject changed — set only on a change so
-    /// the input is not notified on every paint.
+    /// Re-hint the field when the subject (or the picked action's synced
+    /// hint) changed — set only on a change so the input is not notified on
+    /// every paint.
     fn sync_placeholder(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let next = self.composer_placeholder();
         if self.placeholder != next {
-            self.placeholder = next;
+            self.placeholder = next.clone();
             self.input
                 .update(cx, |state, cx| state.set_placeholder(next, window, cx));
         }
@@ -2228,6 +2241,76 @@ mod tests {
         .is_none());
         // The pin's repo-less entry reads the same as the web page's.
         assert_eq!(NO_REPO_LABEL, "No repository");
+    }
+
+    /// EXP-825: the field's hint follows the subject like the web
+    /// `composerPlaceholder`: a chat asks, a picked subject takes extra
+    /// instructions, and a picked action with a non-blank
+    /// `prompt_placeholder` shows that instead — the Create-action builtin's
+    /// own hint included; a blank hint, an unlisted action or an issue
+    /// subject fall back.
+    #[test]
+    fn composer_placeholder_follows_the_subject_and_the_actions_hint() {
+        assert_eq!(CHAT_PLACEHOLDER, "Ask the agent…");
+        assert_eq!(SUBJECT_PLACEHOLDER, "Additional instructions (optional)…");
+        let action_subject = |id: &str| {
+            Subject::Action(ActionSubject {
+                action_id: id.to_string(),
+                picks: ActionInputPicks::default(),
+            })
+        };
+        let mut action = api::actions::builtin_fix_conflicts_action("team-1");
+        action.id = "act-1".to_string();
+
+        // No subject: the chat hint, whatever row is offered.
+        assert_eq!(
+            placeholder_for_subject(&Subject::None, Some(&action)),
+            CHAT_PLACEHOLDER
+        );
+        // A picked action without a hint: the generic subject hint.
+        assert_eq!(
+            placeholder_for_subject(&action_subject("act-1"), Some(&action)),
+            SUBJECT_PLACEHOLDER
+        );
+        // The action's hint wins, trimmed.
+        action.prompt_placeholder = Some("  Scope: which platforms, which version  ".to_string());
+        assert_eq!(
+            placeholder_for_subject(&action_subject("act-1"), Some(&action)),
+            "Scope: which platforms, which version"
+        );
+        // A blank hint is no hint.
+        action.prompt_placeholder = Some("   ".to_string());
+        assert_eq!(
+            placeholder_for_subject(&action_subject("act-1"), Some(&action)),
+            SUBJECT_PLACEHOLDER
+        );
+        // An action the list doesn't hold (no row) falls back too.
+        assert_eq!(
+            placeholder_for_subject(&action_subject("act-1"), None),
+            SUBJECT_PLACEHOLDER
+        );
+        // The Create-action builtin's hint now comes from its OWN field —
+        // the old special case, byte for byte.
+        let create = api::actions::builtin_create_action("team-1");
+        assert_eq!(
+            placeholder_for_subject(
+                &action_subject(api::actions::BUILTIN_CREATE_ACTION_ID),
+                Some(&create)
+            ),
+            "Describe the action — what it should do, and its name if you have one…"
+        );
+        // An issue subject never reads an action hint.
+        let issues = Subject::Issues(IssueSubject {
+            rows: Vec::new(),
+            checked: HashSet::new(),
+            repos: HashMap::new(),
+            resumables: HashMap::new(),
+            resume: false,
+        });
+        assert_eq!(
+            placeholder_for_subject(&issues, Some(&action)),
+            SUBJECT_PLACEHOLDER
+        );
     }
 
     /// The issue arms of the remote subject round-trip through the owned

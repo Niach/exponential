@@ -607,6 +607,11 @@ pub struct ActionRow {
     /// like `issue_events.payload`.
     #[serde(default, deserialize_with = "tolerant_opt_json")]
     pub inputs: Option<serde_json::Value>,
+    /// EXP-825: the composer's field hint while the action is picked (≤200
+    /// chars, NULL = the generic "Additional instructions" hint). Absent on
+    /// rows from a pre-EXP-825 server.
+    #[serde(default)]
+    pub prompt_placeholder: Option<String>,
     #[serde(default, deserialize_with = "tolerant_opt_f64")]
     pub sort_order: Option<f64>,
     #[serde(default)]
