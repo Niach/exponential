@@ -1,9 +1,9 @@
 //! The shared **Automation** section (EXP-530; reshaped by EXP-583) — the
 //! trigger + runner form embedded by [`crate::automation_dialog`] (which
-//! creates/edits a real `automations` row) and by
-//! [`crate::start_coding_dialog`]'s suggestion-prefilled create mode (which
-//! can't save anything — it appends the wire JSON to the creator run's
-//! description so the agent sets it via `exponential_automations_create`).
+//! creates/edits a real `automations` row). EXP-825: the suggestion-seeded
+//! creator flow can't save anything either — [`trigger_note`] appends the
+//! wire JSON to the composer's seed text so the creator agent sets it via
+//! `exponential_automations_create` once the action exists.
 //!
 //! Since EXP-583 an automation is its own row, so this section owns FOUR
 //! things: the **trigger** (EXP-698 — ONE glass group whose first row is the
@@ -153,6 +153,60 @@ pub(crate) struct AutomationSpec {
     pub(crate) agent: Option<String>,
     pub(crate) model: Option<String>,
     pub(crate) effort: Option<String>,
+}
+
+/// The machine-readable block appended to a creator run's request when a
+/// suggestion carries an automation (EXP-530/583; moved here from the
+/// deleted create-action dialog by EXP-825). Byte-identical to web
+/// `formatAutomationBlock` (`lib/action-triggers.ts`), key order included:
+/// `deviceId`, `trigger`, then the launch pins only when they are set. The
+/// composer never talks to the server — the creator agent copies this JSON
+/// into `exponential_automations_create` once the action exists.
+pub(crate) fn trigger_note(spec: &AutomationSpec) -> String {
+    let mut payload = serde_json::Map::new();
+    payload.insert("deviceId".to_string(), serde_json::json!(spec.device_id));
+    payload.insert("trigger".to_string(), spec.trigger.clone());
+    for (key, value) in [
+        ("agent", spec.agent.as_deref()),
+        ("model", spec.model.as_deref()),
+        ("effort", spec.effort.as_deref()),
+    ] {
+        if let Some(value) = value.filter(|value| !value.is_empty()) {
+            payload.insert(key.to_string(), serde_json::json!(value));
+        }
+    }
+    let json = serde_json::to_string(&serde_json::Value::Object(payload))
+        .unwrap_or_else(|_| "{}".to_string());
+    format!(
+        "\n\nAutomation — after creating the action, call \
+         exponential_automations_create with its id and exactly these fields: \
+         `{json}`. An automated run fills no inputs, so declare none as required."
+    )
+}
+
+/// EXP-825: the block a getting-started "Action + automation" suggestion
+/// appends to its composer seed — web `action-suggestions-list.tsx` parity:
+/// the runner is the caller's DEFAULT automation-capable machine, else the
+/// first one; without any the block is simply left off (the old dialog did
+/// the same). No launch pins: the creator agent binds the trigger, the
+/// automation's own agent/model/effort stay the machine's defaults.
+pub(crate) fn suggestion_automation_block(trigger: Value, cx: &App) -> String {
+    let devices = automation_devices(cx);
+    let device_id = devices
+        .iter()
+        .find(|device| device.is_default)
+        .or_else(|| devices.first())
+        .map(|device| device.device_id.clone());
+    match device_id {
+        Some(device_id) => trigger_note(&AutomationSpec {
+            trigger,
+            device_id,
+            agent: None,
+            model: None,
+            effort: None,
+        }),
+        None => String::new(),
+    }
 }
 
 impl AutomationEditorState {
@@ -1206,6 +1260,52 @@ mod tests {
             AUTOMATION_REQUIRED_INPUTS_HINT,
             "Automations can't run actions with required inputs. \
              Make the inputs optional first."
+        );
+    }
+
+    /// EXP-825 (moved with the block from the deleted create-action dialog):
+    /// the machine-readable automation block is cross-client copy —
+    /// byte-locked against web `formatAutomationBlock`
+    /// (`lib/action-triggers.ts`) and the mobile mirrors, including the
+    /// compact `JSON.stringify` value form and its key order (`deviceId`,
+    /// `trigger`, then only the pins that are set).
+    #[test]
+    fn trigger_note_matches_the_web_block() {
+        let note = trigger_note(&AutomationSpec {
+            trigger: serde_json::json!({
+                "kind": "schedule",
+                "interval": "daily",
+                "minuteOfDay": 420,
+            }),
+            device_id: "d".to_string(),
+            agent: None,
+            model: None,
+            effort: None,
+        });
+        assert_eq!(
+            note,
+            "\n\nAutomation — after creating the action, call \
+             exponential_automations_create with its id and exactly these fields: \
+             `{\"deviceId\":\"d\",\"trigger\":\
+             {\"kind\":\"schedule\",\"interval\":\"daily\",\"minuteOfDay\":420}}`. \
+             An automated run fills no inputs, so declare none as required."
+        );
+
+        // The pins ride AFTER the trigger, in agent/model/effort order, and
+        // only when set — an empty pin is omitted, never sent as "".
+        let pinned = trigger_note(&AutomationSpec {
+            trigger: serde_json::json!({"kind": "event", "event": "created"}),
+            device_id: "d".to_string(),
+            agent: Some("codex".to_string()),
+            model: None,
+            effort: Some("high".to_string()),
+        });
+        assert!(
+            pinned.contains(
+                "`{\"deviceId\":\"d\",\"trigger\":{\"kind\":\"event\",\"event\":\"created\"},\
+                 \"agent\":\"codex\",\"effort\":\"high\"}`"
+            ),
+            "{pinned}"
         );
     }
 }

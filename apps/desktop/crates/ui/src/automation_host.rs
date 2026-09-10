@@ -807,6 +807,8 @@ fn launch(
             reservation: Some(reservation),
             trigger: Some(note),
             on_settled: Some(on_settled),
+            // An automation fires with no composer text.
+            prompt: None,
         },
         cx,
     );

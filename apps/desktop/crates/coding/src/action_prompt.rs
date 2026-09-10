@@ -86,7 +86,7 @@ pub fn render_action_prompt_with_trigger(
 ) -> String {
     // EXP-679: a trigger IS the unattended marker, so these two wrappers
     // never need the flag of their own.
-    render_action_prompt_full(name, body, inputs, trigger, None, false)
+    render_action_prompt_full(name, body, inputs, trigger, None, false, None)
 }
 
 /// The full renderer (EXP-637): [`render_action_prompt_with_trigger`] plus
@@ -119,6 +119,7 @@ pub fn render_action_prompt_full(
     trigger: Option<&TriggerNote>,
     workspace: Option<&WorkspaceNote>,
     unattended: bool,
+    extra: Option<&str>,
 ) -> String {
     let inputs_section = if inputs.is_empty() {
         String::new()
@@ -180,11 +181,15 @@ worktree dirty. Never force-push; do not use `gh`.\n\n",
         ),
     };
     let close_out = crate::prompt::close_out(trigger.is_some() || unattended);
+    let extra_section = match crate::prompt::additional_instructions(extra) {
+        section if section.is_empty() => section,
+        section => format!("{section}\n"),
+    };
     format!(
         "You are running the team action \"{name}\" for this user. Follow the \
 instructions below exactly. The exponential MCP tools are available for issue, \
 board, label, and comment operations. \
-{close_out}\n\n{inputs_section}{trigger_section}{workspace_section}---\n\n{body}"
+{close_out}\n\n{inputs_section}{trigger_section}{workspace_section}{extra_section}---\n\n{body}"
     )
 }
 
@@ -230,32 +235,23 @@ keep answering follow-ups.\n"
 /// Prompt for the builtin "Create action" run (EXP-257 — the successor of
 /// the actions panel's "Describe with your agent" creator, EXP-253 / L24). It
 /// runs as a regular ACTION session in a scratch dir with the exponential
-/// MCP tools wired, and asks Claude to author ONE action for `team_id` from
-/// the user's one-line `description`. `repo` is the optional repo INPUT the
-/// user picked — `(id, display)`; when set, the authored action must bind to
-/// that repository. `icon` is the optional curated glyph the user picked
-/// (EXP-273). It must NOT touch git or files — it only calls the MCP tools.
+/// MCP tools wired, and asks the agent to author ONE action for `team_id`
+/// from the user's `request` — the composer's free text (EXP-825: the
+/// `description`/`name` inputs are gone; the agent derives the name from the
+/// request, or uses one the request states verbatim). `repo` is the optional
+/// repo INPUT the user picked — `(id, display)`; when set, the authored
+/// action must bind to that repository. `icon` is the optional curated glyph
+/// the user picked (EXP-273). It must NOT touch git or files — it only calls
+/// the MCP tools. EXP-825 also retired free-text action inputs: the prompt
+/// tells the agent never to declare one, since the composer text reaches
+/// every run as the additional-instructions section instead.
 pub fn create_action_prompt(
     team_id: &str,
-    description: &str,
+    request: &str,
     repo: Option<(&str, &str)>,
     icon: Option<&str>,
-    name: Option<&str>,
     unattended: bool,
 ) -> String {
-    // EXP-615: a typed name is binding — the agent must not "improve" it.
-    // Flattened like every other user string that reaches a prompt; `None`
-    // (the pre-EXP-615 shape) renders the empty string, so the prompt stays
-    // byte-identical to what it was.
-    let name_rule = match name
-        .map(single_line)
-        .filter(|name| !name.is_empty())
-    {
-        Some(name) => format!(
-            " Name the action exactly `{name}` — the user typed that name, so use it verbatim."
-        ),
-        None => String::new(),
-    };
     let icon_rule = match icon {
         Some(name) => format!(
             " Set `icon` to `{name}` — the user picked that glyph for the action."
@@ -271,7 +267,7 @@ action (the same set as board icons, e.g. `bug`, `rocket`, `database`, `chart-li
             "Set `repositoryId` to `{id}` ({display}) — the user picked that repository \
 as the action's execution context."
         ),
-        None => "Leave `repositoryId` unset unless the description clearly needs repository \
+        None => "Leave `repositoryId` unset unless the request clearly needs repository \
 access (then pick the right repo id from `exponential_repositories_list`)."
             .to_string(),
     };
@@ -286,22 +282,24 @@ afterwards, so keep answering follow-ups."
     format!(
         "Please create ONE new action for the Exponential team with id `{team_id}`. An \
 action is a reusable markdown prompt that a team member later runs as an interactive \
-Claude session on their own desktop (the exponential MCP tools are available to that \
-run). The user described the action they want as:\n\n\"{description}\"\n\n\
+agent session on their own desktop (the exponential MCP tools are available to that \
+run). The user requested the action as:\n\n\"{request}\"\n\n\
+Derive a short name from the request (if it states a name, use that verbatim). \
 Write a clear, focused markdown body for it: state the goal, the concrete steps, \
 which exponential MCP tools to use (e.g. exponential_issues_list / \
 exponential_issues_create / exponential_labels_list), and what to report at the end. \
 Call `exponential_actions_list` for the team first so the name doesn't collide. \
-{repo_rule}{icon_rule}{name_rule} Create the action with `exponential_actions_create` (teamId, a \
-short name, a one-line description, the markdown body). `exponential_actions_create` also \
-accepts an optional `inputs` array ({{key, label, type: text|repo|board|pr|icon, required?, \
-placeholder?}}) declaring run-time inputs the runner fills in a form and the run \
-receives as an \"## Inputs\" prompt section — declare inputs when the described \
-action naturally varies per run (a free-text scope, a target repository or board); \
-otherwise omit the field. `exponential_actions_create` also accepts an optional \
-`trigger` field: when the description contains an \"Automation —\" block, pass that \
-block's JSON as `trigger` verbatim; otherwise omit `trigger`. Do not commit, push, \
-or change any files — only call the MCP tools. {report_rule}"
+{repo_rule}{icon_rule} Create the action with `exponential_actions_create` (teamId, the \
+name, a one-line description, the markdown body). `exponential_actions_create` also \
+accepts an optional `inputs` array ({{key, label, type: repo|board|pr|icon, required?, \
+placeholder?}}) declaring pick inputs the runner fills before the run and the run \
+receives as an \"## Inputs\" prompt section — declare them when the described action \
+naturally varies per run (a target repository or board); otherwise omit the field. \
+Never declare free-text inputs: whatever the requester types when running the action \
+reaches the run as an Additional instructions section. `exponential_actions_create` \
+also accepts an optional `trigger` field: when the request contains an \"Automation —\" \
+block, pass that block's JSON as `trigger` verbatim; otherwise omit `trigger`. Do not \
+commit, push, or change any files — only call the MCP tools. {report_rule}"
     )
 }
 
@@ -315,11 +313,13 @@ or change any files — only call the MCP tools. {report_rule}"
 /// `exponential_pr_merge` MCP tool — merging completes every linked issue.
 /// If the base goes stale MID-RUN (the parent merges while the agent works),
 /// the prompt points at `exponential_pr_retarget` as the self-heal.
+/// EXP-825: `extra` is the composer's free text, appended last.
 pub fn fix_pr_conflicts_prompt(
     identifier: &str,
     branch: &str,
     base_branch: &str,
     unattended: bool,
+    extra: Option<&str>,
 ) -> String {
     // EXP-679: the merge result goes into the conversation for a person's
     // run (no close-out tool there), through the tool for an unattended one.
@@ -329,7 +329,7 @@ stopped)."
     } else {
         "Finally report the merge result here (merged, or why you stopped)."
     };
-    format!(
+    let prompt = format!(
         "The pull request for `{identifier}` (branch `{branch}`) has merge conflicts and \
 cannot be merged. You are in a worktree checked out to `{branch}`. First run \
 `git fetch origin` and confirm `git rev-parse HEAD` equals \
@@ -347,7 +347,8 @@ onto the repository's default branch), rebase onto the new base, push again with
 `--force-with-lease`, and retry the merge. If the conflicts \
 cannot be resolved safely, do NOT push or merge: stop and summarize what blocks the \
 rebase instead. {report_rule}"
-    )
+    );
+    crate::prompt::append_additional_instructions(prompt, extra)
 }
 
 /// EXP-637 — the RESUME fallback prompt: a run is being resumed but its
@@ -403,8 +404,7 @@ pub fn builtin_prompt_preview(action_id: &str) -> Option<String> {
     match action_id {
         domain::contract::BUILTIN_CREATE_ACTION_ID => Some(create_action_prompt(
             "<this team>",
-            "<the description you type when you run it>",
-            None,
+            "<what you type in the composer when you run it>",
             None,
             None,
             // The preview shows what a hand-started run sends (EXP-679).
@@ -418,6 +418,7 @@ pub fn builtin_prompt_preview(action_id: &str) -> Option<String> {
             "<its PR branch>",
             "<the PR's base branch>",
             false,
+            None,
         )),
         _ => None,
     }
@@ -551,7 +552,8 @@ board, label, and comment operations. {}\n\n## Workspace\n\n{SCRATCH_CWD_NOTE}\n
                 &[],
                 None,
                 None,
-                false
+                false,
+                None,
             ),
             render_action_prompt("Code review", "# Review\nScan the repo.", &[])
         );
@@ -561,11 +563,11 @@ board, label, and comment operations. {}\n\n## Workspace\n\n{SCRATCH_CWD_NOTE}\n
     /// automation's trigger implies it without the flag.
     #[test]
     fn only_an_unattended_action_run_is_told_to_call_the_close_out_tool() {
-        let attended = render_action_prompt_full("Code review", "# Review", &[], None, None, false);
+        let attended = render_action_prompt_full("Code review", "# Review", &[], None, None, false, None);
         assert!(!attended.contains("exponential_sessions_end"));
         assert!(attended.contains("This session stays open after you finish"));
 
-        let unattended = render_action_prompt_full("Code review", "# Review", &[], None, None, true);
+        let unattended = render_action_prompt_full("Code review", "# Review", &[], None, None, true, None);
         assert!(unattended.contains("`exponential_sessions_end`"));
         assert!(unattended.contains("nobody is watching it"));
 
@@ -576,7 +578,7 @@ board, label, and comment operations. {}\n\n## Workspace\n\n{SCRATCH_CWD_NOTE}\n
             },
         };
         let automated =
-            render_action_prompt_full("Code review", "# Review", &[], Some(&note), None, false);
+            render_action_prompt_full("Code review", "# Review", &[], Some(&note), None, false, None);
         assert!(automated.contains("`exponential_sessions_end`"));
     }
 
@@ -596,6 +598,7 @@ board, label, and comment operations. {}\n\n## Workspace\n\n{SCRATCH_CWD_NOTE}\n
             None,
             Some(&workspace),
             false,
+            None,
         );
         assert!(prompt.contains("## Workspace"));
         assert!(prompt.contains("branch `exp/code-review-1a2b3c4d` in a dedicated worktree"));
@@ -607,6 +610,39 @@ board, label, and comment operations. {}\n\n## Workspace\n\n{SCRATCH_CWD_NOTE}\n
         // The section sits between the trigger block and the divider, and the
         // body still rides last and verbatim.
         assert!(prompt.ends_with("---\n\n# Review"));
+    }
+
+    /// EXP-825: the composer's free text sits BEFORE the `---` divider (after
+    /// the workspace section) — the body after the divider is the owner's
+    /// program and stays byte-verbatim; blank text renders the plain prompt.
+    #[test]
+    fn additional_instructions_sit_before_the_divider() {
+        let plain = render_action_prompt_full("Weekly", "# Body", &[], None, None, false, None);
+        assert_eq!(
+            plain,
+            render_action_prompt_full("Weekly", "# Body", &[], None, None, false, Some(" \n"))
+        );
+        let with = render_action_prompt_full(
+            "Weekly",
+            "# Body",
+            &[],
+            None,
+            None,
+            false,
+            Some("Only the iOS lane this week."),
+        );
+        assert!(with.ends_with(
+            "## Additional instructions from the requester\n\nOnly the iOS lane this \
+week.\n\n---\n\n# Body"
+        ));
+        assert_eq!(
+            with.replace(
+                "## Additional instructions from the requester\n\nOnly the iOS lane this \
+week.\n\n",
+                ""
+            ),
+            plain
+        );
     }
 
     /// EXP-615/EXP-637: the chat prompt is two preamble lines, a divider,
@@ -651,7 +687,7 @@ stays open afterwards, so keep answering follow-ups.\n\n---\n\nhi"
     fn the_repo_less_note_forbids_hunting_for_a_checkout() {
         for prompt in [
             chat_prompt("push the ios release", None, false),
-            render_action_prompt_full("Weekly", "# Body", &[], None, None, false),
+            render_action_prompt_full("Weekly", "# Body", &[], None, None, false, None),
         ] {
             assert!(
                 prompt.contains("never go looking for one on this machine"),
@@ -805,7 +841,7 @@ changed:\n\n"));
     #[test]
     fn create_action_prompt_targets_the_team_and_the_mcp_tools() {
         let prompt =
-            create_action_prompt("team-123", "review the backlog weekly", None, None, None, false);
+            create_action_prompt("team-123", "review the backlog weekly", None, None, false);
         // Names the exact team so Claude passes the right teamId.
         assert!(prompt.contains("team-123"));
         // Carries the user's one-line description verbatim.
@@ -813,9 +849,10 @@ changed:\n\n"));
         // Points at the actions MCP tools (the run's MCP wiring exposes them).
         assert!(prompt.contains("exponential_actions_create"));
         assert!(prompt.contains("exponential_actions_list"));
-        // EXP-257: the authored action may declare typed run-time inputs.
+        // EXP-257/EXP-825: the authored action may declare PICK inputs only.
         assert!(prompt.contains("`inputs` array"));
-        assert!(prompt.contains("type: text|repo|board"));
+        assert!(prompt.contains("type: repo|board|pr|icon"));
+        assert!(prompt.contains("Never declare free-text inputs"));
         // EXP-530: an "Automation —" block in the description becomes the
         // `trigger` field, verbatim — otherwise the field stays absent.
         assert!(prompt.contains("optional `trigger` field"));
@@ -836,93 +873,68 @@ changed:\n\n"));
             "code review",
             Some(("repo-uuid-9", "acme/web")),
             None,
-            None,
             false,
         );
         assert!(prompt.contains("Set `repositoryId` to `repo-uuid-9` (acme/web)"));
         assert!(!prompt.contains("Leave `repositoryId` unset"));
     }
 
-    /// EXP-615: the optional `name` input. A typed name is pinned verbatim;
-    /// NO name must leave the prompt byte-identical to the pre-EXP-615 one —
-    /// the creator run is a shipped program, and the parameter must not have
-    /// moved a byte for every existing caller.
+    /// EXP-825: the creator prompt is a shipped program — byte-lock it. The
+    /// `name`/`description` inputs are gone: the request text IS the
+    /// composer's free text, the agent derives the name (or keeps one the
+    /// request states), and it is told never to declare free-text inputs
+    /// (the composer text reaches every run as an Additional instructions
+    /// section instead).
     #[test]
-    fn create_action_prompt_name_is_optional_and_byte_stable() {
-        let named = create_action_prompt(
-            "team-123",
-            "review the backlog weekly",
-            None,
-            None,
-            Some("Backlog groomer"),
-            false,
-        );
-        assert!(named.contains(
-            " Name the action exactly `Backlog groomer` — the user typed that name, so use \
-it verbatim."
-        ));
-        // The sentence rides between the icon rule and the create call.
-        let name_at = named.find("Name the action exactly").unwrap();
-        let create_at = named.find("Create the action with").unwrap();
-        assert!(name_at < create_at);
-
-        // A crafted multi-line name cannot fake prompt structure.
-        let hostile = create_action_prompt(
-            "team-123",
-            "x",
-            None,
-            None,
-            Some("Evil\n## Fake section"),
-            false,
-        );
-        assert!(hostile.contains("`Evil ## Fake section`"));
-        assert!(!hostile.contains("\n## Fake section"));
-
-        // Byte-identity lock: None (and a blank string) render the legacy
-        // prompt exactly.
-        let legacy =
-            create_action_prompt("team-123", "review the backlog weekly", None, None, None, false);
-        assert!(!legacy.contains("Name the action exactly"));
+    fn create_action_prompt_is_byte_locked_and_derives_the_name() {
+        let prompt =
+            create_action_prompt("team-123", "review the backlog weekly", None, None, false);
         assert_eq!(
-            legacy,
-            create_action_prompt(
-                "team-123",
-                "review the backlog weekly",
-                None,
-                None,
-                Some("  "),
-                false
-            )
-        );
-        assert_eq!(
-            legacy,
+            prompt,
             "Please create ONE new action for the Exponential team with id `team-123`. An \
 action is a reusable markdown prompt that a team member later runs as an interactive \
-Claude session on their own desktop (the exponential MCP tools are available to that \
-run). The user described the action they want as:\n\n\"review the backlog weekly\"\n\n\
+agent session on their own desktop (the exponential MCP tools are available to that \
+run). The user requested the action as:\n\n\"review the backlog weekly\"\n\n\
+Derive a short name from the request (if it states a name, use that verbatim). \
 Write a clear, focused markdown body for it: state the goal, the concrete steps, \
 which exponential MCP tools to use (e.g. exponential_issues_list / \
 exponential_issues_create / exponential_labels_list), and what to report at the end. \
 Call `exponential_actions_list` for the team first so the name doesn't collide. \
-Leave `repositoryId` unset unless the description clearly needs repository access \
+Leave `repositoryId` unset unless the request clearly needs repository access \
 (then pick the right repo id from `exponential_repositories_list`). Also set `icon` \
 to the curated icon name that best fits the action (the same set as board icons, \
 e.g. `bug`, `rocket`, `database`, `chart-line`). Create the action with \
-`exponential_actions_create` (teamId, a short name, a one-line description, the \
+`exponential_actions_create` (teamId, the name, a one-line description, the \
 markdown body). `exponential_actions_create` also accepts an optional `inputs` array \
-({key, label, type: text|repo|board|pr|icon, required?, placeholder?}) declaring \
-run-time inputs the runner fills in a form and the run receives as an \"## Inputs\" \
-prompt section — declare inputs when the described action naturally varies per run (a \
-free-text scope, a target repository or board); otherwise omit the field. \
-`exponential_actions_create` also accepts an optional `trigger` field: when the \
-description contains an \"Automation —\" block, pass that block's JSON as `trigger` \
-verbatim; otherwise omit `trigger`. Do not commit, push, or change any files — only \
-call the MCP tools. After the action is created, report what you created here; the \
-session stays open afterwards, so keep answering follow-ups."
+({key, label, type: repo|board|pr|icon, required?, placeholder?}) declaring pick \
+inputs the runner fills before the run and the run receives as an \"## Inputs\" \
+prompt section — declare them when the described action naturally varies per run (a \
+target repository or board); otherwise omit the field. Never declare free-text \
+inputs: whatever the requester types when running the action reaches the run as an \
+Additional instructions section. `exponential_actions_create` also accepts an \
+optional `trigger` field: when the request contains an \"Automation —\" block, pass \
+that block's JSON as `trigger` verbatim; otherwise omit `trigger`. Do not commit, \
+push, or change any files — only call the MCP tools. After the action is created, \
+report what you created here; the session stays open afterwards, so keep answering \
+follow-ups."
         );
+        // The retired input types never come back into the declared set.
+        assert!(!prompt.contains("text|"));
+        assert!(!prompt.contains("textarea"));
+        assert!(!prompt.contains("Name the action exactly"));
+        // A multi-line request rides verbatim (an "Automation —" block is
+        // multi-line JSON the agent must copy).
+        let block = create_action_prompt(
+            "team-123",
+            "triage\n\nAutomation —\n{\"kind\":\"schedule\"}",
+            None,
+            None,
+            false,
+        );
+        assert!(block.contains("\"triage\n\nAutomation —\n{\"kind\":\"schedule\"}\""));
         // EXP-679: only the unattended creator run names the close-out tool.
         let unattended =
-            create_action_prompt("team-123", "review the backlog weekly", None, None, None, true);
+            create_action_prompt("team-123", "review the backlog weekly", None, None, true);
         assert!(unattended.contains("report with `exponential_sessions_end` (a one-paragraph"));
         assert!(unattended.contains("that call ends this run."));
     }
@@ -932,11 +944,11 @@ session stays open afterwards, so keep answering follow-ups."
     #[test]
     fn create_action_prompt_binds_the_picked_icon_input() {
         let picked =
-            create_action_prompt("team-123", "triage bugs", None, Some("bug"), None, false);
+            create_action_prompt("team-123", "triage bugs", None, Some("bug"), false);
         assert!(picked.contains("Set `icon` to `bug`"));
         assert!(!picked.contains("best fits the"));
 
-        let unpicked = create_action_prompt("team-123", "triage bugs", None, None, None, false);
+        let unpicked = create_action_prompt("team-123", "triage bugs", None, None, false);
         assert!(unpicked.contains("best fits the"));
         assert!(!unpicked.contains("Set `icon` to `"));
     }
@@ -949,7 +961,7 @@ session stays open afterwards, so keep answering follow-ups."
     /// mid-run.
     #[test]
     fn fix_pr_conflicts_prompt_rebases_pushes_and_merges_via_mcp() {
-        let prompt = fix_pr_conflicts_prompt("EXP-42", "exp/EXP-42", "main", false);
+        let prompt = fix_pr_conflicts_prompt("EXP-42", "exp/EXP-42", "main", false, None);
         assert_eq!(
             prompt,
             "The pull request for `EXP-42` (branch `exp/EXP-42`) has merge conflicts and \
@@ -971,7 +983,7 @@ cannot be resolved safely, do NOT push or merge: stop and summarize what blocks 
 rebase instead. Finally report the merge result here (merged, or why you stopped)."
         );
         // EXP-679: the unattended variant swaps ONLY the report sentence.
-        let unattended = fix_pr_conflicts_prompt("EXP-42", "exp/EXP-42", "main", true);
+        let unattended = fix_pr_conflicts_prompt("EXP-42", "exp/EXP-42", "main", true, None);
         assert_eq!(
             unattended,
             prompt.replace(
@@ -991,13 +1003,19 @@ why you stopped)."
         // Belt-and-braces alongside the launcher's ensure_branch_at_origin:
         // the agent re-verifies the checkout matches origin before pushing.
         assert!(prompt.contains("git rev-parse origin/exp/EXP-42"));
+        // EXP-825: the composer's free text rides last.
+        let extra = fix_pr_conflicts_prompt("EXP-42", "exp/EXP-42", "main", false, Some("Keep the lockfile from main."));
+        assert_eq!(
+            extra,
+            format!("{prompt}\n\n## Additional instructions from the requester\n\nKeep the lockfile from main.\n")
+        );
     }
 
     /// EXP-324: a stacked PR's rebase slot carries the PARENT branch the
     /// launcher resolved, not the repo default.
     #[test]
     fn fix_pr_conflicts_prompt_substitutes_a_stacked_base() {
-        let prompt = fix_pr_conflicts_prompt("EXP-320", "exp/EXP-320", "exp/EXP-314", false);
+        let prompt = fix_pr_conflicts_prompt("EXP-320", "exp/EXP-320", "exp/EXP-314", false, None);
         assert!(
             prompt.contains("rebase onto `origin/exp/EXP-314` (the pull request's base branch)")
         );

@@ -16,11 +16,11 @@
 //! Getting-started page's second tab (the header's lightbulb goes there).
 //!
 //! EXP-431 carries over: the create builtin is not a row — creation lives
-//! behind the header's "New action" button
-//! ([`crate::create_action_dialog`]). The list is LIVE off the synced
-//! `actions` shape (body-less rows; the edit dialog fetches the body via
-//! `actions.get` on open). ▶ Run opens the unified Start-coding dialog's
-//! Actions tab, which owns agent/model/effort and the typed input fields.
+//! behind the header's "New action" button, which opens the Agent page
+//! composer with the creator builtin picked (EXP-825). The list is LIVE off
+//! the synced `actions` shape (body-less rows; the edit dialog fetches the
+//! body via `actions.get` on open). ▶ Run opens the same composer with the
+//! action picked; it owns agent/model/effort and the typed input fields.
 
 use gpui::{
     div, px, App, ClickEvent, Entity, FontWeight, InteractiveElement, IntoElement, ParentElement,
@@ -146,9 +146,9 @@ impl ActionsView {
         active_team_id(&self.nav, cx)
     }
 
-    /// ▶ Run — open the unified Start-coding dialog's Actions tab with this
-    /// action preselected (EXP-257: the dialog owns agent/model/effort and
-    /// the typed input fields).
+    /// ▶ Run — open the Agent page composer with this action picked
+    /// (EXP-825: the composer owns agent/model/effort and the typed input
+    /// fields).
     fn run(&mut self, action_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let Some(team_id) = self.team_id(cx) else {
             return;
@@ -157,7 +157,12 @@ impl ActionsView {
         if crate::coding_flow::no_agent_reason(cx).is_some() {
             return;
         }
-        crate::start_coding_dialog::open_for_action(window, cx, team_id, action_id);
+        let _ = team_id;
+        crate::navigation::navigate_to_chat(
+            window,
+            cx,
+            crate::navigation::ChatSeed::action(action_id),
+        );
     }
 
     /// Destructive native actions confirm first — the web delete dialog's
@@ -377,7 +382,12 @@ impl ActionsView {
             .cursor_pointer()
             .hover(move |this| this.bg(hover))
             .on_click(move |_: &ClickEvent, window, cx| {
-                crate::create_action_dialog::open(window, cx, team_id.clone());
+                let _ = &team_id;
+                crate::navigation::navigate_to_chat(
+                    window,
+                    cx,
+                    crate::navigation::ChatSeed::action(api::actions::BUILTIN_CREATE_ACTION_ID),
+                );
             })
             .child(
                 gpui_component::v_flex()
@@ -452,7 +462,14 @@ impl Render for ActionsView {
                     .tooltip(no_agent.clone().unwrap_or_else(|| "New action".into()))
                     .disabled(no_agent.is_some())
                     .on_click(move |_, window, cx| {
-                        crate::create_action_dialog::open(window, cx, new_team.clone());
+                        let _ = &new_team;
+                        crate::navigation::navigate_to_chat(
+                            window,
+                            cx,
+                            crate::navigation::ChatSeed::action(
+                                api::actions::BUILTIN_CREATE_ACTION_ID,
+                            ),
+                        );
                     })
                     .into_any_element()
             });

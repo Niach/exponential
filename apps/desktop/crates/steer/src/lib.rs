@@ -63,7 +63,10 @@ pub mod control_channel;
 pub mod feed;
 pub mod frames;
 pub mod history;
-pub mod image_message;
+// EXP-825: the image-message shape lives in `domain` now (the launcher
+// parses start-prompt embeds with it); re-exported so `steer::image_message`
+// and the flat re-exports below keep resolving.
+pub use domain::image_message;
 pub mod journal;
 pub mod login_picker;
 pub mod publisher;
@@ -120,8 +123,9 @@ pub use history::{
 pub use journal::{ActivityJournal, JOURNAL_BYTE_CAP, JOURNAL_EVENT_CAP};
 pub use tool_group_summary::{tool_group_summary, ToolCallSummary, TOOL_GROUP_SUMMARY_SEPARATOR};
 pub use publisher::{
-    image_localizer, publish, ActivitySender, AttachmentHook, KillSignal, PublishSpec,
-    PublisherHandle, PublisherHooks, PublisherTickets, TrpcPublisherTickets,
+    has_image_embed, image_localizer, localize_message, publish, ActivitySender, AttachmentHook,
+    ImageEmbeds, KillSignal, PublishSpec, PublisherHandle, PublisherHooks, PublisherTickets,
+    TrpcPublisherTickets,
 };
 pub use viewer::{
     chunk_input, spawn_viewer, spawn_viewer_with, TrpcViewerTickets, ViewerEvent, ViewerHandle,

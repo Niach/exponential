@@ -483,17 +483,11 @@ impl MachinesSection {
             .tooltip(no_agent.clone().unwrap_or_else(|| "Start coding".into()))
             .disabled(no_agent.is_some())
             .on_click(move |_: &gpui::ClickEvent, window: &mut Window, cx: &mut gpui::App| {
-                let nav = crate::navigation::nav_for_window(window, cx);
-                let Some(team_id) = crate::navigation::active_team_id(&nav, cx) else {
-                    return;
-                };
-                crate::start_coding_dialog::open_for_selection(
+                // EXP-825: the composer opens with THIS machine preselected.
+                crate::navigation::navigate_to_chat(
                     window,
                     cx,
-                    team_id,
-                    Vec::new(),
-                    None,
-                    Some(start_device_id.clone()),
+                    crate::navigation::ChatSeed::device(start_device_id.clone()),
                 );
             });
 

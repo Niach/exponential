@@ -130,6 +130,12 @@ struct StartInput<'a> {
     /// byte-identical and an older server simply strips the key.
     #[serde(skip_serializing_if = "Option::is_none")]
     agent: Option<&'a str>,
+    /// EXP-825: pre-session image uploads (`POST
+    /// /api/teams/{id}/session-files`) the composer prompt embeds — the
+    /// server binds them to the new row. Skipped when empty so every
+    /// image-less start's wire is byte-identical.
+    #[serde(skip_serializing_if = "<[String]>::is_empty")]
+    attachment_ids: &'a [String],
 }
 
 #[derive(Serialize)]
@@ -153,6 +159,9 @@ struct StartBatchInput<'a> {
     /// byte-identical and an older server simply strips the key.
     #[serde(skip_serializing_if = "Option::is_none")]
     agent: Option<&'a str>,
+    /// EXP-825 — same as [`StartInput::attachment_ids`], on the batch branch.
+    #[serde(skip_serializing_if = "<[String]>::is_empty")]
+    attachment_ids: &'a [String],
 }
 
 #[derive(Serialize)]
@@ -192,6 +201,9 @@ struct StartActionInput<'a> {
     /// byte-identical and an older server simply strips the key.
     #[serde(skip_serializing_if = "Option::is_none")]
     agent: Option<&'a str>,
+    /// EXP-825 — same as [`StartInput::attachment_ids`], on the action branch.
+    #[serde(skip_serializing_if = "<[String]>::is_empty")]
+    attachment_ids: &'a [String],
 }
 
 #[derive(Serialize)]
@@ -331,6 +343,9 @@ pub fn live_for_issue(
 /// continues; `None` on every fresh start.
 /// EXP-679: `started_reason` (`agent`) marks a run another coding session
 /// started — the server treats such a row as unattended.
+/// EXP-825: `attachment_ids` binds the composer prompt's pre-session image
+/// uploads to the row (`attachmentIds`; omitted when empty).
+#[allow(clippy::too_many_arguments)]
 pub fn start(
     trpc: &TrpcClient,
     issue_id: &str,
@@ -339,6 +354,7 @@ pub fn start(
     started_reason: Option<&str>,
     resumed_from_id: Option<&str>,
     agent: Option<&str>,
+    attachment_ids: &[String],
 ) -> Result<CodingSession, ApiError> {
     let envelope: SessionEnvelope = trpc.mutation(
         "codingSessions.start",
@@ -350,6 +366,7 @@ pub fn start(
             device_id: attribution.device_id,
             resumed_from_id,
             agent,
+            attachment_ids,
         },
     )?;
     Ok(envelope.session)
@@ -359,6 +376,7 @@ pub fn start(
 /// server accepts exactly one of `issueId`/`teamId` and inserts a row
 /// with `issue_id`/`board_id` NULL and the given `team_id`. Same 412
 /// semantics as [`start`].
+#[allow(clippy::too_many_arguments)]
 pub fn start_batch(
     trpc: &TrpcClient,
     team_id: &str,
@@ -367,6 +385,7 @@ pub fn start_batch(
     started_reason: Option<&str>,
     resumed_from_id: Option<&str>,
     agent: Option<&str>,
+    attachment_ids: &[String],
 ) -> Result<CodingSession, ApiError> {
     let envelope: SessionEnvelope = trpc.mutation(
         "codingSessions.start",
@@ -378,6 +397,7 @@ pub fn start_batch(
             device_id: attribution.device_id,
             resumed_from_id,
             agent,
+            attachment_ids,
         },
     )?;
     Ok(envelope.session)
@@ -410,6 +430,9 @@ pub struct ActionStart<'a> {
     /// EXP-484: the agent CLI executing the run (contract `codingAgent`).
     pub agent: Option<&'a str>,
     pub attribution: Attribution<'a>,
+    /// EXP-825: the composer prompt's pre-session image uploads; empty =
+    /// key omitted.
+    pub attachment_ids: &'a [String],
 }
 
 pub fn start_action(
@@ -429,6 +452,7 @@ pub fn start_action(
             branch: start.branch,
             resumed_from_id: start.resumed_from_id,
             agent: start.agent,
+            attachment_ids: start.attachment_ids,
         },
     )?;
     Ok(envelope.session)
@@ -584,7 +608,7 @@ mod tests {
     #[test]
     fn start_decodes_session_envelope_and_posts_device_label() {
         let (base, captured) = one_shot_server(200, SESSION_BODY);
-        let session = start(&client(&base), "issue-1", Some("testbox"), Attribution::default(), None, None, None).unwrap();
+        let session = start(&client(&base), "issue-1", Some("testbox"), Attribution::default(), None, None, None, &[]).unwrap();
         assert_eq!(session.id, "sess-1");
         assert_eq!(session.status.as_deref(), Some("running"));
         assert_eq!(session.device_label.as_deref(), Some("testbox"));
@@ -611,7 +635,7 @@ mod tests {
     #[test]
     fn start_omits_absent_device_label() {
         let (base, captured) = one_shot_server(200, SESSION_BODY);
-        let _ = start(&client(&base), "issue-1", None, Attribution::default(), None, None, None).unwrap();
+        let _ = start(&client(&base), "issue-1", None, Attribution::default(), None, None, None, &[]).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(r#"{"issueId":"issue-1"}"#));
     }
@@ -624,7 +648,7 @@ mod tests {
                 "id":"sess-b","issueId":null,"teamId":"ws-1",
                 "userId":"user-1","deviceLabel":"testbox","status":"running"}}}}"#,
         );
-        let session = start_batch(&client(&base), "ws-1", Some("testbox"), Attribution::default(), None, None, None).unwrap();
+        let session = start_batch(&client(&base), "ws-1", Some("testbox"), Attribution::default(), None, None, None, &[]).unwrap();
         assert_eq!(session.id, "sess-b");
         assert_eq!(session.team_id.as_deref(), Some("ws-1"));
         assert_eq!(session.issue_id, None);
@@ -647,6 +671,7 @@ mod tests {
             None,
             Some("sess-old"),
             None,
+            &[],
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -671,6 +696,7 @@ mod tests {
             None,
             Some("sess-old"),
             None,
+            &[],
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -688,7 +714,7 @@ mod tests {
             started_by_id: Some("user-2"),
             device_id: Some("dev-1"),
         };
-        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None, None, None).unwrap();
+        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None, None, None, &[]).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(
             r#"{"issueId":"issue-1","deviceLabel":"testbox","startedById":"user-2","deviceId":"dev-1"}"#
@@ -706,7 +732,7 @@ mod tests {
             started_by_id: None,
             device_id: Some("dev-1"),
         };
-        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None, None, None).unwrap();
+        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None, None, None, &[]).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request
             .ends_with(r#"{"issueId":"issue-1","deviceLabel":"testbox","deviceId":"dev-1"}"#));
@@ -742,7 +768,7 @@ mod tests {
             412,
             r#"{"error":{"message":"Concurrent coding session limit reached — upgrade to run more.","code":-32012,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
         );
-        match start(&client(&base), "issue-1", None, Attribution::default(), None, None, None) {
+        match start(&client(&base), "issue-1", None, Attribution::default(), None, None, None, &[]) {
             Err(ApiError::Http { status, message }) => {
                 assert_eq!(status, 412);
                 assert!(message.contains("limit"));
@@ -877,6 +903,7 @@ mod tests {
             Some("agent"),
             None,
             None,
+            &[],
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -902,6 +929,7 @@ mod tests {
             Some("agent"),
             None,
             None,
+            &[],
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1057,6 +1085,7 @@ mod tests {
             None,
             None,
             Some("codex"),
+            &[],
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1075,6 +1104,7 @@ mod tests {
             None,
             None,
             Some("pi"),
+            &[],
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1095,6 +1125,65 @@ mod tests {
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(r#"{"actionId":"act-1","agent":"claude"}"#));
+    }
+
+    /// EXP-825: the composer prompt's pre-session uploads ride every start
+    /// shape as `attachmentIds`, LAST — and an image-less start's wire stays
+    /// byte-identical (the key is omitted, never `[]`).
+    #[test]
+    fn start_posts_attachment_ids_only_when_present() {
+        let ids = vec!["att-1".to_string(), "att-2".to_string()];
+        let (base, captured) = one_shot_server(200, SESSION_BODY);
+        let _ = start(
+            &client(&base),
+            "issue-1",
+            None,
+            Attribution::default(),
+            None,
+            None,
+            None,
+            &ids,
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.ends_with(r#"{"issueId":"issue-1","attachmentIds":["att-1","att-2"]}"#),
+            "{request}"
+        );
+
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"session":{"id":"sess-b","issueId":null,"teamId":"ws-1","status":"running"}}}}"#,
+        );
+        let _ = start_batch(
+            &client(&base),
+            "ws-1",
+            None,
+            Attribution::default(),
+            None,
+            None,
+            None,
+            &ids,
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(r#"{"teamId":"ws-1","attachmentIds":["att-1","att-2"]}"#));
+
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"session":{"id":"sess-a","teamId":"ws-1","status":"running"}}}}"#,
+        );
+        start_action(
+            &client(&base),
+            ActionStart {
+                action_id: "act-1",
+                attachment_ids: &ids,
+                ..ActionStart::default()
+            },
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(r#"{"actionId":"act-1","attachmentIds":["att-1","att-2"]}"#));
     }
 
     /// And the heartbeat echoes it, so a resurrected row keeps naming its

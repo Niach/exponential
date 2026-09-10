@@ -1715,6 +1715,7 @@ dependencies = [
 name = "domain"
 version = "0.14.35"
 dependencies = [
+ "regex",
  "serde",
  "serde_json",
 ]

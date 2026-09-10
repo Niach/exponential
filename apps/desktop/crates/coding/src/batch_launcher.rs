@@ -61,6 +61,10 @@ pub struct BatchLaunchRequest {
     pub device_label: String,
     pub origin: LaunchOrigin,
     pub options: LaunchOptions,
+    /// EXP-825: the composer's free text — the requester's additional
+    /// instructions, appended to the batch prompt as its last section; its
+    /// image embeds name the pre-session uploads the row binds.
+    pub prompt: Option<String>,
 }
 
 /// A fresh batch id: the first 8 hex chars of a v4 UUID — `[0-9a-f]{8}` by

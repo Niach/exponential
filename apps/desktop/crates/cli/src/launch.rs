@@ -133,11 +133,14 @@ pub fn issue_seed(issue: &FetchedIssue) -> IssueSeed {
 /// `PrepareRequest::ResumeRun` instead (the daemon's `remote_issue_start`).
 /// A record-less resume lands here. Local `code` starts stay fresh (no
 /// `--resume` flag yet).
+/// `prompt` (EXP-825): the composer's free text, the prompt's
+/// additional-instructions section.
 pub fn issue_launch_request(
     issue: &FetchedIssue,
     options: LaunchOptions,
     origin: LaunchOrigin,
     resume_prompt: bool,
+    prompt: Option<String>,
 ) -> LaunchRequest {
     LaunchRequest {
         issue_id: issue.id.clone(),
@@ -149,6 +152,7 @@ pub fn issue_launch_request(
         origin,
         options,
         resume_prompt,
+        prompt,
     }
 }
 
@@ -224,6 +228,9 @@ pub fn resolve_action_request(
     // EXP-583: the `automations` row that fired this run — stamped on the
     // session beside `startedReason`. `None` on every person-started run.
     automation_id: Option<String>,
+    // EXP-825: the composer's free text — the chat prompt / creator request
+    // for the builtins, additional instructions for everything else.
+    prompt: Option<String>,
 ) -> anyhow::Result<ActionLaunchRequest> {
     let builtin = api::actions::is_builtin_action_id(action_id);
     let fixing = action_id == BUILTIN_FIX_CONFLICTS_ID;
@@ -399,6 +406,7 @@ pub fn resolve_action_request(
         device_label: coding::default_device_label(),
         origin,
         options,
+        prompt,
     })
 }
 

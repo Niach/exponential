@@ -1,5 +1,10 @@
 //! The steer composer's image-message template (EXP-511) — the desktop
-//! viewer's mirror of `apps/web/src/lib/steer-image-message.ts`.
+//! viewer's mirror of `apps/web/src/lib/steer-image-message.ts`. EXP-825
+//! moved it from `steer` into `domain` (regex-only, gpui-free) because the
+//! same shape now carries a START prompt's images: the `coding` launcher
+//! parses the embed ids out of the composer text for `attachmentIds`, and
+//! `coding` never depends on `steer` (§3.1). `steer` re-exports the module,
+//! so every existing `steer::image_message` path still resolves.
 //!
 //! A steered message carries attached images as markdown embeds. The HOST
 //! device localizes each embed to a file path before the agent sees it

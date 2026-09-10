@@ -124,10 +124,14 @@ impl PrDiffView {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        let Some(team_id) = active_team_id(&self.nav, cx) else {
+        if active_team_id(&self.nav, cx).is_none() {
             return;
-        };
-        crate::start_coding_dialog::open_for_fix_conflicts(window, cx, team_id, issue_id);
+        }
+        crate::navigation::navigate_to_chat(
+            window,
+            cx,
+            crate::navigation::ChatSeed::fix_conflicts(issue_id),
+        );
     }
 }
 

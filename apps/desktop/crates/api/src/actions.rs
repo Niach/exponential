@@ -75,7 +75,10 @@ const BUILTIN_CHAT_NAME: &str = "Chat";
 pub struct ActionInput {
     pub key: String,
     pub label: String,
-    /// `text` | `repo` | `board` | `pr` | `icon` (contract `actionInputType`). An
+    /// `repo` | `board` | `pr` | `icon` (contract `actionInputType`; EXP-825
+    /// retired `text`/`textarea` — the composer's free text reaches every run
+    /// as its additional-instructions section instead, and a stale row still
+    /// declaring one is blocked until the owner removes it on the web). An
     /// UNKNOWN value must block the run with "needs a newer app version" —
     /// never a silent text fallback.
     #[serde(rename = "type")]
@@ -302,24 +305,11 @@ pub fn builtin_create_action(team_id: &str) -> Action {
         icon: Some("sparkles".to_string()),
         body: String::new(),
         builtin: true,
+        // EXP-825: the request itself (what the action should do, and its
+        // name if the user states one) is the start's `prompt`, never an
+        // input — the two remaining inputs are PICKS the creator run can't
+        // derive from prose. Byte-locked ×4 (web `builtin-actions.ts`).
         inputs: vec![
-            ActionInput {
-                key: "description".to_string(),
-                label: "Description".to_string(),
-                input_type: "text".to_string(),
-                required: true,
-                placeholder: Some("What should this action do?".to_string()),
-            },
-            // EXP-615: the optional name the author typed — blank hands the
-            // naming back to the creator agent (web parity, order included:
-            // description → name → repo → icon).
-            ActionInput {
-                key: "name".to_string(),
-                label: "Name".to_string(),
-                input_type: "text".to_string(),
-                required: false,
-                placeholder: Some("Name (optional)".to_string()),
-            },
             ActionInput {
                 key: "repo".to_string(),
                 label: "Repository".to_string(),
@@ -392,22 +382,15 @@ pub fn builtin_chat_action(team_id: &str) -> Action {
         icon: Some("message-circle".to_string()),
         body: String::new(),
         builtin: true,
-        inputs: vec![
-            ActionInput {
-                key: "prompt".to_string(),
-                label: "Prompt".to_string(),
-                input_type: "textarea".to_string(),
-                required: true,
-                placeholder: Some("What should the agent do?".to_string()),
-            },
-            ActionInput {
-                key: "repo".to_string(),
-                label: "Repository".to_string(),
-                input_type: "repo".to_string(),
-                required: false,
-                placeholder: None,
-            },
-        ],
+        // EXP-825: the chat text is the start's `prompt` (required for this
+        // builtin), never an input. Byte-locked ×4 (web `builtin-actions.ts`).
+        inputs: vec![ActionInput {
+            key: "repo".to_string(),
+            label: "Repository".to_string(),
+            input_type: "repo".to_string(),
+            required: false,
+            placeholder: None,
+        }],
         sort_order: 1e9 + 2.0,
         created_at: None,
         updated_at: None,
@@ -672,17 +655,14 @@ mod tests {
             Some("Chat with your agent on a repository")
         );
         assert_eq!(builtin.icon.as_deref(), Some("message-circle"));
-        assert_eq!(builtin.inputs.len(), 2);
-        assert_eq!(builtin.inputs[0].key, "prompt");
-        assert_eq!(builtin.inputs[0].input_type, "textarea");
-        assert!(builtin.inputs[0].required);
-        assert_eq!(
-            builtin.inputs[0].placeholder.as_deref(),
-            Some("What should the agent do?")
-        );
-        assert_eq!(builtin.inputs[1].key, "repo");
-        assert_eq!(builtin.inputs[1].input_type, "repo");
-        assert!(!builtin.inputs[1].required);
+        // EXP-825: the chat text rides the start's `prompt`; the ONE input
+        // left is the optional repo pick (web `CHAT_INPUTS`, byte-locked).
+        assert_eq!(builtin.inputs.len(), 1);
+        assert_eq!(builtin.inputs[0].key, "repo");
+        assert_eq!(builtin.inputs[0].label, "Repository");
+        assert_eq!(builtin.inputs[0].input_type, "repo");
+        assert!(!builtin.inputs[0].required);
+        assert_eq!(builtin.inputs[0].placeholder, None);
         assert_eq!(builtin.sort_order, 1e9 + 2.0);
         // The name snapshot the session row carries.
         assert_eq!(builtin_action_name(BUILTIN_CHAT_ID), Some("Chat"));
@@ -696,21 +676,26 @@ mod tests {
         assert!(builtin.builtin);
         assert!(builtin.body.is_empty());
         assert_eq!(builtin.name, "Create action");
-        // EXP-273 appended the optional `icon` picker after description+repo;
-        // EXP-615 slotted the optional `name` between description and repo.
-        assert_eq!(builtin.inputs.len(), 4);
-        assert_eq!(builtin.inputs[0].key, "description");
-        assert!(builtin.inputs[0].required);
-        assert_eq!(builtin.inputs[1].key, "name");
-        assert_eq!(builtin.inputs[1].input_type, "text");
-        assert!(!builtin.inputs[1].required);
         assert_eq!(
-            builtin.inputs[1].placeholder.as_deref(),
-            Some("Name (optional)")
+            builtin.description.as_deref(),
+            Some("Describe a new action and let your agent author it for the team")
         );
-        assert_eq!(builtin.inputs[2].input_type, "repo");
-        assert_eq!(builtin.inputs[3].input_type, "icon");
-        assert!(!builtin.inputs[3].required);
+        // EXP-825: the request (and any stated name) rides the start's
+        // `prompt`; only the two PICK inputs remain, in the web's order
+        // (`CREATE_ACTION_INPUTS`, byte-locked): repo → icon.
+        assert_eq!(builtin.inputs.len(), 2);
+        assert_eq!(builtin.inputs[0].key, "repo");
+        assert_eq!(builtin.inputs[0].label, "Repository");
+        assert_eq!(builtin.inputs[0].input_type, "repo");
+        assert!(!builtin.inputs[0].required);
+        assert_eq!(builtin.inputs[1].key, "icon");
+        assert_eq!(builtin.inputs[1].label, "Icon");
+        assert_eq!(builtin.inputs[1].input_type, "icon");
+        assert!(!builtin.inputs[1].required);
+        for input in &builtin.inputs {
+            assert_eq!(input.placeholder, None);
+            assert!(domain::contract::ACTION_INPUT_TYPE_VALUES.contains(&input.input_type.as_str()));
+        }
         assert_eq!(builtin.icon.as_deref(), Some("sparkles"));
         // Pinned first by flag; the huge sortOrder only keeps naive
         // sortOrder-asc renderers from interleaving it.

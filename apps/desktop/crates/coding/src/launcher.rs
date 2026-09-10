@@ -186,6 +186,16 @@ pub fn default_device_label() -> String {
     "unknown-host".to_string()
 }
 
+/// EXP-825: the pre-session upload ids a composer prompt's image embeds
+/// name (`![image](/api/attachments/<id>)`, the steer message shape shared
+/// ×4), for `codingSessions.start`'s `attachmentIds`. Empty for no prompt
+/// or a prompt without embeds.
+pub fn prompt_attachment_ids(prompt: Option<&str>) -> Vec<String> {
+    prompt
+        .map(|text| domain::image_message::parse_steer_message(text).attachment_ids)
+        .unwrap_or_default()
+}
+
 /// §7.1's single-issue launch input.
 #[derive(Clone, Debug)]
 pub struct LaunchRequest {
@@ -220,6 +230,13 @@ pub struct LaunchRequest {
     /// gone) lands here — a fresh session in the reused worktree, told to
     /// pick the branch work back up.
     pub resume_prompt: bool,
+    /// EXP-825: the composer's free text — the requester's additional
+    /// instructions, appended to the seed (or degraded-resume) prompt as the
+    /// `## Additional instructions from the requester` section. Its image
+    /// embeds (`![image](/api/attachments/<id>)`, the steer message shape)
+    /// name the pre-session uploads the session row binds via
+    /// `attachmentIds`. `None`/blank leaves every prompt byte-identical.
+    pub prompt: Option<String>,
 }
 
 /// Which program an action run executes (EXP-257/EXP-259). `Team` is a
@@ -333,6 +350,13 @@ pub struct ActionLaunchRequest {
     /// The FULL option set (EXP-257 — same per-agent vocabulary as issue
     /// runs; the old Claude-only clamp is gone).
     pub options: LaunchOptions,
+    /// EXP-825: the composer's free text. For [`ActionRunKind::Chat`] it IS
+    /// the chat prompt (the retired `prompt` input), for
+    /// [`ActionRunKind::CreateAction`] the request the agent authors the
+    /// action from (the retired `description`/`name` inputs), for every
+    /// other kind the optional additional-instructions section. Image
+    /// embeds in it bind to the session row via `attachmentIds`.
+    pub prompt: Option<String>,
 }
 
 /// EXP-637: RESUME an ended action/chat run — same workspace, same agent,
@@ -349,6 +373,12 @@ pub struct ResumeRunRequest {
     /// and effort may be nudged).
     pub model: Option<String>,
     pub effort: Option<String>,
+    /// EXP-825: optional composer text for the resumed run — appended to the
+    /// degraded resume prompt, or sent verbatim as the first turn when the
+    /// native conversation survived (a native resume otherwise seeds no
+    /// prompt at all). The server never sends one on a relay resume; a local
+    /// caller may.
+    pub prompt: Option<String>,
 }
 
 /// The four launch shapes ONE [`prepare`] serves.
@@ -1408,6 +1438,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
                 title,
                 &minted.default_branch,
                 run_reason.is_some(),
+                issue_req.prompt.as_deref(),
             )
         }
         PrepareRequest::Issue(issue_req) => {
@@ -1422,6 +1453,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
                 title,
                 description,
                 run_reason.is_some(),
+                issue_req.prompt.as_deref(),
             )
         }
         PrepareRequest::Batch(batch_req) => render_batch_prompt(&BatchPromptArgs {
@@ -1429,6 +1461,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             branch: &branch,
             issues: &batch_req.issues,
             unattended: run_reason.is_some(),
+            prompt: batch_req.prompt.as_deref(),
         }),
         PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
             unreachable!("dispatched above")
@@ -1436,6 +1469,15 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     };
 
     // Step 6 — the session row, BEFORE spawn (the id keys everything).
+    // EXP-825: the composer text's image embeds name pre-session uploads;
+    // the row binds them (`attachmentIds`) so they outlive the orphan sweep.
+    let attachment_ids = match req {
+        PrepareRequest::Issue(issue_req) => prompt_attachment_ids(issue_req.prompt.as_deref()),
+        PrepareRequest::Batch(batch_req) => prompt_attachment_ids(batch_req.prompt.as_deref()),
+        PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
+            unreachable!("dispatched above")
+        }
+    };
     let session = match req {
         PrepareRequest::Issue(issue_req) => coding_sessions::start(
             &deps.trpc,
@@ -1447,6 +1489,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             // path always starts a run of its own.
             None,
             agent_kind.wire_id(),
+            &attachment_ids,
         ),
         PrepareRequest::Batch(batch_req) => coding_sessions::start_batch(
             &deps.trpc,
@@ -1456,6 +1499,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             run_reason,
             None,
             agent_kind.wire_id(),
+            &attachment_ids,
         ),
         PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
             unreachable!("dispatched above")
@@ -1872,14 +1916,14 @@ fn prepare_action(
     // its prompt) — but stays required for an unattended one, where nobody is
     // at the keyboard to type the first message and a promptless run would
     // idle forever. Validated here, before any doctor/git/network work, so a
-    // malformed start costs nothing.
+    // malformed start costs nothing. EXP-825: the text rides `req.prompt`
+    // (the composer's free text), no longer a `prompt` input.
     let chat_user_prompt = match &req.kind {
         ActionRunKind::Chat => {
             let prompt = req
-                .inputs
-                .iter()
-                .find(|input| input.key == "prompt")
-                .map(|input| input.value.trim())
+                .prompt
+                .as_deref()
+                .map(str::trim)
                 .filter(|value| !value.is_empty());
             if prompt.is_none() && unattended {
                 return Err(CodingError::Io(
@@ -2118,15 +2162,17 @@ fn prepare_action(
     // promptless chat. Every other kind always renders.
     let rendered = match &req.kind {
         ActionRunKind::CreateAction => {
-            let Some(description) = req
-                .inputs
-                .iter()
-                .find(|input| input.key == "description")
-                .map(|input| input.value.trim())
+            // EXP-825: the request is the composer's free text (the retired
+            // `description` input); a creator run without one has nothing
+            // to author.
+            let Some(request) = req
+                .prompt
+                .as_deref()
+                .map(str::trim)
                 .filter(|value| !value.is_empty())
             else {
                 return Err(CodingError::Io(
-                    "the builtin Create-action run is missing its description input".to_string(),
+                    "the builtin Create-action run is missing its request text".to_string(),
                 ));
             };
             let repo_input = req
@@ -2146,19 +2192,11 @@ fn prepare_action(
                 .iter()
                 .find(|input| input.key == "icon" && !input.value.trim().is_empty())
                 .map(|input| input.value.trim());
-            // EXP-615: the optional name the author typed — blank leaves the
-            // naming to the agent (the pre-EXP-615 behavior).
-            let name_input = req
-                .inputs
-                .iter()
-                .find(|input| input.key == "name" && !input.value.trim().is_empty())
-                .map(|input| input.value.trim());
             Some(create_action_prompt(
                 &req.team_id,
-                description,
+                request,
                 repo_input,
                 icon_input,
-                name_input,
                 unattended,
             ))
         }
@@ -2182,6 +2220,7 @@ fn prepare_action(
             // server predates issues.prepareConflictFix (EXP-324).
             fix_rebase_onto.as_deref().unwrap_or(default_branch),
             unattended,
+            req.prompt.as_deref(),
         )),
         ActionRunKind::Team => Some(render_action_prompt_full(
             &req.action_name,
@@ -2190,8 +2229,12 @@ fn prepare_action(
             req.trigger.as_ref(),
             workspace.as_ref(),
             unattended,
+            req.prompt.as_deref(),
         )),
     };
+    // EXP-825: pre-session image uploads named by the composer text's
+    // embeds, bound to the row below.
+    let attachment_ids = prompt_attachment_ids(req.prompt.as_deref());
     // EXP-637: the PROMPT.md exclude belongs in the CLONE's shared
     // `.git/info/exclude` — a run worktree has no `.git` dir of its own.
     // Step 4 — the session row, BEFORE spawn. Only the builtin literals
@@ -2208,6 +2251,7 @@ fn prepare_action(
             resumed_from_id: None,
             agent: agent_kind.wire_id(),
             attribution: attribution(&req.origin, deps),
+            attachment_ids: &attachment_ids,
         },
     ) {
         Ok(session) => session,
@@ -2723,8 +2767,16 @@ fn prepare_resume_run(
     // (`agent` — another coding session resumed this run); a person's resume
     // stays open like any other person-started run.
     let run_reason = started_reason(&req.origin, None);
+    // EXP-825: composer text on a resume — verbatim first turn when the
+    // native conversation survived, otherwise the additional-instructions
+    // section of the degraded resume prompt.
+    let extra = req
+        .prompt
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty());
     let rendered = if native_resume {
-        None
+        extra.map(str::to_string)
     } else {
         Some(match record.kind {
             RunKind::Issue => {
@@ -2737,11 +2789,21 @@ fn prepare_resume_run(
                     .as_ref()
                     .map(|seed| seed.title.as_str())
                     .unwrap_or(identifier);
-                render_resume_prompt(identifier, title, &default_branch, run_reason.is_some())
+                render_resume_prompt(
+                    identifier,
+                    title,
+                    &default_branch,
+                    run_reason.is_some(),
+                    extra,
+                )
             }
-            _ => render_run_resume_prompt(record, run_reason.is_some()),
+            _ => crate::prompt::append_additional_instructions(
+                render_run_resume_prompt(record, run_reason.is_some()),
+                extra,
+            ),
         })
     };
+    let attachment_ids = prompt_attachment_ids(extra);
     let personal_key = key_handle
         .join()
         .map_err(|_| CodingError::Io("personal-key thread panicked".to_string()))??;
@@ -2758,6 +2820,7 @@ fn prepare_resume_run(
             run_reason,
             Some(&record.session_id),
             agent_kind.wire_id(),
+            &attachment_ids,
         ),
         RunKind::Batch => coding_sessions::start_batch(
             &deps.trpc,
@@ -2767,6 +2830,7 @@ fn prepare_resume_run(
             run_reason,
             Some(&record.session_id),
             agent_kind.wire_id(),
+            &attachment_ids,
         ),
         _ => coding_sessions::start_action(
             &deps.trpc,
@@ -2782,6 +2846,7 @@ fn prepare_resume_run(
                 resumed_from_id: Some(&record.session_id),
                 agent: agent_kind.wire_id(),
                 attribution: attribution(&req.origin, deps),
+                attachment_ids: &attachment_ids,
             },
         ),
     };
@@ -3363,6 +3428,7 @@ mod tests {
                 external: None,
             },
             resume_prompt: false,
+            prompt: None,
         }
     }
 
@@ -4097,6 +4163,7 @@ mod tests {
             device_label: "testbox".to_string(),
             origin: LaunchOrigin::Local,
             options: batch_options(),
+            prompt: None,
         }
     }
 
@@ -4238,6 +4305,7 @@ mod tests {
                 account: None,
                 external: None,
             },
+            prompt: None,
         }
     }
 
@@ -4657,22 +4725,15 @@ mod tests {
             full_name: "acme/web".to_string(),
             default_branch: "main".to_string(),
         });
-        req.inputs = vec![
-            ActionInputValue {
-                key: "description".to_string(),
-                label: "Description".to_string(),
-                input_type: "text".to_string(),
-                value: "triage new widget feedback weekly".to_string(),
-                display: None,
-            },
-            ActionInputValue {
-                key: "repo".to_string(),
-                label: "Repository".to_string(),
-                input_type: "repo".to_string(),
-                value: "repo-1".to_string(),
-                display: Some("acme/web".to_string()),
-            },
-        ];
+        // EXP-825: the request is the composer text, not an input.
+        req.prompt = Some("triage new widget feedback weekly".to_string());
+        req.inputs = vec![ActionInputValue {
+            key: "repo".to_string(),
+            label: "Repository".to_string(),
+            input_type: "repo".to_string(),
+            value: "repo-1".to_string(),
+            display: Some("acme/web".to_string()),
+        }];
 
         let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
             Prepared::Ready(prepared) => prepared,
@@ -4699,10 +4760,10 @@ mod tests {
         assert_eq!(prepared.session_id, "sess-c");
     }
 
-    /// EXP-257: a builtin run without its required description input is a
-    /// hard error (the dialog/relay validated upstream — this is the guard).
+    /// EXP-257/EXP-825: a creator run without its request text is a hard
+    /// error (the composer/relay validated upstream — this is the guard).
     #[test]
-    fn prepare_action_builtin_requires_the_description_input() {
+    fn prepare_action_builtin_requires_the_request_text() {
         let dir = temp_dir("action-builtin-missing");
         let worktrees = Arc::new(FakeWorktrees {
             worktree: dir.0.join("unused"),
@@ -4713,10 +4774,11 @@ mod tests {
         req.action_id = "builtin:create-action".to_string();
         req.kind = ActionRunKind::CreateAction;
         req.inputs = Vec::new();
+        req.prompt = Some("   ".to_string());
 
         match prepare(&PrepareRequest::Action(req), &deps) {
-            Err(CodingError::Io(message)) => assert!(message.contains("description")),
-            other => panic!("expected the missing-description error, got {other:?}"),
+            Err(CodingError::Io(message)) => assert!(message.contains("request text")),
+            other => panic!("expected the missing-request error, got {other:?}"),
         }
     }
 
@@ -4765,22 +4827,15 @@ mod tests {
             full_name: "acme/web".to_string(),
             default_branch: "main".to_string(),
         });
-        req.inputs = vec![
-            ActionInputValue {
-                key: "prompt".to_string(),
-                label: "Prompt".to_string(),
-                input_type: "textarea".to_string(),
-                value: "  where does the widget rate limit live?  ".to_string(),
-                display: None,
-            },
-            ActionInputValue {
-                key: "repo".to_string(),
-                label: "Repository".to_string(),
-                input_type: "repo".to_string(),
-                value: repository_id.to_string(),
-                display: Some("acme/web".to_string()),
-            },
-        ];
+        // EXP-825: the chat text rides `prompt`, not an input.
+        req.prompt = Some("  where does the widget rate limit live?  ".to_string());
+        req.inputs = vec![ActionInputValue {
+            key: "repo".to_string(),
+            label: "Repository".to_string(),
+            input_type: "repo".to_string(),
+            value: repository_id.to_string(),
+            display: Some("acme/web".to_string()),
+        }];
         req
     }
 
@@ -4822,7 +4877,7 @@ mod tests {
         let mut req = chat_request("repo-chat-none");
         req.run_id = "1a2b3c4d".to_string();
         req.repo = None;
-        req.inputs.retain(|input| input.key == "prompt");
+        req.inputs.clear();
 
         let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
             Prepared::Ready(prepared) => prepared,
@@ -4917,7 +4972,7 @@ mod tests {
         let deps = make_deps("http://127.0.0.1:1", &dir.0, worktrees);
         for repo_less in [false, true] {
             let mut req = chat_request("repo-chat-empty");
-            req.inputs.retain(|input| input.key != "prompt");
+            req.prompt = None;
             if repo_less {
                 req.repo = None;
                 req.inputs.clear();
@@ -5073,7 +5128,7 @@ mod tests {
 
         let mut req = chat_request("repo-chat-ok");
         req.run_id = "1a2b3c4d".to_string();
-        req.inputs.retain(|input| input.key != "prompt");
+        req.prompt = None;
         let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
             Prepared::Ready(prepared) => prepared,
             other => panic!("expected Ready, got {other:?}"),
@@ -5221,6 +5276,7 @@ mod tests {
             origin: LaunchOrigin::Local,
             model: None,
             effort: None,
+            prompt: None,
         }
     }
 
@@ -5607,7 +5663,7 @@ mod tests {
         assert_eq!(prepared.spawn.cwd.as_deref(), Some(worktree.as_path()));
         assert_eq!(
             seed_prompt(&prepared),
-            render_prompt("EXP-42", "Fix login flicker", Some("Steps in the issue."), false)
+            render_prompt("EXP-42", "Fix login flicker", Some("Steps in the issue."), false, None)
         );
         assert_eq!(prepared.acp.options.model, "fable");
         assert!(prepared.acp.options.plan_mode, "the issue default");
@@ -5679,7 +5735,7 @@ mod tests {
 
         assert_eq!(
             seed_prompt(&prepared),
-            render_prompt("EXP-42", "Fix login flicker", Some("Steps in the issue."), true)
+            render_prompt("EXP-42", "Fix login flicker", Some("Steps in the issue."), true, None)
         );
         let prompt = seed_prompt(&prepared);
         assert!(prompt.contains("`exponential_sessions_end`"), "{prompt}");
@@ -5758,7 +5814,7 @@ mod tests {
 
         assert_eq!(
             seed_prompt(&prepared),
-            render_resume_prompt("EXP-42", "Fix login flicker", "main", false)
+            render_resume_prompt("EXP-42", "Fix login flicker", "main", false, None)
         );
         // The plan already happened in the work being picked back up (the
         // fixture request carries plan_mode: true).
@@ -6040,7 +6096,7 @@ mod tests {
         assert_eq!(prepared.acp.resume, None);
         assert_eq!(
             seed_prompt(&prepared),
-            render_resume_prompt("EXP-42", "Fix login flicker", "main", false)
+            render_resume_prompt("EXP-42", "Fix login flicker", "main", false, None)
         );
     }
 

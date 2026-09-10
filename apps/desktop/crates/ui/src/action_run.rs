@@ -263,6 +263,10 @@ pub(crate) struct StartActionArgs {
     /// EXP-703: the terminal dock's promptless chat launch passes one too, to
     /// end its EXP-372 progress line whichever way the start settles.
     pub on_settled: Option<ActionSettledHook>,
+    /// EXP-825: the composer's free text — the chat prompt / creator request
+    /// for the two builtins, the additional-instructions section for every
+    /// other action. `None` on automation and dock starts.
+    pub prompt: Option<String>,
 }
 
 /// Start an action: fetch FRESH body (`actions.get`) → resolve repo →
@@ -281,6 +285,7 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
         trigger,
         automation_id,
         on_settled,
+        prompt,
     } = args;
     // EXP-530: every early return below has to release the hook, or an
     // automation whose watermark already advanced would sit without a backoff.
@@ -545,6 +550,7 @@ team settings → Repositories.";
                 device_label: coding::default_device_label(),
                 origin,
                 options,
+                prompt,
             };
             launch_action(request, window, reservation, on_settled, cx);
         });
@@ -668,6 +674,9 @@ are purged when they end.",
         origin,
         model: None,
         effort: None,
+        // A resume carries no composer text (the relay never sends one on
+        // a resume frame; the composer resumes issues through its own path).
+        prompt: None,
     });
     // EXP-761: a resume re-enters its RECORDED transport, and `prepare`
     // binds the PTY sidecars only on its Terminal arm.

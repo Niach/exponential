@@ -8,3 +8,5 @@ publish = false
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+# EXP-825: the image-message embed/marker patterns (moved here from steer).
+regex = "1"

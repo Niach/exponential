@@ -751,7 +751,7 @@ pub(crate) fn stop_session_pill(id: impl Into<gpui::ElementId>, cx: &App) -> But
 }
 
 /// EXP-800: send a resume to the machine that hosted the run — the
-/// `start_coding_dialog::launch_remote` recipe. The server checks owner,
+/// composer's `launch_remote` recipe (`chat_screen`). The server checks owner,
 /// `ended`, the device and its `resume-run` cap; the resumed run then arrives
 /// as a new synced row and `screens::sync_session_tabs` moves this tab over
 /// via `resumed_from_id`, so all that is left here is to say where it went.

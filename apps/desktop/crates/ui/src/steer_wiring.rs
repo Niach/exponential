@@ -446,7 +446,7 @@ fn register_device(
 }
 
 /// Relay `start_session` → the §7 launcher on a shell window. The SAME
-/// sequence the Start-coding dialog runs (`coding::prepare` →
+/// sequence the Agent page composer runs (`coding::prepare` →
 /// `spawn_into_window`), only the [`LaunchOrigin`] differs (§7.1: there is no
 /// second, divergent remote-start implementation). Dispatches on the frame's
 /// subject: a single issue (`build_launch` → `PrepareRequest::Issue`) or a
@@ -618,6 +618,7 @@ fn remote_action_start(
             trigger: None,
             automation_id: None,
             on_settled: None,
+            prompt: start.prompt.clone(),
         },
         cx,
     );
@@ -696,7 +697,7 @@ fn remote_issue_start(issue_id: String, start: &steer::RemoteStart, cx: &mut App
     }
 
     let origin = relay_origin(cx, start.started_by.clone(), start.started_reason.clone());
-    // The remote client's Start-coding dialog choices (EXP-149), settings
+    // The remote client's composer choices (EXP-149), settings
     // defaults for anything it didn't send. Plan mode stays OFF unless the
     // client explicitly opted in (F7: an option-less start must never park
     // at a native plan-approval TUI menu on an unattended desktop — nobody
@@ -734,12 +735,20 @@ fn remote_issue_start(issue_id: String, start: &steer::RemoteStart, cx: &mut App
                     // (D2) — a remote resume nudges neither.
                     model: None,
                     effort: None,
+                    prompt: start.prompt.clone(),
                 }),
                 deps,
             )
         }),
-        None => coding_flow::build_launch(&issue_id, origin, options, start.resume, cx)
-            .map(|(request, deps)| (PrepareRequest::Issue(request), deps)),
+        None => coding_flow::build_launch(
+            &issue_id,
+            origin,
+            options,
+            start.resume,
+            start.prompt.clone(),
+            cx,
+        )
+        .map(|(request, deps)| (PrepareRequest::Issue(request), deps)),
     }) else {
         log::warn!("steer: remote start for {issue_id} ignored — not signed in / not synced");
         return;
@@ -888,6 +897,7 @@ fn remote_batch_start(
         device_label: coding::default_device_label(),
         origin: relay_origin(cx, start.started_by.clone(), start.started_reason.clone()),
         options,
+        prompt: start.prompt.clone(),
     };
 
     let Some(deps) = coding_flow::build_batch_deps(cx) else {

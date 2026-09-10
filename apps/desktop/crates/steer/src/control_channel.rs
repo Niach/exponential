@@ -168,6 +168,10 @@ pub struct RemoteStart {
     /// meaningful on the Issue subject (the server rejects it elsewhere);
     /// absent on the wire = `false`, a fresh start (the pre-481 wire).
     pub resume: bool,
+    /// EXP-825: the composer's free text (chat prompt / creator request /
+    /// additional instructions, steer-shaped image embeds). Dropped on a
+    /// resume subject — the server never sends one there.
+    pub prompt: Option<String>,
 }
 
 /// Build a [`RemoteStart`] from the raw `start_session` frame fields, enforcing
@@ -196,6 +200,7 @@ pub(crate) fn remote_start_from_frame(
     resume_session_id: Option<String>,
     mcp_server_ids: Option<Vec<String>>,
     account: Option<String>,
+    prompt: Option<String>,
 ) -> Option<RemoteStart> {
     // EXP-637: a resume is its OWN subject — the recorded run supplies the
     // rest. The web server rides `issueId` / `actionId` / `actionName` /
@@ -218,6 +223,7 @@ pub(crate) fn remote_start_from_frame(
             mcp_server_ids: None,
             account: None,
             resume: false,
+            prompt: None,
         });
     }
     let subject = match (issue_id, issue_ids, action_id) {
@@ -250,6 +256,7 @@ pub(crate) fn remote_start_from_frame(
         mcp_server_ids,
         account,
         resume,
+        prompt,
     })
 }
 
@@ -621,10 +628,11 @@ async fn connect_and_listen(
                             resume_session_id,
                             mcp_server_ids,
                             account,
+                            prompt,
                         }) => match remote_start_from_frame(
                             issue_id, issue_ids, action_id, action_name, team_id, repo, inputs,
                             started_by, started_reason, agent, model, effort, ultracode,
-                            plan_mode, resume, resume_session_id, mcp_server_ids, account,
+                            plan_mode, resume, resume_session_id, mcp_server_ids, account, prompt,
                         ) {
                             Some(start) => {
                                 log::info!("steer control: remote start_session ({:?})", start.subject);
@@ -742,6 +750,7 @@ mod tests {
             Some("sess-old".into()),
             None,
             None,
+            None,
         )
         .expect("resume frame");
         assert_eq!(
@@ -784,6 +793,7 @@ mod tests {
                 Some("sess-old".into()),
                 None,
                 None,
+                None,
             )
             .expect("hinted resume frame");
             assert_eq!(
@@ -814,6 +824,7 @@ mod tests {
                 Some("sess-old".into()),
                 None,
                 None,
+                None,
             ),
             None
         );
@@ -842,6 +853,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Issue("issue-9".into()),
@@ -855,6 +867,7 @@ mod tests {
                 mcp_server_ids: None,
                 account: None,
                 resume: false,
+                prompt: None,
             })
         );
 
@@ -879,6 +892,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Batch {
@@ -896,6 +910,7 @@ mod tests {
                 mcp_server_ids: None,
                 account: None,
                 resume: false,
+                prompt: None,
             })
         );
     }
@@ -914,13 +929,7 @@ mod tests {
                 Some("Chat".into()),
                 Some("ws-1".into()),
                 None,
-                Some(vec![StartInput {
-                    key: "prompt".into(),
-                    label: Some("Prompt".into()),
-                    input_type: Some("textarea".into()),
-                    value: "what does trunk_sync do?".into(),
-                    display: None,
-                }]),
+                None,
                 None,
                 None,
                 None,
@@ -932,6 +941,8 @@ mod tests {
                 None,
                 None,
                 None,
+                // EXP-825: the chat text rides the frame's `prompt`, no input.
+                Some("what does trunk_sync do?".into()),
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Action {
@@ -939,13 +950,7 @@ mod tests {
                     action_name: "Chat".into(),
                     team_id: "ws-1".into(),
                     repo: None,
-                    inputs: vec![StartInput {
-                        key: "prompt".into(),
-                        label: Some("Prompt".into()),
-                        input_type: Some("textarea".into()),
-                        value: "what does trunk_sync do?".into(),
-                        display: None,
-                    }],
+                    inputs: vec![],
                 },
                 started_by: None,
                 started_reason: None,
@@ -957,6 +962,7 @@ mod tests {
                 mcp_server_ids: None,
                 account: None,
                 resume: false,
+                prompt: Some("what does trunk_sync do?".into()),
             })
         );
     }
@@ -984,6 +990,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Issue("issue-9".into()),
@@ -997,6 +1004,7 @@ mod tests {
                 mcp_server_ids: None,
                 account: None,
                 resume: false,
+                prompt: None,
             })
         );
     }
@@ -1025,6 +1033,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .expect("issue frame");
         assert_eq!(issue.started_reason.as_deref(), Some("agent"));
@@ -1046,6 +1055,7 @@ mod tests {
             None,
             false,
             Some("sess-old".into()),
+            None,
             None,
             None,
         )
@@ -1076,6 +1086,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             None
         );
@@ -1083,6 +1094,7 @@ mod tests {
         assert_eq!(
             remote_start_from_frame(
                 None, None, None, None, None, None, None, None, None, None, None, None, None, None, false, None,
+                None,
                 None,
                 None,
             ),
@@ -1106,6 +1118,7 @@ mod tests {
                 None,
                 None,
                 false,
+                None,
                 None,
                 None,
                 None,
@@ -1133,6 +1146,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             None
         );
@@ -1154,6 +1168,7 @@ mod tests {
                 None,
                 None,
                 false,
+                None,
                 None,
                 None,
                 None,
@@ -1185,6 +1200,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Action {
@@ -1204,6 +1220,7 @@ mod tests {
                 mcp_server_ids: None,
                 account: None,
                 resume: false,
+                prompt: None,
             })
         );
         // Repo-less action: repo simply absent.
@@ -1224,6 +1241,7 @@ mod tests {
                 None,
                 None,
                 false,
+                None,
                 None,
                 None,
                 None,
@@ -1279,6 +1297,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Action {
@@ -1298,6 +1317,7 @@ mod tests {
                 mcp_server_ids: None,
                 account: None,
                 resume: false,
+                prompt: None,
             })
         );
     }
@@ -1325,6 +1345,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             None
         );
@@ -1349,6 +1370,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             None
         );
@@ -1370,6 +1392,7 @@ mod tests {
                 None,
                 None,
                 false,
+                None,
                 None,
                 None,
                 None,

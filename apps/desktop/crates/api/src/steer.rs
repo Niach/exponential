@@ -132,7 +132,10 @@ pub fn mint_viewer_ticket(
 /// and mobile send. Exactly one of `issue_id` / `issue_ids` / `action_id` /
 /// `resume_session_id` must be set; `team_id` rides built-in action starts
 /// only; `inputs` rides action starts only (BTreeMap for a deterministic
-/// wire order). Absent options mean "target device's defaults".
+/// wire order). Absent options mean "target device's defaults". EXP-825:
+/// `prompt` is the composer's free text (≤ `START_PROMPT_MAX_LENGTH`, images
+/// as steer embeds) — REQUIRED for the Chat and Create-action builtins,
+/// optional additional instructions elsewhere, forbidden on a resume.
 #[derive(Clone, Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StartSessionInput {
@@ -161,6 +164,10 @@ pub struct StartSessionInput {
     pub resume: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resume_session_id: Option<String>,
+    /// EXP-825: LAST on the wire so every prompt-less start stays
+    /// byte-identical to the locked fixtures above.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -271,9 +278,11 @@ mod tests {
 
     #[test]
     fn start_session_posts_action_subject_with_device() {
+        // EXP-825: the chat text rides the top-level `prompt` (LAST), never
+        // an `inputs.prompt` entry; the picked repo stays an input.
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
         let mut inputs = std::collections::BTreeMap::new();
-        inputs.insert("prompt".to_string(), "do the thing".to_string());
+        inputs.insert("repo".to_string(), "repo-1".to_string());
         start_session(
             &client(&base),
             &StartSessionInput {
@@ -282,6 +291,7 @@ mod tests {
                 device_id: "dev-1".to_string(),
                 agent: Some("claude".to_string()),
                 plan_mode: Some(true),
+                prompt: Some("do the thing".to_string()),
                 ..Default::default()
             },
         )
@@ -289,7 +299,29 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/steer.startSession HTTP/1.1"));
         assert!(request.ends_with(
-            r#"{"actionId":"11111111-1111-4111-8111-111111111111","inputs":{"prompt":"do the thing"},"deviceId":"dev-1","agent":"claude","planMode":true}"#
+            r#"{"actionId":"11111111-1111-4111-8111-111111111111","inputs":{"repo":"repo-1"},"deviceId":"dev-1","agent":"claude","planMode":true,"prompt":"do the thing"}"#
+        ));
+    }
+
+    /// EXP-825: additional instructions on an issue start ride the same
+    /// `prompt` key; absent, the wire is the locked prompt-less shape.
+    #[test]
+    fn start_session_issue_subject_carries_the_prompt_last() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        start_session(
+            &client(&base),
+            &StartSessionInput {
+                issue_id: Some("22222222-2222-4222-8222-222222222222".to_string()),
+                device_id: "dev-2".to_string(),
+                resume: Some(true),
+                prompt: Some("Mind the retry path.".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(
+            r#"{"issueId":"22222222-2222-4222-8222-222222222222","deviceId":"dev-2","resume":true,"prompt":"Mind the retry path."}"#
         ));
     }
 

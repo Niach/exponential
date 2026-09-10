@@ -51,20 +51,61 @@ here and keep answering follow-ups. Merging your own PR never ends the session."
     }
 }
 
+/// EXP-825 — the heading of the section the unified composer's free text
+/// lands in. Once a subject (issues, an action, a PR) is picked, whatever the
+/// requester typed is not the prompt but a note ON the prompt: every launcher
+/// prompt appends it under this heading, byte-identical across the desktop
+/// and the CLI, so the agent can tell the program from the requester's
+/// additions.
+pub const ADDITIONAL_INSTRUCTIONS_HEADING: &str = "## Additional instructions from the requester";
+
+/// EXP-825 — the `## Additional instructions from the requester` block for a
+/// composer `prompt`, or the EMPTY string for none/blank, so every existing
+/// byte-locked prompt is unchanged when nothing was typed. The block ends
+/// with ONE newline; [`append_additional_instructions`] places it after a
+/// finished prompt, the action renderer before its `---` divider.
+pub fn additional_instructions(prompt: Option<&str>) -> String {
+    match prompt.map(str::trim).filter(|text| !text.is_empty()) {
+        Some(text) => format!("{ADDITIONAL_INSTRUCTIONS_HEADING}
+
+{text}
+"),
+        None => String::new(),
+    }
+}
+
+/// Append [`additional_instructions`] to a finished prompt as its LAST
+/// section (one blank line before the heading). `None`/blank returns the
+/// prompt untouched.
+pub fn append_additional_instructions(mut prompt: String, extra: Option<&str>) -> String {
+    let section = additional_instructions(extra);
+    if section.is_empty() {
+        return prompt;
+    }
+    if !prompt.ends_with('\n') {
+        prompt.push('\n');
+    }
+    prompt.push('\n');
+    prompt.push_str(&section);
+    prompt
+}
+
 /// Render the seed prompt: the §7.1 step-5 instruction paragraph, then the
 /// issue context block it tells Claude to read. No plan-gate sentence —
 /// native plan mode owns the approval gate. `unattended` (EXP-679) picks the
 /// close-out: only an unattended run is told to call
-/// `exponential_sessions_end`.
+/// `exponential_sessions_end`. `extra` (EXP-825) is the composer's free text,
+/// appended last as the additional-instructions section.
 pub fn render_prompt(
     identifier: &str,
     title: &str,
     description: Option<&str>,
     unattended: bool,
+    extra: Option<&str>,
 ) -> String {
     let body = issue_body(description);
     let close_out = close_out(unattended);
-    format!(
+    let prompt = format!(
         "Please read the issue context below and work on **{identifier}: {title}** in this \
 repository. BEFORE implementing anything, read the issue's full comment thread by \
 calling the `exponential_comments_list` MCP tool with issueId `{identifier}` — \
@@ -80,7 +121,8 @@ moves the issue to `in_review` automatically, and merging it later completes it 
 
 {body}
 "
-    )
+    );
+    append_additional_instructions(prompt, extra)
 }
 
 /// Render the RESUME prompt (EXP-202) — the fallback when no previous
@@ -95,9 +137,10 @@ pub fn render_resume_prompt(
     title: &str,
     default_branch: &str,
     unattended: bool,
+    extra: Option<&str>,
 ) -> String {
     let close_out = close_out(unattended);
-    format!(
+    let prompt = format!(
         "You are RESUMING work on **{identifier}: {title}** in this repository — a previous \
 coding session already worked on this branch. First inspect the existing work: run \
 `git log origin/{default_branch}..HEAD`, `git status`, and `git diff origin/{default_branch}` \
@@ -109,7 +152,8 @@ done, commit and push this branch; if no pull request exists yet, open one by ca
 Opening the PR moves the issue to `in_review` automatically, and merging it later completes \
 it to `done` — you do not set the issue status yourself. Do not use `gh`. {close_out}
 "
-    )
+    );
+    append_additional_instructions(prompt, extra)
 }
 
 /// The issue-context body.
@@ -154,7 +198,7 @@ The login page flickers on slow connections.
         let description =
             "The login page flickers on slow connections.\n\n- Reproduce with network throttling\n- Fix the flash of unstyled content";
         assert_eq!(
-            render_prompt("EXP-42", "Fix login flicker", Some(description), false),
+            render_prompt("EXP-42", "Fix login flicker", Some(description), false, None),
             EXPECTED
         );
     }
@@ -165,11 +209,11 @@ The login page flickers on slow connections.
     /// tool only for unattended runs).
     #[test]
     fn only_the_unattended_prompt_names_the_close_out_tool() {
-        let attended = render_prompt("EXP-42", "Fix login flicker", None, false);
+        let attended = render_prompt("EXP-42", "Fix login flicker", None, false, None);
         assert!(!attended.contains("exponential_sessions_end"));
         assert!(attended.contains("This session stays open after you finish"));
 
-        let unattended = render_prompt("EXP-42", "Fix login flicker", None, true);
+        let unattended = render_prompt("EXP-42", "Fix login flicker", None, true, None);
         assert!(unattended.contains("`exponential_sessions_end`"));
         assert!(unattended.contains("That call ends this run; nobody is watching it"));
         assert!(!unattended.contains("This session stays open after you finish"));
@@ -188,7 +232,7 @@ The login page flickers on slow connections.
 
     #[test]
     fn template_names_the_real_mcp_tools_and_carries_no_plan_gate() {
-        let prompt = render_prompt("EXP-1", "T", None, true);
+        let prompt = render_prompt("EXP-1", "T", None, true, None);
         assert!(prompt.contains("`exponential_pr_open`"));
         assert!(prompt.contains("`exponential_comments_list` MCP tool with issueId `EXP-1`"));
         assert!(prompt.contains("Do not use `gh`."));
@@ -209,7 +253,7 @@ The login page flickers on slow connections.
 
     #[test]
     fn resume_template_names_the_real_mcp_tools_and_inspects_existing_work() {
-        let prompt = render_resume_prompt("EXP-42", "Fix login flicker", "main", true);
+        let prompt = render_resume_prompt("EXP-42", "Fix login flicker", "main", true, None);
         assert!(prompt.contains("RESUMING work on **EXP-42: Fix login flicker**"));
         assert!(prompt.contains("`exponential_comments_list` MCP tool with issueId `EXP-42`"));
         assert!(prompt.contains("`exponential_pr_open`"));
@@ -227,15 +271,51 @@ The login page flickers on slow connections.
     #[test]
     fn missing_or_blank_description_gets_a_placeholder() {
         for description in [None, Some(""), Some("   \n  ")] {
-            let prompt = render_prompt("EXP-2", "Title", description, false);
+            let prompt = render_prompt("EXP-2", "Title", description, false, None);
             assert!(prompt.contains("(no description)"), "for {description:?}");
         }
     }
 
     #[test]
     fn trailing_whitespace_in_description_is_trimmed() {
-        let prompt = render_prompt("EXP-3", "T", Some("body text\n\n\n"), false);
+        let prompt = render_prompt("EXP-3", "T", Some("body text\n\n\n"), false, None);
         assert!(prompt.ends_with("body text\n"));
+    }
+
+    /// EXP-825: the composer's free text rides LAST under the shared
+    /// heading, one blank line after the issue context; `None` and a blank
+    /// string leave the byte-locked template untouched.
+    #[test]
+    fn additional_instructions_ride_last_and_blank_is_byte_identical() {
+        let base = render_prompt("EXP-42", "Fix login flicker", Some("body"), false, None);
+        assert_eq!(
+            base,
+            render_prompt("EXP-42", "Fix login flicker", Some("body"), false, Some("  \n"))
+        );
+        let with = render_prompt(
+            "EXP-42",
+            "Fix login flicker",
+            Some("body"),
+            false,
+            Some("  Focus on the retry path.\n"),
+        );
+        assert_eq!(
+            with,
+            format!("{base}\n## Additional instructions from the requester\n\nFocus on the retry path.\n")
+        );
+        assert!(with.ends_with("body\n\n## Additional instructions from the requester\n\nFocus on the retry path.\n"));
+
+        let resume = render_resume_prompt("EXP-42", "T", "main", false, Some("Rebase first."));
+        let bare = render_resume_prompt("EXP-42", "T", "main", false, None);
+        assert_eq!(
+            resume,
+            format!("{bare}\n## Additional instructions from the requester\n\nRebase first.\n")
+        );
+        assert_eq!(additional_instructions(None), "");
+        assert_eq!(
+            additional_instructions(Some("x")),
+            format!("{ADDITIONAL_INSTRUCTIONS_HEADING}\n\nx\n")
+        );
     }
 
 }

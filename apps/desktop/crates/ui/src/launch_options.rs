@@ -2,7 +2,7 @@
 //! `LaunchOptionsPane` twin, shared by every desktop surface that pins how an
 //! agent run starts:
 //!
-//! - Launch: the Start-coding dialog and the create-action
+//! - Launch: the Agent page composer (EXP-825) and, before it, the start-coding
 //!   dialog: the doctor-filtered agent pill strip, the per-agent Model /
 //!   Effort selects and the capability-gated toggles (ultracode, plan
 //!   mode). This is [`LaunchOptionsSection`], which OWNS that
@@ -29,13 +29,13 @@
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, App, Context, Div, InteractiveElement as _, IntoElement, ParentElement, Render,
-    SharedString, StatefulInteractiveElement as _, Stateful, Styled, Window,
+    div, AnyElement, App, Context, Div, InteractiveElement as _, IntoElement, ParentElement,
+    Render, SharedString, StatefulInteractiveElement as _, Stateful, Styled, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_component::switch::Switch;
-use gpui_component::{select::Select, v_flex, ActiveTheme as _, Icon};
+use gpui_component::{h_flex, select::Select, v_flex, ActiveTheme as _, Disableable as _, Icon};
 
 use coding::{CodingAgent, LaunchOptions};
 
@@ -98,7 +98,7 @@ pub(crate) fn mcp_default_ids(servers: &[McpServerOption]) -> Vec<String> {
 /// EXP-810: the team's servers as a LOCAL launch surface offers them — every
 /// row resolved against THIS machine's own readiness read
 /// ([`crate::settings::mcp_servers::list_with_local_readiness`]). A surface
-/// that can re-point the run at ANOTHER machine (the Start-coding dialog)
+/// that can re-point the run at ANOTHER machine (the Agent page composer)
 /// resolves against that machine's synced matrix row instead and builds its
 /// own list.
 pub(crate) fn local_mcp_options(
@@ -516,6 +516,78 @@ fn pin_trigger(id: SharedString, value: impl Into<SharedString>, cx: &App) -> Bu
         .child(surface::picker_value_label(value))
 }
 
+/// EXP-825: the composer options row's pin — the chat page's muted `text_xs`
+/// ghost with a caret, one word on the line under the card.
+pub(crate) fn inline_pin_trigger(id: SharedString, label: String, cx: &App) -> Button {
+    Button::new(id)
+        .ghost()
+        .cursor_pointer()
+        .h_auto()
+        .px_1()
+        .py_0()
+        .text_color(cx.theme().muted_foreground)
+        .dropdown_caret(true)
+        .child(div().text_xs().child(SharedString::from(label)))
+}
+
+/// EXP-825: a labelled switch on the composer options row.
+fn inline_switch<V: Render>(
+    id: SharedString,
+    label: &'static str,
+    on: bool,
+    write: impl Fn(&mut V, bool) + 'static,
+    cx: &mut Context<V>,
+) -> AnyElement {
+    h_flex()
+        .gap_1p5()
+        .items_center()
+        .px_1()
+        .text_xs()
+        .text_color(cx.theme().muted_foreground)
+        .child(label)
+        .child(Switch::new(id).checked(on).on_click(cx.listener(move |view, on: &bool, _, cx| {
+            write(view, *on);
+            cx.notify();
+        })))
+        .into_any_element()
+}
+
+/// Hangs a model/effort choice menu off `trigger`, writing the pick into the
+/// section's `ChoiceSelect` (the same entity the grouped cluster's select
+/// row edits, so the two never disagree).
+fn choice_menu<V: Render>(
+    trigger: Button,
+    choices: &'static [(&'static str, &'static str)],
+    picked: String,
+    select: fn(&LaunchOptionsSection) -> &ChoiceSelect,
+    access: fn(&mut V) -> &mut LaunchOptionsSection,
+    cx: &mut Context<V>,
+) -> impl IntoElement {
+    let view = cx.entity().downgrade();
+    trigger.dropdown_menu(move |mut menu, _window, _cx| {
+        for (label, value) in choices {
+            let view = view.clone();
+            let value = (*value).to_string();
+            let checked = picked == value;
+            menu = menu.item(PopupMenuItem::new(*label).checked(checked).on_click(
+                move |_, window, cx| {
+                    if let Some(view) = view.upgrade() {
+                        let value = value.clone();
+                        view.update(cx, |view, cx| {
+                            let state = select(access(view)).clone();
+                            state.update(cx, |state, cx| {
+                                state.set_selected_value(&SharedString::from(value), window, cx)
+                            });
+                            cx.notify();
+                        });
+                    }
+                },
+            ));
+        }
+        menu
+    })
+}
+
 /// EXP-747 B7 — the **Account** row: which agent account PROFILE on the
 /// target machine the run signs in as. Single-select, so it is
 /// [`choice_pin_row`]'s idiom exactly (ghost trigger + a checked popup menu);
@@ -528,20 +600,37 @@ fn account_row<V: Render>(
     access: fn(&mut V) -> &mut LaunchOptionsSection,
     cx: &mut Context<V>,
 ) -> Div {
-    let current = picked.map(str::to_string);
-    let label = options
+    let trigger = pin_trigger(
+        SharedString::from(format!("{prefix}-account")),
+        account_pin_label(options, picked),
+        cx,
+    );
+    let control = account_menu(trigger, options, picked, access, cx).into_any_element();
+    surface::glass_picker_row("Account", None, control, cx)
+}
+
+/// The Account pin's label: the picked profile's, else the ambient login's.
+fn account_pin_label(options: &[AccountOption], picked: Option<&str>) -> String {
+    options
         .iter()
         .find(|option| Some(option.id.as_str()) == picked)
         .map(|option| option.label.clone())
-        .unwrap_or_else(|| coding::agent_profiles::SYSTEM_LABEL.to_string());
+        .unwrap_or_else(|| coding::agent_profiles::SYSTEM_LABEL.to_string())
+}
+
+/// Hangs the Account choice menu off an already-dressed `trigger` (EXP-825:
+/// shared by the grouped row and the composer's `⋯` popover).
+fn account_menu<V: Render>(
+    trigger: Button,
+    options: &[AccountOption],
+    picked: Option<&str>,
+    access: fn(&mut V) -> &mut LaunchOptionsSection,
+    cx: &mut Context<V>,
+) -> impl IntoElement {
+    let current = picked.map(str::to_string);
     let options = options.to_vec();
     let view = cx.entity().downgrade();
-    let trigger = pin_trigger(
-        SharedString::from(format!("{prefix}-account")),
-        label,
-        cx,
-    );
-    let control = trigger
+    trigger
         .dropdown_menu(move |mut menu, _window, _cx| {
             for option in &options {
                 let view = view.clone();
@@ -570,8 +659,6 @@ fn account_row<V: Render>(
             }
             menu
         })
-        .into_any_element();
-    surface::glass_picker_row("Account", None, control, cx)
 }
 
 /// EXP-792 — the MCP multiselect's POPOVER, hung off an already-dressed
@@ -929,7 +1016,7 @@ pub(crate) struct LaunchOptionsSection {
     /// as extra pills AFTER the builtin ones. Empty unless a surface sets
     /// them ([`Self::set_externals`]) — an external agent is a LOCAL start
     /// only (never remotely startable, and the server's `agent` vocabulary is
-    /// closed), so only the Start-coding dialog fills this, and only while it
+    /// closed), so only the composer fills this, and only while it
     /// targets this machine.
     externals: Vec<coding::ExternalAgentSpec>,
     /// The picked external agent's id; `None` = the builtin [`Self::agent`].
@@ -1204,6 +1291,225 @@ impl LaunchOptionsSection {
             mcp_server_ids: self.mcp_selected.clone(),
             account: self.account.clone(),
         }
+    }
+
+    // ── EXP-825: the Agent page composer's inline options row ──────────────
+    //
+    // Variant B of the composer mockups: under the card ONE muted line —
+    // Device (the composer's own), Agent, Model, Plan — and a `⋯` popover
+    // holding Effort, Ultracode, MCP servers and Account. These are thin
+    // views over the same state `render` shows as a grouped cluster, so the
+    // two surfaces cannot disagree about what a run launches with.
+
+    /// Whether native plan mode is on right now.
+    pub(crate) fn plan_mode(&self) -> bool {
+        self.plan_mode
+    }
+
+    /// EXP-825: reseed plan mode when the composer's subject flips between
+    /// "nothing picked" (a chat — a conversation, never a planning run, so
+    /// OFF whatever the agent's setting says, EXP-772) and a picked subject
+    /// (the agent's own default, EXP-206). `planModeOff` is read on open on
+    /// the web too; the always-open composer needs the same reseed on the
+    /// flip or a chat inherits the device default (the EXP-772 regression).
+    pub(crate) fn reseed_plan_for_subject(&mut self, has_subject: bool, cx: &mut App) {
+        self.plan_mode = if has_subject {
+            agent_defaults(&self.seed_settings(cx), self.agent).1
+        } else {
+            false
+        };
+    }
+
+    /// The Agent pin: the picked agent's label (an external agent's own
+    /// name when one is picked), a menu of the pickable builtins and the
+    /// local externals.
+    pub(crate) fn agent_pin<V: Render>(
+        &self,
+        prefix: &'static str,
+        access: fn(&mut V) -> &mut LaunchOptionsSection,
+        cx: &mut Context<V>,
+    ) -> AnyElement {
+        let label = match self.external_spec() {
+            Some(spec) => spec.label.clone(),
+            None => self.agent.label().to_string(),
+        };
+        let agents = self.pickable(cx);
+        let externals = self.externals.clone();
+        let current = self.agent;
+        let current_external = self.external.clone();
+        let view = cx.entity().downgrade();
+        inline_pin_trigger(SharedString::from(format!("{prefix}-agent")), label, cx)
+            .dropdown_menu(move |mut menu, _window, _cx| {
+                for agent in &agents {
+                    let view = view.clone();
+                    let agent = *agent;
+                    let checked = current_external.is_none() && current == agent;
+                    menu = menu.item(
+                        PopupMenuItem::new(agent_label(agent.id()))
+                            .checked(checked)
+                            .on_click(move |_, window, cx| {
+                                if let Some(view) = view.upgrade() {
+                                    view.update(cx, |view, cx| {
+                                        let section = access(view);
+                                        section.external = None;
+                                        section.set_agent(agent, window, cx);
+                                        cx.notify();
+                                    });
+                                }
+                            }),
+                    );
+                }
+                for spec in &externals {
+                    let view = view.clone();
+                    let id = spec.id.clone();
+                    let checked = current_external.as_deref() == Some(id.as_str());
+                    menu = menu.item(
+                        PopupMenuItem::new(SharedString::from(spec.label.clone()))
+                            .checked(checked)
+                            .on_click(move |_, _, cx| {
+                                if let Some(view) = view.upgrade() {
+                                    let id = id.clone();
+                                    view.update(cx, |view, cx| {
+                                        access(view).external = Some(id);
+                                        cx.notify();
+                                    });
+                                }
+                            }),
+                    );
+                }
+                menu
+            })
+            .into_any_element()
+    }
+
+    /// The Model pin over the picked agent's own model list.
+    pub(crate) fn model_pin<V: Render>(
+        &self,
+        prefix: &'static str,
+        access: fn(&mut V) -> &mut LaunchOptionsSection,
+        cx: &mut Context<V>,
+    ) -> AnyElement {
+        let choices = model_choices_for(self.agent);
+        let picked = selected(&self.model, cx);
+        let label = pin_label(choices, Some(picked.as_str()).filter(|v| !v.is_empty()));
+        let trigger = inline_pin_trigger(SharedString::from(format!("{prefix}-model")), label, cx);
+        choice_menu(trigger, choices, picked, |section| &section.model, access, cx)
+            .into_any_element()
+    }
+
+    /// The Effort pin (the `⋯` popover): the picked agent's effort list;
+    /// while ultracode is on the level IS ultracode, so the pin reads so and
+    /// takes no menu.
+    pub(crate) fn effort_pin<V: Render>(
+        &self,
+        prefix: &'static str,
+        access: fn(&mut V) -> &mut LaunchOptionsSection,
+        cx: &mut Context<V>,
+    ) -> AnyElement {
+        if self.ultracode && self.agent.supports_ultracode() {
+            return inline_pin_trigger(
+                SharedString::from(format!("{prefix}-effort")),
+                "Ultracode".to_string(),
+                cx,
+            )
+            .disabled(true)
+            .into_any_element();
+        }
+        let choices = effort_choices_for(self.agent);
+        let picked = selected(&self.effort, cx);
+        let label = pin_label(choices, Some(picked.as_str()).filter(|v| !v.is_empty()));
+        let trigger = inline_pin_trigger(SharedString::from(format!("{prefix}-effort")), label, cx);
+        choice_menu(trigger, choices, picked, |section| &section.effort, access, cx)
+            .into_any_element()
+    }
+
+    /// The Plan switch; `None` for an agent without a plan mode (or an
+    /// external one — its argv is the spec's, verbatim).
+    pub(crate) fn plan_toggle<V: Render>(
+        &self,
+        prefix: &'static str,
+        access: fn(&mut V) -> &mut LaunchOptionsSection,
+        cx: &mut Context<V>,
+    ) -> Option<AnyElement> {
+        if !self.agent.supports_plan_mode() || self.external.is_some() {
+            return None;
+        }
+        Some(inline_switch(
+            SharedString::from(format!("{prefix}-plan")),
+            "Plan",
+            self.plan_mode,
+            move |view: &mut V, on| access(view).plan_mode = on,
+            cx,
+        ))
+    }
+
+    /// The Ultracode switch (the `⋯` popover); `None` for an agent without
+    /// it.
+    pub(crate) fn ultracode_toggle<V: Render>(
+        &self,
+        prefix: &'static str,
+        access: fn(&mut V) -> &mut LaunchOptionsSection,
+        cx: &mut Context<V>,
+    ) -> Option<AnyElement> {
+        if !self.agent.supports_ultracode() || self.external.is_some() {
+            return None;
+        }
+        Some(inline_switch(
+            SharedString::from(format!("{prefix}-ultracode")),
+            "Ultracode",
+            self.ultracode,
+            move |view: &mut V, on| access(view).ultracode = on,
+            cx,
+        ))
+    }
+
+    /// The MCP servers pin (the `⋯` popover); `None` while the team offers
+    /// no servers.
+    pub(crate) fn mcp_pin<V: Render>(
+        &self,
+        prefix: &'static str,
+        access: fn(&mut V) -> &mut LaunchOptionsSection,
+        cx: &mut Context<V>,
+    ) -> Option<AnyElement> {
+        if self.mcp_servers.is_empty() {
+            return None;
+        }
+        let trigger = inline_pin_trigger(
+            SharedString::from(format!("{prefix}-mcp")),
+            format!("MCP: {}", mcp_pick_summary(&self.mcp_servers, &self.mcp_selected)),
+            cx,
+        );
+        Some(
+            mcp_pick_popover(
+                prefix,
+                trigger,
+                &self.mcp_servers,
+                &self.mcp_selected,
+                move |view: &mut V, id: &str| access(view).toggle_mcp_server(id),
+                cx,
+            )
+            .into_any_element(),
+        )
+    }
+
+    /// The Account pin (the `⋯` popover); `None` with fewer than two
+    /// profiles on the target machine (nothing to pick).
+    pub(crate) fn account_pin<V: Render>(
+        &self,
+        prefix: &'static str,
+        access: fn(&mut V) -> &mut LaunchOptionsSection,
+        cx: &mut Context<V>,
+    ) -> Option<AnyElement> {
+        let options = self.account_options(cx);
+        if options.is_empty() {
+            return None;
+        }
+        let trigger = inline_pin_trigger(
+            SharedString::from(format!("{prefix}-account")),
+            format!("Account: {}", account_pin_label(&options, self.account.as_deref())),
+            cx,
+        );
+        Some(account_menu(trigger, &options, self.account.as_deref(), access, cx).into_any_element())
     }
 
     /// The whole launch cluster as ONE inset-grouped stack

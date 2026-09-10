@@ -25,6 +25,10 @@ pub struct BatchPromptArgs<'a> {
     /// `exponential_sessions_end` — the server registers that tool for
     /// nobody else.
     pub unattended: bool,
+    /// EXP-825: the composer's free text — appended LAST as the
+    /// additional-instructions section ([`crate::prompt::additional_instructions`]);
+    /// `None`/blank leaves the prompt byte-identical.
+    pub prompt: Option<&'a str>,
 }
 
 /// Render the batch seed prompt: ground rules + workflow + one context
@@ -90,7 +94,7 @@ do not set issue statuses yourself.
         ));
     }
 
-    prompt
+    crate::prompt::append_additional_instructions(prompt, args.prompt)
 }
 
 /// The issue-context body (mirrors [`crate::prompt`]'s placeholder).
@@ -130,6 +134,7 @@ mod tests {
             branch: "exp/batch-a1b2c3d4",
             issues: &issues(),
             unattended: false,
+            prompt: None,
         })
     }
 
@@ -171,8 +176,37 @@ mod tests {
             branch: "exp/batch-a1b2c3d4",
             issues: &issues(),
             unattended: true,
+            prompt: None,
         });
         assert!(unattended.contains("`exponential_sessions_end`"));
+    }
+
+    /// EXP-825: the composer's free text is the LAST section, after every
+    /// issue context; blank text leaves the prompt byte-identical.
+    #[test]
+    fn additional_instructions_ride_after_the_issue_contexts() {
+        let with = render_batch_prompt(&BatchPromptArgs {
+            default_branch: "main",
+            branch: "exp/batch-a1b2c3d4",
+            issues: &issues(),
+            unattended: false,
+            prompt: Some("Land both behind one flag."),
+        });
+        assert_eq!(
+            with,
+            format!(
+                "{}\n## Additional instructions from the requester\n\nLand both behind one flag.\n",
+                rendered()
+            )
+        );
+        let blank = render_batch_prompt(&BatchPromptArgs {
+            default_branch: "main",
+            branch: "exp/batch-a1b2c3d4",
+            issues: &issues(),
+            unattended: false,
+            prompt: Some("   "),
+        });
+        assert_eq!(blank, rendered());
     }
 
     /// Per-issue sections carry identifier, title, UUID, and the description

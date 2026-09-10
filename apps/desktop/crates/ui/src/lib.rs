@@ -21,6 +21,7 @@
 //! stays reachable behind `EXP_DEV_BOARD=1`.
 
 mod action_editor_dialog;
+mod action_inputs;
 mod agent_login;
 mod action_run;
 mod action_suggestions;
@@ -40,15 +41,16 @@ mod changelog;
 // through it.
 mod changes_bar;
 // EXP-772: the Chat page — one centred prompt box, one row of pickers.
+mod chat_launch;
 mod chat_screen;
 pub mod coding_flow;
 mod coding_selects;
 mod comment_attachments;
 mod comments;
 mod composer;
+mod composer_images;
 mod commit_graph;
 mod controls;
-mod create_action_dialog;
 mod create_issue_dialog;
 mod create_board_dialog;
 mod create_team_dialog;
@@ -75,6 +77,7 @@ mod issue_list;
 mod issue_composer;
 mod issue_draft;
 mod issue_preview;
+mod issue_picker;
 mod issue_relations;
 mod join_team;
 mod launch_options;
@@ -118,7 +121,6 @@ mod sidebar;
 mod slash_commands;
 mod surface;
 mod source_control;
-mod start_coding_dialog;
 mod steer_viewer;
 mod transcript_rows;
 pub mod steer_wiring;

@@ -22,7 +22,9 @@
 //! * [`relations`] — EXP-736 relation picks, per-side labels and the two
 //!   timeline phrases (locked to the generated contract's label slices);
 //! * [`session_tree`] — EXP-818 `nest_sessions`: the parent/child nesting
-//!   every session list renders (web `lib/session-tree.ts` twin).
+//!   every session list renders (web `lib/session-tree.ts` twin);
+//! * [`image_message`] — the steer/start image-message shape (EXP-511/825),
+//!   `lib/steer-image-message.ts`'s byte-identical twin.
 //!
 //! gpui-free — headless-testable.
 
@@ -35,6 +37,7 @@ pub mod client_version;
 pub mod enums;
 pub mod filters;
 pub mod hydrate;
+pub mod image_message;
 pub mod options;
 pub mod relations;
 pub mod rows;
