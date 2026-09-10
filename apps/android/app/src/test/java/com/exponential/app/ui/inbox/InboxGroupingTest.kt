@@ -102,6 +102,35 @@ class InboxGroupingTest {
         assertEquals(2, state.totalUnread)
     }
 
+    /**
+     * EXP-801: an agent's message is its own entry — one per row, never
+     * bundled — carrying the resolved team name, and counts toward the total.
+     */
+    @Test
+    fun agentMessagesAreOneEntryEachAndCountTowardTotalUnread() {
+        val state = buildInboxState(
+            notifications = listOf(
+                notification(
+                    "m1", teamId = "t1", type = DomainContract.notificationTypeAgentMessage,
+                    title = "Ada's agent: Build finished", body = "All green.",
+                ),
+                notification("m2", teamId = "ghost", type = DomainContract.notificationTypeAgentMessage, readAt = ts),
+            ),
+            issues = emptyList(),
+            teams = listOf(team("t1", "Acme")),
+        )
+
+        val messages = state.entries.filterIsInstance<InboxEntry.Message>()
+        assertEquals(2, messages.size)
+        assertEquals("message:m1", messages[0].key)
+        assertEquals("Acme", messages[0].teamName)
+        assertEquals("Ada's agent: Build finished", messages[0].notification.title)
+        assertEquals(1, messages[0].unread)
+        assertNull(messages[1].teamName)
+        assertEquals(0, messages[1].unread)
+        assertEquals(1, state.totalUnread)
+    }
+
     @Test
     fun issueLessNonSupportRowsStayDropped() {
         val state = buildInboxState(

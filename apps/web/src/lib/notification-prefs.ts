@@ -4,7 +4,7 @@
 // with a random unsubscribeToken on first read/write/send.
 
 import { randomUUID } from "node:crypto"
-import { eq, inArray } from "drizzle-orm"
+import { and, eq, inArray } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { userNotificationPrefs } from "@/db/schema"
 import type { NotificationType } from "@/lib/domain"
@@ -17,6 +17,8 @@ import type {
 export interface EmailPrefs extends EmailPrefsLike {
   userId: string
   unsubscribeToken: string
+  // EXP-801: may OTHER members' agents message this user over MCP?
+  allowAgentMessages: boolean
 }
 
 // Mint prefs rows for users that don't have one yet (lazy default + token).
@@ -45,6 +47,7 @@ export async function getOrCreateEmailPrefs(userId: string): Promise<EmailPrefs>
     digest: row.digest,
     digestHour: row.digestHour,
     unsubscribeToken: row.unsubscribeToken,
+    allowAgentMessages: row.allowAgentMessages,
   }
 }
 
@@ -55,6 +58,7 @@ export async function updateEmailPrefs(
     typePrefs?: Partial<Record<NotificationType, boolean>>
     digest?: DigestCadence
     digestHour?: number
+    allowAgentMessages?: boolean
   }
 ): Promise<EmailPrefs> {
   await ensurePrefsRows([userId])
@@ -103,6 +107,7 @@ export async function getEmailPrefsMap(
         digest: row.digest,
         digestHour: row.digestHour,
         unsubscribeToken: row.unsubscribeToken,
+        allowAgentMessages: row.allowAgentMessages,
       },
     ])
   )
@@ -124,4 +129,23 @@ export async function getTypePrefsMap(
     .from(userNotificationPrefs)
     .where(inArray(userNotificationPrefs.userId, userIds))
   return new Map(rows.map((row) => [row.userId, row.typePrefs]))
+}
+
+// EXP-801: the recipients among `userIds` who turned OFF messages from
+// teammates' agents. READ-ONLY like getTypePrefsMap (no row minting on a
+// send path); a user with no row has the default (allowed) and is absent.
+export async function getAgentMessageBlocklist(
+  userIds: string[]
+): Promise<Set<string>> {
+  if (userIds.length === 0) return new Set()
+  const rows = await db
+    .select({ userId: userNotificationPrefs.userId })
+    .from(userNotificationPrefs)
+    .where(
+      and(
+        inArray(userNotificationPrefs.userId, userIds),
+        eq(userNotificationPrefs.allowAgentMessages, false)
+      )
+    )
+  return new Set(rows.map((row) => row.userId))
 }

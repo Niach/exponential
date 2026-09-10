@@ -364,6 +364,7 @@ export const SEMANTIC_ICONS = {
   "nav-support": `life-buoy`,
   "nav-team-switcher": `chevrons-up-down`,
   "nav-terminal": `square-terminal`,
+  "notification-agent-message": `bot`,
   "notification-issue-assigned": `user-plus`,
   "notification-issue-comment": `message-square`,
   "notification-issue-created": `circle-dot`,

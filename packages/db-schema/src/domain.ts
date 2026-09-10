@@ -299,6 +299,11 @@ export const notificationTypeValues = [
   // Helpdesk: an external reporter replied on a support thread (broadcast to
   // team members, mirroring the issue_created feedback broadcast).
   `support_reply`,
+  // EXP-801: a message an agent sent a team member over MCP
+  // (`exponential_notifications_send`). Issue-less like support_reply; the
+  // row carries the sending team's `team_id`. Blocked per recipient by
+  // `user_notification_prefs.allow_agent_messages` (own agents always pass).
+  `agent_message`,
 ] as const
 
 // Pull-request state surfaced on issues.pr_state. Mirrors the GitHub PR state

@@ -18,6 +18,11 @@ final class DeepLinkBus: @unchecked Sendable {
     // multi-account devices open it under the right account.
     var pendingSupportThreadId: String?
     var pendingSupportThreadUserId: String?
+    // An agent_message push tap (EXP-801): the row lives in the My Work
+    // inbox and nowhere else, so the tap lands there. Carries the recipient's
+    // server user id like the other push kinds.
+    var pendingInbox = false
+    var pendingInboxUserId: String?
     // A web URL the app was opened with but cannot render (unknown host, issue
     // not synced/visible). MainNavigator presents it in an in-app Safari sheet —
     // NEVER hand it back to UIApplication.open: the app is entitled for the
@@ -43,6 +48,11 @@ final class DeepLinkBus: @unchecked Sendable {
     func navigateToSupportThread(_ threadId: String, userId: String? = nil) {
         pendingSupportThreadUserId = userId
         pendingSupportThreadId = threadId
+    }
+
+    func navigateToInbox(userId: String? = nil) {
+        pendingInboxUserId = userId
+        pendingInbox = true
     }
 
     func openExternal(_ url: URL) {
@@ -74,5 +84,14 @@ final class DeepLinkBus: @unchecked Sendable {
         pendingSupportThreadId = nil
         pendingSupportThreadUserId = nil
         return id
+    }
+
+    /// Returns the recipient's user id (nil when none) when an inbox tap is
+    /// pending; `nil` with `pending == false` otherwise.
+    func consumeInbox() -> (pending: Bool, userId: String?) {
+        let result = (pending: pendingInbox, userId: pendingInboxUserId)
+        pendingInbox = false
+        pendingInboxUserId = nil
+        return result
     }
 }

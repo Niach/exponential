@@ -69,7 +69,18 @@ type SupportGroup = {
   unread: number
 }
 
-type Group = IssueGroup | SupportGroup
+// EXP-801: an agent's message (`agent_message`, issue-less, team-scoped) is
+// its own entry — one per row, never bundled: each is a distinct thing
+// someone's agent said. Clicking marks it read; there is nowhere to go.
+type MessageGroup = {
+  kind: `message`
+  teamId: string | null
+  teamName: string | null
+  items: [Notification]
+  unread: number
+}
+
+type Group = IssueGroup | SupportGroup | MessageGroup
 
 // REV-46: the notifications shape syncs every delivered row, so a long-lived
 // account can group into thousands of rows — cap + expand like the board's
@@ -139,9 +150,19 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
   const groups = useMemo<Group[]>(() => {
     const byIssue = new Map<string, IssueGroup>()
     const supportByTeam = new Map<string | null, SupportGroup>()
+    const messages: MessageGroup[] = []
     for (const n of (notifications ?? []) as Notification[]) {
       if (!n.issueId) {
-        if (n.type === `support_reply`) {
+        if (n.type === `agent_message`) {
+          const team = n.teamId ? teamMap.get(n.teamId) : undefined
+          messages.push({
+            kind: `message`,
+            teamId: team?.id ?? null,
+            teamName: team?.name ?? null,
+            items: [n],
+            unread: n.readAt ? 0 : 1,
+          })
+        } else if (n.type === `support_reply`) {
           const team = n.teamId ? teamMap.get(n.teamId) : undefined
           const key = team?.id ?? null
           let g = supportByTeam.get(key)
@@ -182,7 +203,11 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
       g.items.push(n)
       if (!n.readAt) g.unread += 1
     }
-    const all: Group[] = [...byIssue.values(), ...supportByTeam.values()]
+    const all: Group[] = [
+      ...byIssue.values(),
+      ...supportByTeam.values(),
+      ...messages,
+    ]
     return all.sort(
       (a, b) =>
         new Date(b.items[0].createdAt).getTime() -
@@ -205,7 +230,7 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
       await trpc.notifications.markReadByIssue.mutate({ issueId: g.issue.id })
       return
     }
-    if (g.teamId) {
+    if (g.kind === `support` && g.teamId) {
       await trpc.notifications.markReadSupport.mutate({ teamId: g.teamId })
       return
     }
@@ -235,6 +260,54 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
         ) : (
           visibleGroups.map((g) => {
             const latest = g.items[0]
+            if (g.kind === `message`) {
+              const MessageIcon = typeIcon.agent_message ?? Bell
+              return (
+                <ListRow
+                  key={`message:${latest.id}`}
+                  interactive
+                  className={cn(
+                    `items-start px-3 py-2`,
+                    g.unread === 0 && `opacity-60`
+                  )}
+                  onClick={() => void markGroupRead(g)}
+                >
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
+                    <MessageIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={cn(
+                          `truncate text-sm`,
+                          g.unread > 0 && `font-medium`
+                        )}
+                      >
+                        {latest.title}
+                      </span>
+                      {g.teamName != null && teamMap.size > 1 && (
+                        <span className="truncate text-xs text-muted-foreground">
+                          {g.teamName}
+                        </span>
+                      )}
+                      <span className="ml-auto w-16 shrink-0 text-right text-xs text-muted-foreground">
+                        {relativeTime(latest.createdAt)}
+                      </span>
+                      <span className="w-2 shrink-0" aria-hidden>
+                        {g.unread > 0 && (
+                          <span className="block h-2 w-2 rounded-full bg-primary" />
+                        )}
+                      </span>
+                    </div>
+                    {latest.body && (
+                      <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                        {latest.body}
+                      </div>
+                    )}
+                  </div>
+                </ListRow>
+              )
+            }
             if (g.kind === `support`) {
               return (
                 <ListRow

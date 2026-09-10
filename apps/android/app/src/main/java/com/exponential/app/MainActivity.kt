@@ -152,6 +152,8 @@ class MainActivity : ComponentActivity() {
             "support" -> data.pathSegments.firstOrNull()?.let {
                 if (switchToPushAccount(linkUserId)) deepLinkBus.openSupportThread(it)
             }
+            // agent_message push taps (EXP-801): the My Work inbox.
+            "inbox" -> if (switchToPushAccount(linkUserId)) deepLinkBus.openInbox()
             // Fired by the server's post-GitHub-App-install page: closes the
             // Custom Tab (singleTask clear-top) and lands back on the repo
             // picker, which consumes this and re-fetches the repo list. The
@@ -186,6 +188,10 @@ class MainActivity : ComponentActivity() {
             is PushDeepLinks.Target.SupportThread -> {
                 intent.removeExtra("threadId")
                 deepLinkBus.openSupportThread(target.id)
+            }
+            PushDeepLinks.Target.Inbox -> {
+                intent.removeExtra("type")
+                deepLinkBus.openInbox()
             }
         }
     }

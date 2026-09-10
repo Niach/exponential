@@ -33,6 +33,7 @@ import { getEmailPrefsMap } from "@/lib/notification-prefs"
 import {
   DIGEST_SCAN_MAX_AGE_MS,
   appBaseUrl,
+  buildInboxDeepLinkPath,
   buildIssueDeepLinkPath,
   buildSupportDeepLinkPath,
   buildUnsubscribeUrl,
@@ -267,7 +268,10 @@ export async function runEmailDigestSweep(
                 // to route to.
                 item.type === `support_reply` && item.notificationTeamSlug
                 ? `${base}${buildSupportDeepLinkPath(item.notificationTeamSlug)}`
-                : null,
+                : // EXP-801: an agent's message lives in the team's Inbox.
+                  item.type === `agent_message` && item.notificationTeamSlug
+                  ? `${base}${buildInboxDeepLinkPath(item.notificationTeamSlug)}`
+                  : null,
         }))
         const result = await sendNotificationDigestEmail({
           to,

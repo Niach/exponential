@@ -49,6 +49,10 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Me
             // Helpdesk pushes (EXP-180) carry a threadId and NO issue keys —
             // route to the Support thread view instead of an issue.
             deepLinkBus.navigateToSupportThread(threadId, userId: userInfo["userId"] as? String)
+        } else if userInfo["type"] as? String == "agent_message" {
+            // An agent's message (EXP-801) carries no issue keys either — it
+            // renders in the My Work inbox, so the tap opens that.
+            deepLinkBus.navigateToInbox(userId: userInfo["userId"] as? String)
         } else if let issueId = userInfo["issueId"] as? String {
             // The payload's userId identifies which signed-in account the
             // push was for; the navigator opens the issue under that account

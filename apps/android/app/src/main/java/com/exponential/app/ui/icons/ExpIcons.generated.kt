@@ -6544,6 +6544,8 @@ public object ExpIcons {
     public val navTeamSwitcher: ImageVector get() = `chevrons-up-down`
     /** Concept `nav-terminal`. */
     public val navTerminal: ImageVector get() = `square-terminal`
+    /** Concept `notification-agent-message`. */
+    public val notificationAgentMessage: ImageVector get() = `bot`
     /** Concept `notification-issue-assigned`. */
     public val notificationIssueAssigned: ImageVector get() = `user-plus`
     /** Concept `notification-issue-comment`. */

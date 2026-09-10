@@ -380,6 +380,11 @@ struct MainNavigator: View {
                 _ = deps.deepLinkBus.consumeSupportThread()
             }
         }
+        // An agent_message push tap (EXP-801): open My Work → Inbox under the
+        // recipient's account (the row renders nowhere else).
+        .onChange(of: deps.deepLinkBus.pendingInbox) { _, pending in
+            if pending { openInboxFromPush() }
+        }
         // A team was deleted in-app (EXP-43): pop to root so no pushed
         // view (team settings, server detail) still targets it.
         .onReceive(NotificationCenter.default.publisher(for: .teamDeleted)) { _ in
@@ -403,6 +408,7 @@ struct MainNavigator: View {
                 let accountId = issueAccountId(forUserId: supportUserId)
                 path.append(AppRoute.supportThread(accountId: accountId, threadId: threadId))
             }
+            if deps.deepLinkBus.pendingInbox { openInboxFromPush() }
         }
         .safeAreaInset(edge: .top, spacing: 0) { syncBanner }
         // Attached as an OVERLAY, not a safeAreaInset (EXP-36): an ancestor
@@ -942,6 +948,20 @@ struct MainNavigator: View {
     /// account's teams table; it starts no shape fetch).
     private func appendIssueRoute(accountId: String, issueId: String) {
         path.append(AppRoute.issue(accountId: accountId, id: issueId))
+    }
+
+    /// EXP-801: land on My Work's Inbox segment for the push's recipient —
+    /// My Work renders the ACTIVE account, so a push for another signed-in
+    /// account switches first (the issue routes carry their account instead).
+    private func openInboxFromPush() {
+        let (_, userId) = deps.deepLinkBus.consumeInbox()
+        let accountId = issueAccountId(forUserId: userId)
+        if !accountId.isEmpty, accountId != deps.auth.activeAccountId {
+            deps.auth.switchAccount(id: accountId)
+        }
+        // MyWorkView persists its segment in AppStorage — point it at Inbox.
+        UserDefaults.standard.set("inbox", forKey: "myWorkSegment")
+        path = [.myWork]
     }
 
     private func stopObserving() {

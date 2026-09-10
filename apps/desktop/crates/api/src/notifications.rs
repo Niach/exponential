@@ -66,6 +66,11 @@ pub struct EmailPrefs {
     /// EXP-369 — the pane falls back to the server default.
     #[serde(default)]
     pub digest_hour: Option<i64>,
+    /// EXP-801: may OTHER members' agents message this user over MCP? A
+    /// block, not a delivery mute. Absent on older servers — the pane reads
+    /// that as allowed (the server default).
+    #[serde(default)]
+    pub allow_agent_messages: Option<bool>,
     /// False on self-hosted instances without SES/SMTP — the pane
     /// hides/disables email affordances then (web parity).
     #[serde(default)]
@@ -95,6 +100,9 @@ pub struct UpdateEmailPrefsInput {
     /// send point.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub digest_hour: Option<i64>,
+    /// EXP-801: the "messages from teammates' agents" block.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allow_agent_messages: Option<bool>,
 }
 
 /// `notifications.updateEmailPrefs` — mutation; returns the updated prefs.
@@ -189,6 +197,31 @@ mod tests {
         );
         let prefs = notifications_email_prefs(&client(&base)).unwrap();
         assert_eq!(prefs.digest_hour, None);
+    }
+
+    /// EXP-801: the block round-trips in camelCase and decodes as absent on
+    /// a server that predates it.
+    #[test]
+    fn allow_agent_messages_round_trips_and_tolerates_absence() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"emailEnabled":true,"typePrefs":{},"digest":"daily","allowAgentMessages":false,"transportConfigured":true}}}"#,
+        );
+        let input = UpdateEmailPrefsInput {
+            allow_agent_messages: Some(false),
+            ..Default::default()
+        };
+        let prefs = notifications_update_email_prefs(&client(&base), &input).unwrap();
+        assert_eq!(prefs.allow_agent_messages, Some(false));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(r#"{"allowAgentMessages":false}"#));
+
+        let (base, _captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"emailEnabled":true,"typePrefs":{},"digest":"off","transportConfigured":true}}}"#,
+        );
+        let prefs = notifications_email_prefs(&client(&base)).unwrap();
+        assert_eq!(prefs.allow_agent_messages, None);
     }
 
     #[test]

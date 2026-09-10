@@ -100,7 +100,10 @@ import { resolveRepoInstallationTokenInfo } from "@/lib/integrations/github-app"
 import { isInstallationLinkedToTeam } from "@/lib/trpc/integrations"
 import { recordIssueEvent } from "@/lib/integrations/activity"
 import { applyPrLifecycleStatusInTx } from "@/lib/integrations/pr-sync"
-import { fireAndForgetPrNotify } from "@/lib/integrations/notifications"
+import {
+  fireAndForgetPrNotify,
+  sendAgentMessage,
+} from "@/lib/integrations/notifications"
 import {
   claimPrOpen,
   noteAgentIssueActivity,
@@ -146,6 +149,11 @@ import {
 const agentBugReportLimiter = new TokenBucketLimiter({
   capacity: 3,
   refillPerHour: 10,
+})
+// EXP-801: per-sender bound on agent messages to teammates.
+const agentMessageLimiter = new TokenBucketLimiter({
+  capacity: 10,
+  refillPerHour: 30,
 })
 
 function buildCtx(user: McpUser, request: Request): Context {
@@ -3283,6 +3291,79 @@ export function registerExponentialTools(
         }
         await caller(user, request).notifications.markRead({ id })
         return ok({ ok: true, id })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // EXP-801: an agent pings a team member — or its own user — with an inbox
+  // row plus a push. Synchronous so the agent learns who got it; a recipient
+  // who switched off "messages from teammates' agents" is reported as
+  // declined, never written. Per-sender token bucket: the tool is spammable
+  // by construction (a loop of sends is one bad prompt away).
+  server.registerTool(
+    `exponential_notifications_send`,
+    {
+      description: `Send a notification (inbox row + push) to members of a team, or to yourself. recipients are user ids or emails of team members. A member who turned off messages from teammates' agents is reported as declined; your own user always receives.`,
+      inputSchema: strictInput({
+        teamId: uuidString,
+        recipients: z.array(z.string().min(1).max(320)).min(1).max(20),
+        title: z.string().min(1).max(120),
+        body: z.string().max(2000).optional(),
+      }),
+    },
+    async ({ teamId, recipients, title, body }) => {
+      try {
+        assertTeamVisible(access, teamId)
+        await resolveTeamAccess(user.id, teamId)
+        const limit = agentMessageLimiter.tryTake(user.id)
+        if (!limit.ok) {
+          return err(
+            new Error(
+              `Too many messages — retry in ${limit.retryAfterSeconds}s`
+            )
+          )
+        }
+        const memberRows = await db
+          .select({ id: users.id, email: users.email })
+          .from(teamMembers)
+          .innerJoin(users, eq(users.id, teamMembers.userId))
+          .where(eq(teamMembers.teamId, teamId))
+        const byId = new Map(memberRows.map((row) => [row.id, row]))
+        const byEmail = new Map(
+          memberRows.map((row) => [row.email.toLowerCase(), row])
+        )
+        const unknown: string[] = []
+        const resolved = new Map<string, { id: string; email: string }>()
+        for (const raw of recipients) {
+          const key = raw.trim()
+          const member = byId.get(key) ?? byEmail.get(key.toLowerCase())
+          if (member) resolved.set(member.id, member)
+          else unknown.push(key)
+        }
+        if (resolved.size === 0) {
+          throw new Error(
+            `No recipient is a member of this team (use exponential_members_list for ids and emails).`
+          )
+        }
+        const outcome = await sendAgentMessage({
+          teamId,
+          senderUserId: user.id,
+          recipientIds: [...resolved.keys()],
+          title: title.trim(),
+          body: body?.trim() || null,
+        })
+        const describe = (ids: string[]) =>
+          ids.map((id) => ({ id, email: resolved.get(id)?.email ?? null }))
+        return ok({
+          ok: outcome.delivered.length > 0,
+          delivered: describe(outcome.delivered),
+          declined: describe(outcome.declined),
+          deduped: describe(outcome.deduped),
+          notMembers: describe(outcome.notMembers),
+          unknown,
+        })
       } catch (e) {
         return err(e)
       }

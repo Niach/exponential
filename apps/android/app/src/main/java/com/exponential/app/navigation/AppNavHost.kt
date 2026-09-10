@@ -134,6 +134,14 @@ fun AppNavHost() {
             // reads threadId from SavedStateHandle once.
             is DeepLinkBus.Target.SupportThread ->
                 navController.navigateDeepLink("support/${target.id}")
+            // An agent's message (EXP-801) renders in My Work's inbox — the
+            // segment the screen opens on unless the user last left it on
+            // My Issues.
+            DeepLinkBus.Target.Inbox ->
+                navController.navigate("personal") {
+                    launchSingleTop = true
+                    popUpTo("home")
+                }
             is DeepLinkBus.Target.WebIssueRef ->
                 // Verified App Link (EXP-92): resolve slug+identifier against
                 // the local DB of the account matching the link's host (brief

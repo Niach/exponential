@@ -20,12 +20,18 @@ object PushDeepLinks {
     /** Push `type` of the issue-less helpdesk reply notifications (EXP-180). */
     const val TYPE_SUPPORT_REPLY = "support_reply"
 
+    /** Push `type` of an agent's message (EXP-801) — issue-less, lives in the inbox. */
+    const val TYPE_AGENT_MESSAGE = "agent_message"
+
     /** Query param carrying the push's recipient through the deep link. */
     const val PARAM_USER_ID = "userId"
 
     sealed interface Target {
         data class Issue(val id: String) : Target
         data class SupportThread(val id: String) : Target
+
+        /** The My Work inbox — where an agent's message renders (EXP-801). */
+        data object Inbox : Target
     }
 
     /** What a tapped push should open, or null when it carries no target. */
@@ -33,6 +39,7 @@ object PushDeepLinks {
         !issueId.isNullOrEmpty() -> Target.Issue(issueId)
         type == TYPE_SUPPORT_REPLY && !threadId.isNullOrEmpty() ->
             Target.SupportThread(threadId)
+        type == TYPE_AGENT_MESSAGE -> Target.Inbox
         else -> null
     }
 
@@ -46,6 +53,7 @@ object PushDeepLinks {
         val base = when (target) {
             is Target.Issue -> "exponential://issue/${target.id}"
             is Target.SupportThread -> "exponential://support/${target.id}"
+            Target.Inbox -> "exponential://inbox"
         }
         if (targetUserId.isNullOrEmpty()) return base
         return "$base?$PARAM_USER_ID=${percentEncode(targetUserId)}"

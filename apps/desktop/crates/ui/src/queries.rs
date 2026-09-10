@@ -437,12 +437,28 @@ pub struct SupportInboxGroup {
     pub unread: usize,
 }
 
-/// One inbox card — an issue group or a synthetic Support group. Entries are
-/// interleaved newest-first by their latest item (web `inbox-view.tsx` sorts
-/// all groups together).
+/// One agent message (EXP-801): an issue-less `agent_message` row is its own
+/// entry — never bundled, each is a distinct thing someone's agent said.
+/// Click marks it read; there is nowhere to navigate.
+pub struct MessageInboxEntry {
+    pub item: domain::rows::Notification,
+    /// The synced team's name (`None` when the team row hasn't synced).
+    pub team_name: Option<String>,
+}
+
+impl MessageInboxEntry {
+    pub fn unread(&self) -> usize {
+        usize::from(self.item.read_at.is_none())
+    }
+}
+
+/// One inbox card — an issue group, a synthetic Support group or an agent
+/// message. Entries are interleaved newest-first by their latest item (web
+/// `inbox-view.tsx` sorts all groups together).
 pub enum InboxEntry {
     Issue(InboxGroup),
     Support(SupportInboxGroup),
+    Message(MessageInboxEntry),
 }
 
 impl InboxEntry {
@@ -450,6 +466,7 @@ impl InboxEntry {
         match self {
             InboxEntry::Issue(group) => group.unread,
             InboxEntry::Support(group) => group.unread,
+            InboxEntry::Message(entry) => entry.unread(),
         }
     }
 }
@@ -524,10 +541,21 @@ pub fn support_unread(cx: &App, team_id: &str) -> bool {
         })
 }
 
+/// The issue-less kinds the inbox renders: helpdesk replies (EXP-180) and
+/// agent messages (EXP-801). Any other issue-less kind is unknown-future and
+/// skipped everywhere this is consulted.
+fn issueless_kind_renderable(kind: Option<&str>) -> bool {
+    matches!(
+        kind,
+        Some(domain::contract::NOTIFICATION_TYPE_SUPPORT_REPLY)
+            | Some(domain::contract::NOTIFICATION_TYPE_AGENT_MESSAGE)
+    )
+}
+
 /// EXP-699: the rail's Inbox dot — any unread notification the inbox can
 /// render (issue-keyed rows need the issue AND its board synced, issue-less
-/// rows count only as `support_reply`): the [`inbox`] renderability rule
-/// without the grouping work.
+/// rows count only as `support_reply` or `agent_message`): the [`inbox`]
+/// renderability rule without the grouping work.
 pub fn inbox_unread(cx: &App) -> bool {
     let collections = Store::global(cx).collections();
     let issues = collections.issues.read(cx);
@@ -544,10 +572,7 @@ pub fn inbox_unread(cx: &App) -> bool {
                 Some(issue_id) => issues
                     .get(issue_id)
                     .is_some_and(|issue| boards.get(&issue.board_id).is_some()),
-                None => {
-                    notification.kind.as_deref()
-                        == Some(domain::contract::NOTIFICATION_TYPE_SUPPORT_REPLY)
-                }
+                None => issueless_kind_renderable(notification.kind.as_deref()),
             }
         })
 }
@@ -607,22 +632,36 @@ fn build_inbox_entries(
     enum Key {
         Issue(String),
         Support(Option<String>),
+        Message(String),
     }
 
     let mut order: Vec<Key> = Vec::new();
     let mut by_issue: HashMap<String, InboxGroup> = HashMap::new();
     let mut by_support_team: HashMap<Option<String>, SupportInboxGroup> = HashMap::new();
+    let mut by_message: HashMap<String, MessageInboxEntry> = HashMap::new();
     for notification in notifications {
         let unread = notification.read_at.is_none();
         let Some(issue_id) = notification.issue_id.clone() else {
-            // Issue-less rows are the helpdesk fan-out (EXP-180); any other
-            // issue-less kind is unknown-future and skipped.
-            if notification.kind.as_deref()
-                != Some(domain::contract::NOTIFICATION_TYPE_SUPPORT_REPLY)
-            {
+            // Issue-less rows are the helpdesk fan-out (EXP-180) or an agent's
+            // message (EXP-801, one entry per row); any other issue-less kind
+            // is unknown-future and skipped.
+            if !issueless_kind_renderable(notification.kind.as_deref()) {
                 continue;
             }
             let team_name = notification.team_id.as_deref().and_then(&resolve_team);
+            if notification.kind.as_deref()
+                == Some(domain::contract::NOTIFICATION_TYPE_AGENT_MESSAGE)
+            {
+                order.push(Key::Message(notification.id.clone()));
+                by_message.insert(
+                    notification.id.clone(),
+                    MessageInboxEntry {
+                        item: notification,
+                        team_name,
+                    },
+                );
+                continue;
+            }
             // Unknown/NULL teams collapse into the ONE generic group.
             let key = if team_name.is_some() {
                 notification.team_id.clone()
@@ -668,6 +707,7 @@ fn build_inbox_entries(
             Key::Support(team_id) => by_support_team
                 .remove(&team_id)
                 .map(InboxEntry::Support),
+            Key::Message(id) => by_message.remove(&id).map(InboxEntry::Message),
         })
         .collect()
 }
@@ -2183,9 +2223,40 @@ mod tests {
             .map(|entry| match entry {
                 InboxEntry::Issue(group) => group.issue.id.as_str(),
                 InboxEntry::Support(_) => "support",
+                InboxEntry::Message(_) => "message",
             })
             .collect();
         assert_eq!(kinds, ["i-2", "support", "i-1"]);
+    }
+
+    /// EXP-801: an agent's message is one entry per row, never bundled,
+    /// interleaved with the rest by its own timestamp, team name resolved.
+    #[test]
+    fn inbox_lists_agent_messages_one_entry_each() {
+        let entries = build_inbox_entries(
+            vec![
+                notification("m-1", None, Some("w-1"), "agent_message", "2026-07-18T10:00:00Z", false),
+                notification("n-support", None, Some("w-1"), "support_reply", "2026-07-18T09:30:00Z", false),
+                notification("m-2", None, Some("w-gone"), "agent_message", "2026-07-18T09:00:00Z", true),
+            ],
+            |_| None,
+            |team_id| (team_id == "w-1").then(|| "Acme".to_string()),
+        );
+        assert_eq!(entries.len(), 3);
+        let InboxEntry::Message(first) = &entries[0] else {
+            panic!("expected a Message entry");
+        };
+        assert_eq!(first.item.id, "m-1");
+        assert_eq!(first.team_name.as_deref(), Some("Acme"));
+        assert_eq!(first.unread(), 1);
+        assert!(matches!(&entries[1], InboxEntry::Support(_)));
+        let InboxEntry::Message(second) = &entries[2] else {
+            panic!("expected a Message entry");
+        };
+        assert_eq!(second.item.id, "m-2");
+        assert_eq!(second.team_name, None);
+        assert_eq!(second.unread(), 0);
+        assert_eq!(entries.iter().map(InboxEntry::unread).sum::<usize>(), 2);
     }
 
     #[test]

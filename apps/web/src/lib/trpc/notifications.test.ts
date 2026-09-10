@@ -65,6 +65,7 @@ const getOrCreateEmailPrefs = vi.fn(async () => ({
   typePrefs: {},
   digest: `daily`,
   digestHour: 8,
+  allowAgentMessages: true,
 }))
 const updateEmailPrefs = vi.fn(
   async (_userId: string, patch: Record<string, unknown>) => ({
@@ -72,6 +73,7 @@ const updateEmailPrefs = vi.fn(
     typePrefs: {},
     digest: `daily`,
     digestHour: 8,
+    allowAgentMessages: true,
     ...patch,
   })
 )
@@ -137,6 +139,23 @@ describe(`notifications.emailPrefs`, () => {
     const prefs = await caller().emailPrefs()
     expect(prefs).toMatchObject({ transportConfigured: true })
     expect(prefs).not.toHaveProperty(`emailVerified`)
+  })
+})
+
+// EXP-801: the "messages from teammates' agents" block rides the same prefs
+// row and round-trips through the same two procedures.
+describe(`notifications allowAgentMessages (EXP-801)`, () => {
+  it(`reports the stored value`, async () => {
+    const prefs = await caller().emailPrefs()
+    expect(prefs.allowAgentMessages).toBe(true)
+  })
+
+  it(`persists the block and echoes it back`, async () => {
+    const prefs = await caller().updateEmailPrefs({ allowAgentMessages: false })
+    expect(updateEmailPrefs).toHaveBeenCalledWith(`user-a`, {
+      allowAgentMessages: false,
+    })
+    expect(prefs.allowAgentMessages).toBe(false)
   })
 })
 
