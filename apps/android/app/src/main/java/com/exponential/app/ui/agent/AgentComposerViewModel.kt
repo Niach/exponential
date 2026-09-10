@@ -128,6 +128,16 @@ class AgentComposerViewModel @Inject constructor(
     /** Every ONLINE machine, runnable or not — the signed-out caption's source. */
     val onlineDevices: StateFlow<List<SteerDevice>?> get() = steerLaunch.devices
 
+    // The delegate builds its flows in `attach`; it must run BEFORE any
+    // property below captures `steerLaunch.devices` — Kotlin runs property
+    // initializers and init blocks in declaration order, and the `init` at
+    // the bottom of this class handed `candidateDevices` the delegate's
+    // never-resolving placeholder (the composer sat on "CLI default" with a
+    // disabled submit forever).
+    init {
+        steerLaunch.attach(viewModelScope)
+    }
+
     /**
      * The machines a start can go to: ONLINE (the delegate's pool) with a
      * runnable agent (EXP-409) — every subject shares ONE pool since EXP-672.
@@ -251,7 +261,6 @@ class AgentComposerViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init {
-        steerLaunch.attach(viewModelScope)
         applySeed(seed)
         // A settled machine seeds every option ONCE (agent, then that agent's
         // advertised model/effort/toggles); the SAME machine re-emitting only
