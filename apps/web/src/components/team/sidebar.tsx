@@ -28,6 +28,7 @@ import { CreateBoardDialog } from "@/components/create-board-dialog"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
 import { BoardSettingsDialog } from "@/components/team/board-settings-dialog"
 import { SettingsSidebar } from "@/components/team/settings-sidebar"
+import { SidebarSessions } from "@/components/team/sidebar-sessions"
 import { TeamAvatar } from "@/components/team/team-avatar"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { FeedbackButton } from "@/components/feedback-button"
@@ -69,6 +70,7 @@ import {
 const NavAboutIcon = conceptIcon(`settings-about`)
 const NavAdminIcon = conceptIcon(`nav-admin`)
 const NavActionsIcon = conceptIcon(`nav-actions`)
+const NavAgentIcon = conceptIcon(`action-chat`)
 const NavAutomationsIcon = conceptIcon(`nav-automations`)
 const NavBoardsIcon = conceptIcon(`nav-boards`)
 const NavChangelogIcon = conceptIcon(`nav-changelog`)
@@ -388,6 +390,16 @@ export function TeamSidebar({
                       </SidebarMenuButton>
                       <ReviewsOpenBadge boards={boards} teamId={team?.id} />
                     </SidebarMenuItem>
+                    {/* EXP-818: the Agent page — the sessions list beside the
+                        chat prompt (the IDE rail's Agent entry). */}
+                    <SidebarMenuItem>
+                      <SidebarMenuButton asChild>
+                        <Link to="/t/$teamSlug/agent" params={{ teamSlug }}>
+                          <NavAgentIcon className="h-4 w-4" />
+                          <span>Agent</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
                   </SidebarMenu>
                 </SidebarGroupContent>
               </SidebarGroup>
@@ -449,6 +461,11 @@ export function TeamSidebar({
                   </SidebarMenu>
                 </SidebarGroupContent>
               </SidebarGroup>
+              {/* EXP-818: the running sessions, the IDE rail's Sessions
+                  section — replaced the dock band under the card. */}
+              {team && session?.user?.id && (
+                <SidebarSessions teamId={team.id} currentUserId={session.user.id} />
+              )}
             </SidebarContent>
     
             <SidebarFooter>

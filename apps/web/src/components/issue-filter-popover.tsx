@@ -40,16 +40,6 @@ function FilterCountPill({ count }: { count: number }) {
   return <Pill className="text-foreground">{count}</Pill>
 }
 
-// Inside the 24px trigger pill a second capsule cannot fit — the count rides
-// as a compact active-fill disc instead.
-function FilterCountInline({ count }: { count: number }) {
-  return (
-    <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-glass-active px-1 text-[0.625rem] font-medium text-foreground">
-      {count}
-    </span>
-  )
-}
-
 export function IssueFilterPopover({
   filters,
   onFiltersChange,
@@ -110,10 +100,23 @@ export function IssueFilterPopover({
       }}
     >
       <MobilePopoverTrigger asChild>
-        <Pill mode="action" leading={<ListFilter className="size-3" />}>
-          Filter
-          {count > 0 && <FilterCountInline count={count} />}
-        </Pill>
+        {/* EXP-818: the 32px glass icon button every trailing control wears
+            — the "Filter" pill was the widest thing in the row and said what
+            the glyph already says; the count rides it as a badge. */}
+        <Button
+          variant="glass"
+          size="icon-sm"
+          aria-label={count > 0 ? `Filter · ${count} active` : `Filter`}
+          title={count > 0 ? `Filter · ${count} active` : `Filter`}
+          className="relative"
+        >
+          <ListFilter className="size-4" />
+          {count > 0 && (
+            <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground">
+              {count}
+            </span>
+          )}
+        </Button>
       </MobilePopoverTrigger>
       <MobilePopoverContent
         className="w-[14rem] p-0"

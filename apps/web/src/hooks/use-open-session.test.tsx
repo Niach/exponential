@@ -50,16 +50,13 @@ describe(`useOpenSession`, () => {
     })
   })
 
-  // EXP-739: chat is ONE conversation per team, so every chat run lands on
-  // the same page rather than getting a session route of its own.
-  it(`sends a chat run to the team chat page, naming it`, () => {
+  // EXP-818: a chat run is a session like any other — its own route inside
+  // the Agent shell (the chat page's `?session=` detour is gone).
+  it(`opens a chat run on its own session route too`, () => {
     run({ id: `s3`, actionName: `Chat` })
     expect(mockState.navigate).toHaveBeenCalledWith({
-      to: `/t/$teamSlug/chat`,
-      params: { teamSlug: `acme` },
-      // Without the id a SECOND running chat would be unreachable: the page
-      // defaults to the newest one.
-      search: { session: `s3` },
+      to: `/t/$teamSlug/sessions/$sessionId`,
+      params: { teamSlug: `acme`, sessionId: `s3` },
     })
   })
 

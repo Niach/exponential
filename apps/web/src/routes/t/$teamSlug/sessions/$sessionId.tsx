@@ -11,6 +11,7 @@ import { useLiveQuery } from "@tanstack/react-db"
 import { LoaderCircle } from "lucide-react"
 import { toast } from "sonner"
 import { AgentSessionView } from "@/components/agent-session"
+import { AgentShell } from "@/components/agent-shell"
 import { agentLabel } from "@/components/agent-usage-bar"
 import { relativeTime } from "@/components/comment-rows/format"
 import { SessionStatusBadge } from "@/components/issue-coding-rows"
@@ -72,14 +73,14 @@ function SessionPage() {
   )
 
   // Back is the browser's back wherever there is history to pop (the session
-  // was opened FROM somewhere — an issue, the strip, Devices); a cold deep
-  // link falls back to Devices, which lists every run.
+  // was opened FROM somewhere — an issue, the sidebar, the Agent page); a
+  // cold deep link falls back to the Agent page, which lists every run.
   const goBack = useCallback(() => {
     if (canGoBack) {
       router.history.back()
       return
     }
-    void navigate({ to: `/t/$teamSlug/devices`, params: { teamSlug } })
+    void navigate({ to: `/t/$teamSlug/agent`, params: { teamSlug } })
   }, [canGoBack, router, navigate, teamSlug])
 
   if (!team || !currentUserId || !isReady) {
@@ -90,15 +91,23 @@ function SessionPage() {
     )
   }
 
+  // EXP-818: every state renders INSIDE the Agent shell — the sessions list
+  // stays on the left whatever the right pane says.
+  const shell = (content: React.ReactNode) => (
+    <AgentShell teamId={team.id} currentUserId={currentUserId} activeSessionId={sessionId}>
+      {content}
+    </AgentShell>
+  )
+
   if (!session || !row) {
-    return (
+    return shell(
       <div className="flex h-full min-h-0 flex-col">
         <SessionStubHeader onBack={goBack} title="Session" />
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
           <p className="text-sm text-muted-foreground">Session not found.</p>
           <Button asChild variant="outline" size="sm">
-            <Link to="/t/$teamSlug/devices" params={{ teamSlug }}>
-              Go to Devices
+            <Link to="/t/$teamSlug/agent" params={{ teamSlug }}>
+              Go to Agent
             </Link>
           </Button>
         </div>
@@ -111,7 +120,7 @@ function SessionPage() {
   // EXP-312: a teammate's run — the synced row is all this client may ever
   // see. No AgentSessionView, so no ticket is minted.
   if (session.userId !== currentUserId) {
-    return (
+    return shell(
       <div className="flex h-full min-h-0 flex-col">
         <SessionStubHeader onBack={goBack} title={identity.subject} />
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
@@ -137,7 +146,7 @@ function SessionPage() {
     )
   }
 
-  return (
+  return shell(
     <div className="flex h-full min-h-0 flex-col">
       {/* The run may END while this page is open — the view stays mounted and
           read-only (its own tab in the strip vanishes, because `running`

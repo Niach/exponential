@@ -777,13 +777,29 @@ export function AgentSessionView({
             Reconnect
           </Button>
         )}
+        {/* EXP-818: the ONE Stop — a small red-tinted glass pill, identical
+            on the machine that hosts the run and on one that only watches it
+            (the IDE's `stop_session_pill`); the confirm is `useKillSession`'s. */}
+        {canKill && (
+          <Pill
+            size="sm"
+            mode="action"
+            className="shrink-0 text-destructive"
+            onClick={requestKill}
+            aria-label="Stop the agent and end the session"
+            title="Stop the agent and end the session"
+          >
+            <CodingStopIcon className="size-3" />
+            Stop
+          </Pill>
+        )}
         {/* A finished run with no fresh numbers has nothing to offer, so the
             trigger goes away rather than opening an empty menu (its width
             stays, so the title does not jump). */}
-        {!agentUsage && !sessionUsage && !canKill && !canCompact && (
+        {!agentUsage && !sessionUsage && !canCompact && (
           <span className="size-8 shrink-0" />
         )}
-        {(agentUsage || sessionUsage || canKill || canCompact) && (
+        {(agentUsage || sessionUsage || canCompact) && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -809,12 +825,6 @@ export function AgentSessionView({
                 >
                   <CodingCompactIcon className="size-4" />
                   Compact context
-                </DropdownMenuItem>
-              )}
-              {canKill && (
-                <DropdownMenuItem variant="destructive" onSelect={requestKill}>
-                  <CodingStopIcon className="size-4" />
-                  Kill session
                 </DropdownMenuItem>
               )}
             </DropdownMenuContent>

@@ -45,7 +45,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
+import { GlassSectionHeader, ListRow } from "@/components/ui/glass-rows"
 import { Switch } from "@/components/ui/switch"
 
 // The Automations tab (EXP-530; own rows since EXP-583): every synced
@@ -169,7 +169,7 @@ function AutomationRow({
   }
 
   return (
-    <GlassRow>
+    <ListRow>
       <RowIcon className="size-4 shrink-0 text-foreground/70" />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5 text-sm">
@@ -235,7 +235,7 @@ function AutomationRow({
           <span aria-hidden className="size-8 shrink-0" />
         )}
       </div>
-    </GlassRow>
+    </ListRow>
   )
 }
 
@@ -394,7 +394,7 @@ export function AutomationsTab({
               No automations yet.
             </div>
           ) : (
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-0">
               {automations.map((automation) => (
                 <AutomationRow
                   key={automation.id}
@@ -421,7 +421,7 @@ export function AutomationsTab({
               Nothing has fired yet.
             </div>
           ) : (
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-0">
               {automatedRuns.slice(0, 10).map((session) =>
                 // EXP-637: an ENDED run has a close-out to expand into.
                 // EXP-686: a live one has no self-reported state left to
@@ -440,7 +440,7 @@ export function AutomationsTab({
                     }
                   />
                 ) : (
-                  <GlassRow
+                  <ListRow
                     key={session.id}
                     interactive
                     className="gap-2 text-sm"
@@ -457,7 +457,7 @@ export function AutomationsTab({
                     <span className="shrink-0 text-xs text-muted-foreground">
                       {`Running · ${relativeTime(session.createdAt)}`}
                     </span>
-                  </GlassRow>
+                  </ListRow>
                 )
               )}
             </div>

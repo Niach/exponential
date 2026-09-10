@@ -38,10 +38,9 @@ import { Route as TTeamSlugRouteRouteImport } from './routes/t/$teamSlug/route'
 import { Route as AuthenticatedAdminRouteRouteImport } from './routes/_authenticated/admin/route'
 import { Route as TTeamSlugIndexRouteImport } from './routes/t/$teamSlug/index'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin/index'
-import { Route as TTeamSlugUsageRouteImport } from './routes/t/$teamSlug/usage'
 import { Route as TTeamSlugDevicesRouteImport } from './routes/t/$teamSlug/devices'
-import { Route as TTeamSlugChatRouteImport } from './routes/t/$teamSlug/chat'
 import { Route as TTeamSlugAutomationsRouteImport } from './routes/t/$teamSlug/automations'
+import { Route as TTeamSlugAgentRouteImport } from './routes/t/$teamSlug/agent'
 import { Route as TTeamSlugActionsRouteImport } from './routes/t/$teamSlug/actions'
 import { Route as ApiWidgetSubmitRouteImport } from './routes/api/widget/submit'
 import { Route as ApiWidgetConfigRouteImport } from './routes/api/widget/config'
@@ -262,24 +261,19 @@ const AuthenticatedAdminIndexRoute = AuthenticatedAdminIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthenticatedAdminRouteRoute,
 } as any)
-const TTeamSlugUsageRoute = TTeamSlugUsageRouteImport.update({
-  id: '/usage',
-  path: '/usage',
-  getParentRoute: () => TTeamSlugRouteRoute,
-} as any)
 const TTeamSlugDevicesRoute = TTeamSlugDevicesRouteImport.update({
   id: '/devices',
   path: '/devices',
   getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
-const TTeamSlugChatRoute = TTeamSlugChatRouteImport.update({
-  id: '/chat',
-  path: '/chat',
-  getParentRoute: () => TTeamSlugRouteRoute,
-} as any)
 const TTeamSlugAutomationsRoute = TTeamSlugAutomationsRouteImport.update({
   id: '/automations',
   path: '/automations',
+  getParentRoute: () => TTeamSlugRouteRoute,
+} as any)
+const TTeamSlugAgentRoute = TTeamSlugAgentRouteImport.update({
+  id: '/agent',
+  path: '/agent',
   getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
 const TTeamSlugActionsRoute = TTeamSlugActionsRouteImport.update({
@@ -735,10 +729,9 @@ export interface FileRoutesByFullPath {
   '/api/widget/config': typeof ApiWidgetConfigRoute
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
   '/t/$teamSlug/actions': typeof TTeamSlugActionsRoute
+  '/t/$teamSlug/agent': typeof TTeamSlugAgentRoute
   '/t/$teamSlug/automations': typeof TTeamSlugAutomationsRoute
-  '/t/$teamSlug/chat': typeof TTeamSlugChatRoute
   '/t/$teamSlug/devices': typeof TTeamSlugDevicesRoute
-  '/t/$teamSlug/usage': typeof TTeamSlugUsageRoute
   '/admin/': typeof AuthenticatedAdminIndexRoute
   '/t/$teamSlug/': typeof TTeamSlugIndexRoute
   '/admin/teams/$teamId': typeof AuthenticatedAdminTeamsTeamIdRoute
@@ -837,10 +830,9 @@ export interface FileRoutesByTo {
   '/api/widget/config': typeof ApiWidgetConfigRoute
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
   '/t/$teamSlug/actions': typeof TTeamSlugActionsRoute
+  '/t/$teamSlug/agent': typeof TTeamSlugAgentRoute
   '/t/$teamSlug/automations': typeof TTeamSlugAutomationsRoute
-  '/t/$teamSlug/chat': typeof TTeamSlugChatRoute
   '/t/$teamSlug/devices': typeof TTeamSlugDevicesRoute
-  '/t/$teamSlug/usage': typeof TTeamSlugUsageRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
   '/t/$teamSlug': typeof TTeamSlugIndexRoute
   '/admin/teams/$teamId': typeof AuthenticatedAdminTeamsTeamIdRoute
@@ -944,10 +936,9 @@ export interface FileRoutesById {
   '/api/widget/config': typeof ApiWidgetConfigRoute
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
   '/t/$teamSlug/actions': typeof TTeamSlugActionsRoute
+  '/t/$teamSlug/agent': typeof TTeamSlugAgentRoute
   '/t/$teamSlug/automations': typeof TTeamSlugAutomationsRoute
-  '/t/$teamSlug/chat': typeof TTeamSlugChatRoute
   '/t/$teamSlug/devices': typeof TTeamSlugDevicesRoute
-  '/t/$teamSlug/usage': typeof TTeamSlugUsageRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/t/$teamSlug/': typeof TTeamSlugIndexRoute
   '/_authenticated/admin/teams_/$teamId': typeof AuthenticatedAdminTeamsTeamIdRoute
@@ -1051,10 +1042,9 @@ export interface FileRouteTypes {
     | '/api/widget/config'
     | '/api/widget/submit'
     | '/t/$teamSlug/actions'
+    | '/t/$teamSlug/agent'
     | '/t/$teamSlug/automations'
-    | '/t/$teamSlug/chat'
     | '/t/$teamSlug/devices'
-    | '/t/$teamSlug/usage'
     | '/admin/'
     | '/t/$teamSlug/'
     | '/admin/teams/$teamId'
@@ -1153,10 +1143,9 @@ export interface FileRouteTypes {
     | '/api/widget/config'
     | '/api/widget/submit'
     | '/t/$teamSlug/actions'
+    | '/t/$teamSlug/agent'
     | '/t/$teamSlug/automations'
-    | '/t/$teamSlug/chat'
     | '/t/$teamSlug/devices'
-    | '/t/$teamSlug/usage'
     | '/admin'
     | '/t/$teamSlug'
     | '/admin/teams/$teamId'
@@ -1259,10 +1248,9 @@ export interface FileRouteTypes {
     | '/api/widget/config'
     | '/api/widget/submit'
     | '/t/$teamSlug/actions'
+    | '/t/$teamSlug/agent'
     | '/t/$teamSlug/automations'
-    | '/t/$teamSlug/chat'
     | '/t/$teamSlug/devices'
-    | '/t/$teamSlug/usage'
     | '/_authenticated/admin/'
     | '/t/$teamSlug/'
     | '/_authenticated/admin/teams_/$teamId'
@@ -1567,13 +1555,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminIndexRouteImport
       parentRoute: typeof AuthenticatedAdminRouteRoute
     }
-    '/t/$teamSlug/usage': {
-      id: '/t/$teamSlug/usage'
-      path: '/usage'
-      fullPath: '/t/$teamSlug/usage'
-      preLoaderRoute: typeof TTeamSlugUsageRouteImport
-      parentRoute: typeof TTeamSlugRouteRoute
-    }
     '/t/$teamSlug/devices': {
       id: '/t/$teamSlug/devices'
       path: '/devices'
@@ -1581,18 +1562,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugDevicesRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
-    '/t/$teamSlug/chat': {
-      id: '/t/$teamSlug/chat'
-      path: '/chat'
-      fullPath: '/t/$teamSlug/chat'
-      preLoaderRoute: typeof TTeamSlugChatRouteImport
-      parentRoute: typeof TTeamSlugRouteRoute
-    }
     '/t/$teamSlug/automations': {
       id: '/t/$teamSlug/automations'
       path: '/automations'
       fullPath: '/t/$teamSlug/automations'
       preLoaderRoute: typeof TTeamSlugAutomationsRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
+    }
+    '/t/$teamSlug/agent': {
+      id: '/t/$teamSlug/agent'
+      path: '/agent'
+      fullPath: '/t/$teamSlug/agent'
+      preLoaderRoute: typeof TTeamSlugAgentRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
     '/t/$teamSlug/actions': {
@@ -2191,10 +2172,9 @@ const TTeamSlugSettingsRouteRouteWithChildren =
 interface TTeamSlugRouteRouteChildren {
   TTeamSlugSettingsRouteRoute: typeof TTeamSlugSettingsRouteRouteWithChildren
   TTeamSlugActionsRoute: typeof TTeamSlugActionsRoute
+  TTeamSlugAgentRoute: typeof TTeamSlugAgentRoute
   TTeamSlugAutomationsRoute: typeof TTeamSlugAutomationsRoute
-  TTeamSlugChatRoute: typeof TTeamSlugChatRoute
   TTeamSlugDevicesRoute: typeof TTeamSlugDevicesRoute
-  TTeamSlugUsageRoute: typeof TTeamSlugUsageRoute
   TTeamSlugIndexRoute: typeof TTeamSlugIndexRoute
   TTeamSlugReviewsIssueIdentifierRoute: typeof TTeamSlugReviewsIssueIdentifierRoute
   TTeamSlugSessionsSessionIdRoute: typeof TTeamSlugSessionsSessionIdRoute
@@ -2208,10 +2188,9 @@ interface TTeamSlugRouteRouteChildren {
 const TTeamSlugRouteRouteChildren: TTeamSlugRouteRouteChildren = {
   TTeamSlugSettingsRouteRoute: TTeamSlugSettingsRouteRouteWithChildren,
   TTeamSlugActionsRoute: TTeamSlugActionsRoute,
+  TTeamSlugAgentRoute: TTeamSlugAgentRoute,
   TTeamSlugAutomationsRoute: TTeamSlugAutomationsRoute,
-  TTeamSlugChatRoute: TTeamSlugChatRoute,
   TTeamSlugDevicesRoute: TTeamSlugDevicesRoute,
-  TTeamSlugUsageRoute: TTeamSlugUsageRoute,
   TTeamSlugIndexRoute: TTeamSlugIndexRoute,
   TTeamSlugReviewsIssueIdentifierRoute: TTeamSlugReviewsIssueIdentifierRoute,
   TTeamSlugSessionsSessionIdRoute: TTeamSlugSessionsSessionIdRoute,

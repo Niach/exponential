@@ -16,7 +16,6 @@
 // on screen are never older than ~5 minutes on a machine that answers.
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useLiveQuery } from "@tanstack/react-db"
-import { Link } from "@tanstack/react-router"
 import { LoaderCircle } from "lucide-react"
 import { toast } from "sonner"
 import { contract } from "@exp/domain-contract"
@@ -35,19 +34,32 @@ import {
   type AgentAccountUsageGroup,
   type AgentProfileUsageRow,
 } from "@/lib/agent-usage"
-import { deviceCanRefreshUsage, deviceRowIsOnline } from "@/lib/steer-devices"
+import {
+  deviceCanAgentLogin,
+  deviceCanRefreshUsage,
+  deviceRowIsOnline,
+  type SteerDevice,
+} from "@/lib/steer-devices"
+import { requestAgentLogin } from "@/components/agent-login-dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { useNow } from "@/hooks/use-now"
 import { AgentUsageCards, agentLabel } from "@/components/agent-usage-bar"
 import { relativeTime } from "@/components/comment-rows/format"
-import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { Button } from "@/components/ui/button"
-import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
+import { GlassSectionHeader, ListRow } from "@/components/ui/glass-rows"
 import { Pill } from "@/components/ui/pill"
 import { cn } from "@/lib/utils"
 
-const BackIcon = conceptIcon(`ui-back`)
 const RefreshIcon = conceptIcon(`ui-refresh`)
 const OfflineIcon = conceptIcon(`ui-device-offline`)
+const CheckIcon = conceptIcon(`ui-check`)
+const SwapIcon = conceptIcon(`ui-swap`)
+const SignInIcon = conceptIcon(`ui-sign-in`)
 
 /** How long a queued refresh shows as in flight before giving up on the
  * device answering (it answers by re-reporting on its next beat). */
@@ -62,7 +74,11 @@ const AUTO_REFRESH_RETRY_MS = 60_000
 const ONLINE_DOT = `var(--color-emerald-500)`
 const OFFLINE_DOT = `color-mix(in oklab, var(--color-muted-foreground) 40%, transparent)`
 
-export function AgentUsagePage({
+/** EXP-818: the Devices page's Accounts section — the Usage page, folded in.
+ *  One row per agent account under a group band; the machine chips carry a
+ *  check where the account is the ACTIVE login and open a sign-in / switch
+ *  menu on one of the caller's own machines (`AgentLoginDialog`). */
+export function AgentAccountsSection({
   teamSlug,
   teamId,
   currentUserId,
@@ -71,6 +87,7 @@ export function AgentUsagePage({
   teamId: string
   currentUserId: string
 }) {
+  void teamSlug
   // Every synced row: own machines + the servers teammates shared with the
   // team (the shape is already server-scoped to exactly that).
   const { data: deviceRows } = useLiveQuery((query) =>
@@ -207,49 +224,51 @@ export function AgentUsagePage({
 
   const autoRefreshes = groups.some((group) => group.refreshTarget !== null)
 
-  return (
-    <div className="h-full overflow-y-auto">
-      <div className={`w-full px-4 py-4 ${TAB_BAR_CLEARANCE}`}>
-        <div className="mb-4 flex items-center gap-2">
-          <Button asChild variant="ghost" size="icon-sm" aria-label="Devices">
-            <Link to="/t/$teamSlug/devices" params={{ teamSlug }}>
-              <BackIcon />
-            </Link>
-          </Button>
-          <h1 className="text-base font-semibold">Usage</h1>
-          {autoRefreshes && (
-            <span className="ml-auto text-[11px] text-muted-foreground">
-              Refreshes every 5 minutes while this page is open
-            </span>
-          )}
-        </div>
+  const ownDevices = useMemo(
+    () => new Map(devices.filter((row) => row.userId === currentUserId).map((row) => [row.deviceId, row])),
+    [devices, currentUserId]
+  )
 
-        {deviceRows === undefined ? (
-          <div className="px-1 py-3 text-sm text-muted-foreground">Loading…</div>
-        ) : sections.length === 0 ? (
-          <div className="flex items-center gap-2 px-1 py-3 text-xs text-muted-foreground">
-            <OfflineIcon className="size-3.5 shrink-0" />
-            No machine has reported an agent account yet.
-          </div>
-        ) : (
-          sections.map((section) => (
-            <div key={section.agent} className="mb-5">
-              <GlassSectionHeader label={agentLabel(section.agent)} />
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-                {section.groups.map((group) => (
-                  <AccountCard
-                    key={group.key}
-                    group={group}
-                    now={now}
-                    refreshing={group.key in refreshing}
-                    onRefresh={() => void refresh(group, false)}
-                  />
-                ))}
-              </div>
+  return (
+    <div className="mb-6">
+      <GlassSectionHeader
+        label="Accounts"
+        trailing={
+          autoRefreshes ? (
+            <span className="text-[11px] text-muted-foreground">
+              Refreshes every 5 minutes
+            </span>
+          ) : undefined
+        }
+      />
+      {deviceRows === undefined ? (
+        <div className="px-3 py-2 text-xs text-muted-foreground">Loading…</div>
+      ) : sections.length === 0 ? (
+        <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+          <OfflineIcon className="size-3.5 shrink-0" />
+          No machine has reported an agent account yet.
+        </div>
+      ) : (
+        sections.map((section) => (
+          <div key={section.agent} className="mb-1">
+            <div className="px-3 pt-2 pb-1 text-xs font-medium text-muted-foreground">
+              {agentLabel(section.agent)}
             </div>
-          ))
-        )}
-      </div>
+            <div className="flex flex-col">
+              {section.groups.map((group) => (
+                <AccountCard
+                  key={group.key}
+                  group={group}
+                  now={now}
+                  ownDevices={ownDevices}
+                  refreshing={group.key in refreshing}
+                  onRefresh={() => void refresh(group, false)}
+                />
+              ))}
+            </div>
+          </div>
+        ))
+      )}
     </div>
   )
 }
@@ -283,11 +302,15 @@ function chipTitle(row: AgentProfileUsageRow, now: Date): string {
 function AccountCard({
   group,
   now,
+  ownDevices,
   refreshing,
   onRefresh,
 }: {
   group: AgentAccountUsageGroup
   now: Date
+  /** The caller's own synced devices rows by device id — a chip of one of
+   *  these may open the sign-in menu. */
+  ownDevices: Map<string, Device>
   refreshing: boolean
   onRefresh: () => void
 }) {
@@ -299,7 +322,7 @@ function AccountCard({
     ? `Not signed in`
     : (group.email ?? group.plan ?? `signed in`)
   return (
-    <GlassRow className="flex-col items-stretch gap-1.5 p-2.5">
+    <ListRow className="flex-col items-stretch gap-1.5 px-3 py-2.5">
       <div className="flex items-center gap-2">
         <div className="min-w-0 flex-1">
           <div
@@ -343,15 +366,12 @@ function AccountCard({
       </div>
       <div className="flex flex-wrap gap-1">
         {group.rows.map((row) => (
-          <Pill
+          <DeviceChip
             key={row.key}
-            size="sm"
-            dot={row.online ? ONLINE_DOT : OFFLINE_DOT}
-            title={chipTitle(row, now)}
-            className={cn(!row.online && `text-muted-foreground`)}
-          >
-            {chipLabel(row)}
-          </Pill>
+            row={row}
+            now={now}
+            device={ownDevices.get(row.deviceId) ?? null}
+          />
         ))}
       </div>
       {hasWindows && group.usage ? (
@@ -368,6 +388,81 @@ function AccountCard({
           {asOf ? `No usage reported · as of ${relativeTime(asOf)}` : `No usage reported`}
         </p>
       )}
-    </GlassRow>
+    </ListRow>
+  )
+}
+
+/** EXP-818: one machine chip — the online dot, the machine (· profile), and a
+ * CHECK when the account is the ACTIVE login on that machine. A chip of one
+ * of MY machines that can run a sign-in opens a menu: "Switch account on X"
+ * (signed in) or "Sign in on X" (`canLogin` — the device-agent-account rule:
+ * online, the `agent-login` cap, never pi). */
+function DeviceChip({
+  row,
+  now,
+  device,
+}: {
+  row: AgentProfileUsageRow
+  now: Date
+  device: Device | null
+}) {
+  const label = chipLabel(row)
+  const title = chipTitle(row, now)
+  const body = (
+    <>
+      {label}
+      {row.signedIn && row.active && (
+        <CheckIcon className="size-3 text-emerald-400" aria-label="Active on this machine" />
+      )}
+    </>
+  )
+  const canLogin =
+    device !== null &&
+    row.online &&
+    row.agent !== `pi` &&
+    deviceCanAgentLogin({ caps: device.caps ?? [] })
+  if (!canLogin) {
+    return (
+      <Pill
+        size="sm"
+        dot={row.online ? ONLINE_DOT : OFFLINE_DOT}
+        title={title}
+        className={cn(!row.online && `text-muted-foreground`)}
+      >
+        {body}
+      </Pill>
+    )
+  }
+  const action = row.signedIn ? `Switch account` : `Sign in`
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Pill
+          size="sm"
+          mode="action"
+          dot={row.online ? ONLINE_DOT : OFFLINE_DOT}
+          title={title}
+        >
+          {body}
+        </Pill>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuItem
+          onSelect={() =>
+            requestAgentLogin({
+              device: {
+                deviceId: device!.deviceId,
+                deviceLabel: device!.label ?? device!.deviceId,
+                caps: device!.caps ?? [],
+              } as SteerDevice,
+              agent: row.agent,
+            })
+          }
+        >
+          {row.signedIn ? <SwapIcon className="size-4" /> : <SignInIcon className="size-4" />}
+          {`${action} on ${row.deviceLabel || row.deviceId}`}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }

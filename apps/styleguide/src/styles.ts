@@ -67,6 +67,7 @@ ${Object.entries(designTokens.avatar).filter(([k]) => !k.startsWith(`$`)).map(([
   --ease-decelerate: ${bezier(motion.ease.decelerate)};
   --ease-accelerate: ${bezier(motion.ease.accelerate)};
   --fg-90: color-mix(in oklab, var(--fg) 90%, transparent);
+  --fg-85: color-mix(in oklab, var(--fg) 85%, transparent);
   --fg-70: color-mix(in oklab, var(--fg) 70%, transparent);
   --fg-50: color-mix(in oklab, var(--fg) 50%, transparent);
   --fg-30: color-mix(in oklab, var(--fg) 30%, transparent);

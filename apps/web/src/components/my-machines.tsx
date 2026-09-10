@@ -7,7 +7,6 @@
 // defaults and worktree management all live in the Device settings dialog.
 // Teammates' shared servers render read-only under "Team machines".
 import { useMemo, useState } from "react"
-import { Link, useParams } from "@tanstack/react-router"
 import { LoaderCircle } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
 import { relativeTime } from "@/components/comment-rows/format"
@@ -27,7 +26,7 @@ import { DeviceSettingsDialog } from "@/components/device-settings-dialog"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
 import { Button } from "@/components/ui/button"
 import { Pill } from "@/components/ui/pill"
-import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
+import { GlassSectionHeader, ListRow } from "@/components/ui/glass-rows"
 import {
   Dialog,
   DialogCancel,
@@ -61,7 +60,6 @@ const MoreIcon = conceptIcon(`ui-more`)
 const CopyIcon = conceptIcon(`ui-copy`)
 const CheckIcon = conceptIcon(`ui-check`)
 // EXP-792 (EXP-747): the cross-device usage page + the remote sign-in.
-const UsageIcon = conceptIcon(`ui-usage`)
 const SignInIcon = conceptIcon(`ui-sign-in`)
 
 /** EXP-747 A5: the agent a machine row's "Sign in" pill targets — the first
@@ -171,7 +169,6 @@ export function MyMachines({
   const [removeTarget, setRemoveTarget] = useState<SteerDevice | null>(null)
   const [busy, setBusy] = useState(false)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
-  const { teamSlug } = useParams({ strict: false })
 
   const mine = devices?.filter(deviceIsMine) ?? null
   const teamShared = devices?.filter((device) => !deviceIsMine(device)) ?? []
@@ -219,26 +216,10 @@ export function MyMachines({
       <GlassSectionHeader
         label="My machines"
         trailing={
-          <>
-            {/* EXP-792 (EXP-747 C1): every machine's agent usage on one page. */}
-            {teamSlug && (
-              <Button
-                asChild
-                variant="glass"
-                size="icon-sm"
-                aria-label="Usage"
-                title="Usage"
-              >
-                <Link to="/t/$teamSlug/usage" params={{ teamSlug }}>
-                  <UsageIcon />
-                </Link>
-              </Button>
-            )}
-            <Pill mode="action" onClick={() => setAddServerOpen(true)}>
-              <AddIcon className="size-3" />
-              Add device
-            </Pill>
-          </>
+          <Pill mode="action" onClick={() => setAddServerOpen(true)}>
+            <AddIcon className="size-3" />
+            Add device
+          </Pill>
         }
       />
 
@@ -250,7 +231,7 @@ export function MyMachines({
           No machines yet. Open the Exponential desktop app, or add a device.
         </div>
       ) : (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-0">
           {mine.map((device) => {
             const online = deviceIsOnline(device)
             // EXP-409: installed-but-signed-out agents grey the machine out
@@ -269,7 +250,7 @@ export function MyMachines({
             // trailing column, wired to the remote login dialog.
             const signInAgent = unauthed.length > 0 ? signInAgentFor(device) : null
             return (
-              <GlassRow
+              <ListRow
                 key={device.deviceId}
                 className={signInNeeded ? `opacity-60` : undefined}
               >
@@ -431,7 +412,7 @@ export function MyMachines({
                     <span aria-hidden className="size-8 shrink-0" />
                   )}
                 </div>
-              </GlassRow>
+              </ListRow>
             )
           })}
         </div>
@@ -442,14 +423,14 @@ export function MyMachines({
       {teamShared.length > 0 && (
         <div className="mt-6">
           <GlassSectionHeader label="Team machines" />
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-0">
             {teamShared.map((device) => {
               const online = deviceIsOnline(device)
               const unauthed = deviceUnauthedAgentIds(device)
               const runnable = deviceHasRunnableAgent(device)
               const signInNeeded = online && !runnable && unauthed.length > 0
               return (
-                <GlassRow
+                <ListRow
                   key={device.deviceId}
                   className={signInNeeded ? `opacity-60` : undefined}
                 >
@@ -488,7 +469,7 @@ export function MyMachines({
                     </Button>
                     <span aria-hidden className="size-8 shrink-0" />
                   </div>
-                </GlassRow>
+                </ListRow>
               )
             })}
           </div>

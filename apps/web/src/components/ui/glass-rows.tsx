@@ -44,17 +44,90 @@ function GlassSectionHeader({
   trailing?: React.ReactNode
   className?: string
 }) {
+  // EXP-818: the GROUP BAND — the Linear group header. A full-width strip
+  // filled `bg-glass-section` with the group's name, sitting directly over
+  // its flat rows (`ListRow`) with a 4px gap; rows read as a table under a
+  // highlighted header, not as a stack of cards. Desktop
+  // `surface::glass_section_band` twin.
   return (
     <div
       data-slot="glass-section-header"
-      className={cn(`flex items-center gap-1.5 px-1 pt-1 pb-2`, className)}
+      className={cn(
+        `mb-1 flex items-center gap-1.5 rounded-md bg-glass-section px-3 py-1.5`,
+        className
+      )}
     >
       {leading}
-      <span className="text-sm font-medium text-foreground/70">{label}</span>
+      <span className="min-w-0 truncate text-sm font-medium text-foreground/85">{label}</span>
       {trailing && (
         <div className="ml-auto flex items-center gap-1.5">{trailing}</div>
       )}
     </div>
+  )
+}
+
+// EXP-818: ONE flat list row — no stroke, no fill of its own: rows stack
+// with NO gap under a `GlassSectionHeader` band and read as a table; the
+// `bg-glass-row` wash is the only thing a hover paints, and the active row
+// takes `bg-glass-active`. Every list wears this since EXP-818 (`GlassRow`
+// stays for the few real cards). Desktop `surface::flat_row` twin.
+const LIST_ROW = `flex items-center gap-3 rounded-md p-3`
+const LIST_ROW_INTERACTIVE = `cursor-pointer transition-colors duration-fast outline-none hover:bg-glass-row focus-visible:ring-[3px] focus-visible:ring-ring/50`
+
+function ListRow({
+  interactive = false,
+  active = false,
+  asChild = false,
+  className,
+  onClick,
+  onKeyDown,
+  ...props
+}: React.ComponentProps<`div`> & {
+  interactive?: boolean
+  /** The selected row (a master-detail's open item). */
+  active?: boolean
+  /** Render the row as its single child (a `Link`/`<a>`), like `Button`. */
+  asChild?: boolean
+}) {
+  const rowClassName = cn(
+    LIST_ROW,
+    interactive && LIST_ROW_INTERACTIVE,
+    active && `bg-glass-active`,
+    className
+  )
+  if (asChild) {
+    return (
+      <Slot.Root
+        data-slot="list-row"
+        onClick={onClick}
+        onKeyDown={onKeyDown}
+        className={rowClassName}
+        {...props}
+      />
+    )
+  }
+  const clickable = interactive && onClick != null
+  return (
+    <div
+      data-slot="list-row"
+      role={clickable ? `button` : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={
+        clickable
+          ? (e) => {
+              onKeyDown?.(e)
+              if (e.defaultPrevented || e.target !== e.currentTarget) return
+              if (e.key === `Enter` || e.key === ` `) {
+                e.preventDefault()
+                e.currentTarget.click()
+              }
+            }
+          : onKeyDown
+      }
+      className={rowClassName}
+      {...props}
+    />
   )
 }
 
@@ -428,5 +501,6 @@ export {
   GlassSearchRow,
   GlassPickerRow,
   GlassToggleRow,
+  ListRow,
 }
 export type { GlassPickerOption }

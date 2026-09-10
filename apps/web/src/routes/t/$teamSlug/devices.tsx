@@ -1,16 +1,9 @@
 import { useState } from "react"
 import { createFileRoute, redirect } from "@tanstack/react-router"
 import { MyMachines } from "@/components/my-machines"
-import {
-  EndedSessionRow,
-  pastRunRowByline,
-  SessionRow,
-} from "@/components/agent-session-row"
-import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
+import { AgentAccountsSection } from "@/components/agent-usage-page"
 import { useSteerConfig } from "@/components/agent-session"
-import { useOpenSession } from "@/hooks/use-open-session"
 import { LaunchDialog } from "@/components/launch-dialog/launch-dialog"
-import { useAgentsData, usePastRuns } from "@/hooks/use-agents-data"
 import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug } from "@/hooks/use-team-data"
@@ -43,18 +36,11 @@ function DevicesPage() {
   const { teamSlug } = Route.useParams()
   const { data: session } = useSession()
   const team = useTeamBySlug(teamSlug)
-  const { isMember, isOwner } = useTeamPermissions(team)
+  const { isMember } = useTeamPermissions(team)
   const steerConfig = useSteerConfig()
-  const openSession = useOpenSession()
 
   const currentUserId = session?.user?.id
   const teamId = team?.id
-  // Own sessions only (EXP-312 follow-up): a teammate's live session can
-  // never be watched from here, so listing it only read as "not online".
-  const { running, isLoading } = useAgentsData(teamId, currentUserId)
-  // EXP-746: the caller's own FINISHED, person-started runs — the native
-  // apps' Past section, on every viewport like Running above it.
-  const { past } = usePastRuns(teamId, currentUserId)
   // Steer tickets require team membership and a configured relay; the
   // server enforces both at mint time, this only decides whether the
   // interactive affordances render.
@@ -98,55 +84,15 @@ function DevicesPage() {
             />
           )}
 
-          {/* The native apps' Running section, on every viewport (EXP-697 —
-              it used to be mobile-only because the dock strip covers desktop,
-              but the machines page lists sessions everywhere now). A row opens
-              the run's own session page (EXP-740). */}
-          {isLoading ? (
-            <div className="text-muted-foreground p-6 text-sm">Loading…</div>
-          ) : (
-            <div className="mb-6">
-              <GlassSectionHeader label="Running" />
-              {running.length > 0 ? (
-                <div className="flex flex-col gap-2">
-                  {running.map((row) => (
-                    <SessionRow
-                      key={row.session.id}
-                      row={row}
-                      teamSlug={teamSlug}
-                      isOwner={isOwner}
-                      currentUserId={currentUserId}
-                      steerEnabled={steerEnabled}
-                      onOpen={() => openSession(row.session)}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <GlassRow className="text-sm text-muted-foreground">
-                  No agents running right now.
-                </GlassRow>
-              )}
-            </div>
-          )}
-
-          {/* EXP-746: Past — the caller's own finished runs, newest first,
-              capped at PAST_RUN_CAP. Hidden entirely when empty: a header over
-              nothing is noise, and the natives do the same. */}
-          {past.length > 0 && (
-            <div className="mb-6">
-              <GlassSectionHeader label="Past" />
-              <div className="flex flex-col gap-2">
-                {past.map((row) => (
-                  <EndedSessionRow
-                    key={row.session.id}
-                    row={{ session: row.session }}
-                    title={row.title}
-                    identifier={row.identifier ?? undefined}
-                    byline={pastRunRowByline(row)}
-                  />
-                ))}
-              </div>
-            </div>
+          {/* EXP-818: the agent Accounts across those machines — the Usage
+              page, folded in here. (The Running / Past run sections moved
+              to the Agent page's sessions list.) */}
+          {isMember && currentUserId && teamId && (
+            <AgentAccountsSection
+              teamSlug={teamSlug}
+              teamId={teamId}
+              currentUserId={currentUserId}
+            />
           )}
         </div>
       </div>

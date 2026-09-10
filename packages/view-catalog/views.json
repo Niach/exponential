@@ -993,7 +993,7 @@
         "lane": "store"
       },
       "notes": {
-        "web": "EXP-740 gave a session its own full-page route — the dock below is the tab strip alone, so there is no recipe to expand: `$sessionId` resolves to DEMO_STEERED_SESSION_ID (apps/web/scripts/screenshot-demo.ts), the id the seed stamps on the demo user's running showcase run. Needs `bun run screenshots:desktop` running: the feed is relay-fed, and an unreachable relay photographs a Reconnecting state instead. The anchor is the tail fragment of DEMO_FEED_QUESTION.",
+        "web": "EXP-740 gave a session its own full-page route — EXP-818 renders it inside the Agent shell (the sessions list on the left), so there is no recipe to expand: `$sessionId` resolves to DEMO_STEERED_SESSION_ID (apps/web/scripts/screenshot-demo.ts), the id the seed stamps on the demo user's running showcase run. Needs `bun run screenshots:desktop` running: the feed is relay-fed, and an unreachable relay photographs a Reconnecting state instead. The anchor is the tail fragment of DEMO_FEED_QUESTION.",
         "desktop": "A session is a `Screen::Session` tab in the center panel since EXP-746, not a dock, and `session:$steeredSession` opens the seeded showcase run in it. With no engine of its own the tab dials the relay as a VIEWER (owner-only ticket via `steer.mintTicket`), so it renders the same relay-fed feed the web shot photographs — which makes `bun run screenshots:desktop` and the steer-relay container prerequisites here too, exactly as they are for web. Without them the tab photographs a Reconnecting / steering-unavailable state, so `--skip-relay` skips this view instead."
       },
       "desktop": {
@@ -1007,20 +1007,20 @@
     {
       "id": "chat",
       "group": "coding",
-      "title": "Chat",
-      "blurb": "A conversation with the agent that is bound to no issue and needs no repository — start card, agent options, and the past chats you can resume.",
+      "title": "Agent",
+      "blurb": "The Agent page: the sessions list (running, then past) beside the chat prompt — a conversation with the agent that is bound to no issue and needs no repository.",
       "order": 7,
       "web": {
-        "route": "/t/$teamSlug/chat",
+        "route": "/t/$teamSlug/agent",
         "anchor": {
-          "text": "Past chats",
+          "text": "Running",
           "timeoutMs": 30000
         },
         "settleMs": 800
       },
       "webMobile": "inherit",
       "notes": {
-        "desktop": "The IDE has no chat PAGE: the dock strip's Chat glyph starts a repo-less chat with the default agent and the run lands as a session tab. Capture it by hand from a started chat.",
+        "desktop": "The IDE's Agent rail entry is the same master-detail: the Sessions tool window beside the Chat prompt. Capture it by hand from the rail (EXP_DEV_TOOL=agent).",
         "ios": "EXP-739 is web + desktop first; the phone still starts a chat from the launcher's Chat tab (start-coding-chat) and steers it on the session screen.",
         "android": "See ios."
       },
@@ -1099,13 +1099,13 @@
     {
       "id": "usage",
       "group": "coding",
-      "title": "Usage",
-      "blurb": "Every machine's agent usage on one page: one card per account with the machines that hold it as chips, the signed-out and nearly spent ones first, the freshest report winning, refreshed on its own while open.",
+      "title": "Accounts",
+      "blurb": "The Accounts section of the Devices page (the Usage page, folded in — EXP-818): one row per agent account with the machines that hold it as chips, a check on the machine where it is the active login, the freshest report winning, refreshed on its own while open.",
       "order": 10,
       "web": {
-        "route": "/t/$teamSlug/usage",
+        "route": "/t/$teamSlug/devices",
         "anchor": {
-          "text": "Usage",
+          "text": "Accounts",
           "timeoutMs": 30000
         },
         "settleMs": 1200
@@ -1114,7 +1114,7 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "usage"
+          "value": "devices"
         }
       },
       "notes": {
