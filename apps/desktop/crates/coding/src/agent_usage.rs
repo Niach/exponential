@@ -20,6 +20,11 @@
 //! * **pi** — pi has no usage surface, but when its default provider is an
 //!   Anthropic OAuth credential the same endpoint answers for it.
 //!
+//! Two of them also have a LIVE publisher ([`live`]): a running codex
+//! session is pushed `account/rateLimits/updated`, a running claude session
+//! prints a `rate_limit_event` per turn (EXP-819), and both land here
+//! without a request of their own.
+//!
 //! Poll policy lives in [`crate::usage_cache`]; this module is the parsing
 //! and the orchestration. Everything is BLOCKING — callers run
 //! [`collect_if_due`] off the UI/main thread (the desktop's device-sync beat,
@@ -257,6 +262,114 @@ fn read_reset(entry: &Value) -> Option<String> {
         }
     }
     None
+}
+
+/// EXP-819 — the top-level `rateLimitType` + `utilization` (+ `resetsAt`)
+/// triple a `rate_limit_event` names for its LIMITING window: the fallback
+/// [`parse_claude_rate_limit_windows`] reads when the frame carries no
+/// `unifiedWindows` map at all.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ClaudeLimitingWindow<'a> {
+    /// `five_hour` | `seven_day` | `seven_day_opus` | …
+    pub kind: &'a str,
+    /// A FRACTION of the window (0-1), the same scale as `unifiedWindows`.
+    pub utilization: f64,
+    /// Unix seconds.
+    pub resets_at_secs: Option<i64>,
+}
+
+/// EXP-819 — the windows a LIVE claude session's `rate_limit_event`
+/// (`rate_limit_info.unifiedWindows`, EXP-784) reports, in the vocabulary
+/// [`parse_claude_usage`] locks: `five_hour` → `session`, `seven_day` →
+/// `weekly`.
+///
+/// Measured off the CLI's own schema (2.1.267): three OPTIONAL arms —
+/// `five_hour`, `seven_day`, `seven_day_overage_included` — each
+/// `{ utilization, resetsAt }`, `utilization` a FRACTION of the window (0-1;
+/// above 1 when usage legitimately runs past the cap) and `resetsAt` unix
+/// SECONDS, read off the `anthropic-ratelimit-unified-*` response headers on
+/// every turn (an older build, 2.1.263, carried the fraction alone). The
+/// overage-included arm is a per-MODEL bucket whose endpoint counterpart is
+/// unmeasured, so it is deliberately not published: a guessed key would sit
+/// beside the endpoint's model-scoped weekly as a duplicate row. Everything
+/// the frame does not carry stays what the endpoint last said — see
+/// [`merge_live_windows`].
+///
+/// `limiting` is the frame's top-level triple, read only for a window the
+/// map does not already carry (and never for a model-scoped kind, for the
+/// same duplicate-row reason).
+pub fn parse_claude_rate_limit_windows(
+    unified_windows: Option<&Value>,
+    limiting: Option<ClaudeLimitingWindow<'_>>,
+) -> Vec<UsageWindow> {
+    let mut windows: Vec<UsageWindow> = Vec::new();
+    if let Some(unified) = unified_windows.and_then(Value::as_object) {
+        for field in ["five_hour", "seven_day"] {
+            let Some(entry) = unified.get(field) else {
+                continue;
+            };
+            let Some(utilization) = entry.get("utilization").and_then(Value::as_f64) else {
+                continue;
+            };
+            let Some((key, label)) = claude_window_identity(field, None) else {
+                continue;
+            };
+            windows.push(UsageWindow {
+                key,
+                label,
+                percent: fraction_percent(utilization),
+                resets_at: read_reset(entry),
+            });
+        }
+    }
+    if let Some(limiting) = limiting {
+        if let Some((key, label)) = claude_window_identity(limiting.kind, None)
+            .filter(|(key, _)| !key.starts_with("model:"))
+        {
+            if !windows.iter().any(|window| window.key == key) {
+                windows.push(UsageWindow {
+                    key,
+                    label,
+                    percent: fraction_percent(limiting.utilization),
+                    resets_at: limiting.resets_at_secs.and_then(iso_from_unix_secs),
+                });
+            }
+        }
+    }
+    windows.truncate(MAX_WINDOWS);
+    windows
+}
+
+/// A 0-1 fraction (the rate-limit headers' scale) as the wire's 0-100.
+fn fraction_percent(fraction: f64) -> u8 {
+    if !fraction.is_finite() {
+        return 0;
+    }
+    (fraction * 100.0).round().clamp(0.0, 100.0) as u8
+}
+
+/// EXP-819 — a live frame's windows laid OVER the last full report, by key.
+///
+/// A key the frame carries takes the frame's percent, and its reset when the
+/// frame names one (the report's stays otherwise); every other window — the
+/// endpoint's model-scoped weekly, its credits — keeps the report's numbers
+/// rather than vanishing; a key the report never had is appended. The order
+/// is the report's, so the bar never reshuffles between a poll and a turn.
+pub fn merge_live_windows(reported: &[UsageWindow], live: &[UsageWindow]) -> Vec<UsageWindow> {
+    let mut merged: Vec<UsageWindow> = reported.to_vec();
+    for window in live {
+        match merged.iter_mut().find(|slot| slot.key == window.key) {
+            Some(slot) => {
+                slot.percent = window.percent;
+                if window.resets_at.is_some() {
+                    slot.resets_at = window.resets_at.clone();
+                }
+            }
+            None => merged.push(window.clone()),
+        }
+    }
+    merged.truncate(MAX_WINDOWS);
+    merged
 }
 
 /// The User-Agent the CLI itself sends — the usage endpoint answers a
@@ -598,9 +711,16 @@ pub fn fetch_oauth_usage(access_token: &str, user_agent: &str) -> UsageFetch {
 /// contention [`crate::usage_cache::SHARED_TTL_SECS`] exists to bound). So
 /// the adapter publishes here and the collector reads here.
 ///
-/// Process-global on purpose: publisher (the engine's codex adapter) and
-/// reader (the desktop's device-sync beat, the daemon's device worker) live
-/// in the same process. A SIBLING process still shares the on-disk
+/// EXP-819: a claude session publishes too — its stream-json prints a
+/// `rate_limit_event` per turn whose `unifiedWindows` carry the session and
+/// weekly windows ([`super::parse_claude_rate_limit_windows`]). That frame
+/// is a SUBSET of the OAuth usage endpoint's report (no model-scoped weekly,
+/// no credits), so the collector lays it over the endpoint's last report by
+/// key ([`super::merge_live_windows`]) instead of replacing it.
+///
+/// Process-global on purpose: publisher (the engine's codex and claude
+/// adapters) and reader (the desktop's device-sync beat, the daemon's
+/// device worker) live in the same process. A SIBLING process still shares the on-disk
 /// [`crate::usage_cache`], which this path writes exactly like a fetch would.
 ///
 /// `coding` never depends on `engine`, so the publish side is a plain
@@ -721,7 +841,12 @@ impl AgentStatusPayload {
 /// EXP-754: an agent a LIVE session already reports for ([`live`]) skips all
 /// of that — no spawn, no request, and no poll floor either. The one
 /// exception is identity: a rate-limit frame names nobody, so a due beat
-/// with no cached account still spends one probe to name it.
+/// with no cached account still spends one probe to name it — for an agent
+/// whose probe CAN name one ([`probe_names_account`]). EXP-819: claude's
+/// live frame covers only the session and weekly windows; the endpoint's
+/// other windows keep their last polled numbers for as long as the session
+/// keeps turning (an idle gap past the shared TTL, or the session's end,
+/// hands the beat back to the poll).
 ///
 /// EXP-808: the pass covers every ACCOUNT PROFILE of every agent, not just
 /// the device's active login — each profile's numbers land in its own
@@ -799,7 +924,7 @@ fn collect_inner(
                 // row for the whole session. Spend ONE app-server probe on
                 // the identity when a beat is due; every later beat rides
                 // the live shortcut above.
-                if due && entry.account.is_none() {
+                if due && entry.account.is_none() && probe_names_account(agent) {
                     polled = true;
                     changed = true;
                     // Claim the slot before the (slow) spawn, as the poll arm
@@ -1116,13 +1241,12 @@ struct AgentProbe {
 /// its last numbers are still inside the shared TTL.
 ///
 /// `None` means "nobody is telling us" — the caller falls back to the poll
-/// policy and its spawn. Only codex has a publisher: it pushes
-/// `account/rateLimits/updated` down the app-server connection. claude and pi
-/// answer over an endpoint the poller has to call itself.
+/// policy and its spawn. codex pushes `account/rateLimits/updated` down the
+/// app-server connection and claude prints a `rate_limit_event` per turn
+/// (EXP-819); pi answers only over an endpoint the poller has to call
+/// itself.
 fn live_probe(agent: CodingAgent, entry: &AgentCacheEntry, now: u64) -> Option<AgentProbe> {
-    if agent != CodingAgent::Codex {
-        return None;
-    }
+    let source = live_source(agent)?;
     let live = live::snapshot(agent)?;
     if live.windows.is_empty() {
         return None;
@@ -1134,17 +1258,58 @@ fn live_probe(agent: CodingAgent, entry: &AgentCacheEntry, now: u64) -> Option<A
     if !current {
         return None;
     }
-    let outcome = if usage_cache::windows_hash(&live.windows) == entry.last_windows_hash {
+    let windows = match source {
+        LiveSource::Whole => live.windows,
+        LiveSource::Partial => {
+            let reported = entry
+                .usage
+                .as_ref()
+                .map(|usage| usage.windows.as_slice())
+                .unwrap_or_default();
+            merge_live_windows(reported, &live.windows)
+        }
+    };
+    let outcome = if usage_cache::windows_hash(&windows) == entry.last_windows_hash {
         PollOutcome::Unchanged
     } else {
         PollOutcome::Changed
     };
     Some(AgentProbe {
         outcome,
-        windows: Some(live.windows),
+        windows: Some(windows),
         // A rate-limit frame names no identity; the cached one stays.
         account: None,
     })
+}
+
+/// What a live publisher's frame covers, relative to the agent's poll.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LiveSource {
+    /// The same windows the poll would fetch (codex: both come off the
+    /// app-server), so the frame REPLACES the report.
+    Whole,
+    /// A subset of the poll's report (claude: the session and weekly windows,
+    /// never the endpoint's model-scoped weekly or credits), laid over it by
+    /// key.
+    Partial,
+}
+
+/// The agents with a live publisher. pi has none.
+fn live_source(agent: CodingAgent) -> Option<LiveSource> {
+    match agent {
+        CodingAgent::Codex => Some(LiveSource::Whole),
+        CodingAgent::Claude => Some(LiveSource::Partial),
+        CodingAgent::Pi => None,
+    }
+}
+
+/// EXP-819 — whether [`probe_agent`] can NAME the login. Only codex's can
+/// (`account/read` beside the windows); claude's and pi's usage GET names
+/// nobody — their identity is the doctor's credential read — so a live
+/// session of theirs owes the identity no probe: it would spend a request to
+/// learn the same `None`.
+fn probe_names_account(agent: CodingAgent) -> bool {
+    matches!(agent, CodingAgent::Codex)
 }
 
 /// Probe ONE login's usage. EXP-808: `config_dir` is the account profile's
@@ -1850,6 +2015,233 @@ mod tests {
         drop(session);
         live::reset();
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // -----------------------------------------------------------------
+    // EXP-819 — claude's live frame
+    // -----------------------------------------------------------------
+
+    /// The measured `unifiedWindows` object (2.1.267): fractions and unix
+    /// seconds, both arms. A rejected window reports `1.0`.
+    #[test]
+    fn claude_rate_limit_windows_parse_the_measured_unified_map() {
+        let unified = serde_json::json!({
+            "five_hour": { "utilization": 1.0, "resetsAt": 1788703200 },
+            "seven_day": { "utilization": 0.62, "resetsAt": 1789066800 },
+        });
+        assert_eq!(
+            parse_claude_rate_limit_windows(Some(&unified), None),
+            vec![
+                UsageWindow {
+                    key: "session".to_string(),
+                    label: "5h".to_string(),
+                    percent: 100,
+                    resets_at: Some("2026-09-06T14:00:00.000Z".to_string()),
+                },
+                UsageWindow {
+                    key: "weekly".to_string(),
+                    label: "Week".to_string(),
+                    percent: 62,
+                    resets_at: Some("2026-09-10T19:00:00.000Z".to_string()),
+                },
+            ]
+        );
+    }
+
+    /// The scale is a fraction: `0.91` is 91 %, not 1 %; past the cap clamps
+    /// to 100; a reset-less arm (2.1.263) still lands, without a reset. The
+    /// overage-included arm is dropped, and an unparseable map is no windows.
+    #[test]
+    fn claude_rate_limit_windows_scale_clamp_and_skip_the_overage_bucket() {
+        let unified = serde_json::json!({
+            "five_hour": { "utilization": 0.91 },
+            "seven_day": { "utilization": 1.37, "resetsAt": 1789066800 },
+            "seven_day_overage_included": { "utilization": 0.1, "resetsAt": 1789066800 },
+        });
+        let windows = parse_claude_rate_limit_windows(Some(&unified), None);
+        assert_eq!(
+            windows.iter().map(|window| (window.key.as_str(), window.percent)).collect::<Vec<_>>(),
+            vec![("session", 91), ("weekly", 100)]
+        );
+        assert_eq!(windows[0].resets_at, None);
+        assert!(parse_claude_rate_limit_windows(Some(&serde_json::json!("nope")), None).is_empty());
+        assert!(parse_claude_rate_limit_windows(None, None).is_empty());
+    }
+
+    /// No map: the top-level limiting triple answers for its one window —
+    /// unless it names a model-scoped kind (the endpoint's row would get a
+    /// duplicate) — and never overrides an arm the map carries.
+    #[test]
+    fn claude_rate_limit_windows_fall_back_to_the_limiting_window() {
+        let limiting = ClaudeLimitingWindow {
+            kind: "seven_day",
+            utilization: 0.335,
+            resets_at_secs: Some(1789066800),
+        };
+        assert_eq!(
+            parse_claude_rate_limit_windows(None, Some(limiting)),
+            vec![UsageWindow {
+                key: "weekly".to_string(),
+                label: "Week".to_string(),
+                percent: 34,
+                resets_at: Some("2026-09-10T19:00:00.000Z".to_string()),
+            }]
+        );
+        let opus = ClaudeLimitingWindow { kind: "seven_day_opus", ..limiting };
+        assert!(parse_claude_rate_limit_windows(None, Some(opus)).is_empty());
+        let unified = serde_json::json!({ "seven_day": { "utilization": 0.5 } });
+        let windows = parse_claude_rate_limit_windows(Some(&unified), Some(limiting));
+        assert_eq!(windows.len(), 1);
+        assert_eq!(windows[0].percent, 50, "the map wins over the triple");
+    }
+
+    /// The merge keeps the endpoint's order and its extra rows, moves the
+    /// percent of every key the frame carries, takes the frame's reset only
+    /// when it names one, and appends a key the endpoint never had.
+    #[test]
+    fn live_windows_merge_over_the_endpoint_report_by_key() {
+        let window = |key: &str, label: &str, percent: u8, resets: Option<&str>| UsageWindow {
+            key: key.to_string(),
+            label: label.to_string(),
+            percent,
+            resets_at: resets.map(str::to_string),
+        };
+        let reported = vec![
+            window("session", "5h", 40, Some("2026-09-05T19:00:00.000Z")),
+            window("model:opus", "Opus", 33, Some("2026-09-10T00:00:00.000Z")),
+            window("weekly", "Week", 10, Some("2026-09-10T00:00:00.000Z")),
+        ];
+        let live = vec![
+            window("weekly", "Week", 12, None),
+            window("session", "5h", 55, Some("2026-09-06T14:00:00.000Z")),
+            window("credits", "Credits", 3, None),
+        ];
+        assert_eq!(
+            merge_live_windows(&reported, &live),
+            vec![
+                window("session", "5h", 55, Some("2026-09-06T14:00:00.000Z")),
+                window("model:opus", "Opus", 33, Some("2026-09-10T00:00:00.000Z")),
+                window("weekly", "Week", 12, Some("2026-09-10T00:00:00.000Z")),
+                window("credits", "Credits", 3, None),
+            ]
+        );
+        assert_eq!(merge_live_windows(&[], &live), live, "nothing reported yet: the frame as is");
+    }
+
+    /// claude installed, signed in with an OAuth login the endpoint answers
+    /// for, nothing else on the machine.
+    fn claude_ready_report() -> DoctorReport {
+        use crate::doctor::{Tool, ToolCheck};
+
+        let missing = |tool| ToolCheck {
+            tool,
+            ok: false,
+            version: None,
+            error: Some("not found".to_string()),
+            authed: None,
+            account: None,
+            usage_eligible: false,
+            acp: None,
+            acp_note: None,
+        };
+        DoctorReport {
+            claude: ToolCheck {
+                tool: Tool::Claude,
+                ok: true,
+                version: Some("2.1.267 (Claude Code)".to_string()),
+                error: None,
+                authed: Some(true),
+                account: None,
+                usage_eligible: true,
+                acp: None,
+                acp_note: None,
+            },
+            codex: missing(Tool::Codex),
+            pi: missing(Tool::Pi),
+            git: missing(Tool::Git),
+        }
+    }
+
+    /// EXP-819 — a live claude session moves the session and weekly windows
+    /// per turn, inside the poll floor, WITHOUT touching the endpoint's
+    /// model-scoped row: it keeps the last polled numbers instead of
+    /// vanishing. The cache entry is fresh and not due, so the pass owes the
+    /// endpoint nothing (and a claude probe would name no account anyway).
+    #[test]
+    fn live_claude_windows_lay_over_the_endpoint_report() {
+        let _lock = live_lock();
+        live::reset();
+        let dir = usage_dir("live-claude");
+        let settings = Settings::default();
+        let report = claude_ready_report();
+        let window = |key: &str, label: &str, percent: u8, resets: &str| UsageWindow {
+            key: key.to_string(),
+            label: label.to_string(),
+            percent,
+            resets_at: Some(resets.to_string()),
+        };
+        let opus = window("model:opus", "Opus", 33, "2026-09-10T00:00:00.000Z");
+
+        let now = crate::run_registry::now_secs();
+        let mut cache = usage_cache::load(&dir);
+        cache.insert(
+            usage_cache::entry_key("claude", crate::agent_profiles::SYSTEM_PROFILE),
+            cached(
+                vec![
+                    window("session", "5h", 40, "2026-09-05T19:00:00.000Z"),
+                    opus.clone(),
+                    window("weekly", "Week", 10, "2026-09-10T00:00:00.000Z"),
+                ],
+                now - 10,
+            ),
+        );
+        usage_cache::save(&dir, &cache);
+
+        let session = live::attach(CodingAgent::Claude);
+        live::publish(
+            CodingAgent::Claude,
+            vec![
+                window("session", "5h", 55, "2026-09-06T14:00:00.000Z"),
+                UsageWindow { key: "weekly".to_string(), label: "Week".to_string(), percent: 12, resets_at: None },
+            ],
+        );
+        let payload = collect_if_due(&dir, &settings, &report, now);
+        let usage = payload.usage.get("claude").expect("the merged windows");
+        assert_eq!(
+            usage.windows,
+            vec![
+                window("session", "5h", 55, "2026-09-06T14:00:00.000Z"),
+                opus.clone(),
+                window("weekly", "Week", 12, "2026-09-10T00:00:00.000Z"),
+            ],
+            "the frame's keys move, the endpoint's row and its reset stay"
+        );
+        assert!(!usage.stale);
+
+        // The next turn, seconds later: still lands, still over the report.
+        live::publish(CodingAgent::Claude, vec![window("session", "5h", 58, "2026-09-06T14:00:00.000Z")]);
+        let payload = collect_if_due(&dir, &settings, &report, now + 10);
+        let usage = payload.usage.get("claude").expect("the merged windows");
+        assert_eq!(
+            usage.windows.iter().map(|window| (window.key.as_str(), window.percent)).collect::<Vec<_>>(),
+            vec![("session", 58), ("model:opus", 33), ("weekly", 12)]
+        );
+
+        drop(session);
+        live::reset();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Only codex's probe names the login; a live claude or pi session never
+    /// owes the identity a request.
+    #[test]
+    fn only_a_codex_probe_is_owed_the_identity() {
+        assert!(probe_names_account(CodingAgent::Codex));
+        assert!(!probe_names_account(CodingAgent::Claude));
+        assert!(!probe_names_account(CodingAgent::Pi));
+        assert_eq!(live_source(CodingAgent::Codex), Some(LiveSource::Whole));
+        assert_eq!(live_source(CodingAgent::Claude), Some(LiveSource::Partial));
+        assert_eq!(live_source(CodingAgent::Pi), None);
     }
 
     #[test]

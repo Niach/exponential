@@ -207,6 +207,37 @@ fn cancel_elicitations() -> ElicitationAnswer {
     Arc::new(|_request| ElicitationAction::Cancel)
 }
 
+/// EXP-819: every `ClaudeSession` attaches to the PROCESS-GLOBAL live usage
+/// registry (`coding::agent_usage::live`) and most recordings carry a
+/// `rate_limit_event` that publishes into it, so the tests run one at a
+/// time (as the codex suite does): the session count and the windows a test
+/// reads are then its own.
+static SESSION_LOCK: Mutex<()> = Mutex::new(());
+
+fn one_session_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+    match SESSION_LOCK.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+/// What this machine's claude sessions have published so far.
+fn live_usage() -> coding::agent_usage::live::LiveUsage {
+    coding::agent_usage::live::snapshot(coding::CodingAgent::Claude).unwrap_or_default()
+}
+
+/// Poll `ready` until it holds or the budget is gone.
+async fn settle(mut ready: impl FnMut() -> bool) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while std::time::Instant::now() < deadline {
+        if ready() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    panic!("the live usage registry never got there");
+}
+
 struct Workdir(PathBuf);
 
 impl Drop for Workdir {
@@ -527,6 +558,7 @@ async fn drive_at(
 
 #[tokio::test]
 async fn a_plain_turn_streams_once_and_settles_on_end_turn() {
+    let _session = one_session_at_a_time();
     let work = workdir("basic");
     let run = drive(
         "basic",
@@ -585,6 +617,7 @@ async fn a_plain_turn_streams_once_and_settles_on_end_turn() {
 
 #[tokio::test]
 async fn the_argv_pins_the_permission_mode_and_the_reaper_anchor() {
+    let _session = one_session_at_a_time();
     let work = workdir("argv");
     let run = drive(
         "basic",
@@ -656,6 +689,7 @@ async fn the_argv_pins_the_permission_mode_and_the_reaper_anchor() {
 
 #[tokio::test]
 async fn the_new_session_response_carries_the_modes_and_the_config_options() {
+    let _session = one_session_at_a_time();
     let work = workdir("config");
     let run = drive(
         "basic",
@@ -682,6 +716,7 @@ async fn the_new_session_response_carries_the_modes_and_the_config_options() {
 
 #[tokio::test]
 async fn a_permission_reaches_the_client_and_its_answer_reaches_the_cli() {
+    let _session = one_session_at_a_time();
     let work = workdir("permission");
     let run = drive(
         "permission",
@@ -710,6 +745,7 @@ async fn a_permission_reaches_the_client_and_its_answer_reaches_the_cli() {
 /// what the cancellation contract is locked against.
 #[tokio::test]
 async fn a_cancelled_permission_is_denied_rather_than_left_hanging() {
+    let _session = one_session_at_a_time();
     let work = workdir("permission-cancel");
     let run = drive(
         "plan",
@@ -736,6 +772,7 @@ async fn a_cancelled_permission_is_denied_rather_than_left_hanging() {
 /// human's own words; a real turn beside them still does.
 #[tokio::test]
 async fn replayed_machinery_never_becomes_a_user_message() {
+    let _session = one_session_at_a_time();
     let work = workdir("user-filter");
     let scenario = synthetic(
         &work.0,
@@ -773,6 +810,7 @@ async fn replayed_machinery_never_becomes_a_user_message() {
 /// would refuse a card if one were raised, and the CLI would see a deny.
 #[tokio::test]
 async fn a_tool_in_plan_mode_is_auto_allowed_without_a_card() {
+    let _session = one_session_at_a_time();
     let work = workdir("plan-auto-allow");
     let scenario = synthetic(
         &work.0,
@@ -806,6 +844,7 @@ async fn a_tool_in_plan_mode_is_auto_allowed_without_a_card() {
 /// `bypassPermissions` switch the approved plan makes.
 #[tokio::test]
 async fn a_plan_launch_still_bypasses_permissions() {
+    let _session = one_session_at_a_time();
     let work = workdir("plan-argv");
     let run = drive(
         "plan",
@@ -823,6 +862,7 @@ async fn a_plan_launch_still_bypasses_permissions() {
 
 #[tokio::test]
 async fn the_plan_approval_is_a_switch_mode_card_with_the_plan_and_its_options() {
+    let _session = one_session_at_a_time();
     let work = workdir("plan");
     let run = drive(
         "plan",
@@ -881,6 +921,7 @@ async fn the_plan_approval_is_a_switch_mode_card_with_the_plan_and_its_options()
 
 #[tokio::test]
 async fn a_clear_context_approval_denies_with_an_interrupt_and_re_prompts_the_plan() {
+    let _session = one_session_at_a_time();
     let work = workdir("plan-clear");
     let run = drive(
         "plan",
@@ -918,6 +959,7 @@ async fn a_clear_context_approval_denies_with_an_interrupt_and_re_prompts_the_pl
 
 #[tokio::test]
 async fn a_question_becomes_an_elicitation_answered_by_the_question_text() {
+    let _session = one_session_at_a_time();
     let work = workdir("ask");
     let run = drive(
         "ask",
@@ -959,6 +1001,7 @@ async fn a_question_becomes_an_elicitation_answered_by_the_question_text() {
 
 #[tokio::test]
 async fn an_unknown_user_dialog_is_answered_with_silence() {
+    let _session = one_session_at_a_time();
     let work = workdir("dialog");
     let run = drive(
         "dialog",
@@ -1020,6 +1063,7 @@ fn record_transcript(work: &Path, session_id: &str, cwd: &Path) {
 
 #[tokio::test]
 async fn a_recorded_transcript_lists_and_replays_without_spawning_the_cli() {
+    let _session = one_session_at_a_time();
     let work = workdir("history");
     let session_id = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
     record_transcript(&work.0, session_id, &work.0);
@@ -1081,6 +1125,7 @@ async fn a_recorded_transcript_lists_and_replays_without_spawning_the_cli() {
 
 #[tokio::test]
 async fn a_cancel_interrupts_the_running_turn_and_settles_it_cancelled() {
+    let _session = one_session_at_a_time();
     let work = workdir("cancel");
     let adapter = ClaudeAgent::new(spec("cancel", &work.0, false)).expect("the adapter builds");
     let stop_reason = Client
@@ -1136,6 +1181,7 @@ async fn a_cancel_interrupts_the_running_turn_and_settles_it_cancelled() {
 /// steers queued behind the wedged turn are what it is rescuing.
 #[tokio::test]
 async fn a_stall_interrupt_keeps_the_queued_steers() {
+    let _session = one_session_at_a_time();
     let work = workdir("stall");
     let adapter = ClaudeAgent::new(spec("cancel", &work.0, false)).expect("the adapter builds");
     let stop_reason = Client
@@ -1192,6 +1238,7 @@ async fn a_stall_interrupt_keeps_the_queued_steers() {
 /// message, ZERO narration rows, and the next real answer clears it.
 #[tokio::test]
 async fn a_rate_limit_notice_is_a_slot_and_never_a_bubble() {
+    let _session = one_session_at_a_time();
     let work = workdir("rate-limit");
     let run = drive_turns(
         "rate-limit",
@@ -1229,6 +1276,100 @@ async fn a_rate_limit_notice_is_a_slot_and_never_a_bubble() {
     assert_eq!(with_message, 1);
 }
 
+/// EXP-819 — a live claude session IS this machine's usage source: every
+/// `rate_limit_event`'s `unifiedWindows` publishes into
+/// `coding::agent_usage::live` in the usage sheet's shape (the recorded
+/// fractions become percents, the unix-second resets become ISO stamps), a
+/// later frame that carries only its limiting window keeps the other one,
+/// and the run's END releases the session slot — a dead session must stop
+/// answering for numbers it can no longer refresh.
+#[tokio::test]
+async fn a_claude_session_publishes_live_usage_and_detaches_on_end() {
+    let _session = one_session_at_a_time();
+    let work = workdir("live-usage");
+    let adapter = ClaudeAgent::new(spec("rate-limit", &work.0, false)).expect("the adapter builds");
+    let during = Arc::new(Mutex::new(None));
+    let recorded = during.clone();
+    let permission = reject_all();
+    let elicitation = cancel_elicitations();
+
+    let driven = Client
+        .builder()
+        .name("exp819-test-client")
+        .on_receive_notification(
+            async move |_notification: SessionNotification, _cx| Ok(()),
+            on_receive_notification!(),
+        )
+        .on_receive_request(
+            async move |request: RequestPermissionRequest, responder, _cx| {
+                responder.respond(RequestPermissionResponse::new(permission(&request)))
+            },
+            on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |request: CreateElicitationRequest, responder, _cx| {
+                responder.respond(CreateElicitationResponse::new(elicitation(&request)))
+            },
+            on_receive_request!(),
+        )
+        .connect_with(adapter, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(engine::client_capabilities()),
+            )
+            .block_task()
+            .await?;
+            let session = cx
+                .send_request(NewSessionRequest::new(std::env::temp_dir()))
+                .block_task()
+                .await?;
+            for prompt in ["Do the thing.", "Try again."] {
+                cx.send_request(PromptRequest::new(
+                    session.session_id.clone(),
+                    vec![ContentBlock::Text(TextContent::new(prompt))],
+                ))
+                .block_task()
+                .await?;
+            }
+            if let Ok(mut slot) = recorded.lock() {
+                *slot = Some(live_usage());
+            }
+            Ok::<_, Error>(())
+        });
+    tokio::time::timeout(Duration::from_secs(30), driven)
+        .await
+        .expect("the turns settle inside the budget")
+        .expect("the connection runs cleanly");
+
+    let during = during
+        .lock()
+        .expect("the recorded snapshot")
+        .clone()
+        .expect("a live snapshot");
+    let window = |key: &str, label: &str, percent: u8, resets: &str| coding::agent_usage::UsageWindow {
+        key: key.to_string(),
+        label: label.to_string(),
+        percent,
+        resets_at: Some(resets.to_string()),
+    };
+    assert_eq!(
+        during.windows,
+        vec![
+            // turn2's frame: five_hour 0.02 @ 1788721200 …
+            window("session", "5h", 2, "2026-09-06T19:00:00.000Z"),
+            // … over turn1's, which alone named the week (0.62 @ 1789066800).
+            window("weekly", "Week", 62, "2026-09-10T19:00:00.000Z"),
+        ],
+        "the frames accumulate per key, fractions become percents"
+    );
+    assert!(during.sessions >= 1, "a running session holds a slot");
+
+    // Ended: the slot is back, the numbers stay (the collector ages them
+    // out by their own stamp).
+    settle(|| live_usage().sessions == 0).await;
+    assert_eq!(live_usage().windows, during.windows);
+}
+
 /// EXP-784: the ACP session id is the host's STABLE handle; claude's own
 /// moves. Two `system/init`s (a `/clear` re-inits under a fresh uuid): the
 /// ACP id on every notification stays put, the `--session-id` pin was a
@@ -1236,6 +1377,7 @@ async fn a_rate_limit_notice_is_a_slot_and_never_a_bubble() {
 /// re-publishes it so `runs.json` follows the live conversation.
 #[tokio::test]
 async fn a_clear_moves_the_native_id_but_never_the_acp_id() {
+    let _session = one_session_at_a_time();
     let work = workdir("clear-reset");
     let run = drive_turns(
         "clear-reset",
@@ -1276,6 +1418,7 @@ async fn a_clear_moves_the_native_id_but_never_the_acp_id() {
 /// channel in front of it, which pins the run's `idle` at false for good.
 #[tokio::test]
 async fn a_steer_the_cli_folds_into_the_running_turn_settles_with_it() {
+    let _session = one_session_at_a_time();
     let work = workdir("foldin");
     let adapter =
         ClaudeAgent::new(spec("steer-foldin", &work.0, false)).expect("the adapter builds");
@@ -1322,6 +1465,7 @@ async fn a_steer_the_cli_folds_into_the_running_turn_settles_with_it() {
 
 #[tokio::test]
 async fn steering_the_mode_and_the_effort_reaches_the_cli_and_echoes_back() {
+    let _session = one_session_at_a_time();
     let work = workdir("steer");
     let adapter = ClaudeAgent::new(spec("basic", &work.0, false)).expect("the adapter builds");
     let updates: Arc<Mutex<Vec<SessionNotification>>> = Arc::new(Mutex::new(Vec::new()));
@@ -1396,6 +1540,7 @@ async fn steering_the_mode_and_the_effort_reaches_the_cli_and_echoes_back() {
 
 #[tokio::test]
 async fn the_child_going_away_closes_the_connection_with_its_exit_code() {
+    let _session = one_session_at_a_time();
     // The crash path (a `kill -9`, an OOM, the reaper): the CLI is gone while
     // the client is still holding the connection open. Nothing but the child's
     // EOF can end this run, and the engine's whole end sequence — the bye, the
@@ -1466,6 +1611,7 @@ async fn the_child_going_away_closes_the_connection_with_its_exit_code() {
 ///    which lands as a narration scoped to the subagent.
 #[tokio::test]
 async fn a_subagents_permission_chunks_and_edges_carry_the_parent_tool_use() {
+    let _session = one_session_at_a_time();
     let work = workdir("subagent");
     let run = drive(
         "subagent",
@@ -1543,6 +1689,7 @@ async fn a_subagents_permission_chunks_and_edges_carry_the_parent_tool_use() {
 /// Task racing a main-thread approval is not reproducible on demand.
 #[tokio::test]
 async fn a_backgrounded_subagent_never_adopts_a_main_thread_permission() {
+    let _session = one_session_at_a_time();
     let work = workdir("subagent-background");
     let scenario = synthetic(
         &work.0,
@@ -1610,6 +1757,7 @@ async fn a_backgrounded_subagent_never_adopts_a_main_thread_permission() {
 /// produces on every run.
 #[tokio::test]
 async fn a_deferred_turn_publishes_the_completed_edge_before_it_settles() {
+    let _session = one_session_at_a_time();
     let work = workdir("subagent-deferred");
     let run = drive(
         "subagent-deferred",
@@ -1646,6 +1794,7 @@ async fn a_deferred_turn_publishes_the_completed_edge_before_it_settles() {
 
 #[tokio::test]
 async fn a_control_request_in_flight_fails_when_the_cli_dies() {
+    let _session = one_session_at_a_time();
     // EXP-758: the pump settled every TURN when stdout closed but nothing was
     // ever going to answer the control requests either, so a `set_mode` in
     // flight sat out the whole 90 s `CONTROL_TIMEOUT` first. The fake closes
@@ -1702,6 +1851,7 @@ async fn a_control_request_in_flight_fails_when_the_cli_dies() {
 
 #[tokio::test]
 async fn usage_after_a_replay_resumes_the_same_conversation() {
+    let _session = one_session_at_a_time();
     // EXP-758: `/usage` spawns the CLI lazily like any first prompt, and it
     // used to spawn it with a FRESH `--session-id`. The next real prompt then
     // ran in an empty conversation, silently forked off the replayed one.
@@ -1763,6 +1913,7 @@ async fn usage_after_a_replay_resumes_the_same_conversation() {
 
 #[tokio::test]
 async fn two_prompts_racing_on_a_loaded_session_spawn_one_cli() {
+    let _session = one_session_at_a_time();
     // EXP-766: the lazy spawn checked `child.is_none()` and stored the child
     // in two separate lock windows, so two prompts arriving together each
     // started a CLI. The second one silently orphaned the first: two
@@ -1825,6 +1976,7 @@ async fn two_prompts_racing_on_a_loaded_session_spawn_one_cli() {
 
 #[tokio::test]
 async fn a_cancel_with_no_turn_behind_it_never_interrupts_the_next_one() {
+    let _session = one_session_at_a_time();
     // EXP-758: a cancel that finds no child is REMEMBERED so the turn it
     // raced can still be stopped. This is the other half of that rule: a
     // cancel with nothing behind it is consumed and dropped, never replayed

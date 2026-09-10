@@ -382,11 +382,34 @@ pub struct RateLimitInfo {
     pub overage_status: Option<String>,
     #[serde(rename = "isUsingOverage", alias = "is_using_overage")]
     pub is_using_overage: Option<bool>,
+    /// EXP-819: the per-window map (`five_hour`/`seven_day`/
+    /// `seven_day_overage_included` → `{utilization, resetsAt}`), kept raw —
+    /// `coding::agent_usage::parse_claude_rate_limit_windows` owns the
+    /// vocabulary; see [`RateLimitInfo::usage_windows`].
+    #[serde(rename = "unifiedWindows", alias = "unified_windows")]
+    pub unified_windows: Option<Value>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
 
 impl RateLimitInfo {
+    /// EXP-819: this frame's windows in the usage sheet's shape — what the
+    /// adapter publishes into `coding::agent_usage::live` so the machine's
+    /// usage numbers move per turn. Empty when the frame carries none.
+    pub fn usage_windows(&self) -> Vec<coding::agent_usage::UsageWindow> {
+        let limiting = self.rate_limit_type.as_deref().zip(self.utilization).map(
+            |(kind, utilization)| coding::agent_usage::ClaudeLimitingWindow {
+                kind,
+                utilization,
+                resets_at_secs: self.resets_at,
+            },
+        );
+        coding::agent_usage::parse_claude_rate_limit_windows(
+            self.unified_windows.as_ref(),
+            limiting,
+        )
+    }
+
     /// Whether this report is a LIMIT rather than the all-clear: everything
     /// but the CLI's `allowed` (and an empty status) counts, so the slot
     /// clears on the ordinary per-turn `allowed` report and shows for
@@ -1564,7 +1587,16 @@ mod tests {
         assert_eq!(msg.rate_limit_info.resets_at, Some(1788703200));
         assert_eq!(msg.rate_limit_info.rate_limit_type.as_deref(), Some("five_hour"));
         assert!(msg.rate_limit_info.is_limited());
-        assert!(msg.rate_limit_info.extra.contains_key("unifiedWindows"), "unknowns are kept");
+        assert_eq!(
+            msg.rate_limit_info.usage_windows(),
+            vec![coding::agent_usage::UsageWindow {
+                key: "session".to_string(),
+                label: "5h".to_string(),
+                percent: 91,
+                resets_at: None,
+            }],
+            "EXP-819: the map is the live usage publish"
+        );
         assert_eq!(camel_label(&msg), "rate_limit_event/allowed_warning");
 
         let snake = ClaudeOut::parse(

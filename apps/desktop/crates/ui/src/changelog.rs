@@ -58,7 +58,8 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Hover you can see**: the desktop app's context menus and list rows had an invisible hover; the whole glass ladder got one notch lighter on every client.
 - **Usage under Devices**: the Usage page folded into the Devices page as its Accounts section. Each account lists the machines that hold it; a check marks the machine where it is the active login, and clicking a chip signs in or switches the account there.
 - **Lists the Linear way**: group headers are filled bands and rows are flat, gapless lines under them, on Devices, Actions, Automations, Reviews, Inbox and Support; the Inbox and Support tabs are the segmented capsule; Filter is a small icon button; settings sections are grouped cards whose rows save themselves.
-- **Quieter rate-limit banner**: a warning while the agent keeps working is no longer announced as "rate limited"; the banner shows for a real wall, with a countdown to the reset."#,
+- **Quieter rate-limit banner**: a warning while the agent keeps working is no longer announced as "rate limited"; the banner shows for a real wall, with a countdown to the reset.
+- **Usage that moves with Claude too**: a running Claude session now feeds its session and weekly windows into this machine's usage numbers on every turn, the way a Codex session already did, so the bar moves while you work instead of waiting for the next poll. The account's other windows keep their last polled numbers rather than disappearing."#,
 };
 
 /// The previous head entry, kept so the mirror's history reads in place.
