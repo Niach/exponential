@@ -271,13 +271,13 @@ export const CodeEverywhereSegment: React.FC<SegmentProps> = ({
           </WindowChassis>
 
           {/* the phone, floating over the window's left edge (comp coords).
-              zIndex outranks the rail/titlebar (chrome z 10–20) it overlaps. */}
+              It composes AFTER the chassis, which isolates its own stacking
+              (EXP-823), so the whole window stays behind it. */}
           <div
             style={{
               position: "absolute",
               left: PHONE_POS.x,
               top: PHONE_POS.y,
-              zIndex: 30,
               opacity: phoneRise,
               translate: `0px ${(1 - phoneRise) * 46}px`,
             }}
