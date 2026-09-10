@@ -46,6 +46,24 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-one-ui-everywhere",
+    date: "2026-09-10",
+    title: "Sessions beside their list, one session header, and lists the Linear way",
+    summary: "Sessions open next to the list you came from with a back you can mouse, the header is the same on every device, hover is visible again, Usage lives under Devices, and lists are flat rows under group bands.",
+    body: r#"- **Sessions beside their list**: a coding session opens as a screen of its own next to the list you came from (the Inbox stays when you click a running session from it, a board stays when you watch a run from one of its issues), and the Agent page lists every running and past run beside the chat prompt, on the desktop app and on the web. The web's bottom dock band is gone; running sessions sit in the sidebar instead.
+- **Back and forward with the mouse**: the desktop app's history has a forward stack, and the mouse's back and forward buttons walk it everywhere, next to Alt+Left and Alt+Right.
+- **One session header**: back, the run's identity, Usage, Resume and ONE Stop, identical whether you sit on the machine that runs the agent or watch it from another. The "Back to issue" row and the small kill icon are gone; the issue's property tray shows Start coding, or Watch for your own live run.
+- **Honest sidebar rows**: a session row leads with its state dot, names the machine it runs on, nests the runs it started under it, and spins only while the agent is actually working.
+- **Readable plan options**: the highlighted option on a plan card is white on blue again; the composer's attach button is the image glyph every other composer wears; "Latest changes" is "Changes".
+- **Hover you can see**: the desktop app's context menus and list rows had an invisible hover; the whole glass ladder got one notch lighter on every client.
+- **Usage under Devices**: the Usage page folded into the Devices page as its Accounts section. Each account lists the machines that hold it; a check marks the machine where it is the active login, and clicking a chip signs in or switches the account there.
+- **Lists the Linear way**: group headers are filled bands and rows are flat, gapless lines under them, on Devices, Actions, Automations, Reviews, Inbox and Support; the Inbox and Support tabs are the segmented capsule; Filter is a small icon button; settings sections are grouped cards whose rows save themselves.
+- **Quieter rate-limit banner**: a warning while the agent keeps working is no longer announced as "rate limited"; the banner shows for a real wall, with a countdown to the reset."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-rate-limited-runs",
     date: "2026-09-09",
     title: "A run that hits its rate limit says so",
@@ -60,20 +78,6 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Bars for a second account**: a machine holding more than one Claude or Codex login now reports usage for each of them, not just the default one."#,
 };
 
-
-/// The previous head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-mcp-servers-and-agent-accounts",
-    date: "2026-09-09",
-    title: "Your own MCP servers in every run, and more than one agent account per machine",
-    summary: "Add a team's MCP servers once, sign in from the browser on any of your machines, pick them per run; agents get accounts and a usage page.",
-    body: r#"- **MCP servers**: Settings has a new MCP servers page. Add a remote server or a local command with the header or variable names it needs; the values never leave your machines. Pick servers per run in the Start coding dialog and on the chat page.
-- **Sign in from anywhere**: an OAuth server shows a readiness chip per machine. Click Sign in on the machine you want, consent in the browser you are already in, and that machine finishes the sign-in itself. The exponential mcp command signs in locally or takes a pasted redirect URL.
-- **Sign in, one click**: a start that fails because an agent is signed out now offers Sign in right there, on the toast and on the machine list, instead of sending you to a terminal.
-- **Agent accounts**: a machine can hold more than one Claude or Codex login, and a run picks the account it uses.
-- **Usage page**: every machine and account you own, grouped by agent with its rate-limit windows, with a Refresh that respects the provider's limits."#,
-};
 
 /// Whether the rail's "What's new" card renders, given the stored
 /// `changelogSeenId`. Pure so the rule is testable without a gpui App: a
