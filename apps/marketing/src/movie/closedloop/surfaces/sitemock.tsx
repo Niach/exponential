@@ -122,6 +122,10 @@ export const BrowserChassis: React.FC<{ children: React.ReactNode }> = ({ childr
       boxShadow: "0 40px 120px rgba(0,0,0,0.6), 0 8px 24px rgba(0,0,0,0.4)",
       backgroundColor: S.page,
       overflow: "hidden",
+      // EXP-823: own the stacking context, like WindowChassis — the widget
+      // panel inside carries zIndex 30 and must not reach over a phone
+      // composed after the browser.
+      isolation: "isolate",
       fontFamily: UI_FONT,
     }}
   >

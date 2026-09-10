@@ -133,6 +133,13 @@ export const WindowChassis: React.FC<{
       boxShadow: "0 40px 120px rgba(0,0,0,0.6), 0 8px 24px rgba(0,0,0,0.4)",
       backgroundColor: C.canvas,
       overflow: "hidden",
+      // EXP-823: the chassis OWNS its stacking context. Its parts carry
+      // z-indices (cutout panel 5, rail 10, title bar 20) and `overflow`
+      // alone does not confine them, so without this the translucent panel
+      // painted OVER a phone composed after the window — the device read as
+      // see-through. Isolated, DOM order alone decides: anything a segment
+      // places after the chassis floats above the whole window.
+      isolation: "isolate",
       filter: dim > 0 ? `brightness(${1 - dim})` : undefined,
     }}
   >
