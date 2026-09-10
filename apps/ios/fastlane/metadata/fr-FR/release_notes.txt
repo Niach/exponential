@@ -1,24 +1,22 @@
+- Un seul champ pour tout : le champ de la page « Agent » lance tout, avec les issues ou une action choisies en haut et l'appareil, l'agent, le modèle et le mode plan en dessous ; la feuille « Start coding » disparaît
+- Chaque bouton de lecture y mène : « Start coding » sur une issue, la barre de sélection multiple, « Run » d'une action et « Fix merge conflicts » ouvrent le champ avec la bonne sélection déjà faite
+- Des instructions au démarrage : ce que vous tapez à côté des issues ou de l'action choisies arrive à l'exécution comme instructions supplémentaires ; pour un chat, c'est le prompt
+- Des images au démarrage : joignez jusqu'à quatre images au champ, la machine les a avant le premier tour
+- Les actions ne gardent que des choix : une action demande un dépôt, un board, une pull request ou une icône ; le texte libre vient du champ, avec l'indication de l'action comme texte d'aide
+- Les sessions à côté du champ : la page « Agent » liste vos exécutions en cours et passées à côté du prompt, et une exécution lancée par une autre s'affiche imbriquée dessous
+- Répondre dans la carte : un plan ou une question se répond dans sa propre carte, avec un champ intégré quand vous préférez écrire plutôt que choisir ; le champ de pilotage s'efface le temps de la carte
+- Messages d'agent : un agent peut envoyer une notification à votre équipe via MCP ; elle arrive en notification push et comme sa propre ligne dans l'Inbox
+- Des limites cohérentes : un avertissement de quota ne marque plus une exécution comme limitée, et pour une vraie limite, la fenêtre et l'heure de réinitialisation décrivent la même chose
 - Limité, pas bloqué : quand un agent épuise son quota en cours d'exécution, la session est marquée comme limitée avec l'heure de réinitialisation, et reste active et pilotable au lieu de se taire
 - Champ de pilotage : le champ de session accepte @ pour les coéquipiers, # pour les tickets et : pour les emoji, les trois mêmes que la zone de commentaire
 - Modifications en ligne : le diff d'une modification s'affiche sous sa ligne dans la transcription, replié jusqu'à ce que vous le touchiez
 - Des groupes d'outils qui disent ce qui s'est passé : une suite repliée d'appels d'outils se lit « 4 commandes exécutées, 2 fichiers modifiés, 1 échec » au lieu d'un simple compte
 - Un démarrage voué à l'échec est refusé : démarrer sur une machine dont l'agent n'a plus de quota le signale et indique l'heure de réinitialisation
 - Barres de consommation pour un second compte d'agent sur la même machine
-- Pilotage : basculez entre « Plan » et « Build » depuis la session en cours ; le modèle et l'effort se choisissent une fois au démarrage, et les indicateurs de contexte et d'usage se mettent à jour au fur et à mesure que l'exécution les remonte
-- Exécutions passées : les sessions terminées sont listées par appareil avec « Resume », pour reprendre une exécution qui s'est terminée
-- Chat sans dépôt : un chat lancé depuis la feuille « Start coding » n'a plus besoin d'un dépôt et tourne dans un dossier temporaire avec les seuls outils Exponential
 - Choix de l'agent : quand un agent n'est pas prêt sur un appareil, le sélecteur le dit et bloque le démarrage tant que vous n'y avez pas lancé le doctor
 - Flux de pilotage : les identifiants d'issues comme #EXP-12 deviennent des chips sur lesquelles vous pouvez appuyer, et les commandes de l'agent s'affichent comme des badges de commande
 - Relations entre issues : liez des issues comme parent, sous-issue, bloque, bloquée par, doublon ou liée depuis la feuille de propriétés ; taper #EXP-12 dans une description ou un commentaire lie les deux issues tout seul
 - Commentaires en fil : répondez sous un commentaire depuis le champ ancré ; les fils restent sur un seul niveau, et un commentaire posté par un agent via MCP l'indique dans son en-tête
 - Un premier lancement guidé : créer une équipe vous fait passer par le premier board, les invitations de coéquipiers et la configuration des appareils, dans le même ordre que sur le web et le bureau
-- Réglages de l'équipe : les propriétaires peuvent créer des liens d'invitation depuis la section « Members »
 - Merge depuis les exécutions d'actions et de chat : une exécution qui a ouvert une pull request affiche « Merge » dans sa vue de pilotage, et Reviews liste ces pull requests sous « Agent runs »
-- Images de commentaires plus grandes : les images jointes à un commentaire s'affichent sur toute la largeur et ouvrent la visionneuse d'une touche
-- Un flux d'activité plus calme : les événements tiennent sur une ligne discrète avec une heure, les commentaires restent dans une seule carte
-- Le bouton « Subscribe » disparaît : vous suivez une issue automatiquement quand vous la créez, la commentez, qu'elle vous est assignée ou que vous y êtes mentionné
-- Pilotage : la barre de contexte ne recouvre plus la transcription
 - Les sessions restent sur votre machine : les transcriptions sont stockées sur l'appareil qui les a exécutées, jamais sur le serveur ; les exécutions passées s'ouvrent depuis Devices, Chat et Automations et sont récupérées depuis cet appareil quand il est en ligne
-- Conversations des sous-agents : les tours d'un sous-agent s'affichent dans leur propre vue, et le texte de l'agent ne se coupe plus au milieu d'une phrase sur plusieurs lignes
-- Une exécution qui se tait le dit : la session indique quand l'agent a cessé de signaler sa progression
-- Connexion d'un agent à distance : collez le code du lien de connexion de l'agent dans les réglages de l'appareil pour terminer la connexion depuis votre téléphone

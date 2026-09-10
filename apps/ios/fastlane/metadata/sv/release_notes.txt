@@ -1,25 +1,22 @@
+- Ett fält för allt: fältet på "Agent"-sidan startar allt, med ärenden eller en åtgärd valda överst och maskin, agent, modell och planläge under; "Start coding"-bladet är borta
+- Varje uppspelningsknapp leder dit: "Start coding" på ett ärende, markeringsraden, "Run" på en åtgärd och "Fix merge conflicts" öppnar fältet med rätt saker redan valda
+- Instruktioner vid start: det du skriver bredvid de valda ärendena eller åtgärden når körningen som extra instruktioner; i en chatt är det prompten
+- Bilder vid start: bifoga upp till fyra bilder i fältet, så har maskinen dem före första turen
+- Åtgärder behåller bara val: en åtgärd frågar efter repository, board, pull request eller ikon; den fria texten kommer från fältet, med åtgärdens egen ledtext som platshållare
+- Sessioner bredvid fältet: "Agent"-sidan listar dina pågående och tidigare körningar bredvid prompten, och en körning som startats av en annan ligger nästlad under den
+- Svara i kortet: en plan eller en fråga besvaras i sitt eget kort, med ett fält i kortet när du hellre skriver än väljer; styrfältet kliver undan så länge
+- Agentmeddelanden: en agent kan skicka ditt team en avisering via MCP; den kommer som push och som en egen rad i Inbox
+- Gränser som stämmer: en förbrukningsvarning markerar inte längre en körning som begränsad, och vid en verklig gräns beskriver fönstret och återställningstiden samma sak
 - Begränsad, inte fast: när en agent gör slut på sin kvot mitt i en körning markeras sessionen som begränsad med tiden för återställning, och den förblir aktiv och styrbar i stället för att tystna
 - Styrfält: sessionsfältet tar @ för lagkamrater, # för ärenden och : för emoji, samma tre som kommentarsrutan redan hade
 - Ändringar inline: en ändrings diff visas under dess rad i utskriften, hopfälld tills du trycker på den
 - Verktygsgrupper som säger vad som hände: en hopfälld rad verktygsanrop läses som "Körde 4 kommandon, ändrade 2 filer, 1 misslyckades" i stället för att räkna anrop
 - En utsiktslös start avvisas: att starta på en maskin vars agent redan saknar kvot säger det och anger när den återställs
 - Förbrukningsstaplar för ett andra agentkonto på samma maskin
-- Styrning: växla mellan "Plan" och "Build" från den pågående sessionen; modell och insats väljs en gång vid start, och kontext- och användningsvärden uppdateras allteftersom körningen rapporterar dem
-- Tidigare körningar: avslutade sessioner listas per enhet med "Resume", så att en avslutad körning kan tas upp igen
-- Chatt utan repository: en chatt som startas från "Start coding"-bladet behöver inget repository och körs i en tillfällig mapp med bara Exponential-verktygen
 - Agentväljare: när en agent inte är redo på en enhet säger väljaren det och blockerar starten tills du kör doctor där
 - Styrningsflöde: ärendeidentifierare som #EXP-12 blir chips du kan trycka på, och agentkommandon visas som kommandomärken
 - Relationer mellan ärenden: koppla ärenden som överordnat, underärende, blockerar, blockeras av, dubblett eller relaterat från egenskapsbladet; skriver du #EXP-12 i en beskrivning eller kommentar kopplas de två ärendena ihop av sig själva
 - Kommentarstrådar: svara under en kommentar från det dockade skrivfältet; trådar går bara en nivå ned, och en kommentar som en agent lagt via MCP säger det i sin rubrik
 - En guidad första start: att skapa ett team tar dig genom första boarden, att bjuda in lagkamrater och att sätta upp enheter, i samma ordning som på webben och desktop
-- Teaminställningar: ägare kan skapa inbjudningslänkar i "Members"-avsnittet
 - Merge från åtgärds- och chattkörningar: en körning som öppnat en pull request visar "Merge" i sin styrningsvy, och Reviews listar de pull requestarna under "Agent runs"
-- Större kommentarsbilder: bilder som bifogats en kommentar visas i full bredd och öppnar visaren vid tryck
-- Ett lugnare aktivitetsflöde: händelser står som en dämpad rad med tid, kommentarer ligger i ett enda kort
-- Knappen "Subscribe" är borttagen: du följer ett ärende automatiskt när du skapar det, kommenterar, blir tilldelad eller blir nämnd
-- Styrning: kontextraden täcker inte längre utskriften
 - Sessionerna stannar på din egen enhet: utskrifter sparas på enheten som körde dem, aldrig på servern; tidigare körningar öppnas från Devices, Chat och Automations och hämtas från den enheten när den är online
-- Subagentsamtal: en subagents turer visas i en egen vy, och agentens text delas inte längre mitt i en mening över flera rader
-- En körning som tystnar säger till: sessionen visar när agenten har slutat rapportera framsteg
-- Fjärrinloggning för agenter: klistra in koden från agentens inloggningslänk i enhetens inställningar för att slutföra inloggningen från telefonen
-- "Start coding": ett blad för ärenden, åtgärder och chatt med samma alternativ överallt

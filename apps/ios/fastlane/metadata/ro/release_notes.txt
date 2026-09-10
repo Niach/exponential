@@ -1,25 +1,22 @@
+- Un singur câmp pentru tot: câmpul din pagina „Agent” pornește totul, cu taskurile sau o acțiune alese sus și mașina, agentul, modelul și modul plan dedesubt; foaia „Start coding” a dispărut
+- Fiecare buton de pornire duce acolo: „Start coding” pe un task, bara de selecție multiplă, „Run” pe o acțiune și „Fix merge conflicts” deschid câmpul cu lucrurile potrivite deja alese
+- Instrucțiuni la pornire: ce scrii lângă taskurile sau acțiunea alese ajunge la rulare ca instrucțiuni suplimentare; într-un chat este chiar promptul
+- Imagini la pornire: atașezi până la patru imagini în câmp, iar mașina le are înainte de prima tură
+- Acțiunile păstrează doar alegeri: o acțiune cere un repository, un board, un pull request sau o iconiță; textul liber vine din câmp, iar sugestia acțiunii este textul lui de substituție
+- Sesiuni lângă câmp: pagina „Agent” listează rulările tale curente și trecute lângă prompt, iar o rulare pornită de altă rulare apare imbricată sub ea
+- Răspuns chiar în card: la un plan sau la o întrebare răspunzi în cardul lui, cu un câmp înăuntru când preferi să scrii în loc să alegi; câmpul de pilotare se retrage între timp
+- Mesaje de la agenți: un agent poate trimite echipei tale o notificare prin MCP; ajunge ca push și ca rând propriu în Inbox
+- Limite care se potrivesc: un avertisment de consum nu mai marchează o rulare drept limitată, iar la o limită reală fereastra și ora de resetare descriu același lucru
 - Limitat, nu blocat: când un agent își epuizează cota în timpul rulării, sesiunea este marcată ca limitată cu ora resetării și rămâne activă și dirijabilă în loc să tacă
 - Câmpul de dirijare: câmpul sesiunii acceptă @ pentru colegi, # pentru issue-uri și : pentru emoji, aceleași trei pe care le avea deja caseta de comentarii
 - Editări inline: diff-ul unei editări apare sub rândul ei în transcriere, pliat până îl atingi
 - Grupuri de unelte care spun ce s-a întâmplat: o serie pliată de apeluri de unelte se citește „4 comenzi rulate, 2 fișiere editate, 1 eșuat” în loc de o numărătoare
 - O pornire fără rost este refuzată: pornirea pe o mașină al cărei agent nu mai are cotă spune asta și indică ora resetării
 - Bare de utilizare pentru un al doilea cont de agent pe aceeași mașină
-- Ghidare: comută între „Plan” și „Build” direct din sesiunea în curs; modelul și efortul se aleg o singură dată la pornire, iar valorile de context și de consum se actualizează pe măsură ce execuția le raportează
-- Execuții anterioare: sesiunile încheiate sunt listate pe fiecare dispozitiv, cu „Resume”, așa că o execuție terminată poate fi reluată
-- Chat fără repository: un chat pornit din foaia „Start coding” nu mai are nevoie de repository și rulează într-un folder temporar, doar cu uneltele Exponential
 - Alegerea agentului: când un agent nu este pregătit pe un dispozitiv, selecția o spune și blochează pornirea până rulezi acolo doctor
 - Flux de ghidare: identificatorii de taskuri precum #EXP-12 devin marcaje pe care le poți atinge, iar comenzile agentului sunt redate ca etichete de comandă
 - Relații între taskuri: leagă taskurile ca părinte, subtask, blochează, blocat de, duplicat sau înrudit din foaia de proprietăți; scrierea lui #EXP-12 într-o descriere sau într-un comentariu leagă singură cele două taskuri
 - Comentarii pe fire: răspunde sub un comentariu din editorul ancorat; firele rămân pe un singur nivel, iar un comentariu publicat de un agent prin MCP o spune în antetul lui
 - O primă pornire ghidată: crearea unei echipe te poartă prin primul board, invitarea colegilor și configurarea dispozitivelor, în aceeași ordine ca pe web și pe desktop
-- Setările echipei: proprietarii pot crea linkuri de invitație din secțiunea „Members”
 - Merge din execuțiile de acțiuni și de chat: o execuție care a deschis un pull request arată „Merge” în vizualizarea sa de ghidare, iar Reviews listează acele pull request-uri sub „Agent runs”
-- Imagini mai mari în comentarii: imaginile atașate unui comentariu apar pe toată lățimea și se deschid în vizualizator la atingere
-- Un flux de activitate mai liniștit: evenimentele stau pe o singură linie estompată, cu ora, iar comentariile stau într-un singur card
-- Butonul „Subscribe” a dispărut: urmărești automat un task când îl creezi, îl comentezi, ți se atribuie sau ești menționat
-- Ghidare: bara de context nu mai acoperă transcrierea
 - Sesiunile rămân pe dispozitivul tău: transcrierile sunt păstrate pe dispozitivul care le-a rulat, niciodată pe server; execuțiile anterioare se deschid din Devices, Chat și Automations și sunt aduse de pe acel dispozitiv când este online
-- Conversațiile subagenților: turele unui subagent apar într-o vizualizare proprie, iar textul agentului nu se mai rupe la mijlocul frazei pe rânduri separate
-- O execuție care amuțește o spune: sesiunea arată când agentul a încetat să raporteze progresul
-- Autentificare de la distanță a agentului: lipește codul din linkul de autentificare al agentului în setările dispozitivului și încheie autentificarea de pe telefon
-- „Start coding”: o singură foaie pentru taskuri, acțiuni și chat, cu aceleași opțiuni peste tot

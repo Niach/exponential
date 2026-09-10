@@ -293,3 +293,123 @@ describe(`actions.update — required inputs vs automations (EXP-583)`, () => {
     expect(updates[0]!.inputs).toEqual([optionalInput])
   })
 })
+
+// ── EXP-825 compat: retired text/textarea input kinds ────────────────────────
+// Old action editors (iOS ≤ 0.14.28, Android ≤ 0.14.30, desktop ≤ 0.14.35 and
+// its creator run telling the agent `type: text`) still submit free-text
+// defs. The boundary drops them, seeding the composer hint from the FIRST
+// dropped def (placeholder, else label, LEFT 200) when the row has none —
+// migration 0108's rule. The stored shape never carries the retired kinds.
+
+describe(`actions.create/update — EXP-825 compat: retired text inputs`, () => {
+  it(`drops text/textarea defs on create and seeds the hint from the first one's placeholder`, async () => {
+    selectResults.push([])
+    const { action } = await caller.create({
+      teamId: TEAM_ID,
+      name: `Release`,
+      body: `x`,
+      inputs: [
+        { key: `scope`, label: `Scope`, type: `textarea`, required: true, placeholder: ` Which platforms ` },
+        { key: `repo`, label: `Repository`, type: `repo` },
+        { key: `notes`, label: `Notes`, type: `text`, placeholder: `Anything else` },
+      ],
+    })
+    expect(inserts[0]!.inputs).toEqual([
+      { key: `repo`, label: `Repository`, type: `repo`, required: false },
+    ])
+    expect(inserts[0]!.promptPlaceholder).toBe(`Which platforms`)
+    expect(action).toMatchObject({ promptPlaceholder: `Which platforms` })
+  })
+
+  it(`seeds from the label when the dropped def has no placeholder, LEFT 200`, async () => {
+    selectResults.push([])
+    await caller.create({
+      teamId: TEAM_ID,
+      name: `Plain text`,
+      body: `x`,
+      inputs: [{ key: `what`, label: `What to do`, type: `text` }],
+    })
+    expect(inserts[0]!.inputs).toEqual([])
+    expect(inserts[0]!.promptPlaceholder).toBe(`What to do`)
+
+    selectResults.push([])
+    await caller.create({
+      teamId: TEAM_ID,
+      name: `Long`,
+      body: `x`,
+      inputs: [
+        { key: `what`, label: `L`, type: `text`, placeholder: `p`.repeat(200) },
+      ],
+    })
+    // The def placeholder is capped at 200 itself; the seed never exceeds it.
+    expect((inserts[1]!.promptPlaceholder as string).length).toBe(200)
+  })
+
+  it(`keeps a hint the caller sent instead of seeding`, async () => {
+    selectResults.push([])
+    await caller.create({
+      teamId: TEAM_ID,
+      name: `Hinted`,
+      body: `x`,
+      inputs: [{ key: `what`, label: `What`, type: `text`, placeholder: `Old` }],
+      promptPlaceholder: `New hint`,
+    })
+    expect(inserts[0]!.promptPlaceholder).toBe(`New hint`)
+    expect(inserts[0]!.inputs).toEqual([])
+  })
+
+  it(`update drops the retired defs and seeds only a row with no hint`, async () => {
+    // loadAction: a row WITHOUT a hint → seeded.
+    selectResults.push([
+      { id: ACTION_ID, teamId: TEAM_ID, name: `Old`, inputs: [], promptPlaceholder: null },
+    ])
+    await caller.update({
+      id: ACTION_ID,
+      inputs: [
+        { key: `topic`, label: `Topic`, type: `text`, placeholder: `Which topic` },
+        { key: `board`, label: `Board`, type: `board` },
+      ],
+    })
+    expect(updates[0]!.inputs).toEqual([
+      { key: `board`, label: `Board`, type: `board`, required: false },
+    ])
+    expect(updates[0]!.promptPlaceholder).toBe(`Which topic`)
+
+    // A row that already has a hint keeps it.
+    selectResults.push([
+      { id: ACTION_ID, teamId: TEAM_ID, name: `Old`, inputs: [], promptPlaceholder: `Keep me` },
+    ])
+    await caller.update({
+      id: ACTION_ID,
+      inputs: [{ key: `topic`, label: `Topic`, type: `text`, placeholder: `Which topic` }],
+    })
+    expect(updates[1]!.inputs).toEqual([])
+    expect(`promptPlaceholder` in updates[1]!).toBe(false)
+  })
+
+  it(`a dropped required text def is not a required input for the automation guard`, async () => {
+    // loadAction only — no automation probe select is queued; if the guard
+    // ran it would pop an empty result and pass anyway, so assert the
+    // stored shape carries no required input.
+    selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Old`, inputs: [] }])
+    await caller.update({
+      id: ACTION_ID,
+      inputs: [{ key: `what`, label: `What`, type: `textarea`, required: true }],
+    })
+    expect(updates[0]!.inputs).toEqual([])
+    expect(selectResults).toHaveLength(0)
+  })
+
+  it(`still rejects an unknown input kind`, async () => {
+    const error = await rejectionOf(
+      caller.create({
+        teamId: TEAM_ID,
+        name: `Bogus`,
+        body: `x`,
+        inputs: [{ key: `x`, label: `X`, type: `number` as never }],
+      })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(inserts).toHaveLength(0)
+  })
+})

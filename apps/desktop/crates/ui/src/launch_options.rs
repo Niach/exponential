@@ -95,6 +95,20 @@ pub(crate) fn mcp_default_ids(servers: &[McpServerOption]) -> Vec<String> {
         .collect()
 }
 
+/// One step of [`LaunchOptionsSection::set_mcp_servers`]: seed `selected`
+/// from `enabled_by_default` on the first non-empty list (once per team,
+/// `seeded` flips), otherwise clamp the ticks to the rows still offered.
+fn seed_or_clamp_mcp(seeded: &mut bool, selected: &mut Vec<String>, servers: &[McpServerOption]) {
+    if !*seeded && !servers.is_empty() {
+        *selected = mcp_default_ids(servers);
+        *seeded = true;
+    } else {
+        // A server removed on the web under an open dialog must not
+        // reach the launcher as an "unknown server" blocker.
+        selected.retain(|id| servers.iter().any(|server| &server.id == id));
+    }
+}
+
 /// EXP-810: the team's servers as a LOCAL launch surface offers them — every
 /// row resolved against THIS machine's own readiness read
 /// ([`crate::settings::mcp_servers::list_with_local_readiness`]). A surface
@@ -1071,16 +1085,16 @@ impl LaunchOptionsSection {
     /// the blockers (which move with the device pick), clamps a pick whose
     /// row has gone, and seeds `enabled_by_default` exactly once.
     pub(crate) fn set_mcp_servers(&mut self, servers: Vec<McpServerOption>) {
-        if !self.mcp_seeded && !servers.is_empty() {
-            self.mcp_selected = mcp_default_ids(&servers);
-            self.mcp_seeded = true;
-        } else {
-            // A server removed on the web under an open dialog must not
-            // reach the launcher as an "unknown server" blocker.
-            self.mcp_selected
-                .retain(|id| servers.iter().any(|server| &server.id == id));
-        }
+        seed_or_clamp_mcp(&mut self.mcp_seeded, &mut self.mcp_selected, &servers);
         self.mcp_servers = servers;
+    }
+
+    /// Forget the seed: the owner switched TEAM, so the next non-empty list
+    /// (the new team's servers) seeds `enabled_by_default` again instead of
+    /// being clamped against the old team's ticks (which would land every
+    /// new server OFF).
+    pub(crate) fn reset_mcp_seed(&mut self) {
+        self.mcp_seeded = false;
     }
 
     /// The picked server ids — what [`Self::options`] puts on the wire, and
@@ -1716,6 +1730,39 @@ mod tests {
         ];
         assert_eq!(mcp_default_ids(&servers), vec!["a".to_string(), "c".to_string()]);
         assert!(mcp_default_ids(&[]).is_empty());
+    }
+
+    /// The seed fires once per TEAM: renders in between only clamp (a tick
+    /// under the cursor survives), a team switch resets it so the next
+    /// team's `enabled_by_default` set lands ON instead of being filtered
+    /// out against the old ticks (EXP-825 review).
+    #[test]
+    fn mcp_seed_resets_on_team_switch() {
+        let team_a = vec![server("a", "Linear", true), server("b", "Notion", false)];
+        let mut seeded = false;
+        let mut selected = Vec::new();
+        seed_or_clamp_mcp(&mut seeded, &mut selected, &team_a);
+        assert_eq!(selected, vec!["a".to_string()]);
+        // The person ticks Notion; the per-render call keeps it.
+        selected.push("b".into());
+        seed_or_clamp_mcp(&mut seeded, &mut selected, &team_a);
+        assert_eq!(selected, vec!["a".to_string(), "b".to_string()]);
+
+        // Team switch: the list is empty while the fetch is out, then the
+        // new team's rows arrive.
+        let team_b = vec![server("x", "Sentry", false), server("y", "Figma", true)];
+        let mut stale = seeded;
+        let mut stale_selected = selected.clone();
+        seed_or_clamp_mcp(&mut stale, &mut stale_selected, &[]);
+        seed_or_clamp_mcp(&mut stale, &mut stale_selected, &team_b);
+        assert!(stale_selected.is_empty(), "without the reset every new server lands OFF");
+
+        seeded = false; // `LaunchOptionsSection::reset_mcp_seed`
+        seed_or_clamp_mcp(&mut seeded, &mut selected, &[]);
+        assert!(selected.is_empty());
+        seed_or_clamp_mcp(&mut seeded, &mut selected, &team_b);
+        assert_eq!(selected, vec!["y".to_string()]);
+        assert!(seeded);
     }
 
     /// EXP-792: the greyed row's reason IS the launcher's refusal sentence,

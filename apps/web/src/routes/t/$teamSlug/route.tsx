@@ -34,6 +34,7 @@ import { MentionProvider } from "@/components/mention-provider"
 import { GettingStartedSheetProvider } from "@/components/getting-started/getting-started-sheet"
 import { IssueSearchProvider } from "@/hooks/use-issue-search"
 import { MobileChromeProvider } from "@/hooks/use-mobile-chrome"
+import { useSteerSessionReaper } from "@/hooks/use-steer-session-reaper"
 import {
   useTeamBySlug,
   useTeamBoards,
@@ -114,6 +115,9 @@ function TeamLayout() {
   useEffect(() => {
     rememberLastVisited(teamSlug, boardSlug)
   }, [teamSlug, boardSlug])
+  // The steer-store reaper runs here, on every breakpoint — the sidebar's
+  // Sessions group never mounts on phones, so it cannot own the sockets.
+  useSteerSessionReaper(team?.id, user?.id)
 
   // Linear-style global search shortcut: Cmd/Ctrl+F always opens the app
   // search, unconditionally (mirrors the Cmd+B sidebar-toggle handler in

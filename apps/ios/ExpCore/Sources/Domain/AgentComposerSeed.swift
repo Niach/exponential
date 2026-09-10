@@ -26,6 +26,12 @@ public struct AgentComposerSeed: Hashable, Sendable {
     public var text: String?
     /// A curated icon name seeding the Create action builtin's `icon` input.
     public var icon: String?
+    /// The team the subject belongs to — an issue opened from the Inbox,
+    /// Reviews or Search can sit on a NON-active team, and the composer's
+    /// pools are team-scoped, so the page aligns the active team to this
+    /// before it builds (web parity: the play button routes to THAT team's
+    /// `/t/$teamSlug/agent`). nil = the active team.
+    public var teamId: String?
 
     public init(
         issueIds: [String] = [],
@@ -33,7 +39,8 @@ public struct AgentComposerSeed: Hashable, Sendable {
         deviceId: String? = nil,
         prIssueId: String? = nil,
         text: String? = nil,
-        icon: String? = nil
+        icon: String? = nil,
+        teamId: String? = nil
     ) {
         self.issueIds = issueIds
         self.actionId = actionId
@@ -41,6 +48,7 @@ public struct AgentComposerSeed: Hashable, Sendable {
         self.prIssueId = prIssueId
         self.text = text
         self.icon = icon
+        self.teamId = teamId
     }
 
     /// The Chat FAB's seed: nothing preselected.

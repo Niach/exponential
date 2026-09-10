@@ -116,11 +116,17 @@ describe(`desktop attribution`, () => {
   })
 
   test(`a surface with several subjects claims every one of them`, () => {
-    // The ONE Agent composer screen draws the empty prompt, the issue chips and
-    // the action chip (EXP-825), so matching only the exact stem would leave
-    // two of the three stale.
+    // The ONE Agent composer screen draws the empty prompt, the issue chips,
+    // the action chip and the Create action builtin (EXP-825 retired the
+    // create-action dialog), so matching only the exact stem would leave
+    // three of the four stale.
     const result = scope(`apps/desktop/crates/ui/src/chat_screen.rs`)
-    expect(views(result, `desktop`).sort()).toEqual([`chat`, `chat-action`, `chat-issues`])
+    expect(views(result, `desktop`).sort()).toEqual([
+      `action-create`,
+      `chat`,
+      `chat-action`,
+      `chat-issues`,
+    ])
   })
 
   test(`the session screen narrows to the session it draws`, () => {

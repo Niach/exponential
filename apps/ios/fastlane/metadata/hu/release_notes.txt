@@ -1,25 +1,22 @@
+- Egy mező mindenre: az „Agent” oldal mezője indít mindent, felül a kiválasztott feladatokkal vagy művelettel, alatta a géppel, az ügynökkel, a modellel és a terv móddal; a „Start coding” lap eltűnt
+- Minden indítógomb ide vezet: a feladat „Start coding” gombja, a többes kijelölés sávja, egy művelet „Run” gombja és a „Fix merge conflicts” a mezőt nyitja meg, a megfelelő elemekkel már kiválasztva
+- Utasítások az indításhoz: amit a kiválasztott feladatok vagy a művelet mellé írsz, kiegészítő utasításként jut el a futáshoz; chatnél ez maga a prompt
+- Képek az indításhoz: legfeljebb négy képet csatolhatsz a mezőhöz, a gép még az első kör előtt megkapja őket
+- A műveleteknél csak választás marad: egy művelet repositoryt, boardot, pull requestet vagy ikont kér; a szabad szöveg a mezőből jön, a művelet saját tippje pedig a helyőrzője
+- Munkamenetek a mező mellett: az „Agent” oldal a prompt mellett listázza a futó és a korábbi futásokat, és egy másik futás által indított futás alatta, beágyazva jelenik meg
+- Válasz magában a kártyában: egy tervre vagy kérdésre a saját kártyájában válaszolsz, benne egy mezővel, ha inkább írnál, mint választanál; a vezérlőmező addig félreáll
+- Ügynöki üzenetek: egy ügynök MCP-n keresztül értesítést küldhet a csapatodnak; pushként és az Inboxban saját sorként érkezik
+- Összhangban lévő korlátok: a fogyasztási figyelmeztetés többé nem jelöli korlátozottnak a futást, valódi korlátnál pedig az ablak és a visszaállás ideje ugyanazt írja le
 - Korlátozva, nem elakadva: ha egy ügynök futás közben kimeríti a keretét, a munkamenet korlátozottként jelenik meg a visszaállítás idejével, és aktív és irányítható marad ahelyett, hogy elnémulna
 - Irányítómező: a munkamenet mezője elfogadja a @ jelet csapattagokhoz, a # jelet ügyekhez és a : jelet emojihoz, ugyanazt a hármat, amit a megjegyzésmező már tudott
 - Szerkesztések beágyazva: egy szerkesztés diffje a sora alatt jelenik meg az átiratban, összecsukva, amíg rá nem koppintasz
 - Eszközcsoportok, amelyek elmondják, mi történt: egy összecsukott eszközhívás-sorozat így olvasható: „4 parancs lefutott, 2 fájl szerkesztve, 1 sikertelen”, számlálás helyett
 - A kilátástalan indítást elutasítjuk: egy olyan gépen való indítás, amelynek ügynöke már kimerítette a keretét, ezt jelzi és megnevezi a visszaállítás idejét
 - Használati sávok egy második ügynökfiókhoz ugyanazon a gépen
-- Irányítás: az élő munkamenetben válts a „Plan” és a „Build” között; a modellt és a ráfordítást induláskor választod ki egyszer, a kontextus- és használati értékek pedig frissülnek, ahogy a futtatás jelenti őket
-- Korábbi futtatások: a befejezett munkamenetek eszközönként, „Resume” gombbal jelennek meg, így egy lezárt futtatás újra folytatható
-- Chat repository nélkül: a „Start coding” lapról indított chathez már nem kell repository, és ideiglenes mappában fut, csak az Exponential eszközeivel
 - Agentválasztó: ha egy agent nem áll készen az eszközön, a választó ezt jelzi, és blokkolja az indítást, amíg ott le nem futtatod a doctort
 - Irányítási folyam: a feladatazonosítók, például a #EXP-12, koppintható chipekké válnak, az agent parancsai pedig parancscímkeként jelennek meg
 - Feladatkapcsolatok: kösd össze a feladatokat szülőként, részfeladatként, blokkolóként, blokkoltként, duplikátumként vagy kapcsolódóként a tulajdonságlapon; ha #EXP-12 szerepel egy leírásban vagy kommentben, a két feladat magától összekapcsolódik
 - Kommentszálak: válaszolj egy komment alatt a dokkolt szerkesztőből; a szálak egy szint mélyek maradnak, és az a komment, amelyet egy agent MCP-n át írt, ezt jelzi a fejlécében
 - Vezetett első indulás: a csapat létrehozása végigvisz az első boardon, a csapattársak meghívásán és az eszközök beállításán, ugyanabban a sorrendben, mint a weben és az asztali appban
-- Csapatbeállítások: a tulajdonosok a „Members” szakaszban hozhatnak létre meghívó linkeket
 - Merge a művelet- és chatfuttatásokból: az a futtatás, amely pull requestet nyitott, a „Merge” gombot mutatja az irányítási nézetében, a Reviews pedig ezeket a pull requesteket az „Agent runs” alatt sorolja fel
-- Nagyobb képek a kommentekben: a kommenthez csatolt képek teljes szélességben látszanak, és koppintásra megnyílnak a nézegetőben
-- Csendesebb tevékenységfolyam: az események egy halvány sorban állnak időponttal, a kommentek egyetlen kártyán ülnek
-- A „Subscribe” gomb megszűnt: a feladatot automatikusan követed, ha létrehozod, kommenteled, hozzád rendelik vagy megemlítenek benne
-- Irányítás: a kontextussáv már nem takarja az átiratot
 - A munkamenetek az eszközödön maradnak: az átiratok azon az eszközön tárolódnak, amelyik lefuttatta őket, soha nem a szerveren; a korábbi futtatások a Devices, a Chat és az Automations felől nyílnak meg, és arról az eszközről töltődnek be, ha online
-- Subagent-beszélgetések: egy subagent körei saját nézetben látszanak, az agent szövege pedig már nem szakad külön sorokba a mondat közepén
-- Az elcsendesedő futtatás szól: a munkamenet mutatja, mikor hagyta abba az agent a haladás jelentését
-- Távoli agentbejelentkezés: illeszd be az agent bejelentkezési linkjéből a kódot az eszköz beállításaiba, és fejezd be a bejelentkezést a telefonodról
-- „Start coding”: egyetlen lap a feladatokhoz, műveletekhez és chathez, mindenhol ugyanazokkal a beállításokkal

@@ -22,6 +22,7 @@ import {
   createActivityCoalescer,
   failAnswer,
   groupFeedRows,
+  hasPendingCard,
   isAnswerLocked,
   looksLikeMarkdown,
   pushEcho,
@@ -54,6 +55,7 @@ import {
   PLAN_FEEDBACK_PLACEHOLDER,
   type AnswerableCard,
   type AnswerStates,
+  type AnswerStatus,
   type EchoEntry,
   type FeedRow,
   type QuestionLike,
@@ -1451,6 +1453,71 @@ describe(`pending card routing (EXP-788)`, () => {
         0
       )
     ).toBe(false)
+  })
+})
+
+// EXP-820 review: the composer hides only for a card this viewer can answer
+// on the tab it is looking at — narrower than the header's "Needs your
+// input" (`activeQuestionIds`), which counts every unresolved card.
+describe(`hasPendingCard`, () => {
+  const question = (
+    id: number,
+    over: Record<string, unknown> = {}
+  ) => ({
+    id,
+    kind: `question`,
+    text: `Which?`,
+    options: [{ key: `1`, label: `Refactor` }],
+    multiSelect: false,
+    planMode: false,
+    questionId: `q-${id}`,
+    ...over,
+  })
+  const active = (...ids: number[]) => new Set(ids)
+
+  it(`is pending for an active, id-bearing card on Main`, () => {
+    const feed = [{ id: 0, kind: `narration`, text: `hi` }, question(1)]
+    expect(hasPendingCard(feed, active(1), {}, null)).toBe(true)
+    // Resolved cards are not active; nothing active = nothing pending.
+    expect(hasPendingCard(feed, active(), {}, null)).toBe(false)
+    expect(hasPendingCard([], active(1), {}, null)).toBe(false)
+  })
+
+  it(`an id-less card is unanswerable, so it never hides the composer`, () => {
+    const feed = [question(1, { questionId: undefined })]
+    expect(hasPendingCard(feed, active(1), {}, null)).toBe(false)
+    // A second, answerable card still counts.
+    expect(
+      hasPendingCard([...feed, question(2)], active(1, 2), {}, null)
+    ).toBe(true)
+  })
+
+  it(`counts only the cards the visible tab renders`, () => {
+    // Questions are never subagent-scoped (`isSubagentScoped`), so they
+    // render on Main — a subagent tab shows none of them.
+    const feed = [question(1)]
+    expect(hasPendingCard(feed, active(1), {}, null)).toBe(true)
+    expect(hasPendingCard(feed, active(1), {}, `sub-1`)).toBe(false)
+    // A stray subagentId on a question does not move it off Main either —
+    // the projection ignores it, so the rule does too.
+    const stamped = [question(2, { subagentId: `sub-1` })]
+    expect(hasPendingCard(stamped, active(2), {}, `sub-1`)).toBe(false)
+    expect(hasPendingCard(stamped, active(2), {}, null)).toBe(true)
+  })
+
+  it(`a timed-out answer frees the composer; an in-flight or acked one does not`, () => {
+    const feed = [question(1)]
+    const at = (status: AnswerStatus): AnswerStates => ({
+      [`q-1`]: { keys: [`1`], labels: [`Refactor`], status },
+    })
+    expect(hasPendingCard(feed, active(1), at(`sending`), null)).toBe(true)
+    expect(hasPendingCard(feed, active(1), at(`acked`), null)).toBe(true)
+    expect(hasPendingCard(feed, active(1), at(`error`), null)).toBe(false)
+    // The lock is keyed by wire id — another card's failure changes nothing.
+    const other: AnswerStates = {
+      [`q-9`]: { keys: [`1`], labels: [`Refactor`], status: `error` },
+    }
+    expect(hasPendingCard(feed, active(1), other, null)).toBe(true)
   })
 })
 

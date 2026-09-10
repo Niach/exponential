@@ -471,25 +471,6 @@ async function recipeOpenActionEditor(page: Page): Promise<void> {
 }
 
 /**
- * Open the create-action dialog — the describe-it-and-the-agent-writes-it
- * creator (EXP-257). The trigger rides the Actions section header only for an
- * OWNER on a steer-enabled instance, so its absence is a precondition failure.
- * "New action" is also the dialog's own title, so the post-state wait is the
- * form's name field.
- */
-async function recipeOpenActionCreate(page: Page): Promise<void> {
-  const trigger = page.getByRole(`button`, { name: `New action`, exact: true })
-  if (!(await appears(trigger, 20_000))) {
-    throw new Error(
-      `no "New action" button — creating needs STEER_RELAY_URL and a team-OWNER ` +
-        `session (authoring is owner-only)`
-    )
-  }
-  await trigger.first().click()
-  await page.locator(`#create-action-name`).waitFor({ timeout: 15_000 })
-}
-
-/**
  * The automations list plus its "Recent automated runs" section
  * (automations-tab.tsx), one step short of `openAutomationEditor`. EXP-686
  * gave automations their own desktop route, so the tab strip exists on the
@@ -638,7 +619,6 @@ export const RECIPES: Record<string, Recipe> = {
   openMachineSettings: recipeOpenMachineSettings,
   openAddServer: recipeOpenAddServer,
   openActionEditor: recipeOpenActionEditor,
-  openActionCreate: recipeOpenActionCreate,
   openAutomationsTab: recipeOpenAutomationsTab,
   openSuggestionsTab: recipeOpenSuggestionsTab,
   openAutomationEditor: recipeOpenAutomationEditor,

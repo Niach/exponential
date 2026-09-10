@@ -485,7 +485,7 @@
       "web": {
         "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-5",
         "anchor": {
-          "text": "Coding now",
+          "text": "Snapshot cache should get us under target.",
           "timeoutMs": 30000
         },
         "recipe": "scrollToComments",
@@ -1246,15 +1246,14 @@
       "id": "action-create",
       "group": "actions",
       "title": "New action",
-      "blurb": "Authoring an action by describing it: the creator run writes the definition instead of a form (EXP-257).",
+      "blurb": "Authoring an action by describing it: the Agent page composer with the Create action builtin picked as its chip \u2014 describe the action in the prompt and the creator run writes the definition, no form (EXP-257, EXP-825).",
       "order": 3,
       "web": {
-        "route": "/t/$teamSlug/actions",
+        "route": "/t/$teamSlug/agent?action=builtin:create-action",
         "anchor": {
-          "text": "New action",
+          "testId": "agent-composer-chip-action",
           "timeoutMs": 30000
         },
-        "recipe": "openActionCreate",
         "settleMs": 800
       },
       "ios": {
@@ -1267,16 +1266,14 @@
       },
       "desktop": {
         "drive": {
-          "kind": "dialog",
-          "value": "create-action"
-        },
-        "anchorDelayMs": 600,
-        "env": {
-          "EXP_DEV_SCREEN": "actions"
+          "kind": "screen",
+          "value": "chat?action=builtin:create-action"
         }
       },
       "notes": {
-        "web-mobile": "The phone reaches the creator from the Actions page's Actions tab; the paired native shots cover it."
+        "web": "`action=builtin:create-action` seeds the composer with the virtual Create action builtin (not a DB row, `lib/builtin-actions.ts`); the chip renders before the row lookup, so no seed data is needed beyond a team.",
+        "web-mobile": "The phone reaches the creator from the Actions page's Actions tab (\"New action\" pushes the same composer); the paired native shots cover it.",
+        "desktop": "`EXP_DEV_SCREEN=chat?action=builtin:create-action`, paired with `EXP_DEV_TOOL=agent` by the lane (EXP-825 retired the create-action dialog)."
       }
     },
     {

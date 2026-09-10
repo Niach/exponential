@@ -1150,6 +1150,54 @@ final class DatabaseMigrationTests: XCTestCase {
     // The `-v5` canonical file name + the legacy-file purge list are the wipe
     // mechanism for the rename — pin the suffix so a stray edit can't silently
     // strand every device on the old snapshot.
+    // v32 (EXP-825 composer hint): a store created before
+    // `actions.prompt_placeholder` existed must gain it and get the actions
+    // shape offset reset so already-synced rows re-arrive with the column.
+    func testActionPromptPlaceholderColumnAddedToExistingStore() throws {
+        let pool = try makePool("action-prompt-placeholder")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v31_coding_session_parent")
+        try pool.write { db in
+            // Hand-build the pre-v32 state: drop the column if an earlier
+            // create already declares it + a live offset row.
+            let actionCols = Set(try db.columns(in: "actions").map(\.name))
+            if actionCols.contains("prompt_placeholder") {
+                try db.alter(table: "actions") { t in t.drop(column: "prompt_placeholder") }
+            }
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('actions', 'h', '0_0', 0, 1)
+                """)
+        }
+        XCTAssertFalse(try columnNames(pool, "actions").contains("prompt_placeholder"))
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertTrue(try columnNames(pool, "actions").contains("prompt_placeholder"))
+        let column = try pool.read { db in
+            try db.columns(in: "actions").first { $0.name == "prompt_placeholder" }
+        }
+        XCTAssertFalse(column?.isNotNull ?? true)
+        // The ALTER must force a refetch of the actions shape.
+        let offset = try pool.read { db in
+            try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT "handle", "offset", "needs_refetch", "is_live"
+                    FROM "electric_offsets" WHERE "shape" = 'actions'
+                    """
+            )
+        }
+        let handle: String? = offset?["handle"]
+        let offsetValue: String? = offset?["offset"]
+        let needsRefetch: Bool? = offset?["needs_refetch"]
+        let isLive: Bool? = offset?["is_live"]
+        XCTAssertEqual(handle, "")
+        XCTAssertEqual(offsetValue, "-1")
+        XCTAssertEqual(needsRefetch, true)
+        XCTAssertEqual(isLive, false)
+    }
+
     func testFileURLUsesV5Suffix() throws {
         let url = try DatabaseManager.fileURL(for: "acct")
         XCTAssertEqual(url.lastPathComponent, "exponential-acct-v5.sqlite")

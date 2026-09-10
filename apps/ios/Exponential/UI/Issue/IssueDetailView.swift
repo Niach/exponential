@@ -315,7 +315,7 @@ struct IssueDetailView: View {
                             isModerator: vm.permissions.isModerator,
                             startUi: startCircleUi(vm: vm, issue: issue),
                             onOpenProperties: { activeSheet = .properties },
-                            onStartCoding: { openComposer(issue: issue) },
+                            onStartCoding: { openComposer(issue: issue, board: vm.board) },
                             replyTarget: $commentReplyTarget
                         )
                     }
@@ -722,8 +722,14 @@ struct IssueDetailView: View {
     /// EXP-825: Start coding is NAVIGATION — the Agent page composer with
     /// this issue pre-checked; the watcher there pushes the run once the
     /// desktop picks it up.
-    private func openComposer(issue: IssueEntity) {
-        pushRoute(.agent(accountId: accountId, seed: AgentComposerSeed(issueIds: [issue.id])))
+    private func openComposer(issue: IssueEntity, board: BoardEntity?) {
+        // The issue's team rides along: opened from the Inbox, Reviews or
+        // Search it may not be the ACTIVE team, and the composer's pools are
+        // team-scoped (the chip would vanish and the button read "Start chat").
+        pushRoute(.agent(
+            accountId: accountId,
+            seed: AgentComposerSeed(issueIds: [issue.id], teamId: board?.teamId)
+        ))
     }
 
     private var instanceBaseURL: URL? {

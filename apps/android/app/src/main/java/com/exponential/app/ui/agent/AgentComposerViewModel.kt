@@ -335,6 +335,7 @@ class AgentComposerViewModel @Inject constructor(
             if (ids.isEmpty()) null else ComposerSubject.Issues(ids)
         }
         _pendingPrIssueId.value = null
+        steerLaunch.clearFailure()
         reseedPlanMode()
     }
 
@@ -346,16 +347,21 @@ class AgentComposerViewModel @Inject constructor(
             // A different action has a different input schema — stale values
             // must not leak into the new one's payload.
             if (current !is ComposerSubject.Action || current.id != actionId) {
+                // A fresh pick re-arms the EXP-349 repo seed: the latch is
+                // per selection, not per action id for the page's lifetime.
+                seededRepoActionId = null
                 _subject.value = ComposerSubject.Action(actionId, emptyMap())
             }
         }
         _pendingPrIssueId.value = null
+        steerLaunch.clearFailure()
         reseedPlanMode()
     }
 
     fun clearAction() {
         if (_subject.value is ComposerSubject.Action) _subject.value = null
         _pendingPrIssueId.value = null
+        steerLaunch.clearFailure()
         reseedPlanMode()
     }
 
@@ -384,7 +390,11 @@ class AgentComposerViewModel @Inject constructor(
     // ── Draft ───────────────────────────────────────────────────────────────
 
     fun setDraft(text: String) {
+        if (text == _draft.value) return
         _draft.value = text
+        // A refused send's red caption goes away as the user edits — the
+        // next attempt is a new one.
+        steerLaunch.clearFailure()
     }
 
     fun setChatRepoId(repoId: String) {
@@ -601,6 +611,10 @@ class AgentComposerViewModel @Inject constructor(
                     _draft.value = ""
                     _subject.value = null
                     _pendingPrIssueId.value = null
+                    // The subject is gone, so its repo-seed latch goes too:
+                    // re-picking the SAME action must pre-fill `repo` again
+                    // (a required repo otherwise leaves submit disabled).
+                    seededRepoActionId = null
                     reseedPlanMode()
                 }
             } finally {

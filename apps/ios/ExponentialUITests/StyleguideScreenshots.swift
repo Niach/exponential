@@ -468,27 +468,32 @@ final class StyleguideScreenshots: XCTestCase {
             "The Actions segment never listed the seeded team actions"
         )
 
-        // ── sg_action-create: the create-action sheet ────────────────────────
+        // ── sg_action-create: the composer on the Create action builtin ─────
         // "New action" rides the "Actions · count" section header (EXP-574).
-        // The sheet is only photographed, never submitted — creation would
-        // start a real builtin run on somebody's machine.
+        // EXP-825: it pushes the Agent page with the "Create action" builtin
+        // picked (the action chip proves it) — describe it, and the creator
+        // run writes the action. Only photographed, never submitted —
+        // submitting would start a real builtin run on somebody's machine.
         let newActionButton = app.buttons["New action"]
         XCTAssertTrue(newActionButton.waitForExistence(timeout: 20), "New action entry missing")
         newActionButton.tap()
-        let createActionSheet = anyElement(app, identified: "create-action-sheet")
+        let createComposer = anyElement(app, identified: "agent-composer")
+        XCTAssertTrue(createComposer.waitForExistence(timeout: 20), "Agent page did not open")
         XCTAssertTrue(
-            createActionSheet.waitForExistence(timeout: 20),
-            "Create-action sheet did not open"
+            anyElement(app, identified: "agent-composer-chip-action").waitForExistence(timeout: 15),
+            "The composer never picked the Create action builtin"
         )
-        // The description field is an `axis: .vertical` TextField — it surfaces
-        // as a textView, not a textField — so address it by identifier alone.
         XCTAssertTrue(
-            anyElement(app, identified: "create-action-description").waitForExistence(timeout: 15),
-            "Create-action sheet never rendered its form"
+            app.buttons["Run action"].firstMatch.waitForExistence(timeout: 15),
+            "The composer never settled on the action subject"
         )
         snapshot("sg_action-create", settle: 2)
-        dismissSheet(app, whileVisible: createActionSheet)
-        _ = createActionSheet.waitForNonExistence(timeout: 10)
+        // A pushed detail: back pops to the Actions tab.
+        goBack(app)
+        XCTAssertTrue(
+            app.navigationBars["Actions"].waitForExistence(timeout: 30),
+            "Did not return to the Actions surface"
+        )
         settle(1)
 
         // ── sg_automations-list: the Automations segment ─────────────────────

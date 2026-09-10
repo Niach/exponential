@@ -591,7 +591,9 @@ struct StartSessionInput: Encodable {
     let account: String?
     // EXP-825: the composer's free text — additional instructions on an
     // issue start (images embedded, `AgentComposerPrompt`). Absent when
-    // blank; forbidden with `resume` server-side, so the caller drops it.
+    // blank. It rides fine with `resume` (a worktree resume); the server
+    // forbids it only next to `resumeSessionId` (a recorded run keeps its
+    // options), which this input never carries.
     let prompt: String?
 }
 

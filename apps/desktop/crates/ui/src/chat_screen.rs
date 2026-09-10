@@ -433,6 +433,9 @@ impl ChatScreenView {
         self.ensure_mcp_loaded(cx);
         if let Some(launch) = self.launch.as_mut() {
             launch.reseed_plan_for_subject(false, cx);
+            // The new team's `enabled_by_default` servers seed afresh once
+            // its list lands; the old team's ticks mean nothing here.
+            launch.reset_mcp_seed();
         }
     }
 
@@ -1223,6 +1226,15 @@ impl ChatScreenView {
                 match outcome {
                     Ok(resolved) => {
                         this.images.note_uploaded(&resolved);
+                        // The subject may have moved under the upload (an
+                        // action pick cleared, a 31st issue ticked, a probe
+                        // failed): the gate runs again, or the blocker is
+                        // bypassed. The uploads stay noted for the retry.
+                        if let Some(blocker) = this.launch_blocker(cx) {
+                            this.notice = Some(blocker);
+                            cx.notify();
+                            return;
+                        }
                         let ids: Vec<String> = resolved.into_iter().map(|(_, id)| id).collect();
                         let message = steer::build_steer_image_message(&text, &ids);
                         this.start(message, window, cx);

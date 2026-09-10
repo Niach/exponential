@@ -1168,6 +1168,36 @@ export function pendingAnswerable<
   return null
 }
 
+/** EXP-820: does a card wait on THIS viewer, on the tab it is looking at?
+ *  True is what HIDES the composer (the card is the whole input). Narrower
+ *  than `activeQuestionIds` on purpose:
+ *  - an id-less card (a desktop too old to publish wire ids) is unanswerable
+ *    here, so it cannot take the composer away;
+ *  - only the cards the visible tab RENDERS count — a subagent tab shows that
+ *    agent's stream alone, so a card scoped elsewhere hides nothing there
+ *    (the same `subagentIdOf` scoping `groupFeedRows` uses);
+ *  - an answer whose ack timed out (`error`) re-enables the card but frees
+ *    the composer: a `question_resolved` lost in a relay drop must not hide
+ *    it for good.
+ *  A locked card (`sending`/`acked`) stays pending — its resolution is due. */
+export function hasPendingCard<
+  T extends { id: number; kind: string; questionId?: string; subagentId?: string },
+>(
+  feed: readonly T[],
+  activeIds: ReadonlySet<number>,
+  states: AnswerStates,
+  activeAgent: string | null
+): boolean {
+  return feed.some(
+    (item) =>
+      item.kind === `question` &&
+      activeIds.has(item.id) &&
+      item.questionId !== undefined &&
+      subagentIdOf(item) === activeAgent &&
+      states[answerKey(item)]?.status !== `error`
+  )
+}
+
 /** What a typed reply to the pending card sends. A plan card has no free
  *  answer of its own: the reply picks "No, keep planning" (the LAST option,
  *  whose description says it sends the next message back to planning) and

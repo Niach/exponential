@@ -236,7 +236,7 @@ struct DeviceSettingsSheet: View {
     }
 
     /// The advertised per-agent defaults as a draft, contract-validated with
-    /// static fallbacks (the StartCodingSheet seeding semantics).
+    /// static fallbacks (the Agent page composer's seeding semantics).
     private static func draft(from advertised: AgentLaunchDefaults?, agent: String) -> AgentDraft {
         let models = LaunchVocabulary.modelValues(for: agent)
         let model: String

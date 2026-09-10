@@ -79,7 +79,6 @@ const PINNED_RECIPES = [
   `openIssuePropertiesMobile`,
   `openMachineSettings`,
   `openAddServer`,
-  `openActionCreate`,
   `openAutomationsTab`,
   `openSuggestionsTab`,
   `openWidgetEditor`,

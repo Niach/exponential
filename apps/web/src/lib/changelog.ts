@@ -35,7 +35,9 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Images on a start**: attach up to four images to the composer. The machine downloads them before the first turn, the same way steering images work.
 - **Actions keep only picks**: text fields on actions are retired. An action declares repository, board, pull request or icon inputs; the free text comes from the composer. Existing text fields were removed from your actions, and each one's hint became the action's composer hint.
 - **Composer hint per action**: an action can say what to type (Scope, Focus, a version). It shows as the field's placeholder once the action is picked, editable with the action and via MCP.
-- **Options where you need them**: machine, agent, model and plan mode sit under the composer; effort, ultracode, MCP servers and the account are one click away.`,
+- **Options where you need them**: machine, agent, model and plan mode sit under the composer; effort, ultracode, MCP servers and the account are one click away.
+- **Answer inside the card**: a pending plan or question is answered in its own card. Free-text and reject rows open an inline field, the composer steps aside until the card is done, and an answered ask step reopens until you submit.
+- **Agent messages**: an agent can notify your team over MCP with the new notifications_send tool. It lands as a push and an Inbox row for every member; a notification preference blocks other members' agents while your own always get through.`,
   },
   {
     id: `2026-09-rate-limited-means-rate-limited`,

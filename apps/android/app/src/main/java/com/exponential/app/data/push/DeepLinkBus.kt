@@ -41,6 +41,12 @@ class DeepLinkBus @Inject constructor() {
             val identifier: String,
         ) : Target
 
+        // A verified https App Link the manifest claims but the app cannot
+        // render (its pathPattern `/t/.*/agent` also matches nested paths
+        // such as `/t/x/boards/b/issues/APP-1/agent`): AppNavHost hands it
+        // to a Custom Tab, the same fallback an unresolvable issue link takes.
+        data class WebUrl(val uri: android.net.Uri) : Target
+
         // Content shared into the app from another app (ACTION_SEND). Image URIs
         // are stable file:// cache URIs (see ShareIntentParser). Same-process, so
         // holding Uri in a singleton-held data class is fine.
@@ -95,6 +101,10 @@ class DeepLinkBus @Inject constructor() {
         identifier: String,
     ) {
         _target.value = Target.WebIssueRef(uri, host, teamSlug, identifier)
+    }
+
+    fun openWebUrl(uri: android.net.Uri) {
+        _target.value = Target.WebUrl(uri)
     }
 
     fun openGithubConnected(error: String? = null) {

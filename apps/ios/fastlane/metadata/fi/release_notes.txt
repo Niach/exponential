@@ -1,25 +1,22 @@
+- Yksi kenttä kaikkeen: "Agent"-sivun kenttä käynnistää kaiken, issuet tai toiminto valittuna ylhäällä ja kone, agentti, malli ja plan-tila alla; "Start coding" -paneeli on poistunut
+- Jokainen toistopainike vie sinne: issuen "Start coding", monivalintapalkki, toiminnon "Run" ja "Fix merge conflicts" avaavat kentän oikeat asiat valmiiksi valittuina
+- Ohjeet käynnistyksen mukana: mitä kirjoitat valittujen issueiden tai toiminnon viereen, päätyy ajoon lisäohjeina; chatissa se on kehote
+- Kuvat käynnistyksen mukana: liitä kenttään enintään neljä kuvaa, niin kone saa ne ennen ensimmäistä vuoroa
+- Toiminnoissa vain valintoja: toiminto kysyy repositoriota, boardia, pull requestia tai kuvaketta; vapaa teksti tulee kentästä, ja toiminnon oma vihje on sen ohjeteksti
+- Sessiot kentän vierellä: "Agent"-sivu listaa käynnissä olevat ja menneet ajot kehotteen viereen, ja toisen ajon käynnistämä ajo näkyy sen alla sisennettynä
+- Vastaus kortin sisällä: suunnitelmaan tai kysymykseen vastataan sen omassa kortissa, ja kortissa on kenttä, kun haluat kirjoittaa valitsemisen sijaan; ohjauskenttä väistyy siksi aikaa
+- Agenttien viestit: agentti voi lähettää tiimillesi ilmoituksen MCP:n kautta; se tulee push-ilmoituksena ja omana rivinään Inboxiin
+- Rajat, jotka täsmäävät: käyttövaroitus ei enää merkitse ajoa rajoitetuksi, ja oikeassa rajassa ikkuna ja nollautumisaika kuvaavat samaa
 - Rajoitettu, ei jumissa: kun agentin kiintiö loppuu kesken ajon, istunto merkitään rajoitetuksi ja nollausaika näytetään, ja se pysyy aktiivisena ja ohjattavana sen sijaan, että hiljenisi
 - Ohjauskenttä: istuntokenttä ottaa @ tiimikavereille, # asioille ja : emojeille, samat kolme kuin kommenttikentässä jo oli
 - Muokkaukset rivissä: muokkauksen diff näkyy rivinsä alla transkriptissa, taitettuna kunnes napautat sitä
 - Työkaluryhmät kertovat mitä tapahtui: taitettu sarja työkalukutsuja lukee "Ajettiin 4 komentoa, muokattiin 2 tiedostoa, 1 epäonnistui" kutsujen laskemisen sijaan
 - Toivoton käynnistys hylätään: käynnistys koneella, jonka agentin kiintiö on jo lopussa, kertoo sen ja ilmoittaa nollausajan
 - Käyttöpalkit toiselle agenttitilille samalla koneella
-- Ohjaus: vaihda "Plan"- ja "Build"-tilan välillä suoraan käynnissä olevasta istunnosta; malli ja panostus valitaan kerran käynnistyksessä, ja konteksti- ja käyttölukemat päivittyvät sitä mukaa kuin ajo ne ilmoittaa
-- Aiemmat ajot: päättyneet istunnot listataan laitteittain "Resume"-painikkeella, joten päättyneen ajon voi ottaa uudelleen käsittelyyn
-- Chat ilman repositoriota: "Start coding" -paneelista aloitettu chat ei enää tarvitse repositoriota ja pyörii väliaikaisessa kansiossa vain Exponentialin työkaluilla
 - Agentin valinta: kun agentti ei ole laitteella valmis, valinta kertoo sen ja estää käynnistyksen, kunnes ajat siellä doctorin
 - Ohjausvirta: issue-tunnisteet kuten #EXP-12 muuttuvat napautettaviksi chip-painikkeiksi, ja agentin komennot näkyvät komentomerkkeinä
 - Issue-yhteydet: liitä issueita toisiinsa ylätehtävänä, alitehtävänä, estävänä, estettynä, duplikaattina tai liittyvänä ominaisuuspaneelista; #EXP-12 kuvauksessa tai kommentissa yhdistää kaksi issueta itsestään
 - Kommenttiketjut: vastaa kommentin alle telakoidusta kirjoituskentästä; ketjut pysyvät yhden tason syvyisinä, ja MCP:n kautta agentin kirjoittama kommentti kertoo sen otsikossaan
 - Ohjattu ensimmäinen käynnistys: tiimin luominen vie sinut ensimmäisen boardin, tiimikavereiden kutsumisen ja laitteiden käyttöönoton läpi, samassa järjestyksessä kuin webissä ja työpöydällä
-- Tiimin asetukset: omistajat voivat luoda kutsulinkkejä "Members"-osiosta
 - Merge toiminto- ja chat-ajoista: ajo, joka avasi pull requestin, näyttää "Merge"-painikkeen ohjausnäkymässään, ja Reviews listaa nämä pull requestit "Agent runs" -kohtaan
-- Isommat kommenttikuvat: kommenttiin liitetyt kuvat näkyvät täydessä leveydessä ja avautuvat napautuksella katseluun
-- Rauhallisempi tapahtumavirta: tapahtumat ovat yksi vaimennettu rivi kellonaikoineen, kommentit ovat yhdessä kortissa
-- "Subscribe"-painike poistui: seuraat issueta automaattisesti, kun luot sen, kommentoit, saat sen itsellesi tai sinut mainitaan
-- Ohjaus: kontekstipalkki ei enää peitä keskustelunäkymää
 - Istunnot pysyvät omalla laitteellasi: keskustelut tallennetaan sille laitteelle, joka ne ajoi, ei koskaan palvelimelle; aiemmat ajot avataan Devices-, Chat- ja Automations-näkymistä ja haetaan siltä laitteelta, kun se on verkossa
-- Subagenttien keskustelut: subagentin vuorot näkyvät omassa näkymässään, eikä agentin teksti enää katkea kesken lauseen omille riveilleen
-- Hiljenevä ajo kertoo siitä: istunto näyttää, milloin agentti on lakannut ilmoittamasta edistymistä
-- Agentin etäkirjautuminen: liitä agentin kirjautumislinkin koodi laitteen asetuksiin ja viimeistele kirjautuminen puhelimesta
-- "Start coding": yksi paneeli issueille, toiminnoille ja chatille, samoilla valinnoilla kaikkialla

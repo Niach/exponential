@@ -1256,11 +1256,14 @@ impl ScreensPanel {
     /// moment the PR stops being reviewable — merged or closed, arriving as
     /// the Electric echo flipping `pr_state` on every linked issue (batch
     /// PRs included), or the issue disappearing outright — the diff view
-    /// retires itself: matching back-stack entries are purged so go-back
+    /// retires itself: matching history entries are purged so go-back
     /// can't resurrect it, then the center falls back — go-back if possible,
     /// else the Reviews PAGE the diff was opened from (EXP-706; it used to be
     /// "clear the center", which under a tool-window Reviews left the list
-    /// showing and now would leave a blank page).
+    /// showing and now would leave a blank page). EXP-818: the go-back parks
+    /// the diff on the FORWARD stack, so the purge runs again after it —
+    /// otherwise Forward re-entered the diff, this dismiss fired again and
+    /// the forward button was dead for the rest of the window's life.
     fn dismiss_stale_pr_diff(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let Some(Screen::PrDiff { issue_id }) = resolved_screen(&self.nav, cx) else {
             return;
@@ -1278,14 +1281,15 @@ impl ScreensPanel {
         if !stale {
             return;
         }
-        crate::navigation::purge_from_back_stack(window, cx, |screen| {
-            matches!(screen, Screen::PrDiff { issue_id: id } if *id == issue_id)
-        });
+        let is_this_diff =
+            |screen: &Screen| matches!(screen, Screen::PrDiff { issue_id: id } if *id == issue_id);
+        crate::navigation::purge_from_history(window, cx, is_this_diff);
         if self.nav.read(cx).can_go_back() {
             crate::navigation::go_back(window, cx);
         } else {
             crate::navigation::set_screen(window, cx, Some(Screen::Reviews));
         }
+        crate::navigation::purge_from_history(window, cx, is_this_diff);
     }
 
     /// Activate the tab at `ix`: re-select its origin sidebar entry (and
@@ -1379,12 +1383,13 @@ impl ScreensPanel {
         }
         // EXP-769: a terminal that left this strip — closed (the PTY is gone)
         // or undocked (it paints in its own window now) — must not come back
-        // through go-back: `sync_tabs` would see a screen with no tab and push
-        // a ghost chip over "This terminal was closed". Same rule as the stale
+        // through go-back OR go-forward (EXP-818: went back from it, then
+        // closed it): `sync_tabs` would see a screen with no tab and push a
+        // ghost chip over "This terminal was closed". Same rule as the stale
         // PR diff ([`Self::dismiss_stale_pr_diff`]); an issue tab is different
         // — its screen is still openable, so its history stays.
         if matches!(closed.screen, Screen::Terminal { .. }) {
-            crate::navigation::purge_from_back_stack(window, cx, |screen| *screen == closed.screen);
+            crate::navigation::purge_from_history(window, cx, |screen| *screen == closed.screen);
         }
         cx.notify();
     }

@@ -55,7 +55,9 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Instructions with a start**: whatever you type beside the picked issues or action reaches the run as additional instructions. For a chat it is the prompt, for Create action it is the request.
 - **Images on a start**: attach up to four images to the composer. The machine downloads them before the first turn, the same way steering images work.
 - **Actions keep only picks**: text fields on actions are retired. An action declares repository, board, pull request or icon inputs; the free text comes from the composer. Existing text fields were removed from your actions.
-- **Options where you need them**: machine, agent, model and plan mode sit under the composer; effort, ultracode, MCP servers and the account are one click away."#,
+- **Options where you need them**: machine, agent, model and plan mode sit under the composer; effort, ultracode, MCP servers and the account are one click away.
+- **Answer inside the card**: a pending plan or question is answered in its own card. Free-text and reject rows open an inline field, the composer steps aside until the card is done, and an answered ask step reopens until you submit.
+- **Agent messages**: an agent can notify your team over MCP with the new notifications_send tool. It lands as a push and an Inbox row for every member; a notification preference blocks other members' agents while your own always get through."#,
 };
 
 /// The previous head entry, kept so the mirror's history reads in place.

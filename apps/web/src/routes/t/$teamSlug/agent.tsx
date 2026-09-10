@@ -116,7 +116,11 @@ function AgentPage() {
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col gap-10 px-4 py-6">
           {steerEnabled ? (
+            // Keyed by team: the composer's repo pick and seed latches are
+            // one-shot per mount, so a /t/a/agent → /t/b/agent navigation
+            // remounts it instead of carrying team A's repo into team B.
             <ComposerPane
+              key={team.id}
               teamId={team.id}
               remote={remote}
               users={teamUsers}
