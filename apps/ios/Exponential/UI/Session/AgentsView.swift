@@ -16,6 +16,11 @@ import SwiftUI
 /// glyph pushes it with that machine preselected, and the tab bar's Chat FAB
 /// pushes it with an empty seed. When the relay is off nothing here can be
 /// started, so the tab says so instead of listing machines.
+///
+/// EXP-829: below the machines, "Accounts" (`AgentAccountsSection`) — the
+/// Usage page web and desktop folded into Devices in EXP-818: one row per
+/// agent account across the same machines, the freshest report's usage
+/// bars, a chip per machine that opens the device settings sheet.
 struct AgentsView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -73,6 +78,9 @@ struct AgentsView: View {
             // The list is scoped to the active team — the VM observes the
             // account's rows, the view owns the team.
             viewModel?.activeTeamId = teamState.activeTeam?.id
+            // EXP-829: the Accounts section queues its usage refreshes from
+            // this page only.
+            viewModel?.devicesApi = deps.devicesApi
             // Re-arm on every appear: pushing a detail stops the observation
             // (onDisappear), popping back must resume it.
             viewModel?.startObserving()
@@ -154,6 +162,13 @@ struct AgentsView: View {
                 if !teamDevices.isEmpty {
                     GlassSectionHeader("Team machines")
                     ForEach(teamDevices) { deviceRow($0) }
+                }
+
+                // EXP-829: the agent accounts across those machines (web /
+                // desktop EXP-818 parity). A chip opens the machine's
+                // settings sheet — the same target as the row menu's Edit.
+                AgentAccountsSection(viewModel: vm) { deviceId in
+                    settingsTarget = DeviceSettingsTarget(id: deviceId)
                 }
                 if let deviceError {
                     Text(deviceError)

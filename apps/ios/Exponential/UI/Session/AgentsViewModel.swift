@@ -61,6 +61,24 @@ final class AgentsViewModel {
     /// `devices.list` poll. nil until the first observation emission, so the
     /// view can tell "loading" from "no machines".
     var devices: [SteerDevice]?
+    /// EXP-829: the Devices page's Accounts section (web/desktop EXP-818) —
+    /// one row per agent ACCOUNT off the same devices rows, in agent bands,
+    /// attention first. Empty until the first devices emission; see
+    /// `accountsLoaded` for "loading" vs "no machine reported an account".
+    private(set) var accountSections: [AgentAccountSection] = []
+    private(set) var accountGroups: [AgentAccountUsageGroup] = []
+    var accountsLoaded: Bool { deviceEntities != nil }
+    /// EXP-829: the accounts a usage refresh is in flight for (keyed like
+    /// `accountGroups`) — the row shows a spinner in place of its refresh
+    /// glyph. Cleared when the machine's re-report moves the stamp, or after
+    /// `Self.refreshPendingWindow` with no answer.
+    private(set) var refreshingAccounts: Set<String> = []
+    /// EXP-829: the last refresh that could not be queued, for the row.
+    var accountError: String?
+    /// EXP-829: the command queue the refreshes ride — set by the Devices
+    /// page only. Nil (the Agent page, the onboarding step) = the accounts
+    /// are still derived but nothing is ever queued from there.
+    var devicesApi: DevicesApi?
     /// EXP-481: the synced worktree inventory (shape 18) — the composer's
     /// resume probe and the device-settings worktree list.
     var worktrees: [DeviceWorktreeEntity] = []
@@ -115,6 +133,20 @@ final class AgentsViewModel {
     /// EXP-758: are the observations armed? The ended-runs one re-arms on a
     /// team switch, which must be a no-op while the view is off screen.
     private var observing = false
+
+    /// EXP-829: how long a queued refresh shows as in flight before giving
+    /// up on the device answering (it answers by re-reporting on its next
+    /// beat). Web `REFRESH_PENDING_MS`.
+    private static let refreshPendingWindow: TimeInterval = 45
+    /// EXP-829: the page's own refresh never re-tries one account faster than
+    /// this — a queued command the machine has not answered yet is a CONFLICT
+    /// on the server, and hammering it buys nothing. Web `AUTO_REFRESH_RETRY_MS`.
+    private static let autoRefreshRetry: TimeInterval = 60
+    /// In-flight refreshes: the usage stamp the account carried when it was
+    /// queued (the device's re-report moves it, which clears the mark) and
+    /// when it was queued.
+    private var refreshMarks: [String: (fetchedAt: String?, at: Date)] = [:]
+    private var autoRefreshAttempts: [String: Date] = [:]
 
     private var sessions: [CodingSessionEntity] = []
     private var endedSessions: [CodingSessionEntity] = []
@@ -362,15 +394,120 @@ final class AgentsViewModel {
     /// servers, exactly the `devices.list` ordering the view already renders.
     private func rebuildDevices() {
         guard let deviceEntities else { return }
+        let now = Date()
         devices = DeviceQueries.compose(
             rows: deviceEntities,
             users: users,
             teamId: activeTeamId,
-            userId: userId
+            userId: userId,
+            now: now
         )
+        rebuildAccounts(deviceEntities, now: now)
         // EXP-746: the Resume affordance is gated on the run's machine being
         // online and `resume-run`-capable, so a heartbeat repaints Past too.
         rebuildPast()
+    }
+
+    // MARK: - Accounts (EXP-829)
+
+    /// EXP-829: the Accounts section off the same rows the machines list
+    /// reads — own machines plus the servers teammates shared with the
+    /// ACTIVE team (web `AgentAccountsSection`'s filter), folded by login
+    /// (`AgentAccountsRows`, the ×4 rule). A refresh may only be queued on
+    /// one of MY online machines that advertises the cap.
+    private func rebuildAccounts(_ entities: [DeviceEntity], now: Date) {
+        let scoped = entities.filter { row in
+            (userId != nil && row.userId == userId)
+                || (activeTeamId != nil && row.sharedTeamId == activeTeamId && row.kind == "server")
+        }
+        let capsByDevice: [String: [String]] = Dictionary(
+            (devices ?? []).map { ($0.deviceId, $0.caps ?? []) },
+            uniquingKeysWith: { a, _ in a }
+        )
+        let rows = AgentAccountsRows.profileRows(
+            devices: scoped,
+            currentUserId: userId,
+            isOnline: { DeviceLiveness.isOnline(lastSeenAt: $0, now: now) }
+        )
+        let groups = AgentAccountsRows.sortGroupsAttentionFirst(
+            AgentAccountsRows.accountGroups(rows) { row in
+                row.mine && row.online
+                    && (capsByDevice[row.deviceId] ?? []).contains(AgentAccountsRows.refreshCap)
+            }
+        )
+        accountGroups = groups
+        accountSections = AgentAccountsRows.sections(groups)
+        pruneRefreshing(groups, now: now)
+        autoRefreshAccounts(groups, now: now)
+    }
+
+    /// An in-flight mark clears when the account's stamp moved (the machine
+    /// answered) or when nobody answered inside the pending window.
+    private func pruneRefreshing(_ groups: [AgentAccountUsageGroup], now: Date) {
+        guard !refreshMarks.isEmpty else { return }
+        for (key, mark) in refreshMarks {
+            let stamp = groups.first { $0.key == key }?.usage?.fetchedAt
+            if stamp != mark.fetchedAt || now.timeIntervalSince(mark.at) > Self.refreshPendingWindow {
+                refreshMarks[key] = nil
+            }
+        }
+        refreshingAccounts = Set(refreshMarks.keys)
+    }
+
+    /// EXP-817: keep the section current while it is open. Every pass, each
+    /// account with an eligible machine and a freshest report past the floor
+    /// gets ONE refresh queued — never while one is in flight, never twice
+    /// inside `autoRefreshRetry`. The floor is the device's own 429 budget,
+    /// so this can never out-poll what the machine allows itself. Passes run
+    /// on every devices emission and on the 30s liveness tick, exactly the
+    /// web effect's `[groups, now]`.
+    private func autoRefreshAccounts(_ groups: [AgentAccountUsageGroup], now: Date) {
+        guard devicesApi != nil else { return }
+        for group in groups {
+            guard group.refreshTarget != nil else { continue }
+            if refreshMarks[group.key] != nil { continue }
+            if AgentAccountsRows.refreshAllowedAt(group.usage, now: now) != nil { continue }
+            if let last = autoRefreshAttempts[group.key],
+               now.timeIntervalSince(last) < Self.autoRefreshRetry {
+                continue
+            }
+            autoRefreshAttempts[group.key] = now
+            refreshAccount(group, silent: true)
+        }
+    }
+
+    /// Whether the section refreshes by itself — any account has a machine
+    /// that may run the command.
+    var accountsAutoRefresh: Bool {
+        accountGroups.contains { $0.refreshTarget != nil }
+    }
+
+    /// Queue `agent_usage_refresh` for the account on its refresh target.
+    /// The page's own refresh (`silent`) fails quietly: a command still
+    /// queued from the last round is a CONFLICT, and the next pass simply
+    /// looks again.
+    func refreshAccount(_ group: AgentAccountUsageGroup, silent: Bool = false) {
+        guard let target = group.refreshTarget, let devicesApi else { return }
+        if !silent { accountError = nil }
+        refreshMarks[group.key] = (fetchedAt: group.usage?.fetchedAt, at: Date())
+        refreshingAccounts = Set(refreshMarks.keys)
+        let accountId = accountId
+        Task { [weak self] in
+            do {
+                _ = try await devicesApi.createCommand(
+                    accountId: accountId,
+                    deviceId: target.deviceId,
+                    kind: "agent_usage_refresh",
+                    agent: target.agent,
+                    profileId: target.profileId
+                )
+            } catch {
+                guard let self else { return }
+                self.refreshMarks[group.key] = nil
+                self.refreshingAccounts = Set(self.refreshMarks.keys)
+                if !silent { self.accountError = error.userFacingMessage }
+            }
+        }
     }
 
     /// EXP-746: the "Past" rows — own, active-team, ended, person-started,

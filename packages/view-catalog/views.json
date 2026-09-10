@@ -1087,7 +1087,7 @@
       "id": "usage",
       "group": "coding",
       "title": "Accounts",
-      "blurb": "The Accounts section of the Devices page (the Usage page, folded in — EXP-818): one row per agent account with the machines that hold it as chips, a check on the machine where it is the active login, the freshest report winning, refreshed on its own while open.",
+      "blurb": "The Accounts section of the Devices page on all four clients (the Usage page, folded in — EXP-818; mobile since EXP-829): one row per agent account with the machines that hold it as chips, a check on the machine where it is the active login, the freshest report winning, refreshed on its own while open.",
       "order": 10,
       "web": {
         "route": "/t/$teamSlug/devices",
@@ -1097,7 +1097,23 @@
         },
         "settleMs": 1200
       },
-      "webMobile": "inherit",
+      "webMobile": {
+        "route": "/t/$teamSlug/devices",
+        "anchor": {
+          "text": "Accounts",
+          "timeoutMs": 30000
+        },
+        "recipe": "scrollToAccounts",
+        "settleMs": 1200
+      },
+      "ios": {
+        "shot": "sg_usage",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_usage",
+        "lane": "styleguide"
+      },
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -1105,8 +1121,9 @@
         }
       },
       "notes": {
-        "ios": "No native page: the mobile Usage sheet beside a running session shows the same cards; the web shot is the reference.",
-        "android": "No native page: the mobile Usage sheet beside a running session shows the same cards; the web shot is the reference."
+        "web-mobile": "Same route as agents; the recipe scrolls the Accounts band to the top so the phone frame is not a duplicate of agents/web-mobile (EXP-829).",
+        "ios": "The mobile Devices page carries the Accounts section since EXP-829; sg_usage photographs it scrolled into view.",
+        "android": "The mobile Devices page carries the Accounts section since EXP-829; sg_usage photographs it scrolled into view."
       }
     },
     {

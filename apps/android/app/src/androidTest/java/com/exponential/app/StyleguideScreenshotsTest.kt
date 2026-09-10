@@ -45,7 +45,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_sign-in · sg_board-switcher · sg_onboarding-create-team ·
  *   sg_board-filters · sg_board-empty ·
  *   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
- *   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
+ *   sg_issue-create · sg_search · sg_my-issues · sg_agents · sg_usage ·
  *   sg_chat · sg_chat-issues · sg_chat-action ·
  *   sg_machine-settings · sg_action-create · sg_automations-list ·
  *   sg_automations · sg_action-suggestions · sg_reviews ·
@@ -66,8 +66,9 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  * EXP-642, the relay stub: `bun run screenshots:desktop` (apps/web) registers
  * the demo user's OWN device row, which is what sg_machine-settings (gated
  * `isMine && registered`) and the three sg_chat* shots photograph (EXP-825: the
- * Agent page composer, the ONE launcher). No steer RELAY traffic is needed
- * beyond that registration — nothing here watches a live session.
+ * Agent page composer, the ONE launcher), and whose heartbeat announces the
+ * agent accounts sg_usage photographs (EXP-829). No steer RELAY traffic is
+ * needed beyond that registration — nothing here watches a live session.
  *
  * Every shot gates on genuinely seeded content rather than on a screen merely
  * existing, so a stale/missing seed fails the run instead of quietly shipping
@@ -360,6 +361,18 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasText(DEMO_DEVICE_NAME, substring = true), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_agents")
+
+        // --- sg_usage: the Accounts section of the same page (EXP-829, the
+        // Devices → Accounts fold of EXP-818). It sits below the machines in
+        // a LAZY list, so scroll the list to its header (which lands at the
+        // top, making the section the subject), then gate on a real account
+        // row: the stub's heartbeat carries the demo device's agent accounts,
+        // so an empty section here means a stale or missing stub.
+        composeRule.onNode(hasTestTag("devices-list"))
+            .performScrollToNode(hasTestTag("agent-accounts-section"))
+        flow.waitFor(hasTestTag("agent-account-row"), SYNC_TIMEOUT)
+        flow.settle()
+        flow.screenshot("sg_usage")
 
         // --- sg_chat / sg_chat-issues / sg_chat-action: the Agent page
         // (EXP-825, the ONE launcher). The machine row's play glyph pushes it

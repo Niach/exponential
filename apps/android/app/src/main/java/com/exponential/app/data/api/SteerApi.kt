@@ -96,12 +96,23 @@ data class AgentAccount(
  * names it. Everything but the id is optional (the sender's vintage varies),
  * and the shared decoder ignores unknown keys, so a richer profile from a
  * newer desktop still decodes.
+ *
+ * EXP-829: the Devices page's Accounts section reads the rest of the entry
+ * too (web `DeviceAgentProfileEntry`): [label] for the chip, [signedIn] /
+ * [plan] / [checkedAt] for the identity line, and the profile's OWN [usage]
+ * — the active profile's numbers also ride the pre-profile `agentUsage`
+ * slot, which is the fallback for a device that only populated that one.
  */
 @Serializable
 data class AgentAccountProfile(
     @SerialName("id") val id: String,
     @SerialName("active") val active: Boolean = false,
     @SerialName("email") val email: String? = null,
+    @SerialName("label") val label: String? = null,
+    @SerialName("signedIn") val signedIn: Boolean = false,
+    @SerialName("plan") val plan: String? = null,
+    @SerialName("checkedAt") val checkedAt: String? = null,
+    @SerialName("usage") val usage: AgentUsage? = null,
 )
 
 /**

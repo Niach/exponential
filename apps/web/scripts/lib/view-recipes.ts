@@ -454,6 +454,34 @@ async function recipeOpenAddServer(page: Page): Promise<void> {
   await page.getByText(/EXP_INSTANCE=/).first().waitFor({ timeout: 15_000 })
 }
 
+/**
+ * EXP-829: frame the Devices page on its Accounts section (EXP-818 folded the
+ * Usage page in under the machines). The `usage` view shares its route with
+ * `agents`, and on a phone the section header already sits inside the first
+ * viewport, so a plain capture came back byte-identical to `agents/web-mobile`
+ * — the same picture under two names. Aligning the "Accounts" band to the TOP
+ * of its scroller (the page's `overflow-y-auto` div) makes the section the
+ * subject instead of the machines above it. `block: "start"` is absolute:
+ * unlike `scrollIntoViewIfNeeded` it moves even when the header is already on
+ * screen, so every run lands on the same offset.
+ *
+ * The header band is the target, not an account row: the section renders it
+ * unconditionally, while the rows depend on a device having reported an
+ * account (the seed plants some, the stub heartbeat announces them).
+ */
+async function recipeScrollToAccounts(page: Page): Promise<void> {
+  const header = page
+    .locator(`[data-slot="glass-section-header"]`)
+    .filter({ hasText: /^Accounts/ })
+    .first()
+  await header.waitFor({ timeout: 20_000 })
+  await header.evaluate((node) => {
+    node.scrollIntoView({ block: `start`, behavior: `instant` })
+  })
+  // Let the scroll land before the anchor wait starts measuring.
+  await page.waitForTimeout(400)
+}
+
 // ---------------------------------------------------------------- actions
 
 /** Open the editor for the seeded "Update dependencies" action (owner-only). */
@@ -618,6 +646,7 @@ export const RECIPES: Record<string, Recipe> = {
   openFirstThread: recipeOpenFirstThread,
   openMachineSettings: recipeOpenMachineSettings,
   openAddServer: recipeOpenAddServer,
+  scrollToAccounts: recipeScrollToAccounts,
   openActionEditor: recipeOpenActionEditor,
   openAutomationsTab: recipeOpenAutomationsTab,
   openSuggestionsTab: recipeOpenSuggestionsTab,

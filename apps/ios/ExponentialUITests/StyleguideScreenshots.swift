@@ -17,13 +17,18 @@ import XCTest
 ///   sg_sign-in · sg_board-switcher · sg_onboarding-create-team ·
 ///   sg_board-filters · sg_board-empty ·
 ///   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
-///   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
+///   sg_issue-create · sg_search · sg_my-issues · sg_agents · sg_usage ·
 ///   sg_chat · sg_chat-issues · sg_chat-action ·
 ///   sg_machine-settings · sg_action-create · sg_automations-list ·
 ///   sg_automations · sg_action-suggestions · sg_reviews ·
 ///   sg_support-thread · sg_settings-root · sg_settings-team ·
 ///   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
 ///   sg_onboarding-devices
+///
+/// EXP-829 added `sg_usage`: the Devices page scrolled to its Accounts section
+/// (web/desktop EXP-818 folded the Usage page into Devices; the shot keeps the
+/// catalog's `usage` id). It needs the relay stub's demo device too — its
+/// heartbeat announces the agent accounts the section lists.
 ///
 /// EXP-725 added `sg_onboarding-invite` + `sg_onboarding-devices`: the wizard
 /// runs the same four steps on every client now, and the last two need a
@@ -104,6 +109,9 @@ final class StyleguideScreenshots: XCTestCase {
     private static let seededActionName = "Nightly test triage"
     /// The device `bun run screenshots:desktop` registers for the demo user.
     private static let demoDeviceName = "Alex's MacBook Pro"
+    /// The login that device announces for its agents (`screenshot-demo.ts`
+    /// `DEMO_AGENT_STATUS`) — the Accounts section's first row names it.
+    private static let demoAccountEmail = "demo@exponential.at"
 
     @MainActor
     func testCaptureStyleguideScreenshots() throws {
@@ -369,6 +377,33 @@ final class StyleguideScreenshots: XCTestCase {
         )
         snapshot("sg_agents", settle: 2)
 
+        // ── sg_usage: the Accounts section of the Devices page ───────────────
+        // EXP-829: the same page, scrolled so the Accounts section is the
+        // subject. LazyVStack only materialises rows near the viewport, so
+        // swipe until the header exists, then until the demo account row is
+        // on screen (the stub's heartbeat announces the accounts).
+        let accountsHeader = app.staticTexts["Accounts"].firstMatch
+        var accountSwipes = 0
+        while !accountsHeader.exists && accountSwipes < 8 {
+            app.swipeUp()
+            accountSwipes += 1
+        }
+        XCTAssertTrue(accountsHeader.exists, "The Devices page never showed its Accounts section")
+        let accountRow = anyElement(app, containing: Self.demoAccountEmail)
+        XCTAssertTrue(
+            accountRow.waitForExistence(timeout: 60),
+            "No \(Self.demoAccountEmail) account row — is the stub device reporting agent accounts?"
+        )
+        scrollUntilVisible(app, accountRow, attempts: 4)
+        snapshot("sg_usage", settle: 2)
+        // Back to the top: the next shots tap the machine row's play glyph.
+        let startCoding = app.buttons["Start coding"].firstMatch
+        var homeSwipes = 0
+        while !startCoding.isHittable && homeSwipes < 8 {
+            app.swipeDown()
+            homeSwipes += 1
+        }
+
         // ── sg_chat / sg_chat-issues / sg_chat-action: the Agent page ────────
         // EXP-825: the ONE launcher. The machine row's play glyph pushes the
         // Agent page with that machine preselected: an empty composer is a
@@ -376,7 +411,6 @@ final class StyleguideScreenshots: XCTestCase {
         // picks an action (the Fix merge conflicts builtin, with its PR
         // input). Nothing is ever submitted — a run would land on a real
         // machine.
-        let startCoding = app.buttons["Start coding"].firstMatch
         XCTAssertTrue(
             startCoding.waitForExistence(timeout: 20),
             "The machine row offers no start action — is the stub device online with an agent?"
