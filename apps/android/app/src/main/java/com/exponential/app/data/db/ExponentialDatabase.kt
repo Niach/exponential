@@ -225,9 +225,14 @@ import androidx.room.RoomDatabase
     //      status `running`, so without the column a walled run reads healthy.
     //      New column on the coding-sessions shape allowlist; destructive
     //      fallback wipes + resyncs so every row arrives carrying it.
+    // v50 (EXP-818): coding_sessions.parent_session_id — the run that spawned
+    //      this one through `exponential_sessions_start`, so the session
+    //      lists nest a child under its parent. New column on the
+    //      coding-sessions shape allowlist; destructive fallback wipes +
+    //      resyncs so every row arrives carrying it.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 49,
+    version = 50,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

@@ -418,6 +418,8 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("summary", .text)
                 t.column("ended_by", .text)
                 t.column("resumed_from_id", .text)
+                // EXP-818: the run that spawned this one (`sessions_start`).
+                t.column("parent_session_id", .text)
                 // EXP-734: the run's OWN pull request — stamped only when the
                 // PR links no issue (an action or chat run's chore PR).
                 t.column("pr_url", .text)
@@ -1323,6 +1325,27 @@ public final class DatabaseManager: @unchecked Sendable {
             // Force a re-snapshot so already-synced rows pick up the column.
             // The shape key is 'coding-sessions' WITH A DASH (the proxy route
             // name), not the SQLite table name.
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'coding-sessions'
+                    """)
+            }
+        }
+
+        // v31 (EXP-818 session tree): `parent_session_id` rides along on the
+        // coding-sessions shape — the run that spawned this one through
+        // `exponential_sessions_start`, so the session lists can nest a child
+        // under its parent. Same additive-ALTER-then-refetch shape as v30.
+        migrator.registerMigration("v31_coding_session_parent") { db in
+            guard try db.tableExists("coding_sessions") else { return }
+            let existing = Set(try db.columns(in: "coding_sessions").map(\.name))
+            if !existing.contains("parent_session_id") {
+                try db.alter(table: "coding_sessions") { t in
+                    t.add(column: "parent_session_id", .text)
+                }
+            }
             if try db.tableExists("electric_offsets") {
                 try db.execute(sql: """
                     UPDATE "electric_offsets"

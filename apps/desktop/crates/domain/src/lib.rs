@@ -20,7 +20,9 @@
 //!   through;
 //! * [`board`] — `apps/web/src/lib/board-view.ts` grouping/sorting;
 //! * [`relations`] — EXP-736 relation picks, per-side labels and the two
-//!   timeline phrases (locked to the generated contract's label slices).
+//!   timeline phrases (locked to the generated contract's label slices);
+//! * [`session_tree`] — EXP-818 `nest_sessions`: the parent/child nesting
+//!   every session list renders (web `lib/session-tree.ts` twin).
 //!
 //! gpui-free — headless-testable.
 
@@ -36,6 +38,7 @@ pub mod hydrate;
 pub mod options;
 pub mod relations;
 pub mod rows;
+pub mod session_tree;
 pub mod statuses;
 
 pub use enums::{IssuePriority, IssueStatus};

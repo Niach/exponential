@@ -25,8 +25,11 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // shortcut and Reviews queue key on the run; issue/batch rows still read the
 // issue), and `blocked` for EXP-804 (the agent's usage wall as row state —
 // a blocked run still reads `running`, so without this column every client
-// renders a silently stalled run as healthy) — each a ONE-TIME shape-identity
-// rotation (benign: small table, full resync; land in one deploy).
+// renders a silently stalled run as healthy), and `parent_session_id` for
+// EXP-818 (the run that spawned this one through `exponential_sessions_start`
+// — every client's session lists nest a child under its parent) — each a
+// ONE-TIME shape-identity rotation (benign: small table, full resync; land in
+// one deploy).
 // `merged_own_pr` stays OUT: server-only like `host_user_id` (nothing on a
 // client acts on it; only the merge-driven end paths read it), and so does
 // `acked_at` (EXP-701: the device's pickup ack — read by orchestrating
@@ -55,6 +58,7 @@ const CODING_SESSION_COLUMNS = [
   `summary`,
   `ended_by`,
   `resumed_from_id`,
+  `parent_session_id`,
   `needs_input`,
   `blocked`,
   `started_at`,
