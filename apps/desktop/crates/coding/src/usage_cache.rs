@@ -48,7 +48,10 @@ pub const UNAUTHORIZED_BACKOFF_SECS: u64 = 600;
 /// A transport failure retries on the ordinary slow cadence.
 pub const FAILED_BACKOFF_SECS: u64 = 300;
 
-/// A window pinned at 100 % cannot move before it resets; poll just after.
+/// When EVERY window sits at 100 % nothing can move before the earliest
+/// reset; poll just after it. EXP-817: one maxed window used to pin the
+/// whole agent — a maxed per-model window froze the session and weekly
+/// numbers for days on two machines.
 pub const RESET_MARGIN_SECS: u64 = 60;
 
 /// A refused/timed-out credential read (the macOS Keychain ACL prompt on a
@@ -92,8 +95,8 @@ pub struct AgentCacheEntry {
     pub next_poll_at_secs: u64,
     pub unchanged_streak: u32,
     pub last_windows_hash: String,
-    /// The soonest reset among the windows sitting at 100 % — nothing can
-    /// change before it.
+    /// The soonest reset when EVERY window sits at 100 % — nothing can
+    /// change before it. `None` while any window still has room.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub earliest_reset_secs: Option<u64>,
     /// Set when the credential STORE refused; no read is attempted before it.
@@ -246,8 +249,9 @@ pub fn poll_due(entry: &AgentCacheEntry, now: u64) -> bool {
 }
 
 /// When this agent may be polled again, given what the last attempt did.
-/// A window sitting at 100 % pins the answer to just past its reset — the
-/// numbers physically cannot move before then.
+/// Every window sitting at 100 % pins the answer to just past the earliest
+/// reset — the numbers physically cannot move before then. One maxed window
+/// among others does NOT (EXP-817): the others keep moving.
 pub fn next_poll_at(entry: &AgentCacheEntry, outcome: PollOutcome, now: u64) -> u64 {
     let delay = match outcome {
         PollOutcome::Changed => MIN_POLL_SECS,
@@ -344,11 +348,14 @@ pub fn windows_hash(windows: &[UsageWindow]) -> String {
     format!("{:x}", hasher.finalize())[..16].to_string()
 }
 
-/// The soonest reset among windows at 100 % (unix seconds).
+/// The soonest reset (unix seconds) when EVERY window is at 100 % — `None`
+/// as soon as one window has room, because that one can move (EXP-817).
 fn earliest_maxed_reset(windows: &[UsageWindow]) -> Option<u64> {
+    if windows.is_empty() || windows.iter().any(|window| window.percent < 100) {
+        return None;
+    }
     windows
         .iter()
-        .filter(|window| window.percent >= 100)
         .filter_map(|window| {
             let stamp = window.resets_at.as_deref()?;
             chrono::DateTime::parse_from_rfc3339(stamp)
@@ -591,8 +598,13 @@ mod tests {
         assert_eq!(entry.unchanged_streak, 0);
     }
 
+    /// EXP-817: the reset pin applies only when EVERY window is maxed. One
+    /// window at 100 % beside one with room used to freeze the whole agent
+    /// past that reset (a maxed per-model window froze the session and
+    /// weekly numbers for days), so a mixed report keeps the ordinary
+    /// cadence and only an all-maxed one waits for the earliest reset.
     #[test]
-    fn apply_outcome_pins_the_next_poll_past_a_maxed_windows_reset() {
+    fn apply_outcome_pins_the_next_poll_only_when_every_window_is_maxed() {
         let now = 1_756_000_000;
         let mut entry = AgentCacheEntry::default();
         apply_outcome(
@@ -605,9 +617,34 @@ mod tests {
             now,
             "T0",
         );
-        // Only the MAXED window's reset counts.
+        // The weekly window can still move: no pin, the fast cadence.
+        assert_eq!(entry.earliest_reset_secs, None);
+        assert_eq!(entry.next_poll_at_secs, now + MIN_POLL_SECS);
+
+        // Everything maxed: nothing moves before the EARLIEST reset.
+        apply_outcome(
+            &mut entry,
+            PollOutcome::Changed,
+            Some(vec![
+                window("session", 100, Some("2025-08-24T03:26:40Z")),
+                window("weekly", 100, Some("2025-08-30T00:00:00Z")),
+                window("model:fable", 100, None),
+            ]),
+            now,
+            "T1",
+        );
         assert_eq!(entry.earliest_reset_secs, Some(1_756_006_000));
         assert_eq!(entry.next_poll_at_secs, 1_756_006_000 + 60);
+
+        // A single idle session window at 0 % is room too.
+        apply_outcome(
+            &mut entry,
+            PollOutcome::Changed,
+            Some(vec![window("session", 0, None)]),
+            now,
+            "T2",
+        );
+        assert_eq!(entry.earliest_reset_secs, None);
     }
 
     #[test]
