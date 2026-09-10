@@ -348,6 +348,7 @@ impl ConnectTo<Client> for ClaudeAgent {
                         session.child_gone(),
                     )
                     .await;
+                    session.detach_live_usage();
                     Ok(())
                 })
                 .await
@@ -381,6 +382,11 @@ struct ClaudeSession {
     /// between them), so two prompts racing on a loaded session used to spawn
     /// two CLIs, the second silently orphaning the first.
     start_gate: tokio::sync::Mutex<()>,
+    /// EXP-819: this session's slot in the machine's live usage registry
+    /// (`coding::agent_usage::live`), held for the run like codex's. Released
+    /// by [`ClaudeSession::detach_live_usage`] when the connection ends; its
+    /// `Drop` is the backstop for every path that never gets there.
+    live_usage: Mutex<Option<coding::agent_usage::live::Attached>>,
     state: Mutex<State>,
 }
 
@@ -553,6 +559,11 @@ struct RateLimitState {
     /// every request of a turn (measured: N identical frames) publishes
     /// once. The mapper dedupes too; this keeps the ACP stream honest.
     published: Option<Value>,
+    /// EXP-819: the usage windows the run's `rate_limit_event`s have named
+    /// so far, latest per key — a frame that carries only the limiting
+    /// window must not un-publish the other one. Outlives the slot: a
+    /// cleared notice keeps them.
+    windows: Vec<coding::agent_usage::UsageWindow>,
 }
 
 /// One `result`'s settlement, kept whole so a deferral (a live subagent)
@@ -691,8 +702,22 @@ impl ClaudeSession {
             gone,
             gone_gate: Mutex::new(Some(gone_gate)),
             start_gate: tokio::sync::Mutex::new(()),
+            live_usage: Mutex::new(Some(coding::agent_usage::live::attach(
+                coding::CodingAgent::Claude,
+            ))),
             state: Mutex::new(state),
         }
+    }
+
+    /// EXP-819: the session is over, so it stops answering for this machine's
+    /// usage numbers. Idempotent; the last published windows stay in the
+    /// registry, aged out by their own stamp.
+    fn detach_live_usage(&self) {
+        let attached = match self.live_usage.lock() {
+            Ok(mut slot) => slot.take(),
+            Err(poisoned) => poisoned.into_inner().take(),
+        };
+        drop(attached);
     }
 
     fn cwd(&self) -> &Path {
@@ -1445,6 +1470,7 @@ impl ClaudeSession {
     /// notice's text if one is up); the ordinary `allowed` clears it only
     /// while no notice is up — see [`RateLimitState::notice_active`].
     fn on_rate_limit_event(&self, cx: &ConnectionTo<Client>, info: &wire::RateLimitInfo) {
+        self.publish_live_usage(info);
         let resets_at = wire::resets_at_millis(info.resets_at);
         let mut state = self.lock();
         if info.is_limited() {
@@ -1462,6 +1488,23 @@ impl ClaudeSession {
         if !notice_active {
             self.publish_rate_limit(cx, "ok", None, None);
         }
+    }
+
+    /// EXP-819: the frame's windows into the machine's live usage registry,
+    /// merged over what this run already named — the usage poller reads
+    /// them instead of spending a request, so the bar moves per turn.
+    fn publish_live_usage(&self, info: &wire::RateLimitInfo) {
+        let fresh = info.usage_windows();
+        if fresh.is_empty() {
+            return;
+        }
+        let windows = {
+            let mut state = self.lock();
+            state.rate_limit.windows =
+                coding::agent_usage::merge_live_windows(&state.rate_limit.windows, &fresh);
+            state.rate_limit.windows.clone()
+        };
+        coding::agent_usage::live::publish(coding::CodingAgent::Claude, windows);
     }
 
     /// A synthetic limit notice (`You've hit your session limit · resets
@@ -1486,7 +1529,10 @@ impl ClaudeSession {
         if !state.rate_limit.notice_active {
             return;
         }
-        state.rate_limit = RateLimitState::default();
+        state.rate_limit = RateLimitState {
+            windows: std::mem::take(&mut state.rate_limit.windows),
+            ..RateLimitState::default()
+        };
         drop(state);
         self.publish_rate_limit(cx, "ok", None, None);
     }
