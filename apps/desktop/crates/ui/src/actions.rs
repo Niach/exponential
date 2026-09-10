@@ -23,6 +23,9 @@ actions!(
         /// Window chrome / keymap: pop the per-window back stack (§8.11 —
         /// `cmd-[` / `Alt+Left`; the back button dispatches this too).
         GoBack,
+        /// EXP-818: the forward half — `cmd-]` / `Alt+Right` and the mouse's
+        /// forward button re-enter what go-back left.
+        GoForward,
         /// Sidebar "Boards" group header `+`: create board.
         NewBoard,
         /// Board filter bar "New Issue" (§4.2): open the create-issue dialog

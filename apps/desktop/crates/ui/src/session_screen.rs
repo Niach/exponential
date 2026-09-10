@@ -52,9 +52,11 @@ use crate::icons::registry;
 use crate::navigation::Screen;
 use crate::steer_viewer::{FeedSource, SteerSessionView};
 
-/// Open `session_id`'s surface in this window (EXP-773: a coding run has no
-/// terminal tab): its issue's detail with the transcript slid in when the
-/// run is issue-bound (EXP-791), else its own session screen.
+/// Open `session_id`'s screen in this window (EXP-773: a coding run has no
+/// terminal tab). EXP-818: ALWAYS its own [`Screen::Session`] — Start,
+/// Resume, Watch and a Sessions row all land here, and the list column
+/// beside it is the one the caller came from (`navigation::derive_origin`);
+/// the EXP-791 slide-in over the issue is gone.
 pub(crate) fn open_session(session_id: &str, window: &mut Window, cx: &mut App) {
     // EXP-746 D5: a resume mints a NEW row id, so opening it plainly would put
     // a second tab beside the run it continues. `screens::sync_session_tabs`
@@ -66,10 +68,6 @@ pub(crate) fn open_session(session_id: &str, window: &mut Window, cx: &mut App) 
     if let Some(resumed_from) = resumed_from_id(session_id, cx) {
         crate::screens::take_over_session_tab(&resumed_from, session_id, window, cx);
     }
-    if let Some(issue_id) = issue_of_session(session_id, cx) {
-        crate::navigation::navigate_steering(window, cx, issue_id, session_id.to_string());
-        return;
-    }
     crate::navigation::navigate(
         window,
         cx,
@@ -77,15 +75,6 @@ pub(crate) fn open_session(session_id: &str, window: &mut Window, cx: &mut App) 
             session_id: session_id.to_string(),
         },
     );
-}
-
-/// EXP-791: the issue `session_id` is bound to, off its synced row — the
-/// surface an issue-bound run opens on. `None` for a batch/action/chat run
-/// and for a row that has not synced yet (it then opens on its own screen).
-fn issue_of_session(session_id: &str, cx: &App) -> Option<String> {
-    let store = sync::Store::try_global(cx)?;
-    let sessions = store.collections().coding_sessions.read(cx);
-    sessions.get(session_id)?.issue_id.clone()
 }
 
 /// The run `session_id` continues (EXP-662 `resumed_from_id`), read off this

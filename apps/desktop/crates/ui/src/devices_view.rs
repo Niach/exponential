@@ -24,12 +24,6 @@ pub struct DevicesView {
     /// rows come straight off the synced `devices` shape (EXP-485), so it
     /// holds no poll of its own.
     machines: Entity<crate::machines::MachinesSection>,
-    /// EXP-746: the user's LIVE sessions — the affordance the terminal dock's
-    /// remote chips used to carry, plus the kill they never had.
-    running: Entity<crate::sessions_section::RunningSessionsSection>,
-    /// EXP-746: "Past" — this user's finished person-started runs in the
-    /// active team (×4 with web/iOS/Android).
-    past: Entity<crate::sessions_section::PastSessionsSection>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -37,16 +31,12 @@ impl DevicesView {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let nav = nav_for_window(window, cx);
         let machines = cx.new(|cx| crate::machines::MachinesSection::new(window, cx));
-        let running = cx.new(crate::sessions_section::RunningSessionsSection::new);
-        let past = cx.new(|cx| crate::sessions_section::PastSessionsSection::new(window, cx));
         // A team switch re-scopes the section's reads.
         let subscriptions = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
         Self {
             nav,
             scroll: ScrollHandle::new(),
             machines,
-            running,
-            past,
             _subscriptions: subscriptions,
         }
     }
@@ -80,15 +70,11 @@ impl Render for DevicesView {
         page_scaffold(
             "devices-screen-scroll",
             &self.scroll,
-            // No `gap` here: both run sections render NOTHING while they are
-            // empty and carry their own 24px top margin when they do not, so
-            // a machine-only page reads exactly as it did before EXP-746
-            // instead of growing two empty gaps under the list.
+            // EXP-818: the Running / Past run sections moved to the Agent
+            // page's sessions list (`sidebar::SidebarPanel::render_sessions_tool`).
             gpui_component::v_flex()
                 .child(usage)
-                .child(self.machines.clone())
-                .child(self.running.clone())
-                .child(self.past.clone()),
+                .child(self.machines.clone()),
         )
     }
 }

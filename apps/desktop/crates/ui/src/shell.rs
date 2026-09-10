@@ -28,8 +28,8 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 use anyhow::{anyhow, bail, Context as _, Result};
 use gpui::{
     div, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, ClickEvent,
-    Entity, FocusHandle, Focusable, FontWeight, IntoElement, ParentElement, Pixels, Render,
-    SharedString, Size, Styled, Task, WeakEntity, Window,
+    Entity, FocusHandle, Focusable, FontWeight, InteractiveElement as _, IntoElement,
+    ParentElement, Pixels, Render, SharedString, Size, Styled, Task, WeakEntity, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -1041,6 +1041,19 @@ impl Render for Shell {
                 // (`window_frame::frame_radii`).
                 crate::window_frame::round_to_frame(div(), window)
                     .size_full()
+                    // EXP-818: the mouse's back / forward buttons (X11
+                    // buttons 8/9, Wayland BTN_SIDE/BTN_EXTRA, macOS 3/4,
+                    // Windows XBUTTON1/2 — gpui folds them all into
+                    // `MouseButton::Navigate`) drive the per-window history
+                    // from the ROOT, so they work wherever the pointer is.
+                    .on_mouse_down(
+                        gpui::MouseButton::Navigate(gpui::NavigationDirection::Back),
+                        |_, window, cx| crate::navigation::go_back(window, cx),
+                    )
+                    .on_mouse_down(
+                        gpui::MouseButton::Navigate(gpui::NavigationDirection::Forward),
+                        |_, window, cx| crate::navigation::go_forward(window, cx),
+                    )
                     // EXP-767: the ROOT paints the ONE page gradient, the
                     // window's ground, and no region ever stacks a second
                     // ramp on it. There are exactly two layers, each painted
@@ -1627,8 +1640,9 @@ impl Render for CenterPanel {
         // open" detail pane must not sit beside a board that has nothing to
         // open. It is the mirror image of `full_page`: there the SCREEN takes
         // the center, here the BOARD does.
-        // EXP-791: a coding session and a terminal are full-width too
-        // (`Screen::is_full_width`) — never rendered beside a list.
+        // EXP-791: a terminal is full-width too (`Screen::is_full_width`).
+        // EXP-818: a coding session is NOT any more — it sits beside the list
+        // it was opened from, like an issue.
         let full_page = resolved_screen(&self.nav, cx).is_some_and(|screen| {
             matches!(screen, Screen::Settings) || screen.is_full_width()
         });

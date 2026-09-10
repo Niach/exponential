@@ -109,6 +109,13 @@ pub(crate) enum ToolWindow {
     Files,
     /// The trunk's local branches; activating also opens the changes screen.
     SourceControl,
+    /// EXP-818: the Agent page's sessions list — the caller's Running runs
+    /// and their Past ones (the two sections Devices used to carry), the
+    /// master-detail twin of Support. The rail's Agent entry selects it, its
+    /// center is the Chat prompt until a row is clicked, and a session
+    /// opened from ANYWHERE context-free lands beside it
+    /// (`navigation::derive_origin`).
+    Sessions,
 }
 
 /// The Inbox tool window's active tab (EXP-186 — sticky across tool
@@ -294,6 +301,8 @@ fn parse_dev_tool(spec: &str) -> Option<ToolWindow> {
         "inbox" | "my-issues" => Some(ToolWindow::Inbox),
         "board" | "board-issues" | "issues" => Some(ToolWindow::BoardIssues),
         "support" => Some(ToolWindow::Support),
+        // EXP-818: the Agent page's sessions list.
+        "sessions" | "agent" => Some(ToolWindow::Sessions),
         "files" => Some(ToolWindow::Files),
         "source-control" => Some(ToolWindow::SourceControl),
         _ => None,
@@ -442,6 +451,44 @@ pub(crate) fn activate_tool(window: &mut Window, cx: &mut App, tool: ToolWindow)
 /// path: activating a tab re-selects its origin tool, then sets its screen).
 pub(crate) fn select_tool_for_tab(window: &mut Window, cx: &mut App, tool: ToolWindow) {
     set_tool_inner(window, cx, tool);
+}
+
+/// EXP-818: put the rail the way a tab's origin remembers it — tool, board
+/// and Inbox tab — WITHOUT touching the center (the go-back / go-forward
+/// path, which has no `&mut Window`; the registry lookup needs none). A
+/// window without a rail (undocked windows) is a no-op.
+pub(crate) fn apply_origin(window: &Window, cx: &mut App, origin: &crate::navigation::TabOrigin) {
+    let window_id = window.window_handle().window_id();
+    let Some(shared) = cx
+        .try_global::<RailRegistry>()
+        .and_then(|registry| registry.by_window.get(&window_id).cloned())
+    else {
+        return;
+    };
+    let tool = origin.tool;
+    shared.update(cx, |shared, cx| {
+        let mut changed = false;
+        if shared.tool != tool {
+            shared.tool = tool;
+            changed = true;
+        }
+        if tool == ToolWindow::Inbox {
+            if let Some(tab) = origin.inbox_tab {
+                if shared.inbox_tab != tab {
+                    shared.inbox_tab = tab;
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            cx.notify();
+        }
+    });
+    if tool == ToolWindow::BoardIssues {
+        if let Some(board_id) = origin.board_id.clone() {
+            crate::navigation::set_active_board(window, cx, board_id);
+        }
+    }
 }
 
 /// Restore the Inbox tool window's tab WITHOUT touching the center tab
@@ -802,7 +849,6 @@ impl RailView {
         if ids.is_empty() {
             return Vec::new();
         }
-        let steering = screens.read(cx).steering_session_id(cx);
         let active_screen = resolved_screen(&self.nav, cx);
         let store = Store::global(cx);
         let collections = store.collections().clone();
@@ -846,8 +892,7 @@ impl RailView {
                         None => SessionRowState::Working,
                     }
                 };
-                let active = active_screen.as_ref() == Some(&screen)
-                    || steering.as_deref() == Some(session_id.as_str());
+                let active = active_screen.as_ref() == Some(&screen);
                 let icon = Icon::new(match state {
                     SessionRowState::Ended => registry::CODING_ENDED,
                     SessionRowState::NeedsInput => registry::CODING_NEEDS_INPUT,
@@ -997,6 +1042,28 @@ impl RailView {
                 navigate(window, cx, screen.clone());
             }))
             .into_any_element()
+    }
+
+    /// EXP-818: the Agent entry — selects the Sessions tool window AND opens
+    /// the Chat page as its center (a plain `activate_tool` would leave the
+    /// center empty). Highlights like a tool: while its list is up and no
+    /// full page covers the center.
+    fn rail_agent_entry(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        let active = self.shared.read(cx).tool == ToolWindow::Sessions
+            && !self.full_page_screen_up(cx);
+        rail_row(
+            "rail-agent",
+            Icon::from(registry::ACTION_CHAT),
+            "Agent",
+            active,
+            None,
+            cx,
+        )
+        .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
+            select_tool_for_tab(window, cx, ToolWindow::Sessions);
+            navigate(window, cx, Screen::Chat);
+        }))
+        .into_any_element()
     }
 
     /// The Getting-started entry (EXP-470): the desktop mirror of the web
@@ -1748,16 +1815,11 @@ impl Render for RailView {
                         has_reviews.then(|| RailBadge::Dot(theme::tokens::GREEN.to_hsla())),
                         cx,
                     ))
-                    // EXP-791: the Chat page (EXP-772) is a rail destination
-                    // — "Agent", the web sidebar's word for it.
-                    .child(self.rail_screen_entry(
-                        "rail-agent",
-                        Icon::from(registry::ACTION_CHAT),
-                        "Agent",
-                        Screen::Chat,
-                        None,
-                        cx,
-                    ))
+                    // EXP-791: "Agent", the web sidebar's word for the Chat
+                    // page (EXP-772). EXP-818: it is a TOOL now — the sessions
+                    // list on the left, the Chat prompt in the center until a
+                    // row is clicked (the Support master-detail shape).
+                    .child(self.rail_agent_entry(cx))
                     .child(self.divider(cx))
                     .children(boards_header)
                     .children(board_icons)
@@ -1843,6 +1905,10 @@ pub struct SidebarPanel {
     support_seq: u64,
     /// Bumped per poll spawn — at most ONE Support poll loop is ever live.
     support_poll_seq: u64,
+    /// EXP-818: the Sessions tool window's two sections (Running / Past),
+    /// the ones the Devices page carried until now. Built on first show.
+    sessions_running: Option<Entity<crate::sessions_section::RunningSessionsSection>>,
+    sessions_past: Option<Entity<crate::sessions_section::PastSessionsSection>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -1930,6 +1996,8 @@ impl SidebarPanel {
             support_key: None,
             support_seq: 0,
             support_poll_seq: 0,
+            sessions_running: None,
+            sessions_past: None,
             history,
             _subscriptions: subscriptions,
         }
@@ -2492,6 +2560,35 @@ impl SidebarPanel {
 
     // -- Support tool window ----------------------------------------------------
 
+    /// *Sessions* tool window (EXP-818): the Agent page's list — the
+    /// caller's Running runs, then their Past ones, the two sections that
+    /// lived on the Devices page. Rows open the run's screen beside this
+    /// list; the center shows the Chat prompt while no row is selected.
+    fn render_sessions_tool(
+        &mut self,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let running = self
+            .sessions_running
+            .get_or_insert_with(|| cx.new(crate::sessions_section::RunningSessionsSection::new))
+            .clone();
+        let past = self
+            .sessions_past
+            .get_or_insert_with(|| {
+                cx.new(|cx| crate::sessions_section::PastSessionsSection::new(window, cx))
+            })
+            .clone();
+        div()
+            .id("sessions-scroll")
+            .flex_1()
+            .min_h_0()
+            .min_w_0()
+            .overflow_y_scrollbar()
+            .child(v_flex().w_full().min_w_0().px_2().pb_2().child(running).child(past))
+            .into_any_element()
+    }
+
     /// *Support* tool window (EXP-180): the active team's support tickets,
     /// filtered open/resolved. Threads are server-only tRPC data — a
     /// seq-guarded background fetch keyed on `(team_id, filter)` (the
@@ -2887,7 +2984,7 @@ impl SidebarPanel {
 }
 
 impl Render for SidebarPanel {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let tool = self.shared.read(cx).tool;
         // EXP-698 round 7: when the empty board IS the center there is
         // nothing to the right to mark a boundary to.
@@ -2915,6 +3012,7 @@ impl Render for SidebarPanel {
                 ToolWindow::Support => self.render_support_tool(cx),
                 ToolWindow::Files => self.render_files_tool(cx),
                 ToolWindow::SourceControl => self.render_source_control_tool(cx),
+                ToolWindow::Sessions => self.render_sessions_tool(window, cx),
             })
             .into_any_element()
     }

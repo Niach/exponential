@@ -96,14 +96,30 @@ pub(crate) fn session_views(
         .values()
         .flat_map(|panel| {
             let panel = panel.read(cx);
-            // EXP-791: an issue-bound run may be up INSIDE the issue detail
-            // (slid in over the issue) rather than on a tab of its own.
-            panel
-                .session_view(session_id)
-                .into_iter()
-                .chain(panel.issue_detail.read(cx).steering_view(session_id))
+            panel.session_view(session_id)
         })
         .collect()
+}
+
+/// EXP-818: put the rail back the way `screen`'s tab remembers it — the
+/// go-back / go-forward twin of [`ScreensPanel::activate_tab`]'s origin
+/// replay. A detail restores its tab's origin; the Chat page selects the
+/// Sessions tool (it is the Agent page's center); a rail full page and
+/// Settings have no list column to restore.
+pub(crate) fn restore_origin_for_screen(window: &Window, cx: &mut App, screen: &Screen) {
+    let origin = match screen {
+        Screen::Chat => Some(TabOrigin {
+            tool: ToolWindow::Sessions,
+            board_id: None,
+            inbox_tab: None,
+        }),
+        screen if screen.is_detail() => screens_for_window(window, cx)
+            .and_then(|panel| panel.read(cx).origin_of(screen)),
+        _ => None,
+    };
+    if let Some(origin) = origin {
+        crate::sidebar::apply_origin(window, cx, &origin);
+    }
 }
 
 /// EXP-746: hand the open tab of `resumed_from` to `session_id` in THIS
@@ -947,7 +963,6 @@ impl ScreensPanel {
         // unconditionally, so a marker left by a navigation that never
         // reached its issue can't survive to the next one.
         let pending_origin = crate::navigation::take_pending_origin(&self.nav, cx);
-        let pending_steer = crate::navigation::take_pending_steer(&self.nav, cx);
         let team = active_team_id(&self.nav, cx);
         if team != self.tabs_team {
             // Dropping the tabs tears the issue detail down without a blur —
@@ -981,18 +996,31 @@ impl ScreensPanel {
         }
         // Resolve the origin: an explicit one wins; Capture reads the rail
         // tool + active board at consume time (the row click that navigated
-        // ran with its tool already active). `None` (go-back / tab
-        // reactivation of a closed tab) falls back to Capture too.
+        // ran with its tool already active) — EXP-818: unless the navigation
+        // came from a context-free screen, in which case the detail brings
+        // its own list (`navigation::derive_origin`). `None` (go-back / tab
+        // reactivation of a closed tab) falls back to the same rule.
         let captured = {
             let rail = self.rail.read(cx);
             let tool = rail.tool();
-            TabOrigin {
+            let captured = TabOrigin {
                 board_id: (tool == ToolWindow::BoardIssues)
                     .then(|| active_board_id(&self.nav, cx))
                     .flatten(),
                 inbox_tab: (tool == ToolWindow::Inbox).then(|| rail.inbox_tab()),
                 tool,
-            }
+            };
+            let target_board = match &screen {
+                Screen::IssueDetail { issue_id } | Screen::PrDiff { issue_id } => Store::global(cx)
+                    .collections()
+                    .issues
+                    .read(cx)
+                    .get(issue_id)
+                    .map(|issue| issue.board_id.clone()),
+                _ => None,
+            };
+            let nav = self.nav.read(cx);
+            crate::navigation::derive_origin(nav.previous_screen(), captured, &screen, target_board)
         };
         match self.tabs.iter().position(|tab| tab.screen == screen) {
             Some(ix) => {
@@ -1020,11 +1048,6 @@ impl ScreensPanel {
             Screen::IssueDetail { issue_id } => {
                 self.issue_detail.update(cx, |detail, cx| {
                     detail.set_issue(issue_id, window, cx);
-                    // EXP-791: "Watch" / a Sessions-rail row — the run slides
-                    // in over the issue it belongs to.
-                    if let Some(session_id) = pending_steer {
-                        detail.open_steering(session_id, window, cx);
-                    }
                 });
             }
             Screen::SupportThread { thread_id } => {
@@ -1149,10 +1172,12 @@ impl ScreensPanel {
         }
     }
 
-    /// EXP-791: the run slid in over the issue detail, if any — the rail's
-    /// Sessions row for it highlights like an active tab's would.
-    pub(crate) fn steering_session_id(&self, cx: &App) -> Option<String> {
-        self.issue_detail.read(cx).steering_session_id()
+    /// EXP-818: the remembered origin of `screen`'s tab, if it has one.
+    pub(crate) fn origin_of(&self, screen: &Screen) -> Option<TabOrigin> {
+        self.tabs
+            .iter()
+            .find(|tab| &tab.screen == screen)
+            .map(|tab| tab.origin.clone())
     }
 
     /// EXP-791: whether the bottom session bar has anything to show — it
@@ -1279,14 +1304,14 @@ impl ScreensPanel {
     /// see final state. Deliberately NOT `navigate`: activation must never
     /// rewrite the tab's remembered origin.
     ///
-    /// EXP-769: a session-bar tab (session / terminal) just shows its screen —
-    /// the web's session route leaves the sidebar alone, and a terminal has no
-    /// meaningful origin at all.
+    /// EXP-769: a terminal tab just shows its screen — it has no meaningful
+    /// origin at all. EXP-818: a SESSION tab restores its origin like an
+    /// issue tab does (the list it was opened from sits beside it).
     fn activate_tab(&mut self, ix: usize, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let Some(entry) = self.tabs.get(ix).cloned() else {
             return;
         };
-        if entry.screen.is_dock_tab() {
+        if matches!(entry.screen, Screen::Terminal { .. }) {
             set_screen(window, cx, Some(entry.screen));
             return;
         }
@@ -1336,16 +1361,12 @@ impl ScreensPanel {
         // Closing (or undocking) the active issue tab unmounts the detail's
         // description editor without a blur — flush the pending edit so it
         // is written before teardown (EXP-68).
-        if let Screen::IssueDetail { issue_id } = &self.tabs[ix].screen {
-            let issue_id = issue_id.clone();
+        if let Screen::IssueDetail { .. } = &self.tabs[ix].screen {
             self.issue_detail.update(cx, |detail, cx| {
                 // EXP-781: the title saves on blur too, so closing straight
                 // from a half-typed title dropped it.
                 detail.flush_title(cx);
                 detail.flush_description(cx);
-                // EXP-791: the run slid in over this issue goes with the tab
-                // (its feed, never the run).
-                detail.drop_steering_for(&issue_id, cx);
             });
         }
         let closed = self.tabs.remove(ix);
@@ -2617,6 +2638,9 @@ impl Render for ScreensPanel {
             None => match self.rail.read(cx).tool() {
                 ToolWindow::SourceControl => self.source_control.clone().into_any_element(),
                 ToolWindow::Files => self.file_viewer.clone().into_any_element(),
+                // EXP-818: the Agent page with no session selected IS the
+                // chat prompt.
+                ToolWindow::Sessions => self.chat.clone().into_any_element(),
                 _ if !shapes_ready(cx) => self.render_syncing(cx),
                 _ => self.render_empty(cx),
             },
