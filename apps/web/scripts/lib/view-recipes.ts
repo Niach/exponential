@@ -16,7 +16,7 @@
  *      blind races Electric's first paint.
  *   2. It ends on an unambiguous post-state. The manifest's anchor is a
  *      human-readable label and is often satisfied by the TRIGGER as well as by
- *      the opened surface ("New issue", "Start coding", "New automation"), so
+ *      the opened surface ("New issue", "Device settings", "New automation"), so
  *      the recipe does the strict wait and the anchor is the readable summary.
  *
  * Recipes never sign in. Views on `/auth/*` and `/onboarding` run in a fresh
@@ -376,56 +376,6 @@ async function recipeOpenBoardSwitcher(page: Page): Promise<void> {
     .waitFor({ timeout: 15_000 })
 }
 
-// ----------------------------------------------------------------- coding
-
-/**
- * Open the launch dialog from an issue. The capsule renders only for a member
- * on a repo-backed board WITH a device online, so this is the view that needs
- * `bun run screenshots:desktop` alongside the seed — with no device the page
- * shows the plain "No desktop online" line instead, and there is nothing to
- * click.
- */
-async function recipeOpenStartCoding(page: Page): Promise<void> {
-  const trigger = page.getByRole(`button`, { name: `Start coding`, exact: true })
-  if (!(await appears(trigger, 30_000))) {
-    throw new Error(
-      `no "Start coding" control on the issue — it needs STEER_RELAY_URL, a ` +
-        `repo-backed board and an ONLINE device: run bun run screenshots:desktop`
-    )
-  }
-  await trigger.first().click()
-  // "Start coding" is also the dialog's title and its submit button, so anchor
-  // on something only the opened launcher has.
-  await page.getByText(`Plan mode`).first().waitFor({ timeout: 15_000 })
-}
-
-/**
- * The launcher is ONE dialog over three tabs (EXP-257/EXP-615) — Issues picks
- * work off the board, Actions runs a saved definition, Chat is a free prompt on
- * a repo's default branch. Each is its own view, so each gets its own shot.
- *
- * The per-tab device candidates differ (Chat needs a chat-capable device,
- * Actions an actions-capable one), which is exactly why the empty-tab case is
- * worth photographing too: the tab still renders, it just has nothing to run on.
- */
-async function openLaunchTab(page: Page, name: string, settled: Locator): Promise<void> {
-  await recipeOpenStartCoding(page)
-  const tab = page.getByRole(`tab`, { name, exact: true })
-  await tab.first().waitFor({ timeout: 10_000 })
-  await tab.first().click()
-  await settled.first().waitFor({ timeout: 15_000 })
-}
-
-/** The launcher's Actions tab: the saved-action picker and its typed inputs. */
-async function recipeOpenStartCodingActions(page: Page): Promise<void> {
-  await openLaunchTab(page, `Actions`, page.getByPlaceholder(`Search actions`))
-}
-
-/** The launcher's Chat tab: a free prompt on a repository's default branch. */
-async function recipeOpenStartCodingChat(page: Page): Promise<void> {
-  await openLaunchTab(page, `Chat`, page.getByText(`Repository`, { exact: true }))
-}
-
 // ---------------------------------------------------------------- reviews
 
 /**
@@ -683,9 +633,6 @@ export const RECIPES: Record<string, Recipe> = {
   openBoardBulkEdit: recipeOpenBoardBulkEdit,
   openBoardSwitcher: recipeOpenBoardSwitcher,
   openIssuePropertiesMobile: recipeOpenIssuePropertiesMobile,
-  openStartCoding: recipeOpenStartCoding,
-  openStartCodingActions: recipeOpenStartCodingActions,
-  openStartCodingChat: recipeOpenStartCodingChat,
   expandFirstDiffFile: recipeExpandFirstDiffFile,
   openFirstThread: recipeOpenFirstThread,
   openMachineSettings: recipeOpenMachineSettings,

@@ -9,8 +9,8 @@
  * a shots refresh and the README follows the product for free.
  *
  * The composition: the web board on the left as a rounded card with the app's
- * own hairline, the iOS start-coding sheet overlapping it on the right in a
- * phone bezel, both on the site's page gradient.
+ * own hairline, the iOS Agent composer overlapping it on the right in a phone
+ * bezel, both on the site's page gradient.
  */
 import { mkdirSync } from "node:fs"
 import { dirname, join } from "node:path"
@@ -72,8 +72,8 @@ async function main(): Promise<void> {
   /* The board card: the web app at the size the old hero used, inset from the
      top-left so the phone can overlap its bottom-right corner. */
   const board = await roundedShot(`shots/board/web.webp`, 1560, 18, 0.12)
-  /* The phone: the iOS start-coding sheet in a bezel, overlapping. */
-  const phone = await roundedShot(`shots/start-coding/ios.webp`, 420, 44, 0.06)
+  /* The phone: the iOS Agent composer (EXP-825) in a bezel, overlapping. */
+  const phone = await roundedShot(`shots/chat/ios.webp`, 420, 44, 0.06)
   const bezel = 10
   const phoneFrame = await sharp({
     create: {

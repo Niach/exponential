@@ -136,8 +136,8 @@ export function builtinFixConflictsAction(teamId: string): BuiltinAction {
 /** The hidden "Chat" builtin (EXP-615): a free-prompt agent session, in its
  * own `exp/chat-<id8>` worktree cut from the picked repository's default
  * branch or (EXP-739, repo omitted) in the agent's scratch dir. Deliberately
- * appended to NO list — the chat page and the start-coding dialog's Chat tab
- * construct it directly. */
+ * appended to NO list — the Agent page composer constructs it directly when
+ * no subject is picked (EXP-825). */
 export function builtinChatAction(teamId: string): BuiltinAction {
   return {
     id: BUILTIN_CHAT_ID,

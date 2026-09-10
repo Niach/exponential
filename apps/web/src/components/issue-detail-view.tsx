@@ -600,7 +600,6 @@ export function IssueDetailView({
         variant="default"
         size="sm"
         label="Merge PR"
-        currentUserId={currentUserId}
         steerEnabled={steerConfig?.enabled === true}
       />
     ) : null

@@ -35,10 +35,8 @@ describe(`chat repository choice`, () => {
   it(`emits the repo input only when one is picked`, () => {
     // EXP-822: an ABSENT `repo` key is repo-less to the server; `repo: ""`
     // is a different thing and would be resolved as a missing repository.
-    expect(chatStartInputs(`fix #EXP-1`, ``)).toEqual({ prompt: `fix #EXP-1` })
-    expect(chatStartInputs(`fix #EXP-1`, `repo-1`)).toEqual({
-      prompt: `fix #EXP-1`,
-      repo: `repo-1`,
-    })
+    // EXP-825: the text rides `prompt`, so repo-less means NO inputs.
+    expect(chatStartInputs(``)).toBeUndefined()
+    expect(chatStartInputs(`repo-1`)).toEqual({ repo: `repo-1` })
   })
 })

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
   agentSeed,
   agentSupportsPlanMode,
@@ -21,14 +21,15 @@ import {
   type SteerDevice,
 } from "@/lib/steer-devices"
 import { CLI_DEFAULT_EFFORT } from "@/components/launch-dialog/launch-options-pane"
+import { SYSTEM_PROFILE_ID } from "@/lib/agent-usage"
 
 // EXP-615: the launch-options cluster every start-coding surface shares —
 // device settle, the EXP-437 device-seeded agent/model/effort/toggle state,
 // the EXP-201 agent clamp, and the resolved `StartCodingOptions` payload.
-// Extracted verbatim from the launch dialog (which carried it since EXP-257)
-// so the create-action dialog stops duplicating it; the CANDIDATE device list
-// stays with the caller, which is the only one that knows the capability gates
-// a tab or a builtin needs.
+// Extracted from the launch dialog (which carried it since EXP-257); since
+// EXP-825 its one launch caller is the Agent page composer
+// (`use-launch-composer.ts`), the others are the automation and device-settings
+// editors. The CANDIDATE device list stays with the caller.
 
 export interface LaunchOptions {
   /** The settled device (undefined while the candidate list is empty). */
@@ -58,6 +59,14 @@ export interface LaunchOptions {
   mcpServerIds: string[]
   setMcpServerIds: (ids: string[]) => void
   toggleMcpServer: (id: string) => void
+  /** EXP-825: the agent account profiles the settled device reports for the
+   * picked agent (id + label), the machine's ACTIVE one first. Empty on a
+   * pre-profile build. A picker renders only with two or more. */
+  accountProfiles: { id: string; label: string; active: boolean }[]
+  /** The picked profile id — the active one by default, re-seeded on every
+   * device or agent change; `undefined` while the device reports none. */
+  account: string | undefined
+  setAccount: (account: string | undefined) => void
   /** The capability-clamped payload for `steer.startSession`. */
   buildOptions: (args?: { resume?: boolean }) => CodingLaunchPrefs
 }
@@ -94,6 +103,9 @@ export function useLaunchOptions({
   const [planMode, setPlanMode] = useState(false)
   const [deviceId, setDeviceId] = useState<string | null>(null)
   const [mcpServerIds, setMcpServerIdsState] = useState<string[]>([])
+  // EXP-825: the profile pick is keyed to (device, agent) — a switch of
+  // either re-seeds it to that pair's active profile (below).
+  const [account, setAccount] = useState<string | undefined>(undefined)
   // EXP-792: the pick seeds once per open, the moment the list is there — a
   // reopen reseeds (a teammate may have flipped a default meanwhile).
   const mcpSeededRef = useRef(false)
@@ -212,6 +224,38 @@ export function useLaunchOptions({
   // device change re-clamps a now-unavailable selection.
   const availableAgents = deviceAgentIds(device)
   const availableAgentsKey = availableAgents.join(`,`)
+
+  // EXP-825: the profiles the settled device reports for the picked agent.
+  // The active one leads (it is what the machine runs by default); the pick
+  // re-seeds to it whenever the (device, agent) pair changes, and clears when
+  // the pair reports no profiles at all (nothing to send).
+  const accountProfiles = useMemo(() => {
+    const profiles = device?.agentAccounts?.[agent]?.profiles ?? []
+    return profiles
+      .filter((profile): profile is NonNullable<typeof profile> =>
+        Boolean(profile?.id)
+      )
+      .map((profile) => ({
+        id: profile.id,
+        label:
+          profile.label ||
+          (profile.id === SYSTEM_PROFILE_ID ? `Default` : profile.id),
+        active: profile.active === true,
+      }))
+      .sort((left, right) => Number(right.active) - Number(left.active))
+  }, [device, agent])
+  const activeProfileId =
+    accountProfiles.find((profile) => profile.active)?.id ??
+    accountProfiles[0]?.id
+  // `activeProfileId` is in the deps too: the profiles ride the device's
+  // heartbeat, so they can land AFTER the device settled (and a machine that
+  // switches its active login re-seeds the pick to it).
+  useEffect(() => {
+    if (!open) return
+    setAccount(activeProfileId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, device?.deviceId, agent, activeProfileId])
+
   useEffect(() => {
     if (!open) return
     if (!availableAgents.includes(agent)) {
@@ -232,6 +276,13 @@ export function useLaunchOptions({
     // EXP-792: omitted when nothing is picked — the server treats an absent
     // list and an empty one alike, and older relays never see the key.
     ...(mcpServerIds.length > 0 ? { mcpServerIds: [...mcpServerIds] } : {}),
+    // EXP-825: the ambient login is the server's default — only a NAMED
+    // profile rides out, and only one the device actually reported.
+    ...(account &&
+    account !== SYSTEM_PROFILE_ID &&
+    accountProfiles.some((profile) => profile.id === account)
+      ? { account }
+      : {}),
   })
 
   return {
@@ -253,6 +304,9 @@ export function useLaunchOptions({
     mcpServerIds,
     setMcpServerIds,
     toggleMcpServer,
+    accountProfiles,
+    account,
+    setAccount,
     buildOptions,
   }
 }

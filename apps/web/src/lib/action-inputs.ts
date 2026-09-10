@@ -1,6 +1,6 @@
 // Action-input validation + resolution (EXP-257) — the pure core shared by
 // the steer router (server-side value resolution with injected DB lookups)
-// and the launch dialog (client-side required-field gating). No DB imports:
+// and the launch composer (client-side required-field gating). No DB imports:
 // lookups are injected so this stays unit-testable and client-bundle-safe.
 
 import { boardIconValues, type ActionInputDef } from "@exp/db-schema/domain"

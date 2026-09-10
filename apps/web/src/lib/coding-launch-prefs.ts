@@ -24,6 +24,10 @@ export interface CodingLaunchPrefs {
   /** EXP-792: the team MCP servers the run connects to (row ids). Omitted
    * when nothing is picked; the server refuses ids outside the team. */
   mcpServerIds?: string[]
+  /** EXP-825 (EXP-747 B7): the agent account PROFILE the run launches on —
+   * one of the device's reported `agentAccounts[agent].profiles` ids.
+   * Omitted for the machine's ambient login (`SYSTEM_PROFILE_ID`). */
+  account?: string
 }
 
 // EXP-792: the MCP server pick IS persisted, unlike model/effort (which the

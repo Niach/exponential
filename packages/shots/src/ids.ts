@@ -4,7 +4,8 @@
  * The catalog is written against the seed but never hardcodes a uuid, because a
  * uuid only exists after `seed:screenshots` has run and changes on every reseed.
  * Desktop drives therefore carry PLACEHOLDERS — `issue:$APP-5`, `pr:$APP-14`,
- * `support:$thread`, `session:$steeredSession`, `$emptyBoard` — and this module
+ * `support:$thread`, `session:$steeredSession`, `$emptyBoard`,
+ * `chat?issues=$issueA,$issueB` — and this module
  * is the lookup that turns them into the `EXP_DEV_*` values the app actually
  * parses.
  *
@@ -22,6 +23,16 @@ export interface DemoIds {
   emptyBoardId?: string
   /** Keyed by human identifier: `{ "APP-5": "<uuid>" }`. */
   issues: Record<string, string>
+  /**
+   * The Agent composer's subjects (EXP-825): `$issueA`/`$issueB` are two
+   * codeable issues no seeded session runs on, `$prIssue` the issue behind the
+   * seeded open PR. Which identifiers those are is decided ONCE, in
+   * `apps/web/scripts/lib/demo-ids.ts` (`CHAT_ISSUE_IDENTIFIERS`); an older
+   * printer leaves them absent and the chat views skip.
+   */
+  issueAId?: string
+  issueBId?: string
+  prIssueId?: string
   supportThreadId?: string
   supportReporterThreadId?: string
   /**
@@ -52,6 +63,9 @@ const NAMED: Record<string, (ids: DemoIds) => string | undefined> = {
   device: (ids) => ids.deviceId,
   automation: (ids) => ids.automationId,
   steeredSession: (ids) => ids.steeredSessionId,
+  issueA: (ids) => ids.issueAId,
+  issueB: (ids) => ids.issueBId,
+  prIssue: (ids) => ids.prIssueId,
   board: (ids) => ids.boardId,
   emptyBoard: (ids) => ids.emptyBoardId,
   team: (ids) => ids.teamId,
@@ -76,6 +90,9 @@ export function parseDemoIds(stdout: string): DemoIds {
     boardId: parsed.boardId ?? ``,
     emptyBoardId: parsed.emptyBoardId,
     issues: parsed.issues ?? {},
+    issueAId: parsed.issueAId,
+    issueBId: parsed.issueBId,
+    prIssueId: parsed.prIssueId,
     supportThreadId: parsed.supportThreadId,
     supportReporterThreadId: parsed.supportReporterThreadId,
     supportToken: parsed.supportToken,
@@ -105,7 +122,8 @@ export async function fetchDemoIds(): Promise<DemoIds> {
  * Substitute `$NAME` placeholders in a `DesktopDrive.value`.
  *
  * A handful of names (`$thread`, `$action`, `$device`, `$automation`, `$board`,
- * `$emptyBoard`, `$team`, `$steeredSession`) point at one well-known seeded row;
+ * `$emptyBoard`, `$team`, `$steeredSession`, `$issueA`, `$issueB`, `$prIssue`)
+ * point at one well-known seeded row;
  * anything else is looked up as an issue IDENTIFIER (`$APP-5`). The same
  * substitution runs over a view's `desktop.env` values, so
  * `EXP_DEV_BOARD_ID=$emptyBoard` resolves too. Returns `undefined` when a

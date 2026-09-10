@@ -103,7 +103,6 @@ export function SessionRow({
   row,
   teamSlug,
   isOwner,
-  currentUserId,
   steerEnabled = false,
   onOpen,
 }: {
@@ -113,9 +112,8 @@ export function SessionRow({
    * WHICH editor the trailing button opens (a row must not resolve it itself:
    * the hook fetches the team's billing plan, once per row). */
   isOwner: boolean
-  /** EXP-706: resolved ONCE by the caller (same reason as `isOwner`) — they
-   * let a conflicted Merge swap itself for the "Fix conflicts" run. */
-  currentUserId?: string
+  /** EXP-706: resolved ONCE by the caller (same reason as `isOwner`) — it
+   * lets a conflicted Merge swap itself for the "Fix conflicts" run. */
   steerEnabled?: boolean
   onOpen: () => void
 }) {
@@ -219,7 +217,6 @@ export function SessionRow({
         {mergeTarget && (
           <SessionMergeButton
             {...mergeTargetProps(mergeTarget)}
-            currentUserId={currentUserId}
             steerEnabled={steerEnabled}
           />
         )}

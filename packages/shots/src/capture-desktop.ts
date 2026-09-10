@@ -306,9 +306,12 @@ export function driveEnv(
     case `screen`: {
       const env: Record<string, string> = { EXP_DEV_SCREEN: value }
       // Pair the rail with the centre view, the way the app opens them itself:
-      // a thread with Support. (Reviews stopped being a rail tool in EXP-706 —
-      // the PR diff needs no pairing anymore.)
+      // a thread with Support, the Agent composer (`chat`, or `chat?issues=…` /
+      // `chat?action=…` — EXP-825) with the Sessions tool window. (Reviews
+      // stopped being a rail tool in EXP-706 — the PR diff needs no pairing
+      // anymore.)
       if (value.startsWith(`support:`)) env.EXP_DEV_TOOL = `support`
+      if (value === `chat` || value.startsWith(`chat?`)) env.EXP_DEV_TOOL = `agent`
       return { env }
     }
   }

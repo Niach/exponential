@@ -4,7 +4,6 @@ import type { Automation, Team } from "@/db/schema"
 import { actionCollection, automationCollection } from "@/lib/collections"
 import {
   BUILTIN_CREATE_ACTION_ID,
-  BUILTIN_CREATE_ACTION_NAME,
   builtinFixConflictsAction,
 } from "@/lib/builtin-actions"
 import { LoaderCircle, Ellipsis, Pencil, Trash2 } from "lucide-react"
@@ -16,9 +15,8 @@ import {
   type ActionRepoOption,
   type TeamAction,
 } from "@/components/action-editor-dialog"
-import { LaunchDialog } from "@/components/launch-dialog/launch-dialog"
+import { useOpenComposer } from "@/hooks/use-open-composer"
 import { SuggestionsButton } from "@/components/getting-started/getting-started-sheet"
-import { CreateActionDialog } from "@/components/launch-dialog/create-action-dialog"
 import { AutomationsTab } from "@/components/automations-tab"
 import {
   ActionSuggestionsPanel,
@@ -118,7 +116,6 @@ function ActionRow({
   automationCount,
   isOwner,
   canRun,
-  runBusy,
   onRun,
   onEdit,
   onDelete,
@@ -129,7 +126,6 @@ function ActionRow({
   automationCount: number
   isOwner: boolean
   canRun: boolean
-  runBusy: boolean
   onRun: () => void
   onEdit: () => void
   onDelete: () => void
@@ -160,7 +156,6 @@ function ActionRow({
         <Button
           variant="glass"
           size="icon"
-          disabled={runBusy}
           onClick={onRun}
           aria-label="Run"
           title="Run"
@@ -232,12 +227,14 @@ export function TeamActionsPanel({
   // interactive affordances render.
   const steerEnabled = Boolean(isMember && steerConfig?.enabled)
 
+  // EXP-825: the devices ride only the Automations tab's runner picker now —
+  // Run / New action are navigations to the Agent page composer.
   const remote = useRemoteStart({
     enabled: steerEnabled,
     currentUserId,
     teamId,
   })
-  const runBusy = remote.starting || remote.sentTo !== null
+  const openComposer = useOpenComposer()
 
   // Actions ride the Electric `actions` shape since EXP-268 (body excluded —
   // editors fetch it via tRPC on open), so a builtin "Create action" run's
@@ -307,13 +304,6 @@ export function TeamActionsPanel({
       active = false
     }
   }, [teamId, isMember])
-  // The unified launch dialog, opened here via an action's Run (Actions tab
-  // pre-selected — its Issues tab keeps working for a device picked inside).
-  const [launchActionId, setLaunchActionId] = useState<string | null>(null)
-
-  // The dedicated "New action" creation dialog (EXP-431).
-  const [createActionOpen, setCreateActionOpen] = useState(false)
-
   const [editorOpen, setEditorOpen] = useState(false)
   const [editing, setEditing] = useState<TeamAction | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<TeamAction | null>(null)
@@ -355,8 +345,8 @@ export function TeamActionsPanel({
     automationCount: automationCountByAction.get(action.id) ?? 0,
     isOwner,
     canRun: steerEnabled,
-    runBusy,
-    onRun: () => setLaunchActionId(action.id),
+    // EXP-825: the composer with this action as the subject chip.
+    onRun: () => openComposer({ actionId: action.id }),
     onEdit: () => {
       setEditing(action)
       setEditorOpen(true)
@@ -365,6 +355,10 @@ export function TeamActionsPanel({
   })
 
   const canCreateAction = steerEnabled && isOwner
+  // EXP-825: "New action" is the composer with the Create action builtin
+  // picked — the request is typed there (its own dialog is gone).
+  const openCreateAction = () =>
+    openComposer({ actionId: BUILTIN_CREATE_ACTION_ID })
   // EXP-686: the seeds live in Getting started on a desktop viewport; the
   // mobile tabs keep their own Suggestions tab.
   const showSuggestions = view !== `tabs`
@@ -377,11 +371,7 @@ export function TeamActionsPanel({
             <>
               {showSuggestions && <SuggestionsButton />}
               {canCreateAction && (
-                <Pill
-                  mode="action"
-                  disabled={runBusy}
-                  onClick={() => setCreateActionOpen(true)}
-                >
+                <Pill mode="action" onClick={openCreateAction}>
                   <ActionCreateIcon className="size-3" />
                   New action
                 </Pill>
@@ -398,7 +388,7 @@ export function TeamActionsPanel({
             <ActionRow key={action.id} {...actionItemProps(action)} />
           ))}
           {canCreateAction && sortedActions.length === 0 && (
-            <NoCustomActionsNudge onClick={() => setCreateActionOpen(true)} />
+            <NoCustomActionsNudge onClick={openCreateAction} />
           )}
         </div>
       )}
@@ -449,56 +439,6 @@ export function TeamActionsPanel({
       ) : (
         automationsSection
       )}
-
-      <LaunchDialog
-        open={launchActionId !== null}
-        onOpenChange={(next) => {
-          if (!next) setLaunchActionId(null)
-        }}
-        devices={remote.devices ?? []}
-        starting={remote.starting}
-        teamId={teamId}
-        initialTab="actions"
-        initialActionId={launchActionId ?? undefined}
-        onStartIssues={(device, options, issueIds) => {
-          remote
-            .startIssues(device, options, issueIds)
-            .then(() => setLaunchActionId(null))
-            .catch(() => {})
-        }}
-        onRunAction={(device, action, options, inputs) => {
-          remote
-            .runAction(device, action, options, inputs)
-            .then(() => setLaunchActionId(null))
-            .catch(() => {})
-        }}
-      />
-
-      <CreateActionDialog
-        open={createActionOpen}
-        onOpenChange={(next) => {
-          if (!next) setCreateActionOpen(false)
-        }}
-        devices={remote.devices ?? []}
-        starting={remote.starting}
-        teamId={teamId}
-        repos={repos}
-        onCreate={(device, options, inputs) => {
-          remote
-            .runAction(
-              device,
-              {
-                id: BUILTIN_CREATE_ACTION_ID,
-                name: BUILTIN_CREATE_ACTION_NAME,
-                teamId,
-              },
-              options,
-              inputs
-            )
-            .then(() => setCreateActionOpen(false))
-            .catch(() => {})
-        }}
-      />
 
       {editing && (
         <ActionEditorDialog

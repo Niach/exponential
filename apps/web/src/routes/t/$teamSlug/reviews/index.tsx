@@ -4,15 +4,13 @@ import { GitBranch, GitMerge, GitPullRequest, LoaderCircle } from "lucide-react"
 import type { OpenPull } from "@/lib/integrations/github-pr"
 import { EmptyState } from "@/components/empty-state"
 import { useSteerConfig } from "@/components/agent-session"
-import { LaunchDialog } from "@/components/launch-dialog/launch-dialog"
+import { useOpenComposer } from "@/hooks/use-open-composer"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
-import { useRemoteStart } from "@/hooks/use-remote-start"
 import {
   useReviewsData,
   type ReviewEntry,
   type SessionReviewEntry,
 } from "@/hooks/use-reviews-data"
-import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
@@ -140,24 +138,17 @@ function ReviewsPage() {
   // only once a merge has actually failed — a plain Reviews visit must not
   // poll for desktops, but waiting for the click would open the dialog on a
   // momentary "no desktop online".
-  const [fixTarget, setFixTarget] = useState<ReviewEntry | null>(null)
-  const { data: session } = useSession()
-  const currentUserId = session?.user?.id
   const { isMember } = useTeamPermissions(team)
   const steerConfig = useSteerConfig()
   const steerEnabled = Boolean(isMember && steerConfig?.enabled)
-  // Only a REAL conflict can be fixed by the recovery run (EXP-533), so only a
-  // real conflict is worth polling for an online desktop.
-  // A run's own PR (EXP-734) has no representative issue, so the recovery run
-  // cannot take it — its refusals never arm the desktop lookup.
-  const hasConflict = Object.entries(mergeErrors).some(
-    ([key, failure]) => failure.conflict && !key.startsWith(`session:`)
-  )
-  const remote = useRemoteStart({
-    enabled: steerEnabled && hasConflict,
-    currentUserId,
-    teamId: team?.id,
-  })
+  // EXP-825: "Fix conflicts" is a navigation to the Agent page composer with
+  // the builtin picked and this PR pre-filled (the launch dialog is gone).
+  const openComposer = useOpenComposer()
+  const openFixConflicts = (entry: ReviewEntry) =>
+    openComposer({
+      actionId: BUILTIN_FIX_CONFLICTS_ID,
+      prIssueId: entry.issue.id,
+    })
 
   // The row opens the review-detail page (PR/branch diff + Merge/Close), not the
   // issue itself — a batch entry's representative identifier stands for the PR.
@@ -367,7 +358,7 @@ function ReviewsPage() {
                             mode="action"
                             onClick={(e) => {
                               e.stopPropagation()
-                              setFixTarget(entry)
+                              openFixConflicts(entry)
                             }}
                           >
                             <GitBranch className="h-3.5 w-3.5" />
@@ -595,35 +586,6 @@ function ReviewsPage() {
           </>
         )}
       </div>
-
-      {/* "Fix conflicts" (EXP-323): the launcher on the builtin action with
-          this PR pre-picked. */}
-      {fixTarget && (
-        <LaunchDialog
-          open
-          onOpenChange={(next) => {
-            if (!next) setFixTarget(null)
-          }}
-          devices={remote.devices ?? []}
-          starting={remote.starting}
-          teamId={team.id}
-          initialTab="actions"
-          initialActionId={BUILTIN_FIX_CONFLICTS_ID}
-          initialPrIssueId={fixTarget.issue.id}
-          onStartIssues={(device, options, issueIds) => {
-            remote
-              .startIssues(device, options, issueIds)
-              .then(() => setFixTarget(null))
-              .catch(() => {})
-          }}
-          onRunAction={(device, action, options, inputs) => {
-            remote
-              .runAction(device, action, options, inputs)
-              .then(() => setFixTarget(null))
-              .catch(() => {})
-          }}
-        />
-      )}
 
       <Dialog
         open={mergeTarget !== null}

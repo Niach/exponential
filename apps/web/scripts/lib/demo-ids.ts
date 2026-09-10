@@ -39,8 +39,23 @@ import {
   TEAM_SLUG,
 } from "../screenshot-demo"
 
+/**
+ * The issues the Agent composer views chip (EXP-825), by placeholder. Two
+ * codeable issues on the repo-backed board that no seeded session runs on (the
+ * showcase run sits on APP-5): `$issueA` is APP-3, the issue the phone store
+ * slide starts coding from, so the web `chat-issues` anchor names its chip;
+ * `$issueB` is APP-6, a second open one assigned to the demo user. `$prIssue`
+ * is APP-14, the issue behind the real review PR, so the fix-conflicts builtin
+ * has an open PR to prefill.
+ */
+export const CHAT_ISSUE_IDENTIFIERS = {
+  issueA: `APP-3`,
+  issueB: `APP-6`,
+  prIssue: `APP-14`,
+} as const
+
 /** The identifiers the catalog's desktop/native drives name by hand. */
-export const WANTED_IDENTIFIERS = [`APP-3`, `APP-5`, `APP-14`] as const
+export const WANTED_IDENTIFIERS = [`APP-3`, `APP-5`, `APP-6`, `APP-14`] as const
 
 const RESEED = `Run \`bun run seed:screenshots\` first.`
 
@@ -51,6 +66,10 @@ export interface DemoIds {
   emptyBoardId?: string
   /** Keyed by human identifier: `{ "APP-5": "<uuid>" }`. */
   issues: Record<string, string>
+  /** `$issueA` / `$issueB` / `$prIssue` — see `CHAT_ISSUE_IDENTIFIERS`. */
+  issueAId: string
+  issueBId: string
+  prIssueId: string
   supportThreadId?: string
   /** The thread the reporter magic-link page is captured on. */
   supportReporterThreadId?: string
@@ -195,6 +214,9 @@ export async function resolveDemoIds(): Promise<DemoIds> {
     boardId: board.id,
     emptyBoardId: emptyBoard?.id,
     issues: byIdentifier,
+    issueAId: byIdentifier[CHAT_ISSUE_IDENTIFIERS.issueA]!,
+    issueBId: byIdentifier[CHAT_ISSUE_IDENTIFIERS.issueB]!,
+    prIssueId: byIdentifier[CHAT_ISSUE_IDENTIFIERS.prIssue]!,
     supportThreadId: thread.id,
     supportReporterThreadId: reporterThread?.id,
     // `mintSupportToken` throws without BETTER_AUTH_SECRET; a capture host that

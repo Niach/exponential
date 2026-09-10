@@ -1,69 +1,56 @@
-import { useEffect, useMemo, useRef, useState } from "react"
-import { pickChatSuggestions } from "@/lib/chat-suggestions"
-import { createFileRoute, redirect } from "@tanstack/react-router"
-import { ChevronDown, LoaderCircle } from "lucide-react"
-import { MAX_ACTION_INPUT_TEXT } from "@exp/db-schema/domain"
-import type { User } from "@/db/schema"
+import { useEffect, useMemo, useState } from "react"
+import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import { useSteerConfig } from "@/components/agent-session"
 import { AgentShell, SessionsList } from "@/components/agent-shell"
-import { Composer, ComposerSubmit } from "@/components/composer"
-import { AGENT_LABELS } from "@/components/launch-dialog/launch-options-pane"
-import { useLaunchOptions } from "@/components/launch-dialog/use-launch-options"
-import { McpServerPicker } from "@/components/launch-dialog/mcp-server-picker"
-import { useMcpServers } from "@/hooks/use-mcp-servers"
-import { useNow } from "@/hooks/use-now"
-import {
-  MentionTextarea,
-  type MentionTextareaHandle,
-} from "@/components/mention-textarea"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Pill } from "@/components/ui/pill"
-import { Switch } from "@/components/ui/switch"
-import { conceptIcon } from "@/lib/icons.generated"
-import { agentSupportsPlanMode } from "@/lib/coding-launch-prefs"
-import { BUILTIN_CHAT_ID, BUILTIN_CHAT_NAME } from "@/lib/builtin-actions"
-import {
-  chatRepoOptions,
-  chatStartInputs,
-  defaultChatRepoId,
-  NO_REPO,
-} from "@/lib/chat-repo"
-import { deviceHasRunnableAgent, deviceIsOnline } from "@/lib/steer-devices"
+import { LaunchComposer } from "@/components/launch-composer"
+import { useLaunchComposer } from "@/hooks/use-launch-composer"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { useRemoteStart } from "@/hooks/use-remote-start"
+import { useRemoteStart, type RemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug, useTeamUsers } from "@/hooks/use-team-data"
-import { useTeamRepos } from "@/hooks/use-team-repos"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
+import { conceptIcon } from "@/lib/icons.generated"
+import type { User } from "@/db/schema"
+import {
+  seedFromSearch,
+  type AgentSearch,
+  type LaunchSeed,
+} from "@/lib/launch-seed"
+
+const str = (value: unknown): string | undefined =>
+  typeof value === `string` && value !== `` ? value : undefined
 
 // EXP-818: the team's AGENT page — the sessions list on the left (Running,
-// then Past; the sections the Devices page carried) and, on the right, the
-// chat prompt (EXP-739/772: a conversation with an agent bound to no issue,
-// and optionally to no repository either — a repo-less chat runs in the
-// agent's scratch directory with the Exponential MCP server wired up, so it
-// can read and write the tracker without a worktree). Clicking a session
-// opens `/t/$teamSlug/sessions/$sessionId`, which renders inside the same
-// shell, so the list never goes away. It replaced the `/chat` page, whose
-// `?session=` trick for reaching a second running chat is unnecessary now
-// that every run has a row here. On phones the page is the list over the
-// prompt, and a session is its own screen.
+// then Past) and, on the right, the composer. EXP-825 made that composer THE
+// launcher: issues, actions and a plain chat all start here (the three-tab
+// dialog and the create-action dialog are gone), so every play button in the
+// app navigates to this route with a preselection in the search params:
 //
-// EXP-822: the repository is picked HERE, on the row under the prompt, and
-// no longer only in the start-coding dialog. It stays optional, but a chat
-// that has no repository and no way to name one leaves the agent to resolve
-// its own subject, and the way it does that is scanning the machine for
-// clones — which is how a six-weeks-stale sibling of the real checkout once
-// became the basis of an entire release report. Picking one gives the run
-// its own `exp/chat-<id8>` worktree instead.
+//   issues  csv of issue ids (chips; 2+ = a batch)
+//   action  an action id (`builtin:fix-conflicts`, `builtin:create-action`,
+//           or a row id) — wins over `issues` when both arrive
+//   pr      an issue id linked to the open PR a `pr` input opens on
+//   device  the machine to pre-pick
+//   text    inserted into the empty draft (a suggestion's description)
+//   icon    a curated icon name seeding Create action's `icon` input
+//
+// The seed is ONE-SHOT: consumed by the composer, then stripped with a
+// replace navigation (the `actions.tsx` `?editAction=` pattern), so a
+// back/refresh never re-preselects. Clicking a session opens
+// `/t/$teamSlug/sessions/$sessionId`, which renders inside the same shell.
 
 const UiBackIcon = conceptIcon(`ui-back`)
+const ActionChatIcon = conceptIcon(`action-chat`)
 
 export const Route = createFileRoute(`/t/$teamSlug/agent`)({
+  validateSearch: (search: Record<string, unknown>): AgentSearch => ({
+    issues: str(search.issues),
+    action: str(search.action),
+    pr: str(search.pr),
+    device: str(search.device),
+    text: str(search.text),
+    icon: str(search.icon),
+  }),
   beforeLoad: async ({ context, location }) => {
     if (!context.session) {
       throw redirect({
@@ -77,6 +64,8 @@ export const Route = createFileRoute(`/t/$teamSlug/agent`)({
 
 function AgentPage() {
   const { teamSlug } = Route.useParams()
+  const search = Route.useSearch()
+  const navigate = useNavigate()
   const team = useTeamBySlug(teamSlug)
   const { data: authSession } = useSession()
   const { isMember } = useTeamPermissions(team)
@@ -96,38 +85,43 @@ function AgentPage() {
     teamId: team?.id,
   })
 
+  // The one-shot seed: held here after the URL keys are stripped, handed to
+  // the composer, cleared once it reports consumption.
+  const urlSeed = useMemo(
+    () => seedFromSearch(search),
+    // Field-wise: the search object's identity is the router's business.
+    [search.issues, search.action, search.pr, search.device, search.text, search.icon]
+  )
+  const [seed, setSeed] = useState<LaunchSeed | null>(null)
+  useEffect(() => {
+    if (!urlSeed) return
+    setSeed(urlSeed)
+    void navigate({
+      to: `/t/$teamSlug/agent`,
+      params: { teamSlug },
+      search: {},
+      replace: true,
+    })
+  }, [urlSeed, navigate, teamSlug])
+
   if (!team || !currentUserId) {
     return <div className="p-6 text-sm text-muted-foreground">Loading…</div>
   }
 
   const prompt = (
-    <div className="flex h-full min-h-0 flex-col">
-      <ChatHeader title={BUILTIN_CHAT_NAME} />
-      {/* EXP-772: an essentially empty pane — one centred prompt box with a
-          subtle picker row under it. */}
+    <div className="flex h-full min-h-0 flex-col" data-testid="agent-page">
+      <ChatHeader title="Agent" />
+      {/* EXP-772: an essentially empty pane — one centred composer with a
+          subtle options line under it. */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col gap-10 px-4 py-6">
           {steerEnabled ? (
-            <ChatPrompt
+            <ComposerPane
               teamId={team.id}
-              devices={remote.devices}
-              starting={remote.starting}
-              sentTo={remote.sentTo}
+              remote={remote}
               users={teamUsers}
-              onStart={(device, options, inputs) => {
-                remote
-                  .runAction(
-                    device,
-                    {
-                      id: BUILTIN_CHAT_ID,
-                      name: BUILTIN_CHAT_NAME,
-                      teamId: team.id,
-                    },
-                    options,
-                    inputs
-                  )
-                  .catch(() => {})
-              }}
+              seed={seed}
+              onSeedConsumed={() => setSeed(null)}
             />
           ) : (
             <p className="my-auto text-center text-sm text-muted-foreground">
@@ -136,7 +130,7 @@ function AgentPage() {
           )}
         </div>
       </div>
-      {/* The phone: the list under the prompt — the page is both. */}
+      {/* The phone: the list under the composer — the page is both. */}
       {isMobile && (
         <SessionsList
           teamId={team.id}
@@ -160,256 +154,28 @@ function ChatHeader({ title }: { title: string }) {
   return (
     <div className="flex items-center gap-1 border-b border-border px-3 py-1.5">
       <UiBackIcon className="hidden" aria-hidden />
+      <ActionChatIcon className="size-3.5 text-muted-foreground" />
       <span className="min-w-0 flex-1 truncate text-sm font-medium">{title}</span>
     </div>
   )
 }
 
-/** EXP-772: the chat launcher — one wide prompt box, and under it a single
- * muted row of inline pickers (machine → agent → plan) seeded from the
- * selected machine's launch defaults. EXP-790: the box is the mention field
- * (`@` members, `#` issue refs, `:` emoji), model and effort stay the machine's
- * defaults (they left the row with the session composer's pickers), and a few
- * suggestion chips (EXP-820: drawn from `CHAT_SUGGESTION_POOL`) sit over the
- * empty field. Enter sends, Shift+Enter breaks
- * the line. Plan mode starts OFF here: a chat is a conversation, not a change
- * proposal. */
-function ChatPrompt({
+/** Mounted only with steering on: the hook wires the synced collections and
+ * the options cluster, so it never runs for a member of a relay-less
+ * instance. */
+function ComposerPane({
   teamId,
-  devices,
-  starting,
-  sentTo,
+  remote,
   users,
-  onStart,
+  seed,
+  onSeedConsumed,
 }: {
   teamId: string
-  /** null while the first device lookup is in flight. */
-  devices: ReturnType<typeof useRemoteStart>[`devices`]
-  starting: boolean
-  sentTo: string | null
-  /** The team roster, for the field's `@` autocomplete. */
+  remote: RemoteStart
   users: User[]
-  onStart: (
-    device: NonNullable<ReturnType<typeof useRemoteStart>[`devices`]>[number],
-    options: ReturnType<ReturnType<typeof useLaunchOptions>[`buildOptions`]>,
-    inputs: Record<string, string>
-  ) => void
+  seed: LaunchSeed | null
+  onSeedConsumed: () => void
 }) {
-  const [prompt, setPrompt] = useState(``)
-  // EXP-820: a few chips drawn from the pool per mount — the same range the
-  // getting-started cards show, not three fixed verbs.
-  const [suggestions] = useState(() => pickChatSuggestions())
-  const fieldRef = useRef<MentionTextareaHandle>(null)
-  // EXP-822: the chat's repository. Without one the run lands in a scratch
-  // dir that is not a checkout, and an agent asked for something repo-shaped
-  // used to go hunting for a clone on the machine. The pick is still
-  // OPTIONAL (EXP-739) — it is the ABSENCE of the control that was the bug.
-  const repos = useTeamRepos(teamId)
-  const [repoId, setRepoId] = useState(``)
-  const seededRepo = useRef(false)
-  useEffect(() => {
-    if (!repos || seededRepo.current) return
-    seededRepo.current = true
-    setRepoId(defaultChatRepoId(repos))
-  }, [repos])
-  const repoOptions = chatRepoOptions(repos ?? [])
-  // The same candidate filter the launch dialog uses (EXP-403/EXP-409): the
-  // registry lists offline machines and signed-out ones, neither is startable.
-  const candidateDevices = useMemo(
-    () => (devices ?? []).filter(deviceIsOnline).filter(deviceHasRunnableAgent),
-    [devices]
-  )
-  // EXP-792: the team's MCP servers ride the same picker row as the machine
-  // and agent; the pick seeds from the team's defaults / last pick.
-  const mcp = useMcpServers(teamId)
-  const mcpNow = useNow(30_000)
-  // `open: true` — this page IS the launcher, there is no dialog to settle on.
-  const launch = useLaunchOptions({
-    open: true,
-    devices: candidateDevices,
-    planModeOff: true,
-    teamId,
-    mcpServers: mcp.servers,
-  })
-  // EXP-773: an agent outside the machine's reported ACP set has no transport
-  // left to start on — the note under the pickers says so.
-  const blocked =
-    starting ||
-    !launch.device ||
-    launch.agentNotReady ||
-    prompt.trim().length === 0
-  const send = () => {
-    if (!launch.device || blocked) return
-    onStart(launch.device, launch.buildOptions(), chatStartInputs(prompt, repoId))
-  }
-
-  return (
-    <div className="my-auto flex flex-col gap-2">
-      {/* EXP-790: the chips only while there is nothing typed — once the
-          field has text they would just be in the way. */}
-      {prompt.length === 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 px-1">
-          {suggestions.map((suggestion) => (
-            <Pill
-              key={suggestion}
-              size="sm"
-              mode="action"
-              onClick={() => fieldRef.current?.insertText(suggestion)}
-            >
-              {suggestion}
-            </Pill>
-          ))}
-        </div>
-      )}
-      <Composer
-        submit={
-          <ComposerSubmit
-            aria-label="Start chat"
-            title="Start chat"
-            disabled={blocked}
-            onClick={send}
-          >
-            {starting ? <LoaderCircle className="animate-spin" /> : undefined}
-          </ComposerSubmit>
-        }
-      >
-        <MentionTextarea
-          ref={fieldRef}
-          id="chat-page-prompt"
-          value={prompt}
-          onValueChange={setPrompt}
-          users={users}
-          onKeyDown={(event) => {
-            // Shift+Enter breaks the line; an IME's own Enter is never a send.
-            if (event.key !== `Enter` || event.shiftKey) return
-            if (event.nativeEvent.isComposing) return
-            event.preventDefault()
-            send()
-          }}
-          placeholder="Ask the agent…"
-          className="min-h-20 resize-none border-0 bg-transparent px-3 pt-3 shadow-none focus-visible:ring-0"
-          // Client parity with the server's per-value cap, so a long paste is
-          // refused at the field instead of at submit.
-          maxLength={MAX_ACTION_INPUT_TEXT}
-        />
-      </Composer>
-      {candidateDevices.length === 0 ? (
-        <p className="px-1 text-xs text-muted-foreground">
-          No desktop online. Open the Exponential desktop app to start a chat.
-        </p>
-      ) : (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-xs text-muted-foreground">
-          <InlinePicker
-            label="Machine"
-            value={launch.device?.deviceId ?? ``}
-            options={candidateDevices.map((device) => ({
-              value: device.deviceId,
-              label: `${device.deviceLabel || device.deviceId}${
-                device.owner ? ` — ${device.owner.name}` : ``
-              }`,
-            }))}
-            onChange={launch.setDeviceId}
-          />
-          <InlinePicker
-            label="Agent"
-            value={launch.agent}
-            options={launch.availableAgents.map((agent) => ({
-              value: agent,
-              label: AGENT_LABELS[agent] ?? agent,
-            }))}
-            onChange={launch.switchAgent}
-          />
-          {repoOptions.length > 0 && (
-            <InlinePicker
-              label="Repository"
-              value={repoId || NO_REPO}
-              options={repoOptions}
-              onChange={(value) => setRepoId(value === NO_REPO ? `` : value)}
-            />
-          )}
-          {mcp.servers && mcp.servers.length > 0 && (
-            <McpServerPicker
-              servers={mcp.servers}
-              selectedIds={launch.mcpServerIds}
-              onToggle={launch.toggleMcpServer}
-              device={launch.device}
-              now={mcpNow}
-              renderTrigger={(summary) => (
-                <button
-                  type="button"
-                  className="flex items-center gap-0.5 outline-none hover:text-foreground focus-visible:text-foreground"
-                  title="MCP servers"
-                  aria-label="MCP servers"
-                >
-                  {`MCP: ${summary}`}
-                  <ChevronDown className="size-3" />
-                </button>
-              )}
-            />
-          )}
-          {agentSupportsPlanMode(launch.agent) && (
-            <label className="flex items-center gap-1.5">
-              <span>Plan</span>
-              <Switch
-                size="sm"
-                checked={launch.planMode}
-                onCheckedChange={launch.setPlanMode}
-                aria-label="Plan mode"
-              />
-            </label>
-          )}
-          {launch.agentNotReady && (
-            <span>
-              {`Not ready on ${launch.device!.deviceLabel || launch.device!.deviceId}. Run the doctor there.`}
-            </span>
-          )}
-          {/* The desktop inserts the row when the launcher spins up; the page
-              flips to the live view the moment it syncs. */}
-          {sentTo && <span>{`Waiting for ${sentTo}…`}</span>}
-        </div>
-      )}
-    </div>
-  )
-}
-
-/** A picker as one word of the muted line under the prompt box: the current
- * value plus a chevron, no chrome. */
-function InlinePicker({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string
-  value: string
-  options: { value: string; label: string }[]
-  onChange: (value: string) => void
-}) {
-  if (options.length === 0) return null
-  const current = options.find((option) => option.value === value)
-  if (options.length === 1) {
-    return <span title={label}>{current?.label ?? options[0].label}</span>
-  }
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        className="flex items-center gap-0.5 outline-none hover:text-foreground focus-visible:text-foreground"
-        title={label}
-        aria-label={label}
-      >
-        {current?.label ?? label}
-        <ChevronDown className="size-3" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
-        {options.map((option) => (
-          <DropdownMenuItem
-            key={option.value}
-            onSelect={() => onChange(option.value)}
-          >
-            {option.label}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
+  const model = useLaunchComposer({ teamId, remote, seed, onSeedConsumed })
+  return <LaunchComposer model={model} users={users} className="my-auto" />
 }

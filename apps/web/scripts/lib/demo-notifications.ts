@@ -5,8 +5,9 @@
  * just by being opened: issue detail fires `markReadByIssue` on mount (EXP-92)
  * and the Support surface fires `markReadSupport` (REV2-13). So the badge every
  * OTHER view photographs depends on which views ran before it — a full run walks
- * `issue-detail` (APP-5) and the `start-coding` views (APP-3) and lands on 1,
- * while a scoped run that skips them lands on 3. The committed store ended up a
+ * `issue-detail` (APP-5) and the issue routes behind other views (APP-3, until
+ * EXP-825 moved the launcher onto the Agent page) and lands on 1, while a
+ * scoped run that skips them lands on 3. The committed store ended up a
  * patchwork of 1s, 2s and 3s that nothing in any merge explains, and every
  * refresh had to triage the difference by hand.
  *
