@@ -4,6 +4,7 @@ package com.exponential.app.domain
  * Builds the canonical web-app URL for sharing an issue. Mirrors the web route
  * shape and the iOS `WebLinks` helper:
  *   issue  {base}/t/{team}/boards/{board}/issues/{identifier}
+ *   agent  {base}/t/{team}/agent                          (EXP-825)
  *
  * `base` is the account's instance URL; its trailing slash is trimmed so the
  * joined path never doubles up. All slugs/identifiers are synced locally, so
@@ -17,6 +18,14 @@ object WebLinks {
         boardSlug: String,
         identifier: String,
     ): String = "${base.trimEnd('/')}/t/$teamSlug/boards/$boardSlug/issues/$identifier"
+
+    /**
+     * EXP-825: the team's Agent page — the ONE launcher — as the web serves
+     * it. Minted for the same reason [issueUrl] is: every client names the
+     * same route, so a link pasted from the phone opens the composer there.
+     */
+    fun agentUrl(base: String, teamSlug: String): String =
+        "${base.trimEnd('/')}/t/$teamSlug/agent"
 
     /**
      * The shareable link for an invite token (EXP-725), or null when the
@@ -39,11 +48,14 @@ object WebLinks {
         ) : Parsed
 
         data class Invite(val token: String) : Parsed
+
+        /** EXP-825: `/t/{team}/agent` — the Agent page (the composer). */
+        data class Agent(val teamSlug: String) : Parsed
     }
 
     /**
-     * Inverse of [issueUrl] plus the invite route — the only two shapes the
-     * manifest's autoVerify filter claims. Takes the already-decoded path
+     * Inverse of [issueUrl] and [agentUrl] plus the invite route — the only
+     * three shapes the manifest's autoVerify filter claims. Takes the already-decoded path
      * (Uri.getPath) rather than a Uri so it stays JVM-unit-testable; empty
      * segments are dropped (trailing slash tolerated) and deeper paths fail
      * the exact-length match — the app only claims what it can render.
@@ -60,6 +72,11 @@ object WebLinks {
                 parts[2] == "boards" && parts[4] == "issues" ->
                 Parsed.IssueRef(parts[1], parts[3], parts[5])
             parts.size == 2 && parts[0] == "invite" -> Parsed.Invite(parts[1])
+            // EXP-825: the Agent page. The team slug rides along, but the
+            // composer opens on the ACTIVE account's selected team — a slug
+            // is not resolvable to an account without the issue index the
+            // issue link has.
+            parts.size == 3 && parts[0] == "t" && parts[2] == "agent" -> Parsed.Agent(parts[1])
             else -> null
         }
     }

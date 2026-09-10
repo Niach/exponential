@@ -1,5 +1,8 @@
 package com.exponential.app
 
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
@@ -43,7 +46,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_board-filters · sg_board-empty ·
  *   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
  *   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
- *   sg_start-coding-actions · sg_start-coding-chat ·
+ *   sg_chat · sg_chat-issues · sg_chat-action ·
  *   sg_machine-settings · sg_action-create · sg_automations-list ·
  *   sg_automations · sg_action-suggestions · sg_reviews ·
  *   sg_support-thread · sg_settings-root · sg_settings-team ·
@@ -62,9 +65,9 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  * `instanceUrl` instrumentation argument / SCREENGRAB_INSTANCE_URL) PLUS, since
  * EXP-642, the relay stub: `bun run screenshots:desktop` (apps/web) registers
  * the demo user's OWN device row, which is what sg_machine-settings (gated
- * `isMine && registered`) and the two sg_start-coding-* shots photograph. No
- * steer RELAY traffic is needed beyond that registration — nothing here watches
- * a live session.
+ * `isMine && registered`) and the three sg_chat* shots photograph (EXP-825: the
+ * Agent page composer, the ONE launcher). No steer RELAY traffic is needed
+ * beyond that registration — nothing here watches a live session.
  *
  * Every shot gates on genuinely seeded content rather than on a screen merely
  * existing, so a stale/missing seed fails the run instead of quietly shipping
@@ -123,6 +126,14 @@ class StyleguideScreenshotsTest {
 
         // One of the three seeded team actions, listed on the Actions segment.
         private const val SEEDED_ACTION_NAME = "Nightly test triage"
+
+        // EXP-825: the two codeable issues the sg_chat-issues shot chips —
+        // APP-3 and APP-6, the same pair the web `chat-issues` recipe seeds
+        // (apps/web/scripts/lib/demo-ids.ts), neither with a running session.
+        private const val CHAT_FIRST_ISSUE_TITLE = "Dark mode contrast pass across settings"
+        private const val CHAT_SECOND_ISSUE_TITLE = "Onboarding checklist for new members"
+        // The builtin the sg_chat-action shot picks (EXP-259).
+        private const val FIX_CONFLICTS_ACTION_NAME = "Fix merge conflicts"
 
         // The close-out the seed's freshest agent-ended run carries (EXP-637) —
         // only the EXPANDED row shows it, so it is the post-tap gate.
@@ -350,30 +361,48 @@ class StyleguideScreenshotsTest {
         flow.settle()
         flow.screenshot("sg_agents")
 
-        // --- Start coding, Actions + Chat tabs: the machine row's play glyph
-        // opens the unified launch sheet. The tabs carry testTags because
-        // "Actions" and "Chat" also read as ordinary nodes elsewhere in the
-        // sheet. Nothing is ever submitted — a run would land on a real machine.
+        // --- sg_chat / sg_chat-issues / sg_chat-action: the Agent page
+        // (EXP-825, the ONE launcher). The machine row's play glyph pushes it
+        // with that machine preselected: an empty composer is a chat; the `#`
+        // tool checks issues (two chips, a batch); the ▶ tool picks the
+        // builtin, which SWAPS the chips for one action chip. Nothing is ever
+        // submitted — a run would land on a real machine. Every step gates on
+        // the state it produced (a chip, a label), never on the page alone,
+        // so a swallowed tap fails the run instead of duplicating a shot.
         composeRule.onAllNodes(hasContentDescription("Start coding")).onFirst().performClick()
-        flow.waitFor(hasTestTag("start-coding-sheet"), NAV_TIMEOUT)
-        composeRule.onNode(hasTestTag("start-coding-tab-actions")).performClick()
-        flow.waitFor(hasText(SEEDED_ACTION_NAME, substring = true), SYNC_TIMEOUT)
+        flow.waitFor(hasTestTag("agent-composer"), NAV_TIMEOUT)
+        // The submit label proves the composer resolved its subject (a chat).
+        flow.waitFor(hasText("Start chat"), NAV_TIMEOUT)
         flow.settle()
-        flow.screenshot("sg_start-coding-actions")
-        // EXP-698: the Chat tap has to be PROVEN to have landed — this shot
-        // once came out byte-identical to the Actions one above, i.e. a
-        // silently swallowed tap wrote the previous screen twice. Gate on the
-        // two fields only the Chat tab renders, so a tap that does not land
-        // fails the run instead of duplicating a shot.
-        composeRule.onAllNodes(hasTestTag("start-coding-tab-chat")).onFirst().performClick()
-        flow.waitFor(hasText("Prompt"), NAV_TIMEOUT)
-        flow.waitFor(hasText("Repository"), NAV_TIMEOUT)
+        flow.screenshot("sg_chat")
+
+        composeRule.onNode(hasTestTag("agent-composer-issues-button")).performClick()
+        flow.waitFor(hasTestTag("agent-composer-issues-picker"), NAV_TIMEOUT)
+        for (title in listOf(CHAT_FIRST_ISSUE_TITLE, CHAT_SECOND_ISSUE_TITLE)) {
+            flow.waitFor(hasText(title, substring = true), SYNC_TIMEOUT)
+            composeRule.onAllNodes(hasText(title, substring = true)).onFirst().performClick()
+        }
+        // Done closes the picker; the chips are on the composer already.
+        composeRule.onAllNodes(hasText("Done")).onFirst().performClick()
+        flow.waitForGone(hasTestTag("agent-composer-issues-picker"), NAV_TIMEOUT)
+        flow.waitFor(hasIssueChip(), NAV_TIMEOUT)
+        flow.waitFor(hasText("Start batch · 2"), NAV_TIMEOUT)
         flow.settle()
-        flow.screenshot("sg_start-coding-chat")
-        // EXP-687: sheets carry no Cancel pill — back (like a swipe down)
-        // dismisses.
+        flow.screenshot("sg_chat-issues")
+
+        composeRule.onNode(hasTestTag("agent-composer-actions-button")).performClick()
+        flow.waitFor(hasTestTag("agent-composer-actions-picker"), NAV_TIMEOUT)
+        flow.waitFor(hasText(FIX_CONFLICTS_ACTION_NAME), SYNC_TIMEOUT)
+        composeRule.onAllNodes(hasText(FIX_CONFLICTS_ACTION_NAME)).onFirst().performClick()
+        flow.waitForGone(hasTestTag("agent-composer-actions-picker"), NAV_TIMEOUT)
+        flow.waitFor(hasTestTag("agent-composer-chip-action"), NAV_TIMEOUT)
+        flow.waitFor(hasText("Run action"), NAV_TIMEOUT)
+        flow.settle()
+        flow.screenshot("sg_chat-action")
+        // A pushed detail: back pops to the Devices tab.
         Espresso.pressBack()
-        flow.waitForGone(hasTestTag("start-coding-sheet"), NAV_TIMEOUT)
+        flow.waitForGone(hasTestTag("agent-page"), NAV_TIMEOUT)
+        flow.waitFor(hasText(DEMO_DEVICE_NAME, substring = true), SYNC_TIMEOUT)
         flow.settle(longer = true)
 
         // --- Machine settings: own, registered machines only — the row menu is
@@ -398,17 +427,19 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasText(SEEDED_ACTION_NAME, substring = true), SYNC_TIMEOUT)
 
         // --- Create action: "New action" rides the "Actions · count" section
-        // header (EXP-574). The sheet is only photographed, never submitted —
-        // creating would start a real builtin run on somebody's machine.
+        // header (EXP-574). EXP-825: it pushes the Agent page on the "Create
+        // action" builtin (the chip proves it). Only photographed, never
+        // submitted — creating would start a real builtin run on somebody's
+        // machine.
         composeRule.onNode(hasTestTag("new-action")).performClick()
-        flow.waitFor(hasTestTag("create-action-sheet"), NAV_TIMEOUT)
-        flow.waitFor(hasText("What should this action do?", substring = true), NAV_TIMEOUT)
+        flow.waitFor(hasTestTag("agent-composer"), NAV_TIMEOUT)
+        flow.waitFor(hasTestTag("agent-composer-chip-action"), NAV_TIMEOUT)
+        flow.waitFor(hasText("Run action"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_action-create")
-        // EXP-687: sheets carry no Cancel pill — back (like a swipe down)
-        // dismisses.
+        // A pushed detail: back pops to the Actions tab.
         Espresso.pressBack()
-        flow.waitForGone(hasTestTag("create-action-sheet"), NAV_TIMEOUT)
+        flow.waitForGone(hasTestTag("agent-page"), NAV_TIMEOUT)
         flow.settle(longer = true)
 
         // --- Automations list: gated on the segment's OWN content rather than
@@ -600,6 +631,13 @@ class StyleguideScreenshotsTest {
      * Board switcher → the named board. The sheet's rows carry the board name
      * as plain text; the first match is the row.
      */
+    /** Any composer issue chip: the tag carries the IDENTIFIER, so a prefix match. */
+    private fun hasIssueChip(): SemanticsMatcher =
+        SemanticsMatcher("has an agent-composer issue chip") { node ->
+            node.config.getOrNull(SemanticsProperties.TestTag)
+                ?.startsWith("agent-composer-chip-issue-") == true
+        }
+
     private fun switchBoard(name: String) {
         composeRule.onNode(hasContentDescription("Switch board")).performClick()
         flow.waitFor(hasText("Switch board"), NAV_TIMEOUT)

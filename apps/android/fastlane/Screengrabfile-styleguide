@@ -1,8 +1,8 @@
 # screengrab configuration for the STYLEGUIDE capture suite (EXP-566).
 #
 # Same machinery as fastlane/Screengrabfile, pointed at
-# StyleguideScreenshotsTest instead of the store flow: 24 shots
-# (sg_sign-in … sg_onboarding) of the plain app surfaces, used as the
+# StyleguideScreenshotsTest instead of the store flow: 28 shots
+# (sg_sign-in … sg_onboarding-devices) of the plain app surfaces, used as the
 # cross-platform design reference rather than as Play listing assets. The shot
 # names are a byte-exact contract shared with the other clients — never rename
 # one without changing it everywhere.
@@ -25,8 +25,8 @@
 #        bun run seed:screenshots                                    (from apps/web)
 #   2. The relay stub left running for the whole capture:
 #        bun run screenshots:desktop                                 (from apps/web)
-#      Without it sg_machine-settings (gated `isMine && registered`) and the two
-#      sg_start-coding-* shots have no machine row to open.
+#      Without it sg_machine-settings (gated `isMine && registered`) and the
+#      three sg_chat* shots (EXP-825) have no machine row to open.
 #   3. An English-locale phone emulator booted (only one device attached).
 #   4. Both APKs built: bundle exec fastlane styleguide_screenshots does this
 #      for you.

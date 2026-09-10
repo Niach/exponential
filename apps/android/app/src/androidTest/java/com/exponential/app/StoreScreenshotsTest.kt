@@ -25,7 +25,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *
  * Drives the REAL app UI end-to-end against a locally seeded backend
  * (apps/web/scripts/seed-screenshots.ts): instance picker → password login →
- * board → issue detail → live steering → Start-coding dialog → PR review →
+ * board → issue detail → live steering → the Agent page composer → PR review →
  * actions → inbox → support inbox. Play caps phone screenshots at 8; EXP-393
  * spent the budget on the surfaces that actually differentiate the product,
  * dropping the comments / agents-list / reviews-list shots for start coding,
@@ -37,7 +37,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  * switched on — a steer relay with STEER_RELAY_URL + STEER_RELAY_SECRET
  * exported for the web server (`docker compose --profile steer up -d`) plus
  * `bun run screenshots:desktop` left running for the whole capture. Without
- * them the steering and Start-coding shots are unreachable and the issue
+ * them the steering and start-coding shots are unreachable and the issue
  * detail renders "Live steering is unavailable on this instance."
  *
  * The sign-in flow, the polling helpers, the diff expansion and the capture
@@ -162,22 +162,23 @@ class StoreScreenshotsTest {
         composeRule.onNode(hasContentDescription("Back")).performClick()
         flow.settle()
 
-        // --- Start-coding dialog: from a repo-backed issue the demo user is
-        // NOT already coding on. Needs an online desktop — without one the
-        // circle is disabled and the sheet never opens.
+        // --- Start coding (EXP-825): from a repo-backed issue the demo user
+        // is NOT already coding on, the bottom bar's start circle PUSHES the
+        // Agent page with that issue chipped into the composer (the ONE
+        // launcher). Needs an online desktop — without one the circle only
+        // shows the no-desktop snackbar. The store slide keeps its filename.
         composeRule.onNode(hasContentDescription("Back")).performClick()
         flow.waitFor(hasText(START_CODING_ISSUE_TITLE), NAV_TIMEOUT)
         composeRule.onAllNodes(hasText(START_CODING_ISSUE_TITLE)).onFirst().performClick()
         flow.waitFor(hasContentDescription("Start coding"), NAV_TIMEOUT)
         composeRule.onNode(hasContentDescription("Start coding")).performClick()
-        flow.waitFor(hasTestTag("start-coding-sheet"), NAV_TIMEOUT)
+        flow.waitFor(hasTestTag("agent-composer"), NAV_TIMEOUT)
+        // The chip proves the seed landed, not just the page.
+        flow.waitFor(hasTestTag("agent-composer-chip-issue-APP-3"), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("3_start-coding", popRects = true)
-        // EXP-687: sheets carry no Cancel pill — back (like a swipe down)
-        // dismisses.
+        // A pushed detail: back pops to the issue, then Back to the board.
         Espresso.pressBack()
-        // The sheet animates out over the detail — let it finish before the
-        // back press, or the tap lands on the dismissing scrim.
         flow.settle(longer = true)
         composeRule.onNode(hasContentDescription("Back")).performClick()
 

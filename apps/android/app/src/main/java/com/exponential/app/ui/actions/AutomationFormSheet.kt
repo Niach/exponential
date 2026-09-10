@@ -29,7 +29,7 @@ import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PickerRow
 import com.exponential.app.ui.components.SheetHeight
 import com.exponential.app.ui.components.SheetPrimaryAction
-import com.exponential.app.ui.issue.StartCodingSheetViewModel
+import com.exponential.app.ui.agent.AgentLaunchDataViewModel
 import com.exponential.app.ui.theme.TextEmphasis
 
 /**
@@ -54,7 +54,7 @@ fun AutomationFormSheet(
     onDismiss: () -> Unit,
     /** The row being edited; null = create a new automation. */
     editing: AutomationEntity? = null,
-    dataViewModel: StartCodingSheetViewModel = hiltViewModel(),
+    dataViewModel: AgentLaunchDataViewModel = hiltViewModel(),
 ) {
     val boardOptions by dataViewModel.boardOptions.collectAsStateWithLifecycle()
     val labelOptions by dataViewModel.labelOptions.collectAsStateWithLifecycle()

@@ -82,7 +82,33 @@ data class AgentAccount(
     @SerialName("email") val email: String? = null,
     @SerialName("plan") val plan: String? = null,
     @SerialName("checkedAt") val checkedAt: String? = null,
+    /**
+     * EXP-825: the agent's login PROFILES on the machine (web
+     * `agentAccounts[agent].profiles`) — the composer's Account picker offers
+     * them when there are two or more. Absent = the device reported none.
+     */
+    @SerialName("profiles") val profiles: List<AgentAccountProfile>? = null,
 )
+
+/**
+ * EXP-825: one login profile of an agent on a machine — [id] is what a start
+ * sends as `account`, [active] marks the machine's current login, [email]
+ * names it. Everything but the id is optional (the sender's vintage varies),
+ * and the shared decoder ignores unknown keys, so a richer profile from a
+ * newer desktop still decodes.
+ */
+@Serializable
+data class AgentAccountProfile(
+    @SerialName("id") val id: String,
+    @SerialName("active") val active: Boolean = false,
+    @SerialName("email") val email: String? = null,
+)
+
+/**
+ * The web's `SYSTEM_PROFILE_ID`: the machine's ambient login, which a start
+ * never names explicitly — a picked "Active login" sends no `account`.
+ */
+const val SYSTEM_PROFILE_ID = "system"
 
 /**
  * One rate-limit window of an agent's usage (EXP-484). [key] is stable
@@ -353,8 +379,19 @@ data class SteerStartOptions(
      * batch/action forms); the batch and action inputs simply never carry it.
      */
     val resume: Boolean? = null,
+    /**
+     * EXP-825 (EXP-792): the agent login profile to launch under — one of the
+     * machine's `agentAccounts[agent].profiles` ids. Null = the machine's
+     * active login (never [SYSTEM_PROFILE_ID] on the wire).
+     */
+    val account: String? = null,
 )
 
+// The three non-resume forms of steer.startSession all carry the EXP-825
+// `prompt` LAST: the composer's free text (with its image embeds) — the chat
+// message for the Chat builtin, the request for Create action, additional
+// instructions on everything else. Null is omitted (explicitNulls=false), so
+// the server sees NO prompt rather than an empty one.
 @Serializable
 internal data class StartSessionInput(
     @SerialName("issueId") val issueId: String,
@@ -365,6 +402,8 @@ internal data class StartSessionInput(
     @SerialName("planMode") val planMode: Boolean? = null,
     @SerialName("agent") val agent: String? = null,
     @SerialName("resume") val resume: Boolean? = null,
+    @SerialName("account") val account: String? = null,
+    @SerialName("prompt") val prompt: String? = null,
 )
 
 // The batch form of steer.startSession (EXP-156): exactly one of
@@ -372,7 +411,7 @@ internal data class StartSessionInput(
 // pushed `exp/batch-<id8>` branch that spans every listed issue (all in the
 // same repository). Same endpoint + error mapping as the single-issue input.
 @Serializable
-private data class StartBatchSessionInput(
+internal data class StartBatchSessionInput(
     @SerialName("issueIds") val issueIds: List<String>,
     @SerialName("deviceId") val deviceId: String,
     @SerialName("model") val model: String? = null,
@@ -380,6 +419,8 @@ private data class StartBatchSessionInput(
     @SerialName("ultracode") val ultracode: Boolean? = null,
     @SerialName("planMode") val planMode: Boolean? = null,
     @SerialName("agent") val agent: String? = null,
+    @SerialName("account") val account: String? = null,
+    @SerialName("prompt") val prompt: String? = null,
 )
 
 // The action form of steer.startSession (EXP-253, widened by EXP-257):
@@ -388,10 +429,11 @@ private data class StartBatchSessionInput(
 // option set with the same per-agent vocabulary as issue runs; [teamId] is
 // sent ONLY for the virtual builtin "Create action" id (the server requires
 // it there and forbids it otherwise); [inputs] carries the filled input
-// values keyed by def key (text, or a picked repo/board UUID). Null fields
-// are omitted (explicitNulls=false) and mean "desktop settings default".
+// values keyed by def key (a picked repo/board/pr id or icon name — EXP-825
+// retired free-text inputs; the text is [prompt]). Null fields are omitted
+// (explicitNulls=false) and mean "desktop settings default".
 @Serializable
-private data class StartActionSessionInput(
+internal data class StartActionSessionInput(
     @SerialName("actionId") val actionId: String,
     @SerialName("deviceId") val deviceId: String,
     @SerialName("teamId") val teamId: String? = null,
@@ -401,6 +443,8 @@ private data class StartActionSessionInput(
     @SerialName("planMode") val planMode: Boolean? = null,
     @SerialName("agent") val agent: String? = null,
     @SerialName("inputs") val inputs: Map<String, String>? = null,
+    @SerialName("account") val account: String? = null,
+    @SerialName("prompt") val prompt: String? = null,
 )
 
 // The resume form of steer.startSession (EXP-637): exactly one of
@@ -455,12 +499,14 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
     }
 
     /** `steer.startSession` — remote-start on any online machine the caller
-     * may use: their own, or a teammate's server shared with the team (EXP-432). */
+     * may use: their own, or a teammate's server shared with the team (EXP-432).
+     * [prompt] (EXP-825) is the composer's optional additional instructions. */
     suspend fun startSession(
         accountId: String,
         issueId: String,
         deviceId: String,
         options: SteerStartOptions = SteerStartOptions(),
+        prompt: String? = null,
     ) {
         trpc.mutationUnit(
             accountId,
@@ -474,6 +520,8 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
                 planMode = options.planMode,
                 agent = options.agent,
                 resume = options.resume,
+                account = options.account,
+                prompt = prompt,
             ),
             inputSerializer = StartSessionInput.serializer(),
         )
@@ -489,6 +537,7 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
         issueIds: List<String>,
         deviceId: String,
         options: SteerStartOptions = SteerStartOptions(),
+        prompt: String? = null,
     ) {
         trpc.mutationUnit(
             accountId,
@@ -501,6 +550,8 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
                 ultracode = options.ultracode,
                 planMode = options.planMode,
                 agent = options.agent,
+                account = options.account,
+                prompt = prompt,
             ),
             inputSerializer = StartBatchSessionInput.serializer(),
         )
@@ -530,8 +581,10 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
      * refusals are gone server-side, the agent check is the one that
      * remains). [options] rides with the same per-agent vocabulary as the issue
      * forms; [teamId] must be passed ONLY for the builtin "Create action" id;
-     * [inputs] are the filled input values keyed by def key. Same endpoint +
-     * error mapping as the issue forms.
+     * [inputs] are the filled input values keyed by def key; [prompt]
+     * (EXP-825) is the composer's text — REQUIRED by the server for the Chat
+     * and Create action builtins, additional instructions otherwise. Same
+     * endpoint + error mapping as the issue forms.
      */
     suspend fun startActionSession(
         accountId: String,
@@ -540,6 +593,7 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
         options: SteerStartOptions = SteerStartOptions(),
         teamId: String? = null,
         inputs: Map<String, String>? = null,
+        prompt: String? = null,
     ) {
         trpc.mutationUnit(
             accountId,
@@ -554,6 +608,8 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
                 planMode = options.planMode,
                 agent = options.agent,
                 inputs = inputs,
+                account = options.account,
+                prompt = prompt,
             ),
             inputSerializer = StartActionSessionInput.serializer(),
         )

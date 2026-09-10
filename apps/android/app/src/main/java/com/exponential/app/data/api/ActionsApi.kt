@@ -21,9 +21,11 @@ import kotlinx.serialization.json.put
 // sheet opens, exactly like the web dialog and the desktop editor do).
 
 /**
- * One typed run input an action declares (EXP-257): the run sheet renders a
- * field per def ([type] `text` | `repo` | `board`) and sends the filled values
- * with `steer.startSession`. [required] defaults false (absent = optional).
+ * One typed run input an action declares (EXP-257): the Agent page composer
+ * renders a pick per def ([type] `repo` | `board` | `pr` | `icon` — EXP-825
+ * retired `text`/`textarea`: free text is the start's `prompt`) and sends the
+ * filled values with `steer.startSession`. [required] defaults false (absent
+ * = optional). [placeholder] survives on the wire for older rows.
  */
 @Serializable
 data class ActionInputDto(
@@ -72,9 +74,13 @@ data class ActionDto(
 }
 
 /**
- * The virtual builtin "Create action" row (EXP-257): describe a new action in
- * a text input and let your agent author it for the team. Synced rows can't carry
- * it, so every consumer PREPENDS this factory's row to the local-flow list.
+ * The virtual builtin "Create action" row (EXP-257): describe a new action and
+ * let your agent author it for the team. Synced rows can't carry it, so every
+ * consumer PREPENDS this factory's row to the local-flow list. EXP-825: the
+ * request itself (what the action should do, and its name if the user states
+ * one) is the start's `prompt`, never an input — the two remaining inputs are
+ * PICKS the creator run can't derive from prose. Byte-locked ×4 (web
+ * builtin-actions.ts, desktop `api::actions`, iOS `ActionsApi`).
  */
 fun builtinCreateAction(teamId: String): ActionDto = ActionDto(
     id = DomainContract.builtinCreateActionId,
@@ -83,21 +89,6 @@ fun builtinCreateAction(teamId: String): ActionDto = ActionDto(
     description = "Describe a new action and let your agent author it for the team",
     icon = "sparkles",
     inputs = listOf(
-        ActionInputDto(
-            key = "description",
-            label = "Description",
-            type = "text",
-            required = true,
-            placeholder = "What should this action do?",
-        ),
-        // EXP-615: an optional name — blank lets the creator agent pick one.
-        ActionInputDto(
-            key = "name",
-            label = "Name",
-            type = "text",
-            required = false,
-            placeholder = "Name (optional)",
-        ),
         ActionInputDto(
             key = "repo",
             label = "Repository",
@@ -144,9 +135,10 @@ fun builtinFixConflictsAction(teamId: String): ActionDto = ActionDto(
 /**
  * The HIDDEN "Chat" builtin (EXP-615): a conversation with your agent over the
  * tracker's MCP tools, OPTIONALLY anchored to a repository (EXP-739).
- * Deliberately in NO list —
- * the start-coding sheet's Chat tab constructs this row directly, so it never
- * shows up as a runnable action anywhere. Mirrors
+ * Deliberately in NO list — the Agent page composer constructs this row
+ * directly when no subject is picked (EXP-825), so it never shows up as a
+ * runnable action anywhere. EXP-825: the chat text is the start's `prompt`
+ * (required for this builtin), never an input. Mirrors
  * apps/web/src/lib/builtin-actions.ts field-for-field.
  */
 fun builtinChatAction(teamId: String): ActionDto = ActionDto(
@@ -156,13 +148,6 @@ fun builtinChatAction(teamId: String): ActionDto = ActionDto(
     description = "Chat with your agent on a repository",
     icon = "message-circle",
     inputs = listOf(
-        ActionInputDto(
-            key = "prompt",
-            label = "Prompt",
-            type = "textarea",
-            required = true,
-            placeholder = "What should the agent do?",
-        ),
         ActionInputDto(
             key = "repo",
             label = "Repository",

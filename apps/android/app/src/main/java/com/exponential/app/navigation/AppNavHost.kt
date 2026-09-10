@@ -37,10 +37,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.exponential.app.AppConstants
 import com.exponential.app.AppViewModel
 import com.exponential.app.ExponentialApp
@@ -49,6 +51,11 @@ import com.exponential.app.data.electric.SyncHealth
 import androidx.browser.customtabs.CustomTabsIntent
 import com.exponential.app.data.push.DeepLinkBus
 import com.exponential.app.data.push.WebLinkResolver
+import com.exponential.app.domain.AGENT_ROUTE_ARGS
+import com.exponential.app.domain.AGENT_ROUTE_PATTERN
+import com.exponential.app.domain.AgentComposerSeed
+import com.exponential.app.domain.agentRoute
+import com.exponential.app.ui.agent.AgentScreen
 import com.exponential.app.ui.auth.LoginScreen
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.BottomBarSuppression
@@ -142,6 +149,9 @@ fun AppNavHost() {
                     launchSingleTop = true
                     popUpTo("home")
                 }
+            // EXP-825: the web's `/t/{team}/agent` — the composer, empty.
+            DeepLinkBus.Target.Agent ->
+                navController.navigateDeepLink(agentRoute(AgentComposerSeed.EMPTY))
             is DeepLinkBus.Target.WebIssueRef ->
                 // Verified App Link (EXP-92): resolve slug+identifier against
                 // the local DB of the account matching the link's host (brief
@@ -359,11 +369,10 @@ private fun AuthenticatedNav(
             navController.popBackStack("support-inbox", inclusive = true)
         }
     }
-    // EXP-631: the Devices surface's FAB starts a chat instead (EXP-694: the
-    // Actions tab too). The bar lives out here, the launcher (with its devices
-    // and start handlers) lives in the screens — so a tap just bumps a counter
-    // the visible screen watches.
-    var chatRequest by remember { mutableStateOf(0) }
+    // EXP-825: every launcher entry point is NAVIGATION onto the Agent page
+    // with a preselection seed — the bottom bar's Chat FAB (EXP-631/EXP-694)
+    // with an empty one, every play button with what it acts on.
+    val openAgent: (AgentComposerSeed) -> Unit = { seed -> navController.navigate(agentRoute(seed)) }
     // The single add-issue affordance: the FAB shows while a board is in
     // view — the Issues tab root (its resolved current board) or a pushed
     // board route — so it always targets the board on screen.
@@ -407,6 +416,7 @@ private fun AuthenticatedNav(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenSettings = { navController.navigate("settings") },
                 onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
+                onOpenAgent = openAgent,
                 // EXP-686: search left the bottom bar — the board header's
                 // button pushes it instead.
                 onOpenSearch = { navController.navigate("search") { launchSingleTop = true } },
@@ -440,18 +450,37 @@ private fun AuthenticatedNav(
             )
         }
         composable("agents") {
-            AgentsScreen(
-                onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
-                onOpenIssue = { id -> navController.navigate("issue/$id") },
-                chatRequest = chatRequest,
-            )
+            // Devices — machines only since EXP-825; a machine's play glyph
+            // opens the Agent page with that machine preselected.
+            AgentsScreen(onOpenAgent = openAgent)
         }
         composable("actions") {
             // Team actions (EXP-253, view + run only) — its own bottom-bar tab
             // since EXP-686; NOT helpdesk-gated.
             ActionsScreen(
                 onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
-                chatRequest = chatRequest,
+                onOpenAgent = openAgent,
+            )
+        }
+        composable(
+            // EXP-825: the Agent page — the ONE launcher — a pushed detail
+            // whose six nullable query args carry the preselection seed
+            // (`AgentComposerSeed.fromArgs` reads them off the ViewModel's
+            // SavedStateHandle). The pattern is generated with the args so a
+            // navigate() with fewer of them still matches.
+            AGENT_ROUTE_PATTERN,
+            arguments = AGENT_ROUTE_ARGS.map { name ->
+                navArgument(name) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            },
+        ) {
+            AgentScreen(
+                onBack = { navController.popBackStack() },
+                onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
+                onOpenIssue = { id -> navController.navigate("issue/$id") },
             )
         }
         composable("personal") {
@@ -486,7 +515,7 @@ private fun AuthenticatedNav(
             ReviewsScreen(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenChanges = { id -> navController.navigate("issue/$id/changes") },
-                onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
+                onOpenAgent = openAgent,
             )
         }
         composable("settings") {
@@ -576,6 +605,7 @@ private fun AuthenticatedNav(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onBack = { navController.popBackStack() },
                 onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
+                onOpenAgent = openAgent,
                 onOpenSearch = { navController.navigate("search") { launchSingleTop = true } },
                 onNewIssue = { navController.navigate("board/$boardId/new") },
             )
@@ -612,6 +642,7 @@ private fun AuthenticatedNav(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
                 onOpenChanges = { navController.navigate("issue/$issueId/changes") },
+                onOpenAgent = openAgent,
             )
         }
         composable("issue/{issueId}/changes") {
@@ -619,7 +650,7 @@ private fun AuthenticatedNav(
             // expandable unified patches.
             ChangesScreen(
                 onBack = { navController.popBackStack() },
-                onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
+                onOpenAgent = openAgent,
             )
         }
         composable("steer/{codingSessionId}") {
@@ -629,6 +660,7 @@ private fun AuthenticatedNav(
                 onBack = { navController.popBackStack() },
                 onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
+                onOpenAgent = openAgent,
             )
         }
         composable("invite/{token}") { entry ->
@@ -748,7 +780,7 @@ private fun AuthenticatedNav(
             onCompose = {
                 composeBoardId?.let { navController.navigate("board/$it/new") }
             },
-            onChat = { chatRequest++ },
+            onChat = { openAgent(AgentComposerSeed.EMPTY) },
         )
     }
     }

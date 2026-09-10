@@ -24,7 +24,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.BoardEntity
+import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.canOfferFixConflicts
@@ -50,8 +50,6 @@ import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.LoadingState
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.issue.StartCodingSheet
-import com.exponential.app.ui.steer.SteerRunCaptionRow
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -70,20 +68,11 @@ import com.exponential.app.ui.theme.glassRow
 fun ReviewsScreen(
     onOpenIssue: (String) -> Unit,
     onOpenChanges: (String) -> Unit,
-    onOpenSteer: (String) -> Unit,
+    // EXP-825: a row's "Fix conflicts" navigates to the Agent page composer
+    // on the builtin action with this PR pre-picked (EXP-323).
+    onOpenAgent: (AgentComposerSeed) -> Unit,
     viewModel: ReviewsViewModel = hiltViewModel(),
 ) {
-    // Remote-start feedback for a "Fix conflicts" run, and the jump into the
-    // session once the desktop picks it up (EXP-323).
-    val runState by viewModel.runState.collectAsStateWithLifecycle()
-    val startedSessionId by viewModel.startedSessionId.collectAsStateWithLifecycle()
-    LaunchedEffect(startedSessionId) {
-        startedSessionId?.let {
-            viewModel.consumeStartedSession()
-            onOpenSteer(it)
-        }
-    }
-
     Scaffold(containerColor = Color.Transparent) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             Text(
@@ -92,14 +81,11 @@ fun ReviewsScreen(
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
             )
-            // Start feedback rides the TOP of the screen: the floating bottom
-            // nav pill paints over everything the NavHost renders, so nothing
-            // that must be read may sit at the bottom edge (EXP-323).
-            SteerRunCaptionRow(
-                runState,
-                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 6.dp),
+            ReviewsListContent(
+                onOpenIssue = onOpenIssue,
+                onOpenChanges = onOpenChanges,
+                onOpenAgent = onOpenAgent,
             )
-            ReviewsListContent(onOpenIssue = onOpenIssue, onOpenChanges = onOpenChanges)
         }
     }
 }
@@ -109,16 +95,14 @@ fun ReviewsScreen(
 private fun ReviewsListContent(
     onOpenIssue: (String) -> Unit,
     onOpenChanges: (String) -> Unit,
+    onOpenAgent: (AgentComposerSeed) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ReviewsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val mergeErrors by viewModel.mergeErrors.collectAsStateWithLifecycle()
     val merging by viewModel.merging.collectAsStateWithLifecycle()
-    val devices by viewModel.steerDevices.collectAsStateWithLifecycle()
-    val startCandidates by viewModel.startCandidates.collectAsStateWithLifecycle()
     var mergeTarget by remember { mutableStateOf<ReviewEntry?>(null) }
-    var fixTarget by remember { mutableStateOf<ReviewEntry?>(null) }
     // EXP-734: an issueless run's own PR — merged through the session, so it
     // gets its own confirm target.
     var mergeRunTarget by remember { mutableStateOf<RunReviewEntry?>(null) }
@@ -147,7 +131,16 @@ private fun ReviewsListContent(
                         onClick = { onOpenChanges(entry.representative.id) },
                         onOpenIssue = { onOpenIssue(entry.representative.id) },
                         onMerge = { mergeTarget = entry },
-                        onFixConflicts = { fixTarget = entry },
+                        // EXP-323/EXP-825: the composer opens on the builtin
+                        // with THIS pull request already picked.
+                        onFixConflicts = {
+                            onOpenAgent(
+                                AgentComposerSeed(
+                                    actionId = DomainContract.builtinFixConflictsId,
+                                    prIssueId = entry.representative.id,
+                                ),
+                            )
+                        },
                     )
                 }
             }
@@ -205,20 +198,6 @@ private fun ReviewsListContent(
         )
     }
 
-    // "Fix conflicts" (EXP-323, desktop parity): the unified sheet opened on
-    // the builtin action with THIS pull request already picked.
-    fixTarget?.let { entry ->
-        StartCodingSheet(
-            devices = devices ?: emptyList(),
-            issues = startCandidates,
-            preselectedIds = emptySet(),
-            preselectedActionId = DomainContract.builtinFixConflictsId,
-            preselectedPrIssueId = entry.representative.id,
-            onStart = viewModel::startCoding,
-            onRunAction = viewModel::runAction,
-            onDismiss = { fixTarget = null },
-        )
-    }
 }
 
 @Composable

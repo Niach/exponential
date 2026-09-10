@@ -1,4 +1,4 @@
-package com.exponential.app.ui.issue
+package com.exponential.app.ui.agent
 
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.domain.DomainContract

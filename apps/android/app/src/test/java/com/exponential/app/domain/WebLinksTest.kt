@@ -29,6 +29,16 @@ class WebLinksTest {
         )
     }
 
+    // EXP-825: the Agent page — the ONE launcher — mints and parses like the
+    // issue link does.
+    @Test
+    fun agentMintParseRoundTrip() {
+        val minted = WebLinks.agentUrl(base = "https://app.exponential.at/", teamSlug = "acme")
+        assertEquals("https://app.exponential.at/t/acme/agent", minted)
+        assertEquals(WebLinks.Parsed.Agent("acme"), WebLinks.parsePath(URI(minted).path))
+        assertEquals(WebLinks.Parsed.Agent("acme"), WebLinks.parsePath("/t/acme/agent/"))
+    }
+
     @Test
     fun parsesInviteUrl() {
         assertEquals(WebLinks.Parsed.Invite("abc123"), WebLinks.parsePath("/invite/abc123"))
@@ -95,6 +105,7 @@ class WebLinksTest {
     fun rejectsUnclaimedPaths() {
         for (path in listOf(
             null, "", "/", "/t/acme", "/t/acme/boards/web", "/t/acme/inbox",
+            "/t/acme/agent/sessions/abc", "/agent",
             "/t/acme/boards/web/issues", "/t/acme/boards/web/issues/EXP-1/changes",
             // Legacy pre-rename forms are DEAD (EXP-180) — never claimed.
             "/w/acme/boards/web/issues/EXP-1",

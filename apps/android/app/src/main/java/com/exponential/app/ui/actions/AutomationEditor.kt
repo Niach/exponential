@@ -40,8 +40,8 @@ import com.exponential.app.ui.components.PickerRow
 import com.exponential.app.ui.components.availableAgentsFor
 import com.exponential.app.ui.components.defaultAgentFor
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.issue.StartBoardOption
-import com.exponential.app.ui.issue.StartFilterOption
+import com.exponential.app.ui.agent.StartBoardOption
+import com.exponential.app.ui.agent.StartFilterOption
 import com.exponential.app.ui.theme.TextEmphasis
 
 // The shared automation editor (EXP-583). TWO hosts render these fields: the

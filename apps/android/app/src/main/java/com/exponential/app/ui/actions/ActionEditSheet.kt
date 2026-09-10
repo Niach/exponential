@@ -36,7 +36,7 @@ import com.exponential.app.ui.components.PickerRow
 import com.exponential.app.ui.components.SheetHeight
 import com.exponential.app.ui.components.SheetPrimaryAction
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.issue.StartCodingSheetViewModel
+import com.exponential.app.ui.agent.AgentLaunchDataViewModel
 import com.exponential.app.ui.theme.TextEmphasis
 
 // The action editor (EXP-694): mobile stopped being view + run only, so an
@@ -61,7 +61,7 @@ fun ActionEditSheet(
     actionId: String,
     onDismiss: () -> Unit,
     viewModel: ActionEditViewModel = hiltViewModel(),
-    dataViewModel: StartCodingSheetViewModel = hiltViewModel(),
+    dataViewModel: AgentLaunchDataViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val isOwner by viewModel.isTeamOwner.collectAsStateWithLifecycle()

@@ -1,4 +1,4 @@
-package com.exponential.app.ui.issue
+package com.exponential.app.ui.agent
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -7,7 +7,8 @@ import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.RepositoriesApi
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.TeamRepo
-import com.exponential.app.data.api.builtinActions
+import com.exponential.app.data.api.builtinCreateAction
+import com.exponential.app.data.api.builtinFixConflictsAction
 import com.exponential.app.data.api.toActionDto
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
@@ -36,15 +37,16 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.serialization.json.Json
 
-// The unified Start-coding sheet's Actions-tab data (EXP-257): the selected
-// team's actions LIVE from the synced actions shape (EXP-268 — the local Room
-// flow, body-less by design; the virtual builtin rows are prepended
-// client-side) plus the lookup
-// sources the typed input fields render from — the team repo registry for
-// `repo` inputs and the synced boards from the local DB for `board` inputs.
-// Owned by a dedicated ViewModel so every host screen (Agents / issue list /
-// issue detail / Actions) gets the Actions tab without fetching any of it
-// itself; running stays with the HOST's ViewModel via the sheet's callback.
+// The launcher's LOOKUP data (EXP-257, renamed from StartCodingSheetViewModel
+// in EXP-825 when the three-tab sheet became the Agent page composer): the
+// selected team's actions LIVE from the synced actions shape (EXP-268 — the
+// local Room flow, body-less by design; the virtual builtin rows are prepended
+// client-side) plus the sources the typed input fields render from — the team
+// repo registry for `repo` inputs, the synced boards for `board` inputs, the
+// open pull requests for `pr` inputs — and the worktree inventory behind the
+// Resume offer. Owned by a dedicated ViewModel so the composer, the action
+// editor and the automation form share one fetch; starting stays with
+// AgentComposerViewModel.
 
 /** Actions-list progress: null [actions] with null [error] = still loading. */
 data class SheetActionsState(
@@ -94,7 +96,7 @@ data class StartPullRequestOption(
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
-class StartCodingSheetViewModel @Inject constructor(
+class AgentLaunchDataViewModel @Inject constructor(
     auth: AuthRepository,
     holder: DatabaseHolder,
     private val repositoriesApi: RepositoriesApi,
@@ -111,12 +113,17 @@ class StartCodingSheetViewModel @Inject constructor(
 
     /**
      * The selected team — the hidden "Chat" builtin (EXP-615) is constructed
-     * locally, and every builtin start has to carry its teamId (there is no DB
-     * row for the server to derive it from).
+     * locally by the composer, and every builtin start has to carry its
+     * teamId (there is no DB row for the server to derive it from).
      */
     val teamId: StateFlow<String?> = selection.selectedId
 
-    /** The selected team's actions (both virtual builtin rows are prepended). */
+    /**
+     * The selected team's actions: the two LISTED builtins pinned first —
+     * "Fix merge conflicts" ahead of "Create action" (the web order, EXP-825)
+     * — then the synced rows in server order. Chat is in NO list: it is what
+     * "no subject" means on the composer.
+     */
     val actionsState: StateFlow<SheetActionsState> = combine(dbFlow, selection.selectedId) { db, teamId ->
         db to teamId
     }.flatMapLatest { (db, teamId) ->
@@ -125,17 +132,19 @@ class StartCodingSheetViewModel @Inject constructor(
         } else {
             db.actionDao().observeByTeam(teamId).map { rows ->
                 SheetActionsState(
-                    actions = builtinActions(teamId) +
-                        rows.map { it.toActionDto(json) },
+                    actions = listOf(
+                        builtinFixConflictsAction(teamId),
+                        builtinCreateAction(teamId),
+                    ) + rows.map { it.toActionDto(json) },
                 )
             }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SheetActionsState())
 
     /**
-     * The synced worktree inventory (EXP-481) behind the sheet's "Resume
+     * The synced worktree inventory (EXP-481) behind the composer's "Resume
      * previous session" offer. Owned here — like the actions/board/PR lookup
-     * sources — so every host gets the toggle without new plumbing.
+     * sources — so the composer needs no plumbing of its own.
      */
     val deviceWorktrees: StateFlow<List<DeviceWorktreeEntity>> =
         dbFlow.scopedQuery(emptyList<DeviceWorktreeEntity>()) { it.deviceWorktreeDao().observeAll() }
@@ -143,8 +152,8 @@ class StartCodingSheetViewModel @Inject constructor(
 
     /**
      * The synced device rows (EXP-481) — resolves a picked machine's ROW id
-     * for the worktree join when the host handed the sheet poll-derived
-     * SteerDevice rows (devices.list carries no rowId).
+     * for the worktree join when the composer holds a poll-derived
+     * SteerDevice row (devices.list carries no rowId).
      */
     val deviceRows: StateFlow<List<DeviceEntity>> =
         dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() }
@@ -153,8 +162,8 @@ class StartCodingSheetViewModel @Inject constructor(
     /**
      * The machines an automation can be bound to (EXP-583): every synced
      * device advertising the `automations` cap, ONLINE OR NOT — an automation
-     * outlives a machine's uptime. Feeds the create sheet's Automation block,
-     * whose device pick is INDEPENDENT of the machine running the creator run.
+     * outlives a machine's uptime. Feeds the automation form, whose device
+     * pick is INDEPENDENT of the machine running a creator run.
      */
     val automationDevices: StateFlow<List<SteerDevice>> = combine(
         dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() },

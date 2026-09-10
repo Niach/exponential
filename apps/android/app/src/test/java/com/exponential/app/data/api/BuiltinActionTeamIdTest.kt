@@ -53,33 +53,36 @@ class BuiltinActionTeamIdTest {
     }
 
     /**
-     * Its two inputs are the server's, byte for byte (web builtin-actions.ts).
-     * EXP-739 made the repo OPTIONAL: a repo-less chat runs worktree-less in a
-     * scratch dir, so only the prompt is required.
+     * Its one input is the server's, byte for byte (web builtin-actions.ts).
+     * EXP-825: the chat text is the start's `prompt`, never an input; EXP-739
+     * made the repo OPTIONAL: a repo-less chat runs worktree-less in a
+     * scratch dir.
      */
     @Test
-    fun `chat declares a required prompt and an optional repository`() {
+    fun `chat declares only an optional repository`() {
         val inputs = builtinChatAction(teamId).inputs.orEmpty()
-        assertEquals(listOf("prompt", "repo"), inputs.map { it.key })
-        assertTrue(inputs[0].required)
-        assertTrue(!inputs[1].required)
-        assertEquals("Prompt", inputs[0].label)
-        assertEquals("What should the agent do?", inputs[0].placeholder)
-        assertEquals("textarea", inputs[0].type)
-        assertEquals("Repository", inputs[1].label)
-        assertEquals("repo", inputs[1].type)
+        assertEquals(listOf("repo"), inputs.map { it.key })
+        assertEquals(false, inputs[0].required)
+        assertEquals("Repository", inputs[0].label)
+        assertEquals("repo", inputs[0].type)
     }
 
-    /** EXP-615: the optional name rides between description and repo. */
+    /**
+     * EXP-825: the request (and a stated name) is the start's `prompt`; the
+     * creator keeps only the two PICKS it cannot derive from prose. Every
+     * builtin input is a pick type the contract still knows.
+     */
     @Test
-    fun `create action offers an optional name input`() {
+    fun `create action offers only the repo and icon picks`() {
         val inputs = builtinCreateAction(teamId).inputs.orEmpty()
-        assertEquals(listOf("description", "name", "repo", "icon"), inputs.map { it.key })
-        val name = inputs[1]
-        assertEquals("Name", name.label)
-        assertEquals("text", name.type)
-        assertEquals(false, name.required)
-        assertEquals("Name (optional)", name.placeholder)
+        assertEquals(listOf("repo", "icon"), inputs.map { it.key })
+        assertEquals(listOf("Repository", "Icon"), inputs.map { it.label })
+        assertEquals(listOf("repo", "icon"), inputs.map { it.type })
+        assertTrue(inputs.none { it.required })
+        val every = builtinActions(teamId) + builtinChatAction(teamId)
+        every.flatMap { it.inputs.orEmpty() }.forEach { def ->
+            assertTrue(def.key, def.type in DomainContract.actionInputTypeValues)
+        }
     }
 
     @Test

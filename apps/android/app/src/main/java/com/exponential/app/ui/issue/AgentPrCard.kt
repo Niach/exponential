@@ -58,17 +58,6 @@ import com.exponential.app.ui.theme.glassRow
 // launcher moved into the bottom bar's start circle (EXP-240), so neither of
 // them starts anything; each renders only when it has something to say.
 
-// The remote-start progress state — relocated here from the deleted SteerPanel.
-// EXP-536: `Sent` is a pure WAITING state now (single and batch alike) — the
-// surface jumps into the live session as soon as the desktop's row syncs in,
-// so nothing points at the Agents tab any more.
-sealed interface SteerStartState {
-    data object Idle : SteerStartState
-    data object Sending : SteerStartState
-    data class Sent(val deviceLabel: String) : SteerStartState
-    data class Failed(val message: String) : SteerStartState
-}
-
 internal val LiveGreen = Color(0xFF34D399)
 
 // EXP-194/EXP-214: the parked states render a STATIC dot + label instead of
