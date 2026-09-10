@@ -2004,6 +2004,10 @@ impl DeviceSettingsView {
     /// Start a sign-in for `agent`: locally in a terminal tab on the OWN
     /// machine, remotely as an `agent_login` device command otherwise. A
     /// switch confirms first where the sign-out is destructive (codex).
+    ///
+    /// The switch callback re-enters this entity through a weak handle, so
+    /// it relies on `confirm_switch_then` running it OFF this update's stack
+    /// (FEED-39: inline, it double-leased the dialog and crashed the app).
     fn start_login(&mut self, agent: CodingAgent, switch: bool, cx: &mut gpui::Context<Self>) {
         if self.own {
             crate::agent_login::open_login_tab(agent, switch, cx);

@@ -33,7 +33,8 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **The wall names its window**: a blocked run's window and reset time now describe the same thing (the 5-hour session window, the weekly one or a model's), on the badge, in the session tools and in the message a parent run receives ("rate limited (weekly window) until ...").
 - **Queued updates arrive**: a CLI daemon with an update queued no longer waits for an attended chat that never closes. Sessions idle for 2 hours are ended and the daemon restarts on the new version.
 - **What holds an update**: the Devices page lists the live sessions a queued update is waiting on, who started them and when, and the Update button's tooltip says how the machine will get there.
-- **Update now**: a machine whose daemon supports it offers Update now next to a queued update. It ends every live session on that machine (repo-backed runs can be resumed from their session page) and restarts on the new version.`,
+- **Update now**: a machine whose daemon supports it offers Update now next to a queued update. It ends every live session on that machine (repo-backed runs can be resumed from their session page) and restarts on the new version.
+- **Switch account on another machine**: clicking Switch account in a remote machine's device settings crashed the desktop app on the machine you were sitting at. The switch now queues on the remote machine as intended.`,
   },
   {
     id: `2026-09-one-ui-everywhere`,
