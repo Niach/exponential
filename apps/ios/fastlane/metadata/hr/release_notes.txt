@@ -1,3 +1,9 @@
+- Ograničeno, ne zaglavljeno: kad agent usred izvođenja potroši kvotu, sesija se označava kao ograničena s vremenom poništavanja i ostaje aktivna i upravljiva umjesto da utihne
+- Polje upravljanja: polje sesije prima @ za suigrače, # za issue i : za emoji, ista tri koja je polje za komentar već imalo
+- Uređivanja u retku: diff uređivanja prikazuje se ispod svog retka u transkriptu, sklopljen dok ga ne dodirnete
+- Grupe alata koje kažu što se dogodilo: sklopljeni niz poziva alata glasi „Izvršene 4 naredbe, uređene 2 datoteke, 1 neuspješno” umjesto brojanja poziva
+- Besmisleno pokretanje se odbija: pokretanje na stroju čiji agent više nema kvotu to javlja i navodi vrijeme poništavanja
+- Trake potrošnje za drugi račun agenta na istom stroju
 - Upravljanje: u živoj sesiji prebacujete se između „Plan“ i „Build“; model i trud biraju se jednom pri pokretanju, a očitanja konteksta i potrošnje osvježavaju se kako ih izvođenje javlja
 - Prošla izvođenja: završene sesije navode se po uređaju uz „Resume“, pa se završeno izvođenje može nastaviti
 - Chat bez repozitorija: chat pokrenut iz lista „Start coding“ više ne treba repozitorij i radi u privremenoj mapi samo s alatima Exponentiala

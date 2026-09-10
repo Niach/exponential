@@ -1,3 +1,9 @@
+- Begrenset, ikke fastlåst: når en agent bruker opp kvoten midt i en kjøring, merkes økten som begrenset med tidspunktet for tilbakestilling, og den forblir aktiv og styrbar i stedet for å bli stille
+- Styringsfelt: øktfeltet tar @ for lagkamerater, # for saker og : for emoji, de samme tre som kommentarfeltet allerede hadde
+- Redigeringer inline: en redigerings diff vises under raden sin i utskriften, sammenslått til du trykker på den
+- Verktøygrupper som sier hva som skjedde: en sammenslått rekke verktøykall leses som «Kjørte 4 kommandoer, redigerte 2 filer, 1 mislyktes» i stedet for å telle kall
+- En utsiktsløs start avvises: start på en maskin der agenten allerede er tom for kvote sier fra og oppgir tidspunktet for tilbakestilling
+- Forbruksstolper for en ekstra agentkonto på samme maskin
 - Styring: bytt mellom «Plan» og «Build» fra den pågående økten; modell og innsats velges én gang ved start, og kontekst- og forbrukstall oppdateres etter hvert som kjøringen melder dem
 - Tidligere kjøringer: avsluttede økter listes per enhet med «Resume», slik at en avsluttet kjøring kan tas opp igjen
 - Chat uten repository: en chat som startes fra «Start coding»-arket trenger ikke lenger et repository og kjører i en midlertidig mappe med bare Exponential-verktøyene

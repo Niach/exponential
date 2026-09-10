@@ -1,3 +1,9 @@
+- Rajoitettu, ei jumissa: kun agentin kiintiö loppuu kesken ajon, istunto merkitään rajoitetuksi ja nollausaika näytetään, ja se pysyy aktiivisena ja ohjattavana sen sijaan, että hiljenisi
+- Ohjauskenttä: istuntokenttä ottaa @ tiimikavereille, # asioille ja : emojeille, samat kolme kuin kommenttikentässä jo oli
+- Muokkaukset rivissä: muokkauksen diff näkyy rivinsä alla transkriptissa, taitettuna kunnes napautat sitä
+- Työkaluryhmät kertovat mitä tapahtui: taitettu sarja työkalukutsuja lukee "Ajettiin 4 komentoa, muokattiin 2 tiedostoa, 1 epäonnistui" kutsujen laskemisen sijaan
+- Toivoton käynnistys hylätään: käynnistys koneella, jonka agentin kiintiö on jo lopussa, kertoo sen ja ilmoittaa nollausajan
+- Käyttöpalkit toiselle agenttitilille samalla koneella
 - Ohjaus: vaihda "Plan"- ja "Build"-tilan välillä suoraan käynnissä olevasta istunnosta; malli ja panostus valitaan kerran käynnistyksessä, ja konteksti- ja käyttölukemat päivittyvät sitä mukaa kuin ajo ne ilmoittaa
 - Aiemmat ajot: päättyneet istunnot listataan laitteittain "Resume"-painikkeella, joten päättyneen ajon voi ottaa uudelleen käsittelyyn
 - Chat ilman repositoriota: "Start coding" -paneelista aloitettu chat ei enää tarvitse repositoriota ja pyörii väliaikaisessa kansiossa vain Exponentialin työkaluilla

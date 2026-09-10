@@ -1,3 +1,9 @@
+- Begränsad, inte fast: när en agent gör slut på sin kvot mitt i en körning markeras sessionen som begränsad med tiden för återställning, och den förblir aktiv och styrbar i stället för att tystna
+- Styrfält: sessionsfältet tar @ för lagkamrater, # för ärenden och : för emoji, samma tre som kommentarsrutan redan hade
+- Ändringar inline: en ändrings diff visas under dess rad i utskriften, hopfälld tills du trycker på den
+- Verktygsgrupper som säger vad som hände: en hopfälld rad verktygsanrop läses som "Körde 4 kommandon, ändrade 2 filer, 1 misslyckades" i stället för att räkna anrop
+- En utsiktslös start avvisas: att starta på en maskin vars agent redan saknar kvot säger det och anger när den återställs
+- Förbrukningsstaplar för ett andra agentkonto på samma maskin
 - Styrning: växla mellan "Plan" och "Build" från den pågående sessionen; modell och insats väljs en gång vid start, och kontext- och användningsvärden uppdateras allteftersom körningen rapporterar dem
 - Tidigare körningar: avslutade sessioner listas per enhet med "Resume", så att en avslutad körning kan tas upp igen
 - Chatt utan repository: en chatt som startas från "Start coding"-bladet behöver inget repository och körs i en tillfällig mapp med bara Exponential-verktygen

@@ -1,3 +1,9 @@
+- Limité, pas bloqué : quand un agent épuise son quota en cours d'exécution, la session est marquée comme limitée avec l'heure de réinitialisation, et reste active et pilotable au lieu de se taire
+- Champ de pilotage : le champ de session accepte @ pour les coéquipiers, # pour les tickets et : pour les emoji, les trois mêmes que la zone de commentaire
+- Modifications en ligne : le diff d'une modification s'affiche sous sa ligne dans la transcription, replié jusqu'à ce que vous le touchiez
+- Des groupes d'outils qui disent ce qui s'est passé : une suite repliée d'appels d'outils se lit « 4 commandes exécutées, 2 fichiers modifiés, 1 échec » au lieu d'un simple compte
+- Un démarrage voué à l'échec est refusé : démarrer sur une machine dont l'agent n'a plus de quota le signale et indique l'heure de réinitialisation
+- Barres de consommation pour un second compte d'agent sur la même machine
 - Pilotage : basculez entre « Plan » et « Build » depuis la session en cours ; le modèle et l'effort se choisissent une fois au démarrage, et les indicateurs de contexte et d'usage se mettent à jour au fur et à mesure que l'exécution les remonte
 - Exécutions passées : les sessions terminées sont listées par appareil avec « Resume », pour reprendre une exécution qui s'est terminée
 - Chat sans dépôt : un chat lancé depuis la feuille « Start coding » n'a plus besoin d'un dépôt et tourne dans un dossier temporaire avec les seuls outils Exponential
@@ -16,4 +22,3 @@
 - Conversations des sous-agents : les tours d'un sous-agent s'affichent dans leur propre vue, et le texte de l'agent ne se coupe plus au milieu d'une phrase sur plusieurs lignes
 - Une exécution qui se tait le dit : la session indique quand l'agent a cessé de signaler sa progression
 - Connexion d'un agent à distance : collez le code du lien de connexion de l'agent dans les réglages de l'appareil pour terminer la connexion depuis votre téléphone
-- « Start coding » : une seule feuille pour les issues, les actions et le chat, avec les mêmes options partout

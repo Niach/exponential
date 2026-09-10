@@ -1,3 +1,9 @@
+- Gelimiteerd, niet vastgelopen: als een agent halverwege zijn quotum opgebruikt, wordt de sessie als gelimiteerd gemarkeerd met het tijdstip van de reset, en blijft ze actief en bestuurbaar in plaats van stil te vallen
+- Stuurveld: het sessieveld neemt @ voor teamgenoten, # voor issues en : voor emoji, dezelfde drie als het reactievak
+- Bewerkingen inline: de diff van een bewerking staat onder zijn rij in het transcript, ingeklapt tot je erop tikt
+- Toolgroepen die zeggen wat er gebeurde: een ingeklapte reeks toolaanroepen leest als "4 opdrachten uitgevoerd, 2 bestanden bewerkt, 1 mislukt" in plaats van een telling
+- Een kansloze start wordt geweigerd: starten op een machine waarvan de agent al geen quotum meer heeft, meldt dat en noemt het resettijdstip
+- Gebruiksbalken voor een tweede agentaccount op dezelfde machine
 - Sturen: wissel tijdens de lopende sessie tussen "Plan" en "Build"; model en inspanning kies je één keer bij de start, en context- en verbruikswaarden werken bij zodra de run ze meldt
 - Eerdere runs: afgeronde sessies staan per apparaat in de lijst met "Resume", zodat een beëindigde run weer opgepakt kan worden
 - Chat zonder repository: een chat vanuit het "Start coding"-blad heeft geen repository meer nodig en draait in een tijdelijke map met alleen de Exponential-tools
