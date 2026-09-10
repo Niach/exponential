@@ -18,7 +18,7 @@ import { TeamSidebar } from "@/components/team/sidebar"
 import {
   MAIN_COLUMN_CLASS,
   MAIN_OUTLET_CLASS,
-  mainPanelClass,
+  MAIN_PANEL_CLASS,
 } from "@/components/team/app-shell"
 import { IssueSearchSheet } from "@/components/issue-search-sheet"
 import { OfflineBanner } from "@/components/offline-banner"
@@ -31,7 +31,6 @@ import {
   useGettingStartedProgress,
 } from "@/hooks/use-getting-started-progress"
 import { MentionProvider } from "@/components/mention-provider"
-import { AgentDock } from "@/components/agent-dock/agent-dock"
 import { GettingStartedSheetProvider } from "@/components/getting-started/getting-started-sheet"
 import { IssueSearchProvider } from "@/hooks/use-issue-search"
 import { MobileChromeProvider } from "@/hooks/use-mobile-chrome"
@@ -110,12 +109,6 @@ function TeamLayout() {
   // Child-route params (loose match): `boardSlug` is set while any
   // board-scoped route (board, issue detail) is active.
   const { boardSlug } = useParams({ strict: false })
-  // EXP-771: whether the dock band renders under the card — it decides the
-  // card's bottom margin (6px with the band, 10px without). The dock itself
-  // renders nothing on phones, and the margin is `md:`-gated, so the two
-  // agree without asking the viewport twice.
-  const dockVisible = Boolean(team && user)
-
   // EXP-69: remember this device's last-used team/board so the root
   // redirect can jump straight back on the next app entry.
   useEffect(() => {
@@ -183,7 +176,7 @@ function TeamLayout() {
                 `overflow-x-clip` contains stragglers inside the content
                 region. */}
             <div className={MAIN_COLUMN_CLASS}>
-              <main className={mainPanelClass(dockVisible)}>
+              <main className={MAIN_PANEL_CLASS}>
                 {/* EXP-533: above the mobile topbar (which is `md:hidden` and
                     hides itself on detail routes), so the "showing cached
                     data" notice is the first thing in the content column on
@@ -195,26 +188,12 @@ function TeamLayout() {
                   team={team}
                   boards={boards}
                 />
-                {/* EXP-771: NO dock inset here, and none needed. The dock is
-                    a SIBLING of the card now, not its last flex child — the
-                    card's own box already ends above the band, so reserving
-                    `--dock-h` inside it would open a second, empty
-                    band-sized gap. The strip still publishes its measured
-                    height for anything that wants it. */}
                 <div className={MAIN_OUTLET_CLASS}>
                   <Outlet />
                 </div>
               </main>
-              {/* Renders null on phones (EXP-193) — `dockVisible` above is
-                  this same condition, keeping the card's bottom margin in
-                  step with it. */}
-              {team && user && (
-                <AgentDock
-                  teamId={team.id}
-                  teamSlug={teamSlug}
-                  currentUserId={user.id}
-                />
-              )}
+              {/* EXP-818: no dock band under the card any more — the
+                  sidebar's Sessions group and the Agent page list the runs. */}
             </div>
 
             {/* Native-style bottom navigation (EXP-189) — fixed-position,

@@ -25,6 +25,21 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-one-ui-everywhere`,
+    date: `2026-09-10`,
+    title: `Sessions beside their list, one session header, and lists the Linear way`,
+    summary: `Sessions open next to the list you came from with a back you can mouse, the header is the same on every device, hover is visible again, Usage lives under Devices, and lists are flat rows under group bands.`,
+    body: `- **Sessions beside their list**: a coding session opens as a screen of its own next to the list you came from (the Inbox stays when you click a running session from it, a board stays when you watch a run from one of its issues), and the Agent page lists every running and past run beside the chat prompt, on the desktop app and on the web. The web's bottom dock band is gone; running sessions sit in the sidebar instead.
+- **Back and forward with the mouse**: the desktop app's history has a forward stack, and the mouse's back and forward buttons walk it everywhere, next to Alt+Left and Alt+Right.
+- **One session header**: back, the run's identity, Usage, Resume and ONE Stop, identical whether you sit on the machine that runs the agent or watch it from another. The "Back to issue" row and the small kill icon are gone; the issue's property tray shows Start coding, or Watch for your own live run.
+- **Honest sidebar rows**: a session row leads with its state dot, names the machine it runs on, nests the runs it started under it, and spins only while the agent is actually working.
+- **Readable plan options**: the highlighted option on a plan card is white on blue again; the composer's attach button is the image glyph every other composer wears; "Latest changes" is "Changes".
+- **Hover you can see**: the desktop app's context menus and list rows had an invisible hover; the whole glass ladder got one notch lighter on every client.
+- **Usage under Devices**: the Usage page folded into the Devices page as its Accounts section. Each account lists the machines that hold it; a check marks the machine where it is the active login, and clicking a chip signs in or switches the account there.
+- **Lists the Linear way**: group headers are filled bands and rows are flat, gapless lines under them, on Devices, Actions, Automations, Reviews, Inbox and Support; the Inbox and Support tabs are the segmented capsule; Filter is a small icon button; settings sections are grouped cards whose rows save themselves.
+- **Quieter rate-limit banner**: a warning while the agent keeps working is no longer announced as "rate limited"; the banner shows for a real wall, with a countdown to the reset.`,
+  },
+  {
     id: `2026-09-rate-limited-runs`,
     date: `2026-09-09`,
     title: `A run that hits its rate limit says so`,

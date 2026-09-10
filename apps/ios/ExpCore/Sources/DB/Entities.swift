@@ -410,6 +410,10 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
     // EXP-637: the ended run this one resumed (FK SET NULL). Set by
     // `steer.startSession({ resumeSessionId })`; the start watch keys on it.
     public let resumedFromId: String?
+    // EXP-818: the run that spawned this one through
+    // `exponential_sessions_start` (FK SET NULL); nil on a top-level run. The
+    // session lists nest a child under its parent (SessionTree).
+    public let parentSessionId: String?
     public let startedAt: String
     public let endedAt: String?
     public let createdAt: String
@@ -449,6 +453,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         summary: String? = nil,
         endedBy: String? = nil,
         resumedFromId: String? = nil,
+        parentSessionId: String? = nil,
         startedAt: String,
         endedAt: String?,
         createdAt: String,
@@ -476,6 +481,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         self.summary = summary
         self.endedBy = endedBy
         self.resumedFromId = resumedFromId
+        self.parentSessionId = parentSessionId
         self.startedAt = startedAt
         self.endedAt = endedAt
         self.createdAt = createdAt
@@ -501,6 +507,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         case automationId = "automation_id"
         case endedBy = "ended_by"
         case resumedFromId = "resumed_from_id"
+        case parentSessionId = "parent_session_id"
         case startedAt = "started_at"
         case endedAt = "ended_at"
         case createdAt = "created_at"
@@ -545,6 +552,8 @@ extension CodingSessionEntity: Codable {
         summary = try c.decodeIfPresent(String.self, forKey: .summary)
         endedBy = try c.decodeIfPresent(String.self, forKey: .endedBy)
         resumedFromId = try c.decodeIfPresent(String.self, forKey: .resumedFromId)
+        // Pre-EXP-818 snapshots omit the key — decode permissively.
+        parentSessionId = try c.decodeIfPresent(String.self, forKey: .parentSessionId)
         startedAt = try c.decode(String.self, forKey: .startedAt)
         endedAt = try c.decodeIfPresent(String.self, forKey: .endedAt)
         createdAt = try c.decode(String.self, forKey: .createdAt)

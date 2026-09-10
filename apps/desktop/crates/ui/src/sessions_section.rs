@@ -188,7 +188,7 @@ impl Render for RunningSessionsSection {
         }
         // NO gap on the headed section (EXP-697): the header's `pb_2` IS the
         // 8px to the list, so the rows live in their own gapped column.
-        let mut column = v_flex().min_w_0().gap_2();
+        let mut column = v_flex().min_w_0();
         for (index, row) in rows.into_iter().enumerate() {
             let open_id = row.session_id.clone();
             let kill = row.killable.then(|| {
@@ -320,7 +320,7 @@ impl Render for PastSessionsSection {
         if rows.is_empty() {
             return v_flex();
         }
-        let mut column = v_flex().min_w_0().gap_2();
+        let mut column = v_flex().min_w_0();
         for (index, row) in rows.iter().enumerate() {
             let open_id = row.session_id.clone();
             column = column.child(run_rows::render_run_row(
@@ -397,7 +397,7 @@ fn session_title(
 
 /// The live dot's tone, mirroring the web tab's dot rules (and the dock chip's
 /// twin, which D6 removes).
-fn session_tone(display: CodingSessionDisplay, paused: bool, muted: Hsla) -> Hsla {
+pub(crate) fn session_tone(display: CodingSessionDisplay, paused: bool, muted: Hsla) -> Hsla {
     if paused {
         return muted.opacity(0.4);
     }

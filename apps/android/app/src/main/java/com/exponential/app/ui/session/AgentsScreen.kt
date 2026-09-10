@@ -44,6 +44,7 @@ import com.exponential.app.data.api.deviceUpdateAvailable
 import com.exponential.app.data.db.AutomationEntity
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.DomainContract
@@ -265,7 +266,17 @@ fun AgentsScreen(
                             )
                         }
                     } else {
-                        items(state.rows, key = { it.session.id }) { row ->
+                        // EXP-818: a run started by another run nests under
+                        // its parent, indented (`SessionTree`, the ×4 rule).
+                        val tree = SessionTree.nest(
+                            state.rows,
+                            { it.session.id },
+                            { it.session.parentSessionId },
+                            { it.session.startedAt },
+                        )
+                        items(tree, key = { it.session.session.id }) { entry ->
+                            val row = entry.session
+                            Box(Modifier.padding(start = (entry.depth * 16).dp)) {
                             // EXP-535: batch rows merge (and fix conflicts)
                             // through their resolved PR's representative issue
                             // — the server resolves a batch PR to ALL linked
@@ -351,6 +362,7 @@ fun AgentsScreen(
                                     fixTargetIssueId = issueMergeTarget?.issueId
                                 },
                             )
+                            }
                         }
                     }
 

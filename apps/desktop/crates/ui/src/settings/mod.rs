@@ -1023,13 +1023,20 @@ pub(crate) fn is_owner(cx: &App, team_id: &str) -> bool {
 // Shared chrome bits (web Card + notices at compact density)
 // ---------------------------------------------------------------------------
 
-/// EXP-282: the settings panes' section container — FLAT. It used to be the
-/// glass card (EXP-269); stacked cards inside an already-glass column read as
-/// boxes-in-boxes, so a section is now just a left-aligned block whose
-/// heading ([`card_header`]) carries the structure. Renamed `card` → `section`
-/// across the panes.
+/// The settings panes' section container. EXP-282 flattened it; EXP-818
+/// brings the CARD back the Linear way: one rounded `FILL_ROW` block per
+/// section holding its heading and its rows, so a pane reads as a stack of
+/// grouped cards (Profile / Workspace access) rather than as headings
+/// floating in a column. The rows inside are flat (`surface::flat_row`,
+/// the `glass_*_row` recipes), never a second card.
 pub(crate) fn section(_cx: &App) -> gpui::Div {
-    v_flex().w_full().gap_3()
+    v_flex()
+        .w_full()
+        .gap_3()
+        .px_4()
+        .py_3()
+        .rounded(gpui::px(theme::tokens::radius::LG))
+        .bg(theme::tokens::glass::FILL_ROW.to_hsla())
 }
 
 /// EXP-282: the hairline the panes' rows/chips draw — the glass row stroke
@@ -1162,7 +1169,10 @@ pub(crate) fn danger_zone(
     action: impl IntoElement,
     cx: &App,
 ) -> gpui::Div {
-    section(cx)
+    // EXP-818: the group row IS the card here — not a card inside `section`.
+    v_flex()
+        .w_full()
+        .gap_3()
         .child(
             div()
                 .text_sm()

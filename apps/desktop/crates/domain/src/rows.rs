@@ -558,6 +558,11 @@ pub struct CodingSession {
     /// fresh run.
     #[serde(default)]
     pub resumed_from_id: Option<String>,
+    /// EXP-818: the run that spawned this one through
+    /// `exponential_sessions_start` (FK SET NULL); `None` on a top-level run.
+    /// The session lists nest a child under its parent.
+    #[serde(default)]
+    pub parent_session_id: Option<String>,
     #[serde(default)]
     pub started_at: Option<String>,
     #[serde(default)]

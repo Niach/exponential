@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react"
 import type { Team } from "@/db/schema"
-import { Button } from "@/components/ui/button"
-import { GlassSectionHeader } from "@/components/ui/glass-rows"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import {
+  GlassGroup,
+  GlassInputRow,
+  GlassSectionHeader,
+} from "@/components/ui/glass-rows"
 import { trpc } from "@/lib/trpc-client"
 
 // Team visibility is deliberately NOT configurable: every team is
@@ -39,36 +40,35 @@ export function TeamGeneralSection({ team }: { team: Team }) {
     <div className="space-y-5">
       <div>
         <GlassSectionHeader label="General" />
-        {/* EXP-719: a label over a real text field, the desktop pane's
-            recipe (team_general.rs) and the board form's. The glass
-            label/value row read as a display row next to an explicit Save
-            button — the value sat right-aligned with nothing marking it as
-            editable. The row vocabulary stays for rows that save themselves
-            (device name). */}
-        <div className="space-y-2">
-          <Label htmlFor="team-name">Name</Label>
-          <Input
+        {/* EXP-818: the Linear settings row — label left, value right, and
+            it SAVES ITSELF on blur and on Enter (the device editor's Name row,
+            the IDE's team_general.rs twin). No Save button. */}
+        <GlassGroup>
+          <GlassInputRow
             id="team-name"
+            label="Name"
             value={name}
             maxLength={255}
             onChange={(e) => setName(e.target.value)}
+            onBlur={() => void handleSave()}
             onKeyDown={(e) => {
               if (e.key === `Enter`) {
                 e.preventDefault()
-                void handleSave()
+                e.currentTarget.blur()
               }
             }}
+            trailing={
+              saving ? (
+                <span className="shrink-0 text-xs text-muted-foreground">Saving…</span>
+              ) : dirty ? (
+                <span className="shrink-0 text-xs text-muted-foreground">Unsaved</span>
+              ) : undefined
+            }
           />
-        </div>
+        </GlassGroup>
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
-
-      <div className="flex justify-end">
-        <Button onClick={handleSave} disabled={!dirty || saving}>
-          {saving ? `Saving...` : `Save changes`}
-        </Button>
-      </div>
     </div>
   )
 }

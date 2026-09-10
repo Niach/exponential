@@ -526,21 +526,15 @@ impl IssueHeader {
         if !self.start_coding.read(cx).is_visible(cx) {
             return None;
         }
-        let local_running = LocalSessions::global_ref(cx)
-            .map(|sessions| sessions.read(cx).get(&issue.id).is_some())
-            .unwrap_or(false);
-        let card = (!local_running)
-            .then(|| crate::issue_detail::coding_now_card(&issue.id, cx))
-            .flatten();
+        // EXP-818: the coding-now CARD is gone — the tray's coding slot
+        // (`coding_now_slot`) carries Watch or the teammate caption. What is
+        // left here is the merge-error caption.
         let pr_open = issue.pr_state.as_deref() == Some("open");
-        if card.is_none() && !pr_open {
+        if !pr_open {
             return None;
         }
         let mut column = v_flex().w_full().gap_2().px(px(DETAIL_GUTTER)).pb_2();
-        let has_card = card.is_some();
-        if let Some(card) = card {
-            column = column.child(card);
-        }
+        let has_card = false;
 
         let mut controls = h_flex().w_full().flex_wrap().gap_2().items_center();
         // EXP-760: Merge moved UP into the property tray beside Start coding
@@ -852,8 +846,15 @@ impl IssueHeader {
         let local_running = LocalSessions::global_ref(cx)
             .map(|sessions| sessions.read(cx).get(&issue.id).is_some())
             .unwrap_or(false);
-        let start_coding = self.start_coding.read(cx).is_visible(cx)
-            && (local_running || !crate::issue_detail::has_live_coding_session(&issue.id, cx));
+        let coding_visible = self.start_coding.read(cx).is_visible(cx);
+        let live = crate::issue_detail::has_live_coding_session(&issue.id, cx);
+        let start_coding = coding_visible && (local_running || !live);
+        // EXP-818: a live run this process does NOT host takes the control's
+        // slot instead — the caller's own run as a Watch pill, a teammate's
+        // as a muted caption.
+        let coding_slot = (coding_visible && !start_coding && live)
+            .then(|| crate::issue_detail::coding_now_slot(&issue.id, cx))
+            .flatten();
         // EXP-760: which of the two trailing actions show, and which one is
         // the emphasised (white) one.
         let styles = header_action_styles(
@@ -880,7 +881,7 @@ impl IssueHeader {
             // EXP-760: BOTH header actions live at the tray's right edge now
             // — Start coding and, while the PR is open, Merge. The stale
             // merge card below the tray is gone.
-            .when(styles.any(), |tray| {
+            .when(styles.any() || coding_slot.is_some(), |tray| {
                 tray.child(
                     h_flex()
                         .ml_auto()
@@ -890,6 +891,7 @@ impl IssueHeader {
                         .when(styles.start_coding, |row| {
                             row.child(self.start_coding.clone())
                         })
+                        .children(coding_slot)
                         .when(styles.merge, |row| row.child(self.merge_button(issue, cx))),
                 )
             });

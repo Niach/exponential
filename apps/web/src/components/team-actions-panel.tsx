@@ -43,7 +43,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
+import { GlassSectionHeader, ListRow } from "@/components/ui/glass-rows"
 import {
   Tabs,
   TabsContent,
@@ -136,7 +136,7 @@ function ActionRow({
 }) {
   const RowIcon = getActionIcon(action)
   return (
-    <GlassRow>
+    <ListRow>
       <RowIcon className="size-4 shrink-0 text-foreground/70" />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5 text-sm">
@@ -171,7 +171,7 @@ function ActionRow({
       {isOwner && !action.builtin && (
         <ActionMenu action={action} onEdit={onEdit} onDelete={onDelete} />
       )}
-    </GlassRow>
+    </ListRow>
   )
 }
 
@@ -393,7 +393,7 @@ export function TeamActionsPanel({
       {sortedActions === null ? (
         <div className="px-1 py-3 text-sm text-muted-foreground">Loading…</div>
       ) : (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-0">
           {sortedActions.map((action) => (
             <ActionRow key={action.id} {...actionItemProps(action)} />
           ))}

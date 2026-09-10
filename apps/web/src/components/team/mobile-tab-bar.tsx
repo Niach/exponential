@@ -60,7 +60,7 @@ export function useMobileChromeVisible(): boolean {
     to: `/t/$teamSlug/sessions/$sessionId`,
     fuzzy: true,
   })
-  const onChat = matchRoute({ to: `/t/$teamSlug/chat`, fuzzy: true })
+  const onChat = matchRoute({ to: `/t/$teamSlug/agent`, fuzzy: true })
   return !onIssueDetail && !onReviewDetail && !onSessionDetail && !onChat
 }
 
@@ -285,7 +285,7 @@ export function MobileTabBar({
           conversation and its history, instead of opening a one-shot dialog. */}
       {onDevices || onActions ? (
         <Link
-          to="/t/$teamSlug/chat"
+          to="/t/$teamSlug/agent"
           params={{ teamSlug }}
           aria-label="Start chat"
           className={FAB_CLASS}

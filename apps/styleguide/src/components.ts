@@ -318,6 +318,15 @@ function composer(options: ComposerOptions): string {
   ].join(``)
 }
 
+function listRow(label: string, trailing: string, active: boolean): string {
+  return [
+    `<div class="cmp-list-row interactive${active ? ` active` : ``}">`,
+    `<span class="label">${escapeHtml(label)}</span>`,
+    `<span class="trailing">${escapeHtml(trailing)}</span>`,
+    `</div>`,
+  ].join(``)
+}
+
 function row(label: string, trailing?: string, interactive = false): string {
   return [
     `<div class="cmp-row${interactive ? ` interactive` : ``}">`,
@@ -381,9 +390,9 @@ const HEADER_EXCEPTION = `Emoji picker category headers stay uppercase on purpos
 export const COMPONENTS: readonly ComponentSpec[] = [
   {
     id: `section-header`,
-    title: `Section header`,
+    title: `Group band`,
     kind: `Grouped list`,
-    blurb: `Sentence case, 14/20 at 70% foreground, with a trailing slot. No count — EXP-698 retired header counts on every client. Never uppercase and never a divider.`,
+    blurb: `EXP-818: the Linear group header — a full-width strip on the section fill, radius 10, padding 6/12, 14/20 at 85% foreground, a trailing slot, 4px over its flat rows. No count. Never uppercase and never a divider.`,
     status: {
       web: ok(`GlassSectionHeader`, WEB_GLASS_ROWS, HEADER_EXCEPTION),
       desktop: ok(`surface::glass_section_header`, DESKTOP_SURFACE, HEADER_EXCEPTION),
@@ -426,7 +435,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `row`,
     title: `Glass row`,
     kind: `Grouped list`,
-    blurb: `The GAPPED list item: radius 10, row fill, its own hairline border, padding 12. Interactive rows lighten to half the active fill on hover.`,
+    blurb: `The GAPPED card item: radius 10, row fill, its own hairline border, padding 12. EXP-818 keeps it for the few real cards (a transcript's tool output, a diff); every LIST wears the flat list row below.`,
     status: {
       web: ok(`GlassRow`, WEB_GLASS_ROWS),
       desktop: ok(`surface::glass_row_card`, DESKTOP_SURFACE),
@@ -438,6 +447,26 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `<div class="cmp-stack">`,
         row(`APP-14 · Fix the merge queue`, pill(`in review`, { mode: `readonly` }), true),
         row(`APP-15 · Ship the usage sheet`, pill(`backlog`, { mode: `readonly` }), true),
+        `</div>`,
+      ].join(``),
+  },
+  {
+    id: `list-row`,
+    title: `List row`,
+    kind: `Grouped list`,
+    blurb: `EXP-818: the flat list item every list wears — no stroke, no fill, radius 10, padding 12, NO gap between rows under a group band; hover takes the row fill, the selected row the active fill. Rows read as a table, not as cards.`,
+    status: {
+      web: ok(`ListRow`, WEB_GLASS_ROWS),
+      desktop: ok(`surface::flat_row`, DESKTOP_SURFACE),
+      ios: ok(`GlassRow`, IOS_THEME, `The phones keep the gapped row: a thumb needs the edge.`),
+      android: ok(`Modifier.glassRow()`, ANDROID_GLASS, `See iOS.`),
+    },
+    render: () =>
+      [
+        `<div class="cmp-list">`,
+        sectionHeader(`Running`),
+        listRow(`APP-14 · Fix the merge queue`, `macbook`, true),
+        listRow(`APP-15 · Ship the usage sheet`, `server`, false),
         `</div>`,
       ].join(``),
   },
@@ -571,11 +600,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     kind: `Controls`,
     blurb: `The bottom strip of coding tabs (EXP-769). It sits OUTSIDE the content card, on the bare page ground below it, the mirror of the desktop's head toolbar above (EXP-771): the card stops 6px short and the band takes the last 36 down to the window bottom, with no fill and no border of its own and its chips inset 8. Give it a fill and the ground reads as a second card. It holds the rich tabs of the user's running sessions and, on the desktop, the open terminals — a session tab leads with its 6px liveness dot and carries the issue's mono identifier, the title and a muted " · machine" caption; a terminal tab leads with the terminal glyph and wears its exit code as a badge. Right after the last tab sit two ghost 24px glyph buttons: Chat (a promptless chat run on the default agent) and add (a plain terminal, desktop only). Nothing else: no header, no collapse, no label when empty — the strip is always there so Chat is always one click away. Selecting a tab opens that session or terminal FULLSCREEN in the content area; the web navigates to the session route, the desktop shows the screen. The × on a live session kills it (confirmed), on an ended one closes the transcript tab, on a terminal closes the terminal.`,
     status: {
-      web: ok(
-        `AgentDock`,
-        `apps/web/src/components/agent-dock/agent-dock.tsx`,
-        `session tabs plus the trailing Chat glyph; sessions open on their own page`
-      ),
+      web: na(`EXP-818: no bottom band on the web — sessions are the sidebar's Sessions group and the Agent page's list.`),
       desktop: ok(
         `session_bar::SessionBar`,
         `apps/desktop/crates/ui/src/session_bar.rs`,
@@ -969,7 +994,11 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     blurb: `180–280 wide, padding 4, radius 12. Opaque by construction: the card fill is composited over the popover solid so nothing shows through.`,
     status: {
       web: ok(`DropdownMenuContent`, `apps/web/src/components/ui/dropdown-menu.tsx`),
-      desktop: na(`gpui-component PopupMenu, theme-driven`),
+      desktop: ok(
+        `theme::exponential_dark (accent = glass fillActive)`,
+        `apps/desktop/crates/theme/src/lib.rs`,
+        `PopupMenu reads theme.accent; EXP-811 points it at the glass active fill.`
+      ),
       ios: ok(`GlassMenu + GlassMenuTokens`, `apps/ios/ExpUI/Sources/GlassMenu.swift`),
       android: ok(`GlassDropdownMenu + GlassMenuDefaults`, `${ANDROID_COMPONENTS}/GlassMenu.kt`),
     },

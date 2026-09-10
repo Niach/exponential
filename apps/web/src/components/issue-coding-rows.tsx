@@ -386,9 +386,6 @@ function AgentRow({
   const latestDevice = useSessionDevice(latest)
 
   if (latest) {
-    // A live session replaces the start affordance — the properties card's
-    // capsule steps aside for the running row below.
-    if (variant === `start`) return null
     const owner = users.find((u) => u.id === latest.userId)
     const paused = sessionIsPaused(
       sessionDisplayState(latest, issue.prState),
@@ -436,55 +433,54 @@ function AgentRow({
       )
     }
 
-    const codingBadge = (
-      <>
-        <SessionStatusBadge
-          session={latest}
-          prState={issue.prState}
-          count={sessions.length}
-          paused={paused}
-        />
-        <SessionBlockedBadge session={latest} />
-      </>
-    )
-    const ownerLabel = (
-      <span
-        className="min-w-0 truncate text-xs text-muted-foreground"
-        title={paused ? `${latestDevice.label ?? `The device`} is offline` : undefined}
-      >
-        {displayUserName(owner, latest.userId)}
-        {latestDevice.label ? ` · ${latestDevice.label}` : ``}
-        {paused ? ` (offline)` : ``}
-      </span>
-    )
-
-    // EXP-698 r4: the "coding now" card wears the properties band's chrome —
-    // same gutter, same 12px glass group — because it sits right underneath it.
-    return (
-      <CodingRowStack>
-        <div className="flex items-center gap-2 rounded-xl border border-glass-stroke-card bg-popover/40 px-3 py-2">
-          {codingBadge}
-          {ownerLabel}
-          <div className="ml-auto flex shrink-0 items-center gap-2">
-            {ownLatest && steerEnabled ? (
-              <Pill
-                size="sm"
-                mode="action"
-                primary
-                onClick={() => openSession(ownLatest)}
-              >
-                <WatchIcon />
-                Watch
-              </Pill>
-            ) : ownLatest && steerEnabled === false ? (
-              <span className="text-xs text-muted-foreground">
-                Live steering is unavailable on this instance.
-              </span>
-            ) : null}
-          </div>
-        </div>
-      </CodingRowStack>
-    )
+    // EXP-818: the tray's coding SLOT (IDE `coding_now_slot` twin) — the
+    // caller's own run as the primary Watch pill straight into the run's
+    // screen; a teammate's as a muted `● Coding now · name` caption. The
+    // "coding now" card under the tray is gone: the tray already holds every
+    // action, and a second card said the same thing again.
+    if (variant === `start`) {
+      if (ownLatest && steerEnabled) {
+        return (
+          <Pill
+            size="sm"
+            mode="action"
+            primary
+            onClick={() => openSession(ownLatest)}
+          >
+            <WatchIcon />
+            Watch
+          </Pill>
+        )
+      }
+      const state = paused ? null : sessionDisplayState(latest, issue.prState)
+      const verb = paused
+        ? `Paused`
+        : state === `needs_input`
+          ? `Needs input`
+          : state === `review`
+            ? `Ready for review`
+            : state === `done`
+              ? `Done`
+              : `Coding now`
+      return (
+        <span
+          className="flex min-w-0 shrink-0 items-center gap-1.5 text-xs text-muted-foreground"
+          title={paused ? `${latestDevice.label ?? `The device`} is offline` : undefined}
+        >
+          {paused ? (
+            <StateDot className="bg-muted-foreground/40" />
+          ) : (
+            <SessionStateDot state={sessionDisplayState(latest, issue.prState)} />
+          )}
+          <span className="truncate">
+            {verb}
+            {ownLatest ? `` : ` · ${displayUserName(owner, latest.userId)}`}
+          </span>
+        </span>
+      )
+    }
+    // `row` draws nothing any more (EXP-818).
+    return null
   }
 
   // Not running: only members can remote-start, and only on a repo-backed

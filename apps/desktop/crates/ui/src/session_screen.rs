@@ -43,8 +43,8 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, notification::Notification, popover::Popover, v_flex, ActiveTheme as _,
-    Sizable as _, WindowExt as _,
+    h_flex, menu::DropdownMenu as _, notification::Notification, popover::Popover, v_flex,
+    ActiveTheme as _, Sizable as _, WindowExt as _,
 };
 
 use crate::coding_flow::LocalSessions;
@@ -52,9 +52,11 @@ use crate::icons::registry;
 use crate::navigation::Screen;
 use crate::steer_viewer::{FeedSource, SteerSessionView};
 
-/// Open `session_id`'s surface in this window (EXP-773: a coding run has no
-/// terminal tab): its issue's detail with the transcript slid in when the
-/// run is issue-bound (EXP-791), else its own session screen.
+/// Open `session_id`'s screen in this window (EXP-773: a coding run has no
+/// terminal tab). EXP-818: ALWAYS its own [`Screen::Session`] — Start,
+/// Resume, Watch and a Sessions row all land here, and the list column
+/// beside it is the one the caller came from (`navigation::derive_origin`);
+/// the EXP-791 slide-in over the issue is gone.
 pub(crate) fn open_session(session_id: &str, window: &mut Window, cx: &mut App) {
     // EXP-746 D5: a resume mints a NEW row id, so opening it plainly would put
     // a second tab beside the run it continues. `screens::sync_session_tabs`
@@ -66,10 +68,6 @@ pub(crate) fn open_session(session_id: &str, window: &mut Window, cx: &mut App) 
     if let Some(resumed_from) = resumed_from_id(session_id, cx) {
         crate::screens::take_over_session_tab(&resumed_from, session_id, window, cx);
     }
-    if let Some(issue_id) = issue_of_session(session_id, cx) {
-        crate::navigation::navigate_steering(window, cx, issue_id, session_id.to_string());
-        return;
-    }
     crate::navigation::navigate(
         window,
         cx,
@@ -77,15 +75,6 @@ pub(crate) fn open_session(session_id: &str, window: &mut Window, cx: &mut App) 
             session_id: session_id.to_string(),
         },
     );
-}
-
-/// EXP-791: the issue `session_id` is bound to, off its synced row — the
-/// surface an issue-bound run opens on. `None` for a batch/action/chat run
-/// and for a row that has not synced yet (it then opens on its own screen).
-fn issue_of_session(session_id: &str, cx: &App) -> Option<String> {
-    let store = sync::Store::try_global(cx)?;
-    let sessions = store.collections().coding_sessions.read(cx);
-    sessions.get(session_id)?.issue_id.clone()
 }
 
 /// The run `session_id` continues (EXP-662 `resumed_from_id`), read off this
@@ -523,6 +512,14 @@ impl SessionScreenView {
     }
 
     fn render_header(&mut self, cx: &mut gpui::Context<Self>) -> AnyElement {
+        // EXP-818: the issue this run is bound to — the ⋯ menu's "Open
+        // issue" (the session lives beside a LIST now, so the issue is one
+        // hop away rather than the screen under it).
+        let issue_id = self
+            .inner
+            .read(cx)
+            .session_row()
+            .and_then(|row| row.issue_id.clone());
         let muted = cx.theme().muted_foreground;
         // EXP-773: an ended run wears its list byline and, when this machine
         // still holds the workspace, the Resume the Past row used to carry.
@@ -573,10 +570,22 @@ impl SessionScreenView {
             .flex_shrink_0()
             .gap_2()
             .items_center()
-            .px_3()
-            .py_2()
+            .px_2()
+            .py_1p5()
             .border_b_1()
             .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+            // EXP-818: back — the window history (the issue this run was
+            // opened from, the list before it), the web session route's
+            // back button. Left of the identity, where every client puts it.
+            .child(
+                Button::new("session-back")
+                    .ghost()
+                    .cursor_pointer()
+                    .xsmall()
+                    .icon(registry::UI_BACK)
+                    .tooltip("Back")
+                    .on_click(|_, window, cx| crate::navigation::go_back(window, cx)),
+            )
             .child(
                 div()
                     .flex_shrink_0()
@@ -686,21 +695,59 @@ impl SessionScreenView {
                 }
             })
             .when(can_kill && !self.ended, |this| {
+                // EXP-818: ONE Stop, the same pill whether this machine hosts
+                // the run or another one does — the confirm is the run's own
+                // (`prompt_kill`: in-process kill or `steer.killSession`).
                 let inner = self.inner.clone();
+                this.child(stop_session_pill("session-stop", cx).on_click(
+                    move |_, window, cx| {
+                        inner.update(cx, |view, cx| view.prompt_kill(window, cx));
+                    },
+                ))
+            })
+            .when_some(issue_id, |this, issue_id| {
                 this.child(
-                    Button::new("session-kill")
+                    Button::new("session-more")
                         .ghost()
                         .cursor_pointer()
                         .xsmall()
-                        .icon(registry::CODING_STOP)
-                        .tooltip("Kill session")
-                        .on_click(move |_, window, cx| {
-                            inner.update(cx, |view, cx| view.prompt_kill(window, cx));
+                        .icon(registry::UI_MORE)
+                        .tooltip("Session actions")
+                        .dropdown_menu(move |menu, _window, _cx| {
+                            let issue_id = issue_id.clone();
+                            menu.item(
+                                gpui_component::menu::PopupMenuItem::new("Open issue").on_click(
+                                    move |_, window, cx| {
+                                        crate::navigation::navigate(
+                                            window,
+                                            cx,
+                                            Screen::IssueDetail {
+                                                issue_id: issue_id.clone(),
+                                            },
+                                        );
+                                    },
+                                ),
+                            )
                         }),
                 )
             })
             .into_any_element()
     }
+}
+
+/// EXP-818: the session header's Stop — a small glass pill with the stop
+/// glyph in the danger tint and the word "Stop". The SAME element on every
+/// session surface (the screen's header, the viewer's own chrome, whichever
+/// machine hosts the run); the caller wires the click to the run's confirm.
+pub(crate) fn stop_session_pill(id: impl Into<gpui::ElementId>, cx: &App) -> Button {
+    crate::surface::glass_pill_button(id, crate::surface::PillSize::Sm, cx)
+        .icon(
+            gpui_component::Icon::new(registry::CODING_STOP)
+                .with_size(gpui::px(crate::surface::PillSize::Sm.glyph()))
+                .text_color(cx.theme().danger),
+        )
+        .label("Stop")
+        .tooltip("Stop the agent and end the session")
 }
 
 /// EXP-800: send a resume to the machine that hosted the run — the

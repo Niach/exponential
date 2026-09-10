@@ -5,16 +5,17 @@
 //!
 //! The page owns nothing but the scaffold: every row, poll and mutation lives
 //! in [`crate::machines::MachinesSection`], which reads the synced `devices`
-//! shape directly (EXP-485).
+//! shape directly (EXP-485), and — EXP-818 — in
+//! [`crate::accounts_section::AccountsSection`], the Usage page folded in
+//! under it: Machines, then the agent Accounts live on them.
 
 use gpui::{
-    AppContext as _, ClickEvent, Entity, IntoElement, ParentElement, Render, ScrollHandle, Styled,
-    Subscription, Window,
+    AppContext as _, Entity, IntoElement, ParentElement, Render, ScrollHandle, Subscription,
+    Window,
 };
 
 use crate::actions_view::page_scaffold;
-use crate::icons::registry;
-use crate::navigation::{nav_for_window, navigate, Navigation, Screen};
+use crate::navigation::{nav_for_window, Navigation};
 
 pub struct DevicesView {
     #[allow(dead_code)] // held for the team-switch re-render subscription
@@ -24,12 +25,8 @@ pub struct DevicesView {
     /// rows come straight off the synced `devices` shape (EXP-485), so it
     /// holds no poll of its own.
     machines: Entity<crate::machines::MachinesSection>,
-    /// EXP-746: the user's LIVE sessions — the affordance the terminal dock's
-    /// remote chips used to carry, plus the kill they never had.
-    running: Entity<crate::sessions_section::RunningSessionsSection>,
-    /// EXP-746: "Past" — this user's finished person-started runs in the
-    /// active team (×4 with web/iOS/Android).
-    past: Entity<crate::sessions_section::PastSessionsSection>,
+    /// EXP-818: the agent accounts across those machines (the old Usage page).
+    accounts: Entity<crate::accounts_section::AccountsSection>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -37,16 +34,14 @@ impl DevicesView {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let nav = nav_for_window(window, cx);
         let machines = cx.new(|cx| crate::machines::MachinesSection::new(window, cx));
-        let running = cx.new(crate::sessions_section::RunningSessionsSection::new);
-        let past = cx.new(|cx| crate::sessions_section::PastSessionsSection::new(window, cx));
+        let accounts = cx.new(|cx| crate::accounts_section::AccountsSection::new(window, cx));
         // A team switch re-scopes the section's reads.
         let subscriptions = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
         Self {
             nav,
             scroll: ScrollHandle::new(),
             machines,
-            running,
-            past,
+            accounts,
             _subscriptions: subscriptions,
         }
     }
@@ -54,41 +49,15 @@ impl DevicesView {
 
 impl Render for DevicesView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        // EXP-807: the way to the Usage page — the web reaches it from THIS
-        // page (an icon-only glass button in the "My machines" header), so the
-        // IDE does too and Usage gets no rail entry of its own. It sits in a
-        // header row above the machines section rather than in that section's
-        // own header, which `machines.rs` owns.
-        let usage = gpui_component::h_flex()
-            .w_full()
-            .min_w_0()
-            .items_center()
-            .justify_end()
-            .pb_2()
-            .child(
-                crate::surface::glass_pill_button(
-                    "devices-usage",
-                    crate::surface::PillSize::Sm,
-                    cx,
-                )
-                .icon(registry::UI_USAGE)
-                .label("Usage")
-                .on_click(|_: &ClickEvent, window, cx| {
-                    navigate(window, cx, Screen::Usage);
-                }),
-            );
+        let _ = cx;
         page_scaffold(
             "devices-screen-scroll",
             &self.scroll,
-            // No `gap` here: both run sections render NOTHING while they are
-            // empty and carry their own 24px top margin when they do not, so
-            // a machine-only page reads exactly as it did before EXP-746
-            // instead of growing two empty gaps under the list.
+            // EXP-818: the Running / Past run sections moved to the Agent
+            // page's sessions list (`sidebar::SidebarPanel::render_sessions_tool`).
             gpui_component::v_flex()
-                .child(usage)
                 .child(self.machines.clone())
-                .child(self.running.clone())
-                .child(self.past.clone()),
+                .child(self.accounts.clone()),
         )
     }
 }

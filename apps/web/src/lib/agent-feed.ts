@@ -10,6 +10,7 @@ import {
   CONFIG_DEFAULT_VALUE_LABEL,
   CONFIG_MODE_LABEL,
 } from "@/lib/steer-commands"
+import { formatResetCountdown } from "@/lib/agent-usage"
 import { contract, toolGroupSummary } from "@exp/domain-contract"
 // EXP-787: the transcript's rhythm is a shared token group, read straight from
 // the canonical tokens.json (@exp/design-tokens is not a dependency of this
@@ -1239,25 +1240,29 @@ export function rateLimitResetsAtMs(resetsAt: number): number {
   return resetsAt < 1e11 ? resetsAt * 1000 : resetsAt
 }
 
-/** The banner's two strings: the agent's own message (else a status-derived
- *  fallback) and `resets HH:MM` in local time when a reset is known. */
+/** EXP-818: whether a rate-limit report is a WALL worth a banner. Claude
+ *  files `allowed_warning` on every turn past ~75% of a window while it keeps
+ *  working — the Usage sheet already shows that percentage, and a "rate
+ *  limited" banner over a run that is visibly working was wrong. Only
+ *  `rejected`, or a notice the agent itself wrote, is a banner. Desktop
+ *  `rate_limit_is_wall` twin. */
+export function rateLimitIsWall(state: SessionRateLimitState): boolean {
+  return state.status.trim() === `rejected` || Boolean(state.message?.trim())
+}
+
+/** The banner's two strings: the agent's own message (else `Rate limit
+ *  reached`) and `resets in 2h 10m` (EXP-818: relative, the usage cards'
+ *  countdown — a clock reading `00:00` looked like a zero) when a reset is
+ *  known. `null` when the report is not a wall (`rateLimitIsWall`). */
 export function rateLimitBanner(
   state: SessionRateLimitState,
-  formatTime: (ms: number) => string = defaultResetTime
-): { text: string; resets: string | null } {
-  const text =
-    state.message ??
-    (state.status === `rejected` ? `Rate limit reached` : `Approaching the rate limit`)
+  now: Date = new Date()
+): { text: string; resets: string | null } | null {
+  if (!rateLimitIsWall(state)) return null
+  const text = state.message ?? `Rate limit reached`
   const resets =
     state.resetsAt === undefined
       ? null
-      : `resets ${formatTime(rateLimitResetsAtMs(state.resetsAt))}`
+      : formatResetCountdown(new Date(rateLimitResetsAtMs(state.resetsAt)).toISOString(), now)
   return { text, resets }
-}
-
-function defaultResetTime(ms: number): string {
-  const date = new Date(ms)
-  const hh = String(date.getHours()).padStart(2, `0`)
-  const mm = String(date.getMinutes()).padStart(2, `0`)
-  return `${hh}:${mm}`
 }

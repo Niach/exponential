@@ -314,6 +314,10 @@ data class CodingSessionEntity(
     // EXP-637: the ended run this one continues (Resume) — FK SET NULL. The
     // post-send start watch matches a resumed run by it (StartedRunMatch).
     @ColumnInfo(name = "resumed_from_id") @SerialName("resumed_from_id") @JsonNames("resumedFromId") val resumedFromId: String? = null,
+    // EXP-818: the run that spawned this one through `exponential_sessions_start`
+    // (FK SET NULL); null on a top-level run. The session lists nest a child
+    // under its parent (SessionTree).
+    @ColumnInfo(name = "parent_session_id") @SerialName("parent_session_id") @JsonNames("parentSessionId") val parentSessionId: String? = null,
     // Desktop-written attention flag (EXP-214): the agent is parked on a
     // plan-approval / AskUserQuestion picker and waits for a human.
     @ColumnInfo(name = "needs_input") @SerialName("needs_input") @JsonNames("needsInput") val needsInput: PgBool = false,

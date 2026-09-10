@@ -170,7 +170,7 @@ pub(crate) fn render_run_row(spec: RunRowSpec, cx: &App) -> gpui::AnyElement {
                     .child(menu),
             )
         });
-    crate::surface::glass_row_card()
+    crate::surface::flat_row()
         .id((SharedString::from(format!("{id_prefix}-card")), index))
         .flex()
         .flex_col()

@@ -157,7 +157,6 @@ const CodingStopIcon = conceptIcon(`coding-stop`)
 const CodingSubagentIcon = conceptIcon(`coding-subagent`)
 const CodingToolIcon = conceptIcon(`coding-tool`)
 const EditorImageIcon = conceptIcon(`editor-image`)
-const UiAddIcon = conceptIcon(`ui-add`)
 const UiDeviceOfflineIcon = conceptIcon(`ui-device-offline`)
 const UiBackIcon = conceptIcon(`ui-back`)
 const UiHelpIcon = conceptIcon(`ui-help`)
@@ -644,7 +643,7 @@ export function AgentSessionView({
     }
   }, [deviceOnline, store])
 
-  /** Pinned "Latest changes". EXP-678: once the PR is open the strip shares
+  /** Pinned "Changes" (EXP-818 renamed it from "Latest changes", ×4). EXP-678: once the PR is open the strip shares
    *  its row with a glass Merge pill — the trigger shrinks, the pill sits on
    *  the right at the same height, and the expanded diff still spans the full
    *  width. The pill alone holds the row when no diff has arrived yet.
@@ -669,7 +668,7 @@ export function AgentSessionView({
                   diffOpen && `rotate-90`
                 )}
               />
-              <span className="font-medium">Latest changes</span>
+              <span className="font-medium">Changes</span>
               <span className="ml-auto" />
               <span className="shrink-0 font-mono">
                 <span className="text-emerald-400">+{diffStats.additions}</span>
@@ -778,13 +777,29 @@ export function AgentSessionView({
             Reconnect
           </Button>
         )}
+        {/* EXP-818: the ONE Stop — a small red-tinted glass pill, identical
+            on the machine that hosts the run and on one that only watches it
+            (the IDE's `stop_session_pill`); the confirm is `useKillSession`'s. */}
+        {canKill && (
+          <Pill
+            size="sm"
+            mode="action"
+            className="shrink-0 text-destructive"
+            onClick={requestKill}
+            aria-label="Stop the agent and end the session"
+            title="Stop the agent and end the session"
+          >
+            <CodingStopIcon className="size-3" />
+            Stop
+          </Pill>
+        )}
         {/* A finished run with no fresh numbers has nothing to offer, so the
             trigger goes away rather than opening an empty menu (its width
             stays, so the title does not jump). */}
-        {!agentUsage && !sessionUsage && !canKill && !canCompact && (
+        {!agentUsage && !sessionUsage && !canCompact && (
           <span className="size-8 shrink-0" />
         )}
-        {(agentUsage || sessionUsage || canKill || canCompact) && (
+        {(agentUsage || sessionUsage || canCompact) && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -810,12 +825,6 @@ export function AgentSessionView({
                 >
                   <CodingCompactIcon className="size-4" />
                   Compact context
-                </DropdownMenuItem>
-              )}
-              {canKill && (
-                <DropdownMenuItem variant="destructive" onSelect={requestKill}>
-                  <CodingStopIcon className="size-4" />
-                  Kill session
                 </DropdownMenuItem>
               )}
             </DropdownMenuContent>
@@ -1919,7 +1928,9 @@ function focusSteerField() {
  *  compaction strip — its own message (else a status fallback) and the local
  *  reset time when it named one. Hand-mirrored copy ×4 (`rateLimitBanner`). */
 function RateLimitBanner({ state }: { state: SessionRateLimitState }) {
-  const { text, resets } = rateLimitBanner(state)
+  const banner = rateLimitBanner(state)
+  if (!banner) return null
+  const { text, resets } = banner
   return (
     <div className="flex items-center gap-1.5 border-t border-border/60 px-3 py-2 text-xs text-amber-400">
       <UiUsageIcon className="size-3 shrink-0" />
@@ -2762,7 +2773,9 @@ function MessageComposer({
                 fileInputRef.current?.click()
               }}
             >
-              <UiAddIcon />
+              {/* EXP-818: the image glyph every other composer wears
+                  (comments, the description editor) — ×4. */}
+              <EditorImageIcon />
             </ComposerTool>
           </>
         }

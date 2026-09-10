@@ -174,7 +174,13 @@ pub fn exponential_dark() -> ThemeColor {
     c.ring = t::RING.to_hsla();
     c.muted = t::MUTED.to_hsla();
     c.muted_foreground = muted_foreground;
-    c.accent = accent;
+    // EXP-811: `accent` is what gpui-component paints EVERY menu item hover
+    // and keyboard selection with (`menu_item.rs`), plus SearchableList rows,
+    // calendar days and pressed toggles. The web token is an opaque
+    // `#262626`, which over the `#252525` opaque popover is invisible — so on
+    // the desktop the accent IS the glass active fill: the one hover/selected
+    // wash every list row, tab and chip already wears.
+    c.accent = t::glass::FILL_ACTIVE.to_hsla();
     c.accent_foreground = t::ACCENT_FOREGROUND.to_hsla();
     // EXP-697: popovers and dropdown menus wear the mobile GLASS MENU fill —
     // the card glass tint composited over the opaque popover surface, i.e.
@@ -200,7 +206,8 @@ pub fn exponential_dark() -> ThemeColor {
     // ---- Sidebar (direct tokens; accent-fg/primary derived like web) --------
     c.sidebar = t::SIDEBAR.to_hsla();
     c.sidebar_foreground = t::SIDEBAR_FOREGROUND.to_hsla();
-    c.sidebar_accent = t::SIDEBAR_ACCENT.to_hsla();
+    // EXP-811: same story for gpui-component's own SidebarMenu items.
+    c.sidebar_accent = t::glass::FILL_ACTIVE.to_hsla();
     // web --sidebar-accent-foreground == --accent-foreground in the zinc theme
     c.sidebar_accent_foreground = t::ACCENT_FOREGROUND.to_hsla();
     c.sidebar_border = t::SIDEBAR_BORDER.to_hsla();
@@ -340,7 +347,9 @@ pub fn exponential_dark() -> ThemeColor {
     c.link_hover = gpui::white();
     c.link_active = fg.opacity(0.8);
     c.progress_bar = primary;
-    // web skeleton is `bg-accent` (components/ui/skeleton.tsx)
+    // web skeleton is `bg-accent` (components/ui/skeleton.tsx) — the opaque
+    // web token, not the glass accent above: a skeleton is a placeholder
+    // fill, not a hover.
     c.skeleton = accent;
     // scrollbar: transparent track (stock-dark behavior — a solid track would
     // stripe the #171717 sidebar/popover surfaces); thumb from RING so it is
@@ -692,6 +701,12 @@ mod tests {
             !approx(c.list_hover.a, stock.list_hover.a),
             "list_hover must be the web accent/30 surface"
         );
+        // EXP-811: menu hover/selection (gpui-component reads `accent`) is the
+        // glass active fill, never the opaque web token that vanished on the
+        // opaque popover.
+        assert_hsla_eq(c.accent, tokens::glass::FILL_ACTIVE.to_hsla(), "accent");
+        assert_hsla_eq(c.sidebar_accent, tokens::glass::FILL_ACTIVE.to_hsla(), "sidebar_accent");
+        assert_hsla_eq(c.skeleton, tokens::ACCENT.to_hsla(), "skeleton keeps the opaque token");
     }
 
     #[test]

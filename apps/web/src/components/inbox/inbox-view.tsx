@@ -18,7 +18,7 @@ import {
   boardCollection,
   teamCollection,
 } from "@/lib/collections"
-import { GlassRow } from "@/components/ui/glass-rows"
+import { ListRow } from "@/components/ui/glass-rows"
 import { cn } from "@/lib/utils"
 
 // EXP-273: derived from the shared registry rather than hand-listed, so the
@@ -224,7 +224,7 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
     // route owns it), so it stays put while this list scrolls.
     <div className="h-full overflow-y-auto">
       <div
-        className={`mx-auto flex w-full max-w-3xl flex-col gap-2 px-4 py-4 ${TAB_BAR_CLEARANCE}`}
+        className={`mx-auto flex w-full max-w-3xl flex-col gap-0 px-4 py-4 ${TAB_BAR_CLEARANCE}`}
       >
         {groups.length === 0 ? (
           <EmptyState
@@ -237,7 +237,7 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
             const latest = g.items[0]
             if (g.kind === `support`) {
               return (
-                <GlassRow
+                <ListRow
                   key={`support:${g.teamId ?? `unknown`}`}
                   asChild
                   interactive
@@ -287,12 +287,12 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
                       </div>
                     </div>
                   </Link>
-                </GlassRow>
+                </ListRow>
               )
             }
             const Icon = typeIcon[latest.type] ?? Bell
             return (
-              <GlassRow
+              <ListRow
                 key={g.issue.id}
                 asChild
                 interactive
@@ -340,7 +340,7 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
                     </div>
                   </div>
                 </Link>
-              </GlassRow>
+              </ListRow>
             )
           })
         )}

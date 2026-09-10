@@ -2191,8 +2191,8 @@ impl StartCodingDialogView {
                 .px_4()
                 .py_2()
                 .cursor_pointer()
-                .when(is_checked, |this| this.bg(theme.accent.opacity(0.4)))
-                .hover(|this| this.bg(theme.accent.opacity(0.3)))
+                .when(is_checked, |this| this.bg(theme.list_active))
+                .hover(|this| this.bg(theme.list_hover))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                     this.toggle_checked(toggle_id.clone(), !is_checked, cx);
                 })),
@@ -2510,8 +2510,8 @@ impl StartCodingDialogView {
                 .px_4()
                 .py_2()
                 .cursor_pointer()
-                .when(is_selected, |this| this.bg(theme.accent.opacity(0.4)))
-                .hover(|this| this.bg(theme.accent.opacity(0.3)))
+                .when(is_selected, |this| this.bg(theme.list_active))
+                .hover(|this| this.bg(theme.list_hover))
                 .on_click(cx.listener(move |this, _: &gpui::ClickEvent, window, cx| {
                     this.select_action(select_id.clone(), window, cx);
                 })),

@@ -500,24 +500,6 @@ export function IssueDetailView({
 
   const dueDate = issue.dueDate ? parseLocalDate(issue.dueDate) : undefined
 
-  // Coding "coding now" card (EXP-184): a main-column card on EVERY viewport
-  // since EXP-698 r4 — iOS and Android show it under the property chips too,
-  // and the phone's floating circle is the START affordance, not a substitute
-  // for the running run's card. The component owns the repo/membership/relay
-  // gating and navigates to the run's session page rather than mounting the
-  // live viewer inline. Since EXP-616 the IDLE start affordance moved out of this card and
-  // into the properties card above (desktop only — see `codingStartButton`).
-  const codingControl = currentUserId ? (
-    <IssueCodingControl
-      issue={issue}
-      board={board}
-      teamId={teamId}
-      currentUserId={currentUserId}
-      users={users}
-      variant="row"
-    />
-  ) : null
-
   const codingFab =
     currentUserId && isMobile ? (
       <IssueCodingControl
@@ -759,33 +741,6 @@ export function IssueDetailView({
     />
   )
 
-  const breadcrumb = (
-    <div className="flex items-center gap-1.5 text-xs text-muted-foreground px-4 py-2 border-b border-border min-w-0">
-      <Link
-        to="/t/$teamSlug/boards/$boardSlug"
-        params={{ teamSlug, boardSlug: board.slug }}
-        // Link back to the board WITH the carried filters, so the round trip
-        // lands on the exact view the user navigated from.
-        search={{
-          status: filterSearch?.status,
-          priority: filterSearch?.priority,
-          labels: filterSearch?.labels,
-        }}
-        className="inline-flex min-w-0 shrink items-center gap-1.5 hover:text-foreground"
-      >
-        <BoardGlyph board={board} className="size-3.5" />
-        <span className="truncate">{board.name}</span>
-      </Link>
-      <ChevronRight className="size-3 shrink-0 text-muted-foreground/50" />
-      <span className="shrink-0 font-mono">{issue.identifier}</span>
-      <ChevronRight className="size-3 shrink-0 text-muted-foreground/50" />
-      <span className="truncate text-foreground">{title}</span>
-      <div className="ml-auto flex items-center gap-1 shrink-0">
-        {actionsMenu}
-      </div>
-    </div>
-  )
-
   // EXP-568 phone header: one line, no room for a board NAME or an "N / total"
   // counter — the board glyph stands in for the crumb, and the identifier +
   // title carry the rest.
@@ -963,7 +918,6 @@ export function IssueDetailView({
             route, so nothing else is reserved here. */}
         <div className="flex-1 overflow-y-auto pb-[calc(5.5rem+env(safe-area-inset-bottom))]">
           {propsBand}
-          {codingControl}
           {titleField}
           {editor}
           {attachmentError}
@@ -992,7 +946,9 @@ export function IssueDetailView({
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      {breadcrumb}
+      {/* EXP-818: no breadcrumb row — the IDE's header is the title over the
+          property tray with the ⋯ beside the title, and the sidebar's board
+          row already says where you are. */}
       {duplicateBanner}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <div className="flex flex-1 min-w-0 flex-col overflow-hidden">
@@ -1006,15 +962,13 @@ export function IssueDetailView({
               ref={setStickyBand}
               className={`${DETAIL_STICKY_BAND_CLASS} pb-3`}
             >
-              <div className="mx-auto max-w-3xl">{titleField}</div>
+              <div className="mx-auto flex max-w-3xl items-start gap-2">
+                <div className="min-w-0 flex-1">{titleField}</div>
+                <div className="shrink-0 pt-4 pr-4">{actionsMenu}</div>
+              </div>
               {propsBand}
             </div>
             <div className="mx-auto max-w-3xl">
-              {/* EXP-698 r4: the "coding now" card sits directly under the
-                  properties band — same gutter, same glass chrome — instead of
-                  below the description. It stays OUT of the sticky band: a
-                  live run's card would eat a third of the scrollport. */}
-              {codingControl}
               {editor}
               {attachmentError}
               {filesSection}

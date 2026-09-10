@@ -421,7 +421,20 @@ struct AgentsView: View {
                 if vm.rows.isEmpty {
                     noAgentsRow
                 } else {
-                    ForEach(vm.rows) { sessionRow($0) }
+                    // EXP-818: a run started by another run nests under its
+                    // parent, indented (`SessionTree`, the ×4 rule).
+                    ForEach(
+                        SessionTree.nest(
+                            vm.rows,
+                            id: { $0.session.id },
+                            parent: { $0.session.parentSessionId },
+                            startedAt: { $0.session.startedAt }
+                        ),
+                        id: \.session.id
+                    ) { entry in
+                        sessionRow(entry.session)
+                            .padding(.leading, CGFloat(entry.depth) * 16)
+                    }
                 }
 
                 // EXP-746: the caller's finished runs. Absent entirely when

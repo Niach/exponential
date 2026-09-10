@@ -460,7 +460,7 @@ impl CreateActionDialogView {
     fn automation_row(&self, cx: &mut gpui::Context<Self>) -> gpui::Div {
         let theme = cx.theme();
         let foreground = theme.foreground;
-        let hover = theme.list_active.opacity(0.5);
+        let hover = theme.list_hover;
         let summary = self.automation_summary(cx);
         // The row already tints its value slot to 70% foreground — the label
         // must NOT re-apply it (that would compound to 49%).

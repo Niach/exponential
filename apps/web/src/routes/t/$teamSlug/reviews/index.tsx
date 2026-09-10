@@ -31,7 +31,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
-  GlassRow,
+  ListRow,
   GlassSectionHeader,
 } from "@/components/ui/glass-rows"
 
@@ -302,7 +302,7 @@ function ReviewsPage() {
                   label={group.board.name}
                 />
 
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-0">
                   {group.entries.map((entry) => {
                     const issue = entry.issue
                     const isBatch = entry.issues.length > 1
@@ -318,7 +318,7 @@ function ReviewsPage() {
                       mergeError?.conflict && issue.branch && steerEnabled
                     )
                     return (
-                      <GlassRow
+                      <ListRow
                         key={entry.key}
                         interactive
                         className="group/row grid grid-cols-[1.5rem_4.5rem_1fr_auto] gap-0"
@@ -423,7 +423,7 @@ function ReviewsPage() {
                             )}
                           </div>
                         )}
-                      </GlassRow>
+                      </ListRow>
                     )
                   })}
                 </div>
@@ -447,13 +447,13 @@ function ReviewsPage() {
                   }
                 />
 
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-0">
                   {sessionEntries.map((entry) => {
                     const session = entry.session
                     const merging = mergingIds.has(entry.key)
                     const mergeError = mergeErrors[entry.key]
                     return (
-                      <GlassRow
+                      <ListRow
                         key={entry.key}
                         interactive
                         className="group/row grid grid-cols-[1.5rem_4.5rem_1fr_auto] gap-0"
@@ -511,7 +511,7 @@ function ReviewsPage() {
                             </span>
                           </div>
                         )}
-                      </GlassRow>
+                      </ListRow>
                     )
                   })}
                 </div>
@@ -530,12 +530,12 @@ function ReviewsPage() {
                   }
                 />
 
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-0">
                   {group.pulls.map((pull) => {
                     const key = externalPullKey(group.repositoryId, pull.number)
                     const merging = mergingIds.has(key)
                     return (
-                      <GlassRow
+                      <ListRow
                         key={pull.number}
                         interactive
                         className="group/row grid grid-cols-[1.5rem_4.5rem_1fr_auto] gap-0"
@@ -586,7 +586,7 @@ function ReviewsPage() {
                             </>
                           )}
                         </Pill>
-                      </GlassRow>
+                      </ListRow>
                     )
                   })}
                 </div>

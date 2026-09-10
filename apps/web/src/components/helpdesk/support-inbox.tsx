@@ -40,7 +40,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
+import { GlassSectionHeader, ListRow } from "@/components/ui/glass-rows"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { conceptIcon } from "@/lib/icons.generated"
@@ -221,11 +221,12 @@ export function SupportInbox({
               </p>
             </div>
           ) : (
-            <div className="flex flex-col gap-2 p-2">
+            <div className="flex flex-col gap-0 p-2">
               {threads.map((thread) => (
-                <GlassRow
+                <ListRow
                   key={thread.id}
                   asChild
+                  active={thread.id === selectedId}
                   interactive={thread.id !== selectedId}
                   className={cn(
                     `w-full flex-col items-stretch gap-0 px-3 py-2.5 text-left`,
@@ -271,7 +272,7 @@ export function SupportInbox({
                         : reporterLabel(thread)}
                     </p>
                   </button>
-                </GlassRow>
+                </ListRow>
               ))}
             </div>
           )}

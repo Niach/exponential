@@ -179,30 +179,36 @@ fn usage_card(window: &UsageWindow, now_epoch: i64) -> UsageCard {
 /// when the window carries no reset (the device could not read one).
 pub(crate) fn format_reset_countdown(resets_at: Option<&str>, now_epoch: i64) -> Option<String> {
     let at = crate::comments::parse_epoch(resets_at?)?;
-    let secs = at - now_epoch;
+    Some(countdown_from_secs(at - now_epoch))
+}
+
+/// The countdown for a reset `secs` from now — [`format_reset_countdown`]'s
+/// body, shared with the transcript's rate-limit banner (EXP-818), whose
+/// reset arrives as unix ms rather than an ISO stamp.
+pub(crate) fn countdown_from_secs(secs: i64) -> String {
     if secs < 60 {
-        return Some("resets soon".to_string());
+        return "resets soon".to_string();
     }
     let minutes = secs / 60;
     if minutes < 60 {
-        return Some(format!("resets in {minutes}m"));
+        return format!("resets in {minutes}m");
     }
     let hours = minutes / 60;
     if hours < 24 {
         let rest = minutes % 60;
-        return Some(if rest == 0 {
+        return if rest == 0 {
             format!("resets in {hours}h")
         } else {
             format!("resets in {hours}h {rest}m")
-        });
+        };
     }
     let days = hours / 24;
     let rest = hours % 24;
-    Some(if rest == 0 {
+    if rest == 0 {
         format!("resets in {days}d")
     } else {
         format!("resets in {days}d {rest}h")
-    })
+    }
 }
 
 /// EXP-804: `coding_sessions.blocked` — the agent's usage wall as row state.

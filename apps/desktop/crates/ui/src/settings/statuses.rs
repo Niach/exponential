@@ -888,7 +888,7 @@ impl StatusesPane {
         // EXP-698: the shared glass ROW CARD — the surrounding category column
         // is a gapped list, so each status is its own object, not a fused
         // group row.
-        let mut line = crate::surface::glass_row_card()
+        let mut line = crate::surface::flat_row()
             .flex()
             .w_full()
             .min_w_0()
@@ -1133,7 +1133,7 @@ impl StatusesPane {
         let entity = cx.entity();
         // EXP-698: the inline form is one more object in the category's gapped
         // list, so it wears the glass row card.
-        crate::surface::glass_row_card()
+        crate::surface::flat_row()
             .flex()
             .flex_col()
             .gap_3()

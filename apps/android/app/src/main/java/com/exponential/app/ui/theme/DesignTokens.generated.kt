@@ -69,15 +69,15 @@ object DesignTokens {
         val BackgroundTop: Color = Color(0xFF050507)
         val BackgroundBottom: Color = Color(0xFF111114)
         val FillSection: Color = Color(0x0AFFFFFF)
-        val FillRow: Color = Color(0x0DFFFFFF)
+        val FillRow: Color = Color(0x0FFFFFFF)
         val FillCard: Color = Color(0x0FFFFFFF)
         val FillPanel: Color = Color(0x0AFFFFFF)
-        val FillActive: Color = Color(0x17FFFFFF)
+        val FillActive: Color = Color(0x1CFFFFFF)
         val StrokeRow: Color = Color(0x0FFFFFFF)
         val StrokeSection: Color = Color(0x14FFFFFF)
         val StrokeCard: Color = Color(0x1AFFFFFF)
         val StrokeStrong: Color = Color(0x1FFFFFFF)
-        val StrokeActive: Color = Color(0x24FFFFFF)
+        val StrokeActive: Color = Color(0x29FFFFFF)
     }
 
     // Corner radii (px ≡ dp), matching the web rounded-* scale.

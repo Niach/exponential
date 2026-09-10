@@ -34,24 +34,56 @@ pub(crate) fn glass_section_header(
     trailing: Option<AnyElement>,
     cx: &App,
 ) -> Div {
+    glass_section_band(None, label, trailing, cx)
+}
+
+/// EXP-818: the GROUP BAND — the Linear group header. A full-width strip
+/// filled `FILL_SECTION` with the group's name in it (an optional leading
+/// glyph, an optional trailing control), sitting directly over its flat rows
+/// ([`flat_row`]) with a 4px gap. It replaced the plain-text header + gapped
+/// card rows on every list page (Devices, Agent, Actions, Automations,
+/// Reviews, the settings lists): rows read as a table under a highlighted
+/// header, not as a stack of cards. Web `GlassSectionHeader` twin.
+pub(crate) fn glass_section_band(
+    leading: Option<AnyElement>,
+    label: impl Into<SharedString>,
+    trailing: Option<AnyElement>,
+    cx: &App,
+) -> Div {
     let foreground = cx.theme().foreground;
     h_flex()
         .w_full()
         .min_w_0()
         .items_center()
         .gap_1p5()
-        .px_1()
-        .pt_1()
-        .pb_2()
+        .px_3()
+        .py_1p5()
+        .mb_1()
+        .rounded(px(t::radius::MD))
+        .bg(t::glass::FILL_SECTION.to_hsla())
+        .children(leading)
         .child(
             div()
+                .min_w_0()
+                .truncate()
                 .text_sm()
                 .font_weight(FontWeight::MEDIUM)
-                .text_color(foreground.opacity(0.7))
+                .text_color(foreground.opacity(0.85))
                 .child(label.into()),
         )
         .child(div().flex_1())
         .children(trailing)
+}
+
+/// EXP-818: ONE flat list row — the web `ListRow`. No stroke, no fill of its
+/// own: rows stack with NO gap under a [`glass_section_band`] and read as a
+/// table; the `list_hover` wash is the only thing a hover paints, and a
+/// selected row takes `list_active` (the caller applies both — a row is a
+/// plain div so every list keeps its own id, padding and click). This is
+/// the row every list wears since EXP-818; [`glass_row_card`] is left for
+/// the few real cards (a transcript's tool output, a diff).
+pub(crate) fn flat_row() -> Div {
+    div().rounded(px(t::radius::MD))
 }
 
 /// Card surface: radius 16, white 6% fill, white 10% hairline (mobile

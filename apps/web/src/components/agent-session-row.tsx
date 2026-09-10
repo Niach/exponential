@@ -22,7 +22,7 @@ import { getActionIcon } from "@/lib/board-icons"
 import { Button } from "@/components/ui/button"
 import { Pill } from "@/components/ui/pill"
 import { SessionMergeButton } from "@/components/session-merge-button"
-import { GlassRow } from "@/components/ui/glass-rows"
+import { ListRow } from "@/components/ui/glass-rows"
 
 // EXP-530: the automation glyph is a cross-client concept — the fallback when
 // an automation run's action row has not synced (or was deleted).
@@ -156,7 +156,7 @@ export function SessionRow({
   // inline state label collided with the buttons on phones. Every row is the
   // caller's own (EXP-312), so the byline names the machine, never the person.
   return (
-    <GlassRow
+    <ListRow
       interactive
       className={paused ? `opacity-60` : undefined}
       onClick={onOpen}
@@ -270,7 +270,7 @@ export function SessionRow({
           </Button>
         ) : null}
       </div>
-    </GlassRow>
+    </ListRow>
   )
 }
 
@@ -353,17 +353,17 @@ export function EndedSessionRow({
 
   if (!teamSlug) {
     return (
-      <GlassRow
+      <ListRow
         className="gap-2"
         data-testid={`ended-session-${session.id}`}
       >
         {body}
-      </GlassRow>
+      </ListRow>
     )
   }
 
   return (
-    <GlassRow asChild interactive className="gap-2">
+    <ListRow asChild interactive className="gap-2">
       <Link
         to="/t/$teamSlug/sessions/$sessionId"
         params={{ teamSlug, sessionId: session.id }}
@@ -371,6 +371,6 @@ export function EndedSessionRow({
       >
         {body}
       </Link>
-    </GlassRow>
+    </ListRow>
   )
 }

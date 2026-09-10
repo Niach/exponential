@@ -199,8 +199,8 @@ impl ActionsView {
     ) -> gpui::AnyElement {
         let theme = cx.theme();
         let muted = theme.muted_foreground;
-        // EXP-642: the web `GlassRow` hover (`hover:bg-glass-active/50`).
-        let row_hover = theme.list_active.opacity(0.5);
+        // EXP-811: the ONE row hover, `list_hover` (glass fillRow) on every client.
+        let row_hover = theme.list_hover;
         let run_id = action.id.clone();
 
         // EXP-697 retired the FEED-15 "runs in a repository" glyph: the name
@@ -269,7 +269,7 @@ impl ActionsView {
 
         // EXP-367: no agent CLI → Run disabled with the reason, never hidden.
         let no_agent = crate::coding_flow::no_agent_reason(cx);
-        let mut row = crate::surface::glass_row_card()
+        let mut row = crate::surface::flat_row()
             .flex()
             .w_full()
             .min_w_0()
@@ -491,7 +491,7 @@ impl Render for ActionsView {
         // never blank a list that already has data).
         let mut body = gpui_component::v_flex().min_w_0().gap_2();
         if !rows.is_empty() {
-            body = body.child(gpui_component::v_flex().min_w_0().gap_2().children(rows));
+            body = body.child(gpui_component::v_flex().min_w_0().children(rows));
         }
         // NO gap on the section (EXP-697): the header's own `pb_2` IS the
         // 8px to the list — a gap here doubles it. The rows keep their gap

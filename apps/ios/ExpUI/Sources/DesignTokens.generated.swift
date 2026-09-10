@@ -63,15 +63,15 @@ public enum DesignTokens {
         public static let backgroundTop: Color = Color(red: 0.0196, green: 0.0196, blue: 0.0275, opacity: 1.0000)
         public static let backgroundBottom: Color = Color(red: 0.0667, green: 0.0667, blue: 0.0784, opacity: 1.0000)
         public static let fillSection: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.0392)
-        public static let fillRow: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.0510)
+        public static let fillRow: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.0588)
         public static let fillCard: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.0588)
         public static let fillPanel: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.0392)
-        public static let fillActive: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.0902)
+        public static let fillActive: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.1098)
         public static let strokeRow: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.0588)
         public static let strokeSection: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.0784)
         public static let strokeCard: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.1020)
         public static let strokeStrong: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.1216)
-        public static let strokeActive: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.1412)
+        public static let strokeActive: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.1608)
     }
 
     // Corner radii (px ≡ pt), matching the web rounded-* scale.

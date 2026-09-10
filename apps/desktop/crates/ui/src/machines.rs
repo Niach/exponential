@@ -436,8 +436,8 @@ impl MachinesSection {
         // icon · (name · version · default star · "Shared") over the status
         // line · ▶ · ⋯ — `min_w_0` down the name side so only the NAME gives
         // way.
-        let row_hover = theme.list_active.opacity(0.5);
-        crate::surface::glass_row_card()
+        let row_hover = theme.list_hover;
+        crate::surface::flat_row()
             .id(SharedString::from(format!("machine-{}", device.device_id)))
             .flex()
             .w_full()
@@ -916,7 +916,7 @@ impl Render for MachinesSection {
                         ),
                 )
             })
-            .child(gpui_component::v_flex().min_w_0().gap_2().children(mine_rows))
+            .child(gpui_component::v_flex().min_w_0().children(mine_rows))
             // EXP-432/642: teammates' shared machines get their OWN headed
             // section, exactly like the web page.
             .when(!team.is_empty(), |this| {
@@ -930,7 +930,7 @@ impl Render for MachinesSection {
                             cx,
                         ))
                         .child(
-                            gpui_component::v_flex().min_w_0().gap_2().children(team_rows),
+                            gpui_component::v_flex().min_w_0().children(team_rows),
                         ),
                 )
             })

@@ -319,7 +319,7 @@ impl MembersPane {
         // team-settings entity list wears the gapped `glass_row_card` ladder
         // (the labels list's idiom, now the rule on all four clients) instead
         // of fusing into one inset-grouped block.
-        crate::surface::glass_row_card()
+        crate::surface::flat_row()
             .flex()
             .w_full()
             .min_w_0()
@@ -689,7 +689,7 @@ impl Render for MembersPane {
                     // gapped row card the member rows above it wear, instead
                     // of the hand-rolled bordered box.
                     pending_rows = pending_rows.child(
-                        crate::surface::glass_row_card()
+                        crate::surface::flat_row()
                             .flex()
                             .w_full()
                             .min_w_0()

@@ -1057,7 +1057,7 @@ impl McpServersPane {
             })
             .collect();
 
-        crate::surface::glass_row_card()
+        crate::surface::flat_row()
             .flex()
             .flex_col()
             .w_full()

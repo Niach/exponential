@@ -1663,36 +1663,6 @@ impl StartCodingControl {
         crate::start_coding_dialog::open_for_issue(window, cx, issue_id);
     }
 
-    /// The stop affordance (§7.5), behind a confirm (EXP-268 — destructive
-    /// native actions confirm first): stop this issue's session through its
-    /// [`LocalSessionHost`] — a PTY tab closes (killing the child and joining
-    /// the PTY threads, after which the `TabClosed` watcher fires the
-    /// idempotent `codingSessions.end`), an ACP engine is killed.
-    ///
-    fn stop(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some(issue_id) = self.issue_id.clone() else {
-            return;
-        };
-        let detail = "The agent stops immediately. Uncommitted work in the worktree is kept.";
-        let spec = crate::native_dialog::AlertSpec::new(
-            "Stop this coding session?",
-            detail,
-            "Stop session",
-        )
-        .on_ok(move |_, cx| {
-            let sessions = LocalSessions::global(cx);
-            let host = sessions
-                .read(cx)
-                .get(&issue_id)
-                .map(|session| session.host.clone());
-            if let Some(host) = host {
-                host.stop(cx);
-            }
-            true
-        });
-        crate::native_dialog::open_alert(window, cx, spec);
-    }
-
     /// Whether the control renders anything at all: an issue is set AND its
     /// board is repo-backed (or not yet synced — never hide on a sync race).
     /// The issue header gates its whole agent row on this so an empty control
@@ -1803,65 +1773,16 @@ impl Render for StartCodingControl {
         let _ = CodingHub::global(cx);
         self.ensure_probe(cx);
 
-        // Local session running → "Coding…" + the play button becomes STOP.
-        let running = LocalSessions::global(cx).read(cx).get(&issue_id).is_some();
-        if running {
-            // The terminal is still alive during review — the synced row's
-            // parked states (EXP-194/EXP-214) only change the tone/label;
-            // Stop stays either way. Review green, done blue once the PR
-            // merges, needs-input amber while the agent waits on a picker.
-            let now = chrono::Utc::now().timestamp();
-            let collections = Store::global(cx).collections();
-            let session = collections
-                .coding_sessions
-                .read(cx)
-                .iter()
-                .find(|session| {
-                    session.issue_id.as_deref() == Some(issue_id.as_str())
-                        && queries::coding_session_is_live(session, now)
-                })
-                .cloned();
-            let pr_state = collections
-                .issues
-                .read(cx)
-                .get(issue_id.as_str())
-                .and_then(|issue| issue.pr_state.clone());
-            let display = session
-                .as_ref()
-                .map(|session| queries::coding_session_display(session, pr_state.as_deref()))
-                .unwrap_or(queries::CodingSessionDisplay::Running);
-            let (tone, label) = match display {
-                queries::CodingSessionDisplay::NeedsInput => {
-                    (theme::tokens::YELLOW, "Needs input…")
-                }
-                queries::CodingSessionDisplay::Review => (theme::tokens::GREEN, "In review…"),
-                queries::CodingSessionDisplay::Done => (theme::tokens::BLUE, "Done"),
-                queries::CodingSessionDisplay::Running => (theme::tokens::GREEN, "Coding…"),
-            };
-            // EXP-417: content-sized status dot + label beside Stop — the
-            // control is one item in the header's wrapping agent row now, not
-            // a sidebar column.
-            return h_flex()
-                .gap_2()
-                .items_center()
-                .child(
-                    h_flex()
-                        .gap_1p5()
-                        .items_center()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(div().size_1p5().rounded_full().bg(tone.to_hsla()))
-                        .child(label),
-                )
-                .child(
-                    Button::new("stop-coding")
-                        .outline()
-                        .web_sm()
-                        .icon(Icon::new(registry::CODING_STOP).text_color(cx.theme().danger))
-                        .label("Stop")
-                        .tooltip("Stop the coding session and close its terminal")
-                        .on_click(cx.listener(|this, _, window, cx| this.stop(window, cx))),
-                )
+        // EXP-818: a run this process hosts is entered through the SAME
+        // Watch pill a remote run gets (`issue_detail::coding_now_slot`) —
+        // the session's own screen carries Stop; the tray only leads there.
+        // (The "Coding… / Stop" pair this control used to grow is gone.)
+        let local_session_id = LocalSessions::global(cx)
+            .read(cx)
+            .get(&issue_id)
+            .map(|session| session.session_id.clone());
+        if let Some(session_id) = local_session_id {
+            return crate::issue_detail::watch_pill("start-coding-watch", session_id, cx)
                 .into_any_element();
         }
 

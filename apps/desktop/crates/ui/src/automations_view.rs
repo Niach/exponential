@@ -90,8 +90,8 @@ impl AutomationsView {
     ) -> gpui::AnyElement {
         let theme = cx.theme();
         let muted = theme.muted_foreground;
-        // EXP-642: the web `GlassRow` hover (`hover:bg-glass-active/50`).
-        let row_hover = theme.list_active.opacity(0.5);
+        // EXP-811: the ONE row hover, `list_hover` (glass fillRow) on every client.
+        let row_hover = theme.list_hover;
         let parsed = crate::automation_editor::parsed_trigger(automation.trigger.as_ref());
         let summary = parsed
             .as_ref()
@@ -161,7 +161,7 @@ impl AutomationsView {
 
         let toggle_id = automation.id.clone();
         let enabled = automation.enabled;
-        crate::surface::glass_row_card()
+        crate::surface::flat_row()
             .flex()
             .w_full()
             .min_w_0()
@@ -335,7 +335,7 @@ impl AutomationsView {
         let recent = gpui_component::v_flex()
             .min_w_0()
             .child(glass_section_header("Recent automated runs", None, cx));
-        let mut run_rows_column = gpui_component::v_flex().min_w_0().gap_2();
+        let mut run_rows_column = gpui_component::v_flex().min_w_0();
         if runs.is_empty() {
             run_rows_column = run_rows_column.child(
                 div()

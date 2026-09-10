@@ -13,12 +13,22 @@
 export const componentStyles = `
 /* ---------------------------------------------------------------- layout */
 .cmp-stack { display: grid; gap: 12px; }
+.cmp-list { display: grid; gap: 0; }
 .cmp-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 
 /* -------------------------------------------------------- section header */
-.cmp-section-header { display: flex; align-items: center; gap: 6px; padding: 4px 4px 8px; }
-.cmp-section-header .title { font-size: 14px; line-height: 20px; font-weight: 500; color: var(--fg-70); }
+/* EXP-818: the group BAND — a strip on the section fill over its flat rows. */
+.cmp-section-header { display: flex; align-items: center; gap: 6px; padding: 6px 12px; margin-bottom: 4px; border-radius: var(--r-md); background: var(--section); }
+.cmp-section-header .title { font-size: 14px; line-height: 20px; font-weight: 500; color: var(--fg-85); }
 .cmp-section-header .trailing { margin-left: auto; }
+
+/* EXP-818: the flat LIST row — no stroke, no fill; hover = row fill, active =
+   active fill; rows stack with no gap under the band. */
+.cmp-list-row { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: var(--r-md); transition: background var(--dur) var(--ease); }
+.cmp-list-row .label { flex: 1; min-width: 0; }
+.cmp-list-row .trailing { flex: none; font-size: 12px; color: var(--fg-50); }
+.cmp-list-row.interactive:hover { background: var(--row); }
+.cmp-list-row.active { background: var(--active); }
 
 /* ------------------------------------------------------- group container */
 /* Borderless on purpose: the fill IS the edge, and hairlines between children

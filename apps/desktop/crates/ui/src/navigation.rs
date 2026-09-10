@@ -29,7 +29,7 @@ use gpui::{
 use sync::Store;
 
 use crate::actions::{
-    GoBack, OpenAbout, OpenInbox, OpenIssue, OpenMyIssues, OpenBoard, OpenSettings,
+    GoBack, GoForward, OpenAbout, OpenInbox, OpenIssue, OpenMyIssues, OpenBoard, OpenSettings,
     OpenSourceControl, OpenWhatsNew, SwitchTeam, SyncNow,
 };
 
@@ -66,11 +66,6 @@ pub enum Screen {
     /// The Automations page (EXP-686 — the web `t/$teamSlug/automations`
     /// page: the automation rows plus "Recent automated runs").
     Automations,
-    /// The Usage page (EXP-807 — the web `t/$teamSlug/usage` page: every
-    /// machine's agent usage, one row per device × agent profile). Tab-less
-    /// full-page mode like Devices, and reached the same way the web reaches
-    /// it: from the DEVICES page's header, not from a rail entry of its own.
-    Usage,
     /// The Chat page (EXP-772 — the web `t/$teamSlug/chat` page: one centred
     /// prompt box over a subtle row of launch pickers). Tab-less full-page
     /// mode like Devices; sending starts a chat run and navigates to its
@@ -177,21 +172,31 @@ impl Screen {
             Screen::Devices
                 | Screen::Actions
                 | Screen::Automations
-                | Screen::Usage
-                | Screen::Chat
                 | Screen::Reviews
                 | Screen::GettingStarted { .. }
         )
     }
 
     /// EXP-791: whether the screen takes the WHOLE center — no tool column
-    /// beside it. The rail full-page screens always did; a coding session and
-    /// a PTY terminal join them: a transcript or a grid squeezed beside an
-    /// issue list was the desktop's worst layout, and neither has a list to
-    /// sit beside (their navigation is the rail's Sessions section and the
-    /// bottom bar). `shell::CenterPanel` keys its split on this.
+    /// beside it. The rail full-page screens and a PTY terminal. EXP-818
+    /// took a coding session OUT again: a session is a detail like an issue,
+    /// and the list beside it is the one it was opened from (the Inbox, a
+    /// board, the Agent page's sessions list) — the tab's origin decides,
+    /// exactly as it does for an issue tab. `Screen::Chat` left the rail
+    /// full pages for the same reason: it is the Agent page's center while
+    /// no session is selected, beside the Sessions tool column.
+    /// `shell::CenterPanel` keys its split on this.
     pub(crate) fn is_full_width(&self) -> bool {
-        self.is_rail_full_page() || matches!(self, Screen::Session { .. } | Screen::Terminal { .. })
+        self.is_rail_full_page() || matches!(self, Screen::Terminal { .. })
+    }
+
+    /// EXP-818: whether a navigation FROM this screen carries no list
+    /// context — a rail full page, Settings, or nothing at all. A detail
+    /// opened from one of these takes its origin from what it IS (an
+    /// issue → its board's list, a session → the sessions list, a ticket →
+    /// Support) rather than from whatever the rail happened to show last.
+    pub(crate) fn is_context_free(&self) -> bool {
+        self.is_rail_full_page() || matches!(self, Screen::Settings)
     }
 }
 
@@ -219,6 +224,54 @@ pub(crate) struct TabOrigin {
 pub(crate) enum PendingOrigin {
     Capture,
     Explicit(TabOrigin),
+}
+
+/// EXP-818: the ONE rule for which list column a freshly opened detail sits
+/// beside — the "breadcrumb" rule:
+///
+/// * Opened from a LIST context (the previous screen was a detail, or
+///   nothing but a list was up): the current rail tool stays. Inbox → issue
+///   keeps the Inbox; a board → issue → Watch keeps the board; a Sessions
+///   row clicked while the Inbox is up keeps the Inbox.
+/// * Opened from a CONTEXT-FREE screen (a rail full page, Settings, a deep
+///   link at boot): the detail brings its own list — an issue or PR diff
+///   its board, a session the Agent page's sessions list, a ticket Support.
+///
+/// `captured` is what the rail shows right now (the old EXP-288 capture);
+/// `target_board` the board of the issue/PR being opened, when known. Pure,
+/// so every combination is a unit test.
+pub(crate) fn derive_origin(
+    previous: Option<&Screen>,
+    captured: TabOrigin,
+    target: &Screen,
+    target_board: Option<String>,
+) -> TabOrigin {
+    use crate::sidebar::ToolWindow;
+    let context_free = previous.is_none_or(Screen::is_context_free);
+    if !context_free {
+        return captured;
+    }
+    match target {
+        Screen::IssueDetail { .. } | Screen::PrDiff { .. } => match target_board {
+            Some(board_id) => TabOrigin {
+                tool: ToolWindow::BoardIssues,
+                board_id: Some(board_id),
+                inbox_tab: None,
+            },
+            None => captured,
+        },
+        Screen::Session { .. } => TabOrigin {
+            tool: ToolWindow::Sessions,
+            board_id: None,
+            inbox_tab: None,
+        },
+        Screen::SupportThread { .. } => TabOrigin {
+            tool: ToolWindow::Support,
+            board_id: None,
+            inbox_tab: None,
+        },
+        _ => captured,
+    }
 }
 
 /// Human title for a screen — the center tab label, and the undocked
@@ -258,7 +311,6 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
         Screen::Devices => "Devices".into(),
         Screen::Actions => "Actions".into(),
         Screen::Automations => "Automations".into(),
-        Screen::Usage => "Usage".into(),
         Screen::Chat => "Chat".into(),
         Screen::Reviews => "Reviews".into(),
         Screen::GettingStarted { .. } => "Getting started".into(),
@@ -317,17 +369,14 @@ pub struct Navigation {
     pub team_id: Option<String>,
     screen: Option<Screen>,
     back_stack: Vec<Screen>,
+    /// EXP-818: what [`go_back`] left, so [`go_forward`] (the mouse's
+    /// forward button, `Alt+Right`) can re-enter it. Cleared by every REAL
+    /// navigation — the browser rule.
+    forward_stack: Vec<Screen>,
     /// The explicitly selected board (the top-bar picker) — the primary
     /// scope for [`active_board_id`] so the picker / files / git / run
     /// surfaces stay populated on every screen.
     last_board_id: Option<String>,
-    /// EXP-791: the coding session the issue detail must slide in over the
-    /// issue it just navigated to — a one-shot marker (the shape the retired
-    /// EXP-48 in-place-replacement marker had) consumed by the screens panel
-    /// right after it re-points the detail. Set ONLY by
-    /// [`navigate_steering`]; cleared by every other navigation so a stale
-    /// marker can never open a run over an unrelated issue.
-    pending_steer: Option<String>,
     /// EXP-288: the pending tab-origin marker the screens panel consumes
     /// when it opens/updates a tab for the navigated screen. Set by
     /// [`navigate`]/[`navigate_from`]; cleared by
@@ -350,6 +399,7 @@ impl Navigation {
                 .and_then(parse_dev_screen)
                 .or_else(legacy_reviews_tool_screen),
             back_stack: Vec::new(),
+            forward_stack: Vec::new(),
             // DEV-ONLY `EXP_DEV_BOARD_ID=<board uuid>` (EXP-642): pre-select
             // the board the first render opens — `EXP_DEV_BOARD=1` is the
             // (unrelated) debug-board switch, hence the `_ID` suffix. A blank
@@ -358,15 +408,14 @@ impl Navigation {
                 .ok()
                 .map(|id| id.trim().to_string())
                 .filter(|id| !id.is_empty()),
-            pending_steer: None,
             pending_origin: None,
         }
     }
 
-    /// EXP-791: consume the pending steer marker (see [`Self::pending_steer`]).
-    /// One-shot: the second read is `None`.
-    fn take_steer_marker(&mut self) -> Option<String> {
-        self.pending_steer.take()
+    /// EXP-818: the screen the current one was navigated FROM — the back
+    /// stack's top. `None` on the first navigation.
+    pub(crate) fn previous_screen(&self) -> Option<&Screen> {
+        self.back_stack.last()
     }
 
     /// The current screen, `None` until first navigation (default applies).
@@ -376,9 +425,14 @@ impl Navigation {
     }
 
     /// Whether [`go_back`] has anywhere to go.
-    #[allow(dead_code)]
     pub fn can_go_back(&self) -> bool {
         !self.back_stack.is_empty()
+    }
+
+    /// Whether [`go_forward`] has anywhere to go.
+    #[allow(dead_code)] // the mouse/keyboard paths call `go_forward` blind
+    pub fn can_go_forward(&self) -> bool {
+        !self.forward_stack.is_empty()
     }
 }
 
@@ -399,10 +453,9 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
         "devices" => Some(Screen::Devices),
         "actions" => Some(Screen::Actions),
         "automations" => Some(Screen::Automations),
-        // EXP-807: the shots catalog's `usage` view drives this one (its
-        // desktop entry is `{kind: "screen", value: "usage"}`), and the page
-        // has no rail row to click.
-        "usage" => Some(Screen::Usage),
+        // EXP-818: Usage folded into Devices (its Accounts section); the old
+        // dev value lands there.
+        "usage" => Some(Screen::Devices),
         "chat" => Some(Screen::Chat),
         // EXP-706: Reviews left the rail's tool windows for its own page.
         "reviews" => Some(Screen::Reviews),
@@ -656,64 +709,11 @@ fn navigate_inner(window: &Window, cx: &mut App, screen: Screen, origin: Pending
             nav.back_stack.push(previous);
         }
         nav.screen = Some(screen);
-        nav.pending_steer = None;
+        // A real navigation forks history: the forward stack is gone.
+        nav.forward_stack.clear();
         nav.pending_origin = Some(origin);
         cx.notify();
     });
-}
-
-/// EXP-791: open `issue_id`'s detail with `session_id`'s transcript slid in
-/// over it — "Watch" on the issue's coding-now card, and every entry point
-/// of an issue-bound run (`session_screen::open_session`). A plain
-/// [`navigate`] to the issue, then the one-shot marker the screens panel
-/// hands to the detail (`IssueDetailView::open_steering`) right after
-/// re-pointing it.
-///
-/// Two windows have no panel to consume the marker, so they never get one:
-/// an UNDOCKED issue window forwards the whole gesture to the shell it came
-/// from (the [`forward_to_owner_shell`] shape, steering included), and when
-/// the issue lives in an undocked window elsewhere the navigate above is a
-/// REVEAL of that window — this window then opens the run on its own
-/// [`Screen::Session`] rather than parking a marker for the next unrelated
-/// issue to pick up.
-pub(crate) fn navigate_steering(
-    window: &Window,
-    cx: &mut App,
-    issue_id: String,
-    session_id: String,
-) {
-    if crate::screens::screens_for_window(window, cx).is_none() {
-        let window_id = window.window_handle().window_id();
-        if let Some(owner) = crate::undock::owner_shell_for_window(window_id, cx) {
-            cx.defer(move |cx| {
-                let _ = owner.update(cx, |_, window, cx| {
-                    navigate_steering(window, cx, issue_id.clone(), session_id.clone());
-                    window.activate_window();
-                });
-            });
-        }
-        return;
-    }
-    let screen = Screen::IssueDetail { issue_id };
-    navigate(window, cx, screen.clone());
-    let Some(nav) = nav_for_window_readonly(window, cx) else {
-        return;
-    };
-    let landed = nav.read(cx).screen.as_ref() == Some(&screen);
-    if !landed {
-        navigate(window, cx, Screen::Session { session_id });
-        return;
-    }
-    nav.update(cx, |nav, cx| {
-        nav.pending_steer = Some(session_id);
-        cx.notify();
-    });
-}
-
-/// Consume the pending steer marker (EXP-791) — the screens panel calls this
-/// from its nav observer beside [`take_pending_origin`].
-pub(crate) fn take_pending_steer(nav: &Entity<Navigation>, cx: &mut App) -> Option<String> {
-    nav.update(cx, |nav, _| nav.take_steer_marker())
 }
 
 /// Consume the pending tab-origin marker (EXP-288). `None` = the screen
@@ -736,7 +736,6 @@ pub fn set_screen(window: &Window, cx: &mut App, screen: Option<Screen>) {
     nav.update(cx, |nav, cx| {
         if nav.screen != screen {
             nav.screen = screen;
-            nav.pending_steer = None;
             nav.pending_origin = None;
             cx.notify();
         }
@@ -783,19 +782,48 @@ pub(crate) fn purge_from_back_stack(
     });
 }
 
-/// Pop the back stack (issue detail → board, …).
+/// Pop the back stack (issue detail → board, …). EXP-818: the screen left
+/// goes onto the forward stack, and the screen re-entered gets its list
+/// column back (`screens::restore_origin_for_screen`) — the rail follows the
+/// breadcrumb, not the other way round.
 pub fn go_back(window: &Window, cx: &mut App) {
     let Some(nav) = nav_for_window_readonly(window, cx) else {
         return;
     };
-    nav.update(cx, |nav, cx| {
-        if let Some(previous) = nav.back_stack.pop() {
-            nav.screen = Some(previous);
-            nav.pending_steer = None;
-            nav.pending_origin = None;
-            cx.notify();
+    let landed = nav.update(cx, |nav, cx| {
+        let previous = nav.back_stack.pop()?;
+        if let Some(current) = nav.screen.take() {
+            nav.forward_stack.push(current);
         }
+        nav.screen = Some(previous.clone());
+        nav.pending_origin = None;
+        cx.notify();
+        Some(previous)
     });
+    if let Some(screen) = landed {
+        crate::screens::restore_origin_for_screen(window, cx, &screen);
+    }
+}
+
+/// EXP-818: re-enter what [`go_back`] left (`cmd-]` / `Alt+Right`, the mouse
+/// forward button). No-op with nothing forward.
+pub fn go_forward(window: &Window, cx: &mut App) {
+    let Some(nav) = nav_for_window_readonly(window, cx) else {
+        return;
+    };
+    let landed = nav.update(cx, |nav, cx| {
+        let next = nav.forward_stack.pop()?;
+        if let Some(current) = nav.screen.take() {
+            nav.back_stack.push(current);
+        }
+        nav.screen = Some(next.clone());
+        nav.pending_origin = None;
+        cx.notify();
+        Some(next)
+    });
+    if let Some(screen) = landed {
+        crate::screens::restore_origin_for_screen(window, cx, &screen);
+    }
 }
 
 /// Switch the window's active team. Resets the screen + back stack —
@@ -812,8 +840,8 @@ pub fn switch_team(window: &Window, cx: &mut App, team_id: String) {
         nav.team_id = Some(team_id.clone());
         nav.screen = None;
         nav.back_stack.clear();
+        nav.forward_stack.clear();
         nav.last_board_id = None;
-        nav.pending_steer = None;
         nav.pending_origin = None;
         cx.notify();
         true
@@ -1056,16 +1084,26 @@ pub fn init(cx: &mut App) {
     cx.on_action(|_: &GoBack, cx| {
         on_active_window(cx, |window, cx| go_back(window, cx));
     });
-    // App-global back binding (§8.11): `cmd-[` on macOS, `Alt+Left` everywhere
-    // (the browser-style back chord). `None` context = fires regardless of
-    // focus, matching the ⌘K search binding.
+    cx.on_action(|_: &GoForward, cx| {
+        on_active_window(cx, |window, cx| go_forward(window, cx));
+    });
+    // App-global back/forward bindings (§8.11): `cmd-[` / `cmd-]` on macOS,
+    // `Alt+Left` / `Alt+Right` everywhere (the browser chords). `None`
+    // context = fires regardless of focus, matching the ⌘K search binding.
+    // EXP-818: the mouse's back/forward buttons dispatch the same two
+    // actions from the shell root (`shell::Shell::render`).
     #[cfg(target_os = "macos")]
     cx.bind_keys([
         KeyBinding::new("cmd-[", GoBack, None),
         KeyBinding::new("alt-left", GoBack, None),
+        KeyBinding::new("cmd-]", GoForward, None),
+        KeyBinding::new("alt-right", GoForward, None),
     ]);
     #[cfg(not(target_os = "macos"))]
-    cx.bind_keys([KeyBinding::new("alt-left", GoBack, None)]);
+    cx.bind_keys([
+        KeyBinding::new("alt-left", GoBack, None),
+        KeyBinding::new("alt-right", GoForward, None),
+    ]);
 }
 
 fn navigate_active(cx: &mut App, screen: Screen) {
@@ -1167,10 +1205,8 @@ mod tests {
         assert_eq!(parse_dev_screen("automations"), Some(Screen::Automations));
         // EXP-706: Reviews joined them (it was a rail TOOL window before).
         assert_eq!(parse_dev_screen("reviews"), Some(Screen::Reviews));
-        // EXP-807: Usage has NO rail entry (the Devices header opens it), so
-        // the catalog's `{kind: "screen", value: "usage"}` drive is the ONLY
-        // way a capture run can reach it.
-        assert_eq!(parse_dev_screen("usage"), Some(Screen::Usage));
+        // EXP-818: Usage folded into the Devices page.
+        assert_eq!(parse_dev_screen("usage"), Some(Screen::Devices));
         assert_eq!(parse_dev_screen("settings"), Some(Screen::Settings));
         // EXP-238: the legacy Account value still lands on Settings.
         assert_eq!(parse_dev_screen("account"), Some(Screen::Settings));
@@ -1250,25 +1286,24 @@ mod tests {
         assert!(!session.is_rail_full_page());
     }
 
-    /// EXP-791: exactly the rail full-page screens plus a session and a
-    /// terminal take the whole center; every list-driven detail keeps the
-    /// tool column beside it.
+    /// EXP-791/EXP-818: exactly the rail full-page screens plus a terminal
+    /// take the whole center; every list-driven detail — a session included
+    /// now — keeps the tool column beside it, and the Chat page sits beside
+    /// the Sessions list.
     #[test]
-    fn full_width_is_the_rail_pages_plus_session_and_terminal() {
-        assert!(Screen::Session {
+    fn full_width_is_the_rail_pages_plus_terminal() {
+        assert!(!Screen::Session {
             session_id: "s1".into()
         }
         .is_full_width());
+        assert!(!Screen::Chat.is_full_width());
+        assert!(!Screen::Chat.is_rail_full_page());
         // (`Screen::Terminal` is covered by the predicate's `matches!` arm —
         // a `terminal::TabId` only ever comes from a spawned manager tab.)
         for page in [
             Screen::Devices,
             Screen::Actions,
             Screen::Automations,
-            // EXP-807: reached from the Devices header, but a full-page screen
-            // exactly like the pages around it.
-            Screen::Usage,
-            Screen::Chat,
             Screen::Reviews,
             Screen::GettingStarted {
                 tab: GettingStartedTab::FirstSteps,
@@ -1293,16 +1328,86 @@ mod tests {
         assert!(!Screen::Settings.is_full_width());
     }
 
-    /// EXP-791: the steer marker is one-shot — the screens panel reads it
-    /// exactly once after re-pointing the detail, and nothing is left for the
-    /// next navigation to pick up.
+    /// EXP-818: the breadcrumb rule, one row per navigation the product can
+    /// make. `captured` stands for "whatever the rail shows".
     #[test]
-    fn pending_steer_marker_is_one_shot() {
+    fn derive_origin_keeps_the_list_context_and_derives_without_one() {
+        use crate::sidebar::{InboxTab, ToolWindow};
+        let inbox = TabOrigin {
+            tool: ToolWindow::Inbox,
+            board_id: None,
+            inbox_tab: Some(InboxTab::Inbox),
+        };
+        let board = TabOrigin {
+            tool: ToolWindow::BoardIssues,
+            board_id: Some("b1".into()),
+            inbox_tab: None,
+        };
+        let issue = Screen::IssueDetail {
+            issue_id: "i1".into(),
+        };
+        let session = Screen::Session {
+            session_id: "s1".into(),
+        };
+        let ticket = Screen::SupportThread {
+            thread_id: "t1".into(),
+        };
+        // Inbox → issue: the Inbox stays.
+        assert_eq!(derive_origin(None.or(Some(&issue)), inbox.clone(), &issue, Some("b2".into())), inbox);
+        // Inbox → a running session: the Inbox stays.
+        assert_eq!(derive_origin(Some(&issue), inbox.clone(), &session, None), inbox);
+        // Board → issue → Watch: the board stays.
+        assert_eq!(derive_origin(Some(&issue), board.clone(), &session, None), board);
+        // Agent page (Chat is a list context — the Sessions column) → session.
+        let sessions = TabOrigin {
+            tool: ToolWindow::Sessions,
+            board_id: None,
+            inbox_tab: None,
+        };
+        assert_eq!(derive_origin(Some(&Screen::Chat), sessions.clone(), &session, None), sessions);
+        // Devices (context-free) → a session: the sessions list comes along.
+        assert_eq!(derive_origin(Some(&Screen::Devices), inbox.clone(), &session, None), sessions);
+        // Reviews → PR diff: the issue's board comes along.
+        let diff = Screen::PrDiff {
+            issue_id: "i1".into(),
+        };
+        assert_eq!(
+            derive_origin(Some(&Screen::Reviews), inbox.clone(), &diff, Some("b2".into())),
+            TabOrigin {
+                tool: ToolWindow::BoardIssues,
+                board_id: Some("b2".into()),
+                inbox_tab: None,
+            }
+        );
+        // A deep link at boot (nothing before) → issue: its board.
+        assert_eq!(derive_origin(None, inbox.clone(), &issue, Some("b2".into())).board_id.as_deref(), Some("b2"));
+        // ... but an issue whose board is unknown yet keeps the rail as is.
+        assert_eq!(derive_origin(None, inbox.clone(), &issue, None), inbox);
+        // Settings → ticket: Support.
+        assert_eq!(derive_origin(Some(&Screen::Settings), board.clone(), &ticket, None).tool, ToolWindow::Support);
+    }
+
+    /// EXP-818: go-back parks the screen it left for go-forward; a real
+    /// navigation forks history and drops the forward stack.
+    #[test]
+    fn forward_stack_is_browser_shaped() {
         let mut nav = Navigation::new();
-        assert_eq!(nav.take_steer_marker(), None);
-        nav.pending_steer = Some("s1".into());
-        assert_eq!(nav.take_steer_marker(), Some("s1".to_string()));
-        assert_eq!(nav.take_steer_marker(), None);
+        nav.screen = Some(Screen::Devices);
+        nav.back_stack.push(Screen::Reviews);
+        assert!(nav.can_go_back());
+        assert!(!nav.can_go_forward());
+        // go_back's bookkeeping
+        let previous = nav.back_stack.pop().unwrap();
+        nav.forward_stack.push(nav.screen.take().unwrap());
+        nav.screen = Some(previous);
+        assert_eq!(nav.screen, Some(Screen::Reviews));
+        assert_eq!(nav.forward_stack, vec![Screen::Devices]);
+        assert!(nav.can_go_forward());
+        // a real navigation (navigate_inner's bookkeeping)
+        nav.back_stack.push(nav.screen.take().unwrap());
+        nav.screen = Some(Screen::Actions);
+        nav.forward_stack.clear();
+        assert!(!nav.can_go_forward());
     }
 
     /// EXP-771: which screens a navigation checks the undock registry for.
@@ -1337,7 +1442,6 @@ mod tests {
             assert_eq!(screen_title(&Screen::Actions, cx), "Actions");
             assert_eq!(screen_title(&Screen::Automations, cx), "Automations");
             assert_eq!(screen_title(&Screen::Reviews, cx), "Reviews");
-            assert_eq!(screen_title(&Screen::Usage, cx), "Usage");
             assert_eq!(
                 screen_title(
                     &Screen::GettingStarted {

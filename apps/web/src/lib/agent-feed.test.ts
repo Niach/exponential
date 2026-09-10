@@ -43,6 +43,7 @@ import {
   pendingAnswerable,
   pendingPlaceholder,
   rateLimitBanner,
+  rateLimitIsWall,
   rateLimitResetsAtMs,
   splitTruncatedDiff,
   toolGroupCaption,
@@ -1437,38 +1438,42 @@ describe(`per-call diff truncation (EXP-786)`, () => {
 
 // EXP-784: the banner strings.
 describe(`rate-limit banner (EXP-784)`, () => {
-  const clock = (ms: number) => `T${ms}`
+  const now = new Date(1_700_000_000_000)
 
-  it(`prefers the agent's message and names the local reset time`, () => {
+  it(`prefers the agent's message and counts down to the reset`, () => {
     expect(
       rateLimitBanner(
-        { status: `rejected`, message: `5-hour limit reached`, resetsAt: 1_700_000_000_000 },
-        clock
+        {
+          status: `rejected`,
+          message: `5-hour limit reached`,
+          resetsAt: 1_700_000_000_000 + 2 * 3_600_000 + 10 * 60_000,
+        },
+        now
       )
-    ).toEqual({ text: `5-hour limit reached`, resets: `resets T1700000000000` })
+    ).toEqual({ text: `5-hour limit reached`, resets: `resets in 2h 10m` })
   })
 
   it(`falls back on the status and omits the reset when unknown`, () => {
-    expect(rateLimitBanner({ status: `rejected` }, clock)).toEqual({
+    expect(rateLimitBanner({ status: `rejected` }, now)).toEqual({
       text: `Rate limit reached`,
       resets: null,
     })
-    expect(rateLimitBanner({ status: `allowed_warning` }, clock)).toEqual({
-      text: `Approaching the rate limit`,
-      resets: null,
-    })
+  })
+
+  // EXP-818: a warning is not a wall — the agent keeps working and the Usage
+  // sheet carries the percentage; only the agent's own notice makes it one.
+  it(`is no banner at all for a warning without a notice`, () => {
+    expect(rateLimitBanner({ status: `allowed_warning` }, now)).toBeNull()
+    expect(rateLimitIsWall({ status: `allowed_warning` })).toBe(false)
+    expect(rateLimitIsWall({ status: `allowed_warning`, message: `You've hit your limit` })).toBe(true)
+    expect(rateLimitIsWall({ status: `rejected` })).toBe(true)
   })
 
   it(`scales a seconds-valued resetsAt up to ms`, () => {
     expect(rateLimitResetsAtMs(1_700_000_000)).toBe(1_700_000_000_000)
     expect(rateLimitResetsAtMs(1_700_000_000_000)).toBe(1_700_000_000_000)
-    expect(rateLimitBanner({ status: `rejected`, resetsAt: 1_700_000_000 }, clock).resets).toBe(
-      `resets T1700000000000`
-    )
-  })
-
-  it(`formats HH:MM in local time by default`, () => {
-    const at = new Date(2026, 8, 9, 7, 5).getTime()
-    expect(rateLimitBanner({ status: `rejected`, resetsAt: at }).resets).toBe(`resets 07:05`)
+    expect(
+      rateLimitBanner({ status: `rejected`, resetsAt: 1_700_000_000 + 45 * 60 }, now)?.resets
+    ).toBe(`resets in 45m`)
   })
 })

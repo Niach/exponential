@@ -414,6 +414,9 @@ pub const SHAPES: [ShapeSpec; 20] = [
             "summary",
             "ended_by",
             "resumed_from_id",
+            // EXP-818: the run that spawned this one (`sessions_start`) —
+            // the session lists nest a child under its parent.
+            "parent_session_id",
             "started_at",
             "ended_at",
             "created_at",
@@ -732,7 +735,7 @@ mod tests {
         // dropped `outcome` from the table, so requesting it would break the
         // whole shape.
         let spec = shape_by_name("coding_sessions").unwrap();
-        for column in ["summary", "ended_by", "resumed_from_id"] {
+        for column in ["summary", "ended_by", "resumed_from_id", "parent_session_id"] {
             assert!(spec.columns.contains(&column), "coding_sessions needs {column}");
         }
         assert!(!spec.columns.contains(&"merged_own_pr"), "server-only");
