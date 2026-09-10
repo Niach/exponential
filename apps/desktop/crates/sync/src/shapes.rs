@@ -818,8 +818,9 @@ mod tests {
 
     #[test]
     fn devices_sync_the_acp_agents_column() {
-        // EXP-749: without it every remote picker loses the "runs in a
-        // terminal tab" note and silently claims the session screen.
+        // EXP-749/EXP-773: without it every remote picker loses its
+        // "can't run a session" note and silently claims a start that the
+        // target machine will refuse.
         let spec = shape_by_name("devices").unwrap();
         assert!(spec.columns.contains(&"acp_agents"));
         // It is a SUBSET of the runnable list, so both have to sync.

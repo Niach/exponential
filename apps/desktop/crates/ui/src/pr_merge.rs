@@ -9,8 +9,8 @@
 //! spinner until the Electric echo flips `pr_state`. The state lives in ONE
 //! app-global entity (the [`crate::coding_flow::LocalSessions`] pattern), so
 //! a merge started from ANY surface renders its phase and failure on every
-//! other surface — a conflict hit from a terminal tab shows up in the
-//! Reviews list exactly as if Merge had been clicked there.
+//! other surface — a conflict hit from a session's Changes bar shows up in
+//! the Reviews list exactly as if Merge had been clicked there.
 //!
 //! Keys share one namespace: an issue UUID for `issues.mergePr`,
 //! [`close_pr_key`] (`close:<uuid>`) for `issues.closePr`,
@@ -457,7 +457,7 @@ impl MergeState {
     }
 }
 
-/// What a [`two_click`] call did. The terminal tab's merge button acts on
+/// What a [`two_click`] call did. A merge button with a close hook acts on
 /// [`TwoClick::Fired`]: it closes its session tab the moment the merge
 /// call actually fires, ending the session BEFORE the merge settles — a
 /// conflict failure must never leave a live session holding the branch and

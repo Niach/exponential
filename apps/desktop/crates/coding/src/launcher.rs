@@ -470,8 +470,9 @@ pub struct CodingDeps {
 pub enum ResumeSeed {
     /// The recorded ACP `sessionId` — `session/load` takes it.
     Acp(String),
-    /// The agent's OWN id (claude's session uuid, codex's rollout id) when
-    /// the run was recorded on the PTY path.
+    /// The agent's OWN id (claude's session uuid, codex's rollout id) —
+    /// EXP-758: the engine records it alongside the ACP one, so this is what
+    /// reopens the conversation when no ACP session id survived.
     Native(String),
     /// pi resumes by FILE, not by id.
     PiSessionFile(PathBuf),
@@ -628,7 +629,7 @@ impl From<GitError> for CodingError {
 /// Steps 0–6 done: everything the foreground needs to open the Claude tab.
 #[derive(Debug)]
 pub struct PreparedLaunch {
-    /// The `coding_sessions` row id — keys the terminal tab (§06) and the
+    /// The `coding_sessions` row id — keys the session tab (§06) and the
     /// steer session room (§08).
     pub session_id: String,
     /// The issue identifier (`EXP-42`) — or `batch-<id8>` for a batch
@@ -2967,8 +2968,8 @@ fn prepare_resume_run(
     };
 
     // EXP-746 (D8): how the ACP engine reopens the conversation — the
-    // recorded ACP session id when the run WAS one, else the agent's own
-    // handle (a pre-773 record the engine loads natively).
+    // recorded ACP session id first, else the agent's OWN handle (EXP-758:
+    // the engine records both, and a `/clear` re-reads the native one).
     let acp_resume = acp_resume_id
         .clone()
         .map(ResumeSeed::Acp)

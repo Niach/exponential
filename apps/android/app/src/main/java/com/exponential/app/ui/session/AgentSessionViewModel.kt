@@ -556,7 +556,7 @@ class AgentSessionViewModel @Inject constructor(
     /**
      * Kill the session (EXP-268): tRPC `steer.killSession` flips the synced
      * row to `ended` (which this screen already reacts to) and best-effort
-     * kills the live terminal through the relay — so no local state change on
+     * kills the live run through the relay — so no local state change on
      * success; a failure surfaces via [killError].
      */
     fun killSession() {

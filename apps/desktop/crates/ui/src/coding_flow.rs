@@ -433,7 +433,7 @@ impl LocalSessions {
     /// The live local session with this `coding_sessions` ROW id — the
     /// reverse of [`Self::session_for_tab`]. EXP-686: the automations run log
     /// resolves a synced live row back to the tab this process is hosting it
-    /// in, so clicking the row can reveal that terminal.
+    /// in, so clicking the row can reveal that session.
     pub fn session_by_id(&self, session_id: &str) -> Option<&LocalCodingSession> {
         self.all().find(|session| session.session_id == session_id)
     }
@@ -885,7 +885,8 @@ pub fn install_quit_hook(cx: &mut App) {
         // EXP-746: an ACP run's agent is OUR child, not a PTY's — nothing
         // SIGHUPs it when we go. Kill every engine first so the child dies
         // with us and the end sequence has the quit window to land in; the
-        // row end below is the same idempotent backstop the PTY path uses.
+        // row end below is the same idempotent backstop the retired PTY
+        // path used.
         // (Closing a WINDOW deliberately does not do this: an ACP run is not
         // window-bound — that is the point of moving it off the dock.)
         let engines: Vec<engine::EngineSession> = LocalSessions::global_ref(cx)

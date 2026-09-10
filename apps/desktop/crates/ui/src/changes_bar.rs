@@ -33,11 +33,11 @@ pub(crate) const CHANGES_DIFF_H: f32 = 288.;
 
 /// What a CONFIRMED merge does on top of firing the op.
 ///
-/// The dock closes the local terminal tab the moment the merge call fires so
-/// a conflict failure finds the branch free (`terminal_dock`'s EXP-498 note);
-/// the steer arm and the session screen do nothing extra. It is a callback
-/// rather than a flag because a generic renderer cannot reach the dock's tab
-/// and manager — only the caller can.
+/// Vestigial since EXP-773: the retired terminal dock closed its local tab
+/// the moment the merge call fired so a conflict failure found the branch
+/// free (its EXP-498 note). The session screen — now the ONLY merge surface
+/// here — does nothing extra and passes `None`; the server ends the session
+/// on merge anyway (EXP-498).
 pub(crate) type OnMerged = Rc<dyn Fn(&mut App)>;
 
 /// Everything one painting of the bar needs. Generic over the hosting view so
@@ -159,11 +159,10 @@ pub(crate) fn render<V: Render>(spec: ChangesSpec<V>, cx: &mut Context<V>) -> An
 /// conflicts) jumps to the Reviews PAGE, where the shared error caption + the
 /// Fix-conflicts button render exactly as a Reviews-originated failure.
 ///
-/// `close_on_merge` runs when the confirm FIRES — the dock closes its local
-/// terminal tab there (the `TabClosed` watcher then fires the idempotent
-/// `codingSessions.end`) so a conflict failure never leaves a live session
-/// holding the branch. Remote and ACP surfaces pass `None`: there is no tab
-/// here, and the server ends the session on merge anyway (EXP-498).
+/// `close_on_merge` runs when the confirm FIRES. It exists for the retired
+/// terminal dock, which closed its local tab there so a conflict failure
+/// never left a live session holding the branch; every surface left passes
+/// `None` (EXP-773), and the server ends the session on merge (EXP-498).
 pub(crate) fn merge_button<V: Render>(
     merge: &MergeTarget,
     merge_state: &Entity<crate::pr_merge::MergeState>,

@@ -238,8 +238,8 @@ pub(crate) struct StartActionArgs {
     pub origin: LaunchOrigin,
     /// Resolved input values, definition-ordered (empty = input-less run).
     pub inputs: Vec<ActionInputValue>,
-    /// The window for the terminal tab (`None` = the first shell window —
-    /// the relay path).
+    /// The window the run's session tab lands in (`None` = the first shell
+    /// window — the relay path).
     pub target: Option<gpui::AnyWindowHandle>,
     /// Foreground the app first (remote starts surface the new tab).
     pub activate_app: bool,

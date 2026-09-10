@@ -556,10 +556,10 @@ fn session_chip_content(session_id: &str, cx: &App) -> ChipContent {
     }
 }
 
-/// EXP-769: a terminal chip — the retired dock strip's local chip: an issue
-/// coding run on the PTY path renders the center issue-tab treatment (status
-/// glyph + mono identifier + synced title), everything else the terminal
-/// glyph and the tab's own title; an exited child adds its code as a badge.
+/// EXP-769: a terminal chip — the retired dock strip's local chip. EXP-773
+/// left terminals with no coding runs in them, so this is always the plain
+/// treatment: the terminal glyph and the tab's own title, with an exited
+/// child's code as a badge.
 fn terminal_chip_content(tab: terminal::TabId, cx: &App) -> ChipContent {
     let Some(manager) = crate::session_bar::manager_for_tab(tab, cx) else {
         return ChipContent {
@@ -1328,9 +1328,9 @@ impl ScreensPanel {
     /// Direct tab management never touches the back stack.
     ///
     /// EXP-769: a TERMINAL tab's close is the terminal's close — the child is
-    /// killed and the manager drops the tab (the retired dock's cmd-w; an
-    /// issue run on the PTY path ends its row through the exit hook). The
-    /// manager's `TabClosed` echo then finds the entry already gone.
+    /// killed and the manager drops the tab (the retired dock's cmd-w). No
+    /// `coding_sessions` row rides on it since EXP-773. The manager's
+    /// `TabClosed` echo then finds the entry already gone.
     fn close_tab(&mut self, ix: usize, window: &mut Window, cx: &mut gpui::Context<Self>) {
         self.remove_tab(ix, true, window, cx);
     }

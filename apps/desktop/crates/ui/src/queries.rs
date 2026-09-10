@@ -1128,7 +1128,7 @@ pub(crate) fn coding_session_display(
 /// The device filter is what makes this correct for the CLI daemon: the
 /// daemon registers its own `device_id` even when it runs on this very
 /// machine, so its runs are remote to the IDE — which is exactly right, the
-/// IDE has no terminal tab for them. Pure (unit-tested).
+/// IDE hosts no session of its own for them. Pure (unit-tested).
 ///
 /// EXP-746 moved it out of `terminal_dock` — the Devices screen's Running
 /// list is the same projection, and two copies of it is how they drift.
@@ -1231,9 +1231,10 @@ pub(crate) struct LaunchDevice {
     /// The agent CLIs the machine can actually run right now.
     pub(crate) agents: Vec<coding::CodingAgent>,
     /// EXP-749: the subset of [`Self::agents`] that runs on the SESSION
-    /// SCREEN there; the rest start in a terminal tab. `None` = the machine
-    /// never said (an older build's row, or a doctor that has not landed
-    /// yet) — assume every agent, and say nothing.
+    /// SCREEN there; EXP-773 left no fallback, so the rest cannot start a
+    /// run there at all. `None` = the machine never said (an older build's
+    /// row, or a doctor that has not landed yet) — assume every agent, and
+    /// say nothing.
     pub(crate) acp_agents: Option<Vec<coding::CodingAgent>>,
     /// Its published launch defaults, clamped onto a default `Settings`
     /// (the same clamp `device_settings::baseline_for` runs for remote rows).
@@ -2608,7 +2609,7 @@ mod tests {
         assert_eq!(ids, vec!["mine-new", "mine-old"]);
     }
 
-    /// A row this process HOSTS already has a terminal tab — it must never
+    /// A row this process HOSTS already has a session tab — it must never
     /// also grow a steer chip (belt-and-braces next to the device filter).
     #[test]
     fn remote_chips_skip_sessions_this_process_hosts() {

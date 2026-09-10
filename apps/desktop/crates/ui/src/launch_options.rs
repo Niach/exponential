@@ -1237,9 +1237,10 @@ impl LaunchOptionsSection {
                 .map(|report| report.unauthed_agents())
                 .unwrap_or_default(),
         };
-        // EXP-749: a remote machine's agents that would land on the PTY path
-        // there. Local runs say nothing here — the local doctor's own acp
-        // rows (Settings → Tools) and "Start in terminal" cover this machine.
+        // EXP-749/EXP-773: a remote machine's agents that cannot speak ACP
+        // there, so a start is REFUSED — there is no terminal transport left
+        // to demote to. Local runs say nothing here: the local doctor's own
+        // acp rows (Settings → Tools) cover this machine.
         let no_session: Vec<CodingAgent> = match &self.remote {
             Some(remote) => pickable
                 .iter()

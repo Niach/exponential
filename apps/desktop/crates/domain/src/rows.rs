@@ -970,9 +970,9 @@ mod tests {
         assert_eq!(narrow.agent_usage_for("claude"), None);
     }
 
-    /// EXP-749: the ACP-ready subset. A LIST is authoritative (an agent
-    /// missing from it starts in a terminal tab there); a NULL column is an
-    /// older build's row and means unknown, so nothing is claimed about it.
+    /// EXP-749: the ACP-ready subset. A LIST is authoritative (EXP-773: an
+    /// agent missing from it cannot start a run there at all); a NULL column
+    /// is an older build's row and means unknown, so nothing is claimed.
     #[test]
     fn device_row_reads_acp_agents_and_null_means_unknown() {
         // TEXT-stored jsonb, like every other list column.

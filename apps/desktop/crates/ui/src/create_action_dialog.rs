@@ -111,8 +111,8 @@ pub fn open_prefilled(
     icon: Option<String>,
     automation: Option<serde_json::Value>,
 ) {
-    // The launched terminal tab lands back in the OPENER window (the dialog
-    // is its own native window — EXP-284).
+    // The launched run lands back in the OPENER window (the dialog is its
+    // own native window — EXP-284).
     let opener = window.window_handle();
     // FIXED size per open: the automation detail replaces the form INSIDE
     // this frame, so the window must not resize between the two halves.

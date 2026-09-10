@@ -3,7 +3,7 @@
 //!
 //! - `codingSessions.start({issueId, deviceLabel?})` → `{session}` —
 //!   **mutation**, called BEFORE the child spawns: the returned row id keys
-//!   the terminal tab (§06) and the steer session room (§08). The server
+//!   the session tab (§06) and the steer session room (§08). The server
 //!   enforces the plan's concurrent-session capacity here
 //!   (`assertWithinCodingSessionLimit` → `PRECONDITION_FAILED`/412 with an
 //!   upgrade nudge on cloud; unlimited self-hosted) — the desktop never

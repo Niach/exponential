@@ -73,9 +73,9 @@ pub fn status(args: &[String]) -> CommandResult {
             println!("          sign in to use them — see `exponential doctor`");
         }
     }
-    // EXP-746: which installed agents run on the session screen. Everything
-    // else keeps launching into a terminal tab (`coding::resolve_transport`),
-    // which is a fallback, never a failure — hence no ✗ vocabulary here.
+    // EXP-746: which installed agents run on the session screen. EXP-773
+    // left no fallback, so anything missing here simply cannot start — the
+    // doctor is the surface that says why, hence no ✗ vocabulary.
     println!("ACP       {}", acp_summary(&report));
     let git = if report.git.ok { "ok" } else { "MISSING" };
     println!("Git       {git}");
