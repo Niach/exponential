@@ -168,7 +168,18 @@ struct AgentSessionView: View {
         }
     }
 
+    // Four small chains instead of one long one. The whole modifier chain is
+    // ONE expression to the type checker, and at this view's size that budget
+    // has been blown twice already (#644, #656) — each time by a condition
+    // spelled out inside one of its closures, and each fix bought exactly one
+    // wave of headroom. Every group below is its own inference context, so a
+    // new modifier costs its group and not the whole view. Nesting reads
+    // inside out; the order of application is unchanged.
     var body: some View {
+        withSheets(withLifecycle(withAlerts(withChrome(sessionContent))))
+    }
+
+    private var sessionContent: some View {
         ZStack {
             AppBackground()
 
@@ -188,222 +199,241 @@ struct AgentSessionView: View {
                 }
             }
         }
-        .glassMenuOverlay(isPresented: $menuOpen, anchor: menuAnchor, presentation: .inline) {
-            toolbarMenuItems
-        }
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-        .toolbar {
-            // EXP-688: the header names the ISSUE, like the list row it was
-            // opened from — the phase/machine line it used to be is demoted to
-            // a caption under it.
-            ToolbarItem(placement: .principal) {
-                VStack(spacing: 1) {
-                    SessionRowTitle(
-                        identifier: headerIssue?.identifier,
-                        title: headerTitle,
-                        state: headerState,
-                        paused: hostPaused || headerLost,
-                        live: model?.phase == .live
-                    )
-                    HStack(spacing: 6) {
-                        Text(headerCaption)
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            .lineLimit(1)
-                        // EXP-804: the usage wall rides BESIDE the phase
-                        // caption. It never replaces it — a walled run is
-                        // still `Live`, it just cannot make progress, and
-                        // that is exactly the pair a viewer needs to see.
-                        SessionBlockedBadge(blocked: (model?.session ?? session).blocked)
+    }
+
+    /// Nav bar, title block and the `…` menu.
+    private func withChrome(_ content: some View) -> some View {
+        content
+            .glassMenuOverlay(isPresented: $menuOpen, anchor: menuAnchor, presentation: .inline) {
+                toolbarMenuItems
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .toolbar {
+                // EXP-688: the header names the ISSUE, like the list row it was
+                // opened from — the phase/machine line it used to be is demoted to
+                // a caption under it.
+                ToolbarItem(placement: .principal) {
+                    VStack(spacing: 1) {
+                        SessionRowTitle(
+                            identifier: headerIssue?.identifier,
+                            title: headerTitle,
+                            state: headerState,
+                            paused: hostPaused || headerLost,
+                            live: model?.phase == .live
+                        )
+                        HStack(spacing: 6) {
+                            Text(headerCaption)
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                .lineLimit(1)
+                            // EXP-804: the usage wall rides BESIDE the phase
+                            // caption. It never replaces it — a walled run is
+                            // still `Live`, it just cannot make progress, and
+                            // that is exactly the pair a viewer needs to see.
+                            SessionBlockedBadge(blocked: (model?.session ?? session).blocked)
+                        }
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    if hasToolbarMenu {
+                        GlassMenuBarButton(
+                            icon: AppIcons.uiMore,
+                            accessibilityLabel: "More",
+                            anchor: $menuAnchor,
+                            isPresented: $menuOpen
+                        )
                     }
                 }
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                if hasToolbarMenu {
-                    GlassMenuBarButton(
-                        icon: AppIcons.uiMore,
-                        accessibilityLabel: "More",
-                        anchor: $menuAnchor,
-                        isPresented: $menuOpen
+    }
+
+    /// The four confirms: Resume, Kill, Merge, and a `/`-command's own.
+    private func withAlerts(_ content: some View) -> some View {
+        content
+            .alert("Resume this run?", isPresented: $showResumeConfirm) {
+                Button("Resume") { if let model { resumeRun(model) } }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Reopens the run on the machine that ran it, in the same worktree, and continues where the agent stopped.")
+            }
+            .alert("Kill this coding session?", isPresented: $showKillConfirm) {
+                Button("Kill session", role: .destructive) {
+                    Task { await model?.killSession() }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This stops the agent on the desktop and ends the session.")
+            }
+            // EXP-678: merging from the steering screen — same confirm-gated flow
+            // as the Agents list and Reviews.
+            .alert("Merge pull request?", isPresented: $showMergeConfirm) {
+                Button("Merge", role: .destructive) {
+                    if let model { merge(model) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                // EXP-734: this run's OWN pull request links no issue, so
+                // promising completed issues would be a lie.
+                if case .session = model?.mergeTarget {
+                    Text("Merges this run's pull request and closes the coding session.")
+                } else {
+                    Text("Merges the pull request, completes every linked issue, and closes the coding session.")
+                }
+            }
+            // EXP-724: `/clear` discards the conversation, so confirm rows
+            // confirm before the frames go out. Copy is byte-identical ×4.
+            .alert(
+                slashConfirm.map { SlashCommands.confirmTitle($0) } ?? "",
+                isPresented: Binding(
+                    get: { slashConfirm != nil },
+                    set: { if !$0 { slashConfirm = nil } }
+                ),
+                presenting: slashConfirm
+            ) { command in
+                Button(SlashCommands.confirmButton(command), role: .destructive) {
+                    if let model { performSend(model) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { _ in
+                Text(SlashCommands.confirmBody)
+            }
+    }
+
+    /// Attach/detach, the photo picker, and the state changes the screen
+    /// reacts to. Their bodies live in methods below for the same reason the
+    /// chain is split at all.
+    private func withLifecycle(_ content: some View) -> some View {
+        content
+            .photosPicker(
+                isPresented: $showPhotoPicker,
+                selection: $photoItems,
+                maxSelectionCount: SteerImageMessage.maxImages,
+                matching: .images
+            )
+            .onChange(of: photoItems) { _, newItems in
+                guard !newItems.isEmpty else { return }
+                Task { await ingestPhotos(newItems) }
+            }
+            // EXP-790: blur collapses the composer ONLY when nothing would be
+            // lost — empty draft, no pending images, no picker mid-flight
+            // (presenting one resigns first responder). Copied from
+            // IssueDetailBottomBar.
+            // EXP-802: the composer's focus lives on its editor model now (a
+            // UITextView owns first responder), not in a `@FocusState`.
+            .onChange(of: model?.draftEditor.isEditing) { _, editing in
+                draftEditingChanged(editing)
+            }
+            // EXP-696: leave the screen when the run finishes under the viewer
+            // (kill, merge, the agent's own exit — the synced row edge covers every
+            // path). Gated on having SEEN the run live here first: the model
+            // attaches after onAppear, so a plain false→true onChange would also
+            // fire when opening an ALREADY-ended run's feed, which must stay put.
+            // Row status, not `isOver`: a relay `bye` alone shouldn't yank a
+            // screen the row still calls live.
+            // EXP-706: NOT while a recovery run is pushed on top of this screen —
+            // that run's merge is what ends this one, and popping the parent would
+            // yank the viewer out of the session they just started.
+            // The decision lives in `sessionEndedChanged` rather than inline: this
+            // body is a 200-line modifier chain, and every condition spelled out
+            // inside one of its closures is type-checked as part of it. Spelling
+            // this one out inline is what tipped the budget over twice already
+            // (the app target is only compiled by the `ios-v*` tag build and the
+            // staging archive, so it fails nowhere else).
+            .onChange(of: model?.sessionEnded) { _, ended in
+                sessionEndedChanged(ended)
+            }
+            // No scenePhase handler here: foreground revival (EXP-243) is
+            // app-scoped since EXP-621 — the root handler reconnects every retained
+            // session, not just the one that happens to be on screen.
+            .onAppear {
+                // The socket owner is app-scoped (EXP-621): popping back to this
+                // screen re-attaches to the SAME model, so the feed is already
+                // there, the composer still holds its draft, and there is no
+                // connect phase to sit through.
+                model = deps.steerSessions.attach(accountId: accountId, sessionId: session.id) {
+                    AgentSessionModel(
+                        accountId: accountId,
+                        session: session,
+                        currentUserId: deps.auth.userId,
+                        steerApi: deps.steerApi,
+                        attachmentsApi: deps.attachmentsApi,
+                        db: deps.db
                     )
                 }
             }
-        }
-        .alert("Resume this run?", isPresented: $showResumeConfirm) {
-            Button("Resume") { if let model { resumeRun(model) } }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Reopens the run on the machine that ran it, in the same worktree, and continues where the agent stopped.")
-        }
-        .alert("Kill this coding session?", isPresented: $showKillConfirm) {
-            Button("Kill session", role: .destructive) {
-                Task { await model?.killSession() }
+            .onDisappear {
+                // NOT a teardown: the store keeps the socket up while the session
+                // runs and retires it once it is over (or falls off the cap).
+                deps.steerSessions.detach(accountId: accountId, sessionId: session.id)
+                startWatcher.stop()
+                // EXP-802: the DRAFT outlives this screen, its focus must not —
+                // the editor model would otherwise hand first responder straight
+                // back on return and pop the keyboard over a screen nobody typed
+                // into. (The text is untouched; only the caret's claim goes.)
+                model?.draftEditor.setFocused(nil)
             }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This stops the agent on the desktop and ends the session.")
-        }
-        // EXP-678: merging from the steering screen — same confirm-gated flow
-        // as the Agents list and Reviews.
-        .alert("Merge pull request?", isPresented: $showMergeConfirm) {
-            Button("Merge", role: .destructive) {
-                if let model { merge(model) }
+            // EXP-706: the "Fix conflicts" launcher — the machines it can run on
+            // resolve off the synced devices shape, once steering is known on.
+            .task(id: accountId) {
+                let config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
+                steerEnabled = config.enabled
+                await refreshFixTargets()
             }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            // EXP-734: this run's OWN pull request links no issue, so
-            // promising completed issues would be a lie.
-            if case .session = model?.mergeTarget {
-                Text("Merges this run's pull request and closes the coding session.")
-            } else {
-                Text("Merges the pull request, completes every linked issue, and closes the coding session.")
-            }
-        }
-        // EXP-724: `/clear` discards the conversation, so confirm rows
-        // confirm before the frames go out. Copy is byte-identical ×4.
-        .alert(
-            slashConfirm.map { SlashCommands.confirmTitle($0) } ?? "",
-            isPresented: Binding(
-                get: { slashConfirm != nil },
-                set: { if !$0 { slashConfirm = nil } }
-            ),
-            presenting: slashConfirm
-        ) { command in
-            Button(SlashCommands.confirmButton(command), role: .destructive) {
-                if let model { performSend(model) }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: { _ in
-            Text(SlashCommands.confirmBody)
-        }
-        .photosPicker(
-            isPresented: $showPhotoPicker,
-            selection: $photoItems,
-            maxSelectionCount: SteerImageMessage.maxImages,
-            matching: .images
-        )
-        .onChange(of: photoItems) { _, newItems in
-            guard !newItems.isEmpty else { return }
-            Task { await ingestPhotos(newItems) }
-        }
-        // EXP-790: blur collapses the composer ONLY when nothing would be
-        // lost — empty draft, no pending images, no picker mid-flight
-        // (presenting one resigns first responder). Copied from
-        // IssueDetailBottomBar.
-        // EXP-802: the composer's focus lives on its editor model now (a
-        // UITextView owns first responder), not in a `@FocusState`.
-        .onChange(of: model?.draftEditor.isEditing) { _, editing in
-            draftEditingChanged(editing)
-        }
-        // EXP-696: leave the screen when the run finishes under the viewer
-        // (kill, merge, the agent's own exit — the synced row edge covers every
-        // path). Gated on having SEEN the run live here first: the model
-        // attaches after onAppear, so a plain false→true onChange would also
-        // fire when opening an ALREADY-ended run's feed, which must stay put.
-        // Row status, not `isOver`: a relay `bye` alone shouldn't yank a
-        // screen the row still calls live.
-        // EXP-706: NOT while a recovery run is pushed on top of this screen —
-        // that run's merge is what ends this one, and popping the parent would
-        // yank the viewer out of the session they just started.
-        // The decision lives in `sessionEndedChanged` rather than inline: this
-        // body is a 200-line modifier chain, and every condition spelled out
-        // inside one of its closures is type-checked as part of it. Spelling
-        // this one out inline is what tipped the budget over twice already
-        // (the app target is only compiled by the `ios-v*` tag build and the
-        // staging archive, so it fails nowhere else).
-        .onChange(of: model?.sessionEnded) { _, ended in
-            sessionEndedChanged(ended)
-        }
-        // No scenePhase handler here: foreground revival (EXP-243) is
-        // app-scoped since EXP-621 — the root handler reconnects every retained
-        // session, not just the one that happens to be on screen.
-        .onAppear {
-            // The socket owner is app-scoped (EXP-621): popping back to this
-            // screen re-attaches to the SAME model, so the feed is already
-            // there, the composer still holds its draft, and there is no
-            // connect phase to sit through.
-            model = deps.steerSessions.attach(accountId: accountId, sessionId: session.id) {
-                AgentSessionModel(
-                    accountId: accountId,
-                    session: session,
-                    currentUserId: deps.auth.userId,
-                    steerApi: deps.steerApi,
-                    attachmentsApi: deps.attachmentsApi,
-                    db: deps.db
-                )
-            }
-        }
-        .onDisappear {
-            // NOT a teardown: the store keeps the socket up while the session
-            // runs and retires it once it is over (or falls off the cap).
-            deps.steerSessions.detach(accountId: accountId, sessionId: session.id)
-            startWatcher.stop()
-            // EXP-802: the DRAFT outlives this screen, its focus must not —
-            // the editor model would otherwise hand first responder straight
-            // back on return and pop the keyboard over a screen nobody typed
-            // into. (The text is untouched; only the caret's claim goes.)
-            model?.draftEditor.setFocused(nil)
-        }
-        // EXP-706: the "Fix conflicts" launcher — the machines it can run on
-        // resolve off the synced devices shape, once steering is known on.
-        .task(id: accountId) {
-            let config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
-            steerEnabled = config.enabled
-            await refreshFixTargets()
-        }
-        .sheet(isPresented: $fixSheetOpen) {
-            StartCodingSheet(
-                devices: fixDevices ?? [],
-                issues: startCandidates,
-                preselectedIds: [],
-                teamId: session.teamId,
-                initialTab: .actions,
-                preselectedActionId: DomainContract.builtinFixConflictsId,
-                preselectedPrIssueId: model?.mergeIssue?.id,
-                onStart: { device, issueIds, options in
-                    startFixIssues(on: device, issueIds: issueIds, options: options)
-                },
-                onRunAction: { device, action, options, inputs in
-                    runFixAction(on: device, action: action, options: options, inputs: inputs)
-                }
-            )
-        }
-        // The desktop picked the start up — push the recovery run's own steer
-        // screen ONCE, exactly like Reviews does (EXP-536).
-        .onChange(of: startWatcher.startedSession) { _, started in
-            if let started {
-                startWatcher.startedSession = nil
-                fixSessionTarget = started
-            }
-        }
-        .navigationDestination(item: $fixSessionTarget) { target in
-            AgentSessionRouteView(sessionId: target.sessionId)
-                .environment(\.accountId, accountId)
-        }
-        .sheet(isPresented: $showDiffSheet) {
-            if let diff = model?.latestDiff {
-                LatestChangesSheet(diff: diff)
-            }
-        }
-        // EXP-688: usage lives in its own sheet now — every window the machine
-        // reported, grouped, instead of one pinned hairline.
-        .sheet(isPresented: $showUsageSheet) {
-            if hasUsage {
-                AgentUsageSheet(
-                    usage: model?.agentUsage?.usage,
-                    account: model?.agentAccount,
-                    sessionUsage: model?.sessionUsage
-                )
-            }
-        }
     }
 
-    // MARK: - Header
+    /// Sheets and the one pushed destination (the recovery run, EXP-706).
+    private func withSheets(_ content: some View) -> some View {
+        content
+            .sheet(isPresented: $fixSheetOpen) {
+                StartCodingSheet(
+                    devices: fixDevices ?? [],
+                    issues: startCandidates,
+                    preselectedIds: [],
+                    teamId: session.teamId,
+                    initialTab: .actions,
+                    preselectedActionId: DomainContract.builtinFixConflictsId,
+                    preselectedPrIssueId: model?.mergeIssue?.id,
+                    onStart: { device, issueIds, options in
+                        startFixIssues(on: device, issueIds: issueIds, options: options)
+                    },
+                    onRunAction: { device, action, options, inputs in
+                        runFixAction(on: device, action: action, options: options, inputs: inputs)
+                    }
+                )
+            }
+            // The desktop picked the start up — push the recovery run's own steer
+            // screen ONCE, exactly like Reviews does (EXP-536).
+            .onChange(of: startWatcher.startedSession) { _, started in
+                if let started {
+                    startWatcher.startedSession = nil
+                    fixSessionTarget = started
+                }
+            }
+            .navigationDestination(item: $fixSessionTarget) { target in
+                AgentSessionRouteView(sessionId: target.sessionId)
+                    .environment(\.accountId, accountId)
+            }
+            .sheet(isPresented: $showDiffSheet) {
+                if let diff = model?.latestDiff {
+                    LatestChangesSheet(diff: diff)
+                }
+            }
+            // EXP-688: usage lives in its own sheet now — every window the machine
+            // reported, grouped, instead of one pinned hairline.
+            .sheet(isPresented: $showUsageSheet) {
+                if hasUsage {
+                    AgentUsageSheet(
+                        usage: model?.agentUsage?.usage,
+                        account: model?.agentAccount,
+                        sessionUsage: model?.sessionUsage
+                    )
+                }
+            }
+    }
 
-    /// Everything an `AgentMarkdownText` needs to render embedded images —
-    /// agent prose can carry `![](/api/attachments/{id})` and those fetches are
-    /// authenticated (EXP-440).
+    // MARK: - Lifecycle handlers
+
     // EXP-790: blur collapses the composer ONLY when nothing would be lost —
     // empty draft, no pending images, no picker mid-flight (presenting one
     // resigns first responder). Copied from IssueDetailBottomBar.
@@ -435,6 +465,11 @@ struct AgentSessionView: View {
         dismiss()
     }
 
+    // MARK: - Header
+
+    /// Everything an `AgentMarkdownText` needs to render embedded images —
+    /// agent prose can carry `![](/api/attachments/{id})` and those fetches are
+    /// authenticated (EXP-440).
     private var markdownContext: AgentMarkdownContext {
         AgentMarkdownContext(
             baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
