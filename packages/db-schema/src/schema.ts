@@ -1908,6 +1908,10 @@ export const actions = pgTable(
       .$type<ActionInputDef[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
+    // EXP-825: the hint the composer's text field shows while this action is
+    // picked — what the requester should type now that free-text inputs are
+    // gone (their placeholder/label seeded it). NULL = the generic hint.
+    promptPlaceholder: varchar(`prompt_placeholder`, { length: 200 }),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     ...timestamps,
   },

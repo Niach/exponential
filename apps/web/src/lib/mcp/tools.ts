@@ -3544,7 +3544,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_actions_create`,
     {
-      description: `Create a team action (owner only). body = the markdown prompt an agent runs locally; repositoryId targets that repo's trunk clone; icon = a curated icon name; inputs = run-dialog fields injected into the prompt.`,
+      description: `Create a team action (owner only). body = the markdown prompt an agent runs locally; repositoryId targets that repo's trunk clone; icon = a curated icon name; inputs = pick fields (repo/board/pr/icon) injected into the prompt; promptPlaceholder = the composer's hint for the requester's free text.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         teamId: uuidString,
@@ -3554,6 +3554,7 @@ export function registerExponentialTools(
         repositoryId: uuidString.nullable().optional(),
         body: z.string().min(1),
         inputs: actionInputsSchema.optional(),
+        promptPlaceholder: z.string().max(200).nullable().optional(),
       }),
     },
     async (input) => {
@@ -3579,6 +3580,7 @@ export function registerExponentialTools(
         repositoryId: uuidString.nullable().optional(),
         body: z.string().min(1).optional(),
         inputs: actionInputsSchema.optional(),
+        promptPlaceholder: z.string().max(200).nullable().optional(),
         sortOrder: z.number().finite().optional(),
       }),
     },

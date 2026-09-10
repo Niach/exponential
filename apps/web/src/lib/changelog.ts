@@ -33,7 +33,8 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Every play button lands here**: Start coding on an issue, the bulk bar, an action's Run, a machine's play button and Fix merge conflicts all open the composer with the right things preselected.
 - **Instructions with a start**: whatever you type beside the picked issues or action reaches the run as additional instructions. For a chat it is the prompt, for Create action it is the request.
 - **Images on a start**: attach up to four images to the composer. The machine downloads them before the first turn, the same way steering images work.
-- **Actions keep only picks**: text fields on actions are retired. An action declares repository, board, pull request or icon inputs; the free text comes from the composer. Existing text fields were removed from your actions.
+- **Actions keep only picks**: text fields on actions are retired. An action declares repository, board, pull request or icon inputs; the free text comes from the composer. Existing text fields were removed from your actions, and each one's hint became the action's composer hint.
+- **Composer hint per action**: an action can say what to type (Scope, Focus, a version). It shows as the field's placeholder once the action is picked, editable with the action and via MCP.
 - **Options where you need them**: machine, agent, model and plan mode sit under the composer; effort, ultracode, MCP servers and the account are one click away.`,
   },
   {

@@ -169,6 +169,26 @@ describe(`LaunchComposer`, () => {
     expect(model.clearAction).toHaveBeenCalled()
   })
 
+  // EXP-825: an action's own hint replaces the generic one while it is picked.
+  it(`shows the picked action's composer hint as the field placeholder`, () => {
+    const fix = builtinFixConflictsAction(`t1`)
+    const model = fakeModel({
+      subject: { kind: `action`, id: fix.id, inputs: {} },
+      selectedAction: { ...fix, promptPlaceholder: `Scope: which platforms` },
+      submitLabel: `Run action`,
+    })
+    render(<LaunchComposer model={model} users={[]} />)
+    expect(screen.getByPlaceholderText(`Scope: which platforms`)).toBeTruthy()
+
+    const plain = fakeModel({
+      subject: { kind: `action`, id: fix.id, inputs: {} },
+      selectedAction: fix,
+      submitLabel: `Run action`,
+    })
+    render(<LaunchComposer model={plain} users={[]} />)
+    expect(screen.getByPlaceholderText(/Additional instructions/)).toBeTruthy()
+  })
+
   it(`Enter sends when not blocked, Shift+Enter breaks the line`, () => {
     const model = fakeModel({ text: `hello`, blocked: false })
     render(<LaunchComposer model={model} users={[]} />)

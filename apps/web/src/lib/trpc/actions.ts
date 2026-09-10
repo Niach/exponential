@@ -1,7 +1,11 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, asc, desc, eq, ne } from "drizzle-orm"
-import { actionIconSchema, actionInputsSchema } from "@exp/db-schema/domain"
+import {
+  actionIconSchema,
+  actionInputsSchema,
+  actionPromptPlaceholderSchema,
+} from "@exp/db-schema/domain"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { actions, automations, repositories } from "@/db/schema"
 import { assertTeamMember, assertTeamOwner } from "@/lib/team-membership"
@@ -40,6 +44,7 @@ const wireColumns = {
   icon: actions.icon,
   body: actions.body,
   inputs: actions.inputs,
+  promptPlaceholder: actions.promptPlaceholder,
   sortOrder: actions.sortOrder,
   createdAt: actions.createdAt,
   updatedAt: actions.updatedAt,
@@ -231,6 +236,7 @@ export const actionsRouter = router({
         repositoryId: z.string().uuid().nullable().optional(),
         body: bodySchema,
         inputs: actionInputsSchema.optional(),
+        promptPlaceholder: actionPromptPlaceholderSchema.nullable().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -264,6 +270,7 @@ export const actionsRouter = router({
             icon: input.icon ?? null,
             body: input.body,
             inputs: input.inputs ?? [],
+            promptPlaceholder: input.promptPlaceholder || null,
             sortOrder: nextSortOrder,
           })
           .onConflictDoNothing({
@@ -286,6 +293,7 @@ export const actionsRouter = router({
         repositoryId: z.string().uuid().nullable().optional(),
         body: bodySchema.optional(),
         inputs: actionInputsSchema.optional(),
+        promptPlaceholder: actionPromptPlaceholderSchema.nullable().optional(),
         sortOrder: z.number().finite().optional(),
       })
     )
@@ -332,6 +340,9 @@ export const actionsRouter = router({
       if (input.body !== undefined) updates.body = input.body
       // Whole-array replace — inputs are small and orderful, no patching.
       if (input.inputs !== undefined) updates.inputs = input.inputs
+      if (input.promptPlaceholder !== undefined) {
+        updates.promptPlaceholder = input.promptPlaceholder || null
+      }
       if (input.sortOrder !== undefined) updates.sortOrder = input.sortOrder
 
       // Nothing to change — return the current row (drizzle rejects an empty

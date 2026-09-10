@@ -186,6 +186,22 @@ describe(`actions.create — inputs + reserved name (EXP-257)`, () => {
     expect(action).toMatchObject({ name: `Weekly review` })
   })
 
+  // EXP-825: the composer hint rides create/update; blank clears it.
+  it(`persists the composer hint and clears it on blank`, async () => {
+    selectResults.push([])
+    await caller.create({
+      teamId: TEAM_ID,
+      name: `Release`,
+      body: `x`,
+      promptPlaceholder: `  Scope: which platforms  `,
+    })
+    expect(inserts[0]).toMatchObject({ promptPlaceholder: `Scope: which platforms` })
+
+    selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Release`, inputs: [] }])
+    await caller.update({ id: ACTION_ID, promptPlaceholder: `` })
+    expect(updates[0]!.promptPlaceholder).toBeNull()
+  })
+
   it(`defaults inputs to an empty array`, async () => {
     selectResults.push([])
     await caller.create({ teamId: TEAM_ID, name: `Plain`, body: `x` })

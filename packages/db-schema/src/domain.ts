@@ -559,6 +559,12 @@ export const MAX_ACTION_INPUTS = 10
 export const MAX_ACTION_INPUT_KEY = 32
 export const MAX_ACTION_INPUT_LABEL = 100
 export const MAX_ACTION_INPUT_PLACEHOLDER = 200
+/** EXP-825: the composer's field hint while the action is picked. */
+export const MAX_ACTION_PROMPT_PLACEHOLDER = 200
+export const actionPromptPlaceholderSchema = z
+  .string()
+  .trim()
+  .max(MAX_ACTION_PROMPT_PLACEHOLDER)
 /** Max chars a filled input VALUE may carry (ids and icon names in practice; the cap is contract-locked). */
 export const MAX_ACTION_INPUT_TEXT = 4096
 

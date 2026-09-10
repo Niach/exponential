@@ -86,6 +86,8 @@ export interface BuiltinAction {
   icon: string | null
   body: string
   inputs: ActionInputDef[]
+  /** EXP-825: the composer's field hint while this builtin is picked. */
+  promptPlaceholder: string | null
   sortOrder: number
   createdAt: Date
   updatedAt: Date
@@ -105,6 +107,7 @@ export function builtinCreateAction(teamId: string): BuiltinAction {
     icon: `sparkles`,
     body: ``,
     inputs: CREATE_ACTION_INPUTS,
+    promptPlaceholder: `Describe the action — what it should do, and its name if you have one…`,
     sortOrder: 1e9,
     createdAt: new Date(0),
     updatedAt: new Date(0),
@@ -126,6 +129,7 @@ export function builtinFixConflictsAction(teamId: string): BuiltinAction {
     icon: `git-branch`,
     body: ``,
     inputs: FIX_CONFLICTS_INPUTS,
+    promptPlaceholder: null,
     sortOrder: 1e9 + 1,
     createdAt: new Date(0),
     updatedAt: new Date(0),
@@ -148,6 +152,7 @@ export function builtinChatAction(teamId: string): BuiltinAction {
     icon: `message-circle`,
     body: ``,
     inputs: CHAT_INPUTS,
+    promptPlaceholder: null,
     sortOrder: 1e9 + 2,
     createdAt: new Date(0),
     updatedAt: new Date(0),

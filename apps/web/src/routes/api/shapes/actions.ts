@@ -24,6 +24,8 @@ const ACTION_COLUMNS = [
   `description`,
   `icon`,
   `inputs`,
+  // EXP-825: the composer hint; unknown to older natives, dropped safely.
+  `prompt_placeholder`,
   `sort_order`,
   `created_at`,
   `updated_at`,

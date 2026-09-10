@@ -13,7 +13,6 @@ import { LaunchOptionsLine } from "@/components/launch-dialog/launch-options-lin
 import { SubjectChips } from "@/components/launch-dialog/subject-chips"
 import { Pill } from "@/components/ui/pill"
 import type { LaunchComposerModel } from "@/hooks/use-launch-composer"
-import { BUILTIN_CREATE_ACTION_ID } from "@/lib/builtin-actions"
 import { pickChatSuggestions } from "@/lib/chat-suggestions"
 import { conceptIcon } from "@/lib/icons.generated"
 import { acceptedImageContentTypes } from "@/lib/storage/issue-attachments"
@@ -40,11 +39,13 @@ const UiCloseIcon = conceptIcon(`ui-close`)
 
 /** What the field asks for, per subject. */
 export function composerPlaceholder(model: LaunchComposerModel): string {
-  const { subject } = model
+  const { subject, selectedAction } = model
   if (subject === null) return `Ask the agent…`
-  if (subject.kind === `action` && subject.id === BUILTIN_CREATE_ACTION_ID) {
-    return `Describe the action — what it should do, and its name if you have one…`
-  }
+  // EXP-825: an action can say what the requester should type here (its
+  // `promptPlaceholder`, seeded from the retired free-text input); the
+  // Create-action builtin carries its own.
+  const hint = selectedAction?.promptPlaceholder?.trim()
+  if (subject.kind === `action` && hint) return hint
   return `Additional instructions (optional)…`
 }
 
