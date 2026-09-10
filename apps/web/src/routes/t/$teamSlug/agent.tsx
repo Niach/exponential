@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from "react"
+import { pickChatSuggestions } from "@/lib/chat-suggestions"
 import { createFileRoute, redirect } from "@tanstack/react-router"
 import { ChevronDown, LoaderCircle } from "lucide-react"
 import { MAX_ACTION_INPUT_TEXT } from "@exp/db-schema/domain"
@@ -148,17 +149,13 @@ function ChatHeader({ title }: { title: string }) {
   )
 }
 
-/** EXP-790: the chips over the empty prompt box. Each inserts its text with
- *  the `#` last, so the issue-ref autocomplete opens on the caret at once —
- *  the chat's job is mostly "do this to that issue". Hand-mirrored ×4. */
-export const CHAT_SUGGESTIONS: readonly string[] = [`Fix #`, `Explain #`, `Review #`]
-
 /** EXP-772: the chat launcher — one wide prompt box, and under it a single
  * muted row of inline pickers (machine → agent → plan) seeded from the
  * selected machine's launch defaults. EXP-790: the box is the mention field
  * (`@` members, `#` issue refs, `:` emoji), model and effort stay the machine's
- * defaults (they left the row with the session composer's pickers), and three
- * suggestion chips sit over the empty field. Enter sends, Shift+Enter breaks
+ * defaults (they left the row with the session composer's pickers), and a few
+ * suggestion chips (EXP-820: drawn from `CHAT_SUGGESTION_POOL`) sit over the
+ * empty field. Enter sends, Shift+Enter breaks
  * the line. Plan mode starts OFF here: a chat is a conversation, not a change
  * proposal. */
 function ChatPrompt({
@@ -183,6 +180,9 @@ function ChatPrompt({
   ) => void
 }) {
   const [prompt, setPrompt] = useState(``)
+  // EXP-820: a few chips drawn from the pool per mount — the same range the
+  // getting-started cards show, not three fixed verbs.
+  const [suggestions] = useState(() => pickChatSuggestions())
   const fieldRef = useRef<MentionTextareaHandle>(null)
   // The same candidate filter the launch dialog uses (EXP-403/EXP-409): the
   // registry lists offline machines and signed-out ones, neither is startable.
@@ -220,7 +220,7 @@ function ChatPrompt({
           field has text they would just be in the way. */}
       {prompt.length === 0 && (
         <div className="flex flex-wrap items-center gap-1.5 px-1">
-          {CHAT_SUGGESTIONS.map((suggestion) => (
+          {suggestions.map((suggestion) => (
             <Pill
               key={suggestion}
               size="sm"

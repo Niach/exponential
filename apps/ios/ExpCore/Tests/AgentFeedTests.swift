@@ -558,6 +558,79 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertNil(AgentFeed.currentStepIndex(of: partly, done: ["tu#0"]))
     }
 
+    // MARK: - Ask completion (EXP-820)
+
+    func testAnAskCompletesOnlyWhenItsSubmitStepResolves() {
+        var submit = question(3, wireId: "tu#submit", askId: "tu")
+        let steps = [
+            question(1, wireId: "tu#0", askId: "tu", index: 1, total: 2),
+            question(2, wireId: "tu#1", askId: "tu", index: 2, total: 2),
+        ]
+        XCTAssertFalse(AgentFeed.askComplete(AgentAskGroup(askId: "tu", questions: steps + [submit])))
+        // Every numbered step resolved but the review still open: not over —
+        // the steerer can still go back to a step.
+        var resolvedSteps = steps
+        for i in resolvedSteps.indices { resolvedSteps[i].resolved = true }
+        XCTAssertFalse(
+            AgentFeed.askComplete(AgentAskGroup(askId: "tu", questions: resolvedSteps + [submit]))
+        )
+        submit.resolved = true
+        XCTAssertTrue(AgentFeed.askComplete(AgentAskGroup(askId: "tu", questions: steps + [submit])))
+    }
+
+    func testALoneStepAskCompletesWhenThatStepResolves() {
+        var only = question(1, wireId: "tu#0", askId: "tu", index: 1, total: 1)
+        XCTAssertFalse(AgentFeed.askComplete(AgentAskGroup(askId: "tu", questions: [only])))
+        only.resolved = true
+        XCTAssertTrue(AgentFeed.askComplete(AgentAskGroup(askId: "tu", questions: [only])))
+    }
+
+    func testADismissedStepEndsTheWholeAsk() {
+        var first = question(1, wireId: "tu#0", askId: "tu", index: 1, total: 2)
+        let second = question(2, wireId: "tu#1", askId: "tu", index: 2, total: 2)
+        XCTAssertFalse(AgentFeed.askComplete(AgentAskGroup(askId: "tu", questions: [first, second])))
+        first.resolved = true
+        first.dismissed = true
+        XCTAssertTrue(AgentFeed.askComplete(AgentAskGroup(askId: "tu", questions: [first, second])))
+    }
+
+    func testAReResolvedStepReplacesItsRecordedAnswer() {
+        // EXP-820 "go back": the engine re-publishes `question_resolved` for
+        // an earlier step that was answered again.
+        var step = question(1, wireId: "tu#0", askId: "tu", index: 1, total: 2)
+        step.resolved = true
+        step.answers = ["Red"]
+        let feed: [AgentFeedItem] = [
+            .question(step),
+            .question(question(2, wireId: "tu#1", askId: "tu", index: 2, total: 2)),
+        ]
+        let out = AgentFeed.applyQuestionResolved(feed, id: "tu#0", askId: nil, answers: ["Blue"])
+        XCTAssertEqual(out?[0].question?.answers, ["Blue"])
+        XCTAssertEqual(out?[0].question?.resolved, true)
+        // The other step is untouched.
+        XCTAssertEqual(out?[1].question?.resolved, false)
+    }
+
+    func testAReAnswerKeepsTheStepAckedWhileItsNewFrameIsPending() {
+        var tracker = AgentAnswerTracker()
+        tracker.markSent("tu#0", labels: ["Red"])
+        tracker.acknowledge("tu#0")
+        tracker.markSent("tu#0", labels: ["Blue"])
+        XCTAssertTrue(tracker.isPending("tu#0"))
+        XCTAssertTrue(tracker.isAcked("tu#0"))
+        XCTAssertEqual(tracker.answerSummary("tu#0"), "Blue")
+        // No confirmation: the step stays LOCKED (it never rolls back into the
+        // stepper's current slot); only the fresh label goes.
+        tracker.expire("tu#0")
+        XCTAssertTrue(tracker.isLocked("tu#0"))
+        XCTAssertNil(tracker.answerSummary("tu#0"))
+        // Confirmed: pending clears, acked stands, the new label shows.
+        tracker.markSent("tu#0", labels: ["Blue"])
+        tracker.acknowledge("tu#0")
+        XCTAssertFalse(tracker.isPending("tu#0"))
+        XCTAssertEqual(tracker.answerSummary("tu#0"), "Blue")
+    }
+
     // MARK: - Answer lock
 
     func testALockedCardStaysLockedUntilItExpiresAndAckedCardsNever() {

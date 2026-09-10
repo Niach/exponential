@@ -41,15 +41,17 @@ import {
   optionForHotkey,
   optionHotkey,
   pendingAnswerable,
-  pendingPlaceholder,
+  askComplete,
+  opensInlineField,
   rateLimitBanner,
   rateLimitIsWall,
   rateLimitResetsAtMs,
   splitTruncatedDiff,
   toolGroupCaption,
   FREE_TEXT_KEY,
-  PLAN_PENDING_PLACEHOLDER,
-  QUESTION_PENDING_PLACEHOLDER,
+  BACK_TO_CURRENT_STEP,
+  FREE_TEXT_PLACEHOLDER,
+  PLAN_FEEDBACK_PLACEHOLDER,
   type AnswerableCard,
   type AnswerStates,
   type EchoEntry,
@@ -445,6 +447,51 @@ describe(`askStepperView`, () => {
       {}
     )
     expect(view.total).toBe(2)
+  })
+
+  // EXP-820: the ONE completion rule ×4 — a resolved submit step, a resolved
+  // lone step, or a dismissal. Until then the ask is open to a change of mind
+  // and never done waiting.
+  it(`askComplete — a resolved submit step, a resolved lone step, or a dismissal`, () => {
+    expect(askComplete([step(1, 1), step(2, 2)])).toBe(false)
+    expect(
+      askComplete([step(1, 1, { resolved: true }), step(2, 2, { resolved: true }), submit(3)])
+    ).toBe(false)
+    expect(
+      askComplete([
+        step(1, 1, { resolved: true }),
+        step(2, 2, { resolved: true }),
+        submit(3, { resolved: true, answer: `Submit` }),
+      ])
+    ).toBe(true)
+    // A one-question ask submits on its answer — no review step ever comes.
+    expect(askComplete([step(1, 1, { total: 1 })])).toBe(false)
+    expect(askComplete([step(1, 1, { total: 1, resolved: true, answer: `Red` })])).toBe(true)
+    // Two steps published and resolved of a two-step ask: the submit is
+    // still to come.
+    expect(
+      askComplete([step(1, 1, { resolved: true }), step(2, 2, { resolved: true })])
+    ).toBe(false)
+    expect(askComplete([step(1, 1, { resolved: true, dismissed: true })])).toBe(true)
+    expect(askComplete([])).toBe(false)
+  })
+
+  it(`a complete ask never waits and exposes it on the view`, () => {
+    const done = askStepperView(
+      [
+        step(1, 1, { resolved: true, answer: `Red` }),
+        step(2, 2, { resolved: true, answer: `Tabs` }),
+        submit(3, { resolved: true }),
+      ],
+      {}
+    )
+    expect(done.complete).toBe(true)
+    expect(done.waiting).toBe(false)
+    const lone = askStepperView([step(1, 1, { total: 1, resolved: true })], {})
+    expect(lone.complete).toBe(true)
+    expect(lone.waiting).toBe(false)
+    const open = askStepperView([step(1, 1), step(2, 2)], {})
+    expect(open.complete).toBe(false)
   })
 })
 
@@ -1376,15 +1423,34 @@ describe(`pending card routing (EXP-788)`, () => {
     expect(optionForHotkey(options, `Enter`)).toBeNull()
   })
 
-  it(`the placeholder names the card kind`, () => {
-    expect(pendingPlaceholder(plan(1))).toBe(PLAN_PENDING_PLACEHOLDER)
-    expect(pendingPlaceholder(question(1))).toBe(QUESTION_PENDING_PLACEHOLDER)
-    expect(PLAN_PENDING_PLACEHOLDER).toBe(
-      `Tell the agent what to change, or pick an option above`
-    )
-    expect(QUESTION_PENDING_PLACEHOLDER).toBe(
-      `Answer directly, or pick an option above`
-    )
+  // EXP-820: the free answer is typed in the card, under the row that opens
+  // it — copy locked here because the natives mirror it by hand.
+  it(`the inline field copy is byte-locked ×4`, () => {
+    expect(FREE_TEXT_PLACEHOLDER).toBe(`Type your answer…`)
+    expect(PLAN_FEEDBACK_PLACEHOLDER).toBe(`Tell the agent what to change…`)
+    expect(BACK_TO_CURRENT_STEP).toBe(`Back to current step`)
+  })
+
+  it(`a free-text row and a plan's reject open the inline field, nothing else does`, () => {
+    const withRow = question(1, {
+      options: [
+        { key: `1`, label: `Red` },
+        { key: `text`, label: `Type something.`, freeText: true },
+      ],
+    })
+    expect(opensInlineField(withRow, 0)).toBe(false)
+    expect(opensInlineField(withRow, 1)).toBe(true)
+    expect(opensInlineField(withRow, 2)).toBe(false)
+    expect(opensInlineField(plan(2), 0)).toBe(false)
+    expect(opensInlineField(plan(2), 1)).toBe(false)
+    expect(opensInlineField(plan(2), 2)).toBe(true)
+    // A plan with one option has no reject.
+    expect(
+      opensInlineField(
+        question(3, { planMode: true, options: [{ key: `y`, label: `Yes` }] }),
+        0
+      )
+    ).toBe(false)
   })
 })
 

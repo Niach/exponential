@@ -119,6 +119,11 @@ struct AgentSessionView: View {
     /// folds again on blur when nothing would be lost (IssueDetailBottomBar's
     /// rule). A non-empty draft or a pending image keeps it open regardless.
     @State private var composerExpanded = false
+    /// EXP-820: per ask id, the wire id of the EARLIER step being re-answered
+    /// ("go back" in the stepper), or absent while the current step shows.
+    /// View state, not model state: it is a place in the card, and a fresh
+    /// screen starts on the current step.
+    @State private var editingSteps: [String: String] = [:]
     @Environment(\.motion) private var motion
 
     private static let bottomAnchor = "feed-bottom"
@@ -1077,6 +1082,7 @@ struct AgentSessionView: View {
             pending: model?.isAnswerPending(question.lockKey) ?? false,
             failed: model?.isAnswerFailed(question.lockKey) ?? false,
             onAnswer: { keys, text in sendAnswer(question, keys: keys, text: text) },
+            onAnswerThenSend: { keys, text in answerThenSend(question, keys: keys, text: text) },
             markdownContext: markdownContext
         )
         .id(question.id)
@@ -1089,6 +1095,13 @@ struct AgentSessionView: View {
     /// A multi-question ask (EXP-249) as ONE stepper card, claude-style: one
     /// step at a time, the desktop's `answer_ack` advances it, and the ask's
     /// final review step submits the whole thing.
+    ///
+    /// EXP-820 "go back": while the ask is still open (`AgentFeed.askComplete`
+    /// false) an answered step row is tappable and swaps THAT step back in —
+    /// its options answerable again past its lock (`reanswer`), the recorded
+    /// answer pre-selected, the current step folded into a muted row — and
+    /// picking (or "Back to current step") returns to the current step. The
+    /// engine re-records the step without moving the stepper.
     @ViewBuilder
     private func askCard(_ group: AgentAskGroup) -> some View {
         let stepIndex = AgentFeed.currentStepIndex(
@@ -1096,29 +1109,82 @@ struct AgentSessionView: View {
         )
         // Every step done: keep the last one on screen with its resolution.
         let index = stepIndex ?? (group.questions.count - 1)
+        let complete = AgentFeed.askComplete(group)
+        // Editing is offered only while the ask is open and this client may
+        // answer at all; a stale editing id (the ask completed, or the step
+        // moved past `index`) simply falls back to the current step.
+        let editable = canAnswer && !complete
+        let editHandler: ((String) -> Void)? = editable
+            ? { wireId in editingSteps[group.askId] = wireId }
+            : nil
+        let answered = Array(group.questions.prefix(index))
+        let editingStep: AgentQuestion? = editable
+            ? editingSteps[group.askId].flatMap { id in answered.first { $0.wireId == id } }
+            : nil
         if group.questions.indices.contains(index) {
-            let question = group.questions[index]
-            QuestionCard(
-                question: question,
-                stepLabel: stepLabel(for: question, in: group),
-                priorSteps: Array(group.questions.prefix(index)),
-                priorAnswers: group.questions.prefix(index).map { step in
-                    step.answerSummary ?? model?.localAnswerSummary(step.lockKey)
-                },
-                localAnswer: model?.localAnswerSummary(question.lockKey),
-                active: stepIndex != nil && (model?.activeQuestionIds.contains(question.id) ?? false),
-                canAnswer: canAnswer,
-                locked: model?.isAnswerLocked(question.lockKey) ?? false,
-                pending: model?.isAnswerPending(question.lockKey) ?? false,
-                failed: model?.isAnswerFailed(question.lockKey) ?? false,
-                onAnswer: { keys, text in sendAnswer(question, keys: keys, text: text) },
-                markdownContext: markdownContext
-            )
-            // A fresh identity per step — the card's local selection state must
-            // never leak from one question into the next.
-            .id(question.id)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("agent-feed-question")
+            let current = group.questions[index]
+            if let editingStep {
+                // The OTHER answered steps stay listed (each still tappable, so
+                // the steerer can hop between them); the edited one is the
+                // card's prompt.
+                let others = answered.filter { $0.wireId != editingStep.wireId }
+                QuestionCard(
+                    question: editingStep,
+                    stepLabel: stepLabel(for: editingStep, in: group),
+                    priorSteps: others,
+                    priorAnswers: others.map { step in
+                        step.answerSummary ?? model?.localAnswerSummary(step.lockKey)
+                    },
+                    localAnswer: model?.localAnswerSummary(editingStep.lockKey),
+                    active: true,
+                    canAnswer: canAnswer,
+                    // Answerable past its lock — `reanswer` on the send.
+                    locked: false,
+                    pending: false,
+                    failed: false,
+                    askOpen: true,
+                    editing: true,
+                    editingAnswer: editingStep.answerSummary
+                        ?? model?.localAnswerSummary(editingStep.lockKey),
+                    foldedCurrent: current,
+                    onEditStep: editHandler,
+                    onExitEditing: { editingSteps[group.askId] = nil },
+                    onAnswer: { keys, text in
+                        sendAnswer(editingStep, keys: keys, text: text, reanswer: true)
+                        editingSteps[group.askId] = nil
+                    },
+                    markdownContext: markdownContext
+                )
+                // Its own identity per edited step — the picked state starts
+                // from the recorded answer, never from the current step's.
+                .id("edit-\(editingStep.id)")
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("agent-feed-question")
+            } else {
+                QuestionCard(
+                    question: current,
+                    stepLabel: stepLabel(for: current, in: group),
+                    priorSteps: answered,
+                    priorAnswers: answered.map { step in
+                        step.answerSummary ?? model?.localAnswerSummary(step.lockKey)
+                    },
+                    localAnswer: model?.localAnswerSummary(current.lockKey),
+                    active: stepIndex != nil && (model?.activeQuestionIds.contains(current.id) ?? false),
+                    canAnswer: canAnswer,
+                    locked: model?.isAnswerLocked(current.lockKey) ?? false,
+                    pending: model?.isAnswerPending(current.lockKey) ?? false,
+                    failed: model?.isAnswerFailed(current.lockKey) ?? false,
+                    askOpen: !complete,
+                    onEditStep: editHandler,
+                    onAnswer: { keys, text in sendAnswer(current, keys: keys, text: text) },
+                    markdownContext: markdownContext
+                )
+                // A fresh identity per step — the card's local selection state must
+                // never leak from one question into the next.
+                .id(current.id)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("agent-feed-question")
+            }
         }
     }
 
@@ -1128,18 +1194,33 @@ struct AgentSessionView: View {
         return total > 1 ? "Question \(index) of \(total)" : nil
     }
 
-    private func sendAnswer(_ question: AgentQuestion, keys: [String], text: String? = nil) {
-        // The picked labels (a typed free-text reply wins over its row's
-        // "Type something" label) — what the stepper shows for this step
-        // until the desktop resolves the ask (EXP-588).
-        let labels: [String] = keys.compactMap { key in
+    /// The picked labels (a typed free-text reply wins over its row's "Type
+    /// something" label) — what the stepper shows for this step until the
+    /// desktop resolves the ask (EXP-588).
+    private func answerLabels(_ question: AgentQuestion, keys: [String], text: String?) -> [String] {
+        keys.compactMap { key in
             guard let option = question.options.first(where: { $0.key == key }) else { return nil }
             if option.freeText, let text, !text.isEmpty { return text }
             return option.label
         }
+    }
+
+    private func sendAnswer(
+        _ question: AgentQuestion, keys: [String], text: String? = nil, reanswer: Bool = false
+    ) {
         model?.sendAnswer(
             questionId: question.wireId, askId: question.askId,
-            keys: keys, text: text, labels: labels
+            keys: keys, text: text, labels: answerLabels(question, keys: keys, text: text),
+            reanswer: reanswer
+        )
+    }
+
+    /// EXP-820: a plan's inline feedback — deny on the reject row, then the
+    /// text as the next message (`AgentSessionModel.answerThenSend`).
+    private func answerThenSend(_ question: AgentQuestion, keys: [String], text: String) {
+        model?.answerThenSend(
+            questionId: question.wireId, askId: question.askId,
+            keys: keys, labels: answerLabels(question, keys: keys, text: nil), text: text
         )
     }
 
@@ -1329,7 +1410,12 @@ struct AgentSessionView: View {
         // stays up through a reconnect (send disabled, draft intact) and only
         // goes away once the session is over. It used to vanish on every drop,
         // taking the half-typed message with it.
-        if !model.isOver {
+        // EXP-820: while a question or plan card is pending on this steerer
+        // (`cardPending`: live, not ended, an unresolved card in the feed) the
+        // whole band is GONE — the card's free answer is its own inline
+        // field, so the composer would only compete with it. The draft stays
+        // in the model and the band is back once the card resolves.
+        if !model.isOver, !model.cardPending {
             // Steering is fully seamless (EXP-312) — no captions, no
             // operator state; input just sends.
             VStack(spacing: 8) {
@@ -1382,10 +1468,9 @@ struct AgentSessionView: View {
     }
 
     /// EXP-790: the folded composer — the capsule IssueDetailBottomBar folds
-    /// its comment box into, wearing the placeholder the open field would
-    /// (so a pending card's "pick an option above" still reads folded), plus
-    /// a Stop circle while the agent works, so an interrupt never needs the
-    /// keyboard first.
+    /// its comment box into, wearing the placeholder the open field would,
+    /// plus a Stop circle while the agent works, so an interrupt never needs
+    /// the keyboard first.
     private func collapsedComposerBar(_ model: AgentSessionModel) -> some View {
         HStack(spacing: 12) {
             Button {
@@ -1774,9 +1859,9 @@ struct AgentSessionView: View {
             // which is also how Return accepts an open menu below.
             MarkdownComposerField(
                 model: model.draftEditor,
-                // EXP-788: the composer IS the free answer of a pending card
-                // — a plan's feedback or a question's typed reply — and the
-                // placeholder says which.
+                // EXP-820: the generic prompt — a pending card's free answer
+                // is the card's own inline field, and this band hides while
+                // one is pending.
                 placeholder: model.composerPlaceholder,
                 onReturn: { handleComposerReturn(model) },
                 onPasteImage: { image in ingestPastedImage(model, image) },
@@ -2445,15 +2530,42 @@ private struct QuestionCard: View {
     /// The last answer expired unconfirmed — answerable again, with a retry
     /// hint so the rollback isn't a silent mystery (EXP-334, web parity).
     let failed: Bool
+    /// EXP-820: the ask this card belongs to is still OPEN
+    /// (`AgentFeed.askComplete` false) — gates the lock captions and the
+    /// answered rows' edit affordance. A lone card is its own ask.
+    var askOpen: Bool = true
+    /// EXP-820: this is an EARLIER step being re-answered ("go back") — the
+    /// resolution branch is skipped and the options are live although the
+    /// step already resolved or locked.
+    var editing: Bool = false
+    /// EXP-820: the recorded answer to pre-select while editing.
+    var editingAnswer: String? = nil
+    /// EXP-820: while editing, the ask's CURRENT step folded into a muted
+    /// row — tapping it returns to it.
+    var foldedCurrent: AgentQuestion? = nil
+    /// EXP-820: an answered step row was tapped (its wire id); nil = the rows
+    /// are not tappable (the ask is over, or this client cannot answer).
+    var onEditStep: ((String) -> Void)? = nil
+    /// EXP-820: leave editing without answering.
+    var onExitEditing: (() -> Void)? = nil
     /// Protocol v2: one semantic frame carrying every chosen key; the second
     /// argument is the typed reply for a `freeText` option (EXP-513).
     let onAnswer: ([String], String?) -> Void
+    /// EXP-820: a plan's inline feedback — answer on `keys` (the reject row),
+    /// THEN send the text as the next ordinary message.
+    var onAnswerThenSend: (([String], String) -> Void)? = nil
     /// Image fetching for the prompt's markdown render (EXP-440).
     var markdownContext: AgentMarkdownContext? = nil
 
     @State private var expanded = false
     /// Tap order is the submit order of the semantic answer frame.
     @State private var picked: [String] = []
+    /// EXP-820: the option whose inline field is open — a free-text row
+    /// ("Type something.") or the plan's reject row. Tapping the row again
+    /// folds it.
+    @State private var inlineKey: String? = nil
+    @State private var inlineText = ""
+    @FocusState private var inlineFocused: Bool
 
     private static let clampChars = 600
     private static let clampLines = 6
@@ -2469,7 +2581,24 @@ private struct QuestionCard: View {
                 || question.text.filter { $0 == "\n" }.count >= Self.clampLines)
     }
 
-    private var answerable: Bool { active && canAnswer }
+    /// EXP-820: an edited step answers again past its resolution.
+    private var answerable: Bool { editing || (active && canAnswer) }
+
+    private var showsResolution: Bool { question.resolved && !editing }
+
+    /// EXP-820: answered rows are tappable only while the ask is open and this
+    /// client may answer — the host hands a handler in exactly then.
+    private var canEditPriorSteps: Bool { askOpen && canAnswer && onEditStep != nil }
+
+    /// EXP-820: the plan's reject row — the one option that expands into the
+    /// inline feedback field (`AgentFeed.planRejectKey` rule, ×4).
+    private var rejectKey: String? { AgentFeed.planRejectKey(for: question) }
+
+    /// EXP-820: a row that expands into an inline field instead of answering
+    /// on the tap — a free-text row, or the plan's reject row.
+    private func expandsInline(_ option: AgentQuestionOption) -> Bool {
+        option.freeText || option.key == rejectKey
+    }
 
     private var headerText: String? {
         if question.planMode { return "Plan ready" }
@@ -2489,17 +2618,13 @@ private struct QuestionCard: View {
 
     private var submitTitle: String { AgentFeed.submitLabel }
 
-    /// EXP-788: the rows drawn — a free-text row is gone (the composer IS the
-    /// free answer now, and its placeholder says so).
-    private var visibleOptions: [AgentQuestionOption] {
-        question.options.filter { !$0.freeText }
-    }
-
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
+            // EXP-820: no blue on the card — a plan's glyph and header are the
+            // primary white, a question's stay the semantic yellow.
             AppIcon(question.planMode ? AppIcons.codingPlan : AppIcons.uiHelp, size: AppIcon.Size.small)
                 .foregroundStyle(
-                    question.planMode ? DesignTokens.Semantic.blue : DesignTokens.Semantic.yellow
+                    question.planMode ? Color.white : DesignTokens.Semantic.yellow
                 )
                 .padding(.top, 4)
             VStack(alignment: .leading, spacing: 8) {
@@ -2508,17 +2633,20 @@ private struct QuestionCard: View {
                         .font(.caption.weight(.medium))
                         .foregroundStyle(
                             question.planMode
-                                ? DesignTokens.Semantic.blue
+                                ? Color.white
                                 : Color.white.opacity(TextOpacity.secondary)
                         )
                 }
                 priorStepSummary
                 prompt
-                if question.resolved {
+                if showsResolution {
                     resolution
                 } else {
                     optionList
                     trailingActions
+                }
+                if editing {
+                    editingFooter
                 }
                 if active, !canAnswer {
                     Text(question.planMode
@@ -2535,42 +2663,128 @@ private struct QuestionCard: View {
         // A bordered card, not a group container: the ask is one free-content
         // block that has to stand off the transcript behind it.
         .glassCard()
+        .onAppear(perform: preselectEditingAnswer)
+    }
+
+    /// EXP-820: an edited step starts from its recorded answer — the row whose
+    /// label matches is picked (every matching row on a multi-select, whose
+    /// summary is the labels joined by ", "); a typed free-text answer with no
+    /// matching row reopens the free-text field with the text in it.
+    private func preselectEditingAnswer() {
+        guard editing, picked.isEmpty, inlineKey == nil, let editingAnswer else { return }
+        if let exact = question.options.first(where: { $0.label == editingAnswer }) {
+            picked = [exact.key]
+            return
+        }
+        if question.multiSelect {
+            let parts = editingAnswer.components(separatedBy: ", ")
+            let matches = question.options.filter { parts.contains($0.label) }.map(\.key)
+            if !matches.isEmpty {
+                picked = matches
+                return
+            }
+        }
+        if let free = question.options.first(where: { $0.freeText }) {
+            inlineKey = free.key
+            inlineText = editingAnswer
+        }
+    }
+
+    /// The step's one-line title: its header when it has one, else its text.
+    private func stepTitle(_ step: AgentQuestion) -> String {
+        if let header = step.header, !header.isEmpty { return header }
+        return step.text
     }
 
     /// The answered steps of this ask, so the stepper still shows what was
     /// asked and what was chosen — the question folded to one line next to
-    /// its answer (web `AnsweredStepRow` parity, EXP-588).
+    /// its answer (web `AnsweredStepRow` parity, EXP-588). EXP-820: while the
+    /// ask is open each row is a button that swaps that step back in.
     @ViewBuilder
     private var priorStepSummary: some View {
         if !priorSteps.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(priorSteps.enumerated()), id: \.element.id) { position, step in
                     let answer = position < priorAnswers.count ? priorAnswers[position] : nil
-                    HStack(alignment: .top, spacing: 6) {
-                        AppIcon(step.dismissed ? AppIcons.uiClose : AppIcons.uiCheck, size: 11)
-                            .foregroundStyle(
-                                step.dismissed
-                                    ? Color.white.opacity(TextOpacity.tertiary)
-                                    : DesignTokens.Semantic.green
-                            )
-                            .padding(.top, 2)
-                        Text(step.header?.isEmpty == false ? step.header! : step.text)
-                            .font(.caption)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        Text(answer ?? (step.dismissed ? "Dismissed" : "Answered"))
-                            .font(.caption.weight(.medium))
-                            .lineLimit(2)
-                            .multilineTextAlignment(.trailing)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            .frame(maxWidth: 180, alignment: .trailing)
-                            .fixedSize(horizontal: false, vertical: true)
+                    if canEditPriorSteps {
+                        Button {
+                            onEditStep?(step.wireId)
+                        } label: {
+                            priorStepRow(step, answer: answer, editable: true)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Change the answer to \(stepTitle(step))")
+                    } else {
+                        priorStepRow(step, answer: answer, editable: false)
                     }
                 }
             }
         }
+    }
+
+    private func priorStepRow(_ step: AgentQuestion, answer: String?, editable: Bool) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            AppIcon(step.dismissed ? AppIcons.uiClose : AppIcons.uiCheck, size: 11)
+                .foregroundStyle(
+                    step.dismissed
+                        ? Color.white.opacity(TextOpacity.tertiary)
+                        : DesignTokens.Semantic.green
+                )
+                .padding(.top, 2)
+            Text(stepTitle(step))
+                .font(.caption)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(answer ?? (step.dismissed ? "Dismissed" : "Answered"))
+                .font(.caption.weight(.medium))
+                .lineLimit(2)
+                .multilineTextAlignment(.trailing)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .frame(maxWidth: 180, alignment: .trailing)
+                .fixedSize(horizontal: false, vertical: true)
+            if editable {
+                // EXP-820: the "go back" cue — the row re-opens this step.
+                AppIcon(AppIcons.uiEdit, size: 11)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .padding(.top, 2)
+            }
+        }
+    }
+
+    /// EXP-820: under an edited step's options — the current step folded into
+    /// a muted row, and the text button back to it. Both leave editing.
+    @ViewBuilder
+    private var editingFooter: some View {
+        if let foldedCurrent {
+            Button {
+                onExitEditing?()
+            } label: {
+                HStack(alignment: .top, spacing: 6) {
+                    AppIcon(AppIcons.uiChevronRight, size: 11)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .padding(.top, 2)
+                    Text(stepTitle(foldedCurrent))
+                        .font(.caption)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(AgentFeed.backToCurrentStepLabel)
+        }
+        Button(AgentFeed.backToCurrentStepLabel) {
+            onExitEditing?()
+        }
+        .font(.caption2.weight(.medium))
+        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("agent-question-back-to-current")
     }
 
     @ViewBuilder
@@ -2619,55 +2833,105 @@ private struct QuestionCard: View {
     /// EXP-788: every option is a real full-width button — a numbered chip
     /// (1..9, the desktop's keystroke) or, on a multi-select, its checkbox,
     /// then the label with the option's description under it. The wire's
-    /// first option of a plan is the primary action ("Yes" — the contract
-    /// puts it first) and wears the accent.
+    /// first option of a plan (and of an ask's review step, "Submit answers")
+    /// is the primary action — the contract puts it first — and wears the
+    /// solid primary fill. EXP-820: a free-text row and the plan's reject row
+    /// are drawn too and EXPAND into an inline field under themselves.
     @ViewBuilder
     private var optionList: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(visibleOptions.enumerated()), id: \.element.key) { index, option in
-                let primary = question.planMode && index == 0
-                if answerable {
-                    Button {
-                        pick(option)
-                    } label: {
+            ForEach(Array(question.options.enumerated()), id: \.element.key) { index, option in
+                let primary = (question.planMode || question.isSubmitStep) && index == 0
+                let selected = picked.contains(option.key)
+                let inlineOpen = inlineKey == option.key
+                VStack(alignment: .leading, spacing: 6) {
+                    if answerable {
+                        Button {
+                            pick(option)
+                        } label: {
+                            optionRow(
+                                option,
+                                number: index + 1,
+                                primary: primary,
+                                checked: question.multiSelect ? selected : nil,
+                                selected: selected,
+                                expandable: expandsInline(option),
+                                inlineOpen: inlineOpen
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(locked)
+                        .opacity(locked ? 0.5 : 1)
+                        .accessibilityIdentifier("agent-question-option-\(index + 1)")
+                    } else {
                         optionRow(
                             option,
                             number: index + 1,
                             primary: primary,
-                            checked: question.multiSelect ? picked.contains(option.key) : nil
+                            checked: question.multiSelect ? false : nil,
+                            selected: false,
+                            expandable: expandsInline(option),
+                            inlineOpen: false
                         )
                     }
-                    .buttonStyle(.plain)
-                    .disabled(locked)
-                    .opacity(locked ? 0.5 : 1)
-                    .accessibilityIdentifier("agent-question-option-\(index + 1)")
-                } else {
-                    optionRow(
-                        option,
-                        number: index + 1,
-                        primary: primary,
-                        checked: question.multiSelect ? false : nil
-                    )
+                    if answerable, inlineOpen {
+                        inlineField(for: option)
+                    }
                 }
             }
         }
     }
 
-    /// EXP-788: no in-card text field — the composer under the transcript is
-    /// the free answer (a plan's feedback, a question's typed reply). What is
-    /// left here is the multi-select Submit and the lock/retry captions.
+    /// EXP-820: the inline field a free-text row or the plan's reject row
+    /// expands into — the composer's glass field in miniature with the round
+    /// Send mark. A free-text answer needs text; the plan's feedback Send is
+    /// always live (empty = a plain reject, exactly what the row's tap did).
+    private func inlineField(for option: AgentQuestionOption) -> some View {
+        let planFeedback = !option.freeText
+        let text = inlineText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let canSend = planFeedback || !text.isEmpty
+        return GlassTextField(
+            planFeedback ? AgentFeed.planFeedbackPlaceholder : AgentFeed.freeTextPlaceholder,
+            text: $inlineText,
+            lines: 1...5,
+            verticalPadding: 8,
+            accessibilityIdentifier: "agent-question-inline-answer"
+        ) {
+            EmptyView()
+        } trailing: {
+            GlassComposerSubmitButton(
+                AppIcons.uiSubmit,
+                accessibilityLabel: "Send",
+                enabled: canSend
+            ) {
+                sendInline(option)
+            }
+        }
+        .font(.caption)
+        .focused($inlineFocused)
+        .submitLabel(.send)
+        .onSubmit { sendInline(option) }
+        .onAppear { inlineFocused = true }
+    }
+
+    /// EXP-820: no in-card lock captions once the ask is over (`askOpen`) —
+    /// a completed stepper used to keep "Answer sent" spinning under its
+    /// last step. What is left here is the multi-select Submit and the
+    /// lock/retry captions.
     @ViewBuilder
     private var trailingActions: some View {
         if answerable, needsExplicitSubmit {
-            // Multi-select submits every picked key at once.
+            // Multi-select submits every picked key at once — the solid
+            // primary pill, never a blue one.
             let disabled = locked || picked.isEmpty
             GlassPill(
                 submitTitle,
-                mode: .select(isSelected: !disabled) { submit() },
+                mode: .action { submit() },
+                primary: true,
                 enabled: !disabled
             )
         }
-        if locked, !question.resolved {
+        if locked, !question.resolved, askOpen {
             HStack(spacing: 6) {
                 if pending {
                     ProgressView().controlSize(.small).tint(.white)
@@ -2692,6 +2956,17 @@ private struct QuestionCard: View {
 
     private func pick(_ option: AgentQuestionOption) {
         guard !locked else { return }
+        if expandsInline(option) {
+            // EXP-820: the row opens (or folds) its inline field; nothing is
+            // sent until its Send.
+            if inlineKey == option.key {
+                inlineKey = nil
+                inlineFocused = false
+            } else {
+                inlineKey = option.key
+            }
+            return
+        }
         if question.multiSelect {
             if let index = picked.firstIndex(of: option.key) {
                 picked.remove(at: index)
@@ -2705,6 +2980,32 @@ private struct QuestionCard: View {
         onAnswer([option.key], nil)
     }
 
+    /// EXP-820: the inline field's Send. A free-text row answers with the
+    /// text under its key (`sendAnswer` makes the text the label); the plan's
+    /// reject row answers on its key and the text follows as the next message
+    /// (`onAnswerThenSend`), or is a plain reject when empty.
+    private func sendInline(_ option: AgentQuestionOption) {
+        guard !locked else { return }
+        let text = inlineText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if option.freeText {
+            guard !text.isEmpty else { return }
+            picked = [option.key]
+            onAnswer([option.key], text)
+        } else if text.isEmpty {
+            picked = [option.key]
+            onAnswer([option.key], nil)
+        } else if let onAnswerThenSend {
+            picked = [option.key]
+            onAnswerThenSend([option.key], text)
+        } else {
+            picked = [option.key]
+            onAnswer([option.key], nil)
+        }
+        inlineKey = nil
+        inlineText = ""
+        inlineFocused = false
+    }
+
     private func submit() {
         guard !locked, !picked.isEmpty else { return }
         onAnswer(picked, nil)
@@ -2713,15 +3014,24 @@ private struct QuestionCard: View {
     /// One option row (EXP-788): the whole width is the hit target (a
     /// plain-style button only hit-tests what it draws, EXP-588), glassRow
     /// rather than the capsule button whose height-derived radius clipped a
-    /// two-line description into an ellipse (EXP-274). The primary row is
-    /// stroked in the design-tokens blue.
+    /// two-line description into an ellipse (EXP-274). EXP-820: the primary
+    /// row is the solid `Palette.primary` fill with `primaryForeground` text
+    /// (the app's primary button, no blue anywhere); a picked or expanded row
+    /// is the active glass (`fillActive` + `strokeActive`).
     private func optionRow(
         _ option: AgentQuestionOption,
         number: Int,
         primary: Bool,
-        checked: Bool?
+        checked: Bool?,
+        selected: Bool,
+        expandable: Bool,
+        inlineOpen: Bool
     ) -> some View {
-        HStack(alignment: .top, spacing: 8) {
+        let labelColor: Color = primary ? DesignTokens.Palette.primaryForeground : .white
+        let quietColor: Color = primary
+            ? DesignTokens.Palette.primaryForeground.opacity(TextOpacity.secondary)
+            : .white.opacity(TextOpacity.tertiary)
+        let row = HStack(alignment: .top, spacing: 8) {
             if let checked {
                 // Multi-select rows carry an explicit checkbox (EXP-529) —
                 // the glassRow tint alone was too subtle to read the picked
@@ -2737,39 +3047,51 @@ private struct QuestionCard: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(option.label)
                     .font(.caption.weight(.medium))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(labelColor)
                     .multilineTextAlignment(.leading)
                 if let description = option.description, !description.isEmpty {
                     Text(description)
                         .font(.caption2)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .foregroundStyle(quietColor)
                         .multilineTextAlignment(.leading)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            if expandable {
+                // EXP-820: this row types — the chevron says it unfolds.
+                AppIcon(inlineOpen ? AppIcons.uiChevronUp : AppIcons.uiChevronDown, size: 11)
+                    .foregroundStyle(quietColor)
+                    .padding(.top, 2)
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .contentShape(Rectangle())
-        .glassRow(isActive: primary || checked == true)
-        .overlay(
-            RoundedRectangle(cornerRadius: GlassTokens.rowRadius)
-                .stroke(
-                    primary ? DesignTokens.Semantic.blue.opacity(0.6) : Color.clear,
-                    lineWidth: GlassTokens.hairline
+        return Group {
+            if primary {
+                row.background(
+                    DesignTokens.Palette.primary,
+                    in: RoundedRectangle(cornerRadius: GlassTokens.rowRadius)
                 )
-        )
+            } else {
+                row.glassRow(isActive: selected || inlineOpen)
+            }
+        }
     }
 
-    /// The 1..9 chip — the keystroke the desktop would take. Filled with the
-    /// accent on the primary row, a quiet glass square elsewhere.
+    /// The 1..9 chip — the keystroke the desktop would take. On the primary
+    /// row it inverts onto the solid fill; a quiet glass square elsewhere.
     private func numberChip(_ number: Int, primary: Bool) -> some View {
         Text("\(number)")
             .font(.caption2.weight(.semibold).monospacedDigit())
-            .foregroundStyle(primary ? Color.white : .white.opacity(TextOpacity.secondary))
+            .foregroundStyle(
+                primary ? DesignTokens.Palette.primaryForeground : .white.opacity(TextOpacity.secondary)
+            )
             .frame(width: 18, height: 18)
             .background(
-                primary ? DesignTokens.Semantic.blue : GlassTokens.fillActive,
+                primary
+                    ? DesignTokens.Palette.primaryForeground.opacity(0.12)
+                    : GlassTokens.fillActive,
                 in: RoundedRectangle(cornerRadius: 5)
             )
             .accessibilityHidden(true)

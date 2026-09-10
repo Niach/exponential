@@ -52,6 +52,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -110,6 +112,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
@@ -129,7 +132,6 @@ import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.domain.ConfigCommand
 import com.exponential.app.domain.ToolCallSummary
 import com.exponential.app.domain.ToolGroupSummary
-import com.exponential.app.domain.composerAnswerTarget
 import com.exponential.app.domain.AnswerState
 import com.exponential.app.domain.COMPACTED_LABEL
 import com.exponential.app.domain.COMPACTING_LABEL
@@ -151,6 +153,10 @@ import com.exponential.app.domain.SlashCommand
 import com.exponential.app.domain.SlashCommands
 import com.exponential.app.domain.TranscriptGap
 import com.exponential.app.domain.activeQuestionIds
+import com.exponential.app.domain.askComplete
+import com.exponential.app.domain.BACK_TO_CURRENT_STEP_LABEL
+import com.exponential.app.domain.FREE_TEXT_ANSWER_PLACEHOLDER
+import com.exponential.app.domain.PLAN_FEEDBACK_PLACEHOLDER
 import com.exponential.app.domain.canOfferFixConflicts
 import com.exponential.app.domain.collectSubagents
 import com.exponential.app.domain.currentStepperStep
@@ -249,9 +255,6 @@ private val ConnectingYellow = Color(0xFFFBBF24)
 // Package-visible: the Agents list paints a paused (offline-machine) session
 // with the same neutral grey (EXP-550).
 internal val LostGray = Color(0xFF71717A)
-/** Accent for the "Plan ready" card + header cue (EXP-97). */
-private val PlanAccent = DesignTokens.Semantic.Blue
-
 /** EXP-550: the one explanation of a paused (offline-machine) session. */
 private const val DEVICE_OFFLINE_DETAIL =
     "The agent is paused on that machine and continues when it comes back online."
@@ -430,16 +433,12 @@ fun AgentSessionScreen(
     // header flips to "Needs your input" so it never looks silently stuck.
     val awaitingInput = phase == AgentPhase.Live &&
         remember(feed) { activeQuestionIds(feed) }.isNotEmpty()
-    // EXP-788: while a plan approval or a question waits on the human, the
-    // composer IS its free-text path — the typed message answers THAT card
-    // (one `answer` frame on its free-text / reject key) instead of starting
-    // a new turn, and the placeholder says so. ONE derivation with the send
-    // path (`SteerConnection.sendDraft`): `composerAnswerTarget`.
-    val pendingAnswer = if (phase == AgentPhase.Live) {
-        remember(feed, answerStates) { composerAnswerTarget(feed, answerStates) }
-    } else {
-        null
-    }
+    // EXP-820: while a question or plan waits on THIS viewer (live, so this
+    // client may answer), the card is the whole input — its rows and the
+    // inline field a free-text/reject row opens answer it — and the composer
+    // LEAVES rather than doubling as the card's text path (EXP-788, retired).
+    // The draft stays in the connection and comes back with the composer.
+    val composerHidden = awaitingInput && !sessionEnded
     // EXP-389: the agent is actively working — live and nothing waiting on
     // the user (no active question card, synced needs_input clear; all three
     // agents drive the flag). Drives the busy footer AND the composer's Stop
@@ -844,6 +843,15 @@ fun AgentSessionScreen(
                                     question.wireId, question.askId, keys, text, labels,
                                 )
                             },
+                            // EXP-820: a plan rejected with feedback — the
+                            // reject key answers the card, the text follows as
+                            // the next message (iOS/web parity).
+                            onPlanFollowUp = { question, key, text ->
+                                val label = question.options.firstOrNull { it.key == key }?.label ?: key
+                                viewModel.answerThenSend(
+                                    question.wireId, question.askId, listOf(key), listOf(label), text,
+                                )
+                            },
                             // The floating bar overlays the tail of the feed —
                             // the list pads past it so the last message (and
                             // every scroll-to-bottom) lands above it.
@@ -1175,7 +1183,7 @@ fun AgentSessionScreen(
             // two menus to stack, or for the key guards below to drive a menu
             // that is not on screen.
             val composerMenu = when {
-                sessionEnded || phase is AgentPhase.Ended -> ComposerMenu.None
+                sessionEnded || phase is AgentPhase.Ended || composerHidden -> ComposerMenu.None
                 slashMenuOpen -> ComposerMenu.Slash
                 composerArmed &&
                     (composerMentions.isNotEmpty() || composerRefs.isNotEmpty() ||
@@ -1225,8 +1233,9 @@ fun AgentSessionScreen(
             // session, not only while the socket happens to be up — a
             // mid-reconnect blip used to yank the keyboard and the typed text
             // away. Only a finished session retires it; until the stream is
-            // live, sending is disabled rather than hidden.
-            if (!sessionEnded && phase !is AgentPhase.Ended) {
+            // live, sending is disabled rather than hidden. EXP-820: a card
+            // waiting on this viewer takes its place (see [composerHidden]).
+            if (!sessionEnded && phase !is AgentPhase.Ended && !composerHidden) {
                 // Escape has no hardware key on most phones — Back dismisses
                 // the menu, and only the menu (EXP-724). One handler per menu,
                 // and [composerMenu] guarantees at most one is ever enabled.
@@ -1296,7 +1305,6 @@ fun AgentSessionScreen(
                     // dropped without a word. Gate on the socket too, so the
                     // button dims and the placeholder says "reconnecting…".
                     live = phase == AgentPhase.Live && connected,
-                    pendingPlaceholder = pendingAnswer?.placeholder,
                     commandsAvailable = slashCatalogAvailable,
                     // EXP-790: mid-turn, the empty field's send glyph is a
                     // Stop that interrupts the agent.
@@ -1721,6 +1729,9 @@ private fun ActivityFeed(
      *  multi-select step sends all of them at once); `text` is the typed
      *  reply for a `freeText` option (EXP-513), else null. */
     onAnswer: (AgentFeedItem.Question, List<String>, String?) -> Unit,
+    /** EXP-820: (plan, reject key, feedback) — the plan's reject row sent
+     *  WITH text: the key answers the card, the text is the next message. */
+    onPlanFollowUp: (AgentFeedItem.Question, String, String) -> Unit,
     /** EXP-724: this run's agent (null = the default one) — a steered message
      *  whose first token is one of ITS catalog commands renders as a command
      *  pill instead of prose. */
@@ -1897,6 +1908,7 @@ private fun ActivityFeed(
                             liveTail = live && row.id == rows.last().id,
                         )
                         is AgentFeedRow.QuestionStepper -> QuestionStepperCard(
+                            askId = row.askId,
                             steps = row.steps,
                             answered = answered,
                             activeQuestionIds = activeQuestionIds,
@@ -1947,6 +1959,7 @@ private fun ActivityFeed(
                                 state = answerStates[item.wireId],
                                 stepLabel = null,
                                 onAnswer = { keys, text -> onAnswer(item, keys, text) },
+                                onPlanFollowUp = { key, text -> onPlanFollowUp(item, key, text) },
                             )
                         }
                     }
@@ -2368,8 +2381,14 @@ private fun FlowRowScope.ProseText(
 // sent (web parity; the 5s no-ack timeout rolls it back), ending on the ask's
 // final submit step. Once every step is answered the card collapses into the
 // answered summary.
+// EXP-820: back and forth — while the ask is still OPEN (`askComplete` false)
+// an answered step row re-opens for a new answer: it renders expanded with the
+// recorded answer pre-selected, the current step folds to one muted line, and
+// the new answer goes out on the EDITED step's wire id (the engine re-records
+// it and resolves that step again without moving the stepper).
 @Composable
 private fun QuestionStepperCard(
+    askId: String,
     steps: List<AgentFeedItem.Question>,
     /** Lock keys of the steps whose answer is out (sent or acknowledged). */
     answered: Set<String>,
@@ -2380,12 +2399,64 @@ private fun QuestionStepperCard(
     answerLabels: Map<String, String>,
     onAnswer: (AgentFeedItem.Question, List<String>, String?) -> Unit,
 ) {
-    val current = remember(steps, answered) { currentStepperStep(steps, answered) }
-    if (current == null) {
-        AnsweredAskCard(steps, answerLabels)
+    val complete = remember(steps) { askComplete(steps) }
+    // A finished (or dismissed) ask shows its summary whatever its locks say.
+    val current = remember(steps, answered, complete) {
+        if (complete) null else currentStepperStep(steps, answered)
+    }
+    // EXP-820: the wire id of the answered step re-opened for editing.
+    var editingStep by remember(askId) { mutableStateOf<String?>(null) }
+    // The rows that may be re-answered: answered here or resolved by the
+    // engine, not the one showing, and not mid-send (a locked card refuses a
+    // second frame anyway) — only while the ask is open and this viewer may
+    // answer at all.
+    val editable = remember(steps, answered, answerStates, current, complete, answerEnabled) {
+        if (!answerEnabled || complete) {
+            emptySet()
+        } else {
+            steps.filter { step ->
+                step.id != current?.id &&
+                    (step.resolved || step.wireId in answered) &&
+                    !answerStates[step.wireId].locksCard()
+            }.map { it.wireId }.toSet()
+        }
+    }
+    val editing = editingStep?.takeIf { it in editable }?.let { id -> steps.first { it.wireId == id } }
+    val onEditStep: (AgentFeedItem.Question) -> Unit = { editingStep = it.wireId }
+    val total = steps.firstOrNull { it.total != null }?.total ?: steps.count { it.index != null }
+    if (editing != null) {
+        val at = steps.indexOf(editing)
+        val answeredHere = { step: AgentFeedItem.Question -> step.resolved || step.wireId in answered }
+        val before = steps.subList(0, at).filter(answeredHere)
+        val after = steps.subList(at + 1, steps.size).filter { it.id != current?.id && answeredHere(it) }
+        QuestionCard(
+            item = editing,
+            // Answerable although resolved: the engine re-records the step.
+            active = true,
+            answerEnabled = answerEnabled,
+            state = answerStates[editing.wireId],
+            stepLabel = editing.index?.let { "Question $it of $total" },
+            priorSteps = before,
+            priorAnswers = before.map { stepAnswer(it, answerLabels) },
+            trailingSteps = after,
+            trailingAnswers = after.map { stepAnswer(it, answerLabels) },
+            editableSteps = editable,
+            onEditStep = onEditStep,
+            editing = true,
+            foldedCurrent = current,
+            onBackToCurrent = { editingStep = null },
+            localAnswer = answerLabels[editing.wireId],
+            onAnswer = { keys, text ->
+                onAnswer(editing, keys, text)
+                editingStep = null
+            },
+        )
         return
     }
-    val total = current.total ?: steps.count { it.index != null }
+    if (current == null) {
+        AnsweredAskCard(steps, answerLabels, complete, editable, onEditStep)
+        return
+    }
     // EXP-588 (web/iOS parity): the steps already answered stay visible above
     // the current one — the question folded to one line next to its answer.
     val prior = remember(steps, current) { steps.takeWhile { it.id != current.id } }
@@ -2401,6 +2472,8 @@ private fun QuestionStepperCard(
         },
         priorSteps = prior,
         priorAnswers = prior.map { stepAnswer(it, answerLabels) },
+        editableSteps = editable,
+        onEditStep = onEditStep,
         localAnswer = answerLabels[current.wireId],
         onAnswer = { keys, text -> onAnswer(current, keys, text) },
     )
@@ -2412,11 +2485,27 @@ private fun stepAnswer(step: AgentFeedItem.Question, answerLabels: Map<String, S
     step.answer?.takeIf { it.isNotBlank() } ?: answerLabels[step.wireId]
 
 /** One already-answered step of a stepper: the question on the left, folded
- *  to one line, the answer on the right (web `AnsweredStepRow` parity). */
+ *  to one line, the answer on the right (web `AnsweredStepRow` parity).
+ *  EXP-820: with [onEdit] the row is a button that re-opens the step, and
+ *  says so with a trailing pencil. */
 @Composable
-private fun AnsweredStepRow(step: AgentFeedItem.Question, answer: String?) {
+private fun AnsweredStepRow(
+    step: AgentFeedItem.Question,
+    answer: String?,
+    onEdit: (() -> Unit)? = null,
+) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (onEdit != null) {
+                    Modifier
+                        .clip(RoundedCornerShape(DesignTokens.Radius.Sm))
+                        .clickable(role = Role.Button, onClick = onEdit)
+                } else {
+                    Modifier
+                },
+            ),
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -2443,14 +2532,64 @@ private fun AnsweredStepRow(step: AgentFeedItem.Question, answer: String?) {
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
+        if (onEdit != null) {
+            Icon(
+                ExpIcons.uiEdit,
+                contentDescription = "Change answer",
+                modifier = Modifier.size(12.dp).padding(top = 1.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
+        }
     }
 }
 
-// Every step of a fully answered ask, each with the answer it got.
+/** EXP-820: the ask's CURRENT step folded to one muted line while an earlier
+ *  step is being re-answered; tapping it returns to the current step. */
+@Composable
+private fun FoldedStepRow(step: AgentFeedItem.Question, onClick: (() -> Unit)?) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (onClick != null) {
+                    Modifier
+                        .clip(RoundedCornerShape(DesignTokens.Radius.Sm))
+                        .clickable(role = Role.Button, onClick = onClick)
+                } else {
+                    Modifier
+                },
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(
+            ExpIcons.uiChevronRight,
+            contentDescription = null,
+            modifier = Modifier.size(13.dp),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        )
+        Text(
+            step.header?.takeIf { it.isNotBlank() } ?: step.text,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+// Every step of a fully answered ask, each with the answer it got. EXP-820:
+// until the ask COMPLETES (its submit step resolves) the agent is still
+// working through it — the spinner says so — and a step can still be
+// re-opened for a new answer ([editable]).
 @Composable
 private fun AnsweredAskCard(
     steps: List<AgentFeedItem.Question>,
     answerLabels: Map<String, String>,
+    complete: Boolean,
+    editable: Set<String>,
+    onEditStep: (AgentFeedItem.Question) -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -2471,7 +2610,21 @@ private fun AnsweredAskCard(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             steps.forEach { step ->
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                val onEdit = if (step.wireId in editable) ({ onEditStep(step) }) else null
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (onEdit != null) {
+                                Modifier
+                                    .clip(RoundedCornerShape(DesignTokens.Radius.Sm))
+                                    .clickable(role = Role.Button, onClick = onEdit)
+                            } else {
+                                Modifier
+                            },
+                        ),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
                     Text(
                         step.header?.takeIf { it.isNotBlank() } ?: step.text,
                         style = MaterialTheme.typography.labelSmall,
@@ -2479,12 +2632,26 @@ private fun AnsweredAskCard(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    AnsweredRow(stepAnswer(step, answerLabels))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.Top,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            AnsweredRow(stepAnswer(step, answerLabels))
+                        }
+                        if (onEdit != null) {
+                            Icon(
+                                ExpIcons.uiEdit,
+                                contentDescription = "Change answer",
+                                modifier = Modifier.size(12.dp).padding(top = 1.dp),
+                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                            )
+                        }
+                    }
                 }
             }
-            // Every step is answered but the ask hasn't resolved yet — the
-            // agent is still working through it.
-            if (steps.none { it.resolved }) {
+            if (!complete) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -2513,6 +2680,10 @@ private fun AnsweredAskCard(
 // double-sent. planMode cards (EXP-97) get a dedicated "Plan ready"
 // presentation with the first option as the primary approve action and the plan
 // rendered as markdown — labels/keys always come from the wire options.
+// EXP-820: the card is the WHOLE input while it waits (the composer hides): a
+// free-text row ("Type something.") and a plan's reject row expand an inline
+// field in place of the composer, and an answered step of an open ask
+// re-opens for a new answer ([editing]).
 @Composable
 private fun QuestionCard(
     item: AgentFeedItem.Question,
@@ -2525,10 +2696,27 @@ private fun QuestionCard(
     /** "Question 2 of 3" when the card is one step of a stepper. */
     stepLabel: String?,
     onAnswer: (List<String>, String?) -> Unit,
+    /** EXP-820: (reject key, feedback) — a plan rejected WITH text: the key
+     *  answers the card and the text goes out as the next message. */
+    onPlanFollowUp: (String, String) -> Unit = { _, _ -> },
     /** The ask's already-answered steps, summarized above this one (EXP-588). */
     priorSteps: List<AgentFeedItem.Question> = emptyList(),
     /** Per prior step: its answer text, or null when unknown here. */
     priorAnswers: List<String?> = emptyList(),
+    /** EXP-820: answered steps AFTER this one (an earlier step re-opened for
+     *  editing sits above them), summarized under the options. */
+    trailingSteps: List<AgentFeedItem.Question> = emptyList(),
+    trailingAnswers: List<String?> = emptyList(),
+    /** EXP-820: wire ids of the answered steps that may be re-opened. */
+    editableSteps: Set<String> = emptySet(),
+    onEditStep: (AgentFeedItem.Question) -> Unit = {},
+    /** EXP-820: this card is an already-answered step re-opened for a new
+     *  answer — the options render although resolved, the recorded answer
+     *  pre-selected. */
+    editing: Boolean = false,
+    /** EXP-820: while editing, the ask's current step folded to one line. */
+    foldedCurrent: AgentFeedItem.Question? = null,
+    onBackToCurrent: (() -> Unit)? = null,
     /** What this client picked for THIS card — the resolved row's fallback
      *  when the desktop's resolution carried no answer text (EXP-588). */
     localAnswer: String? = null,
@@ -2537,7 +2725,18 @@ private fun QuestionCard(
     // ask's steps, so an unkeyed `expanded` leaked a "Show more" from a long
     // step onto the next one (EXP-274).
     var expanded by remember(item.id) { mutableStateOf(false) }
-    var picked by remember(item.id) { mutableStateOf(emptySet<String>()) }
+    val recorded = item.answer?.takeIf { it.isNotBlank() } ?: localAnswer
+    // EXP-820: a re-opened step starts from what it was answered with — the
+    // matching rows selected, a typed answer back in its inline field.
+    val typed = if (editing) typedAnswer(item, recorded) else null
+    var picked by remember(item.id, editing) {
+        mutableStateOf(if (editing) recordedKeys(item, recorded) else emptySet())
+    }
+    // EXP-820: the option whose inline field is open, and its text.
+    var inlineKey by remember(item.id, editing) {
+        mutableStateOf(if (typed != null) item.options.firstOrNull { it.freeText }?.key else null)
+    }
+    var inlineText by remember(item.id, editing) { mutableStateOf(typed.orEmpty()) }
     // A Failed state does NOT lock (EXP-334) — the card is answerable again
     // and renders the retry hint below instead of the sent row.
     val locked = state.locksCard()
@@ -2551,11 +2750,13 @@ private fun QuestionCard(
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        // EXP-820: no blue on this card — a question's cue is the semantic
+        // yellow, a plan's the plain foreground (styleguide).
         Icon(
             if (item.planMode) ExpIcons.codingPlan else ExpIcons.uiHelp,
             contentDescription = null,
             modifier = Modifier.size(13.dp).padding(top = 1.dp),
-            tint = if (item.planMode) PlanAccent else ConnectingYellow,
+            tint = if (item.planMode) MaterialTheme.colorScheme.onSurface else DesignTokens.Semantic.Yellow,
         )
         Column(
             modifier = Modifier
@@ -2574,7 +2775,11 @@ private fun QuestionCard(
             if (priorSteps.isNotEmpty()) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     priorSteps.forEachIndexed { position, step ->
-                        AnsweredStepRow(step, priorAnswers.getOrNull(position))
+                        AnsweredStepRow(
+                            step,
+                            priorAnswers.getOrNull(position),
+                            onEdit = if (step.wireId in editableSteps) ({ onEditStep(step) }) else null,
+                        )
                     }
                 }
             }
@@ -2582,7 +2787,7 @@ private fun QuestionCard(
                 Text(
                     "Plan ready",
                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
-                    color = PlanAccent,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
                 // The plan is GFM markdown — always fully rendered, never
                 // folded behind a Show more (EXP-197).
@@ -2597,54 +2802,111 @@ private fun QuestionCard(
                 }
                 FoldableMarkdown(item.text, expanded) { expanded = !expanded }
             }
-            if (item.resolved) {
+            if (item.resolved && !editing) {
                 // Resolved (EXP-197/EXP-249): the answer replaces the options.
-                AnsweredRow(item.answer?.takeIf { it.isNotBlank() } ?: localAnswer)
+                AnsweredRow(recorded)
             } else {
                 // EXP-788: ONE option list on every client — full-width
                 // buttons with a numbered chip (1..9, the row's POSITION, the
                 // digit a keyboard client presses), the description under the
                 // label, and the plan's plain "Yes" (index 0 since EXP-788)
-                // promoted in the shared blue. The free-text row and the
-                // in-card field are gone: the composer below answers the
-                // card directly (`composerAnswerTarget`), so the row that
-                // only opened an input has nothing left to do.
-                val options = remember(item.options) { item.options.filter { !it.freeText } }
+                // promoted as the primary button. EXP-820: a free-text row
+                // and the plan's reject row (its LAST option) open an inline
+                // field under themselves instead of sending at once.
+                val options = item.options
                 options.forEachIndexed { index, option ->
                     val selected = option.key in picked
+                    val planReject = item.planMode && index == options.lastIndex
+                    val inline = option.freeText || planReject
+                    val fieldOpen = inline && inlineKey == option.key
                     QuestionOptionButton(
                         option = option,
                         ordinal = index + 1,
                         primary = item.planMode && index == 0,
-                        selected = selected,
+                        selected = selected || fieldOpen,
                         checked = if (item.multiSelect) selected else null,
                         enabled = answerable,
                         dimmed = locked,
                         onClick = {
-                            if (item.multiSelect) {
-                                // Every picked key goes out at once when the
-                                // card submits.
-                                picked = if (selected) picked - option.key
-                                else picked + option.key
-                            } else {
-                                picked = setOf(option.key)
-                                onAnswer(listOf(option.key), null)
+                            when {
+                                // Tapping the row again folds its field.
+                                inline -> inlineKey = if (fieldOpen) null else option.key
+                                item.multiSelect -> {
+                                    // Every picked key goes out at once when the
+                                    // card submits.
+                                    picked = if (selected) picked - option.key
+                                    else picked + option.key
+                                }
+                                else -> {
+                                    picked = setOf(option.key)
+                                    onAnswer(listOf(option.key), null)
+                                }
                             }
                         },
                     )
+                    if (fieldOpen) {
+                        val text = inlineText.trim()
+                        InlineAnswerField(
+                            value = inlineText,
+                            onValueChange = { inlineText = it },
+                            placeholder = if (planReject) PLAN_FEEDBACK_PLACEHOLDER else FREE_TEXT_ANSWER_PLACEHOLDER,
+                            // A plan's reject sends with or without feedback
+                            // (empty = the plain reject the row used to be); a
+                            // typed answer needs text.
+                            sendEnabled = answerable && (planReject || text.isNotEmpty()),
+                            onSend = {
+                                when {
+                                    planReject && text.isNotEmpty() -> onPlanFollowUp(option.key, text)
+                                    planReject -> onAnswer(listOf(option.key), null)
+                                    item.multiSelect -> onAnswer((picked + option.key).toList(), text)
+                                    else -> onAnswer(listOf(option.key), text)
+                                }
+                            },
+                        )
+                    }
                 }
                 if (item.multiSelect && (answerable || locked)) {
-                    // One frame carrying every picked key.
-                    val enabled = answerable && picked.isNotEmpty()
+                    // One frame carrying every picked key — plus the free-text
+                    // row when its field holds a reply (EXP-820).
+                    val freeKey = inlineKey?.takeIf { inlineText.isNotBlank() }
+                    val keys = picked.toList() + listOfNotNull(freeKey)
+                    val enabled = answerable && keys.isNotEmpty()
                     GlassPill(
                         "Submit",
                         size = PillSize.Sm,
                         mode = PillMode.Select,
                         selected = true,
                         enabled = enabled,
-                        onClick = { onAnswer(picked.toList(), null) },
+                        onClick = { onAnswer(keys, freeKey?.let { inlineText.trim() }) },
                     )
                 }
+                if (editing && onBackToCurrent != null) {
+                    TextButton(
+                        onClick = onBackToCurrent,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        modifier = Modifier.height(28.dp),
+                    ) {
+                        Text(
+                            BACK_TO_CURRENT_STEP_LABEL,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                        )
+                    }
+                }
+            }
+            if (trailingSteps.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    trailingSteps.forEachIndexed { position, step ->
+                        AnsweredStepRow(
+                            step,
+                            trailingAnswers.getOrNull(position),
+                            onEdit = if (step.wireId in editableSteps) ({ onEditStep(step) }) else null,
+                        )
+                    }
+                }
+            }
+            if (foldedCurrent != null) {
+                FoldedStepRow(foldedCurrent, onClick = onBackToCurrent)
             }
             if (locked) {
                 Row(
@@ -2699,6 +2961,74 @@ private fun QuestionCard(
     }
 }
 
+/** EXP-820: the option keys a recorded answer names — the rows whose label
+ *  equals it (a multi-select answer lists its labels joined by ", ") — or,
+ *  when no label matches, the free-text row that carried a typed answer. */
+private fun recordedKeys(item: AgentFeedItem.Question, answer: String?): Set<String> {
+    if (answer.isNullOrBlank()) return emptySet()
+    val parts = if (item.multiSelect) answer.split(", ") else listOf(answer)
+    val keys = item.options.filter { it.label in parts }.map { it.key }.toSet()
+    if (keys.isNotEmpty()) return keys
+    return setOfNotNull(item.options.firstOrNull { it.freeText }?.key)
+}
+
+/** EXP-820: the recorded answer when it was TYPED — no option label matches
+ *  it and the card has a free-text row to hold it; null otherwise. */
+private fun typedAnswer(item: AgentFeedItem.Question, answer: String?): String? {
+    if (answer.isNullOrBlank()) return null
+    if (item.options.none { it.freeText }) return null
+    val parts = if (item.multiSelect) answer.split(", ") else listOf(answer)
+    return if (item.options.any { it.label in parts }) null else answer
+}
+
+/**
+ * EXP-820: the inline field a free-text or plan-reject row opens — the
+ * composer's own look (a borderless glass field, the round Send glyph), taking
+ * focus (and the keyboard) as it appears; the IME's Send action is the button.
+ */
+@Composable
+private fun InlineAnswerField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    sendEnabled: Boolean,
+    onSend: () -> Unit,
+) {
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    val shape = RoundedCornerShape(GlassTokens.RowRadius)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(GlassTokens.RowFill, shape)
+            .border(GlassTokens.Hairline, GlassTokens.StrokeActive, shape)
+            .padding(start = 4.dp, end = 2.dp),
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        GlassTextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = Modifier
+                .weight(1f)
+                .focusRequester(focusRequester),
+            placeholder = placeholder,
+            maxLines = 4,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+            keyboardActions = KeyboardActions(onSend = { if (sendEnabled) onSend() }),
+            containerColor = Color.Transparent,
+            // The row owns the chrome; the field is just its text.
+            bordered = false,
+        )
+        ComposerSubmitButton(
+            ExpIcons.uiSubmit,
+            contentDescription = "Send",
+            onClick = onSend,
+            enabled = sendEnabled,
+        )
+    }
+}
+
 // The chosen answer of a resolved card — a dismissed ask carries none.
 @Composable
 private fun AnsweredRow(answer: String?) {
@@ -2726,10 +3056,11 @@ private fun AnsweredRow(answer: String?) {
  * EXP-788: one option of a question or plan card as a REAL button — the same
  * row web, iOS and the IDE draw. [ordinal] is the row's 1-based position; it
  * is chipped for 1..9 only (the digits a keyboard client can press), a longer
- * list keeps its rows bare. [primary] (the plan's plain "Yes") and a
- * [selected] row paint in the design-tokens blue — the ONE accent every
- * client uses for this card. A multi-select row leads with its checkbox
- * ([checked]); a plan or single-select row leads with the chip.
+ * list keeps its rows bare. EXP-820 (styleguide, no blue): [primary] (the
+ * plan's plain "Yes") is the app's ONE emphatic paint — the solid primary fill
+ * with dark content, like `glassButton(primary = true)` — and a [selected]
+ * row lifts to the glass active fill + stroke. A multi-select row leads with
+ * its checkbox ([checked]); a plan or single-select row leads with the chip.
  */
 @Composable
 private fun QuestionOptionButton(
@@ -2743,22 +3074,32 @@ private fun QuestionOptionButton(
     dimmed: Boolean,
     onClick: () -> Unit,
 ) {
-    val accent = PlanAccent
-    val emphasized = primary || selected
     val shape = RoundedCornerShape(GlassTokens.RowRadius)
+    val content = if (primary) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .alpha(if (dimmed) 0.5f else 1f)
             .clip(shape)
             .background(
-                if (emphasized) accent.copy(alpha = OptionFillAlpha) else GlassTokens.RowFill,
+                when {
+                    primary -> MaterialTheme.colorScheme.primary
+                    selected -> GlassTokens.RowFillActive
+                    else -> GlassTokens.RowFill
+                },
                 shape,
             )
-            .border(
-                GlassTokens.Hairline,
-                if (emphasized) accent.copy(alpha = OptionStrokeAlpha) else GlassTokens.StrokeRow,
-                shape,
+            .then(
+                // The solid primary fill has no hairline (the pill's rule).
+                if (primary) {
+                    Modifier
+                } else {
+                    Modifier.border(
+                        GlassTokens.Hairline,
+                        if (selected) GlassTokens.StrokeActive else GlassTokens.StrokeRow,
+                        shape,
+                    )
+                },
             )
             .then(
                 if (enabled) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier,
@@ -2772,9 +3113,7 @@ private fun QuestionOptionButton(
                 if (checked) ExpIcons.uiSelected else ExpIcons.uiUnselected,
                 contentDescription = null,
                 modifier = Modifier.size(14.dp).padding(top = 2.dp),
-                tint = if (checked) accent else {
-                    MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-                },
+                tint = if (checked) content else content.copy(alpha = TextEmphasis.Tertiary),
             )
         } else if (ordinal in 1..9) {
             Box(
@@ -2782,7 +3121,7 @@ private fun QuestionOptionButton(
                     .size(18.dp)
                     .clip(RoundedCornerShape(5.dp))
                     .background(
-                        if (emphasized) accent.copy(alpha = OptionChipAlpha) else GlassTokens.RowFillActive,
+                        if (primary) content.copy(alpha = PrimaryChipAlpha) else GlassTokens.RowFillActive,
                     ),
                 contentAlignment = Alignment.Center,
             ) {
@@ -2791,9 +3130,7 @@ private fun QuestionOptionButton(
                     // The digit a keyboard client presses — monospace, like
                     // every other key in the app (web `font-mono`).
                     style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-                    color = if (emphasized) accent else {
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-                    },
+                    color = content.copy(alpha = TextEmphasis.Secondary),
                 )
             }
         }
@@ -2804,24 +3141,22 @@ private fun QuestionOptionButton(
             Text(
                 option.label,
                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
-                color = MaterialTheme.colorScheme.onSurface,
+                color = content,
             )
             option.description?.takeIf { it.isNotBlank() }?.let {
                 Text(
                     it,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    color = content.copy(alpha = if (primary) TextEmphasis.Secondary else TextEmphasis.Tertiary),
                 )
             }
         }
     }
 }
 
-/** The option accent's three strengths: the row fill, its hairline and the
- *  numbered chip behind the digit. */
-private const val OptionFillAlpha = 0.16f
-private const val OptionStrokeAlpha = 0.55f
-private const val OptionChipAlpha = 0.28f
+/** The numbered chip's wash over the solid primary row — the glass active
+ *  fill would vanish against it. */
+private const val PrimaryChipAlpha = 0.12f
 
 // A permission prompt the agent hit (EXP-249) — the card itself has nothing to
 // press (the desktop TUI owns the decision), but a reply typed below reaches
@@ -3224,9 +3559,6 @@ private fun SteerComposer(
     sending: Boolean,
     /** The relay stream is up — only then can a message actually go out. */
     live: Boolean,
-    /** EXP-788: what the field promises while a plan or a question waits on
-     *  the human — the typed message answers that card. Null otherwise. */
-    pendingPlaceholder: String?,
     /** EXP-724: this run's agent has catalog commands — the placeholder says
      *  so, since a `/` menu nothing hints at is a menu nobody finds. */
     commandsAvailable: Boolean,
@@ -3242,7 +3574,6 @@ private fun SteerComposer(
     onSend: () -> Unit,
 ) {
     val placeholder = when {
-        pendingPlaceholder != null -> pendingPlaceholder
         // Typing is always allowed; the message just waits for the stream to
         // come back (EXP-621).
         !live -> "Message the agent (reconnecting…)"

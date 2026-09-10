@@ -1,5 +1,5 @@
 //! EXP-772 — the Chat page (`Screen::Chat`), the desktop twin of the web
-//! `t/$teamSlug/chat` route.
+//! `t/$teamSlug/agent` route (`routes/t/$teamSlug/agent.tsx`).
 //!
 //! An essentially empty page in the "Ask Linear" shape: one wide rounded
 //! prompt box, vertically centred, with a single subtle row of small inline
@@ -9,9 +9,10 @@
 //! EXP-790: the box is the mention field (`@` members, `#` issue refs, `:`
 //! emoji — the comment composer's widget), model and effort stay the
 //! machine's defaults (they left the row with the session composer's
-//! pickers), and three suggestion chips sit over the EMPTY field, inserting a
-//! `#` so the issue picker opens. The chip strings are byte-identical to the
-//! web page's `CHAT_SUGGESTIONS` (locked below).
+//! pickers), and suggestion chips sit over the EMPTY field — EXP-820: four
+//! drawn once per page from a pool of sixteen; one ending in `#` opens the
+//! issue picker. The pool is byte-identical to the web page's
+//! `CHAT_SUGGESTIONS` (`lib/chat-suggestions.ts`, locked below).
 //!
 //! The rail's Agent entry opens this page, and the run starts with the first
 //! message. The options are the ONE launch model every desktop surface uses
@@ -49,10 +50,64 @@ use crate::surface::{glass_pill, PillMode, PillSize};
 /// line — the steer composer's rhythm, on a page with nothing else on it.
 const PROMPT_MAX_W: f32 = 640.;
 
-/// EXP-790: the chips over an empty prompt. Each ends in `#` so the issue
-/// picker opens the moment it lands — the desktop twin of the web page's
-/// `CHAT_SUGGESTIONS` (`routes/t/$teamSlug/chat.tsx`), byte-identical.
-pub(crate) const CHAT_SUGGESTIONS: [&str; 3] = ["Fix #", "Explain #", "Review #"];
+/// EXP-790/EXP-820: the suggestion POOL over an empty prompt — the desktop
+/// twin of the web page's `CHAT_SUGGESTIONS` (`lib/chat-suggestions.ts`,
+/// rendered by `routes/t/$teamSlug/agent.tsx`), byte-identical and in the
+/// same order. A suggestion ending in `#` opens the issue picker the moment it
+/// lands; the others are plain text. The page shows [`CHAT_SUGGESTION_COUNT`]
+/// of them, picked once per page ([`pick_chat_suggestions`]).
+pub(crate) const CHAT_SUGGESTIONS: [&str; 16] = [
+    "Fix #",
+    "Explain #",
+    "Review #",
+    "Split # into sub-issues",
+    "Label every issue in the backlog",
+    "Set a priority on every unprioritized issue",
+    "Find duplicate issues and link them",
+    "Do a code review of the open PRs and file the findings on a new board",
+    "Create an automation that labels new issues",
+    "Set up a weekly standup digest automation",
+    "Draft release notes from the issues completed this month",
+    "Summarize what changed across the boards this week",
+    "Start a session for # on my other machine",
+    "Move stale in-progress issues back to the backlog",
+    "Comment a plan on #",
+    "Which issues are blocked, and by what?",
+];
+
+/// How many of the pool a page shows.
+pub(crate) const CHAT_SUGGESTION_COUNT: usize = 4;
+
+/// EXP-820: `CHAT_SUGGESTION_COUNT` DISTINCT indices into
+/// [`CHAT_SUGGESTIONS`] — a partial Fisher-Yates over the pool driven by a
+/// tiny xorshift on `seed`, so the page needs no `rand` dependency. Pure, so
+/// the distinctness is testable; the caller seeds it once per page (the chips
+/// must not reshuffle on every frame).
+pub(crate) fn pick_chat_suggestions(seed: u64) -> Vec<usize> {
+    let mut state = seed | 1; // xorshift needs a non-zero state
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    let mut indices: Vec<usize> = (0..CHAT_SUGGESTIONS.len()).collect();
+    let count = CHAT_SUGGESTION_COUNT.min(indices.len());
+    for at in 0..count {
+        let swap = at + (next() as usize) % (indices.len() - at);
+        indices.swap(at, swap);
+    }
+    indices.truncate(count);
+    indices
+}
+
+/// The seed a page picks its chips with: the clock's nanoseconds.
+fn suggestion_seed() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos() as u64)
+        .unwrap_or(0x9E37_79B9_7F4A_7C15)
+}
 
 pub(crate) struct ChatScreenView {
     nav: Entity<Navigation>,
@@ -81,6 +136,9 @@ pub(crate) struct ChatScreenView {
     /// The team the server list belongs to — the page outlives a team
     /// switch, so a switch has to refetch and re-seed.
     mcp_team: Option<String>,
+    /// EXP-820: the chips this page shows — indices into
+    /// [`CHAT_SUGGESTIONS`], drawn once when the page was built.
+    suggestions: Vec<usize>,
     focus_handle: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -129,6 +187,7 @@ impl ChatScreenView {
             mcp_servers: Vec::new(),
             mcp_selected: Vec::new(),
             mcp_team: None,
+            suggestions: pick_chat_suggestions(suggestion_seed()),
             focus_handle: cx.focus_handle(),
             _subscriptions: subscriptions,
         };
@@ -437,14 +496,15 @@ impl ChatScreenView {
     }
 
     /// EXP-790: the suggestion chips, shown over the EMPTY field only. A click
-    /// inserts the text through the mention widget so its trailing `#` opens
-    /// the issue picker, exactly as typing it would.
+    /// inserts the text through the mention widget so a trailing `#` opens
+    /// the issue picker, exactly as typing it would. EXP-820: the page's own
+    /// draw of [`CHAT_SUGGESTION_COUNT`] from the pool, fixed for its life.
     fn render_suggestions(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         if !self.input.read(cx).value().trim().is_empty() {
             return None;
         }
-        let chips = CHAT_SUGGESTIONS.iter().enumerate().map(|(index, suggestion)| {
-            let text: &'static str = suggestion;
+        let chips = self.suggestions.iter().enumerate().map(|(index, &pick)| {
+            let text: &'static str = CHAT_SUGGESTIONS[pick];
             glass_pill(("chat-suggestion", index), PillSize::Sm, PillMode::Action, cx)
                 .cursor_pointer()
                 .child(div().text_xs().child(text))
@@ -557,14 +617,56 @@ impl Render for ChatScreenView {
 mod tests {
     use super::*;
 
-    /// EXP-790: the chips are the web page's `CHAT_SUGGESTIONS`, byte for
-    /// byte, and each ends in the `#` that opens the issue picker.
+    /// EXP-790/EXP-820: the pool is the web page's `CHAT_SUGGESTIONS`
+    /// (`lib/chat-suggestions.ts`), byte for byte and in the same order.
     #[test]
     fn chat_suggestions_mirror_the_web_page() {
-        assert_eq!(CHAT_SUGGESTIONS, ["Fix #", "Explain #", "Review #"]);
-        for suggestion in CHAT_SUGGESTIONS {
-            assert!(suggestion.ends_with('#'), "{suggestion:?} must open the issue picker");
+        assert_eq!(
+            CHAT_SUGGESTIONS,
+            [
+                "Fix #",
+                "Explain #",
+                "Review #",
+                "Split # into sub-issues",
+                "Label every issue in the backlog",
+                "Set a priority on every unprioritized issue",
+                "Find duplicate issues and link them",
+                "Do a code review of the open PRs and file the findings on a new board",
+                "Create an automation that labels new issues",
+                "Set up a weekly standup digest automation",
+                "Draft release notes from the issues completed this month",
+                "Summarize what changed across the boards this week",
+                "Start a session for # on my other machine",
+                "Move stale in-progress issues back to the backlog",
+                "Comment a plan on #",
+                "Which issues are blocked, and by what?",
+            ]
+        );
+    }
+
+    /// EXP-820: a page's draw is four DISTINCT pool entries, whatever the
+    /// seed (including the degenerate zero).
+    #[test]
+    fn a_page_draws_four_distinct_suggestions() {
+        for seed in [0u64, 1, 42, u64::MAX, suggestion_seed()] {
+            let picks = pick_chat_suggestions(seed);
+            assert_eq!(picks.len(), CHAT_SUGGESTION_COUNT, "seed {seed}");
+            let mut sorted = picks.clone();
+            sorted.sort_unstable();
+            sorted.dedup();
+            assert_eq!(sorted.len(), CHAT_SUGGESTION_COUNT, "seed {seed}: {picks:?}");
+            for pick in picks {
+                assert!(
+                    pick < CHAT_SUGGESTIONS.len(),
+                    "seed {seed}: index {pick} outside the pool"
+                );
+            }
         }
+        // Different seeds do reach different draws — it is a shuffle, not a
+        // fixed prefix.
+        let draws: std::collections::HashSet<Vec<usize>> =
+            (1..64u64).map(|seed| pick_chat_suggestions(seed * 7919)).collect();
+        assert!(draws.len() > 1);
     }
 
     /// The chat page seeds off the AGENT's own defaults — and never off its

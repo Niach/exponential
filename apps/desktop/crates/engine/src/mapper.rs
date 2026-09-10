@@ -1683,7 +1683,31 @@ impl Mapper {
         }
         let expected = elicit_step_id(ask_id, ask.current, ask.steps.len());
         if expected != key.question_id {
-            // A stale step (the stepper already moved on) re-acks only.
+            // EXP-820: an EARLIER step answered again — the stepper's
+            // back-and-forth. Its value is re-recorded and the card
+            // re-resolved with the new answer; the stepper stays where it is
+            // (the current step is still the one being asked).
+            let revisited = elicit_step_index(ask_id, &key.question_id)
+                .filter(|step| *step < ask.current && *step < ask.steps.len());
+            if let Some(step) = revisited {
+                emit(
+                    out,
+                    ActivityEvent::AnswerAck {
+                        id: key.question_id.clone(),
+                        ask_id: Some(ask_id.to_string()),
+                        at: None,
+                    },
+                    None,
+                );
+                let answers = record_step_answer(ask, step, answer);
+                emit_step_resolved(out, ask_id, &key.question_id, answers);
+                return AnswerDecision::Elicitation {
+                    fields: Value::Object(ask.fields.clone()),
+                    submit: false,
+                };
+            }
+            // A stale step (the submit marker of a finished ask, an id the
+            // ask never published) re-acks only.
             emit(
                 out,
                 ActivityEvent::AnswerAck {
@@ -1709,60 +1733,9 @@ impl Mapper {
         let answers: Vec<String> = if submit {
             vec!["Submit".to_string()]
         } else {
-            let step = &ask.steps[ask.current];
-            let labels: Vec<String> = answer
-                .keys
-                .iter()
-                .map(|key| {
-                    step.options
-                        .iter()
-                        .find(|option| &option.key == key)
-                        .map(|option| option.label.clone())
-                        .unwrap_or_else(|| key.clone())
-                })
-                .collect();
-            let typed = answer.text.clone().filter(|text| !text.trim().is_empty());
-            let choice_keys: Vec<String> =
-                answer.keys.iter().filter(|key| *key != FREE_TEXT_KEY).cloned().collect();
-            match (&step.custom_property, &typed) {
-                // The folded free-text row: the typed answer is the custom
-                // field and the choice stays unanswered (claude's
-                // `applyAskElicitationResponse` lets the custom text win).
-                (Some(custom), Some(text)) => {
-                    ask.fields.insert(custom.clone(), Value::String(text.clone()));
-                }
-                _ => {
-                    let value = step_value(step, &choice_keys, typed.as_deref());
-                    if !value.is_null() && value != Value::String(String::new()) {
-                        ask.fields.insert(step.property.clone(), value);
-                    }
-                }
-            }
-            match typed {
-                Some(text) => vec![text],
-                None => labels
-                    .into_iter()
-                    .filter(|label| answer.keys.iter().all(|key| key != FREE_TEXT_KEY) || label != "Type something.")
-                    .collect(),
-            }
+            record_step_answer(ask, ask.current, answer)
         };
-        emit(
-            out,
-            ActivityEvent::QuestionResolved {
-                id: Some(key.question_id.clone()),
-                ask_id: Some(ask_id.to_string()),
-                answers: Some(
-                    answers
-                        .into_iter()
-                        .take(ANSWERS_MAX)
-                        .map(|answer| steer::truncate(&answer, ANSWER_MAX))
-                        .collect(),
-                ),
-                dismissed: None,
-                at: None,
-            },
-            None,
-        );
+        emit_step_resolved(out, ask_id, &key.question_id, answers);
 
         // A one-step form has nothing to review: its answer IS the submit,
         // exactly the one tap the PTY card took.
@@ -2080,6 +2053,91 @@ fn elicit_step_id(ask_id: &str, step: usize, total: usize) -> String {
     } else {
         format!("{ask_id}#{step}")
     }
+}
+
+/// The step an `<ask>#<n>` id names, or `None` for the submit marker and for
+/// ids of another shape.
+fn elicit_step_index(ask_id: &str, question_id: &str) -> Option<usize> {
+    question_id
+        .strip_prefix(ask_id)?
+        .strip_prefix('#')?
+        .parse::<usize>()
+        .ok()
+}
+
+/// Fold one step's answer into the ask's `content` map and return the
+/// labels its resolution shows. A re-answer (EXP-820) REPLACES the step's
+/// previous value — both the choice and its folded custom text — so a step
+/// first answered by typing and then by picking never keeps the typed text.
+fn record_step_answer(
+    ask: &mut ElicitationAsk,
+    step_index: usize,
+    answer: &steer::RemoteAnswer,
+) -> Vec<String> {
+    let step = &ask.steps[step_index];
+    ask.fields.remove(&step.property);
+    if let Some(custom) = &step.custom_property {
+        ask.fields.remove(custom);
+    }
+    let labels: Vec<String> = answer
+        .keys
+        .iter()
+        .map(|key| {
+            step.options
+                .iter()
+                .find(|option| &option.key == key)
+                .map(|option| option.label.clone())
+                .unwrap_or_else(|| key.clone())
+        })
+        .collect();
+    let typed = answer.text.clone().filter(|text| !text.trim().is_empty());
+    let choice_keys: Vec<String> =
+        answer.keys.iter().filter(|key| *key != FREE_TEXT_KEY).cloned().collect();
+    match (&step.custom_property, &typed) {
+        // The folded free-text row: the typed answer is the custom field and
+        // the choice stays unanswered (claude's `applyAskElicitationResponse`
+        // lets the custom text win).
+        (Some(custom), Some(text)) => {
+            ask.fields.insert(custom.clone(), Value::String(text.clone()));
+        }
+        _ => {
+            let value = step_value(step, &choice_keys, typed.as_deref());
+            if !value.is_null() && value != Value::String(String::new()) {
+                ask.fields.insert(step.property.clone(), value);
+            }
+        }
+    }
+    match typed {
+        Some(text) => vec![text],
+        None => labels
+            .into_iter()
+            .filter(|label| {
+                answer.keys.iter().all(|key| key != FREE_TEXT_KEY) || label != "Type something."
+            })
+            .collect(),
+    }
+}
+
+/// The `question_resolved` a step's answer publishes (capped like every
+/// other answer text).
+fn emit_step_resolved(out: &mut MapOut, ask_id: &str, question_id: &str, answers: Vec<String>) {
+    emit(
+        out,
+        ActivityEvent::QuestionResolved {
+            id: Some(question_id.to_string()),
+            ask_id: Some(ask_id.to_string()),
+            answers: Some(
+                answers
+                    .into_iter()
+                    .take(ANSWERS_MAX)
+                    .map(|answer| steer::truncate(&answer, ANSWER_MAX))
+                    .collect(),
+            ),
+            dismissed: None,
+            at: None,
+        },
+        None,
+    );
 }
 
 /// One step's answer, in the shape `elicitation/create`'s `content` map wants.

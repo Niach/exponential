@@ -3,43 +3,16 @@ import XCTest
 
 @testable import ExpCore
 
-// EXP-788/790/796/784: the composer-facing rules the session model reads —
-// which pending card the typed text answers and how, when "Load earlier" is
-// offered, and the rate-limit banner's one line. Pure, so the model's socket
-// never has to be driven to test them.
+// EXP-820/796/784: the composer-facing rules the session model reads — which
+// plan row expands into the inline feedback field and the card copy shared
+// ×4, when "Load earlier" is offered, and the rate-limit banner's one line.
+// Pure, so the model's socket never has to be driven to test them.
 final class AgentSessionComposerTests: XCTestCase {
 
-    // MARK: - Composer answer routing (EXP-788)
+    // MARK: - Inline card answers (EXP-820)
 
-    func testPendingCardIsTheFirstActiveUnlockedQuestionInFeedOrder() {
-        let feed: [AgentFeedItem] = [
-            .tool(id: 1, name: "Edit", detail: "a.ts", subagentId: nil),
-            .question(ask(2, askId: "ask", index: 1)),
-            .question(ask(3, askId: "ask", index: 2)),
-        ]
-        let active = AgentFeed.activeQuestionIds(feed)
-        // The ask's current step: the earliest unanswered one.
-        XCTAssertEqual(
-            AgentFeed.pendingCard(feed, active: active, isLocked: { _ in false })?.id, 2
-        )
-        // Step one answered (locked) → the composer targets step two.
-        XCTAssertEqual(
-            AgentFeed.pendingCard(feed, active: active, isLocked: { $0 == "q2" })?.id, 3
-        )
-        // Every step locked → nothing pending.
-        XCTAssertNil(AgentFeed.pendingCard(feed, active: active, isLocked: { _ in true }))
-        // Not active (resolved) → nothing pending.
-        XCTAssertNil(AgentFeed.pendingCard(feed, active: [], isLocked: { _ in false }))
-    }
-
-    func testPlanCardRoutesAsADenyWithTheRejectKey() {
-        let route = AgentFeed.composerAnswerRoute(for: plan(1))
-        XCTAssertEqual(route, .plan(question: plan(1), rejectKey: "reject"))
-        XCTAssertEqual(route?.placeholder, AgentFeed.planPendingPlaceholder)
-        XCTAssertEqual(route?.question.id, 1)
-    }
-
-    func testPlanCardWithoutARejectIdFallsBackToItsLastOption() {
+    func testThePlanRejectRowIsTheRejectIdElseTheLastOption() {
+        XCTAssertEqual(AgentFeed.planRejectKey(for: plan(1)), "reject")
         // An older engine whose options carry no `reject` id: "No, keep
         // planning" is last by contract.
         let card = AgentQuestion(
@@ -50,48 +23,20 @@ final class AgentSessionComposerTests: XCTestCase {
             ],
             planMode: true
         )
-        XCTAssertEqual(
-            AgentFeed.composerAnswerRoute(for: card), .plan(question: card, rejectKey: "3")
-        )
-    }
-
-    func testQuestionWithAFreeTextRowRoutesTheTextAsThatRowsAnswer() {
-        let card = ask(5, askId: nil, index: nil)
-        let route = AgentFeed.composerAnswerRoute(for: card)
-        XCTAssertEqual(route, .freeText(question: card, key: "text"))
-        XCTAssertEqual(route?.placeholder, AgentFeed.questionPendingPlaceholder)
-    }
-
-    func testFixedOptionCardsTakeNoFreeAnswer() {
-        // A plain permission card: its options are the only answers, so the
-        // composer's text goes out as an ordinary message.
-        let permission = AgentQuestion(
-            id: 6, wireId: "perm6", text: "Run `rm -rf build`?",
-            options: [
-                AgentQuestionOption(label: "Allow", key: "allow-once"),
-                AgentQuestionOption(label: "Deny", key: "reject"),
-            ]
-        )
-        XCTAssertNil(AgentFeed.composerAnswerRoute(for: permission))
-        // Resolved and option-less cards route nowhere either.
-        var resolved = plan(7)
-        resolved.resolved = true
-        XCTAssertNil(AgentFeed.composerAnswerRoute(for: resolved))
-        XCTAssertNil(AgentFeed.composerAnswerRoute(for: AgentQuestion(
+        XCTAssertEqual(AgentFeed.planRejectKey(for: card), "3")
+        // Only a plan has a reject row; an option-less plan has none.
+        XCTAssertNil(AgentFeed.planRejectKey(for: ask(5, askId: nil, index: nil)))
+        XCTAssertNil(AgentFeed.planRejectKey(for: AgentQuestion(
             id: 8, wireId: "q8", text: "?", options: [], planMode: true
         )))
     }
 
-    func testComposerCopyIsByteLockedToTheWeb() {
+    func testTheComposerCopyIsByteLockedToTheWeb() {
         XCTAssertEqual(AgentFeed.submitLabel, "Submit")
-        XCTAssertEqual(
-            AgentFeed.planPendingPlaceholder,
-            "Tell the agent what to change, or pick an option above"
-        )
-        XCTAssertEqual(
-            AgentFeed.questionPendingPlaceholder,
-            "Answer directly, or pick an option above"
-        )
+        XCTAssertEqual(AgentFeed.composerPlaceholder, "Message the agent…")
+        XCTAssertEqual(AgentFeed.freeTextPlaceholder, "Type your answer…")
+        XCTAssertEqual(AgentFeed.planFeedbackPlaceholder, "Tell the agent what to change…")
+        XCTAssertEqual(AgentFeed.backToCurrentStepLabel, "Back to current step")
     }
 
     // MARK: - Load earlier (EXP-796)

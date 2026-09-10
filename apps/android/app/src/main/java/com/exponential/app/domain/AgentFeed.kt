@@ -161,6 +161,9 @@ sealed interface AgentFeedItem {
         val planMode: Boolean = false,
         val resolved: Boolean = false,
         val answer: String? = null,
+        /** EXP-820: retired by a DISMISSAL (`session/cancel`, an interrupt) —
+         *  the ask is over without an answer, so a stepper stops waiting. */
+        val dismissed: Boolean = false,
         /** Stable wire identity (EXP-249) and the key of the card's answer
          *  lock: the semantic `answer` frame names it, and a re-emission of
          *  it replaces the card in place. Every publisher stamps one, and a
@@ -475,13 +478,20 @@ fun resolveQuestions(
     answers: List<String> = emptyList(),
     dismissed: Boolean = false,
 ): List<AgentFeedItem>? {
-    if (id != null) {
+    // EXP-820: a dismissal names the step that was showing AND its ask — the
+    // whole ask is over (the engine cancelled it), so every step retires, or
+    // the stepper would surface the next step of an ask nobody can answer and
+    // keep the composer hidden behind it.
+    if (id != null && !(dismissed && askId != null)) {
         val index = feed.indexOfFirst { it is AgentFeedItem.Question && it.wireId == id }
         if (index < 0) return null
         val item = feed[index] as AgentFeedItem.Question
         return feed.toMutableList().apply {
+            // EXP-820: an ALREADY-resolved card takes a new answer too — a
+            // re-answered step of an open ask resolves again with it.
             this[index] = item.copy(
                 resolved = true,
+                dismissed = item.dismissed || dismissed,
                 answer = if (dismissed) item.answer else answers.firstOrNull() ?: item.answer,
             )
         }
@@ -500,7 +510,7 @@ fun resolveQuestions(
                 } else {
                     answers.getOrNull(cursor)?.also { cursor += 1 } ?: item.answer
                 }
-                item.copy(resolved = true, answer = answer)
+                item.copy(resolved = true, dismissed = item.dismissed || dismissed, answer = answer)
             }
         }
     }
@@ -511,6 +521,7 @@ fun resolveQuestions(
         if (item is AgentFeedItem.Question && item.askId == askId) {
             item.copy(
                 resolved = true,
+                dismissed = item.dismissed || dismissed,
                 answer = if (dismissed) item.answer else answerByFeedId[item.id] ?: item.answer,
             )
         } else {
@@ -783,6 +794,34 @@ fun currentStepperStep(
     answered: Set<String>,
 ): AgentFeedItem.Question? =
     steps.firstOrNull { step -> !step.resolved && step.wireId !in answered }
+
+/**
+ * EXP-820: whether an ask is OVER — nothing waits on the agent and no step can
+ * be re-answered. The ONE rule, byte-identical on web, the IDE and iOS:
+ * - its submit step (`askId` set, no `index`) exists and has resolved, or
+ * - it has at most one step and every numbered step has resolved, or
+ * - any step was dismissed (the engine cancelled the ask).
+ * A multi-step ask whose numbered steps have all resolved but whose submit
+ * step has not is still OPEN: the engine re-records an earlier step's
+ * `answer` frame until the submit lands, which is what "back and forth" in the
+ * stepper rides on.
+ */
+fun askComplete(steps: List<AgentFeedItem.Question>): Boolean {
+    if (steps.any { it.dismissed }) return true
+    if (steps.any { it.isSubmitStep && it.resolved }) return true
+    val numbered = steps.filter { !it.isSubmitStep }
+    val total = numbered.firstOrNull()?.total ?: numbered.size
+    return total <= 1 && numbered.isNotEmpty() && numbered.all { it.resolved }
+}
+
+/** EXP-820 (byte-identical ×4): the inline field a "Type something." row opens. */
+const val FREE_TEXT_ANSWER_PLACEHOLDER = "Type your answer…"
+
+/** EXP-820 (byte-identical ×4): the inline field a plan's reject row opens. */
+const val PLAN_FEEDBACK_PLACEHOLDER = "Tell the agent what to change…"
+
+/** EXP-820 (byte-identical ×4): leaves an earlier step re-opened for editing. */
+const val BACK_TO_CURRENT_STEP_LABEL = "Back to current step"
 
 // Wire-field readers: a field of an unexpected shape reads as absent, never
 // throws — one malformed event must not tear down the socket.

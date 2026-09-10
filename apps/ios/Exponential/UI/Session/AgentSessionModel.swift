@@ -479,21 +479,17 @@ final class AgentSessionModel {
         }
     }
 
-    /// EXP-788: the pending card the composer answers, and how. Read at render
-    /// time over the cached active cards because the answer LOCK moves without
-    /// the feed changing (a tap, an ack, an expiry).
-    var composerRoute: ComposerAnswerRoute? {
-        guard phase == .live, !sessionEnded else { return nil }
-        guard let card = AgentFeed.pendingCard(
-            feed, active: activeQuestionIds, isLocked: { answerTracker.isLocked($0) }
-        ) else { return nil }
-        return AgentFeed.composerAnswerRoute(for: card)
-    }
+    /// The composer's placeholder. EXP-820: always the generic prompt — the
+    /// composer HIDES while a card is pending (`cardPending`), and a card's
+    /// free answer is an inline field on the card itself.
+    var composerPlaceholder: String { AgentFeed.composerPlaceholder }
 
-    /// The composer's placeholder: which card the text answers, else the
-    /// generic prompt.
-    var composerPlaceholder: String {
-        composerRoute?.placeholder ?? AgentFeed.composerPlaceholder
+    /// EXP-820: a card is waiting on THIS steerer — live, not ended, and an
+    /// unresolved question card in the feed. The session view drops the
+    /// composer band while this holds (the draft stays here, so it is back
+    /// intact once the card resolves).
+    var cardPending: Bool {
+        phase == .live && !sessionEnded && !activeQuestionIds.isEmpty
     }
 
     /// EXP-790: the agent is actively working — live and nothing waiting on
@@ -927,36 +923,13 @@ final class AgentSessionModel {
     /// stays usable while the socket is down, and a caller that cleared the
     /// draft on this no-op wiped it with nothing sent.
     ///
-    /// EXP-788: while a card is pending, the text IS its free answer. A
-    /// question card with a free-text row takes it on the `answer` frame's
-    /// `text` (no message goes out); a plan card is denied first ("No, keep
-    /// planning" — the engine interrupts the turn) and the text follows as
-    /// the next message, which is what that option's description promises. A
-    /// slash command is never an answer, and a message carrying images
-    /// (`withImages`) never rides an answer frame — the desktop would type
-    /// the embed markup into the agent's answer row instead of fetching it.
+    /// EXP-820: the text is ALWAYS a message. A pending card's free answer is
+    /// its own inline field (`sendAnswer` with `text`, or `answerThenSend` for
+    /// a plan's feedback) — the composer no longer routes into cards, it hides
+    /// while one is pending.
     @discardableResult
-    func sendMessage(_ text: String, withImages: Bool = false) -> Bool {
+    func sendMessage(_ text: String) -> Bool {
         guard !text.isEmpty, connected else { return false }
-        if let route = composerRoute, pendingSlashCommand == nil {
-            switch route {
-            case let .freeText(question, key):
-                guard !withImages else { break }
-                let answer = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !answer.isEmpty else { return false }
-                sendAnswer(
-                    questionId: question.wireId, askId: question.askId,
-                    keys: [key], text: answer, labels: [answer]
-                )
-                return true
-            case let .plan(question, rejectKey):
-                let label = question.options.first(where: { $0.key == rejectKey })?.label ?? rejectKey
-                sendAnswer(
-                    questionId: question.wireId, askId: question.askId,
-                    keys: [rejectKey], labels: [label]
-                )
-            }
-        }
         // Chunk by UTF-16 code units, never splitting a surrogate pair —
         // web parity (agent-session.tsx extends the boundary by one unit
         // when it would land mid-pair; 4097 units still sit well under the
@@ -1035,7 +1008,7 @@ final class AgentSessionModel {
         }
         guard sendMessage(SteerImageMessage.build(
             text: text, attachmentIds: pending.compactMap(\.uploadedId)
-        ), withImages: true) else {
+        )) else {
             steerImageError = "Not connected. Wait for the session to reconnect."
             return pending
         }
@@ -1046,12 +1019,17 @@ final class AgentSessionModel {
     /// frame carrying every chosen key — the desktop owns the keystroke
     /// mapping and confirms the injection with `answer_ack`. The card locks
     /// the moment the frame goes out, so a double tap can never answer twice.
+    ///
+    /// EXP-820 `reanswer`: the stepper's "go back" — an EARLIER step of a
+    /// still-open ask is answered again past its lock. The engine re-records
+    /// the step and re-acks (plus a fresh `question_resolved` for it) without
+    /// moving the stepper; `markSent` keeps the step's `acked` standing.
     func sendAnswer(
         questionId: String, askId: String?, keys: [String], text: String? = nil,
-        labels: [String] = []
+        labels: [String] = [], reanswer: Bool = false
     ) {
         guard !questionId.isEmpty, !keys.isEmpty, connected else { return }
-        guard !answerTracker.isLocked(questionId) else { return }
+        guard reanswer || !answerTracker.isLocked(questionId) else { return }
         var frame: [String: Any] = ["t": "answer", "questionId": questionId, "keys": keys]
         if let askId, !askId.isEmpty { frame["askId"] = askId }
         // EXP-513: the typed reply for a freeText option.
@@ -1061,6 +1039,25 @@ final class AgentSessionModel {
             sendText(json)
         }
         lockAnswer(questionId, labels: labels)
+    }
+
+    /// EXP-820: a plan card's inline feedback — deny the plan on its reject
+    /// row ("No, keep planning" — the engine's deny interrupts the turn), then
+    /// send `text` as the NEXT ordinary message, which is what that option's
+    /// own description promises. Nothing goes out unless the answer can (a
+    /// locked card or a dead socket), so the text never lands as a stray
+    /// message on an unanswered plan.
+    func answerThenSend(
+        questionId: String, askId: String?, keys: [String], labels: [String], text: String,
+        reanswer: Bool = false
+    ) {
+        guard connected, reanswer || !answerTracker.isLocked(questionId) else { return }
+        sendAnswer(
+            questionId: questionId, askId: askId, keys: keys, labels: labels, reanswer: reanswer
+        )
+        let message = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty else { return }
+        sendMessage(message)
     }
 
     /// EXP-746: switch to one of the modes `config_state.modes[]` advertised.
@@ -2106,8 +2103,10 @@ final class AgentSessionModel {
             let dismissed = (event["dismissed"] as? Bool) ?? false
             // Collect the retiring cards' lock keys BEFORE they resolve —
             // a retired card has nothing left for the optimistic lock to guard.
+            // EXP-820: ALREADY-resolved cards too — a re-answered earlier step
+            // resolves a second time, and its fresh pending lock must clear.
             let retiredKeys: [String] = feed.compactMap { item -> String? in
-                guard let question = item.question, !question.resolved else { return nil }
+                guard let question = item.question else { return nil }
                 if let id { return question.wireId == id ? question.lockKey : nil }
                 if let askId { return question.askId == askId ? question.lockKey : nil }
                 return question.lockKey

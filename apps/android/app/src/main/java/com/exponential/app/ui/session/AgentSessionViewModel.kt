@@ -525,6 +525,16 @@ class AgentSessionViewModel @Inject constructor(
         labels: List<String> = emptyList(),
     ) = connection.sendQuestionAnswer(questionId, askId, keys, text, labels)
 
+    /** EXP-820: reject a plan with feedback — the reject key answers the card,
+     *  the text follows as the next message (see the connection). */
+    fun answerThenSend(
+        questionId: String,
+        askId: String?,
+        keys: List<String>,
+        labels: List<String>,
+        text: String,
+    ) = connection.answerThenSend(questionId, askId, keys, labels, text)
+
     /** EXP-746: switch the run into one of its advertised modes.
      *  Fire-and-forget — the re-emitted `config_state` IS the confirmation, so
      *  nothing here waits, locks or times out. EXP-772 retired the option

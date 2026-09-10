@@ -559,6 +559,57 @@ fn a_multi_step_form_steps_then_submits() {
     assert_eq!(submitted.needs_input, Some(false));
 }
 
+/// EXP-820: an answered step answered AGAIN (the stepper's back-and-forth)
+/// re-records its value and re-resolves its card with the new answer while
+/// the stepper stays on the current step; the submit then carries the
+/// revised value. The submit marker of a finished ask still only re-acks.
+#[test]
+fn an_earlier_step_can_be_re_answered_until_the_form_submits() {
+    let mut mapper = mapper();
+    let mut out = MapOut::default();
+    let request = form_request(
+        "Please answer the following questions.",
+        vec![("approach", choice("Which approach?")), ("scope", choice("Which scope?"))],
+    );
+    mapper.on_elicitation("ask-1", &request, &mut out);
+    let answer1 = answer("ask-1#0", &["patch"], None);
+    mapper.on_answer(&mapper.ask_key(&answer1), &answer1, &mut MapOut::default());
+
+    // Back to step 1 while step 2 is the current one.
+    let mut revised = MapOut::default();
+    let again = answer("ask-1#0", &["rewrite"], None);
+    assert_eq!(
+        mapper.on_answer(&mapper.ask_key(&again), &again, &mut revised),
+        engine::AnswerDecision::Elicitation { fields: json!({"approach": "rewrite"}), submit: false }
+    );
+    let events: Vec<Value> = revised.wire.iter().map(|event| serde_json::to_value(event).unwrap()).collect();
+    assert_eq!(events.len(), 2, "ack + the re-resolution, no new step: {events:?}");
+    assert_eq!(events[0]["kind"], "answer_ack");
+    assert_eq!(events[0]["id"], "ask-1#0");
+    assert_eq!(events[1]["kind"], "question_resolved");
+    assert_eq!(events[1]["id"], "ask-1#0");
+    assert_eq!(events[1]["answers"], json!(["rewrite"]));
+
+    // The current step still answers as before, then the submit carries the
+    // revised value.
+    let answer2 = answer("ask-1#1", &["patch"], None);
+    mapper.on_answer(&mapper.ask_key(&answer2), &answer2, &mut MapOut::default());
+    let mut submitted = MapOut::default();
+    let answer3 = answer("ask-1#submit", &["submit"], None);
+    assert_eq!(
+        mapper.on_answer(&mapper.ask_key(&answer3), &answer3, &mut submitted),
+        engine::AnswerDecision::Elicitation {
+            fields: json!({"approach": "rewrite", "scope": "patch"}),
+            submit: true
+        }
+    );
+
+    // Once submitted, a re-answer only re-acks.
+    let mut late = MapOut::default();
+    let stale = answer("ask-1#0", &["patch"], None);
+    assert_eq!(mapper.on_answer(&mapper.ask_key(&stale), &stale, &mut late), engine::AnswerDecision::ReAck);
+}
+
 /// Claude's AskUserQuestion form pairs every choice `question_<n>` with a
 /// plain-string `question_<n>_custom`: that sibling folds into the choice's
 /// card as its "Type something." row, and a typed answer lands on the custom
