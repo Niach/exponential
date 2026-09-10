@@ -42,7 +42,6 @@ struct IssueListView: View {
     @State private var selectedIds: Set<String> = []
     @State private var steerEnabled: Bool?
     @State private var steerDevices: [SteerDevice]?
-    @State private var showStartSheet = false
     // Which bulk-property picker the selection bar is presenting (EXP-247).
     @State private var bulkSheet: BulkSheet?
     /// The selection bar's Delete confirmation (EXP-698 r5).
@@ -50,15 +49,10 @@ struct IssueListView: View {
     // Inline status/priority editing straight from a row's icon (EXP-247) —
     // non-selection rows only, moderator-gated.
     @State private var inlineEdit: InlineEdit?
-    // Transient feedback under/instead of the bar: start sent / failed /
-    // no desktop online. Auto-clears (errors included — the bar is modal
-    // enough that a sticky error would just block the list).
+    // Transient feedback under/instead of the bar: no desktop online, relay
+    // off. Auto-clears (errors included — the bar is modal enough that a
+    // sticky error would just block the list).
     @State private var startNotice: StartNotice?
-    // EXP-536: a remote start pushes the live session once the desktop's row
-    // syncs in, instead of pointing at the Agents tab. The watcher owns the
-    // "waiting for the desktop" caption and the one-shot navigation target.
-    @State private var startWatcher = StartedRunWatcher()
-    @State private var sessionTarget: StartedRunWatcher.StartedSession?
     /// Identifier column floor — fits "EXP-999" in .caption.monospaced at
     /// default Dynamic Type and scales with the user's text size (EXP-24).
     @ScaledMetric(relativeTo: .caption) private var identifierMinWidth: CGFloat = 60
@@ -97,12 +91,6 @@ struct IssueListView: View {
         // entering multi-select never reflows the list).
         .overlay(alignment: .bottom) {
             VStack(spacing: 8) {
-                if let caption = startWatcher.sentCaption {
-                    noticeCapsule(StartNotice(message: caption, isError: false))
-                }
-                if let failure = startWatcher.failure {
-                    noticeCapsule(StartNotice(message: failure, isError: true))
-                }
                 if let notice = startNotice {
                     noticeCapsule(notice)
                 }
@@ -155,25 +143,6 @@ struct IssueListView: View {
                 IssueFilterSheet(vm: vm)
             }
         }
-        .sheet(isPresented: $showStartSheet) {
-            if let vm = viewModel {
-                // EXP-642: `teamId` + `onRunAction` are what light up the
-                // sheet's Actions and Chat tabs — the bulk bar offered
-                // Issues-only without them.
-                StartCodingSheet(
-                    devices: steerDevices ?? [],
-                    issues: vm.startCodingCandidates(),
-                    preselectedIds: selectedIds,
-                    teamId: vm.board?.teamId,
-                    onStart: { device, issueIds, options in
-                        startCoding(on: device, issueIds: issueIds, options: options)
-                    },
-                    onRunAction: { device, action, options, inputs in
-                        runAction(on: device, action: action, options: options, inputs: inputs)
-                    }
-                )
-            }
-        }
         .sheet(item: $bulkSheet) { sheet in
             if let vm = viewModel {
                 bulkSheetContent(sheet, vm: vm)
@@ -204,7 +173,6 @@ struct IssueListView: View {
         }
         .onDisappear {
             viewModel?.stopObserving()
-            startWatcher.stop()
             // Never strand the tab bar hidden behind a pushed screen.
             tabBarChrome?.suppressed = false
         }
@@ -220,18 +188,6 @@ struct IssueListView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This action cannot be undone.")
-        }
-        // The desktop picked the start up — push the live steer screen ONCE
-        // (the same destination the .agentSession route arm builds).
-        .onChange(of: startWatcher.startedSession) { _, started in
-            if let started {
-                startWatcher.startedSession = nil
-                sessionTarget = started
-            }
-        }
-        .navigationDestination(item: $sessionTarget) { target in
-            AgentSessionRouteView(sessionId: target.sessionId)
-                .environment(\.accountId, accountId)
         }
     }
 
@@ -1111,6 +1067,10 @@ struct IssueListView: View {
             .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
+    /// EXP-825: Start coding is NAVIGATION — the Agent page composer with
+    /// the selection pre-checked (in list order), the selection cleared on
+    /// the way. The relay-off and no-machine cases still caption the bar:
+    /// the composer would only say the same thing one screen later.
     private func startCodingTapped() {
         guard let devices = steerDevices else { return } // presence still resolving
         guard steerEnabled == true, !devices.isEmpty else {
@@ -1122,81 +1082,10 @@ struct IssueListView: View {
             )
             return
         }
-        showStartSheet = true
-    }
-
-    /// Mirror of AgentsView.start — single vs batch overloads of
-    /// steer.startSession. EXP-536: neither points at the Agents tab any
-    /// more; the watcher holds a "waiting for the desktop" caption until the
-    /// run's synced row lands, then the screen pushes into it.
-    private func startCoding(on device: SteerDevice, issueIds: [String], options: SteerStartOptions) {
-        guard let key = StartedRunKey.forIssues(issueIds) else { return }
+        let ids = (viewModel?.issues ?? []).filter { selectedIds.contains($0.id) }.map(\.id)
         exitSelection()
         startNotice = nil
-        startWatcher.sending()
-        Task {
-            do {
-                if issueIds.count > 1 {
-                    try await deps.steerApi.startSession(
-                        accountId: accountId,
-                        issueIds: issueIds,
-                        deviceId: device.deviceId,
-                        options: options
-                    )
-                } else {
-                    try await deps.steerApi.startSession(
-                        accountId: accountId,
-                        issueId: issueIds[0],
-                        deviceId: device.deviceId,
-                        options: options
-                    )
-                }
-                startWatcher.begin(
-                    key: key,
-                    userId: deps.auth.userId,
-                    device: device,
-                    db: deps.db,
-                    accountId: accountId
-                )
-            } catch {
-                startWatcher.failed(error.localizedDescription)
-            }
-        }
-    }
-
-    /// Actions-mode launch from the same sheet (EXP-257/EXP-615) — the
-    /// private twin of IssueDetailViewModel.runAction. Without it the bulk
-    /// bar's sheet could not offer the Actions/Chat tabs at all (EXP-642).
-    private func runAction(
-        on device: SteerDevice,
-        action: ActionDto,
-        options: SteerStartOptions,
-        inputs: [String: String]
-    ) {
-        exitSelection()
-        startNotice = nil
-        startWatcher.sending()
-        Task {
-            do {
-                try await deps.steerApi.startSession(
-                    accountId: accountId,
-                    actionId: action.id,
-                    deviceId: device.deviceId,
-                    teamId: action.isBuiltin ? action.teamId : nil,
-                    options: options,
-                    inputs: inputs.isEmpty ? nil : inputs
-                )
-                startWatcher.begin(
-                    key: .action(name: action.name),
-                    userId: deps.auth.userId,
-                    device: device,
-                    db: deps.db,
-                    accountId: accountId
-                )
-            } catch {
-                startWatcher.failed(error.localizedDescription)
-            }
-        }
+        pushRoute(.agent(accountId: accountId, seed: AgentComposerSeed(issueIds: ids)))
     }
 
     private func showNotice(_ message: String, isError: Bool) {

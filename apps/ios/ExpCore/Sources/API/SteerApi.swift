@@ -124,17 +124,53 @@ public struct AgentAccount: Decodable, Equatable, Sendable {
     public let plan: String?
     /// When the device last probed the agent.
     public let checkedAt: String?
+    /// EXP-825: the agent's login PROFILES on the machine (web
+    /// `agentAccounts[agent].profiles`) — the Account picker offers them
+    /// when there are two or more. Decoded LENIENTLY: a profile entry of a
+    /// shape this build does not know must not throw the whole accounts map
+    /// away (nil = the device reported none).
+    public let profiles: [AgentAccountProfile]?
 
     public init(
         signedIn: Bool? = nil,
         email: String? = nil,
         plan: String? = nil,
-        checkedAt: String? = nil
+        checkedAt: String? = nil,
+        profiles: [AgentAccountProfile]? = nil
     ) {
         self.signedIn = signedIn
         self.email = email
         self.plan = plan
         self.checkedAt = checkedAt
+        self.profiles = profiles
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case signedIn, email, plan, checkedAt, profiles
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        signedIn = try c.decodeIfPresent(Bool.self, forKey: .signedIn)
+        email = try c.decodeIfPresent(String.self, forKey: .email)
+        plan = try c.decodeIfPresent(String.self, forKey: .plan)
+        checkedAt = try c.decodeIfPresent(String.self, forKey: .checkedAt)
+        profiles = (try? c.decodeIfPresent([AgentAccountProfile].self, forKey: .profiles)) ?? nil
+    }
+}
+
+/// EXP-825: one login profile of an agent on a machine (`id` is what a start
+/// sends as `account`; `active` marks the machine's current login; `email`
+/// names it). Every field but the id optional — the sender's vintage varies.
+public struct AgentAccountProfile: Decodable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let active: Bool?
+    public let email: String?
+
+    public init(id: String, active: Bool? = nil, email: String? = nil) {
+        self.id = id
+        self.active = active
+        self.email = email
     }
 }
 
@@ -501,8 +537,8 @@ private struct ViewerTicketInput: Encodable {
     let sessionId: String
 }
 
-/// Launch options a remote start may carry (EXP-149) — the Start-coding
-/// sheet's choices. Nil fields are omitted from the wire (synthesized
+/// Launch options a remote start may carry (EXP-149) — the Agent page
+/// composer's choices. Nil fields are omitted from the wire (synthesized
 /// Encodable uses encodeIfPresent) and mean "desktop settings default"
 /// (plan mode OFF). `agent` absent = claude (EXP-201). `effort: ""` (and
 /// `model: ""` for codex/pi) is an explicit "CLI default".
@@ -516,6 +552,10 @@ public struct SteerStartOptions: Sendable {
     /// starting fresh. SINGLE-ISSUE starts only — the batch/action inputs
     /// never carry it (the server rejects it there).
     public let resume: Bool?
+    /// EXP-825 (EXP-792): the agent login profile to launch under — one of
+    /// the machine's `agentAccounts[agent].profiles` ids. Nil = the
+    /// machine's active login (the `system` profile is never sent).
+    public let account: String?
 
     public init(
         agent: String? = nil,
@@ -523,7 +563,8 @@ public struct SteerStartOptions: Sendable {
         effort: String? = nil,
         ultracode: Bool? = nil,
         planMode: Bool? = nil,
-        resume: Bool? = nil
+        resume: Bool? = nil,
+        account: String? = nil
     ) {
         self.agent = agent
         self.model = model
@@ -531,10 +572,12 @@ public struct SteerStartOptions: Sendable {
         self.ultracode = ultracode
         self.planMode = planMode
         self.resume = resume
+        self.account = account
     }
 }
 
-private struct StartSessionInput: Encodable {
+// Internal (not private) so `SteerStartInputEncodingTests` can pin the wire.
+struct StartSessionInput: Encodable {
     let issueId: String
     let deviceId: String
     let agent: String?
@@ -545,6 +588,11 @@ private struct StartSessionInput: Encodable {
     // EXP-481: single-issue only — the batch/action inputs deliberately have
     // no such field.
     let resume: Bool?
+    let account: String?
+    // EXP-825: the composer's free text — additional instructions on an
+    // issue start (images embedded, `AgentComposerPrompt`). Absent when
+    // blank; forbidden with `resume` server-side, so the caller drops it.
+    let prompt: String?
 }
 
 /// Batch remote-start (EXP-156): 2+ issues → ONE Claude session on one pushed
@@ -552,7 +600,7 @@ private struct StartSessionInput: Encodable {
 /// every listed issue. Same `steer.startSession` endpoint — exactly one of
 /// issueId/issueIds is present. Nil options are omitted (synthesized Encodable
 /// uses encodeIfPresent) and mean "desktop settings default".
-private struct StartBatchSessionInput: Encodable {
+struct StartBatchSessionInput: Encodable {
     let issueIds: [String]
     let deviceId: String
     let agent: String?
@@ -560,6 +608,8 @@ private struct StartBatchSessionInput: Encodable {
     let effort: String?
     let ultracode: Bool?
     let planMode: Bool?
+    let account: String?
+    let prompt: String?
 }
 
 /// Action remote-start (EXP-253/EXP-257): exactly one of
@@ -569,8 +619,11 @@ private struct StartBatchSessionInput: Encodable {
 /// repo/board uuid) and `teamId` — sent ONLY with the builtin
 /// `builtin:create-action` id (the server requires it there and forbids it
 /// otherwise). Nil fields are omitted (synthesized Encodable uses
-/// encodeIfPresent) and mean "desktop settings default".
-private struct StartActionSessionInput: Encodable {
+/// encodeIfPresent) and mean "desktop settings default". EXP-825: `prompt`
+/// is the chat text for `builtin:chat`, the request for
+/// `builtin:create-action` (both REQUIRED server-side) and additional
+/// instructions for every other action.
+struct StartActionSessionInput: Encodable {
     let actionId: String
     let teamId: String?
     let deviceId: String
@@ -580,6 +633,8 @@ private struct StartActionSessionInput: Encodable {
     let ultracode: Bool?
     let planMode: Bool?
     let inputs: [String: String]?
+    let account: String?
+    let prompt: String?
 }
 
 /// Resume remote-start (EXP-637): the fourth `steer.startSession` subject —
@@ -630,7 +685,8 @@ public final class SteerApi: Sendable {
         accountId: String,
         issueId: String,
         deviceId: String,
-        options: SteerStartOptions = SteerStartOptions()
+        options: SteerStartOptions = SteerStartOptions(),
+        prompt: String? = nil
     ) async throws {
         do {
             let _: StartSessionResult = try await trpc.mutation(
@@ -644,7 +700,9 @@ public final class SteerApi: Sendable {
                     effort: options.effort,
                     ultracode: options.ultracode,
                     planMode: options.planMode,
-                    resume: options.resume
+                    resume: options.resume,
+                    account: options.account,
+                    prompt: prompt
                 )
             )
         } catch let TrpcError.httpError(status, body) {
@@ -664,7 +722,8 @@ public final class SteerApi: Sendable {
         accountId: String,
         issueIds: [String],
         deviceId: String,
-        options: SteerStartOptions = SteerStartOptions()
+        options: SteerStartOptions = SteerStartOptions(),
+        prompt: String? = nil
     ) async throws {
         do {
             let _: StartSessionResult = try await trpc.mutation(
@@ -677,7 +736,9 @@ public final class SteerApi: Sendable {
                     model: options.model,
                     effort: options.effort,
                     ultracode: options.ultracode,
-                    planMode: options.planMode
+                    planMode: options.planMode,
+                    account: options.account,
+                    prompt: prompt
                 )
             )
         } catch let TrpcError.httpError(status, body) {
@@ -695,7 +756,9 @@ public final class SteerApi: Sendable {
     /// `teamId` rides ONLY with the builtin
     /// `DomainContract.builtinCreateActionId` (real actions resolve their team
     /// server-side); `inputs` maps input keys to text values or picked
-    /// repo/board uuids. Same endpoint and PRECONDITION_FAILED →
+    /// repo/board uuids; `prompt` is the composer's text (EXP-825: the chat
+    /// text / creation request for the two hidden builtins, additional
+    /// instructions otherwise). Same endpoint and PRECONDITION_FAILED →
     /// `SteerStartError.rejected` mapping as the issue forms.
     public func startSession(
         accountId: String,
@@ -703,7 +766,8 @@ public final class SteerApi: Sendable {
         deviceId: String,
         teamId: String? = nil,
         options: SteerStartOptions = SteerStartOptions(),
-        inputs: [String: String]? = nil
+        inputs: [String: String]? = nil,
+        prompt: String? = nil
     ) async throws {
         do {
             let _: StartSessionResult = try await trpc.mutation(
@@ -718,7 +782,9 @@ public final class SteerApi: Sendable {
                     effort: options.effort,
                     ultracode: options.ultracode,
                     planMode: options.planMode,
-                    inputs: inputs
+                    inputs: inputs,
+                    account: options.account,
+                    prompt: prompt
                 )
             )
         } catch let TrpcError.httpError(status, body) {

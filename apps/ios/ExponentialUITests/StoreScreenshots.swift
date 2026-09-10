@@ -142,25 +142,26 @@ final class StoreScreenshots: XCTestCase {
         snapshot("04_steering", settle: 3, popRects: app)
         goBack(app)
 
-        // ── 03: Start-coding dialog ─────────────────────────────────────────
+        // ── 03: the Agent page composer (EXP-825, shot id unchanged) ────────
         // From a repo-backed issue the demo user is NOT already coding on, so
-        // the circle offers the start action. The dialog needs an online
-        // desktop: without one it refuses to open and shows a notice instead.
+        // the circle offers the start action — which PUSHES the Agent page
+        // with the issue chipped. The circle needs an online desktop: without
+        // one it shows a notice instead of navigating.
         goBack(app)
         XCTAssertTrue(showcaseRowTitle.waitForExistence(timeout: 20), "Did not return to the board")
         openIssue(app, title: Self.startCodingTitle)
         let startButton = app.buttons["Start coding"]
         XCTAssertTrue(startButton.waitForExistence(timeout: 20), "Start-coding control missing")
         startButton.tap()
-        let startSheet = app.descendants(matching: .any)
-            .matching(identifier: "start-coding-sheet").firstMatch
+        let composer = app.descendants(matching: .any)
+            .matching(identifier: "agent-composer").firstMatch
         XCTAssertTrue(
-            startSheet.waitForExistence(timeout: 20),
-            "Start-coding dialog did not open — is a desktop online on the relay?"
+            composer.waitForExistence(timeout: 20),
+            "The Agent page did not open — is a desktop online on the relay?"
         )
         snapshot("03_start-coding", settle: 2, popRects: app)
-        // EXP-687: sheets have no Cancel — swipe it away.
-        dismissSheet(app, whileVisible: startSheet)
+        // Agent page → issue → board.
+        goBack(app)
         goBack(app)
 
         // ── 05: PR review (real diff + merge bar) ───────────────────────────

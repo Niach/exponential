@@ -5,7 +5,7 @@
 # additionally pins the three settings that differ, so the run is correct even
 # if that selection ever stops working.
 #
-# Captures the 27 `sg_*` shots from ExponentialUITests/StyleguideScreenshots.swift
+# Captures the 28 `sg_*` shots from ExponentialUITests/StyleguideScreenshots.swift
 # (`sg_sign-in` … `sg_onboarding-devices`) — the cross-platform surface set a
 # design review compares against the web, desktop and Android captures of the
 # same screens. The names are a contract; see the doc comment on that suite.
@@ -16,7 +16,7 @@
 # needs no steer TRAFFIC, but since EXP-642 it does need the relay stub running
 # — `cd apps/web && bun run screenshots:desktop` registers the demo user's OWN
 # device row, which is what sg_machine-settings (gated `isMine && registered`)
-# and the two sg_start-coding-* shots photograph.
+# and the three sg_chat* shots photograph.
 #
 # `bundle exec fastlane styleguide_screenshots shots:sg_reviews,sg_search`
 # narrows a run to those ids (EXP-642); the navigation still runs in full.

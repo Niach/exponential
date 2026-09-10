@@ -8,11 +8,13 @@ import Foundation
 // them on a desktop via `steer.startSession({actionId})`; since EXP-694 it also
 // EDITS them (EditActionSheet), which is what `get` (body) and `update` are for.
 
-/// One typed action input (EXP-257): filled in the run dialog and injected
-/// into the prompt by the desktop. `type` is a contract value
-/// (`DomainContract.actionInputTypeValues` — text / repo / board / pr / icon);
-/// tolerate unknown future types by gating the run, never by silently degrading.
-/// `required` absent = optional (the wire omits the default-false flag).
+/// One typed action input (EXP-257): filled in the Agent page composer and
+/// injected into the prompt by the desktop. `type` is a contract value
+/// (`DomainContract.actionInputTypeValues` — repo / board / pr / icon; EXP-825
+/// retired the free-text `text` / `textarea` types, whatever the requester
+/// types is the start's `prompt` now); tolerate unknown future types by gating
+/// the run, never by silently degrading. `required` absent = optional (the
+/// wire omits the default-false flag).
 public struct ActionInputDto: Decodable, Sendable, Equatable {
     public let key: String
     public let label: String
@@ -104,6 +106,10 @@ public extension ActionDto {
     /// apps/web/src/lib/builtin-actions.ts field-for-field (the huge
     /// sortOrder only keeps naive sortOrder-asc renderers from interleaving
     /// it; pinning goes by the `builtin` flag).
+    ///
+    /// EXP-825: the request itself (what the action should do, and its name
+    /// if the user states one) is the start's `prompt`, never an input — the
+    /// two remaining inputs are PICKS the creator run can't derive from prose.
     static func builtinCreateAction(teamId: String) -> ActionDto {
         ActionDto(
             id: DomainContract.builtinCreateActionId,
@@ -117,21 +123,6 @@ public extension ActionDto {
             createdAt: "1970-01-01T00:00:00.000Z",
             updatedAt: "1970-01-01T00:00:00.000Z",
             inputs: [
-                ActionInputDto(
-                    key: "description",
-                    label: "Description",
-                    type: "text",
-                    required: true,
-                    placeholder: "What should this action do?"
-                ),
-                // EXP-615: an optional name — blank lets the agent pick one.
-                ActionInputDto(
-                    key: "name",
-                    label: "Name",
-                    type: "text",
-                    required: false,
-                    placeholder: "Name (optional)"
-                ),
                 ActionInputDto(key: "repo", label: "Repository", type: "repo", required: false),
                 // EXP-273: the author picks the new action's glyph up front.
                 ActionInputDto(key: "icon", label: "Icon", type: "icon", required: false),
@@ -168,10 +159,10 @@ public extension ActionDto {
     /// The HIDDEN "Chat" builtin (EXP-615): a conversation with your agent over
     /// the tracker's MCP tools, OPTIONALLY anchored to a repository (EXP-739) —
     /// the iOS twin of the desktop's chat tab. Unlike the other two it is
-    /// appended to NO list and
-    /// belongs in NO picker: the Start-coding sheet's Chat tab constructs it
-    /// directly for its submit. Mirrors apps/web/src/lib/builtin-actions.ts
-    /// field-for-field.
+    /// appended to NO list and belongs in NO picker: the Agent page composer
+    /// constructs it directly when no subject is picked (EXP-825). The chat
+    /// text is the start's `prompt` (required for this builtin), never an
+    /// input. Mirrors apps/web/src/lib/builtin-actions.ts field-for-field.
     static func builtinChatAction(teamId: String) -> ActionDto {
         ActionDto(
             id: DomainContract.builtinChatId,
@@ -185,13 +176,9 @@ public extension ActionDto {
             createdAt: "1970-01-01T00:00:00.000Z",
             updatedAt: "1970-01-01T00:00:00.000Z",
             inputs: [
-                ActionInputDto(
-                    key: "prompt",
-                    label: "Prompt",
-                    type: "textarea",
-                    required: true,
-                    placeholder: "What should the agent do?"
-                ),
+                // EXP-739: OPTIONAL. A repo-less chat runs in the agent's
+                // scratch dir with only the Exponential MCP server wired up;
+                // with a repo it keeps its own `exp/chat-<id8>` worktree.
                 ActionInputDto(key: "repo", label: "Repository", type: "repo", required: false),
             ],
             builtin: true

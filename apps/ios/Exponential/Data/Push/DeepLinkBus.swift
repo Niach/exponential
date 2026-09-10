@@ -23,6 +23,10 @@ final class DeepLinkBus: @unchecked Sendable {
     // server user id like the other push kinds.
     var pendingInbox = false
     var pendingInboxUserId: String?
+    // EXP-825: a `/t/{team}/agent` universal link — the team's Agent page,
+    // under the signed-in account whose host matched the URL.
+    var pendingAgentTeamSlug: String?
+    var pendingAgentAccountId: String?
     // A web URL the app was opened with but cannot render (unknown host, issue
     // not synced/visible). MainNavigator presents it in an in-app Safari sheet —
     // NEVER hand it back to UIApplication.open: the app is entitled for the
@@ -55,6 +59,11 @@ final class DeepLinkBus: @unchecked Sendable {
         pendingInbox = true
     }
 
+    func navigateToAgent(teamSlug: String, accountId: String) {
+        pendingAgentAccountId = accountId
+        pendingAgentTeamSlug = teamSlug
+    }
+
     func openExternal(_ url: URL) {
         pendingExternalUrl = url
     }
@@ -84,6 +93,15 @@ final class DeepLinkBus: @unchecked Sendable {
         pendingSupportThreadId = nil
         pendingSupportThreadUserId = nil
         return id
+    }
+
+    func consumeAgent() -> (teamSlug: String, accountId: String)? {
+        defer {
+            pendingAgentTeamSlug = nil
+            pendingAgentAccountId = nil
+        }
+        guard let slug = pendingAgentTeamSlug, let accountId = pendingAgentAccountId else { return nil }
+        return (slug, accountId)
     }
 
     /// Returns the recipient's user id (nil when none) when an inbox tap is

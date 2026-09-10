@@ -38,6 +38,10 @@ enum AppRoute: Hashable {
     /// or the issue detail's coding card. A pushed destination (EXP-221), not
     /// a fullScreenCover, so it gets the native back button + swipe-back.
     case agentSession(accountId: String, sessionId: String)
+    /// EXP-825: the team's Agent page — the ONE launcher (composer + the
+    /// caller's Running/Past sessions), a pushed detail. Every play button
+    /// lands here with a `seed`; the Chat FAB with an empty one.
+    case agent(accountId: String, seed: AgentComposerSeed)
     case settings
     case serverDetail(accountId: String)
     case teamSettings(accountId: String, teamId: String)
@@ -179,25 +183,38 @@ struct AppNavigator: View {
             deps.deepLinkBus.navigateToInvite(token)
         case .issue(let teamSlug, _, let identifier):
             resolveWebIssueLink(url: url, teamSlug: teamSlug, identifier: identifier)
+        case .agent(let teamSlug):
+            // EXP-825: the Agent page under a signed-in account on the link's
+            // host; a foreign host falls back to the Safari sheet.
+            if let account = accountsOnHost(of: url).first {
+                deps.deepLinkBus.navigateToAgent(teamSlug: teamSlug, accountId: account.id)
+            } else {
+                deps.deepLinkBus.openExternal(url)
+            }
         case nil:
-            // Shouldn't happen (the AASA claims only the two parsed shapes),
-            // but never swallow a link the user tapped.
+            // Shouldn't happen (the AASA claims only the parsed shapes), but
+            // never swallow a link the user tapped.
             deps.deepLinkBus.openExternal(url)
         }
     }
 
-    private func resolveWebIssueLink(url: URL, teamSlug: String, identifier: String) {
-        // Signed-in accounts on the link's instance — active account first,
-        // then most recently used (multi-account devices can hold several
-        // accounts on the same host).
+    /// Signed-in accounts on the link's instance — active account first,
+    /// then most recently used (multi-account devices can hold several
+    /// accounts on the same host).
+    private func accountsOnHost(of url: URL) -> [ServerAccount] {
         let host = url.host
-        let candidates = deps.auth.accounts
+        let activeId = deps.auth.activeAccountId
+        return deps.auth.accounts
             .filter { $0.token != nil && URL(string: $0.instanceUrl)?.host == host }
             .sorted { a, b in
-                if a.id == deps.auth.activeAccountId { return true }
-                if b.id == deps.auth.activeAccountId { return false }
+                if a.id == activeId { return true }
+                if b.id == activeId { return false }
                 return a.lastUsedAt > b.lastUsedAt
             }
+    }
+
+    private func resolveWebIssueLink(url: URL, teamSlug: String, identifier: String) {
+        let candidates = accountsOnHost(of: url)
         guard !candidates.isEmpty else {
             deps.deepLinkBus.openExternal(url)
             return
@@ -279,12 +296,6 @@ struct MainNavigator: View {
     // delivered rows, so the active-team alignment couldn't look up its
     // team yet — re-run it on the next boards emission.
     @State private var pendingTeamAlign = false
-    /// EXP-631: the Devices/Actions FAB's chat request. The bar lives here,
-    /// the launcher (with its devices, team and start handlers) lives in
-    /// AgentsView / ActionsListView — so a tap just bumps a counter the
-    /// visible screen watches (EXP-694 put the FAB on Actions too).
-    @State private var chatRequest = 0
-
     var body: some View {
         ZStack {
             AppBackground()
@@ -385,6 +396,10 @@ struct MainNavigator: View {
         .onChange(of: deps.deepLinkBus.pendingInbox) { _, pending in
             if pending { openInboxFromPush() }
         }
+        // EXP-825: a `/t/{team}/agent` universal link.
+        .onChange(of: deps.deepLinkBus.pendingAgentTeamSlug) { _, slug in
+            if slug != nil { openAgentFromLink() }
+        }
         // A team was deleted in-app (EXP-43): pop to root so no pushed
         // view (team settings, server detail) still targets it.
         .onReceive(NotificationCenter.default.publisher(for: .teamDeleted)) { _ in
@@ -409,6 +424,7 @@ struct MainNavigator: View {
                 path.append(AppRoute.supportThread(accountId: accountId, threadId: threadId))
             }
             if deps.deepLinkBus.pendingInbox { openInboxFromPush() }
+            if deps.deepLinkBus.pendingAgentTeamSlug != nil { openAgentFromLink() }
         }
         .safeAreaInset(edge: .top, spacing: 0) { syncBanner }
         // Attached as an OVERLAY, not a safeAreaInset (EXP-36): an ancestor
@@ -443,7 +459,11 @@ struct MainNavigator: View {
                     onReviews: { if !isOnReviews { path = [.reviews] } },
                     onSupport: { if !isOnSupport { path = [.support] } },
                     onCompose: { if let route = composeRoute { path.append(route) } },
-                    onChat: { chatRequest += 1 }
+                    // EXP-825: the Chat FAB pushes the Agent page with an
+                    // empty seed — the composer IS the launcher.
+                    onChat: {
+                        path.append(.agent(accountId: deps.auth.activeAccountId ?? "", seed: .empty))
+                    }
                 )
                 // Slides out of the way when a screen claims its slot, so the
                 // bulk bar arrives in the space the bar just left rather than
@@ -641,10 +661,10 @@ struct MainNavigator: View {
             SearchView()
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case .agents:
-            AgentsView(chatRequest: chatRequest)
+            AgentsView()
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case .actions:
-            ActionsListView(chatRequest: chatRequest)
+            ActionsListView()
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case .myWork:
             MyWorkView()
@@ -678,6 +698,9 @@ struct MainNavigator: View {
                 .environment(\.accountId, accountId)
         case let .agentSession(accountId, sessionId):
             AgentSessionRouteView(sessionId: sessionId)
+                .environment(\.accountId, accountId)
+        case let .agent(accountId, seed):
+            AgentPageView(seed: seed)
                 .environment(\.accountId, accountId)
         case .settings:
             SettingsView()
@@ -962,6 +985,27 @@ struct MainNavigator: View {
         // MyWorkView persists its segment in AppStorage — point it at Inbox.
         UserDefaults.standard.set("inbox", forKey: "myWorkSegment")
         path = [.myWork]
+    }
+
+    /// EXP-825: land on the linked team's Agent page — switch account first
+    /// when the link's host matched another signed-in one (the page renders
+    /// the ACTIVE team), point the active team at the slug when it synced,
+    /// and push an empty-seed composer.
+    private func openAgentFromLink() {
+        guard let slug = deps.deepLinkBus.pendingAgentTeamSlug,
+              let accountId = deps.deepLinkBus.pendingAgentAccountId else { return }
+        if accountId != deps.auth.activeAccountId {
+            // Left PENDING on purpose: `.id(activeAccountId)` recreates this
+            // navigator and its cold-launch `.task` drains the link under the
+            // right account.
+            deps.auth.switchAccount(id: accountId)
+            return
+        }
+        _ = deps.deepLinkBus.consumeAgent()
+        if let team = teamState.teams.first(where: { $0.slug == slug }) {
+            teamState.activeTeamId = team.id
+        }
+        path.append(.agent(accountId: accountId, seed: .empty))
     }
 
     private func stopObserving() {

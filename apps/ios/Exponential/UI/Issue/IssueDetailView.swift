@@ -10,7 +10,6 @@ import GRDB
 enum IssueDetailSheet: String, Identifiable {
     case properties
     case moveBoard
-    case startCoding
 
     var id: String { rawValue }
 }
@@ -36,6 +35,7 @@ struct IssueDetailView: View {
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
+    @Environment(\.pushRoute) private var pushRoute
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: IssueDetailViewModel?
     @State private var showDeleteConfirm = false
@@ -49,8 +49,6 @@ struct IssueDetailView: View {
     /// interception) parks its target here and it is promoted on dismiss — a
     /// sheet cannot present while its sibling is still animating away.
     @State private var pendingChild: IssuePropertyChild?
-    // Candidates for the Start-coding sheet, loaded just before presenting.
-    @State private var startCandidates: [StartCodingSheet.IssueOption] = []
     // The board picked in the move sheet, pending confirmation (EXP-57) —
     // non-nil drives the "Move issue" alert.
     @State private var moveTarget: BoardEntity?
@@ -66,10 +64,6 @@ struct IssueDetailView: View {
     /// EXP-603: `ShareLink` cannot live inside a `GlassMenu` (its rows are
     /// plain buttons), so the menu item hands the URL to a host-level sheet.
     @State private var shareTarget: ShareTarget?
-    /// EXP-536: consumed-once push into the run this screen just started —
-    /// single AND batch (a batch row is issue-less, so the start circle can
-    /// never reflect it).
-    @State private var sessionTarget: StartedRunWatcher.StartedSession?
     /// EXP-592: the comment-edit editor lives up here, not inside the timeline,
     /// so the screen can mount ONE candidate menu above the keyboard for it and
     /// for the description alike. CommentThreadView re-seeds it per Edit tap.
@@ -321,7 +315,7 @@ struct IssueDetailView: View {
                             isModerator: vm.permissions.isModerator,
                             startUi: startCircleUi(vm: vm, issue: issue),
                             onOpenProperties: { activeSheet = .properties },
-                            onStartCoding: { presentStartSheet(vm: vm) },
+                            onStartCoding: { openComposer(issue: issue) },
                             replyTarget: $commentReplyTarget
                         )
                     }
@@ -466,25 +460,11 @@ struct IssueDetailView: View {
                 // Stop synchronously: deferring it behind the async saves
                 // could cancel the observers a quick pop-back just re-armed.
                 vm.stopObserving()
-                vm.startWatcher.stop()
                 Task {
                     await vm.saveTitle()
                     await vm.commitDescription()
                 }
             }
-        }
-        // The desktop picked the start up — push the live steer screen ONCE
-        // (the same destination the .agentSession route arm builds).
-        .onChange(of: viewModel?.startWatcher.startedSession) { _, started in
-            if let started {
-                viewModel?.startWatcher.startedSession = nil
-                viewModel?.startPending = false
-                sessionTarget = started
-            }
-        }
-        .navigationDestination(item: $sessionTarget) { target in
-            AgentSessionRouteView(sessionId: target.sessionId)
-                .environment(\.accountId, accountId)
         }
     }
 
@@ -598,22 +578,6 @@ struct IssueDetailView: View {
             )
         case .moveBoard:
             moveBoardPicker(vm: vm, issue: issue)
-        case .startCoding:
-            // EXP-642: `teamId` + `onRunAction` are what light up the sheet's
-            // Actions and Chat tabs — without them the issue detail offered
-            // Issues-only, unlike every other host.
-            StartCodingSheet(
-                devices: vm.steerDevices ?? [],
-                issues: startCandidates,
-                preselectedIds: [issue.id],
-                teamId: vm.board?.teamId,
-                onStart: { device, issueIds, options in
-                    vm.startCoding(on: device, issueIds: issueIds, options: options)
-                },
-                onRunAction: { device, action, options, inputs in
-                    vm.runAction(on: device, action: action, options: options, inputs: inputs)
-                }
-            )
         }
     }
 
@@ -751,16 +715,15 @@ struct IssueDetailView: View {
                 sessionId: session.id
             )
         }
-        if vm.startPending { return .sending }
         guard let devices = vm.steerDevices else { return .hidden }
         return devices.isEmpty ? .noDevices : .start
     }
 
-    private func presentStartSheet(vm: IssueDetailViewModel) {
-        Task {
-            startCandidates = await vm.startCodingCandidates()
-            activeSheet = .startCoding
-        }
+    /// EXP-825: Start coding is NAVIGATION — the Agent page composer with
+    /// this issue pre-checked; the watcher there pushes the run once the
+    /// desktop picks it up.
+    private func openComposer(issue: IssueEntity) {
+        pushRoute(.agent(accountId: accountId, seed: AgentComposerSeed(issueIds: [issue.id])))
     }
 
     private var instanceBaseURL: URL? {

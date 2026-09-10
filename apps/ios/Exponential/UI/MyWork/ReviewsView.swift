@@ -25,6 +25,7 @@ struct ReviewsListContent: View {
     @Environment(\.accountId) private var accountId
     @Environment(TeamState.self) private var teamState
     @Environment(\.openURL) private var openURL
+    @Environment(\.pushRoute) private var pushRoute
     @State private var viewModel: ReviewsViewModel?
     @State private var mergeTarget: ReviewEntry?
     /// EXP-734: the agent run whose OWN pull request a merge confirm is
@@ -39,17 +40,10 @@ struct ReviewsListContent: View {
     @State private var merging: Set<String> = []
 
     // "Fix conflicts" (EXP-323, desktop parity): a failed merge is usually a
-    // conflict, so the row offers the builtin run on any machine the caller can
-    // reach — own or shared with the team (EXP-432).
-    @State private var fixTarget: ReviewEntry?
+    // conflict, so the row offers the builtin recovery run. EXP-825: it is
+    // NAVIGATION into the Agent page composer, seeded with the builtin and
+    // this row's pull request.
     @State private var steerEnabled = false
-    @State private var devices: [SteerDevice]?
-    @State private var startCandidates: [StartCodingSheet.IssueOption] = []
-    // EXP-536: a remote start pushes the live session once the desktop's row
-    // syncs in, instead of pointing at Agents. The watcher owns the "waiting
-    // for the desktop" caption, the failure and the navigation target.
-    @State private var startWatcher = StartedRunWatcher()
-    @State private var sessionTarget: StartedRunWatcher.StartedSession?
 
     var body: some View {
         let groups = viewModel?.groups(teamId: teamState.activeTeam?.id) ?? []
@@ -68,7 +62,6 @@ struct ReviewsListContent: View {
         .task(id: accountId) {
             let config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
             steerEnabled = config.enabled
-            await refreshDevices()
         }
         .onAppear {
             if viewModel == nil {
@@ -77,42 +70,9 @@ struct ReviewsListContent: View {
             // Re-arm on every appear: pushing an issue detail stops the
             // observation (onDisappear), popping back must resume it.
             viewModel?.startObserving()
-            // Refresh presence on every appear (the .task doesn't re-run on
-            // pop-back). A no-op until steering resolves enabled.
-            Task { await refreshDevices() }
         }
         .onDisappear {
             viewModel?.stopObserving()
-            startWatcher.stop()
-        }
-        // The desktop picked the start up — push the live steer screen ONCE
-        // (the same destination the .agentSession route arm builds).
-        .onChange(of: startWatcher.startedSession) { _, started in
-            if let started {
-                startWatcher.startedSession = nil
-                sessionTarget = started
-            }
-        }
-        .navigationDestination(item: $sessionTarget) { target in
-            AgentSessionRouteView(sessionId: target.sessionId)
-                .environment(\.accountId, accountId)
-        }
-        .sheet(item: $fixTarget) { entry in
-            StartCodingSheet(
-                devices: devices ?? [],
-                issues: startCandidates,
-                preselectedIds: [],
-                teamId: teamState.activeTeam?.id,
-                initialTab: .actions,
-                preselectedActionId: DomainContract.builtinFixConflictsId,
-                preselectedPrIssueId: entry.representative.id,
-                onStart: { device, issueIds, options in
-                    start(on: device, issueIds: issueIds, options: options)
-                },
-                onRunAction: { device, action, options, inputs in
-                    runAction(on: device, action: action, options: options, inputs: inputs)
-                }
-            )
         }
         .alert(
             "Merge pull request?",
@@ -448,7 +408,7 @@ struct ReviewsListContent: View {
                     GlassPill("Fix conflicts", icon: AppIcons.uiBranch)
                     .contentShape(Capsule())
                     .onTapGesture {
-                        fixTarget = entry
+                        fixConflicts(entry)
                     }
                     .accessibilityAddTraits(.isButton)
                     .accessibilityLabel("Fix merge conflicts")
@@ -493,7 +453,7 @@ struct ReviewsListContent: View {
             }
             if canFixConflicts(entry) {
                 Button {
-                    fixTarget = entry
+                    fixConflicts(entry)
                 } label: {
                     Label("Fix merge conflicts", appIcon: AppIcons.uiBranch)
                 }
@@ -520,17 +480,6 @@ struct ReviewsListContent: View {
                 .font(.caption)
                 .foregroundStyle(DesignTokens.Semantic.red)
                 .fixedSize(horizontal: false, vertical: true)
-
-            if let runCaption = startWatcher.sentCaption {
-                Text(runCaption)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            }
-            if let runError = startWatcher.failure {
-                Text(runError)
-                    .font(.caption)
-                    .foregroundStyle(DesignTokens.Semantic.red)
-            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
@@ -581,88 +530,16 @@ struct ReviewsListContent: View {
         }
     }
 
-    private func refreshDevices() async {
-        guard steerEnabled else {
-            devices = nil
-            return
-        }
-        // EXP-432: team-scoped, so a teammate's shared server can host the
-        // run. EXP-481: read off the synced devices shape, not the network.
-        devices = await DeviceQueries.onlineStartTargets(
-            db: deps.db, accountId: accountId,
-            teamId: teamState.activeTeam?.id, userId: deps.auth.userId
-        )
-        startCandidates = await StartCodingSheet.IssueOption.loadCandidates(
-            db: deps.db,
+    /// EXP-825: the recovery run is the composer with the "Fix merge
+    /// conflicts" builtin picked and this row's pull request pre-picked —
+    /// ANY linked issue resolves (the picker normalises by membership).
+    private func fixConflicts(_ entry: ReviewEntry) {
+        pushRoute(.agent(
             accountId: accountId,
-            teamId: teamState.activeTeam?.id
-        )
-    }
-
-    /// Actions-mode launch from the unified sheet (EXP-323 — the "Fix merge
-    /// conflicts" builtin, which always rides its teamId). The run surfaces in
-    /// the Agents list via sync like any other session.
-    private func runAction(
-        on device: SteerDevice,
-        action: ActionDto,
-        options: SteerStartOptions,
-        inputs: [String: String]
-    ) {
-        startWatcher.sending()
-        Task {
-            do {
-                try await deps.steerApi.startSession(
-                    accountId: accountId,
-                    actionId: action.id,
-                    deviceId: device.deviceId,
-                    teamId: action.isBuiltin ? action.teamId : nil,
-                    options: options,
-                    inputs: inputs.isEmpty ? nil : inputs
-                )
-                startWatcher.begin(
-                    key: .action(name: action.name),
-                    userId: deps.auth.userId,
-                    device: device,
-                    db: deps.db,
-                    accountId: accountId
-                )
-            } catch {
-                startWatcher.failed(error.userFacingMessage)
-            }
-        }
-    }
-
-    /// Issues-tab launch from the same sheet (flipping tabs must not dead-end).
-    private func start(on device: SteerDevice, issueIds: [String], options: SteerStartOptions) {
-        guard let key = StartedRunKey.forIssues(issueIds) else { return }
-        startWatcher.sending()
-        Task {
-            do {
-                if issueIds.count > 1 {
-                    try await deps.steerApi.startSession(
-                        accountId: accountId,
-                        issueIds: issueIds,
-                        deviceId: device.deviceId,
-                        options: options
-                    )
-                } else {
-                    try await deps.steerApi.startSession(
-                        accountId: accountId,
-                        issueId: issueIds[0],
-                        deviceId: device.deviceId,
-                        options: options
-                    )
-                }
-                startWatcher.begin(
-                    key: key,
-                    userId: deps.auth.userId,
-                    device: device,
-                    db: deps.db,
-                    accountId: accountId
-                )
-            } catch {
-                startWatcher.failed(error.userFacingMessage)
-            }
-        }
+            seed: AgentComposerSeed(
+                actionId: DomainContract.builtinFixConflictsId,
+                prIssueId: entry.representative.id
+            )
+        ))
     }
 }

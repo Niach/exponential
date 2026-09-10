@@ -3,6 +3,7 @@ import Foundation
 /// Builds shareable web URLs into the running instance, mirroring the web app's
 /// route shape:
 ///   issue:  {base}/t/{teamSlug}/boards/{boardSlug}/issues/{identifier}
+///   agent:  {base}/t/{teamSlug}/agent   (EXP-825 — the team's Agent page)
 ///
 /// EXP-180 (the great rename): the web's canonical routes are `/t/…/boards/…`
 /// and the legacy `/w/` + `/projects/` forms are DEAD server-side (no
@@ -45,16 +46,27 @@ public enum WebLinks {
         return URL(string: "\(base)/invite/\(encode(trimmed))")
     }
 
+    /// `{base}/t/{teamSlug}/agent` — the team's Agent page (EXP-818/825),
+    /// where the composer lives; the phone renders it as the pushed Agent
+    /// page with an empty seed.
+    public static func agent(instanceUrl: String?, teamSlug: String) -> URL? {
+        guard let base = normalizedBase(instanceUrl) else { return nil }
+        let trimmed = teamSlug.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return URL(string: "\(base)/t/\(encode(trimmed))/agent")
+    }
+
     private static func encode(_ segment: String) -> String {
         segment.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? segment
     }
 
     /// A web-app URL the native app can render (EXP-92 Universal Links) — the
-    /// inverse of `issue(...)` plus the invite route. Only these two shapes are
-    /// claimed in the associated-domains AASA; anything else returns nil.
+    /// inverse of `issue(...)` plus the invite route and, since EXP-825, the
+    /// team's Agent page. Anything else returns nil.
     public enum Parsed: Equatable, Sendable {
         case issue(teamSlug: String, boardSlug: String, identifier: String)
         case invite(token: String)
+        case agent(teamSlug: String)
     }
 
     /// Parse `{base}/t/{team}/boards/{board}/issues/{identifier}` plus
@@ -72,6 +84,12 @@ public enum WebLinks {
         }
         if parts.count == 2, parts[0] == "invite" {
             return .invite(token: parts[1])
+        }
+        // EXP-825: `/t/{team}/agent` — exact length, so a session under it
+        // (`/agent/...` never exists, sessions live at `/t/{team}/sessions/`)
+        // and the other team surfaces stay unclaimed.
+        if parts.count == 3, parts[0] == "t", parts[2] == "agent" {
+            return .agent(teamSlug: parts[1])
         }
         return nil
     }
