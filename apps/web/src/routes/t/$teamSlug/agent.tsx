@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { pickChatSuggestions } from "@/lib/chat-suggestions"
 import { createFileRoute, redirect } from "@tanstack/react-router"
 import { ChevronDown, LoaderCircle } from "lucide-react"
@@ -27,23 +27,39 @@ import { Switch } from "@/components/ui/switch"
 import { conceptIcon } from "@/lib/icons.generated"
 import { agentSupportsPlanMode } from "@/lib/coding-launch-prefs"
 import { BUILTIN_CHAT_ID, BUILTIN_CHAT_NAME } from "@/lib/builtin-actions"
+import {
+  chatRepoOptions,
+  chatStartInputs,
+  defaultChatRepoId,
+  NO_REPO,
+} from "@/lib/chat-repo"
 import { deviceHasRunnableAgent, deviceIsOnline } from "@/lib/steer-devices"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug, useTeamUsers } from "@/hooks/use-team-data"
+import { useTeamRepos } from "@/hooks/use-team-repos"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 
 // EXP-818: the team's AGENT page — the sessions list on the left (Running,
 // then Past; the sections the Devices page carried) and, on the right, the
-// chat prompt (EXP-739/772: a conversation with an agent bound to no issue
-// and to no repository — it runs in the agent's scratch directory with the
-// Exponential MCP server wired up). Clicking a session opens
-// `/t/$teamSlug/sessions/$sessionId`, which renders inside the same shell,
-// so the list never goes away. It replaced the `/chat` page, whose
+// chat prompt (EXP-739/772: a conversation with an agent bound to no issue,
+// and optionally to no repository either — a repo-less chat runs in the
+// agent's scratch directory with the Exponential MCP server wired up, so it
+// can read and write the tracker without a worktree). Clicking a session
+// opens `/t/$teamSlug/sessions/$sessionId`, which renders inside the same
+// shell, so the list never goes away. It replaced the `/chat` page, whose
 // `?session=` trick for reaching a second running chat is unnecessary now
 // that every run has a row here. On phones the page is the list over the
 // prompt, and a session is its own screen.
+//
+// EXP-822: the repository is picked HERE, on the row under the prompt, and
+// no longer only in the start-coding dialog. It stays optional, but a chat
+// that has no repository and no way to name one leaves the agent to resolve
+// its own subject, and the way it does that is scanning the machine for
+// clones — which is how a six-weeks-stale sibling of the real checkout once
+// became the basis of an entire release report. Picking one gives the run
+// its own `exp/chat-<id8>` worktree instead.
 
 const UiBackIcon = conceptIcon(`ui-back`)
 
@@ -184,6 +200,19 @@ function ChatPrompt({
   // getting-started cards show, not three fixed verbs.
   const [suggestions] = useState(() => pickChatSuggestions())
   const fieldRef = useRef<MentionTextareaHandle>(null)
+  // EXP-822: the chat's repository. Without one the run lands in a scratch
+  // dir that is not a checkout, and an agent asked for something repo-shaped
+  // used to go hunting for a clone on the machine. The pick is still
+  // OPTIONAL (EXP-739) — it is the ABSENCE of the control that was the bug.
+  const repos = useTeamRepos(teamId)
+  const [repoId, setRepoId] = useState(``)
+  const seededRepo = useRef(false)
+  useEffect(() => {
+    if (!repos || seededRepo.current) return
+    seededRepo.current = true
+    setRepoId(defaultChatRepoId(repos))
+  }, [repos])
+  const repoOptions = chatRepoOptions(repos ?? [])
   // The same candidate filter the launch dialog uses (EXP-403/EXP-409): the
   // registry lists offline machines and signed-out ones, neither is startable.
   const candidateDevices = useMemo(
@@ -211,7 +240,7 @@ function ChatPrompt({
     prompt.trim().length === 0
   const send = () => {
     if (!launch.device || blocked) return
-    onStart(launch.device, launch.buildOptions(), { prompt })
+    onStart(launch.device, launch.buildOptions(), chatStartInputs(prompt, repoId))
   }
 
   return (
@@ -290,6 +319,14 @@ function ChatPrompt({
             }))}
             onChange={launch.switchAgent}
           />
+          {repoOptions.length > 0 && (
+            <InlinePicker
+              label="Repository"
+              value={repoId || NO_REPO}
+              options={repoOptions}
+              onChange={(value) => setRepoId(value === NO_REPO ? `` : value)}
+            />
+          )}
           {mcp.servers && mcp.servers.length > 0 && (
             <McpServerPicker
               servers={mcp.servers}

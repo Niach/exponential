@@ -100,10 +100,17 @@ pub fn render_action_prompt_with_trigger(
 /// EXP-764: what a repo-less run (chat or team action without a repo) is
 /// told about its cwd — the scratch dir is purged whole with the run
 /// (`crate::scratch::purge`), so nothing written there survives it.
+/// EXP-822: and the other half of it — the run has no repository AT ALL, so
+/// it must never resolve its subject by scanning the machine. A sibling
+/// clone of the real checkout is the worst case: six weeks stale and every
+/// conclusion drawn from it reads authoritative. Ask instead.
 pub const SCRATCH_CWD_NOTE: &str = "You have no repository checked out: your working directory \
 is a scratch folder that is deleted, with everything in it, the moment this run ends. Leave \
 nothing there you want to keep; put results into issue comments or attachments \
-(`exponential_attachments_upload`).";
+(`exponential_attachments_upload`). No repository is attached to this run either, so never go \
+looking for one on this machine: any clone you find is someone else's checkout, and a stale one \
+reads exactly like the real one. If the work needs a repository, say so and ask which one, so the \
+user can start a run with that repository picked.";
 
 pub fn render_action_prompt_full(
     name: &str,
@@ -632,6 +639,36 @@ stays open afterwards, so keep answering follow-ups.\n\n---\n\nhi"
         let unattended = chat_prompt("hi", None, true);
         assert!(unattended.contains("`exponential_sessions_end`"));
         assert!(unattended.contains("that call ends this run"));
+    }
+
+    /// EXP-822: a repo-less run once resolved its subject by scanning the
+    /// user's home for `.git` directories, found a six-weeks-stale sibling of
+    /// the real clone, and reported every wrong conclusion authoritatively.
+    /// The note has to close that door explicitly, on the chat preamble AND
+    /// on the action `## Workspace` section, and it has to leave the run a
+    /// move that is not guessing.
+    #[test]
+    fn the_repo_less_note_forbids_hunting_for_a_checkout() {
+        for prompt in [
+            chat_prompt("push the ios release", None, false),
+            render_action_prompt_full("Weekly", "# Body", &[], None, None, false),
+        ] {
+            assert!(
+                prompt.contains("never go looking for one on this machine"),
+                "{prompt}"
+            );
+            assert!(prompt.contains("someone else's checkout"), "{prompt}");
+            assert!(prompt.contains("ask which one"), "{prompt}");
+        }
+        // A repo-BACKED run says where it is instead, and must never carry
+        // the repo-less wording.
+        let workspace = WorkspaceNote {
+            branch: "exp/chat-1a2b3c4d".to_string(),
+            default_branch: "main".to_string(),
+            repository_id: "repo-1".to_string(),
+        };
+        let backed = chat_prompt("push the ios release", Some(&workspace), false);
+        assert!(!backed.contains("never go looking"), "{backed}");
     }
 
     #[test]

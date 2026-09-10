@@ -3,8 +3,16 @@
 //!
 //! An essentially empty page in the "Ask Linear" shape: one wide rounded
 //! prompt box, vertically centred, with a single subtle row of small inline
-//! pickers under it — machine, agent, plan. No cards, no headings, no
-//! sections.
+//! pickers under it — machine, agent, repository, plan. No cards, no
+//! headings, no sections.
+//!
+//! EXP-822: the repository joined that row. It stays OPTIONAL (EXP-739: a
+//! repo-less chat is a conversation with the tracker, run in a scratch dir),
+//! but the page used to offer no way to name one at all, and an agent asked
+//! for something repo-shaped then resolved its own subject by scanning the
+//! machine for clones. It found a six-weeks-stale sibling of the real
+//! checkout and everything it reported afterwards read authoritative and was
+//! wrong.
 //!
 //! EXP-790: the box is the mention field (`@` members, `#` issue refs, `:`
 //! emoji — the comment composer's widget), model and effort stay the
@@ -38,6 +46,7 @@ use gpui_component::{h_flex, v_flex, ActiveTheme as _};
 
 use coding::CodingAgent;
 
+use crate::action_run::{self, ActionRepoRow};
 use crate::icons::registry;
 use crate::launch_options::{
     agent_label, mcp_pick_summary, mcp_pick_popover, pickable_agents, McpServerOption,
@@ -49,6 +58,12 @@ use crate::surface::{glass_pill, PillMode, PillSize};
 /// The page's one field: wide, rounded, Enter sends and Shift+Enter breaks a
 /// line — the steer composer's rhythm, on a page with nothing else on it.
 const PROMPT_MAX_W: f32 = 640.;
+
+/// EXP-822: the repo-less entry of the Repository pick, byte-identical to the
+/// web chat page's `NO_REPO_LABEL` (`lib/chat-repo.ts`). The start-coding
+/// dialog's grouped picker says "None" instead — it sits under a
+/// "Repository" caption that already supplies the noun.
+const NO_REPO_LABEL: &str = "No repository";
 
 /// EXP-790/EXP-820: the suggestion POOL over an empty prompt — the desktop
 /// twin of the web page's `CHAT_SUGGESTIONS` (`lib/chat-suggestions.ts`,
@@ -126,6 +141,14 @@ pub(crate) struct ChatScreenView {
     effort: String,
     /// EXP-772: OFF by default for a chat, whatever the agent's setting says.
     plan: bool,
+    /// EXP-822: the team's connected repos, and the one this chat is anchored
+    /// to. `None` is a real choice (EXP-739: a scratch-dir conversation with
+    /// the tracker) — it was the ABSENCE of the control that let a run resolve
+    /// its own subject by scanning the machine for clones.
+    team_repos: Vec<ActionRepoRow>,
+    repo: Option<ActionRepoRow>,
+    /// The team the repo list belongs to; the page outlives a team switch.
+    repos_team: Option<String>,
     /// EXP-792: the team's MCP servers, resolved against THIS machine (a
     /// desktop chat runs here — there is no device pick to re-resolve
     /// against). Empty hides the pill, like the web's `mcp.servers.length`
@@ -184,6 +207,9 @@ impl ChatScreenView {
             model: String::new(),
             effort: String::new(),
             plan: false,
+            team_repos: Vec::new(),
+            repo: None,
+            repos_team: None,
             mcp_servers: Vec::new(),
             mcp_selected: Vec::new(),
             mcp_team: None,
@@ -262,6 +288,51 @@ impl ChatScreenView {
             self.plan,
             self.mcp_selected.clone(),
         )
+    }
+
+    /// EXP-822: the team's repositories for the Repository pick. One fetch
+    /// per team, the same `repositories.list` the start-coding dialog
+    /// prefetches, and the same "exactly one, so nothing to pick" seeding
+    /// ([`action_run::preselect_repo`]). Best-effort: a failed fetch leaves
+    /// the picker hidden and the chat runs repo-less, which is legal.
+    fn ensure_repos_loaded(&mut self, cx: &mut gpui::Context<Self>) {
+        let team_id = navigation::active_team_id(&self.nav, cx);
+        if team_id == self.repos_team {
+            return;
+        }
+        self.repos_team = team_id.clone();
+        self.team_repos = Vec::new();
+        self.repo = None;
+        let (Some(team), Some(trpc)) = (team_id, crate::queries::trpc_client(cx)) else {
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let loaded = cx
+                .background_executor()
+                .spawn(async move {
+                    let rows = action_run::fetch_repositories(&trpc, &team)
+                        .inspect_err(|err| {
+                            log::debug!("[ui] repositories.list for chat: {err}")
+                        })
+                        .ok()?;
+                    Some((team, rows))
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                let Some((team, rows)) = loaded else {
+                    return;
+                };
+                // A team switch under the fetch wins — never seed the picker
+                // from the team the person just left.
+                if this.repos_team.as_deref() != Some(team.as_str()) {
+                    return;
+                }
+                this.repo = action_run::preselect_repo(&rows);
+                this.team_repos = rows;
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// EXP-792: the team's MCP servers for the chat pill. One fetch per
@@ -395,13 +466,78 @@ impl ChatScreenView {
         self.input
             .update(cx, |input, cx| input.set_value("", window, cx));
         let options = self.options(agent);
+        // EXP-822: the picked repository, so the run gets its own
+        // `exp/chat-<id8>` worktree instead of a scratch dir with no subject.
+        let repo = self
+            .repo
+            .as_ref()
+            .map(|repo| (repo.id.clone(), repo.full_name.clone()));
         host.update(cx, |host, cx| {
-            host.launch_chat_run(options, None, Some(prompt), window, cx);
+            host.launch_chat_run(options, repo, Some(prompt), window, cx);
         });
         cx.notify();
     }
 
     // ── The picker row ────────────────────────────────────────────────────
+
+    /// EXP-822: the Repository pick, one more word on the muted row (the web
+    /// page's `InlinePicker` for the same input). "No repository" is a real
+    /// entry, not the absence of one, so a pick can always be walked back.
+    /// Nothing connected = no picker: a one-entry menu on a page that is one
+    /// prompt box is noise, and the chat is repo-less either way.
+    fn repo_picker(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let repos = self.team_repos.clone();
+        let label = match &self.repo {
+            Some(repo) => repo.full_name.clone(),
+            None => NO_REPO_LABEL.to_string(),
+        };
+        let picked = self.repo.as_ref().map(|repo| repo.id.clone());
+        let view = cx.entity().downgrade();
+        Button::new("chat-pick-repo")
+            .ghost()
+            .cursor_pointer()
+            .h_auto()
+            .px_1()
+            .py_0()
+            .text_color(cx.theme().muted_foreground)
+            .dropdown_caret(true)
+            .child(div().text_xs().child(SharedString::from(label)))
+            .dropdown_menu(move |mut menu, _window, _cx| {
+                let none_view = view.clone();
+                menu = menu.item(
+                    PopupMenuItem::new(NO_REPO_LABEL)
+                        .checked(picked.is_none())
+                        .on_click(move |_, _, cx| {
+                            if let Some(view) = none_view.upgrade() {
+                                view.update(cx, |view, cx| {
+                                    view.repo = None;
+                                    cx.notify();
+                                });
+                            }
+                        }),
+                );
+                for repo in &repos {
+                    let view = view.clone();
+                    let repo = repo.clone();
+                    let checked = picked.as_deref() == Some(repo.id.as_str());
+                    menu = menu.item(
+                        PopupMenuItem::new(repo.full_name.clone())
+                            .checked(checked)
+                            .on_click(move |_, _, cx| {
+                                let repo = repo.clone();
+                                if let Some(view) = view.upgrade() {
+                                    view.update(cx, |view, cx| {
+                                        view.repo = Some(repo);
+                                        cx.notify();
+                                    });
+                                }
+                            }),
+                    );
+                }
+                menu
+            })
+            .into_any_element()
+    }
 
     fn agent_picker(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let agents = Self::agents(cx);
@@ -454,8 +590,9 @@ impl ChatScreenView {
             .unwrap_or_else(|| SharedString::from("This device"))
     }
 
-    /// EXP-790: machine → agent → plan. Model and effort are the machine's
-    /// defaults for the picked agent and never shown here.
+    /// EXP-790: machine → agent → repository (EXP-822) → plan. Model and
+    /// effort are the machine's defaults for the picked agent and never shown
+    /// here.
     fn render_options_row(&mut self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         let machine = self.machine_label(cx);
@@ -472,6 +609,9 @@ impl ChatScreenView {
             .text_color(muted)
             .child(div().px_1().child(machine))
             .child(self.agent_picker(cx))
+            .when(!self.team_repos.is_empty(), |this| {
+                this.child(self.repo_picker(cx))
+            })
             .when(!self.mcp_servers.is_empty(), |this| {
                 this.child(self.mcp_picker(cx))
             })
@@ -575,6 +715,7 @@ impl Render for ChatScreenView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         self.sync_mention_source(cx);
         self.ensure_mcp_loaded(cx);
+        self.ensure_repos_loaded(cx);
         let can_send = self.agent.is_some();
         let options = self.render_options_row(cx);
         let suggestions = self.render_suggestions(cx);
@@ -722,5 +863,28 @@ mod tests {
         );
         assert_eq!(options.mcp_server_ids, ["srv-1".to_string(), "srv-2".to_string()]);
         assert_eq!(options.account, None);
+    }
+
+    /// EXP-822: the Repository pick seeds itself. One connected repo is not a
+    /// choice, so it lands pre-picked and the chat gets a worktree; with
+    /// several the page stays repo-less on purpose and the run's prompt makes
+    /// the agent ASK which one instead of hunting for a clone on disk.
+    #[test]
+    fn one_repo_preselects_and_several_stay_repo_less() {
+        let row = |id: &str, full_name: &str| ActionRepoRow {
+            id: id.to_string(),
+            full_name: full_name.to_string(),
+            default_branch: None,
+        };
+        let only = action_run::preselect_repo(&[row("repo-1", "niach/exponential")]);
+        assert_eq!(only.map(|repo| repo.id), Some("repo-1".to_string()));
+        assert!(action_run::preselect_repo(&[]).is_none());
+        assert!(action_run::preselect_repo(&[
+            row("repo-1", "niach/exponential"),
+            row("repo-2", "niach/other"),
+        ])
+        .is_none());
+        // The picker's repo-less entry reads the same as the web page's.
+        assert_eq!(NO_REPO_LABEL, "No repository");
     }
 }
