@@ -1057,20 +1057,10 @@ pub(crate) fn automation_devices(cx: &App) -> Vec<DeviceOption> {
 }
 
 /// The parsed trigger of a synced row, for the surfaces that need its shape
-/// (the next-run label) and not just the sentence.
+/// (the Automations row prints a schedule differently from an event) and not
+/// just the sentence.
 pub(crate) fn parsed_trigger(trigger: Option<&Value>) -> Option<ParsedTrigger> {
     trigger.and_then(parse_trigger)
-}
-
-/// A schedule's next local occurrence, formatted for the Automations list.
-/// `None` for event triggers (they have no next time) and for the malformed
-/// shapes the parser degrades.
-pub(crate) fn next_run_label(parsed: &ParsedTrigger) -> Option<String> {
-    let TriggerKind::Schedule(schedule) = &parsed.kind else {
-        return None;
-    };
-    let next = coding::automations::next_occurrence(schedule, chrono::Local::now())?;
-    Some(format!("{} (device time)", next.format("%b %-d, %H:%M")))
 }
 
 #[cfg(test)]

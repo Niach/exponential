@@ -160,8 +160,10 @@ export function triggerSummary(trigger: AutomationTrigger): string {
 
 /**
  * Next occurrence STRICTLY after `now`, computed in the BROWSER's timezone —
- * the schedule actually runs in the bound device's local time, so callers
- * label the result "(device time)".
+ * the schedule actually runs in the bound device's local time, which is why no
+ * surface prints this as an absolute date any more (EXP-812: the calendar moved
+ * it under every screenshot). The Automations row labels the RECURRENCE
+ * "(device time)" instead.
  */
 export function nextScheduleRun(
   trigger: AutomationScheduleTrigger,

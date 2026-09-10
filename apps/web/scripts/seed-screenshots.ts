@@ -46,6 +46,7 @@ import {
   issueStatuses,
   issueSubscribers,
   labels,
+  mcpServers,
   notifications,
   boards,
   repositories,
@@ -1272,10 +1273,19 @@ async function main() {
   // Helpdesk tickets for the support-inbox screenshot (server-only tRPC —
   // no Electric shape involved). A trailing inbound message marks the
   // thread unread; explicit updatedAt controls the list order.
+  // EXP-812: the reporter's OWN endpoints stamp `last_reporter_seen_at` on
+  // every read of the magic-link page, so capturing `support-reporter` used to
+  // add a "Last seen …" line to every LATER `support-thread` frame and push the
+  // right panel down ~29px. Seeding the stamp makes the line unconditional and
+  // deterministic (the capture run restores this value between views — see
+  // scripts/lib/demo-support-presence.ts); a `seenHoursAgo` well outside
+  // REPORTER_PRESENCE_WINDOW_MS keeps it on the "Last seen" branch rather than
+  // flipping to "Viewing now".
   const seedThreads: Array<{
     title: string
     reporterName: string
     reporterEmail: string
+    seenHoursAgo?: number
     messages: Array<{
       direction: `inbound` | `outbound`
       authorUserId?: string
@@ -1287,6 +1297,9 @@ async function main() {
       title: SUPPORT_REPORTER_THREAD_TITLE,
       reporterName: `Emma Fischer`,
       reporterEmail: `emma@lumenlabs.io`,
+      // The instant their last message landed — the one moment we know their
+      // tab was open.
+      seenHoursAgo: 1,
       messages: [
         {
           direction: `inbound`,
@@ -1377,6 +1390,8 @@ async function main() {
         status: `open`,
         reporterName: spec.reporterName,
         reporterEmail: spec.reporterEmail,
+        lastReporterSeenAt:
+          spec.seenHoursAgo === undefined ? null : hoursAgo(spec.seenHoursAgo),
         createdAt: hoursAgo(spec.messages[0].hoursAgo),
         updatedAt: hoursAgo(last.hoursAgo),
       })
@@ -1393,6 +1408,41 @@ async function main() {
       }))
     )
   }
+
+  // MCP servers (EXP-792) for the `settings-mcp-servers` view — without rows
+  // all three shots are the "No MCP servers yet." empty state, while the
+  // catalog blurb promises names, transport, the variable names a machine must
+  // supply and the per-device readiness strip (EXP-812). One of each transport,
+  // and both with an `auth` other than `none`, because the readiness strip only
+  // renders for a server that needs a credential. The readiness ROWS are
+  // device-reported and belong to the machine, so the relay stub writes them
+  // next to the device row it registers (scripts/screenshot-desktop.ts).
+  await db.insert(mcpServers).values([
+    {
+      teamId: ws.id,
+      name: `Sentry`,
+      transport: `http`,
+      url: `https://mcp.sentry.dev/mcp`,
+      headerNames: [`Authorization`],
+      auth: `oauth`,
+      enabledByDefault: true,
+      createdById: demoId,
+      createdAt: daysAgo(24),
+      updatedAt: daysAgo(24),
+    },
+    {
+      teamId: ws.id,
+      name: `Postgres (staging)`,
+      transport: `stdio`,
+      command: `npx`,
+      args: [`-y`, `@modelcontextprotocol/server-postgres`],
+      envNames: [`PGHOST`, `PGPASSWORD`],
+      auth: `secret`,
+      createdById: demoId,
+      createdAt: daysAgo(11),
+      updatedAt: daysAgo(11),
+    },
+  ])
 
   // Embeddable widget configs for the `settings-widget` view ("No widgets
   // yet." without them). One full config — both modes, a domain allowlist, two
@@ -1488,6 +1538,7 @@ Seeded screenshot demo data:
   actions     ${actionRows.length} saved team actions
   automations ${automationRows.length} (2 scheduled + 1 event, 1 disabled) + 2 automated runs
   storage     ${seedAttachments.length} attachments (1 unreferenced image to sweep)
+  mcp         2 team MCP servers (http + stdio; the desktop reports readiness)
   widgets     2 widget configs (feedback+support, support-only)
   api keys    2 personal keys
   support     ${seedThreads.length} helpdesk threads

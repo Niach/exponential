@@ -233,9 +233,11 @@ fun triggerSummary(trigger: AutomationTrigger): String = when (trigger) {
 /**
  * The next occurrence STRICTLY after [nowMs], as epoch millis in [zone].
  * This is the VIEWER's wall clock — the bound device fires on ITS OWN local
- * time, so callers must label the result "(device time)". Null only for a
- * malformed schedule (weekly without a valid weekday, monthly without a
- * valid day), which the tolerant parse already rejects.
+ * time, which is why no surface prints this as an absolute date any more
+ * (EXP-812: the calendar moved it under every screenshot). The Automations row
+ * labels the RECURRENCE "(device time)" instead. Null only for a malformed
+ * schedule (weekly without a valid weekday, monthly without a valid day),
+ * which the tolerant parse already rejects.
  */
 fun nextScheduleRun(
     schedule: AutomationTrigger.Schedule,

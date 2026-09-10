@@ -48,7 +48,6 @@ import com.exponential.app.data.db.AutomationEntity
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.domain.AutomationTrigger
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.nextScheduleRun
 import com.exponential.app.domain.triggerSummary
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.CircleIconButton
@@ -76,8 +75,6 @@ import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
-import java.text.DateFormat
-import java.util.Date
 
 // The Actions screen (EXP-253, view + run only — no manual edit on mobile):
 // the selected team's action prompts, each with a Run affordance that opens
@@ -603,10 +600,11 @@ private fun AutomationsContent(
 
 // One automation: the target action's glyph + name, the trigger sentence, the
 // bound machine (label + online dot off the synced devices rows; the raw id
-// when the row isn't visible to us), the agent pins, the next schedule run in
-// the VIEWER's timezone (hence "(device time)" — the machine fires on its own
-// clock), the last run it produced, the owner-only enabled toggle and a
-// Delete in the overflow.
+// when the row isn't visible to us), the agent pins, the last run it produced,
+// the owner-only enabled toggle and a Delete in the overflow. A schedule's
+// sentence carries "(device time)" because the machine fires on its own clock;
+// the row prints no absolute next-run date (EXP-812 — the calendar moved it
+// under every screenshot, and the recurrence says the same thing).
 @Composable
 private fun AutomationRow(
     automation: AutomationEntity,
@@ -652,7 +650,7 @@ private fun AutomationRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                trigger?.let(::triggerSummary) ?: "Unsupported trigger",
+                trigger?.let(::triggerCaption) ?: "Unsupported trigger",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
             )
@@ -687,15 +685,6 @@ private fun AutomationRow(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-            if (trigger is AutomationTrigger.Schedule && automation.enabled) {
-                nextScheduleRun(trigger)?.let { nextMs ->
-                    Text(
-                        "Next run ${formatRunTime(nextMs)} (device time)",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                     )
                 }
             }
@@ -805,8 +794,17 @@ private fun deviceDisplayLabel(device: SteerDevice?, deviceId: String): String {
     return if (owner.name.isBlank()) name else "$name — ${owner.name}"
 }
 
-private fun formatRunTime(epochMs: Long): String =
-    DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(epochMs))
+/**
+ * The trigger sentence as the row prints it. A schedule fires on the BOUND
+ * MACHINE's wall clock, so the recurrence carries the caveat the row used to
+ * hang off an absolute next-run date (EXP-812).
+ */
+private fun triggerCaption(trigger: AutomationTrigger): String =
+    if (trigger is AutomationTrigger.Schedule) {
+        "${triggerSummary(trigger)} (device time)"
+    } else {
+        triggerSummary(trigger)
+    }
 
 @Composable
 private fun AutomationsEmptyState(isOwner: Boolean, onNew: () -> Unit) {

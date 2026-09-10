@@ -4,13 +4,27 @@
 # project first). Requires the seeded local backend at http://localhost:5173
 # (apps/web `bun run seed:screenshots`); override the target instance with the
 # SNAPSHOT_INSTANCE_URL env var (read by ExponentialUITests/StoreScreenshots.swift).
+# Whatever you point it at, the URL must be the one the server's BETTER_AUTH_URL
+# names — better-auth rejects any other origin ("Invalid origin: …" in the dev
+# server log), the sign-in silently fails, and the run dies 120 seconds later on
+# "Issue list never synced (missing showcase issue APP-5)", which says nothing
+# about auth (EXP-821). In particular http://127.0.0.1:5173 is NOT a synonym for
+# http://localhost:5173 here.
 #
 # It ALSO requires live steering to be genuinely on — three of the eight shots
 # need it, and without it the issue detail reads "Live steering is unavailable on
-# this instance" (EXP-393). Bring up the relay (`docker compose --profile steer
-# up -d` at the repo root), export STEER_RELAY_URL=ws://localhost:4002 plus the
-# matching STEER_RELAY_SECRET for the web server, and leave `bun run
-# screenshots:desktop` (apps/web) running for the whole capture.
+# this instance" (EXP-393), or 04_steering fails with "The relay never replayed
+# the transcript". Bring up the relay (`docker compose --profile steer up -d` at
+# the repo root), export STEER_RELAY_URL=ws://localhost:4002 plus the matching
+# STEER_RELAY_SECRET for the web server, and leave `cd apps/web && bun run
+# screenshots:desktop` running for the whole capture — it is a live stand-in
+# desktop, not a one-shot seeder.
+#
+# STEER_RELAY_SECRET has to be in the RELAY's own environment too: a filtered
+# `bun --filter @exp/steer-relay start` does not inject the repo-root .env, and
+# without the secret the relay boots but answers 503 everywhere except /healthz.
+# `curl localhost:4002/healthz` should report one device and one room once the
+# stub is up.
 #
 # Captures land RAW in fastlane/screenshots-raw/. Afterwards run
 # `bun run screenshots:store` from the repo root BEFORE `sync_store`: the

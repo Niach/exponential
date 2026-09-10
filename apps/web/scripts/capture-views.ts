@@ -35,6 +35,7 @@ import {
 import { launchContext, login, settle, shot, waitForAnchor } from "./lib/capture-web"
 import { RECIPES, recipeContext, type RecipeCtx } from "./lib/view-recipes"
 import type { NotificationReadState } from "./lib/demo-notifications"
+import type { ReporterPresenceState } from "./lib/demo-support-presence"
 import {
   DEMO_EMAIL,
   DEMO_INVITE_TOKEN,
@@ -271,6 +272,29 @@ async function resolveNotificationBaseline(): Promise<
   }
 }
 
+/**
+ * The same trade for the seeded reporter-presence stamp (EXP-812 — see
+ * `lib/demo-support-presence.ts`): capturing `support-reporter` stamps it to
+ * "now", which moves the right panel of every LATER `support-thread` frame.
+ */
+async function resolveReporterPresenceBaseline(): Promise<
+  { restore: () => Promise<void> } | undefined
+> {
+  try {
+    const { snapshotReporterPresence, restoreReporterPresence } = await import(
+      `./lib/demo-support-presence`
+    )
+    const snapshot: readonly ReporterPresenceState[] = await snapshotReporterPresence()
+    if (snapshot.length === 0) return undefined
+    return { restore: () => restoreReporterPresence(snapshot) }
+  } catch (err) {
+    console.warn(
+      `  not pinning the reporter presence: ${err instanceof Error ? err.message : String(err)}`
+    )
+    return undefined
+  }
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2))
   const ctx = recipeContext(args.baseUrl)
@@ -292,6 +316,7 @@ async function main() {
   // Before the first view, so the baseline is the SEEDED state and not
   // whatever the first few captures already cleared.
   const notificationBaseline = await resolveNotificationBaseline()
+  const reporterPresenceBaseline = await resolveReporterPresenceBaseline()
 
   const browser = await chromium.launch()
   const results: Result[] = []
@@ -330,6 +355,7 @@ async function main() {
           // Electric to deliver it, so the badge is stable by the time the
           // shutter opens.
           await notificationBaseline?.restore()
+          await reporterPresenceBaseline?.restore()
 
           if (capture.route.includes(DB_PLACEHOLDER) && !supportToken) {
             // Skipped, not failed: without the token the route 404s and the shot
@@ -384,6 +410,10 @@ async function main() {
     }
   } finally {
     await browser.close()
+    // Once more at the end of the LANE: `support-reporter` is a browser-only
+    // view, and the desktop and native lanes photograph `support-thread` after
+    // this process has exited (EXP-812).
+    await reporterPresenceBaseline?.restore()
   }
 
   if (results.length === 0) {

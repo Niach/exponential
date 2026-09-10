@@ -31,13 +31,29 @@ Regenerate the Tuist project and build a signed App Store archive (.ipa).
 
 Regenerate the Tuist project and capture App Store screenshots (snapshot).
 
-Needs the seeded local backend (apps/web/scripts/seed-screenshots.ts) at
+Needs the seeded local backend (apps/web `bun run seed:screenshots`) at
 
-http://localhost:5173 — override with SNAPSHOT_INSTANCE_URL. Captures land RAW
+http://localhost:5173 — override with SNAPSHOT_INSTANCE_URL, but it MUST match
 
-in fastlane/screenshots-raw/; follow up with `bun run screenshots:store` (repo
+the server's BETTER_AUTH_URL: better-auth rejects any other origin and the run
 
-root) to composite them into fastlane/screenshots/ before sync_store — EXP-580.
+then dies 120s later on the misleading "Issue list never synced".
+
+It ALSO needs live steering: 04_steering fails with "The relay never
+
+replayed the transcript" without `docker compose --profile steer up -d`
+
+(repo root) AND `cd apps/web && bun run screenshots:desktop` LEFT RUNNING
+
+for the whole capture — it is a live stand-in desktop, not a one-shot
+
+seeder. Check with `curl localhost:4002/healthz`: one device, one room.
+
+Captures land RAW in fastlane/screenshots-raw/; follow up with
+
+`bun run screenshots:store` (repo root) to composite them into
+
+fastlane/screenshots/ before sync_store — EXP-580.
 
 `shots:01_board,02_issue-detail` narrows the run to those shot ids (EXP-642).
 
@@ -49,13 +65,15 @@ root) to composite them into fastlane/screenshots/ before sync_store — EXP-580
 
 Regenerate the Tuist project and capture the STYLEGUIDE screenshots (EXP-566):
 
-the 24 cross-platform `sg_*` surface shots from
+the 27 cross-platform `sg_*` surface shots from
 
 ExponentialUITests/StyleguideScreenshots.swift, iPhone only, into
 
 fastlane/screenshots-styleguide/. Same seeded backend as `screenshots` and no
 
-steer relay, but it DOES need `bun run screenshots:desktop` since EXP-642:
+steer TRAFFIC, but it DOES need `cd apps/web && bun run screenshots:desktop`
+
+since EXP-642:
 
 sg_machine-settings and the two sg_start-coding-* shots photograph the demo
 
@@ -132,6 +150,16 @@ rejected as a duplicate).
 Upload listing metadata + screenshots to App Store Connect WITHOUT building.
 
 Metadata lives in fastlane/metadata/, screenshots in fastlane/screenshots/.
+
+VERIFY THE PER-SET COUNT AFTERWARDS (EXP-821): deliver's verification pass can
+
+race Apple's processing, decide shots are missing and re-upload them, leaving
+
+duplicates in the set. overwrite_screenshots does not prevent it — the retry
+
+runs after the delete — so its "Successfully uploaded all screenshots" line
+
+is not proof. Delete duplicates via the API before submitting.
 
 ### ios sync_metadata
 

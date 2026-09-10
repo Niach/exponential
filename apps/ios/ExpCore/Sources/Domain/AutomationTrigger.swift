@@ -408,9 +408,11 @@ public enum AutomationTriggerDisplay {
 
     /// The next occurrence STRICTLY AFTER `after`, computed in the given
     /// calendar's timezone. This is the DEVICE-VIEWER's local wall clock —
-    /// the bound device fires on ITS OWN local time, so callers must label
-    /// the result "(device time)". Nil for event triggers has no meaning
-    /// here; pass a schedule.
+    /// the bound device fires on ITS OWN local time, which is why no surface
+    /// prints this as an absolute date any more (EXP-812: the calendar moved
+    /// it under every screenshot). The Automations row labels the RECURRENCE
+    /// "(device time)" instead. Nil for event triggers has no meaning here;
+    /// pass a schedule.
     public static func nextScheduleRun(
         _ schedule: AutomationScheduleTrigger,
         after: Date,

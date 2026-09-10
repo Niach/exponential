@@ -2,11 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { Ellipsis, LoaderCircle, Pencil, Trash2 } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
-import {
-  nextScheduleRun,
-  parseAutomationTrigger,
-  triggerSummary,
-} from "@/lib/action-triggers"
+import { parseAutomationTrigger, triggerSummary } from "@/lib/action-triggers"
 import {
   deviceIsOnline,
   type SteerDevice,
@@ -70,16 +66,6 @@ function sessionStatusLabel(status: string): string {
   return SESSION_STATUS_LABELS[status] ?? status
 }
 
-function formatNextRun(date: Date): string {
-  return date.toLocaleString(undefined, {
-    weekday: `short`,
-    month: `short`,
-    day: `numeric`,
-    hour: `2-digit`,
-    minute: `2-digit`,
-  })
-}
-
 // Owner-only ⋯ menu on a row.
 function AutomationMenu({
   name,
@@ -139,8 +125,6 @@ function AutomationRow({
   // private machine bound here has no row for the viewer, so the raw steer
   // id is the honest fallback label.
   const device = devices.find((d) => d.deviceId === automation.deviceId)
-  const next =
-    trigger?.kind === `schedule` ? nextScheduleRun(trigger, new Date()) : null
   // An automated run has nobody to type required inputs, so the server refuses
   // to ENABLE such a row — but one that is already on must stay switchable OFF.
   const blockedByInputs = (action?.inputs ?? []).some((def) => def.required)
@@ -178,8 +162,15 @@ function AutomationRow({
           </span>
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+          {/* A schedule runs on the BOUND MACHINE's wall clock, so the
+              recurrence carries the caveat the row used to hang off an
+              absolute next-run date (EXP-812). */}
           <span className="truncate">
-            {trigger ? triggerSummary(trigger) : `Unsupported trigger`}
+            {trigger
+              ? trigger.kind === `schedule`
+                ? `${triggerSummary(trigger)} (device time)`
+                : triggerSummary(trigger)
+              : `Unsupported trigger`}
           </span>
           <span className="flex items-center gap-1">
             <span
@@ -195,14 +186,9 @@ function AutomationRow({
             </span>
           </span>
           {launch && <span className="truncate">{launch}</span>}
-          {/* `min-w-0` lets these wrap INSIDE themselves — a flex item's
-              auto min-width would otherwise keep the whole "Next … (device
-              time)" caption at max-content and push it past the row. */}
-          {next && (
-            <span className="min-w-0">
-              {`Next ${formatNextRun(next)} (device time)`}
-            </span>
-          )}
+          {/* `min-w-0` lets this wrap INSIDE itself — a flex item's auto
+              min-width would otherwise keep the whole caption at max-content
+              and push it past the row. */}
           {lastRun && (
             <span className="min-w-0">
               {`Last run ${sessionStatusLabel(lastRun.status)} · ${relativeTime(lastRun.createdAt)}`}

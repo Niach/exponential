@@ -96,6 +96,11 @@ class StoreScreenshotsTest {
     @Before
     fun setUp() {
         ScreenshotFlow.useUiAutomatorScreenshots()
+        // EXP-812: the server mints the relay dial URL from its own
+        // STEER_RELAY_URL. A capture host keeps that on ws://localhost:4002 —
+        // which the browser lanes need and the emulator cannot reach — so the
+        // 4_steering shot dials the host alias instead.
+        ScreenshotFlow.applySteerRelayOverride()
     }
 
     /**
@@ -149,8 +154,8 @@ class StoreScreenshotsTest {
         // An EMPTY feed still renders the container (a relay the emulator can't
         // reach leaves the view "Reconnecting…" with nothing in it), so the tag
         // alone would happily photograph a blank screen. Gate on real content:
-        // from the emulator the relay has to be ws://10.0.2.2:4002, not
-        // localhost — see the Screengrabfile prereqs.
+        // the dial goes to ws://10.0.2.2:4002 via the setUp override, whatever
+        // the server minted (EXP-812) — see the Screengrabfile prereqs.
         flow.waitFor(hasText(FEED_QUESTION_FRAGMENT, substring = true), SYNC_TIMEOUT)
         flow.settle(longer = true)
         flow.screenshot("4_steering", popRects = true)

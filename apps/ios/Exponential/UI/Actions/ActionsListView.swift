@@ -486,12 +486,24 @@ struct ActionsListView: View {
         }
     }
 
+    /// The trigger sentence as the row prints it. A schedule fires on the
+    /// BOUND MACHINE's wall clock, so the recurrence carries the caveat the
+    /// row used to hang off an absolute next-run date (EXP-812).
+    private func triggerCaption(_ trigger: AutomationTrigger) -> String {
+        if case .schedule = trigger {
+            return "\(AutomationTriggerDisplay.summary(trigger)) (device time)"
+        }
+        return AutomationTriggerDisplay.summary(trigger)
+    }
+
     /// One automation: the target action's glyph + name, the trigger
     /// sentence, the bound machine (label + online dot off the synced devices
     /// rows; raw id when the row isn't visible to us), the pinned agent/model
-    /// when it overrides the machine's defaults, the next schedule run in the
-    /// VIEWER's timezone (hence "(device time)" — the machine fires on its
-    /// own clock), the last run, and the owner-only enabled toggle.
+    /// when it overrides the machine's defaults, the last run, and the
+    /// owner-only enabled toggle. A schedule's sentence carries "(device
+    /// time)" because the machine fires on its own clock; the row prints no
+    /// absolute next-run date (EXP-812 — the calendar moved it under every
+    /// screenshot, and the recurrence says the same thing).
     private func automationRow(_ automation: AutomationDto, vm: ActionsViewModel) -> some View {
         let action = vm.actions.first { $0.id == automation.actionId }
         let trigger = automation.parsedTrigger
@@ -513,7 +525,7 @@ struct ActionsListView: View {
                         .foregroundStyle(.white)
                         .lineLimit(1)
                     if let trigger {
-                        Text(AutomationTriggerDisplay.summary(trigger))
+                        Text(triggerCaption(trigger))
                             .font(.caption)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     }
@@ -533,12 +545,6 @@ struct ActionsListView: View {
                             .font(.caption2)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                             .lineLimit(1)
-                    }
-                    if case let .schedule(schedule)? = trigger, automation.enabled,
-                       let next = AutomationTriggerDisplay.nextScheduleRun(schedule, after: Date()) {
-                        Text("Next run \(next.formatted(date: .abbreviated, time: .shortened)) (device time)")
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     }
                     if let last = vm.lastRunByAutomation[automation.id] {
                         let time = relativeDate(last.startedAt)

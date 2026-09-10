@@ -5,18 +5,18 @@
 # additionally pins the three settings that differ, so the run is correct even
 # if that selection ever stops working.
 #
-# Captures the 25 `sg_*` shots from ExponentialUITests/StyleguideScreenshots.swift
-# (`sg_sign-in` … `sg_onboarding`)
-# — the cross-platform surface set a design review compares against the web,
-# desktop and Android captures of the same screens. The names are a contract;
-# see the doc comment on that suite.
+# Captures the 27 `sg_*` shots from ExponentialUITests/StyleguideScreenshots.swift
+# (`sg_sign-in` … `sg_onboarding-devices`) — the cross-platform surface set a
+# design review compares against the web, desktop and Android captures of the
+# same screens. The names are a contract; see the doc comment on that suite.
 #
 # Requires the seeded local backend at http://localhost:5173 (apps/web
-# `bun run seed:screenshots`); override with SNAPSHOT_INSTANCE_URL. Unlike the
-# store lane it needs no steer TRAFFIC, but since EXP-642 it does need the relay
-# stub running — `bun run screenshots:desktop` (apps/web) registers the demo
-# user's OWN device row, which is what sg_machine-settings (gated `isMine &&
-# registered`) and the two sg_start-coding-* shots photograph.
+# `bun run seed:screenshots`); override with SNAPSHOT_INSTANCE_URL, which must
+# match the server's BETTER_AUTH_URL (see ./Snapfile). Unlike the store lane it
+# needs no steer TRAFFIC, but since EXP-642 it does need the relay stub running
+# — `cd apps/web && bun run screenshots:desktop` registers the demo user's OWN
+# device row, which is what sg_machine-settings (gated `isMine && registered`)
+# and the two sg_start-coding-* shots photograph.
 #
 # `bundle exec fastlane styleguide_screenshots shots:sg_reviews,sg_search`
 # narrows a run to those ids (EXP-642); the navigation still runs in full.

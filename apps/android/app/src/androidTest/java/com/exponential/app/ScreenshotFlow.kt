@@ -12,6 +12,8 @@ import androidx.compose.ui.test.performTextInput
 import androidx.test.espresso.Espresso
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
+import com.exponential.app.data.steer.SteerTestHooks
+import java.net.URI
 import tools.fastlane.screengrab.Screengrab
 import tools.fastlane.screengrab.UiAutomatorScreenshotStrategy
 
@@ -35,6 +37,10 @@ class ScreenshotFlow(private val composeRule: ComposeTestRule) {
 
     companion object {
         const val DEFAULT_INSTANCE_URL = "http://10.0.2.2:5173"
+
+        /** The host loopback alias, from inside the emulator (EXP-812). */
+        const val DEFAULT_STEER_RELAY_URL = "ws://10.0.2.2:4002"
+
         const val DEMO_EMAIL = "demo@exponential.at"
         const val DEMO_PASSWORD = "screenshots-demo"
 
@@ -80,6 +86,29 @@ class ScreenshotFlow(private val composeRule: ComposeTestRule) {
          */
         fun instanceUrl(): String =
             InstrumentationRegistry.getArguments().getString("instanceUrl") ?: DEFAULT_INSTANCE_URL
+
+        /**
+         * Relay authority the emulator dials (EXP-812). The server mints the
+         * dial URL from its own STEER_RELAY_URL — `ws://localhost:4002` on a
+         * capture host, which inside the emulator is the emulator — so the
+         * suite rewrites the authority to the host alias. `steerRelayUrl` is
+         * passed through by the fastlane lanes from SCREENGRAB_STEER_RELAY_URL.
+         */
+        fun steerRelayUrl(): String =
+            InstrumentationRegistry.getArguments().getString("steerRelayUrl")
+                ?: DEFAULT_STEER_RELAY_URL
+
+        /**
+         * Applied ONLY against a host-local backend: a run pointed at a real
+         * instance (cloud or a LAN server) must dial the relay that instance
+         * actually minted, untouched.
+         */
+        fun applySteerRelayOverride() {
+            val host = runCatching { URI(instanceUrl()).host }.getOrNull()
+            if (host == "10.0.2.2" || host == "localhost" || host == "127.0.0.1") {
+                SteerTestHooks.relayAuthority = steerRelayUrl()
+            }
+        }
 
         /**
          * Pre-grant POST_NOTIFICATIONS (SDK 33+) so MainActivity's permission
