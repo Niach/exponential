@@ -131,7 +131,7 @@ class StyleguideScreenshotsTest {
         // APP-3 and APP-6, the same pair the web `chat-issues` recipe seeds
         // (apps/web/scripts/lib/demo-ids.ts), neither with a running session.
         private const val CHAT_FIRST_ISSUE_TITLE = "Dark mode contrast pass across settings"
-        private const val CHAT_SECOND_ISSUE_TITLE = "Onboarding checklist for new members"
+        private const val CHAT_SECOND_ISSUE_TITLE = "Push notification deep links open the wrong tab"
         // The builtin the sg_chat-action shot picks (EXP-259).
         private const val FIX_CONFLICTS_ACTION_NAME = "Fix merge conflicts"
 
@@ -373,6 +373,9 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasTestTag("agent-composer"), NAV_TIMEOUT)
         // The submit label proves the composer resolved its subject (a chat).
         flow.waitFor(hasText("Start chat"), NAV_TIMEOUT)
+        // The machine pool resolves after the page; the options pills are
+        // the demo machine's, so the shot must not precede them.
+        flow.waitForGone(hasText("No desktop online", substring = true), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_chat")
 

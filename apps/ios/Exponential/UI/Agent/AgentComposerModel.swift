@@ -435,7 +435,9 @@ final class AgentComposerModel {
     /// missing is the message itself (the disabled button says that).
     var blocker: String? {
         guard teamId != nil else { return "Pick a team first." }
-        guard device != nil else { return noDeviceNote }
+        // The pool is still resolving (the devices shape's first snapshot):
+        // no verdict yet, so no "no desktop" note either.
+        guard device != nil else { return sessions.devices == nil ? nil : noDeviceNote }
         if let note = LaunchVocabulary.notReadyNote(device: device, agent: launch.agent) {
             return note
         }

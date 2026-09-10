@@ -246,6 +246,9 @@ fun AgentScreen(
     }
     val blocker: String? = when {
         teamId == null -> "Pick a team first."
+        // The pool is still resolving (steer config / the devices shape's
+        // first snapshot): no verdict yet, so no "no desktop" note either.
+        device == null && candidateDevices == null -> null
         device == null -> if (signedOut.isNotEmpty()) {
             "${signedOut.joinToString(", ")} not signed in on your machines. Sign in on the machine first."
         } else {

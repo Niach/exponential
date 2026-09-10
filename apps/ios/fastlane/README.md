@@ -65,7 +65,7 @@ fastlane/screenshots/ before sync_store — EXP-580.
 
 Regenerate the Tuist project and capture the STYLEGUIDE screenshots (EXP-566):
 
-the 27 cross-platform `sg_*` surface shots from
+the 28 cross-platform `sg_*` surface shots from
 
 ExponentialUITests/StyleguideScreenshots.swift, iPhone only, into
 
@@ -75,7 +75,7 @@ steer TRAFFIC, but it DOES need `cd apps/web && bun run screenshots:desktop`
 
 since EXP-642:
 
-sg_machine-settings and the two sg_start-coding-* shots photograph the demo
+sg_machine-settings and the three sg_chat* shots photograph the demo
 
 user's own registered device row. Never uploaded to ASC.
 

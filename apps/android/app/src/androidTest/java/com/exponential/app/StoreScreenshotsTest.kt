@@ -175,6 +175,9 @@ class StoreScreenshotsTest {
         flow.waitFor(hasTestTag("agent-composer"), NAV_TIMEOUT)
         // The chip proves the seed landed, not just the page.
         flow.waitFor(hasTestTag("agent-composer-chip-issue-APP-3"), SYNC_TIMEOUT)
+        // The machine pool resolves after the page (steer config + the devices
+        // shape); a shot before that reads "No desktop online".
+        flow.waitForGone(hasText("No desktop online", substring = true), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("3_start-coding", popRects = true)
         // A pushed detail: back pops to the issue, then Back to the board.
