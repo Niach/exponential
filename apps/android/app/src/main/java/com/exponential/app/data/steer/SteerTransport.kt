@@ -1,5 +1,6 @@
 package com.exponential.app.data.steer
 
+import com.exponential.app.BuildConfig
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerTicketResult
 import com.exponential.app.data.auth.AuthRepository
@@ -61,8 +62,16 @@ internal class KtorSteerTransport(
         return steerApi.mintViewerTicket(accountId, codingSessionId)
     }
 
-    override suspend fun open(url: String): SteerSocket =
-        KtorSteerSocket(client.webSocketSession(urlString = url))
+    override suspend fun open(url: String): SteerSocket {
+        // The server minted this URL from ITS OWN STEER_RELAY_URL, which an
+        // emulator cannot always reach — the screenshot suite rewrites the
+        // authority here and nowhere else (EXP-812, capture-only and debug-only).
+        val dial = SteerTestHooks.relayAuthority
+            ?.takeIf { BuildConfig.DEBUG }
+            ?.let { withRelayAuthority(url, it) }
+            ?: url
+        return KtorSteerSocket(client.webSocketSession(urlString = dial))
+    }
 }
 
 private class KtorSteerSocket(private val session: DefaultClientWebSocketSession) : SteerSocket {

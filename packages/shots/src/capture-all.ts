@@ -194,8 +194,8 @@ async function resolveScope(
 }
 
 /**
- * Drop `sign-in` from the browser and desktop lanes when this instance is not
- * advertising the OIDC buttons the shot is about (EXP-642).
+ * Drop `sign-in` from the browser and desktop lanes when this instance would
+ * render a different card from the one the shot is about (EXP-642, EXP-812).
  *
  * The catalog's `sign-in` view is the CLOUD card: Google and Apple above the
  * email/password form, because that is what a new user actually meets. Those
@@ -203,17 +203,29 @@ async function resolveScope(
  * credentials renders a bare password box — a perfectly valid screen, and the
  * wrong one to commit under that name.
  *
+ * The same payload answers the second question (EXP-812): whether the instance
+ * advertises public SIGNUP. It does under `bun dev` and not in a production
+ * build, which adds a "Create one" line and moves the card ~26px — a diff big
+ * enough to be written on every run and reverted on every run.
+ *
  * SOFT on purpose: the whole run is worth having without this one view, and a
  * capture host that cannot reach `/api/auth-config` (it is checked properly in
  * preflight a moment later) should not lose the view over it either. The native
- * lanes keep their `sg_sign-in` shot — the simulators talk to the cloud
- * instance, not to this one.
+ * lanes keep their `sg_sign-in` shot: since EXP-642 that name is the CLOUD
+ * CHOOSER a first-run user meets, photographed before any instance is picked,
+ * so this instance's posture cannot reach it.
  */
 async function gateSignIn(scope: Scope): Promise<void> {
   const lanes: Platform[] = [`web`, `web-mobile`, `desktop`]
   if (!lanes.some((platform) => scope.get(platform)?.has(`sign-in`))) return
 
-  let config: { googleLoginEnabled?: boolean; appleLoginEnabled?: boolean } | undefined
+  let config:
+    | {
+        googleLoginEnabled?: boolean
+        appleLoginEnabled?: boolean
+        signupEnabled?: boolean
+      }
+    | undefined
   try {
     const response = await fetch(`${PROXY_URL}/api/auth-config`, {
       signal: AbortSignal.timeout(8_000),
@@ -224,20 +236,41 @@ async function gateSignIn(scope: Scope): Promise<void> {
     /* unreachable — preflight reports it; keep the view in scope */
   }
   if (!config) return
-  if (config.googleLoginEnabled && config.appleLoginEnabled) return
 
-  for (const platform of lanes) scope.get(platform)?.delete(`sign-in`)
-  console.log(
-    [
-      ``,
-      `── sign-in skipped ───────────────────────────────────────`,
+  const drop = (reason: readonly string[]): void => {
+    for (const platform of lanes) scope.get(platform)?.delete(`sign-in`)
+    console.log(
+      [``, `── sign-in skipped ───────────────────────────────────────`, ...reason].join(`\n`)
+    )
+  }
+
+  if (!config.googleLoginEnabled || !config.appleLoginEnabled) {
+    drop([
       `  This instance advertises no Google/Apple sign-in, so the shot would be a bare`,
       `  password box rather than the cloud card the catalog describes. Export these`,
       `  (placeholder values are fine — nothing signs in through them) and re-run:`,
       `    GOOGLE_CLIENT_ID=… GOOGLE_CLIENT_SECRET=… GOOGLE_LOGIN_ENABLED=true`,
       `    APPLE_CLIENT_ID=… APPLE_CLIENT_SECRET=… APPLE_LOGIN_ENABLED=true`,
-    ].join(`\n`)
-  )
+    ])
+    return
+  }
+
+  // EXP-812: public signup is BUILD-derived (`lib/production-build.ts`), so the
+  // dev server renders an extra "Don't have an account? Create one" line and
+  // shifts the whole card up ~26px — 2.2% of sign-in/web and 6.6% of
+  // sign-in/web-mobile, written every run and reverted every run. Gate on the
+  // ADVERTISED flag rather than on dev-vs-built: a dev server with
+  // AUTH_SIGNUP_ENABLED=false renders exactly the card the store holds.
+  if (config.signupEnabled) {
+    drop([
+      `  This instance advertises public signup, so the card carries a "Create one" link`,
+      `  the committed shot does not have. That is what a DEV server renders — auth`,
+      `  posture is derived from the BUILD, not from NODE_ENV. Serve the built app:`,
+      `    cd apps/web && bun run build`,
+      `    PORT=5173 bun --env-file=.env .output/server/index.mjs`,
+      `  (or set AUTH_SIGNUP_ENABLED=false on the server you are already running).`,
+    ])
+  }
 }
 
 /**
@@ -738,25 +771,23 @@ async function captureFastlane(
  * is exactly the condition the steering shots need. A capture that starts early
  * photographs "Reconnecting…".
  */
-async function startRelayStub(options: Options): Promise<Child | undefined> {
+async function startRelayStub(): Promise<Child | undefined> {
   const secret = process.env.STEER_RELAY_SECRET ?? readEnvFile().STEER_RELAY_SECRET
   if (!secret) {
     throw new Error(
       `STEER_RELAY_SECRET is not set (checked the environment and the repo-root .env) — it must match the relay's. Use --skip-relay to run without steering-dependent views.`
     )
   }
-  // The Android emulator resolves neither `localhost` (that is the emulator) nor
-  // `10.0.2.2` (which means nothing to the SERVER, and the server calls this URL
-  // too for device presence). Only the host's LAN address works on both sides.
-  let relayUrl = `ws://localhost:4002`
-  if (options.platforms.includes(`android`)) {
-    const ip = await run({ cmd: [`ipconfig`, `getifaddr`, `en0`], timeoutMs: 10_000 })
-    const address = ip.stdout.trim()
-    if (!address) {
-      throw new Error(`android is in scope but \`ipconfig getifaddr en0\` found no LAN address`)
-    }
-    relayUrl = `ws://${address}:4002`
-  }
+  // Always localhost, on every lane (EXP-812). This URL is what the STUB dials
+  // and what the web server advertises, and both live on this host; the ANDROID
+  // emulator is the one client that cannot resolve it, so its suite rewrites the
+  // authority of the minted dial URL to `10.0.2.2` on the device side instead
+  // (SteerTestHooks + the `steerRelayUrl` launch argument). Pushing a LAN IP
+  // through here was the old fix and it cost more than it bought: Chromium
+  // blocks `ws://192.168.x.x` from the https capture page as mixed content, so
+  // the browser and desktop lanes lost their steering shots and android had to
+  // run in a pass of its own.
+  const relayUrl = `ws://localhost:4002`
 
   console.log(`\n── steer relay stub (${relayUrl}) ─────────────────────`)
   const child = track(
@@ -1150,7 +1181,7 @@ async function main(): Promise<number> {
       // seed, and `screenshots:ids` can only report a row that already exists. Ask
       // first and `$device` is unresolvable on every freshly-seeded run — which
       // silently skipped `machine-settings` (the Device settings dialog) forever.
-      if (relayNeeded) relay = await startRelayStub(options)
+      if (relayNeeded) relay = await startRelayStub()
 
       ids = await fetchDemoIds()
       console.log(

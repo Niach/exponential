@@ -96,6 +96,16 @@ which is also how you find a rule that needs teaching (`IGNORED`, `BROAD`).
 
   Without them the run DROPS `sign-in` from the web/web-mobile/desktop lanes and
   says so, rather than committing a bare password box under that name.
+- The `sign-in` view also needs the BUILT server, not `bun dev` (EXP-812). Auth
+  posture is derived from the BUILD (`lib/production-build.ts`), so a dev server
+  advertises public signup and the card grows a "Don't have an account? Create
+  one" line that moves it ~26px — 2.2% of `sign-in/web` and 6.6% of
+  `sign-in/web-mobile`, written every run and reverted every run. The run checks
+  `signupEnabled` from `/api/auth-config` and drops the view with the build
+  command when it is on; `AUTH_SIGNUP_ENABLED=false` on the server you already
+  have satisfies it too. The native `sg_sign-in` shot is unaffected — since
+  EXP-642 that name is the cloud CHOOSER, photographed before any instance is
+  picked.
 - `GITHUB_TOKEN` for the `review-diff` view. Its diff is fetched live from
   GitHub, and the anonymous limit is 60 requests an hour for the whole machine —
   once the web lane has spent it the desktop lane photographs a 403. Any token
@@ -108,17 +118,22 @@ which is also how you find a rule that needs teaching (`IGNORED`, `BROAD`).
 - iOS: Xcode + the Snapfile's simulators (iPhone 17 Pro Max, iPad Pro 13-inch)
   and `bundle install` under `apps/ios`. Run lanes with `LC_ALL=en_US.UTF-8`.
 - Android: an English-locale phone emulator booted, exactly one device attached.
-  For the emulator the relay URL must be the host LAN IP — the orchestrator
-  resolves that itself via `ipconfig getifaddr en0`. The run also disables the
-  device's `autofill_service` for the duration and restores it afterwards
-  (EXP-665): Android's "Save password to Google Password Manager?" dialog is a
-  SYSTEM window that steals focus the moment the lane signs in, and Espresso's
-  next interaction then dies somewhere unrelated to the cause. It puts SystemUI
-  into demo mode for the duration too, and leaves it afterwards: that pins the
-  status bar to 9:41 with a full battery and no notification icons, which is
-  what iOS has had from `override_status_bar` all along. Without it the device's
-  own clock is inside every android frame, and a lane run at a different hour
-  rewrites the whole platform for nothing.
+  The emulator cannot resolve the host's `localhost`, and the relay URL is
+  MINTED BY THE SERVER — so since EXP-812 the store suite rewrites the authority
+  of that dial URL to `ws://10.0.2.2:4002` on the device side (`SteerTestHooks`,
+  fed by the `steerRelayUrl` launch argument, capture-only and debug-only).
+  Nothing about the server changes for this lane: it keeps
+  `STEER_RELAY_URL=ws://localhost:4002` like every other lane, so all five run in
+  one pass. Override with `SCREENGRAB_STEER_RELAY_URL` for a relay elsewhere.
+  The run also disables the device's `autofill_service` for the duration and
+  restores it afterwards (EXP-665): Android's "Save password to Google Password
+  Manager?" dialog is a SYSTEM window that steals focus the moment the lane
+  signs in, and Espresso's next interaction then dies somewhere unrelated to the
+  cause. It puts SystemUI into demo mode for the duration too, and leaves it
+  afterwards: that pins the status bar to 9:41 with a full battery and no
+  notification icons, which is what iOS has had from `override_status_bar` all
+  along. Without it the device's own clock is inside every android frame, and a
+  lane run at a different hour rewrites the whole platform for nothing.
 - Desktop: for the repo-backed views (`files`, `source-control`, `terminal`,
   `start-coding`, `settings-worktrees`) the machine needs the demo board's
   repository actually cloned, plus `git` and a signed-in agent CLI on PATH —
@@ -322,12 +337,12 @@ review, not of the tooling.
   server is advertising a `ws://<LAN-IP>` relay while captures load the page
   over `https://localhost:3000`. Browsers treat that as mixed content and block
   the socket; `ws://localhost` is exempt because localhost counts as a
-  trustworthy origin. Set `STEER_RELAY_URL=ws://localhost:4002` for the browser
-  lanes — the LAN IP is only needed for the ANDROID emulator, and the
-  orchestrator substitutes it for that lane itself.
+  trustworthy origin. Set `STEER_RELAY_URL=ws://localhost:4002` and leave it
+  there — no lane wants anything else any more, the android emulator included
+  (EXP-812 moved that rewrite onto the device).
 - **Steering views show “Reconnecting…”** — the relay stub isn't running or its
   banner never appeared; check `STEER_RELAY_URL`/`SECRET` against the compose
-  relay, and remember the emulator needs the LAN-IP form.
+  relay.
 - **401s from capture login** — re-run `cd apps/web && bun run seed:screenshots`
   (it tears down and rebuilds the demo team; also confirm
   `BETTER_AUTH_TRUSTED_ORIGINS` includes `https://localhost:3000`).

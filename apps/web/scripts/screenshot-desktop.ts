@@ -35,7 +35,13 @@
  */
 import { and, eq, ne } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { codingSessions, devices, users } from "@/db/schema"
+import {
+  codingSessions,
+  devices,
+  mcpServerReadiness,
+  mcpServers,
+  users,
+} from "@/db/schema"
 import {
   getSteerRelayConfig,
   mintSteerTicket,
@@ -334,6 +340,47 @@ function hold(opts: {
   }
 }
 
+/**
+ * Report the demo machine's MCP readiness for the team's seeded servers — what
+ * a real desktop upserts from its secret store on every heartbeat (EXP-792).
+ * Keyed on the devices ROW id, so it only runs once the registration has.
+ */
+async function reportMcpReadiness(userId: string, teamId: string): Promise<void> {
+  const [device] = await db
+    .select({ id: devices.id })
+    .from(devices)
+    .where(and(eq(devices.userId, userId), eq(devices.deviceId, DEMO_DEVICE_ID)))
+    .limit(1)
+  if (!device) return
+  const servers = await db
+    .select({ id: mcpServers.id, name: mcpServers.name })
+    .from(mcpServers)
+    .where(eq(mcpServers.teamId, teamId))
+  const now = new Date()
+  for (const server of servers) {
+    // The first server is signed in; anything else still needs its secret, so
+    // the strip carries both states and its "Sign in" affordance.
+    const ready = server.name === `Sentry`
+    const values = {
+      ready,
+      // Deliberately NO expiry, which reads as a plain "Ready" (EXP-812). A
+      // real OAuth report carries the access token's expiry, but the pane
+      // prints it as a wall-clock time — so any value here would either move
+      // with the capture's clock or, pinned, eventually render "Expired".
+      expiresAt: null,
+      error: ready ? null : `No secret on this machine yet`,
+      checkedAt: now,
+    }
+    await db
+      .insert(mcpServerReadiness)
+      .values({ serverId: server.id, deviceRowId: device.id, userId, ...values })
+      .onConflictDoUpdate({
+        target: [mcpServerReadiness.serverId, mcpServerReadiness.deviceRowId],
+        set: values,
+      })
+  }
+}
+
 async function main() {
   const config = required(getSteerRelayConfig())
   const { userId, sessionId, teamId } = await resolveTarget()
@@ -436,6 +483,15 @@ Leave this running for the whole fastlane capture. Ctrl-C to stop.
       .catch((err) => console.error(`[device heartbeat]`, err))
   }
   await touchDevice()
+
+  // EXP-812: the team's MCP servers are seeded rows, but their READINESS is
+  // per device and reported by the machine itself — so the settings pane's
+  // readiness strip is this stub's job, exactly like the agent accounts above.
+  // One server signed in and one not, because the strip's whole point is
+  // showing which machine still has to sign in.
+  await reportMcpReadiness(userId, teamId).catch((err) =>
+    console.error(`[mcp readiness]`, err)
+  )
 
   const heartbeat = setInterval(() => {
     void touchDevice()

@@ -99,6 +99,12 @@ platform :android do
   # instrumentation argument; default is http://10.0.2.2:5173 (host loopback
   # from the emulator).
   #
+  # EXP-812: `steerRelayUrl` is the same trick for the relay. The server mints
+  # the whole dial URL from its own STEER_RELAY_URL, so on a capture host that
+  # keeps `ws://localhost:4002` (which the browser lanes require) the emulator
+  # would dial itself; the suite rewrites the authority to the host alias
+  # instead. Default ws://10.0.2.2:4002 — override for a relay elsewhere.
+  #
   # EXP-642: `fastlane screenshots shots:1_board,2_issue-detail` additionally
   # appends a `shots` argument that narrows the run to those shot ids — what the
   # "Refresh app screenshots" automation uses when a diff only touched a couple
@@ -108,6 +114,8 @@ platform :android do
     args = []
     url = ENV["SCREENGRAB_INSTANCE_URL"]
     args << "instanceUrl #{url}" if url
+    relay = ENV["SCREENGRAB_STEER_RELAY_URL"]
+    args << "steerRelayUrl #{relay}" if relay
     ids = options[:shots].to_s.split(/[,\s]+/).reject(&:empty?)
     unless ids.empty?
       UI.message("shots: capturing only #{ids.join(', ')}")

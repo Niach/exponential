@@ -95,7 +95,19 @@ impl AutomationsView {
         let parsed = crate::automation_editor::parsed_trigger(automation.trigger.as_ref());
         let summary = parsed
             .as_ref()
-            .map(coding::automations::trigger_summary)
+            .map(|parsed| {
+                let sentence = coding::automations::trigger_summary(parsed);
+                // A schedule fires on the BOUND MACHINE's wall clock, so the
+                // recurrence carries the caveat the row used to hang off an
+                // absolute next-run date (EXP-812: the calendar moved that
+                // date under every screenshot, and the recurrence says the
+                // same thing).
+                if matches!(parsed.kind, coding::automations::TriggerKind::Schedule(_)) {
+                    format!("{sentence} (device time)")
+                } else {
+                    sentence
+                }
+            })
             // A row whose trigger this build can't even parse still names
             // itself instead of rendering a blank line.
             .unwrap_or_else(|| "Unsupported trigger — update the app".to_string());
@@ -138,15 +150,6 @@ impl AutomationsView {
         // the machine's own launch defaults and there is nothing to say.
         if let Some(pins) = launch_pins_label(automation) {
             meta = meta.child(div().child("·")).child(SharedString::from(pins));
-        }
-        // Schedules can say when they fire next; event triggers cannot.
-        if let Some(next) = parsed
-            .as_ref()
-            .and_then(crate::automation_editor::next_run_label)
-        {
-            meta = meta
-                .child(div().child("·"))
-                .child(SharedString::from(format!("Next {next}")));
         }
         // The most recent run THIS automation started (a manual run of the
         // same action says nothing about whether the automation works).
