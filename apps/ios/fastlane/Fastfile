@@ -111,10 +111,18 @@ platform :ios do
   end
 
   desc "Regenerate the Tuist project and capture App Store screenshots (snapshot)."
-  desc "Needs the seeded local backend (apps/web/scripts/seed-screenshots.ts) at"
-  desc "http://localhost:5173 — override with SNAPSHOT_INSTANCE_URL. Captures land RAW"
-  desc "in fastlane/screenshots-raw/; follow up with `bun run screenshots:store` (repo"
-  desc "root) to composite them into fastlane/screenshots/ before sync_store — EXP-580."
+  desc "Needs the seeded local backend (apps/web `bun run seed:screenshots`) at"
+  desc "http://localhost:5173 — override with SNAPSHOT_INSTANCE_URL, but it MUST match"
+  desc "the server's BETTER_AUTH_URL: better-auth rejects any other origin and the run"
+  desc "then dies 120s later on the misleading \"Issue list never synced\"."
+  desc "It ALSO needs live steering: 04_steering fails with \"The relay never"
+  desc "replayed the transcript\" without `docker compose --profile steer up -d`"
+  desc "(repo root) AND `cd apps/web && bun run screenshots:desktop` LEFT RUNNING"
+  desc "for the whole capture — it is a live stand-in desktop, not a one-shot"
+  desc "seeder. Check with `curl localhost:4002/healthz`: one device, one room."
+  desc "Captures land RAW in fastlane/screenshots-raw/; follow up with"
+  desc "`bun run screenshots:store` (repo root) to composite them into"
+  desc "fastlane/screenshots/ before sync_store — EXP-580."
   desc "`shots:01_board,02_issue-detail` narrows the run to those shot ids (EXP-642)."
   lane :screenshots do |options|
     sh("cd .. && tuist generate --no-open")
@@ -131,10 +139,11 @@ platform :ios do
   end
 
   desc "Regenerate the Tuist project and capture the STYLEGUIDE screenshots (EXP-566):"
-  desc "the 24 cross-platform `sg_*` surface shots from"
+  desc "the 27 cross-platform `sg_*` surface shots from"
   desc "ExponentialUITests/StyleguideScreenshots.swift, iPhone only, into"
   desc "fastlane/screenshots-styleguide/. Same seeded backend as `screenshots` and no"
-  desc "steer relay, but it DOES need `bun run screenshots:desktop` since EXP-642:"
+  desc "steer TRAFFIC, but it DOES need `cd apps/web && bun run screenshots:desktop`"
+  desc "since EXP-642:"
   desc "sg_machine-settings and the two sg_start-coding-* shots photograph the demo"
   desc "user's own registered device row. Never uploaded to ASC."
   desc "`shots:sg_reviews,sg_search` narrows the run to those shot ids (EXP-642)."
@@ -261,6 +270,11 @@ platform :ios do
 
   desc "Upload listing metadata + screenshots to App Store Connect WITHOUT building."
   desc "Metadata lives in fastlane/metadata/, screenshots in fastlane/screenshots/."
+  desc "VERIFY THE PER-SET COUNT AFTERWARDS (EXP-821): deliver's verification pass can"
+  desc "race Apple's processing, decide shots are missing and re-upload them, leaving"
+  desc "duplicates in the set. overwrite_screenshots does not prevent it — the retry"
+  desc "runs after the delete — so its \"Successfully uploaded all screenshots\" line"
+  desc "is not proof. Delete duplicates via the API before submitting."
   lane :sync_store do
     materialize_review_demo_password
     deliver(
