@@ -127,6 +127,13 @@ impl RunningSession {
         self.session.is_done()
     }
 
+    /// FEED-36: whether the agent is between turns (nothing in flight, no
+    /// tool running) — the engine's own `TurnSignal`. A parked question
+    /// counts as idle too: the agent is waiting, not working.
+    pub fn is_idle(&self) -> bool {
+        self.session.turn_signal().is_idle()
+    }
+
     pub fn kill(&self) {
         self.session.kill("ended");
     }

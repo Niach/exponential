@@ -355,6 +355,63 @@ describe(`devices.requestUpdate + heartbeat`, () => {
       updateRequested: true,
     })
   })
+
+  // The plain click never probes the row — no select, no command.
+  it(`queues nothing without endSessions`, async () => {
+    await caller.requestUpdate({ deviceId: `dev-1` })
+    expect(h.state.inserted).toHaveLength(0)
+    expect(h.relayPostNudge).not.toHaveBeenCalled()
+  })
+
+  // FEED-36: "Update now" = the flag PLUS an `update_now` command the daemon
+  // runs by ending every live session and restarting on the new version.
+  it(`endSessions: true flags the row and enqueues update_now`, async () => {
+    h.state.selectQueue = [[{ id: `row-1`, caps: [`update-now`] }], []]
+    h.state.insertReturning = [[{ id: `cmd-up` }]]
+    expect(
+      await caller.requestUpdate({ deviceId: `dev-1`, endSessions: true })
+    ).toEqual({ ok: true })
+    expect(h.state.updates[0]?.set).toMatchObject({
+      updateRequestedAt: expect.any(Date),
+    })
+    expect(h.state.inserted[0]).toMatchObject({
+      deviceRowId: `row-1`,
+      userId: `actor`,
+      kind: `update_now`,
+      payload: {},
+    })
+    expect(h.relayPostNudge).toHaveBeenCalled()
+  })
+
+  it(`endSessions: true reuses a pending update_now instead of conflicting`, async () => {
+    h.state.selectQueue = [
+      [{ id: `row-1`, caps: [`update-now`] }],
+      [{ id: `cmd-pending` }],
+    ]
+    expect(
+      await caller.requestUpdate({ deviceId: `dev-1`, endSessions: true })
+    ).toEqual({ ok: true })
+    expect(h.state.inserted).toHaveLength(0)
+  })
+
+  it(`endSessions: true refuses a daemon without the update-now cap, before flagging`, async () => {
+    h.state.selectQueue = [[{ id: `row-1`, caps: [`agent-login`] }]]
+    await expect(
+      caller.requestUpdate({ deviceId: `dev-1`, endSessions: true })
+    ).rejects.toMatchObject({
+      code: `PRECONDITION_FAILED`,
+      message: `This machine's daemon doesn't support Update now yet`,
+    })
+    expect(h.state.updates).toHaveLength(0)
+    expect(h.state.inserted).toHaveLength(0)
+  })
+
+  it(`endSessions: true 404s a device the caller does not own`, async () => {
+    h.state.selectQueue = [[]]
+    await expect(
+      caller.requestUpdate({ deviceId: `dev-x`, endSessions: true })
+    ).rejects.toMatchObject({ code: `NOT_FOUND` })
+  })
 })
 
 describe(`devices.heartbeat`, () => {
@@ -842,6 +899,34 @@ describe(`devices.createCommand / completeCommand / getCommand`, () => {
     expect(h.state.inserted).toHaveLength(0)
   })
 
+  // FEED-36: `update_now` rides the same queue, gated on the daemon cap.
+  it(`queues update_now with an empty payload on a capable daemon`, async () => {
+    h.state.selectQueue = [[{ id: `row-1`, caps: [`update-now`] }], []]
+    h.state.insertReturning = [[{ id: `cmd-up` }]]
+    const result = await caller.createCommand({
+      deviceId: `dev-1`,
+      kind: `update_now`,
+    })
+    expect(result).toEqual({ id: `cmd-up` })
+    expect(h.state.inserted[0]).toMatchObject({
+      deviceRowId: `row-1`,
+      kind: `update_now`,
+      payload: {},
+    })
+    expect(h.relayPostNudge).toHaveBeenCalled()
+  })
+
+  it(`update_now refuses a daemon that does not advertise the cap`, async () => {
+    h.state.selectQueue = deviceProbe()
+    await expect(
+      caller.createCommand({ deviceId: `dev-1`, kind: `update_now` })
+    ).rejects.toMatchObject({
+      code: `PRECONDITION_FAILED`,
+      message: `This machine's daemon doesn't support Update now yet`,
+    })
+    expect(h.state.inserted).toHaveLength(0)
+  })
+
   it(`completeCommand transitions pending → done once; duplicates are tolerated`, async () => {
     h.state.updateReturning = [[{ id: `cmd-9` }], []]
     const first = await caller.completeCommand({
@@ -1312,13 +1397,24 @@ describe(`devices.register — EXP-792 caps`, () => {
     })
   })
 
-  it(`keeps the 16-cap ceiling`, async () => {
+  // FEED-36: the daemon advertises 16 caps today (10 build + 6 action), so
+  // the ceiling moved off the exact count to 24 — a new cap must not 400
+  // every register.
+  it(`accepts 16 caps and keeps the 24-cap ceiling`, async () => {
     await expect(
       caller.register({
         deviceId: `dev-1`,
         label: `MacBook`,
         kind: `desktop`,
-        caps: Array.from({ length: 17 }, (_, i) => `cap-${i}`),
+        caps: Array.from({ length: 16 }, (_, i) => `cap-${i}`),
+      })
+    ).resolves.toMatchObject({ ok: true })
+    await expect(
+      caller.register({
+        deviceId: `dev-1`,
+        label: `MacBook`,
+        kind: `desktop`,
+        caps: Array.from({ length: 25 }, (_, i) => `cap-${i}`),
       })
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
   })

@@ -8,19 +8,31 @@
 // Teammates' shared servers render read-only under "Team machines".
 import { useMemo, useState } from "react"
 import { LoaderCircle } from "lucide-react"
+import { inArray, useLiveQuery } from "@tanstack/react-db"
 import { conceptIcon } from "@/lib/icons.generated"
 import { relativeTime } from "@/components/comment-rows/format"
 import { trpc } from "@/lib/trpc-client"
 import {
+  describeUpdateBlockers,
   deviceCanAgentLogin,
+  deviceCanUpdateNow,
   deviceHasRunnableAgent,
   deviceIsMine,
   deviceIsOnline,
   deviceUnauthedAgentIds,
   deviceUpdateAvailable,
+  liveUpdateBlockers,
   showDeviceUpdateButton,
   type SteerDevice,
+  type UpdateBlockerSession,
 } from "@/lib/steer-devices"
+import {
+  codingSessionCollection,
+  issueCollection,
+  userCollection,
+} from "@/lib/collections"
+import type { CodingSession, Issue, User } from "@/db/schema"
+import { useNow } from "@/hooks/use-now"
 import { desktopDownloadHref } from "@/lib/desktop-download"
 import { DeviceSettingsDialog } from "@/components/device-settings-dialog"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
@@ -36,6 +48,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -61,6 +83,56 @@ const CopyIcon = conceptIcon(`ui-copy`)
 const CheckIcon = conceptIcon(`ui-check`)
 // EXP-792 (EXP-747): the cross-device usage page + the remote sign-in.
 const SignInIcon = conceptIcon(`ui-sign-in`)
+
+/** FEED-36: the tooltip on a queued Update button — the daemon's own rules
+ * for getting there (every session ends, or one sits idle for 2 hours). */
+export const QUEUED_UPDATE_TOOLTIP = `Live sessions hold this update — the machine restarts itself once every session ends or sits idle for 2 hours.`
+
+/** FEED-36: the caller's LIVE sessions per machine (`running`/`in_review`
+ * off the synced coding_sessions shape), with the issue identifier joined
+ * for the blocker line. One query for the whole list, not one per row. */
+function useUpdateBlockers(): (device: SteerDevice) => UpdateBlockerSession[] {
+  const { data: sessionRows } = useLiveQuery(
+    (q) =>
+      q
+        .from({ s: codingSessionCollection })
+        .where(({ s }) => inArray(s.status, [`running`, `in_review`])),
+    []
+  )
+  const sessions = (sessionRows ?? []) as CodingSession[]
+  const issueIds = useMemo(
+    () =>
+      [...new Set(sessions.map((s) => s.issueId).filter((id): id is string => !!id))].sort(),
+    [sessions]
+  )
+  const issueKey = issueIds.join(`,`)
+  const { data: issueRows } = useLiveQuery(
+    (q) =>
+      issueIds.length > 0
+        ? q
+            .from({ i: issueCollection })
+            .where(({ i }) => inArray(i.id, issueIds))
+        : undefined,
+    [issueKey]
+  )
+  const identifierById = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const issue of (issueRows ?? []) as Issue[]) {
+      map.set(issue.id, issue.identifier)
+    }
+    return map
+  }, [issueRows])
+  return (device) =>
+    sessions
+      .filter((s) => s.deviceId === device.deviceId)
+      .map((s) => ({
+        issueIdentifier: s.issueId ? (identifierById.get(s.issueId) ?? null) : null,
+        actionName: s.actionName,
+        userId: s.userId,
+        startedAt: s.startedAt,
+        updatedAt: s.updatedAt,
+      }))
+}
 
 /** EXP-747 A5: the agent a machine row's "Sign in" pill targets — the first
  * signed-out agent with a device-code flow (pi has none: local only). Null
@@ -167,8 +239,21 @@ export function MyMachines({
   const [addServerOpen, setAddServerOpen] = useState(false)
   const [settingsTargetId, setSettingsTargetId] = useState<string | null>(null)
   const [removeTarget, setRemoveTarget] = useState<SteerDevice | null>(null)
+  // FEED-36: the "Update now" confirmation — ends the machine's live sessions.
+  const [updateNowTarget, setUpdateNowTarget] = useState<SteerDevice | null>(null)
   const [busy, setBusy] = useState(false)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
+  const now = useNow()
+  const blockersFor = useUpdateBlockers()
+  const { data: userRows } = useLiveQuery(
+    (q) => q.from({ u: userCollection }),
+    []
+  )
+  const usersById = useMemo(() => {
+    const map = new Map<string, Pick<User, `name` | `email`>>()
+    for (const user of (userRows ?? []) as User[]) map.set(user.id, user)
+    return map
+  }, [userRows])
 
   const mine = devices?.filter(deviceIsMine) ?? null
   const teamShared = devices?.filter((device) => !deviceIsMine(device)) ?? []
@@ -208,6 +293,24 @@ export function MyMachines({
       setBusy(false)
     }
   }
+
+  const updateNow = async () => {
+    if (!updateNowTarget || busy) return
+    setBusy(true)
+    try {
+      await trpc.devices.requestUpdate.mutate({
+        deviceId: updateNowTarget.deviceId,
+        endSessions: true,
+      })
+      setUpdateNowTarget(null)
+      onChanged()
+    } finally {
+      setBusy(false)
+    }
+  }
+  const updateNowLiveCount = updateNowTarget
+    ? liveUpdateBlockers(blockersFor(updateNowTarget), now).length
+    : 0
 
   return (
     <div className="mb-6">
@@ -249,6 +352,14 @@ export function MyMachines({
             // EXP-747 A5: a signed-out agent gets a Sign in pill in the
             // trailing column, wired to the remote login dialog.
             const signInAgent = unauthed.length > 0 ? signInAgentFor(device) : null
+            // FEED-36: a queued update parked behind live sessions says
+            // WHICH ones, and a capable daemon offers to end them now.
+            const updateQueued = Boolean(
+              device.updateRequested && device.updateBlocked
+            )
+            const blockerLine = updateQueued
+              ? describeUpdateBlockers(blockersFor(device), usersById, now)
+              : null
             return (
               <ListRow
                 key={device.deviceId}
@@ -305,6 +416,14 @@ export function MyMachines({
                     unauthed={unauthed}
                     lastSeenAt={device.lastSeenAt}
                   />
+                  {blockerLine && (
+                    <div
+                      className="truncate text-xs text-amber-500"
+                      title={blockerLine}
+                    >
+                      {blockerLine}
+                    </div>
+                  )}
                 </div>
                 {/* EXP-698: the fixed trailing column — a play slot and a ⋯
                     slot, so the controls line up down the list. A row without
@@ -321,13 +440,13 @@ export function MyMachines({
                       className={outdated ? `text-amber-500` : `text-muted-foreground`}
                       disabled={device.updateRequested || updatingId === device.deviceId}
                       title={
-                        device.updateRequested && device.updateBlocked
-                          ? `A coding session is running — this machine updates itself once all sessions are closed.`
+                        updateQueued
+                          ? QUEUED_UPDATE_TOOLTIP
                           : `Ask the daemon to self-update (it restarts when idle)`
                       }
                       onClick={() => void requestUpdate(device)}
                     >
-                      {device.updateRequested && device.updateBlocked ? (
+                      {updateQueued ? (
                         // EXP-411: parked behind live sessions — say so instead
                         // of spinning until the last one closes.
                         <>
@@ -347,6 +466,16 @@ export function MyMachines({
                         </>
                       )}
                     </Button>
+                  )}
+                  {updateQueued && deviceCanUpdateNow(device) && (
+                    <Pill
+                      mode="action"
+                      onClick={() => setUpdateNowTarget(device)}
+                      title={`End this machine's live sessions and restart it on the new version now.`}
+                    >
+                      <UpdateIcon className="size-3" />
+                      Update now…
+                    </Pill>
                   )}
                   {signInAgent && (
                     <Pill
@@ -521,6 +650,44 @@ export function MyMachines({
           if (!open) setSettingsTargetId(null)
         }}
       />
+
+      {/* FEED-36: Update now — the daemon ends every live session on the
+          machine and restarts on the queued version; confirmed, since it
+          interrupts work (repo-backed runs resume from their session page). */}
+      <AlertDialog
+        open={updateNowTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !busy) setUpdateNowTarget(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {`Update ${updateNowTarget?.deviceLabel || updateNowTarget?.deviceId || `this machine`} now?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {updateNowLiveCount > 0
+                ? `Ends the ${updateNowLiveCount} live ${
+                    updateNowLiveCount === 1 ? `session` : `sessions`
+                  } on this machine (repo-backed runs can be resumed from their session page) and restarts it on the new version.`
+                : `Ends every live session on this machine (repo-backed runs can be resumed from their session page) and restarts it on the new version.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy}
+              onClick={(event) => {
+                event.preventDefault()
+                void updateNow()
+              }}
+            >
+              {busy && <LoaderCircle className="animate-spin" />}
+              Update now
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog
         open={removeTarget !== null}

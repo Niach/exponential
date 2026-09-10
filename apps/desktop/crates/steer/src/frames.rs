@@ -537,6 +537,19 @@ pub fn rate_limit_clears(status: &str) -> bool {
     status.is_empty() || status.eq_ignore_ascii_case("ok")
 }
 
+/// FEED-35: whether a `rate_limit` report is a WALL — the agent refused a
+/// call — as opposed to the informational report claude files on every turn
+/// past ~75% of a window (`allowed_warning`) while it keeps answering. The
+/// ONE rule for the viewer's banner (desktop `steer_viewer`, web
+/// `rateLimitIsWall`) and, since FEED-35, for the row's durable `blocked`
+/// (`engine::mapper::emit_rate_limit`): a warning must never read as a
+/// blocked run to a teammate's list or a parent agent. `rejected` is the
+/// CLI's own word for the refusal; a message is the synthetic "You've hit
+/// your…" notice, which only ever accompanies one.
+pub fn rate_limit_is_wall(status: &str, message: Option<&str>) -> bool {
+    status.trim() == "rejected" || message.is_some_and(|text| !text.trim().is_empty())
+}
+
 /// `started` | `ended` — the two [`ActivityEvent::Compaction`] edges.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -1796,6 +1809,18 @@ mod tests {
         assert!(rate_limit_clears(" OK "));
         assert!(!rate_limit_clears("allowed_warning"));
         assert!(!rate_limit_clears("rejected"));
+    }
+
+    /// FEED-35: the wall rule — locked ×2 with web `rateLimitIsWall`.
+    #[test]
+    fn a_wall_is_a_rejection_or_a_notice_never_a_warning() {
+        assert!(rate_limit_is_wall("rejected", None));
+        assert!(rate_limit_is_wall(" rejected ", None));
+        assert!(rate_limit_is_wall("allowed_warning", Some("You've hit your limit")));
+        assert!(!rate_limit_is_wall("allowed_warning", None));
+        assert!(!rate_limit_is_wall("allowed_warning", Some("   ")));
+        assert!(!rate_limit_is_wall("", None));
+        assert!(!rate_limit_is_wall("ok", None));
     }
 
     #[test]

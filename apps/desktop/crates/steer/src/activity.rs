@@ -697,7 +697,12 @@ impl SessionAgent {
 /// indexed out of the generated slices so a call site reads. The test below
 /// is what keeps them inside the contract.
 pub const BLOCKED_KIND_RATE_LIMIT: &str = "rate_limit";
+/// The windows a wall names (FEED-34: `window` and `resetsAt` must describe
+/// the SAME window — claude's `rateLimitType` picks it, see
+/// `engine::adapters::claude_wire::RateLimitInfo::window`).
 pub const BLOCKED_WINDOW_SESSION: &str = "session";
+pub const BLOCKED_WINDOW_WEEKLY: &str = "weekly";
+pub const BLOCKED_WINDOW_MODEL: &str = "model";
 
 /// EXP-637 — the "is the agent between turns?" signal, shared by the emitter
 /// (which flips it) and the graceful-stop path (which waits on it).
@@ -1023,9 +1028,12 @@ mod blocked_tests {
         // Named constants over slice indices, but the contract still owns the
         // values — a renamed kind or window must break here, not in the wild.
         assert!(domain::contract::CODING_SESSION_BLOCKED_KINDS.contains(&BLOCKED_KIND_RATE_LIMIT));
-        assert!(
-            domain::contract::CODING_SESSION_BLOCKED_WINDOWS.contains(&BLOCKED_WINDOW_SESSION)
-        );
+        for window in [BLOCKED_WINDOW_SESSION, BLOCKED_WINDOW_WEEKLY, BLOCKED_WINDOW_MODEL] {
+            assert!(
+                domain::contract::CODING_SESSION_BLOCKED_WINDOWS.contains(&window),
+                "{window}"
+            );
+        }
     }
 
     #[test]

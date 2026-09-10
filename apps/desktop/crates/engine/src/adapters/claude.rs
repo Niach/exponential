@@ -550,6 +550,10 @@ struct RateLimitState {
     status: Option<String>,
     /// Its `resetsAt`, already in unix ms.
     resets_at: Option<i64>,
+    /// FEED-34: the contract window that `resets_at` belongs to
+    /// (`RateLimitInfo::window`), kept across the notice so the row's
+    /// `blocked.window` never pairs a `session` label with a weekly reset.
+    window: Option<&'static str>,
     /// A synthetic limit notice is on the slot. Cleared by the next REAL
     /// assistant text, never by the per-turn `allowed` event — that one
     /// fires at the request, BEFORE the 429 that produces the notice, so
@@ -1444,6 +1448,7 @@ impl ClaudeSession {
         status: &str,
         resets_at: Option<i64>,
         message: Option<&str>,
+        window: Option<&str>,
     ) {
         let mut slot = Map::new();
         slot.insert("status".to_string(), json!(status));
@@ -1452,6 +1457,11 @@ impl ClaudeSession {
         }
         if let Some(message) = message {
             slot.insert("message".to_string(), json!(message));
+        }
+        // FEED-34: the window the reset belongs to, for the row's `blocked`
+        // (the wire's `rate_limit` frame does not carry it).
+        if let Some(window) = window {
+            slot.insert("window".to_string(), json!(window));
         }
         let slot = Value::Object(slot);
         {
@@ -1472,21 +1482,24 @@ impl ClaudeSession {
     fn on_rate_limit_event(&self, cx: &ConnectionTo<Client>, info: &wire::RateLimitInfo) {
         self.publish_live_usage(info);
         let resets_at = wire::resets_at_millis(info.resets_at);
+        let window = info.window();
         let mut state = self.lock();
         if info.is_limited() {
             let status = info.status.trim().to_string();
             state.rate_limit.status = Some(status.clone());
             state.rate_limit.resets_at = resets_at;
+            state.rate_limit.window = window;
             drop(state);
-            self.publish_rate_limit(cx, &status, resets_at, None);
+            self.publish_rate_limit(cx, &status, resets_at, None, window);
             return;
         }
         state.rate_limit.status = None;
         state.rate_limit.resets_at = None;
+        state.rate_limit.window = None;
         let notice_active = state.rate_limit.notice_active;
         drop(state);
         if !notice_active {
-            self.publish_rate_limit(cx, "ok", None, None);
+            self.publish_rate_limit(cx, "ok", None, None, None);
         }
     }
 
@@ -1519,8 +1532,12 @@ impl ClaudeSession {
             .clone()
             .unwrap_or_else(|| wire::RATE_LIMIT_FALLBACK_STATUS.to_string());
         let resets_at = state.rate_limit.resets_at;
+        // The typed event before the notice named the window; a CLI that
+        // sent the notice alone names it in prose.
+        let window = state.rate_limit.window.or_else(|| wire::window_from_notice(text));
+        state.rate_limit.window = window;
         drop(state);
-        self.publish_rate_limit(cx, &status, resets_at, Some(text.trim()));
+        self.publish_rate_limit(cx, &status, resets_at, Some(text.trim()), window);
     }
 
     /// Real assistant text after a notice: the window reopened, clear it.
@@ -1534,7 +1551,7 @@ impl ClaudeSession {
             ..RateLimitState::default()
         };
         drop(state);
-        self.publish_rate_limit(cx, "ok", None, None);
+        self.publish_rate_limit(cx, "ok", None, None, None);
     }
 
     // -----------------------------------------------------------------------

@@ -67,17 +67,23 @@ export function formatChildQuestion(
 /** EXP-804: the child hit its agent's usage wall. The row stays `running`
  * with a moving `updated_at`, so a parent polling `exponential_sessions_get`
  * sees a perfectly healthy run and waits forever (the 2026-09-09 incident) —
- * the wall has to be PUSHED. Names the reset verbatim as the device reported
- * it (an ISO stamp the parent can compare against); with no reset time it
- * says so in the same parenthetical shape `formatChildEndedSilently` uses,
- * rather than inventing a timestamp. */
+ * the wall has to be PUSHED. FEED-35/37: only a REAL refusal reaches here
+ * now (the device no longer writes `blocked` for an informational usage
+ * warning), and `window` names the window `resetsAt` belongs to (contract
+ * `codingSessionBlocked.windows`: `session` | `weekly` | `model`) so the
+ * parent knows whether it is waiting out five hours or a week. Names the
+ * reset verbatim as the device reported it (an ISO stamp the parent can
+ * compare against); with no reset time it says so in the same parenthetical
+ * shape `formatChildEndedSilently` uses, rather than inventing a timestamp.
+ * An unknown window (empty/null) falls back to the window-less wording. */
 export function formatChildRateLimited(
   child: ChildRunRef,
-  resetsAt: string | null | undefined
+  blocked: { resetsAt?: string | null; window?: string | null }
 ): string {
-  const label = `${CHILD_RUN_TAG} ${childRunLabel(child)} is rate limited`
-  return resetsAt
-    ? `[${label} until ${oneLine(resetsAt)}]`
+  const window = blocked.window ? ` (${oneLine(blocked.window)} window)` : ``
+  const label = `${CHILD_RUN_TAG} ${childRunLabel(child)} is rate limited${window}`
+  return blocked.resetsAt
+    ? `[${label} until ${oneLine(blocked.resetsAt)}]`
     : `[${label} (no reset time reported)]`
 }
 
@@ -180,11 +186,12 @@ export async function notifyParentOfChildEnd(
  * The CALLER fires this only on the null → set transition
  * (`codingSessions.setBlocked`), so a device retrying the write sends exactly
  * one message per wall — the parent must not be nagged every heartbeat.
+ * `window` rides through to the message (FEED-37) when the device named it.
  */
 export async function notifyParentOfChildBlocked(
   db: Context[`db`],
   childSessionId: string,
-  blocked: { resetsAt?: string | null }
+  blocked: { resetsAt?: string | null; window?: string | null }
 ): Promise<{ delivered: boolean }> {
   try {
     const child = await loadChildParentContext(db, childSessionId)
@@ -202,7 +209,7 @@ export async function notifyParentOfChildBlocked(
     return await relayPostInput(
       config,
       child.parentSessionId,
-      formatChildRateLimited(child, blocked.resetsAt ?? null)
+      formatChildRateLimited(child, blocked)
     )
   } catch {
     return { delivered: false }

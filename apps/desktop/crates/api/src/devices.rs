@@ -250,6 +250,10 @@ pub struct DeviceEntry {
     /// the machine — render "Update queued", not an endless spinner.
     #[serde(default)]
     pub update_blocked: bool,
+    /// FEED-36: the live-session count the machine last reported — what a
+    /// queued update is parked behind ("Update now" names it).
+    #[serde(default)]
+    pub active_sessions: u32,
     /// EXP-481: the launch defaults — live advertisement when online, the
     /// persisted server copy when offline (older servers omit).
     #[serde(default)]
@@ -309,11 +313,23 @@ pub fn remove(trpc: &TrpcClient, device_id: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RequestUpdateInput<'a> {
+    device_id: &'a str,
+    end_sessions: bool,
+}
+
 /// `devices.requestUpdate` — flag the device; its next heartbeat picks the
 /// request up, self-updates when a newer release exists, and its following
-/// register consumes the flag either way.
-pub fn request_update(trpc: &TrpcClient, device_id: &str) -> Result<(), ApiError> {
-    let _: OkResult = trpc.mutation("devices.requestUpdate", &DeviceIdInput { device_id })?;
+/// register consumes the flag either way. FEED-36: `end_sessions` also
+/// queues an `update_now` command (cap `update-now`): the daemon ends every
+/// live session instead of waiting for them to end or idle out.
+pub fn request_update(trpc: &TrpcClient, device_id: &str, end_sessions: bool) -> Result<(), ApiError> {
+    let _: OkResult = trpc.mutation(
+        "devices.requestUpdate",
+        &RequestUpdateInput { device_id, end_sessions },
+    )?;
     Ok(())
 }
 
@@ -1095,9 +1111,13 @@ mod tests {
     #[test]
     fn request_update_posts_device_id() {
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
-        request_update(&client(&base), "dev-1").unwrap();
+        request_update(&client(&base), "dev-1", false).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/devices.requestUpdate HTTP/1.1"));
-        assert!(request.ends_with(r#"{"deviceId":"dev-1"}"#));
+        assert!(request.ends_with(r#"{"deviceId":"dev-1","endSessions":false}"#), "{request}");
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        request_update(&client(&base), "dev-1", true).unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(r#"{"deviceId":"dev-1","endSessions":true}"#), "{request}");
     }
 }

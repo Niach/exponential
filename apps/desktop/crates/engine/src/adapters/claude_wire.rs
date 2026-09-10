@@ -417,6 +417,46 @@ impl RateLimitInfo {
     pub fn is_limited(&self) -> bool {
         !matches!(self.status.trim(), "" | "allowed" | "ok")
     }
+
+    /// FEED-34: the contract window (`codingSessionBlocked.windows`) this
+    /// frame's top-level `resetsAt` belongs to — `rateLimitType` names it
+    /// (measured: `five_hour`, `seven_day`; a model-scoped weekly reads
+    /// `seven_day_<model>`). The row's `blocked.window` used to be a
+    /// hardcoded `session` beside a weekly reset. `None` when the frame
+    /// names no type.
+    pub fn window(&self) -> Option<&'static str> {
+        claude_window(self.rate_limit_type.as_deref()?)
+    }
+}
+
+/// [`RateLimitInfo::window`] for one `rateLimitType` (and the synthetic
+/// notice's wording, see [`window_from_notice`]).
+pub fn claude_window(kind: &str) -> Option<&'static str> {
+    let kind = kind.trim();
+    if kind.is_empty() {
+        return None;
+    }
+    Some(match kind {
+        "five_hour" => steer::activity::BLOCKED_WINDOW_SESSION,
+        "seven_day" => steer::activity::BLOCKED_WINDOW_WEEKLY,
+        // `seven_day_opus`, `seven_day_sonnet`, … — a per-model bucket.
+        _ => steer::activity::BLOCKED_WINDOW_MODEL,
+    })
+}
+
+/// The window a synthetic notice names in prose (`You've hit your session
+/// limit · resets 12:10pm`, `…your weekly limit…`), for a CLI that sent the
+/// notice without a typed `rate_limit_event` first. `None` when the text
+/// names nothing this side knows.
+pub fn window_from_notice(text: &str) -> Option<&'static str> {
+    let text = text.to_ascii_lowercase();
+    if text.contains("session limit") {
+        Some(steer::activity::BLOCKED_WINDOW_SESSION)
+    } else if text.contains("weekly limit") {
+        Some(steer::activity::BLOCKED_WINDOW_WEEKLY)
+    } else {
+        None
+    }
 }
 
 /// The model id claude stamps on an assistant frame IT wrote rather than
@@ -1587,6 +1627,7 @@ mod tests {
         assert_eq!(msg.rate_limit_info.resets_at, Some(1788703200));
         assert_eq!(msg.rate_limit_info.rate_limit_type.as_deref(), Some("five_hour"));
         assert!(msg.rate_limit_info.is_limited());
+        assert_eq!(msg.rate_limit_info.window(), Some("session"));
         assert_eq!(
             msg.rate_limit_info.usage_windows(),
             vec![coding::agent_usage::UsageWindow {
@@ -1605,13 +1646,33 @@ mod tests {
         let ClaudeOut::RateLimitEvent(msg) = snake else { panic!("a rate_limit_event frame") };
         assert_eq!(msg.rate_limit_info.resets_at, Some(1));
         assert!(!msg.rate_limit_info.is_limited(), "`allowed` is the all-clear");
+        assert_eq!(msg.rate_limit_info.window(), Some("weekly"));
         assert!(!RateLimitInfo::default().is_limited());
+        assert_eq!(RateLimitInfo::default().window(), None);
 
         // An empty object is still the frame, not Unknown.
         assert!(matches!(
             ClaudeOut::parse(r#"{"type":"rate_limit_event"}"#),
             ClaudeOut::RateLimitEvent(_)
         ));
+    }
+
+    /// FEED-34: `window` follows `rateLimitType`, so it always describes the
+    /// same window as the frame's top-level `resetsAt`.
+    #[test]
+    fn a_frames_window_is_its_rate_limit_type() {
+        assert_eq!(claude_window("five_hour"), Some("session"));
+        assert_eq!(claude_window("seven_day"), Some("weekly"));
+        assert_eq!(claude_window("seven_day_opus"), Some("model"));
+        assert_eq!(claude_window("seven_day_sonnet"), Some("model"));
+        assert_eq!(claude_window(""), None);
+        assert_eq!(claude_window("  "), None);
+        assert_eq!(
+            window_from_notice("You've hit your session limit · resets 12:10pm (Europe/Berlin)"),
+            Some("session")
+        );
+        assert_eq!(window_from_notice("You've hit your weekly limit · resets Tue 9am"), Some("weekly"));
+        assert_eq!(window_from_notice("You've hit your limit"), None);
     }
 
     fn camel_label(msg: &RateLimitEventMsg) -> String {

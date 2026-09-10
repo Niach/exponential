@@ -65,9 +65,11 @@ import {
 // are free strings the executor names (coding doctor.rs DEVICE_CAPS +
 // ACTION_CAPS); the ones this router gates on: `agent-login`,
 // `agent-login-code`, `mcp` (EXP-792: runs `mcp_oauth_*` and reports
-// readiness) and `agent-usage-refresh` (EXP-747 C4). Ceiling stays 16.
+// readiness), `agent-usage-refresh` (EXP-747 C4) and `update-now`
+// (FEED-36: runs `update_now`). The daemon advertises 16 today (10 build +
+// 6 action caps), so the ceiling sits at 24 with headroom, not AT the count.
 const agentsInput = z.array(z.string().min(1).max(32)).max(16)
-const capsInput = z.array(z.string().min(1).max(32)).max(16)
+const capsInput = z.array(z.string().min(1).max(32)).max(24)
 
 /** EXP-765: the longest `agent_login_code` a requester may hand a machine.
  * claude's authorization codes are ~80 chars of `code#state`; the cap only
@@ -263,6 +265,68 @@ export function nudgeDevice(ownerId: string, deviceId: string): void {
   const config = getSteerRelayConfig()
   if (!config) return
   void relayPostNudge(config, ownerId, deviceId).catch(() => {})
+}
+
+/** FEED-36: `update_now` needs a daemon that knows the kind — an older build
+ * would leave the row pending forever, so both queue paths refuse instead. */
+function assertUpdateNowCap(row: { caps: string[] | null }): void {
+  if (!(row.caps ?? []).includes(`update-now`)) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: `This machine's daemon doesn't support Update now yet`,
+    })
+  }
+}
+
+/**
+ * The ONE owner→device enqueue (EXP-481): one pending command per (device,
+ * kind, payload) — a double-click must not queue the same prune twice — then
+ * the insert and the relay nudge. `createCommand` surfaces a duplicate as
+ * CONFLICT; `requestUpdate({endSessions})` reuses the pending row instead
+ * (FEED-36: a second "Update now" click is the same wish, not an error).
+ */
+async function queueDeviceCommand(
+  db: Context[`db`],
+  args: {
+    deviceRowId: string
+    userId: string
+    deviceId: string
+    kind: string
+    payload: Record<string, string>
+    onDuplicate: `conflict` | `reuse`
+  }
+): Promise<{ id: string }> {
+  const [dup] = await db
+    .select({ id: deviceCommands.id })
+    .from(deviceCommands)
+    .where(
+      and(
+        eq(deviceCommands.deviceRowId, args.deviceRowId),
+        eq(deviceCommands.kind, args.kind),
+        eq(deviceCommands.status, `pending`),
+        sql`${deviceCommands.payload} = ${JSON.stringify(args.payload)}::jsonb`
+      )
+    )
+    .limit(1)
+  if (dup) {
+    if (args.onDuplicate === `reuse`) return { id: dup.id }
+    throw new TRPCError({
+      code: `CONFLICT`,
+      message: `That command is already queued`,
+    })
+  }
+
+  const [command] = await db
+    .insert(deviceCommands)
+    .values({
+      deviceRowId: args.deviceRowId,
+      userId: args.userId,
+      kind: args.kind,
+      payload: args.payload,
+    })
+    .returning({ id: deviceCommands.id })
+  nudgeDevice(args.userId, args.deviceId)
+  return { id: command.id }
 }
 
 // ISO-or-null of a nullable timestamp — the CAS stamp wire form (equality
@@ -533,22 +597,55 @@ export const devicesRouter = router({
     }),
 
   // The web "Update" button (EXP-403): flag the device; its next heartbeat
-  // picks the request up. Own-user only via the where clause.
+  // picks the request up. Own-user only via the where clause. FEED-36: a
+  // queued update waits for the machine's live sessions (the daemon ends
+  // idle ones after 2h); `endSessions: true` additionally queues an
+  // `update_now` command, which ends EVERY live session there and restarts
+  // on the new version. The cap is checked BEFORE the flag lands so a refusal
+  // has no half-applied side effect the UI would then misreport as queued.
   requestUpdate: authedProcedure
-    .input(z.object({ deviceId: deviceIdInput }))
+    .input(
+      z.object({
+        deviceId: deviceIdInput,
+        endSessions: z.boolean().default(false),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
+      const ownRow = and(
+        eq(devices.userId, ctx.session.user.id),
+        eq(devices.deviceId, input.deviceId)
+      )
+      let row: { id: string; caps: string[] | null } | undefined
+      if (input.endSessions) {
+        const [found] = await ctx.db
+          .select({ id: devices.id, caps: devices.caps })
+          .from(devices)
+          .where(ownRow)
+          .limit(1)
+        if (!found) {
+          throw new TRPCError({ code: `NOT_FOUND`, message: `Device not found` })
+        }
+        assertUpdateNowCap(found)
+        row = found
+      }
       const now = new Date()
       const updated = await ctx.db
         .update(devices)
         .set({ updateRequestedAt: now, updatedAt: now })
-        .where(
-          and(
-            eq(devices.userId, ctx.session.user.id),
-            eq(devices.deviceId, input.deviceId)
-          )
-        )
+        .where(ownRow)
         .returning({ id: devices.id })
-      return { ok: updated.length > 0 }
+      if (updated.length === 0) return { ok: false }
+      if (row) {
+        await queueDeviceCommand(ctx.db, {
+          deviceRowId: row.id,
+          userId: ctx.session.user.id,
+          deviceId: input.deviceId,
+          kind: `update_now`,
+          payload: {},
+          onDuplicate: `reuse`,
+        })
+      }
+      return { ok: true }
     }),
 
   // EXP-481: edit a device's server-authoritative launch defaults. Owner-only
@@ -740,7 +837,9 @@ export const devicesRouter = router({
   // code the CLI on the machine is still waiting for, and this is how the
   // requester hands it back — the device types it into that login PTY.
   // EXP-747 C4 adds `agent_usage_refresh`: force one profile's usage
-  // collection past the shared TTL (never past the rate-limit floor). The
+  // collection past the shared TTL (never past the rate-limit floor).
+  // FEED-36 adds `update_now` (payload {}): end every live session on the
+  // machine and restart on the queued update, cap-gated on `update-now`. The
   // EXP-792 `mcp_oauth_start`/`mcp_oauth_code` kinds are queued INTERNALLY
   // only (mcpServers.beginOAuth, the anonymous callback) and never accepted
   // here — a caller could otherwise relay an arbitrary code to a device.
@@ -754,6 +853,7 @@ export const devicesRouter = router({
           `agent_login`,
           `agent_login_code`,
           `agent_usage_refresh`,
+          `update_now`,
         ]),
         repoFullName: z.string().min(1).max(255).optional(),
         branch: z.string().min(1).max(255).optional(),
@@ -889,38 +989,16 @@ export const devicesRouter = router({
         payload = { agent: input.agent, profileId: input.profileId }
       }
 
-      // One pending command per (device, kind, payload) — a double-click must
-      // not queue the same prune twice.
-      const [dup] = await ctx.db
-        .select({ id: deviceCommands.id })
-        .from(deviceCommands)
-        .where(
-          and(
-            eq(deviceCommands.deviceRowId, row.id),
-            eq(deviceCommands.kind, input.kind),
-            eq(deviceCommands.status, `pending`),
-            sql`${deviceCommands.payload} = ${JSON.stringify(payload)}::jsonb`
-          )
-        )
-        .limit(1)
-      if (dup) {
-        throw new TRPCError({
-          code: `CONFLICT`,
-          message: `That command is already queued`,
-        })
-      }
+      if (input.kind === `update_now`) assertUpdateNowCap(row)
 
-      const [command] = await ctx.db
-        .insert(deviceCommands)
-        .values({
-          deviceRowId: row.id,
-          userId: ctx.session.user.id,
-          kind: input.kind,
-          payload,
-        })
-        .returning({ id: deviceCommands.id })
-      nudgeDevice(ctx.session.user.id, input.deviceId)
-      return { id: command.id }
+      return queueDeviceCommand(ctx.db, {
+        deviceRowId: row.id,
+        userId: ctx.session.user.id,
+        deviceId: input.deviceId,
+        kind: input.kind,
+        payload,
+        onDuplicate: `conflict`,
+      })
     }),
 
   // EXP-481: the device reports a command's outcome. Only pending rows

@@ -537,6 +537,7 @@ impl Mapper {
                         slot.get("status").and_then(Value::as_str).unwrap_or(""),
                         slot.get("resetsAt").and_then(Value::as_i64),
                         slot.get("message").and_then(Value::as_str),
+                        slot.get("window").and_then(Value::as_str),
                         out,
                     );
                 }
@@ -1516,6 +1517,7 @@ impl Mapper {
         status: &str,
         resets_at: Option<i64>,
         message: Option<&str>,
+        window: Option<&str>,
         out: &mut MapOut,
     ) {
         let status = self.clean(status.trim(), steer::activity::CONFIG_ID_MAX);
@@ -1532,25 +1534,45 @@ impl Mapper {
             return;
         }
         self.last_rate_limit = Some(event.clone());
-        // EXP-804: the same edge that drives the viewer's banner drives the
-        // ROW's durable `blocked`. The banner only exists while somebody
-        // watches the stream; the row is what a teammate's list and a parent
-        // agent's `sessions_get` read, and it is the only place a walled run
-        // is distinguishable from a healthy one.
-        out.blocked = Some(if clears {
-            None
-        } else {
-            Some(steer::SessionBlocked {
-                kind: steer::activity::BLOCKED_KIND_RATE_LIMIT.to_string(),
-                agent: self.config.agent.id().to_string(),
-                // The agent names a status, not a window. `session` is the
-                // wall a run actually hits (claude's 5h credit frame); a
-                // future producer that names its window fills this properly.
-                window: steer::activity::BLOCKED_WINDOW_SESSION.to_string(),
-                resets_at: resets_at.and_then(steer::iso_from_unix_millis),
-                since: coding::agent_accounts::now_iso(),
-            })
-        });
+        // EXP-804: the ROW's durable `blocked` rides the same edge as the
+        // viewer's banner. The banner only exists while somebody watches
+        // the stream; the row is what a teammate's list and a parent agent's
+        // `sessions_get` read, and it is the only place a walled run is
+        // distinguishable from a healthy one.
+        //
+        // FEED-35/37: only a WALL sets it (`steer::rate_limit_is_wall` — the
+        // banner's own rule). Claude files `allowed_warning` on every turn
+        // past ~75% of a window while it keeps working; writing that as
+        // `blocked` marked healthy runs "rate limited" seconds after start
+        // and had parent agents kill them. Any non-wall report (the clear,
+        // a warning after a wall) lifts the row.
+        let wall = !clears
+            && steer::rate_limit_is_wall(
+                match &event {
+                    ActivityEvent::RateLimit { status, .. } => status,
+                    _ => "",
+                },
+                match &event {
+                    ActivityEvent::RateLimit { message, .. } => message.as_deref(),
+                    _ => None,
+                },
+            );
+        out.blocked = Some(wall.then(|| steer::SessionBlocked {
+            kind: steer::activity::BLOCKED_KIND_RATE_LIMIT.to_string(),
+            agent: self.config.agent.id().to_string(),
+            // FEED-34: the window the producer named for this reset (claude:
+            // its `rateLimitType`), so `window` and `resetsAt` describe the
+            // same window. `session` stays the fallback for a producer that
+            // names none — claude's 5h credit frame is the wall a run
+            // actually hits.
+            window: window
+                .map(str::trim)
+                .filter(|window| !window.is_empty())
+                .unwrap_or(steer::activity::BLOCKED_WINDOW_SESSION)
+                .to_string(),
+            resets_at: resets_at.and_then(steer::iso_from_unix_millis),
+            since: coding::agent_accounts::now_iso(),
+        }));
         emit(out, event, None);
     }
 
@@ -3443,9 +3465,10 @@ mod tests {
             " allowed_warning ",
             Some(1_700_000_000_000),
             Some("  80% of 5h used by expu_supersecretkey  "),
+            None,
             &mut out,
         );
-        mapper.emit_rate_limit("allowed_warning", Some(1_700_000_000_000), Some("80% of 5h used by expu_supersecretkey"), &mut out);
+        mapper.emit_rate_limit("allowed_warning", Some(1_700_000_000_000), Some("80% of 5h used by expu_supersecretkey"), None, &mut out);
         assert_eq!(out.wire.len(), 1, "an identical re-emit says nothing");
         let first = serde_json::to_value(&out.wire[0]).unwrap();
         assert_eq!(first["kind"], "rate_limit");
@@ -3455,12 +3478,12 @@ mod tests {
         assert!(!message.contains("expu_"), "{message}");
         assert!(message.starts_with("80% of 5h used by"), "{message}");
 
-        mapper.emit_rate_limit("rejected", Some(-5), Some("   "), &mut out);
+        mapper.emit_rate_limit("rejected", Some(-5), Some("   "), None, &mut out);
         let second = serde_json::to_value(&out.wire[1]).unwrap();
         assert_eq!(second, json!({"kind": "rate_limit", "status": "rejected"}));
 
-        mapper.emit_rate_limit("ok", Some(1), Some("fine"), &mut out);
-        mapper.emit_rate_limit("", None, None, &mut out);
+        mapper.emit_rate_limit("ok", Some(1), Some("fine"), None, &mut out);
+        mapper.emit_rate_limit("", None, None, None, &mut out);
         assert_eq!(out.wire.len(), 3);
         assert_eq!(
             serde_json::to_value(&out.wire[2]).unwrap(),
@@ -3474,5 +3497,50 @@ mod tests {
             .filter(|event| matches!(event, LocalFeedEvent::Activity { event: ActivityEvent::RateLimit { .. }, .. }))
             .count();
         assert_eq!(local, 3);
+    }
+
+    /// FEED-35/37: the row's `blocked` follows the WALL rule, not the slot.
+    /// Claude's per-turn `allowed_warning` keeps the slot (the viewer's
+    /// usage hint) but never walls the row; `rejected` does, naming the
+    /// window the producer paired with the reset (FEED-34) — and the next
+    /// non-wall report lifts it.
+    #[test]
+    fn blocked_is_set_only_by_a_wall_and_names_its_window() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        // 2026-09-16T09:00:00Z — the weekly reset FEED-34 measured.
+        let weekly_reset = 1_789_549_200_000i64;
+
+        mapper.emit_rate_limit("allowed_warning", Some(weekly_reset), None, Some("weekly"), &mut out);
+        assert_eq!(out.blocked, Some(None), "a warning is not a wall");
+        assert_eq!(out.wire.len(), 1, "the slot still shows the warning");
+
+        mapper.emit_rate_limit("rejected", Some(weekly_reset), None, Some("weekly"), &mut out);
+        let wall = out.blocked.clone().flatten().expect("a rejection walls the row");
+        assert_eq!(wall.kind, "rate_limit");
+        assert_eq!(wall.window, "weekly", "the window the reset belongs to");
+        assert_eq!(wall.resets_at.as_deref(), Some("2026-09-16T09:00:00.000Z"));
+
+        // The five-hour frame: `session` + ITS reset.
+        mapper.emit_rate_limit("rejected", Some(1_788_703_200_000), None, Some("session"), &mut out);
+        let wall = out.blocked.clone().flatten().unwrap();
+        assert_eq!(wall.window, "session");
+        assert_eq!(wall.resets_at.as_deref(), Some("2026-09-06T14:00:00.000Z"));
+
+        // A producer that names no window falls back to the 5h credit wall.
+        mapper.emit_rate_limit("rejected", None, Some("You've hit your limit"), None, &mut out);
+        let wall = out.blocked.clone().flatten().unwrap();
+        assert_eq!(wall.window, "session");
+        assert_eq!(wall.resets_at, None);
+
+        // A notice on a warning status is still a wall (the agent wrote it).
+        mapper.emit_rate_limit("allowed_warning", None, Some("You've hit your weekly limit"), Some("weekly"), &mut out);
+        assert_eq!(out.blocked.clone().flatten().map(|wall| wall.window), Some("weekly".to_string()));
+
+        // The warning after the wall lifts the row; the clear does too.
+        mapper.emit_rate_limit("allowed_warning", Some(weekly_reset), None, Some("weekly"), &mut out);
+        assert_eq!(out.blocked, Some(None), "a warning after a wall lifts it");
+        mapper.emit_rate_limit("ok", None, None, None, &mut out);
+        assert_eq!(out.blocked, Some(None));
     }
 }

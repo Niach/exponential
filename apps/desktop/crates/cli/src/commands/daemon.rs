@@ -33,6 +33,14 @@ const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 /// gate holds and no newer release was installable yet (the release assets
 /// can still be uploading when the web deploy that raised the floor lands).
 const GATED_UPDATE_RETRY: Duration = Duration::from_secs(5 * 60);
+
+/// FEED-36: a pending update no longer waits for the LAST session to end
+/// — an attended run (a Chat, a web start) never ends on its own on a
+/// headless server (EXP-674), so one forgotten chat parked every update
+/// forever. Once EVERY live session has sat idle (between turns, no tool
+/// running) for this long, the daemon ends them and applies the update;
+/// repo-backed runs stay resumable. The web's "Update now" skips the wait.
+pub const UPDATE_IDLE_GRACE: Duration = Duration::from_secs(2 * 60 * 60);
 const DOCTOR_RECHECK: Duration = Duration::from_secs(5 * 60);
 /// EXP-414: a changed agent advertisement is only ACTED on once a second
 /// probe agrees ([`advert_transition`]) — this is the shortened recheck that
@@ -202,9 +210,41 @@ struct LiveSession {
     /// worktrees survive by design) and repo-less runs.
     cleanup: Option<coding::RunCleanup>,
     session: Arc<RunningSession>,
+    /// FEED-36: since when the agent has been between turns (`None` while a
+    /// turn is in flight) — the loop's 1 Hz tick keeps it; a pending update
+    /// reads it through [`update_gate`].
+    idle_since: Option<Instant>,
 }
 
 type Sessions = Arc<Mutex<Vec<LiveSession>>>;
+
+/// FEED-36: what a pending update may do given the live sessions' idle
+/// stretches (`None` = a turn is in flight).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum UpdateGate {
+    /// No live session — install and re-exec now.
+    Apply,
+    /// Every live session has idled past the grace — end them, then apply.
+    EndIdle,
+    /// At least one session is working (or idle for less than the grace).
+    Wait,
+}
+
+fn update_gate(idle_for: impl IntoIterator<Item = Option<Duration>>, grace: Duration) -> UpdateGate {
+    let mut any = false;
+    for idle in idle_for {
+        any = true;
+        match idle {
+            Some(idle) if idle >= grace => {}
+            _ => return UpdateGate::Wait,
+        }
+    }
+    if any {
+        UpdateGate::EndIdle
+    } else {
+        UpdateGate::Apply
+    }
+}
 
 fn lock_sessions(sessions: &Sessions) -> std::sync::MutexGuard<'_, Vec<LiveSession>> {
     match sessions.lock() {
@@ -374,6 +414,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // EXP-481: the serialized device-state worker (defaults convergence,
     // worktree commands, inventory reports) + the relay check_in flag that
     // forces an immediate heartbeat (the beat IS the work pull).
+    // FEED-36: raised by the worker's `update_now` command once it ended
+    // the live sessions; the loop arms the update off it.
+    let update_now = Arc::new(AtomicBool::new(false));
     let device_worker = spawn_device_worker(
         Arc::clone(&ctx),
         Arc::clone(&sessions),
@@ -381,6 +424,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
         Arc::clone(&agent_status),
         Arc::clone(&mcp_readiness),
         Arc::clone(&doctor_soon),
+        Arc::clone(&update_now),
     );
     let check_in = Arc::new(AtomicBool::new(false));
     // EXP-530: the automation host — this daemon's own Electric pipeline (a
@@ -594,6 +638,17 @@ fn run_daemon(args: &[String]) -> CommandResult {
             }
         }
 
+        // FEED-36: keep each run's idle stretch (the update gate reads it).
+        {
+            let now = Instant::now();
+            for live in lock_sessions(&sessions).iter_mut() {
+                live.idle_since = match (live.session.is_idle(), live.idle_since) {
+                    (true, Some(since)) => Some(since),
+                    (true, None) => Some(now),
+                    (false, _) => None,
+                };
+            }
+        }
         let live_now = lock_sessions(&sessions).len();
         let session_change = reported_sessions != Some(live_now);
         // EXP-481: a relay check_in nudge means "the server persisted new
@@ -676,7 +731,8 @@ fn run_daemon(args: &[String]) -> CommandResult {
                     if result.update_requested && pending_update.is_none() {
                         if live_now > 0 {
                             log::info!(
-                                "update requested from the web — parked until {live_now} live session(s) close"
+                                "update requested from the web — parked until {live_now} live session(s) close or sit idle for {}h",
+                                UPDATE_IDLE_GRACE.as_secs() / 3600
                             );
                         } else {
                             log::info!("update requested from the web");
@@ -734,6 +790,13 @@ fn run_daemon(args: &[String]) -> CommandResult {
             }
         }
 
+        // FEED-36: an `update_now` command (web "Update now") ended every
+        // session on the worker; arm the request right here instead of
+        // waiting for the flag to ride the next beat.
+        if update_now.swap(false, Ordering::SeqCst) && pending_update.is_none() {
+            log::info!("update now (web) — applying as soon as the sessions close");
+            pending_update = Some(UpdateTrigger::Requested);
+        }
         // Scheduled auto-update check (settings-gated + persisted throttle).
         if pending_update.is_none() && last_update_poll.elapsed() >= Duration::from_secs(60) {
             last_update_poll = Instant::now();
@@ -754,7 +817,8 @@ fn run_daemon(args: &[String]) -> CommandResult {
             let live = lock_sessions(&sessions).len();
             if live > 0 {
                 log::info!(
-                    "server rejected this build (426) — updating once {live} live session(s) close (a gated run ends itself once the server has swept its row, EXP-681)"
+                    "server rejected this build (426) — updating once {live} live session(s) close or sit idle for {}h (a gated run ends itself once the server has swept its row, EXP-681)",
+                    UPDATE_IDLE_GRACE.as_secs() / 3600
                 );
             } else {
                 log::info!("server rejected this build (426) — updating now");
@@ -762,8 +826,29 @@ fn run_daemon(args: &[String]) -> CommandResult {
             pending_update = Some(UpdateTrigger::Gated);
         }
         if let Some(trigger) = pending_update {
-            let idle = lock_sessions(&sessions).is_empty();
-            if idle {
+            // FEED-36: no session, or only sessions idle past the grace —
+            // the latter are ended (ended_by `client`; the reaper above
+            // drops them next tick, then this arm applies).
+            let gate = {
+                let now = Instant::now();
+                let guard = lock_sessions(&sessions);
+                update_gate(
+                    guard.iter().map(|live| live.idle_since.map(|since| now.saturating_duration_since(since))),
+                    UPDATE_IDLE_GRACE,
+                )
+            };
+            if gate == UpdateGate::EndIdle {
+                for live in lock_sessions(&sessions).iter() {
+                    log::info!(
+                        "ending session {} ({}) — idle for {}h, a {trigger:?} update is waiting",
+                        live.session.session_id,
+                        live.branch,
+                        live.idle_since.map(|since| since.elapsed().as_secs() / 3600).unwrap_or(0)
+                    );
+                    live.session.kill();
+                }
+            }
+            if gate == UpdateGate::Apply {
                 pending_update = None;
                 match super::update::check_and_install() {
                     Ok(super::update::UpdateOutcome::Updated { version }) => {
@@ -1581,6 +1666,7 @@ fn spawn_prepared(
             is_fix_run,
             cleanup,
             session,
+            idle_since: None,
         },
     );
     Ok(())
@@ -1638,6 +1724,7 @@ fn spawn_device_worker(
     agent_status: Arc<Mutex<Option<coding::AgentStatusPayload>>>,
     mcp_readiness: Arc<Mutex<Option<coding::mcp_servers::ReadinessSnapshot>>>,
     doctor_soon: Arc<AtomicBool>,
+    update_now: Arc<AtomicBool>,
 ) -> flume::Sender<DeviceWork> {
     let (tx, rx) = flume::unbounded::<DeviceWork>();
     std::thread::spawn(move || {
@@ -1688,6 +1775,7 @@ fn spawn_device_worker(
                                 device_id: &device_id,
                                 agent_status: &agent_status,
                                 mcp_state: &mcp_state,
+                                update_now: &update_now,
                             },
                         );
                     }
@@ -1730,6 +1818,8 @@ struct CommandSlots<'a> {
     device_id: &'a str,
     agent_status: &'a Arc<Mutex<Option<coding::AgentStatusPayload>>>,
     mcp_state: &'a Arc<Mutex<coding::McpReadinessState>>,
+    /// FEED-36: `update_now` sets it after ending the live sessions.
+    update_now: &'a Arc<AtomicBool>,
 }
 
 /// Reconcile against an OBSERVED server copy.
@@ -1989,6 +2079,34 @@ fn run_device_command(
                         ),
                     }
                 }
+            }
+        }
+        // FEED-36: the web's "Update now" — end every live session (the
+        // owner confirmed it; repo-backed runs stay resumable) and let the
+        // loop apply the pending update as soon as they close.
+        "update_now" => {
+            let live: Vec<(String, String)> = lock_sessions(sessions)
+                .iter()
+                .filter(|live| !live.session.is_done())
+                .map(|live| (live.session.session_id.clone(), live.branch.clone()))
+                .collect();
+            for (session_id, branch) in &live {
+                log::info!("update now (web): ending session {session_id} ({branch})");
+            }
+            for live_session in lock_sessions(sessions).iter() {
+                live_session.session.kill();
+            }
+            slots.update_now.store(true, Ordering::SeqCst);
+            if live.is_empty() {
+                (true, "Restarting on the new version.".to_string())
+            } else {
+                (
+                    true,
+                    format!(
+                        "Ending {} live session(s); the daemon restarts on the new version once they close.",
+                        live.len()
+                    ),
+                )
             }
         }
         other => {
@@ -3086,6 +3204,23 @@ mod tests {
                 .collect(),
             acp_agents: Vec::new(),
         }
+    }
+
+    /// FEED-36: the idle gate — nothing live applies now, sessions idle
+    /// past the grace get ended, one working (or freshly idle) run waits.
+    #[test]
+    fn a_pending_update_ends_only_sessions_idle_past_the_grace() {
+        let grace = UPDATE_IDLE_GRACE;
+        assert_eq!(update_gate([], grace), UpdateGate::Apply);
+        assert_eq!(update_gate([Some(grace)], grace), UpdateGate::EndIdle);
+        assert_eq!(update_gate([Some(grace * 3), Some(grace)], grace), UpdateGate::EndIdle);
+        assert_eq!(
+            update_gate([Some(grace), Some(grace - Duration::from_secs(1))], grace),
+            UpdateGate::Wait
+        );
+        assert_eq!(update_gate([Some(grace), None], grace), UpdateGate::Wait);
+        assert_eq!(update_gate([None], grace), UpdateGate::Wait);
+        assert_eq!(update_gate([Some(Duration::ZERO)], grace), UpdateGate::Wait);
     }
 
     #[test]

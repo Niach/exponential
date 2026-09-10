@@ -93,15 +93,30 @@ describe(`message formats`, () => {
     )
     // EXP-804: the usage wall, pushed to the parent — the reset rides
     // VERBATIM as the device reported it, so the parent can compare it.
+    // FEED-37: the window it belongs to is named when the device knew it.
     expect(
-      formatChildRateLimited(child, `2026-09-09T01:09Z`)
+      formatChildRateLimited(child, {
+        resetsAt: `2026-09-16T09:00:00.000Z`,
+        window: `weekly`,
+      })
+    ).toBe(
+      `[Exponential child run EXP-12 66666666 is rate limited (weekly window) until 2026-09-16T09:00:00.000Z]`
+    )
+    // Unknown window (older device / empty canonical string): today's text.
+    expect(
+      formatChildRateLimited(child, { resetsAt: `2026-09-09T01:09Z`, window: `` })
     ).toBe(
       `[Exponential child run EXP-12 66666666 is rate limited until 2026-09-09T01:09Z]`
     )
     // No reset time: say so in the parenthetical shape the silent-end
-    // message uses, never a bogus timestamp.
-    expect(formatChildRateLimited(child, null)).toBe(
+    // message uses, never a bogus timestamp — the window still leads.
+    expect(formatChildRateLimited(child, { resetsAt: null })).toBe(
       `[Exponential child run EXP-12 66666666 is rate limited (no reset time reported)]`
+    )
+    expect(
+      formatChildRateLimited(child, { resetsAt: null, window: `session` })
+    ).toBe(
+      `[Exponential child run EXP-12 66666666 is rate limited (session window) (no reset time reported)]`
     )
     expect(formatStarterMessage(`Use staging.`)).toBe(
       `[Message from your starter via exponential_sessions_message] Use staging.`
@@ -195,6 +210,21 @@ describe(`notifyParentOfChildBlocked`, () => {
       RELAY,
       PARENT,
       `[Exponential child run EXP-12 66666666 is rate limited until 2026-09-09T01:09Z]`
+    )
+  })
+
+  // FEED-37: the canonical `blocked` object setBlocked passes carries the
+  // window — it must reach the parent, not be dropped on the way.
+  it(`names the window when the device reported one`, async () => {
+    h.dbRows.current = [childRow()]
+    await notifyParentOfChildBlocked(db, CHILD, {
+      resetsAt: `2026-09-16T09:00:00.000Z`,
+      window: `weekly`,
+    })
+    expect(relayPostInput).toHaveBeenCalledWith(
+      RELAY,
+      PARENT,
+      `[Exponential child run EXP-12 66666666 is rate limited (weekly window) until 2026-09-16T09:00:00.000Z]`
     )
   })
 
