@@ -211,11 +211,22 @@ struct DevicePick {
     devices: Vec<queries::LaunchDevice>,
 }
 
+/// EXP-825: the field's hint follows the subject — byte-identical to the web
+/// `composerPlaceholder` (components/launch-composer.tsx): a chat asks, a
+/// picked subject takes optional extra instructions, the Create-action
+/// builtin takes the request itself.
+const CHAT_PLACEHOLDER: &str = "Ask the agent…";
+const SUBJECT_PLACEHOLDER: &str = "Additional instructions (optional)…";
+const CREATE_ACTION_PLACEHOLDER: &str =
+    "Describe the action — what it should do, and its name if you have one…";
+
 pub(crate) struct ChatScreenView {
     nav: Entity<Navigation>,
     /// The team the page is scoped to; a switch resets every pick.
     team_id: Option<String>,
     input: Entity<TextareaState>,
+    /// The hint the field currently shows (see [`CHAT_PLACEHOLDER`]).
+    placeholder: &'static str,
     /// EXP-790: the completion overlay (`@` / `#` / `:`) over `input`; the
     /// composer card draws the chrome, so the widget draws none of its own.
     mention: Entity<MentionInput>,
@@ -276,7 +287,7 @@ impl ChatScreenView {
         let input = cx.new(|cx| {
             crate::controls::web_textarea(2, 8, window, cx)
                 .submit_on_enter(true)
-                .placeholder("Ask your agent anything…")
+                .placeholder(CHAT_PLACEHOLDER)
         });
         let mention = cx.new(|cx| {
             let mut mention = MentionInput::new(input.clone(), cx);
@@ -344,6 +355,7 @@ impl ChatScreenView {
             nav,
             team_id: None,
             input,
+            placeholder: CHAT_PLACEHOLDER,
             mention,
             mention_team: None,
             subject: Subject::None,
@@ -992,6 +1004,29 @@ impl ChatScreenView {
     }
 
     // ── the gate ──────────────────────────────────────────────────────────
+
+    fn composer_placeholder(&self) -> &'static str {
+        match &self.subject {
+            Subject::None => CHAT_PLACEHOLDER,
+            Subject::Action(action)
+                if action.action_id == api::actions::BUILTIN_CREATE_ACTION_ID =>
+            {
+                CREATE_ACTION_PLACEHOLDER
+            }
+            _ => SUBJECT_PLACEHOLDER,
+        }
+    }
+
+    /// Re-hint the field when the subject changed — set only on a change so
+    /// the input is not notified on every paint.
+    fn sync_placeholder(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let next = self.composer_placeholder();
+        if self.placeholder != next {
+            self.placeholder = next;
+            self.input
+                .update(cx, |state, cx| state.set_placeholder(next, window, cx));
+        }
+    }
 
     fn subject_kind(&self) -> SubjectKind {
         match &self.subject {
@@ -1974,6 +2009,7 @@ impl Render for ChatScreenView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         self.sync_team(window, cx);
         self.ensure_launch(window, cx);
+        self.sync_placeholder(window, cx);
         // The seed: a play button (or the dev route) may have navigated here
         // with one. It is consumed only once the team is known and the
         // shapes have synced — a seed taken on the first paint of a cold
