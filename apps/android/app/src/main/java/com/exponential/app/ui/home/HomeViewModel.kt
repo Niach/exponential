@@ -11,12 +11,17 @@ import com.exponential.app.data.db.MultiAccountBoardRepository
 import com.exponential.app.data.db.ServerBoardGroup
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.domain.PinnedRow
+import com.exponential.app.domain.resolvePinnedRows
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -90,6 +95,32 @@ class HomeViewModel @Inject constructor(
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
+
+    // EXP-778: the "Pinned" section at the top of the switcher sheet (the
+    // mobile sidebar): the ACTIVE team's pins, in sort_order, joined to the
+    // synced issues / coding sessions / actions. The pins shape is static
+    // per user and NOT team/trash scoped, so the team filter and the "no
+    // target, no row" rule both live here (resolvePinnedRows).
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val pinned: StateFlow<List<PinnedRow>> = combine(
+        accountDatabaseFlow(auth, holder),
+        selection.selectedId,
+    ) { db, teamId -> db to teamId }
+        .flatMapLatest { (db, teamId) ->
+            if (db == null || teamId == null) {
+                flowOf(emptyList())
+            } else {
+                combine(
+                    db.pinDao().observeByTeam(teamId),
+                    db.issueDao().observeAll(),
+                    db.codingSessionDao().observeByTeam(teamId),
+                    db.actionDao().observeByTeam(teamId),
+                ) { pins, issues, sessions, actions ->
+                    resolvePinnedRows(pins, issues, sessions, actions)
+                }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun bootstrap() {
         viewModelScope.launch {

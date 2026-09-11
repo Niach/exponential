@@ -327,6 +327,33 @@ interface AutomationDao {
     suspend fun clear()
 }
 
+// EXP-778: the caller's personal pins. The per-account DB only ever holds
+// the signed-in user's rows (the shape is `user_id = me`), so no user filter.
+@Dao
+interface PinDao {
+    @Query("SELECT * FROM pins WHERE team_id = :teamId ORDER BY sort_order, created_at")
+    fun observeByTeam(teamId: String): Flow<List<PinEntity>>
+
+    // The three per-target probes behind the Pin / Unpin toggles.
+    @Query("SELECT * FROM pins WHERE issue_id = :issueId LIMIT 1")
+    fun observeByIssue(issueId: String): Flow<PinEntity?>
+
+    @Query("SELECT * FROM pins WHERE session_id = :sessionId LIMIT 1")
+    fun observeBySession(sessionId: String): Flow<PinEntity?>
+
+    @Query("SELECT * FROM pins WHERE action_id = :actionId LIMIT 1")
+    fun observeByAction(actionId: String): Flow<PinEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: PinEntity)
+
+    @Query("DELETE FROM pins WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM pins")
+    suspend fun clear()
+}
+
 @Dao
 interface AttachmentDao {
     @Query("SELECT * FROM attachments WHERE issue_id = :issueId ORDER BY created_at ASC")

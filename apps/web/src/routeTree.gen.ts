@@ -54,6 +54,7 @@ import { Route as ApiShapesUsersRouteImport } from './routes/api/shapes/users'
 import { Route as ApiShapesTeamsRouteImport } from './routes/api/shapes/teams'
 import { Route as ApiShapesTeamMembersRouteImport } from './routes/api/shapes/team-members'
 import { Route as ApiShapesTeamInvitesRouteImport } from './routes/api/shapes/team-invites'
+import { Route as ApiShapesPinsRouteImport } from './routes/api/shapes/pins'
 import { Route as ApiShapesNotificationsRouteImport } from './routes/api/shapes/notifications'
 import { Route as ApiShapesLabelsRouteImport } from './routes/api/shapes/labels'
 import { Route as ApiShapesIssuesRouteImport } from './routes/api/shapes/issues'
@@ -340,6 +341,11 @@ const ApiShapesTeamMembersRoute = ApiShapesTeamMembersRouteImport.update({
 const ApiShapesTeamInvitesRoute = ApiShapesTeamInvitesRouteImport.update({
   id: '/api/shapes/team-invites',
   path: '/api/shapes/team-invites',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesPinsRoute = ApiShapesPinsRouteImport.update({
+  id: '/api/shapes/pins',
+  path: '/api/shapes/pins',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiShapesNotificationsRoute = ApiShapesNotificationsRouteImport.update({
@@ -723,6 +729,7 @@ export interface FileRoutesByFullPath {
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
   '/api/shapes/notifications': typeof ApiShapesNotificationsRoute
+  '/api/shapes/pins': typeof ApiShapesPinsRoute
   '/api/shapes/team-invites': typeof ApiShapesTeamInvitesRoute
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
   '/api/shapes/teams': typeof ApiShapesTeamsRoute
@@ -825,6 +832,7 @@ export interface FileRoutesByTo {
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
   '/api/shapes/notifications': typeof ApiShapesNotificationsRoute
+  '/api/shapes/pins': typeof ApiShapesPinsRoute
   '/api/shapes/team-invites': typeof ApiShapesTeamInvitesRoute
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
   '/api/shapes/teams': typeof ApiShapesTeamsRoute
@@ -932,6 +940,7 @@ export interface FileRoutesById {
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
   '/api/shapes/notifications': typeof ApiShapesNotificationsRoute
+  '/api/shapes/pins': typeof ApiShapesPinsRoute
   '/api/shapes/team-invites': typeof ApiShapesTeamInvitesRoute
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
   '/api/shapes/teams': typeof ApiShapesTeamsRoute
@@ -1039,6 +1048,7 @@ export interface FileRouteTypes {
     | '/api/shapes/issues'
     | '/api/shapes/labels'
     | '/api/shapes/notifications'
+    | '/api/shapes/pins'
     | '/api/shapes/team-invites'
     | '/api/shapes/team-members'
     | '/api/shapes/teams'
@@ -1141,6 +1151,7 @@ export interface FileRouteTypes {
     | '/api/shapes/issues'
     | '/api/shapes/labels'
     | '/api/shapes/notifications'
+    | '/api/shapes/pins'
     | '/api/shapes/team-invites'
     | '/api/shapes/team-members'
     | '/api/shapes/teams'
@@ -1247,6 +1258,7 @@ export interface FileRouteTypes {
     | '/api/shapes/issues'
     | '/api/shapes/labels'
     | '/api/shapes/notifications'
+    | '/api/shapes/pins'
     | '/api/shapes/team-invites'
     | '/api/shapes/team-members'
     | '/api/shapes/teams'
@@ -1345,6 +1357,7 @@ export interface RootRouteChildren {
   ApiShapesIssuesRoute: typeof ApiShapesIssuesRoute
   ApiShapesLabelsRoute: typeof ApiShapesLabelsRoute
   ApiShapesNotificationsRoute: typeof ApiShapesNotificationsRoute
+  ApiShapesPinsRoute: typeof ApiShapesPinsRoute
   ApiShapesTeamInvitesRoute: typeof ApiShapesTeamInvitesRoute
   ApiShapesTeamMembersRoute: typeof ApiShapesTeamMembersRoute
   ApiShapesTeamsRoute: typeof ApiShapesTeamsRoute
@@ -1679,6 +1692,13 @@ declare module '@tanstack/react-router' {
       path: '/api/shapes/team-invites'
       fullPath: '/api/shapes/team-invites'
       preLoaderRoute: typeof ApiShapesTeamInvitesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/pins': {
+      id: '/api/shapes/pins'
+      path: '/api/shapes/pins'
+      fullPath: '/api/shapes/pins'
+      preLoaderRoute: typeof ApiShapesPinsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/shapes/notifications': {
@@ -2278,6 +2298,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesIssuesRoute: ApiShapesIssuesRoute,
   ApiShapesLabelsRoute: ApiShapesLabelsRoute,
   ApiShapesNotificationsRoute: ApiShapesNotificationsRoute,
+  ApiShapesPinsRoute: ApiShapesPinsRoute,
   ApiShapesTeamInvitesRoute: ApiShapesTeamInvitesRoute,
   ApiShapesTeamMembersRoute: ApiShapesTeamMembersRoute,
   ApiShapesTeamsRoute: ApiShapesTeamsRoute,

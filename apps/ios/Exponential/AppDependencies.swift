@@ -61,6 +61,9 @@ final class AppDependencies: @unchecked Sendable {
     let automationsApi: AutomationsApi
     // Widget/agent submission metadata (EXP-496) — tRPC-only.
     let widgetsApi: WidgetsApi
+    // EXP-778: personal pins — one toggle mutation; the rows arrive over the
+    // synced `pins` shape.
+    let pinsApi: PinsApi
 
     // Push
     let pushTokenManager: PushTokenManager
@@ -167,6 +170,7 @@ final class AppDependencies: @unchecked Sendable {
         self.actionsApi = ActionsApi(trpc: trpc)
         self.automationsApi = AutomationsApi(trpc: trpc)
         self.widgetsApi = WidgetsApi(trpc: trpc)
+        self.pinsApi = PinsApi(trpc: trpc)
 
         // Push notifications
         let pushTokenManager = PushTokenManager(pushTokensApi: pushTokensApi, auth: auth)

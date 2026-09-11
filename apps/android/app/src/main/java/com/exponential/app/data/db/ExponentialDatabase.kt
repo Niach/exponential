@@ -25,6 +25,7 @@ import androidx.room.RoomDatabase
         AutomationEntity::class,
         DeviceEntity::class,
         DeviceWorktreeEntity::class,
+        PinEntity::class,
         ElectricOffsetEntity::class,
     ],
     // v2: added attachments.width / attachments.height (parity with iOS).
@@ -235,9 +236,12 @@ import androidx.room.RoomDatabase
     //      it), NULL = the generic prompt. New column on the actions shape
     //      allowlist; destructive fallback wipes + resyncs so every action
     //      row arrives carrying it.
+    // v52 (EXP-778): pins table — the caller's personal pins (issue / coding
+    //      session / action), the 21st Electric shape, static per user. New
+    //      table, so the destructive fallback wipes + resyncs.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 51,
+    version = 52,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {
@@ -261,5 +265,6 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun automationDao(): AutomationDao
     abstract fun deviceDao(): DeviceDao
     abstract fun deviceWorktreeDao(): DeviceWorktreeDao
+    abstract fun pinDao(): PinDao
     abstract fun electricOffsetDao(): ElectricOffsetDao
 }

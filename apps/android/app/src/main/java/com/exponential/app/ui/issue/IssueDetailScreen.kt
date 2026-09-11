@@ -129,6 +129,8 @@ fun IssueDetailScreen(
     val steerEnabled by viewModel.steerEnabled.collectAsStateWithLifecycle()
     val widgetSubmission by viewModel.widgetSubmission.collectAsStateWithLifecycle()
     val steerDevices by viewModel.steerDevices.collectAsStateWithLifecycle()
+    // EXP-778: the pin toggle beside the top bar's "…".
+    val pinned by viewModel.pinned.collectAsStateWithLifecycle()
     val missing by viewModel.missing.collectAsStateWithLifecycle()
     val duplicateOf by viewModel.duplicateOf.collectAsStateWithLifecycle()
     val duplicateCandidates by viewModel.duplicateCandidates.collectAsStateWithLifecycle()
@@ -317,6 +319,16 @@ fun IssueDetailScreen(
                         // Move to board. The MENU is available to everyone;
                         // only the mutating items are moderator-gated.
                         val url = shareUrl
+                        // EXP-778: the personal pin toggle sits beside the
+                        // "…" (web/desktop parity: a small pin next to the
+                        // title); state comes off the synced pins table.
+                        CircleIconButton(
+                            if (pinned) ExpIcons.uiUnpin else ExpIcons.uiPin,
+                            if (pinned) "Unpin" else "Pin",
+                            onClick = viewModel::togglePin,
+                            active = pinned,
+                            modifier = Modifier.padding(end = 4.dp),
+                        )
                         // The Box stays: it anchors the dropdown to the button.
                         Box {
                             CircleIconButton(

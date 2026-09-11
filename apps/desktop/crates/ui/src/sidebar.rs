@@ -814,6 +814,10 @@ impl RailView {
             cx.observe(&collections.teams, |_, _, cx| cx.notify()),
             // The Inbox and Support dots are live reads over unread rows.
             cx.observe(&collections.notifications, |_, _, cx| cx.notify()),
+            // EXP-778: the Pinned section — its rows, and the action names
+            // it resolves (issues/sessions are observed already).
+            cx.observe(&collections.pins, |_, _, cx| cx.notify()),
+            cx.observe(&collections.actions, |_, _, cx| cx.notify()),
             // The Devices dot is a live read over my coding_sessions rows.
             cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()),
             // EXP-791: the Sessions rows include the runs THIS process hosts
@@ -1088,6 +1092,138 @@ impl RailView {
                         }),
                 );
             }
+            out.push(row_el.into_any_element());
+        }
+        out
+    }
+
+    /// EXP-778: the Pinned section's rows — the caller's pins in the ACTIVE
+    /// team, in `sort_order`, each resolved against its sibling collection
+    /// and HIDDEN when the target is gone (a trashed board's issue, a session
+    /// the shape no longer carries, a deleted action). An issue row leads
+    /// with its mono identifier and opens the detail scoped on its board
+    /// (the Issues list's path); a session row wears the Sessions row's
+    /// state dot and opens the run the way every entry point does; an
+    /// action row leads with the action's glyph and opens the Agent
+    /// composer with that action picked (the Actions page's ▶ Run seam).
+    /// Empty when nothing is pinned — the caller hides the section.
+    fn render_pinned_rows(&mut self, cx: &mut gpui::Context<Self>) -> Vec<gpui::AnyElement> {
+        let Some(team_id) = active_team_id(&self.nav, cx) else {
+            return Vec::new();
+        };
+        let pins = crate::pins::pins_in_team(&team_id, cx);
+        if pins.is_empty() {
+            return Vec::new();
+        }
+        let active_screen = resolved_screen(&self.nav, cx);
+        let collections = Store::global(cx).collections().clone();
+        let muted = cx.theme().muted_foreground;
+        let now = chrono::Utc::now().timestamp();
+        let mut out = Vec::with_capacity(pins.len());
+        for (index, pin) in pins.iter().enumerate() {
+            let Some((kind, target_id)) = crate::pins::pin_target(pin) else {
+                continue;
+            };
+            let row_el = match kind {
+                domain::contract::PIN_KIND_ISSUE => {
+                    let Some(issue) = collections.issues.read(cx).get(target_id).cloned() else {
+                        continue;
+                    };
+                    let screen = Screen::IssueDetail {
+                        issue_id: issue.id.clone(),
+                    };
+                    let active = active_screen.as_ref() == Some(&screen);
+                    let lead = div()
+                        .flex_shrink_0()
+                        .text_xs()
+                        .text_color(muted)
+                        .font_family(theme::terminal::FONT_FAMILY)
+                        .child(SharedString::from(issue.identifier.clone()))
+                        .into_any_element();
+                    let issue_id = issue.id.clone();
+                    let board_id = issue.board_id.clone();
+                    rail_row_lead(("rail-pin", index), lead, issue.title.clone(), active, None, cx)
+                        .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                            crate::navigation::open_issue_scoped(
+                                window,
+                                cx,
+                                issue_id.clone(),
+                                board_id.clone(),
+                            );
+                        }))
+                }
+                domain::contract::PIN_KIND_SESSION => {
+                    let Some(row) = collections.coding_sessions.read(cx).get(target_id).cloned()
+                    else {
+                        continue;
+                    };
+                    let screen = Screen::Session {
+                        session_id: row.id.clone(),
+                    };
+                    let active = active_screen.as_ref() == Some(&screen);
+                    let title = crate::navigation::screen_title(&screen, cx);
+                    // The Sessions row's dot, derived the same way.
+                    let ended = row.status.as_deref()
+                        == Some(domain::contract::CODING_SESSION_STATUS_ENDED);
+                    let pr_state = row
+                        .issue_id
+                        .as_deref()
+                        .and_then(|issue_id| collections.issues.read(cx).get(issue_id).cloned())
+                        .and_then(|issue| issue.pr_state)
+                        .or_else(|| row.pr_state.clone());
+                    let display = queries::coding_session_display(&row, pr_state.as_deref());
+                    let presentation = queries::session_device_presentation(
+                        &row,
+                        collections.devices.read(cx).iter(),
+                        now * 1_000,
+                    );
+                    let state = session_row_state(
+                        ended,
+                        queries::session_is_paused(display, &presentation),
+                        display == queries::CodingSessionDisplay::NeedsInput,
+                    );
+                    let dot = div()
+                        .flex_shrink_0()
+                        .size_1p5()
+                        .rounded_full()
+                        .bg(state.dot(display, muted))
+                        .into_any_element();
+                    let open_id = row.id.clone();
+                    rail_row_lead(("rail-pin", index), dot, title, active, None, cx)
+                        .when(state == SessionRowState::Paused, |row| row.opacity(0.6))
+                        .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                            crate::session_screen::open_session(&open_id, window, cx);
+                        }))
+                }
+                domain::contract::PIN_KIND_ACTION => {
+                    let Some(action) = collections.actions.read(cx).get(target_id).cloned() else {
+                        continue;
+                    };
+                    let name = action
+                        .name
+                        .clone()
+                        .unwrap_or_else(|| "Untitled action".to_string());
+                    let lead = crate::icons::action_icon(action.icon.as_deref())
+                        .xsmall()
+                        .flex_shrink_0()
+                        .into_any_element();
+                    let action_id = action.id.clone();
+                    rail_row_lead(("rail-pin", index), lead, name, false, None, cx)
+                        .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                            // `ActionsView::run`: no agent CLI, nothing to
+                            // run — the composer would refuse anyway.
+                            if crate::coding_flow::no_agent_reason(cx).is_some() {
+                                return;
+                            }
+                            crate::navigation::navigate_to_chat(
+                                window,
+                                cx,
+                                crate::navigation::ChatSeed::action(action_id.clone()),
+                            );
+                        }))
+                }
+                _ => continue,
+            };
             out.push(row_el.into_any_element());
         }
         out
@@ -1752,6 +1888,17 @@ impl Render for RailView {
                     )
                     .into_any_element()
             });
+        // EXP-778: the Pinned section — hidden while nothing is pinned.
+        let pinned_rows = self.render_pinned_rows(cx);
+        let pinned_section: Option<gpui::AnyElement> = (!pinned_rows.is_empty()).then(|| {
+            v_flex()
+                .w_full()
+                .gap_1()
+                .child(self.divider(cx))
+                .child(self.section_label("Pinned", cx))
+                .children(pinned_rows)
+                .into_any_element()
+        });
         // EXP-791: the Sessions section — hidden while nothing is up.
         let session_rows = self.render_session_rows(window, cx);
         let sessions_section: Option<gpui::AnyElement> = (!session_rows.is_empty()).then(|| {
@@ -1918,7 +2065,8 @@ impl Render for RailView {
             // Settings/Account off small windows. Rail order (EXP-699, the
             // mobile tab-bar order; EXP-791 added Agent and Sessions):
             // [Inbox, Support, Devices, Actions, Automations, Reviews, Agent]
-            // / boards + "+" / Sessions / This device: [Files, Source Control].
+            // / Pinned (EXP-778) / boards + "+" / Sessions / This device:
+            // [Files, Source Control].
             .child(crate::scroll_pane::v_scroll_pane(
                 "rail-scroll",
                 &self.rail_scroll,
@@ -1978,6 +2126,9 @@ impl Render for RailView {
                     // list on the left, the Chat prompt in the center until a
                     // row is clicked (the Support master-detail shape).
                     .child(self.rail_agent_entry(cx))
+                    // EXP-778: Pinned sits between the nav entries and the
+                    // boards (rail order: entries / Pinned / boards / Sessions).
+                    .children(pinned_section)
                     .child(self.divider(cx))
                     .children(boards_header)
                     .children(board_icons)

@@ -99,7 +99,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v25_board_default_branch", "v26_coding_session_pr",
              "v27_issue_relations", "v28_comment_threads",
              "v29_device_acp_agents", "v30_coding_session_blocked",
-             "v31_coding_session_parent", "v32_action_prompt_placeholder"]
+             "v31_coding_session_parent", "v32_action_prompt_placeholder",
+             "v33_pins"]
         )
     }
 
@@ -125,7 +126,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v25_board_default_branch", "v26_coding_session_pr",
              "v27_issue_relations", "v28_comment_threads",
              "v29_device_acp_agents", "v30_coding_session_blocked",
-             "v31_coding_session_parent", "v32_action_prompt_placeholder"]
+             "v31_coding_session_parent", "v32_action_prompt_placeholder",
+             "v33_pins"]
         )
     }
 
@@ -179,7 +181,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v25_board_default_branch", "v26_coding_session_pr",
              "v27_issue_relations", "v28_comment_threads",
              "v29_device_acp_agents", "v30_coding_session_blocked",
-             "v31_coding_session_parent", "v32_action_prompt_placeholder"]
+             "v31_coding_session_parent", "v32_action_prompt_placeholder",
+             "v33_pins"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -253,7 +256,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v25_board_default_branch", "v26_coding_session_pr",
              "v27_issue_relations", "v28_comment_threads",
              "v29_device_acp_agents", "v30_coding_session_blocked",
-             "v31_coding_session_parent", "v32_action_prompt_placeholder"]
+             "v31_coding_session_parent", "v32_action_prompt_placeholder",
+             "v33_pins"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -612,6 +616,48 @@ final class DatabaseMigrationTests: XCTestCase {
     // and get the coding-sessions shape offset reset (the key has A DASH —
     // the proxy route name, not the table name) so already-synced rows
     // re-arrive carrying the host machine's deviceId.
+    // v33 (EXP-778 pins): a store created before the `pins` table existed
+    // must gain it on upgrade. A brand-new shape has no offset row, so no
+    // shape offset is touched.
+    func testPinsTableAddedToExistingStore() throws {
+        let pool = try makePool("pins")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v32_action_prompt_placeholder")
+        try pool.write { db in
+            XCTAssertFalse(try db.tableExists("pins"))
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('issues', 'h', '0_0', 0, 1)
+                """)
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertTrue(try pool.read { db in try db.tableExists("pins") })
+        XCTAssertEqual(
+            try columnNames(pool, "pins"),
+            ["id", "user_id", "team_id", "kind", "issue_id", "session_id",
+             "action_id", "sort_order", "created_at", "updated_at"]
+        )
+        let indexed = try pool.read { db in
+            try db.indexes(on: "pins").contains { $0.columns == ["user_id", "team_id"] }
+        }
+        XCTAssertTrue(indexed)
+        // Other shapes' offsets are untouched.
+        let untouched = try pool.read { db in
+            try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT "handle", "needs_refetch" FROM "electric_offsets" WHERE "shape" = 'issues'
+                    """
+            )
+        }
+        let handle: String? = untouched?["handle"]
+        let needsRefetch: Bool? = untouched?["needs_refetch"]
+        XCTAssertEqual(handle, "h")
+        XCTAssertEqual(needsRefetch, false)
+    }
+
     func testCodingSessionDeviceIdAddedToExistingStore() throws {
         let pool = try makePool("session-device-id")
         let migrator = DatabaseManager.makeMigrator()
@@ -724,7 +770,7 @@ final class DatabaseMigrationTests: XCTestCase {
                       "users", "team_members", "team_invites", "comments",
                       "attachments", "notifications", "issue_subscribers",
                       "issue_events", "coding_sessions", "actions",
-                      "automations", "issue_statuses", "electric_offsets"] {
+                      "automations", "issue_statuses", "pins", "electric_offsets"] {
             let exists = try pool.read { db in try db.tableExists(table) }
             XCTAssertTrue(exists, "missing table \(table)")
         }
@@ -806,6 +852,15 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertTrue(automationCols.contains("device_id"))
         XCTAssertTrue(automationCols.contains("enabled"))
         XCTAssertTrue(automationCols.contains("trigger"))
+
+        // EXP-778: pins are per-user (21st shape) — team_id + kind + the
+        // three nullable target columns, exactly one of which is set.
+        let pinCols = try columnNames(pool, "pins")
+        XCTAssertEqual(
+            pinCols,
+            ["id", "user_id", "team_id", "kind", "issue_id", "session_id",
+             "action_id", "sort_order", "created_at", "updated_at"]
+        )
 
         // Custom issue statuses (EXP-314, 16th shape): the team-scoped table
         // plus the nullable `status_id` on issues. `issues.status` STAYS as the

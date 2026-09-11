@@ -73,6 +73,7 @@ import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.AgentComposerSeed
+import com.exponential.app.domain.PinnedRow
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.IssueStatusCategory
@@ -268,6 +269,8 @@ fun IssueListScreen(
         }
     }
     val homeState = homeViewModel?.state?.collectAsStateWithLifecycle()?.value
+    // EXP-778: the switcher's "Pinned" section (the active team's pins).
+    val pinnedRows = homeViewModel?.pinned?.collectAsStateWithLifecycle()?.value.orEmpty()
     val homeError = homeViewModel?.error?.collectAsStateWithLifecycle()?.value
     if (homeViewModel != null) {
         LaunchedEffect(Unit) { homeViewModel.bootstrap() }
@@ -668,6 +671,18 @@ fun IssueListScreen(
                 showTeamSetup = true
             },
             onDismiss = { showSwitcher = false },
+            // EXP-778: a pinned row opens its target — issue detail, the
+            // steering screen, or the composer with the action preselected
+            // (the actions list's Run seam). The sheet closes first.
+            pinned = pinnedRows,
+            onOpenPin = { row ->
+                showSwitcher = false
+                when (row) {
+                    is PinnedRow.Issue -> onOpenIssue(row.issue.id)
+                    is PinnedRow.Session -> onOpenSteer(row.session.id)
+                    is PinnedRow.Action -> onOpenAgent(AgentComposerSeed(actionId = row.action.id))
+                }
+            },
         )
     }
 

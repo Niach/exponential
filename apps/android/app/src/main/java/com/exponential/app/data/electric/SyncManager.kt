@@ -27,6 +27,7 @@ import com.exponential.app.data.db.IssueStatusEntity
 import com.exponential.app.data.db.IssueSubscriberEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.NotificationEntity
+import com.exponential.app.data.db.PinEntity
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.TeamEntity
@@ -108,7 +109,7 @@ class SyncManager @Inject constructor(
     @Volatile private var backgroundedAtMs: Long? = null
 
     // Debounce gate for unforced kicks: foreground + network-available +
-    // several pushes can land within the same second, and 20 shapes each
+    // several pushes can land within the same second, and 21 shapes each
     // dropping a live connection per trigger is a real cost.
     private val lastKickGate = AtomicLong(0L)
 
@@ -361,7 +362,7 @@ class SyncManager @Inject constructor(
             for (accountId in signedIn - running) {
                 val db = databaseHolder.database(forAccountId = accountId)
                 pipelines[accountId] = launchPipeline(accountId, db)
-                android.util.Log.i("SyncManager", "Launched shape pipeline (20 shapes) for $accountId")
+                android.util.Log.i("SyncManager", "Launched shape pipeline (21 shapes) for $accountId")
             }
         }
     }
@@ -435,6 +436,7 @@ class SyncManager @Inject constructor(
         val automationDao = db.automationDao()
         val deviceDao = db.deviceDao()
         val deviceWorktreeDao = db.deviceWorktreeDao()
+        val pinDao = db.pinDao()
 
         val shapes = listOf(
             launchShape(
@@ -636,6 +638,18 @@ class SyncManager @Inject constructor(
                 onUpdate = { deviceWorktreeDao.upsert(it) },
                 onDelete = { deviceWorktreeDao.deleteById(it.id) },
                 onRefetch = { deviceWorktreeDao.clear() },
+            ),
+            // EXP-778: personal pins — static per user, never team/trash
+            // scoped (the client resolves targets against the other shapes).
+            launchShape(
+                shape = "pins", path = "/api/shapes/pins", tableName = "pins",
+                serializer = PinEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("pins"),
+                onInsert = { pinDao.upsert(it) },
+                onUpdate = { pinDao.upsert(it) },
+                onDelete = { pinDao.deleteById(it.id) },
+                onRefetch = { pinDao.clear() },
             ),
         )
         return Pipeline(jobs = shapes.map { it.first }, clients = shapes.map { it.second })

@@ -787,6 +787,97 @@ extension AutomationEntity: Codable {
     }
 }
 
+// MARK: - Pin
+
+// EXP-778: personal pins — the 21st Electric shape. ONE row per (user,
+// target): an issue, a coding session or an action the user pinned into the
+// sidebar. The shape is static per user (`user_id = me`), NOT team/trash
+// scoped, so the local table holds every team's pins and the CLIENT renders
+// only the rows whose `team_id` is the active team AND whose target resolves
+// locally (`PinQueries`) — an unresolvable target is hidden, never shown as
+// a dead row. `kind` ∈ contract `pinKind`; exactly one of issue_id /
+// session_id / action_id is set. Mirrors packages/db-schema pins.
+public struct PinEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+    public static let databaseTableName = "pins"
+
+    public let id: String
+    public let userId: String
+    public let teamId: String
+    /// `issue` | `session` | `action` (`DomainContract.pinKindValues`).
+    public let kind: String
+    public let issueId: String?
+    public let sessionId: String?
+    public let actionId: String?
+    /// Ascending = display order.
+    public let sortOrder: Double?
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        id: String,
+        userId: String,
+        teamId: String,
+        kind: String,
+        issueId: String? = nil,
+        sessionId: String? = nil,
+        actionId: String? = nil,
+        sortOrder: Double?,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.id = id
+        self.userId = userId
+        self.teamId = teamId
+        self.kind = kind
+        self.issueId = issueId
+        self.sessionId = sessionId
+        self.actionId = actionId
+        self.sortOrder = sortOrder
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    /// The one target id the row points at, whichever column carries it.
+    public var targetId: String? {
+        switch kind {
+        case DomainContract.pinKindIssue: issueId
+        case DomainContract.pinKindSession: sessionId
+        case DomainContract.pinKindAction: actionId
+        default: nil
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, kind
+        case userId = "user_id"
+        case teamId = "team_id"
+        case issueId = "issue_id"
+        case sessionId = "session_id"
+        case actionId = "action_id"
+        case sortOrder = "sort_order"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+// Custom decode: `sort_order` comes off the Electric wire as Postgres text
+// (the issues/actions precedent) and as a native number from fixtures.
+extension PinEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        userId = try c.decode(String.self, forKey: .userId)
+        teamId = try c.decode(String.self, forKey: .teamId)
+        kind = try c.decode(String.self, forKey: .kind)
+        issueId = try c.decodeIfPresent(String.self, forKey: .issueId)
+        sessionId = try c.decodeIfPresent(String.self, forKey: .sessionId)
+        actionId = try c.decodeIfPresent(String.self, forKey: .actionId)
+        sortOrder = try c.decodeWireDouble(forKey: .sortOrder)
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+        updatedAt = try c.decode(String.self, forKey: .updatedAt)
+    }
+}
+
 // MARK: - Label
 
 public struct LabelEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {

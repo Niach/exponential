@@ -309,13 +309,21 @@ impl ActionsView {
                         this.run(run_id.clone(), window, cx);
                     })),
             );
-        // Web parity: the ⋯ menu renders only for owners on non-builtin
-        // rows — builtins have no editable row and no delete.
-        if is_owner && !action.builtin {
+        // The ⋯ menu renders on non-builtin rows — builtins have no
+        // editable row, no delete, and (EXP-778) no pin (they are not DB
+        // rows). Pin/Unpin is personal, so every member gets it; Edit and
+        // Delete stay owner-only (web parity).
+        if !action.builtin {
             let edit_id = action.id.clone();
             let delete_view = cx.entity().downgrade();
             let delete_id = action.id.clone();
             let delete_name = action.name.clone();
+            let pin_team_id = self.team_id(cx);
+            let pinned = crate::pins::is_pinned(
+                domain::contract::PIN_KIND_ACTION,
+                &action.id,
+                cx,
+            );
             row = row.child(
                 div().flex_shrink_0().child(
                     // EXP-698: the one 32px glass chrome every row action wears.
@@ -324,11 +332,33 @@ impl ActionsView {
                         Icon::from(registry::UI_MORE),
                         cx,
                     )
-                        .dropdown_menu(move |menu, _window, cx| {
+                        .dropdown_menu(move |mut menu, _window, cx| {
                             let edit_id = edit_id.clone();
                             let delete_view = delete_view.clone();
                             let delete_id = delete_id.clone();
                             let delete_name = delete_name.clone();
+                            if let Some(team_id) = pin_team_id.clone() {
+                                let pin_id = edit_id.clone();
+                                menu = menu.item(
+                                    PopupMenuItem::new(if pinned { "Unpin" } else { "Pin" })
+                                        .icon(Icon::from(if pinned {
+                                            registry::UI_UNPIN
+                                        } else {
+                                            registry::UI_PIN
+                                        }))
+                                        .on_click(move |_, _window, cx| {
+                                            crate::pins::toggle_pin(
+                                                team_id.clone(),
+                                                domain::contract::PIN_KIND_ACTION,
+                                                pin_id.clone(),
+                                                cx,
+                                            );
+                                        }),
+                                );
+                            }
+                            if !is_owner {
+                                return menu;
+                            }
                             menu.item(
                                 PopupMenuItem::new("Edit")
                                     .icon(Icon::from(registry::UI_EDIT))

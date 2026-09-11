@@ -1377,6 +1377,32 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v33 (EXP-778 pins): the synced `pins` table — the 21st shape, static
+        // per user (`user_id = me`), NOT team-scoped: every team's pins land
+        // here and the reader filters on `team_id` + resolves the target
+        // locally. A brand-new shape has no offset row, so no reset (the v20
+        // precedent).
+        migrator.registerMigration("v33_pins") { db in
+            try db.create(table: "pins", ifNotExists: true) { t in
+                t.primaryKey("id", .text)
+                t.column("user_id", .text).notNull()
+                t.column("team_id", .text).notNull()
+                // issue | session | action (contract pinKind).
+                t.column("kind", .text).notNull()
+                // Exactly one of the three is set.
+                t.column("issue_id", .text)
+                t.column("session_id", .text)
+                t.column("action_id", .text)
+                t.column("sort_order", .double).notNull().defaults(to: 0)
+                t.column("created_at", .text).notNull()
+                t.column("updated_at", .text).notNull()
+            }
+            try db.create(
+                index: "pins_user_team_idx", on: "pins", columns: ["user_id", "team_id"],
+                ifNotExists: true
+            )
+        }
+
         return migrator
     }
 
@@ -1384,6 +1410,8 @@ public final class DatabaseManager: @unchecked Sendable {
         guard let pool = lock.withLock({ pools[accountId] }) else { return }
         try pool.write { db in
             try db.execute(sql: "DELETE FROM electric_offsets")
+            // EXP-778: pins point at issues/sessions/actions — first.
+            try db.execute(sql: "DELETE FROM pins")
             // EXP-481: child before parent, like the issue tables below.
             try db.execute(sql: "DELETE FROM device_worktrees")
             try db.execute(sql: "DELETE FROM devices")

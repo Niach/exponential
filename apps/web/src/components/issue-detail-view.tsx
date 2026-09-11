@@ -63,6 +63,7 @@ import { useIsTeamMember } from "@/components/issue-coding-rows"
 import { useSteerConfig } from "@/components/agent-session"
 import { DETAIL_STICKY_BAND_CLASS } from "@/components/team/app-shell"
 import { IssueDetailMobileMenu } from "@/components/issue-detail-mobile-menu"
+import { PinToggleButton } from "@/components/pin-toggle-button"
 import { WidgetSubmissionCard } from "@/components/widget-submission-card"
 
 const UiMoreIcon = conceptIcon(`ui-more`)
@@ -721,6 +722,12 @@ export function IssueDetailView({
   )
 
 
+  // EXP-778: the small pin toggle beside the title — pinned issues land in
+  // the sidebar's Pinned group on every client.
+  const pinToggle = (
+    <PinToggleButton teamId={teamId} kind="issue" targetId={issue.id} />
+  )
+
   // The phone header collapses copy-link / unmark / delete into ONE `…`
   // (EXP-687), the way the iOS and Android toolbars already do.
   const mobileMenu = (
@@ -763,7 +770,10 @@ export function IssueDetailView({
       <span className="truncate text-foreground">{title}</span>
       {/* EXP-698 r5: no prev/next on phones — the natives have none either,
           and the row is too tight for a switcher nobody reaches for there. */}
-      <div className="ml-auto flex shrink-0 items-center">{mobileMenu}</div>
+      <div className="ml-auto flex shrink-0 items-center gap-1">
+        {pinToggle}
+        {mobileMenu}
+      </div>
     </div>
   )
 
@@ -963,7 +973,10 @@ export function IssueDetailView({
             >
               <div className="mx-auto flex max-w-3xl items-start gap-2">
                 <div className="min-w-0 flex-1">{titleField}</div>
-                <div className="shrink-0 pt-4 pr-4">{actionsMenu}</div>
+                <div className="flex shrink-0 items-center gap-1 pt-4 pr-4">
+                  {pinToggle}
+                  {actionsMenu}
+                </div>
               </div>
               {propsBand}
             </div>

@@ -16,6 +16,7 @@ struct IssuesHomeView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(TeamState.self) private var teamState
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.pushRoute) private var pushRoute
     @State private var showSwitcher = false
     // EXP-698 r5: the getting-started checklist's live state. Owned HERE (the
     // Issues root) and published into the environment, so the root board's
@@ -38,6 +39,9 @@ struct IssuesHomeView: View {
     private enum SwitcherAction {
         case createBoard
         case createTeam
+        /// EXP-778: a Pinned row — the route it resolves to is pushed once
+        /// the sheet is gone.
+        case openPinned(PinnedItem)
     }
 
     private var gettingStarted: GettingStartedProgress { gettingStartedContext.progress }
@@ -128,6 +132,11 @@ struct IssuesHomeView: View {
                 onCreateTeam: {
                     pendingSwitcherAction = .createTeam
                     showSwitcher = false
+                },
+                pinScope: pinScope,
+                onOpenPinned: { item in
+                    pendingSwitcherAction = .openPinned(item)
+                    showSwitcher = false
                 }
             )
         }
@@ -156,6 +165,36 @@ struct IssuesHomeView: View {
             Task { await beginCreateBoard() }
         case .createTeam:
             showTeamSetup = true
+        case let .openPinned(item):
+            openPinned(item)
+        }
+    }
+
+    // MARK: - Pins (EXP-778)
+
+    /// The switcher's Pinned section scope: the account + team of the board
+    /// in view (else the active team) — the same team the checklist uses.
+    private var pinScope: PinScope? {
+        guard let accountId = currentBoard?.accountId ?? deps.auth.activeAccountId,
+              let teamId = checklistTeamId else { return nil }
+        return PinScope(accountId: accountId, teamId: teamId)
+    }
+
+    /// Issue → its detail; session → its steering screen; action → the Agent
+    /// page composer with the action picked (where the actions list's play
+    /// glyph goes, EXP-825).
+    private func openPinned(_ item: PinnedItem) {
+        guard let scope = pinScope else { return }
+        switch item {
+        case let .issue(_, issue):
+            pushRoute(.issue(accountId: scope.accountId, id: issue.id))
+        case let .session(_, session, _):
+            pushRoute(.agentSession(accountId: scope.accountId, sessionId: session.id))
+        case let .action(_, action):
+            pushRoute(.agent(
+                accountId: scope.accountId,
+                seed: AgentComposerSeed(actionId: action.id, teamId: action.teamId)
+            ))
         }
     }
 

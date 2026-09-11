@@ -50,6 +50,8 @@ import {
   notificationTypeValues,
   prStateSchema,
   prStateValues,
+  pinKindSchema,
+  pinKindValues,
   subscriberSourceSchema,
   subscriberSourceValues,
   teamRoleSchema,
@@ -120,6 +122,9 @@ export const subscriberSourceEnum = pgEnum(
   `subscriber_source`,
   subscriberSourceValues
 )
+
+// EXP-778: what a personal pin points at.
+export const pinKindEnum = pgEnum(`pin_kind`, pinKindValues)
 
 export const issueRelationTypeEnum = pgEnum(
   `issue_relation_type`,
@@ -1670,6 +1675,62 @@ export const issueSubscribers = pgTable(
   ]
 )
 
+// EXP-778: personal pins — the sidebar's "Pinned" group on every client. One
+// row per (user, target); `kind` names the target column that is set
+// (issue_id / session_id / action_id), each an FK cascade so a pin dies with
+// its target. Team-scoped only for grouping: the shape is per USER (static
+// `user_id = me`, never rotating), clients render the rows of the active team
+// whose target they can resolve from the other shapes — a pin whose issue sits
+// on a trashed board simply has no synced target until the board purges (48h,
+// cascade) or restores. `sort_order` is fractional-index room for a future
+// drag reorder; today a new pin appends.
+export const pins = pgTable(
+  `pins`,
+  {
+    id: uuidPk(),
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    kind: pinKindEnum().notNull(),
+    issueId: uuid(`issue_id`).references(() => issues.id, {
+      onDelete: `cascade`,
+    }),
+    sessionId: uuid(`session_id`).references(() => codingSessions.id, {
+      onDelete: `cascade`,
+    }),
+    actionId: uuid(`action_id`).references(() => actions.id, {
+      onDelete: `cascade`,
+    }),
+    sortOrder: doublePrecision(`sort_order`).notNull().default(0),
+    ...timestamps,
+  },
+  (table) => [
+    check(
+      `pins_kind_target_check`,
+      sql`(kind = 'issue' AND issue_id IS NOT NULL AND session_id IS NULL AND action_id IS NULL) OR (kind = 'session' AND session_id IS NOT NULL AND issue_id IS NULL AND action_id IS NULL) OR (kind = 'action' AND action_id IS NOT NULL AND issue_id IS NULL AND session_id IS NULL)`
+    ),
+    uniqueIndex(`uniq_pins_user_issue`)
+      .on(table.userId, table.issueId)
+      .where(sql`issue_id IS NOT NULL`),
+    uniqueIndex(`uniq_pins_user_session`)
+      .on(table.userId, table.sessionId)
+      .where(sql`session_id IS NOT NULL`),
+    uniqueIndex(`uniq_pins_user_action`)
+      .on(table.userId, table.actionId)
+      .where(sql`action_id IS NOT NULL`),
+    // Plain indexes on every FK: the RI cascades' unconditional deletes can't
+    // use the partial uniques above.
+    index(`idx_pins_user`).on(table.userId),
+    index(`idx_pins_team`).on(table.teamId),
+    index(`idx_pins_issue`).on(table.issueId),
+    index(`idx_pins_session`).on(table.sessionId),
+    index(`idx_pins_action`).on(table.actionId),
+  ]
+)
+
 // Activity log (D9): status/assignee/label/PR/plan/error events, rendered as a
 // Linear-style timeline on every client. `payload` carries event-specific data
 // (e.g. { from, to } for a status change).
@@ -2432,6 +2493,10 @@ export const selectAttachmentSchema = createSelectSchema(attachments)
 
 export const selectNotificationSchema = createSelectSchema(notifications)
 
+export const selectPinSchema = createSelectSchema(pins, {
+  kind: pinKindSchema,
+})
+
 export const selectIssueSubscriberSchema = createSelectSchema(
   issueSubscribers,
   {
@@ -2533,6 +2598,7 @@ export type SessionAttachment = InferSelectModel<typeof sessionAttachments>
 
 export type User = InferSelectModel<typeof users>
 export type Notification = InferSelectModel<typeof notifications>
+export type Pin = InferSelectModel<typeof pins>
 export type IssueSubscriber = InferSelectModel<typeof issueSubscribers>
 export type IssueEvent = InferSelectModel<typeof issueEvents>
 export type CodingSession = InferSelectModel<typeof codingSessions>

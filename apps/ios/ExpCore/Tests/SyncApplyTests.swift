@@ -355,6 +355,90 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertFalse(bare.hasOpenPr)
     }
 
+    // EXP-778: a pins row off the wire — `sort_order` arrives as Postgres
+    // text like every numeric column, the two unused target columns as null.
+    func testPinInsertDecodesWireSortOrderAndPersists() async throws {
+        let json = """
+            {"id":"pin1","user_id":"u1","team_id":"ws1","kind":"issue",
+             "issue_id":"i1","session_id":null,"action_id":null,"sort_order":"1.5",
+             "created_at":"2026-09-11T09:00:00Z","updated_at":"2026-09-11T09:00:00Z"}
+            """
+        let pin = try JSONDecoder().decode(PinEntity.self, from: Data(json.utf8))
+        XCTAssertEqual(pin.sortOrder, 1.5)
+        XCTAssertEqual(pin.targetId, "i1")
+        XCTAssertNil(pin.sessionId)
+        let message = ShapeMessage<PinEntity>.insert(key: #""public"."pins"/"pin1""#, value: pin)
+        try await applyBatch(messages: [message], name: "pins", table: "pins", pool: pool)
+        let stored = try await pool.read { try PinEntity.fetchOne($0, key: "pin1") }
+        XCTAssertEqual(stored?.kind, DomainContract.pinKindIssue)
+        XCTAssertEqual(stored?.issueId, "i1")
+        XCTAssertEqual(stored?.sortOrder, 1.5)
+        // A partial (the server reorders) coerces the numeric string too.
+        let partial = ShapeMessage<PinEntity>.partialUpdate(
+            key: #""public"."pins"/"pin1""#,
+            columns: columns(["id": "pin1", "sort_order": "3"])
+        )
+        try await applyBatch(messages: [partial], name: "pins", table: "pins", pool: pool)
+        let reordered = try await pool.read { try PinEntity.fetchOne($0, key: "pin1") }
+        XCTAssertEqual(reordered?.sortOrder, 3)
+    }
+
+    // EXP-778: the reader shows a pin ONLY when its target row is here —
+    // the shape is per-user, never team/trash-scoped, so a pin may outlive
+    // (or precede) the row it names.
+    func testPinnedItemsResolveTargetsAndHideMissingOnes() async throws {
+        try await pool.write { db in
+            try IssueEntity(
+                id: "i1", boardId: "b1", number: 1, identifier: "EXP-1", title: "Pinned issue",
+                description: nil, status: "backlog", priority: "none", assigneeId: nil,
+                creatorId: nil, source: nil, dueDate: nil, sortOrder: 1, completedAt: nil,
+                duplicateOfId: nil, prUrl: nil, prNumber: nil, prState: nil, branch: nil,
+                prMergedAt: nil, createdAt: "2026-09-11T09:00:00Z", updatedAt: "2026-09-11T09:00:00Z"
+            ).save(db)
+            try CodingSessionEntity(
+                id: "cs1", issueId: "i1", teamId: "ws1", userId: "u1",
+                deviceLabel: "macbook", deviceId: "dev-1", status: "running",
+                startedAt: "2026-09-11T09:00:00Z", endedAt: nil,
+                createdAt: "2026-09-11T09:00:00Z", updatedAt: "2026-09-11T09:00:00Z"
+            ).save(db)
+            try ActionEntity(
+                id: "a1", teamId: "ws1", repositoryId: nil, name: "Release", description: nil,
+                icon: "rocket", inputs: nil, sortOrder: 1,
+                createdAt: "2026-09-11T09:00:00Z", updatedAt: "2026-09-11T09:00:00Z"
+            ).save(db)
+            let stamp = "2026-09-11T09:00:00Z"
+            // Display order is sort_order, not insertion order.
+            try PinEntity(id: "p-action", userId: "u1", teamId: "ws1", kind: "action",
+                          actionId: "a1", sortOrder: 3, createdAt: stamp, updatedAt: stamp).save(db)
+            try PinEntity(id: "p-issue", userId: "u1", teamId: "ws1", kind: "issue",
+                          issueId: "i1", sortOrder: 1, createdAt: stamp, updatedAt: stamp).save(db)
+            try PinEntity(id: "p-session", userId: "u1", teamId: "ws1", kind: "session",
+                          sessionId: "cs1", sortOrder: 2, createdAt: stamp, updatedAt: stamp).save(db)
+            // Unresolvable: the issue is not synced here (trashed board).
+            try PinEntity(id: "p-gone", userId: "u1", teamId: "ws1", kind: "issue",
+                          issueId: "i-missing", sortOrder: 0, createdAt: stamp, updatedAt: stamp).save(db)
+            // Another team's pin never shows under ws1.
+            try PinEntity(id: "p-other", userId: "u1", teamId: "ws2", kind: "action",
+                          actionId: "a1", sortOrder: 0, createdAt: stamp, updatedAt: stamp).save(db)
+        }
+        let items = try await pool.read { db in try PinQueries.resolved(db: db, teamId: "ws1") }
+        XCTAssertEqual(items.map(\.id), ["p-issue", "p-session", "p-action"])
+        if case let .session(_, session, issue) = items[1] {
+            XCTAssertEqual(session.id, "cs1")
+            XCTAssertEqual(issue?.identifier, "EXP-1")
+        } else {
+            XCTFail("expected the session pin second")
+        }
+        let pinned = try await pool.read { db in
+            try PinQueries.pin(db: db, kind: DomainContract.pinKindAction, targetId: "a1")
+        }
+        XCTAssertEqual(pinned?.id, "p-action")
+        let unpinned = try await pool.read { db in
+            try PinQueries.pin(db: db, kind: DomainContract.pinKindIssue, targetId: "i-missing-2")
+        }
+        XCTAssertNil(unpinned)
+    }
+
     func testSupportReplyNotificationInsertPersistsTeamId() async throws {
         // The notifications shape now carries team_id — set on issue-less
         // support_reply rows (the helpdesk ticket's team). An inserted row must

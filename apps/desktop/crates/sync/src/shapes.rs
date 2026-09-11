@@ -1,4 +1,4 @@
-//! The 20 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
+//! The 21 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
 //! iterates and the store builds its schema from. gpui-free.
 //!
 //! Each [`ShapeSpec`] carries the SQLite table name, the kebab-case proxy URL
@@ -80,11 +80,11 @@ impl ShapeSpec {
     }
 }
 
-/// The 20 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
+/// The 21 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
 /// (minus the §5.4 exclusions: no `email` on `issue_subscribers`, web-only
 /// billing fields dropped from `users`, no `body` on `actions`, and no
 /// scoping mirrors on `device_worktrees`).
-pub const SHAPES: [ShapeSpec; 20] = [
+pub const SHAPES: [ShapeSpec; 21] = [
     ShapeSpec {
         name: "teams",
         path: "/api/shapes/teams",
@@ -586,6 +586,28 @@ pub const SHAPES: [ShapeSpec; 20] = [
         ],
         pk: PkKind::Id,
     },
+    ShapeSpec {
+        name: "pins",
+        path: "/api/shapes/pins",
+        // EXP-778: personal pins (issue | session | action), a static
+        // per-user shape (`user_id = me`) that is NOT team/trash scoped —
+        // the rail filters to the active team and hides any row whose
+        // target no longer resolves in the other collections. Byte-matches
+        // the proxy's allowlist (apps/web routes/api/shapes/pins.ts).
+        columns: &[
+            "id",
+            "user_id",
+            "team_id",
+            "kind",
+            "issue_id",
+            "session_id",
+            "action_id",
+            "sort_order",
+            "created_at",
+            "updated_at",
+        ],
+        pk: PkKind::Id,
+    },
 ];
 
 /// Look a shape up by its table name.
@@ -598,8 +620,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_20_shapes_with_kebab_paths() {
-        assert_eq!(SHAPES.len(), 20);
+    fn registry_has_21_shapes_with_kebab_paths() {
+        assert_eq!(SHAPES.len(), 21);
         for spec in &SHAPES {
             assert!(spec.path.starts_with("/api/shapes/"), "{}", spec.name);
             assert!(!spec.path.contains('_'), "paths are kebab-case: {}", spec.path);
@@ -826,6 +848,17 @@ mod tests {
         // It is a SUBSET of the runnable list, so both have to sync.
         assert!(spec.columns.contains(&"agents"));
         assert!(spec.columns.contains(&"unauthed_agents"));
+    }
+
+    #[test]
+    fn pins_model_every_target_column() {
+        // EXP-778: exactly one of the three target ids is set per row; the
+        // rail resolves whichever one `kind` names. Dropping one silently
+        // hides that pin kind.
+        let spec = shape_by_name("pins").unwrap();
+        for column in ["user_id", "team_id", "kind", "issue_id", "session_id", "action_id", "sort_order"] {
+            assert!(spec.columns.contains(&column), "pins needs {column}");
+        }
     }
 
     #[test]

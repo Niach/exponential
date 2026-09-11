@@ -7,6 +7,7 @@ import { IconPicker } from "@/components/ui/icon-picker"
 import type { BuiltinAction } from "@/lib/builtin-actions"
 import { trpc } from "@/lib/trpc-client"
 import { Button } from "@/components/ui/button"
+import { PinToggleButton } from "@/components/pin-toggle-button"
 import {
   Dialog,
   DialogBody,
@@ -169,7 +170,20 @@ export function ActionEditorDialog({
         className="sm:max-h-[85dvh] sm:max-w-4xl"
       >
         <DialogHeader>
-          <DialogTitle>{readOnly ? `Action` : `Edit action`}</DialogTitle>
+          {/* EXP-778: the pin toggle beside the title — a pinned action sits
+              in the sidebar's Pinned group as a one-tap launcher. Builtins
+              are not rows and cannot be pinned. */}
+          <div className="flex items-center gap-2">
+            <DialogTitle>{readOnly ? `Action` : `Edit action`}</DialogTitle>
+            {!action.builtin && (
+              <PinToggleButton
+                teamId={action.teamId}
+                kind="action"
+                targetId={action.id}
+                variant="ghost"
+              />
+            )}
+          </div>
         </DialogHeader>
 
         <form
