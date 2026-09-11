@@ -4,10 +4,13 @@ import { and, eq, inArray, isNull, or } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   githubInstallationLinks,
+  githubInstallationRepoGrants,
   githubInstallations,
   issues,
   repositories,
 } from "@/db/schema"
+import { resolveRepoDefaultBranchCached } from "@/lib/integrations/github-app"
+import { getTeamMember } from "@/lib/team-membership"
 import {
   applyPrClosedState,
   applyPrMergeState,
@@ -67,6 +70,60 @@ async function resolveIssuesForPr(args: {
     return issueId ? [issueId] : []
   }
   return []
+}
+
+// FEED-30: keep the grant snapshot in step with GitHub's repo selection. The
+// `installation_repositories` sender just changed which repos this
+// installation grants, so they control it and can access what they picked —
+// write THEIR grant rows for every linked team they belong to, and the
+// picker's Refresh shows a freshly granted repo without an OAuth re-auth (the
+// only other grant writer). Best-effort: an unmapped sender (never connected
+// a GitHub account here) or a missed delivery just leaves the re-auth path.
+async function syncGrantsForAddedRepos(
+  installationId: number,
+  added: Array<{ fullName: string; private: boolean }>,
+  sender: GithubActorRef | undefined
+): Promise<void> {
+  if (added.length === 0) return
+  const userId = await resolveAppUserForGithubActor(sender)
+  if (!userId) return
+  const linked = await db
+    .select({ teamId: githubInstallationLinks.teamId })
+    .from(githubInstallationLinks)
+    .innerJoin(
+      githubInstallations,
+      eq(githubInstallations.id, githubInstallationLinks.githubInstallationId)
+    )
+    .where(eq(githubInstallations.installationId, installationId))
+  const teamIds = [...new Set(linked.map((row) => row.teamId))]
+  if (teamIds.length === 0) return
+  const defaultBranches = new Map<string, string | null>()
+  for (const repo of added) {
+    try {
+      defaultBranches.set(
+        repo.fullName,
+        await resolveRepoDefaultBranchCached(repo.fullName)
+      )
+    } catch {
+      defaultBranches.set(repo.fullName, null)
+    }
+  }
+  const rows: Array<typeof githubInstallationRepoGrants.$inferInsert> = []
+  for (const teamId of teamIds) {
+    if (!(await getTeamMember(userId, teamId))) continue
+    for (const repo of added) {
+      rows.push({
+        teamId,
+        installationId,
+        fullName: repo.fullName,
+        private: repo.private,
+        defaultBranch: defaultBranches.get(repo.fullName) ?? null,
+        grantedByUserId: userId,
+      })
+    }
+  }
+  if (rows.length === 0) return
+  await db.insert(githubInstallationRepoGrants).values(rows).onConflictDoNothing()
 }
 
 // GitHub webhook receiver — the CLOUD PR-linking + merge-detection trigger
@@ -179,8 +236,9 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
       const payload = JSON.parse(rawBody) as {
         action?: string
         installation?: { id?: number; account?: { login?: string; type?: string } }
-        repositories_added?: Array<{ full_name?: string }>
+        repositories_added?: Array<{ full_name?: string; private?: boolean }>
         repositories_removed?: Array<{ full_name?: string }>
+        sender?: GithubActorRef
       }
       const installation = payload.installation
       if (!installation?.id) {
@@ -212,6 +270,17 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
             and(
               eq(repositories.installationId, installation.id),
               inArray(repositories.fullName, removed)
+            )
+          )
+        // FEED-30: nobody reaches a removed repo through the App anymore —
+        // drop every member's grant rows for it so the pickers stop listing
+        // it (the OAuth re-auth would only scrub the re-authing user's own).
+        await db
+          .delete(githubInstallationRepoGrants)
+          .where(
+            and(
+              eq(githubInstallationRepoGrants.installationId, installation.id),
+              inArray(githubInstallationRepoGrants.fullName, removed)
             )
           )
       }
@@ -247,6 +316,15 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
               )
             )
           )
+        await syncGrantsForAddedRepos(
+          installation.id,
+          (payload.repositories_added ?? [])
+            .filter((r): r is { full_name: string; private?: boolean } =>
+              Boolean(r.full_name)
+            )
+            .map((r) => ({ fullName: r.full_name, private: r.private === true })),
+          payload.sender
+        )
       }
       await invalidateRepoCacheForInstallation(installation.id)
       return jsonResponse(200, { ok: true })

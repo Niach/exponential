@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { REPO_FULL_NAME_RE } from "@/lib/repo-full-name"
 import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import type { db } from "@/db/connection"
@@ -65,7 +66,7 @@ const fullNameSchema = z
   .string()
   .min(1)
   .max(255)
-  .regex(/^[^/\s]+\/[^/\s]+$/, `Expected "owner/name"`)
+  .regex(REPO_FULL_NAME_RE, `Expected "owner/name"`)
 
 // Repo-backed capabilities (list/forIssue/branchDiff reads, JIT token minting)
 // reach into the backing GitHub repo. Member-gated: since v7 every membership

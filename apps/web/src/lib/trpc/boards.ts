@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { REPO_FULL_NAME_RE } from "@/lib/repo-full-name"
 import { TRPCError } from "@trpc/server"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { boards, repositories } from "@/db/schema"
@@ -28,7 +29,7 @@ const fullNameSchema = z
   .string()
   .min(1)
   .max(255)
-  .regex(/^[^/\s]+\/[^/\s]+$/, `Expected "owner/name"`)
+  .regex(REPO_FULL_NAME_RE, `Expected "owner/name"`)
 
 // EXP-712: a board's own branch (worktree base + PR target). Trimmed,
 // never empty — clients send null to follow the repo again.

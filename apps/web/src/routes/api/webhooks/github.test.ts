@@ -96,11 +96,27 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
 vi.mock(`@/lib/integrations/github-identity`, () => ({
   resolveAppUserForGithubActor: vi.fn(async () => null),
 }))
+// FEED-30: the installation_repositories grant sync reads membership and the
+// repo's default branch; both are stubbed so the test asserts the rows only.
+const getTeamMember = vi.hoisted(() =>
+  vi.fn(async (_userId: string, _teamId: string) => ({ role: `member` }))
+)
+vi.mock(`@/lib/team-membership`, () => ({
+  getTeamMember: (userId: string, teamId: string) =>
+    getTeamMember(userId, teamId),
+}))
+vi.mock(`@/lib/integrations/github-app`, () => ({
+  resolveRepoDefaultBranchCached: vi.fn(async () => `develop`),
+}))
 
 import * as prSync from "@/lib/integrations/pr-sync"
 import { resolveAppUserForGithubActor } from "@/lib/integrations/github-identity"
 import * as integrations from "@/lib/trpc/integrations"
-import { githubInstallations, repositories } from "@/db/schema"
+import {
+  githubInstallationRepoGrants,
+  githubInstallations,
+  repositories,
+} from "@/db/schema"
 // Deliberately the REAL module (in-memory, no I/O): these tests exercise the
 // claim → webhook handoff end to end.
 import {
@@ -634,6 +650,94 @@ describe(`github webhook — installation_repositories heal scoping`, () => {
     // old full_name-only heal never touched db.select at all.
     expect(h.select).toHaveBeenCalled()
     expect(repositoryUpdates()[0].where).toBeDefined()
+  })
+
+  // FEED-30: the sender changed the selection, so they control the
+  // installation and can access what they picked — their grant rows land for
+  // every linked team they belong to, and the picker's Refresh shows the repo
+  // without an OAuth re-auth.
+  const grantInserts = () =>
+    h.inserts.filter((i) => i.table === githubInstallationRepoGrants)
+  const grantDeletes = () =>
+    h.deletes.filter((d) => d.table === githubInstallationRepoGrants)
+
+  function addedPayload(added: Array<{ full_name: string; private: boolean }>) {
+    return {
+      ...(repoSelectionPayload({}) as Record<string, unknown>),
+      repositories_added: added,
+      sender: { id: 4242, login: `octocat`, type: `User` },
+    }
+  }
+
+  it(`added writes the sender's grant rows for every linked team they belong to`, async () => {
+    vi.mocked(resolveAppUserForGithubActor).mockResolvedValue(`user-1`)
+    getTeamMember.mockImplementation(async (_userId, teamId) =>
+      teamId === `team-b` ? (undefined as never) : { role: `member` }
+    )
+    // Select order: #1 the heal's claiming-teams subquery, #2 the linked
+    // teams the grant sync walks.
+    h.selectQueue.push([])
+    h.selectQueue.push([{ teamId: `team-a` }, { teamId: `team-b` }])
+
+    const res = await postHandler({
+      request: webhookRequest(
+        `installation_repositories`,
+        addedPayload([
+          { full_name: `acme/app`, private: true },
+          { full_name: `acme/site`, private: false },
+        ])
+      ),
+    })
+
+    expect(res.status).toBe(200)
+    expect(grantInserts()).toHaveLength(1)
+    expect(grantInserts()[0].values).toEqual([
+      {
+        teamId: `team-a`,
+        installationId: INSTALLATION_ID,
+        fullName: `acme/app`,
+        private: true,
+        defaultBranch: `develop`,
+        grantedByUserId: `user-1`,
+      },
+      {
+        teamId: `team-a`,
+        installationId: INSTALLATION_ID,
+        fullName: `acme/site`,
+        private: false,
+        defaultBranch: `develop`,
+        grantedByUserId: `user-1`,
+      },
+    ])
+  })
+
+  it(`added writes nothing for a sender who never connected a GitHub account here`, async () => {
+    vi.mocked(resolveAppUserForGithubActor).mockResolvedValue(null)
+    h.selectQueue.push([])
+    h.selectQueue.push([{ teamId: `team-a` }])
+
+    const res = await postHandler({
+      request: webhookRequest(
+        `installation_repositories`,
+        addedPayload([{ full_name: `acme/app`, private: true }])
+      ),
+    })
+
+    expect(res.status).toBe(200)
+    expect(grantInserts()).toHaveLength(0)
+  })
+
+  it(`removed deletes the grant rows for those repos on this installation`, async () => {
+    const res = await postHandler({
+      request: webhookRequest(
+        `installation_repositories`,
+        repoSelectionPayload({ removed: [`acme/app`] })
+      ),
+    })
+
+    expect(res.status).toBe(200)
+    expect(grantDeletes()).toHaveLength(1)
+    expect(grantInserts()).toHaveLength(0)
   })
 })
 

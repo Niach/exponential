@@ -1,9 +1,19 @@
 import { useCallback, useEffect, useState } from "react"
 import type { ReactNode } from "react"
-import { Check, Github, LoaderCircle, Lock, RefreshCw } from "lucide-react"
+import {
+  Check,
+  ExternalLink,
+  Github,
+  LoaderCircle,
+  Lock,
+  Plus,
+  RefreshCw,
+} from "lucide-react"
 import { cn } from "@/lib/utils"
 import { trpc } from "@/lib/trpc-client"
+import { isRepoFullName } from "@/lib/repo-full-name"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import {
   Command,
   CommandEmpty,
@@ -32,9 +42,13 @@ type ReposResult = {
   // (REV2-29 — it lists no repos until it's unsuspended). Both optional so the
   // not-configured return branches (which omit them) stay assignable.
   installations?: Array<{
+    installationId?: number
     needsReauth?: boolean
     suspended?: boolean
     accountLogin?: string | null
+    accountType?: string | null
+    // FEED-30: the per-account GitHub settings page where repo grants change.
+    manageUrl?: string | null
   }>
 }
 
@@ -133,6 +147,10 @@ export function GithubRepoPicker({
   const [data, setData] = useState<ReposResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [popupBlocked, setPopupBlocked] = useState(false)
+  // FEED-30: the "Add by name" escape hatch's own state.
+  const [lookupName, setLookupName] = useState(``)
+  const [lookupBusy, setLookupBusy] = useState(false)
+  const [lookupError, setLookupError] = useState<string | null>(null)
 
   const refresh = useCallback(
     async (force = false) => {
@@ -170,6 +188,47 @@ export function GithubRepoPicker({
       !openGithubPopup(data?.connectUrl ?? data?.installUrl) &&
         Boolean(data?.connectUrl ?? data?.installUrl)
     )
+  }
+
+  // FEED-30: GitHub's account picker (installations/new) — the ONLY way to a
+  // second account/org once one is linked (the OAuth hop just re-links what
+  // the viewer already controls).
+  const openInstall = () => {
+    setPopupBlocked(
+      !openGithubPopup(data?.installUrl) && Boolean(data?.installUrl)
+    )
+  }
+
+  // FEED-30: on OAuth instances the list IS the viewer's grant snapshot, which
+  // only the OAuth re-auth (or the installation_repositories webhook) rewrites
+  // — a bare cache refresh can't surface a repo granted since. So "Refresh"
+  // runs the re-auth popup there (instant auto-redirect; the focus listener
+  // re-lists on return) and a plain forced re-list where there is no OAuth.
+  const refreshAccess = () => {
+    if (data?.connectUrl) {
+      setPopupBlocked(!openGithubPopup(data.connectUrl))
+      return
+    }
+    void refresh(true)
+  }
+
+  const lookup = async () => {
+    const fullName = lookupName.trim()
+    if (!isRepoFullName(fullName) || lookupBusy) return
+    setLookupBusy(true)
+    setLookupError(null)
+    try {
+      const repo = await trpc.integrations.github.lookupRepo.query({
+        teamId,
+        fullName,
+      })
+      setLookupName(``)
+      onSelect(repo)
+    } catch (err) {
+      setLookupError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLookupBusy(false)
+    }
   }
 
   if (loading && !data) {
@@ -248,6 +307,10 @@ export function GithubRepoPicker({
     (i) => i.needsReauth && !i.suspended
   )
   const empty = data.repos.length === 0
+  const manageLinks = (data.installations ?? []).filter(
+    (inst): inst is typeof inst & { manageUrl: string } =>
+      Boolean(inst.manageUrl)
+  )
   return (
     <div className="space-y-2">
       {/* Suspended installations list no repos at all — say why, or the empty
@@ -317,9 +380,106 @@ export function GithubRepoPicker({
 
       {empty && !needsReauth && suspendedAccounts.length === 0 && (
         <div className="rounded-md border px-3 py-6 text-center text-sm text-muted-foreground">
-          No repositories found for your connected GitHub accounts.
+          None of your connected GitHub accounts grants a repository yet.
         </div>
       )}
+
+      {/* FEED-30: the list explains itself. A missing repo is (almost) always
+          an installation whose repo selection doesn't include it, or a repo
+          on an account that isn't installed at all — say so, link the exact
+          GitHub page per account, and offer the two fixes plus a by-name
+          escape hatch that runs the connect path's own checks (its error
+          names the real reason). */}
+      <div
+        className="space-y-2 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground"
+        data-testid="repo-picker-footer"
+      >
+        <p>
+          Only repositories your GitHub installation grants appear here.
+          Missing one? Grant it on GitHub, then refresh.
+          {manageLinks.length > 0 && (
+            <>
+              {` `}
+              {manageLinks.map((inst, index) => (
+                <span key={inst.installationId ?? inst.manageUrl}>
+                  <a
+                    href={inst.manageUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-0.5 text-foreground underline-offset-2 hover:underline"
+                  >
+                    {inst.accountLogin || `installation`}
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                  {index < manageLinks.length - 1 && `, `}
+                </span>
+              ))}
+            </>
+          )}
+        </p>
+        {data.hasMore && (
+          <p>
+            Showing the first 500 repositories per account — use the field
+            below for the rest.
+          </p>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={refreshAccess}
+            disabled={loading}
+          >
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+            Refresh
+          </Button>
+          {data.installUrl && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={openInstall}
+            >
+              <Plus className="mr-1.5 h-3.5 w-3.5" />
+              Install on another account
+            </Button>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <Input
+            value={lookupName}
+            onChange={(e) => {
+              setLookupName(e.target.value)
+              if (lookupError) setLookupError(null)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === `Enter`) {
+                e.preventDefault()
+                void lookup()
+              }
+            }}
+            placeholder="owner/name"
+            aria-label="Add repository by name"
+            spellCheck={false}
+            autoCapitalize="none"
+            className="h-8 font-mono text-xs"
+          />
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={!isRepoFullName(lookupName.trim()) || lookupBusy}
+            onClick={() => void lookup()}
+          >
+            {lookupBusy ? (
+              <LoaderCircle className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : null}
+            Look up
+          </Button>
+        </div>
+        {lookupError && <p className="text-destructive">{lookupError}</p>}
+      </div>
     </div>
   )
 }
