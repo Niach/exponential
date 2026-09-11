@@ -276,9 +276,12 @@ export async function getTeamUsage(
   const [memberCount, [storageSum], [sessionStorageSum], [widgetCount]] =
     await Promise.all([
       countTeamMembers(teamId),
+      // A media row's poster frame is a second blob on the same row
+      // (EXP-824), so its bytes count toward the budget the upload path
+      // checked them against.
       db
         .select({
-          totalBytes: sql<string>`coalesce(sum(${attachments.sizeBytes}), 0)::bigint`,
+          totalBytes: sql<string>`(coalesce(sum(${attachments.sizeBytes}), 0) + coalesce(sum(coalesce(${attachments.posterSizeBytes}, 0)), 0))::bigint`,
         })
         .from(attachments)
         .where(eq(attachments.teamId, teamId)),

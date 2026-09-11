@@ -13,10 +13,12 @@
 //! and the duration.
 //!
 //! Desktop v1 decodes NO media in-process (no GStreamer, no wry): a click
-//! downloads the bytes to a temp file through the bearer-auth transport
-//! ([`crate::issue_files::fetch_attachment_to_temp`]) and hands the PATH to
-//! the system player — never the bare URL, which the OS could not
-//! authenticate. The tile shows a busy state while the download runs.
+//! downloads the bytes through the bearer-auth transport into the app's
+//! `{data_dir}/media-cache` ([`crate::issue_files::fetch_media_to_cache`]:
+//! one file per attachment, reused on re-open, pruned by age and size) and
+//! hands the PATH to the system player — never the bare URL, which the OS
+//! could not authenticate. The tile shows a busy state while the download
+//! runs.
 
 use std::collections::HashSet;
 use std::sync::{Mutex, OnceLock};
@@ -38,8 +40,7 @@ use domain::rows::Attachment;
 
 use crate::icons::{registry, ExpIcon};
 use crate::issue_files::{
-    attachment_label, fetch_attachment_to_temp, format_duration, is_inline_audio,
-    is_inline_video,
+    attachment_label, fetch_media_to_cache, format_duration, is_inline_audio, is_inline_video,
 };
 use crate::markdown::{image_url, ImageCache, ImageSlot};
 use crate::queries;
@@ -232,9 +233,9 @@ pub(crate) fn is_opening(attachment_id: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Download the attachment's bytes into its temp path and hand the PATH to
-/// the OS player. The tile renders busy until the download settles; a
-/// failure surfaces as a window notification.
+/// Materialize the attachment in the media cache (a re-open reuses the
+/// cached clip) and hand the PATH to the OS player. The tile renders busy
+/// until the download settles; a failure surfaces as a window notification.
 pub(crate) fn open_media_in_player(
     attachment_id: String,
     label: String,
@@ -252,13 +253,14 @@ pub(crate) fn open_media_in_player(
     }
     window.refresh();
     let handle = window.window_handle();
+    let data_dir = crate::coding_flow::coding_data_dir(cx);
     cx.spawn(async move |cx| {
         let fetch_id = attachment_id.clone();
         let fetch_label = label.clone();
         let result = cx
             .background_executor()
             .spawn(async move {
-                fetch_attachment_to_temp(transport.as_ref(), &fetch_id, &fetch_label)
+                fetch_media_to_cache(transport.as_ref(), &data_dir, &fetch_id, &fetch_label)
             })
             .await;
         if let Ok(mut set) = opening().lock() {

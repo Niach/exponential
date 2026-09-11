@@ -1,3 +1,14 @@
+- Video a zvuk v popisech a komentářích: přilož klip a přehraje se přímo v textu, s náhledem a délkou; co nahraješ, se předtím převede na 720p
+- Účty GitHub: nastavení týmu vypisuje každý připojený účet s odkazem „Configure“ a „Connect another account“ otevře výběr účtu přímo na GitHubu, takže jde nainstalovat i druhou organizaci
+- Přidání repozitáře: výběr řekne, proč repozitář chybí, odkáže na nastavení GitHubu u každého účtu a přijme repozitář podle názvu
+- Kratší seznam minulých běhů: ukončený běh ukazuje zařízení a čas, bez jména agenta a důvodu ukončení
+- Tečka běžícího sezení se přesunula na tlačítko Chat ve spodní liště, které je teď na každé záložce; u Devices zůstává jen upozornění na přihlášení
+- Pole vždy pojmenuje zařízení, na kterém běh začne, a menu otevře, jen když je na výběr víc než jedno
+- Banner o limitu zmizí sám, jakmile uplyne čas obnovení, a pouhé varování o spotřebě se jako limit nikdy nezobrazí
+- Sdílení zařízení s více týmy: panel zařízení má jeden přepínač pro každý tým místo jediné volby
+- Detaily pole: „Plan“ je přepínač, vybraný úkol nebo akce se odebere vlastním křížkem a spodní lišta boardu spojuje chat a nový úkol do jedné kapsle
+- Piny: připni úkol, sezení nebo akci z jejich menu a objeví se v sekci „Pinned“ nahoře v přepínači boardů
+- Účty na stránce „Devices“: jeden řádek na každý účet agenta s jeho pruhy spotřeby a chipem pro každé zařízení, stejná sekce jakou má web a desktop
 - Jedno pole na všechno: pole na stránce „Agent“ spouští všechno, s úkoly nebo akcí vybranými nahoře a zařízením, agentem, modelem a režimem plánu pod ním; panel „Start coding“ je pryč
 - Každé tlačítko přehrání vede sem: „Start coding“ u úkolu, panel hromadného výběru, „Run“ u akce i „Fix merge conflicts“ otevřou pole s tím správným už vybraným
 - Pokyny při startu: co napíšeš vedle vybraných úkolů nebo akce, dorazí do běhu jako doplňující pokyny; u chatu je to samotný prompt
@@ -7,16 +18,3 @@
 - Odpověď přímo v kartě: plán nebo otázku zodpovíš v její vlastní kartě, s polem uvnitř, když chceš raději psát než vybírat; ovládací pole zatím ustoupí
 - Zprávy od agentů: agent může tvému týmu poslat oznámení přes MCP; přijde jako push a jako vlastní řádek v Inboxu
 - Limity, které sedí: varování o spotřebě už neoznačí běh jako omezený a u skutečného limitu popisují okno i čas obnovení totéž
-- Omezeno, ne zaseknuto: když agentovi uprostřed běhu dojde kvóta, relace se označí jako omezená s časem obnovení a zůstane živá a řiditelná, místo aby ztichla
-- Pole řízení: pole relace přijímá @ pro kolegy, # pro issues a : pro emoji, stejné tři jako pole komentáře
-- Úpravy v řádku: diff úpravy se zobrazí pod jejím řádkem v přepisu, sbalený, dokud na něj neklepnete
-- Skupiny nástrojů říkají, co se stalo: sbalená řada volání nástrojů zní „Spuštěny 4 příkazy, upraveny 2 soubory, 1 selhalo“ místo počítání volání
-- Bezvýchodný start je odmítnut: spuštění na stroji, jehož agent už nemá kvótu, to oznámí a uvede čas obnovení
-- Sloupce využití pro druhý účet agenta na stejném stroji
-- Výběr agenta: když agent na zařízení není připravený, výběr to uvede a zablokuje start, dokud tam nespustíte doctor
-- Přehled řízení: identifikátory úkolů jako #EXP-12 se mění na klepnutelné čipy a příkazy agenta se vykreslují jako štítky příkazů
-- Vazby mezi úkoly: propojte úkoly jako nadřazený, podúkol, blokuje, blokován, duplikát nebo souvisí přímo v panelu vlastností; napsáním #EXP-12 do popisu nebo komentáře se oba úkoly propojí samy
-- Vlákna komentářů: odpovězte pod komentářem přímo v ukotveném editoru; vlákna zůstávají jen o úroveň hlouběji a komentář, který agent poslal přes MCP, to uvádí ve své hlavičce
-- Provázený první start: po vytvoření týmu vás průvodce provede prvním boardem, pozvánkami pro kolegy a nastavením zařízení, ve stejném pořadí jako na webu a na desktopu
-- Merge z běhů akcí a chatu: běh, který otevřel pull request, ukazuje ve svém zobrazení řízení tlačítko „Merge“ a Reviews tyto pull requesty vypisuje pod „Agent runs“
-- Relace zůstávají na vašem zařízení: přepisy se ukládají na zařízení, které je spustilo, nikdy na server; minulé běhy otevřete v sekcích Devices, Chat a Automations a načtou se z daného zařízení, když je online

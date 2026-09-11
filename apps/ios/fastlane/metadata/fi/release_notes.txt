@@ -1,3 +1,14 @@
+- Video ja ääni kuvauksissa ja kommenteissa: liitä klippi, niin se toistuu suoraan tekstissä, kansikuvan ja keston kanssa; lataamasi tiedosto muunnetaan ensin 720p:hen
+- GitHub-tilit: tiimin asetukset listaavat jokaisen liitetyn tilin "Configure"-linkin kanssa, ja "Connect another account" avaa GitHubin oman tilivalinnan, joten toinenkin organisaatio voidaan asentaa
+- Lisää repositorio: valitsin kertoo, miksi repositorio puuttuu, linkittää kunkin tilin GitHub-asetukset ja ottaa repositorion nimellä
+- Lyhyempi lista menneistä ajoista: päättynyt ajo näyttää koneen ja ajan, ilman agentin nimeä ja päättymisen syytä
+- Käynnissä olevan session piste siirtyi alapalkin Chat-painikkeeseen, joka näkyy nyt joka välilehdellä; Devices-sivulle jää vain kirjautumisvaroitus
+- Kenttä nimeää aina koneen, jolla ajo käynnistyy, ja avaa valikon vain kun vaihtoehtoja on useampi
+- Rajan banneri katoaa itsestään, kun nollautumisaika on mennyt, eikä pelkkä käyttövaroitus näy koskaan rajana
+- Jaa kone usealle tiimille: laitteen paneelissa on yksi kytkin tiimiä kohden yhden valinnan sijaan
+- Kentän yksityiskohdat: "Plan" on kytkin, valittu issue tai toiminto poistetaan sen omalla sulkupainikkeella, ja boardin alapalkki yhdistää chatin ja uuden issuen yhdeksi kapseliksi
+- Kiinnitykset: kiinnitä issue, sessio tai toiminto sen valikosta, niin se on "Pinned"-osiossa boardin valitsimen ylälaidassa
+- Tilit Devices-sivulla: yksi rivi agenttitiliä kohden käyttöpalkkeineen ja chip jokaista konetta kohden, sama osio joka webissä ja työpöydällä jo on
 - Yksi kenttä kaikkeen: "Agent"-sivun kenttä käynnistää kaiken, issuet tai toiminto valittuna ylhäällä ja kone, agentti, malli ja plan-tila alla; "Start coding" -paneeli on poistunut
 - Jokainen toistopainike vie sinne: issuen "Start coding", monivalintapalkki, toiminnon "Run" ja "Fix merge conflicts" avaavat kentän oikeat asiat valmiiksi valittuina
 - Ohjeet käynnistyksen mukana: mitä kirjoitat valittujen issueiden tai toiminnon viereen, päätyy ajoon lisäohjeina; chatissa se on kehote
@@ -7,16 +18,3 @@
 - Vastaus kortin sisällä: suunnitelmaan tai kysymykseen vastataan sen omassa kortissa, ja kortissa on kenttä, kun haluat kirjoittaa valitsemisen sijaan; ohjauskenttä väistyy siksi aikaa
 - Agenttien viestit: agentti voi lähettää tiimillesi ilmoituksen MCP:n kautta; se tulee push-ilmoituksena ja omana rivinään Inboxiin
 - Rajat, jotka täsmäävät: käyttövaroitus ei enää merkitse ajoa rajoitetuksi, ja oikeassa rajassa ikkuna ja nollautumisaika kuvaavat samaa
-- Rajoitettu, ei jumissa: kun agentin kiintiö loppuu kesken ajon, istunto merkitään rajoitetuksi ja nollausaika näytetään, ja se pysyy aktiivisena ja ohjattavana sen sijaan, että hiljenisi
-- Ohjauskenttä: istuntokenttä ottaa @ tiimikavereille, # asioille ja : emojeille, samat kolme kuin kommenttikentässä jo oli
-- Muokkaukset rivissä: muokkauksen diff näkyy rivinsä alla transkriptissa, taitettuna kunnes napautat sitä
-- Työkaluryhmät kertovat mitä tapahtui: taitettu sarja työkalukutsuja lukee "Ajettiin 4 komentoa, muokattiin 2 tiedostoa, 1 epäonnistui" kutsujen laskemisen sijaan
-- Toivoton käynnistys hylätään: käynnistys koneella, jonka agentin kiintiö on jo lopussa, kertoo sen ja ilmoittaa nollausajan
-- Käyttöpalkit toiselle agenttitilille samalla koneella
-- Agentin valinta: kun agentti ei ole laitteella valmis, valinta kertoo sen ja estää käynnistyksen, kunnes ajat siellä doctorin
-- Ohjausvirta: issue-tunnisteet kuten #EXP-12 muuttuvat napautettaviksi chip-painikkeiksi, ja agentin komennot näkyvät komentomerkkeinä
-- Issue-yhteydet: liitä issueita toisiinsa ylätehtävänä, alitehtävänä, estävänä, estettynä, duplikaattina tai liittyvänä ominaisuuspaneelista; #EXP-12 kuvauksessa tai kommentissa yhdistää kaksi issueta itsestään
-- Kommenttiketjut: vastaa kommentin alle telakoidusta kirjoituskentästä; ketjut pysyvät yhden tason syvyisinä, ja MCP:n kautta agentin kirjoittama kommentti kertoo sen otsikossaan
-- Ohjattu ensimmäinen käynnistys: tiimin luominen vie sinut ensimmäisen boardin, tiimikavereiden kutsumisen ja laitteiden käyttöönoton läpi, samassa järjestyksessä kuin webissä ja työpöydällä
-- Merge toiminto- ja chat-ajoista: ajo, joka avasi pull requestin, näyttää "Merge"-painikkeen ohjausnäkymässään, ja Reviews listaa nämä pull requestit "Agent runs" -kohtaan
-- Istunnot pysyvät omalla laitteellasi: keskustelut tallennetaan sille laitteelle, joka ne ajoi, ei koskaan palvelimelle; aiemmat ajot avataan Devices-, Chat- ja Automations-näkymistä ja haetaan siltä laitteelta, kun se on verkossa

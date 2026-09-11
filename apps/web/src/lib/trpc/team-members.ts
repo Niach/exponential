@@ -1,6 +1,12 @@
 import { z } from "zod"
 import { router, authedProcedure } from "@/lib/trpc"
-import { devices, issues, issueSubscribers, teamMembers } from "@/db/schema"
+import {
+  devices,
+  issues,
+  issueSubscribers,
+  pins,
+  teamMembers,
+} from "@/db/schema"
 import { and, arrayContains, eq, sql } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
 import { assertTeamMember } from "@/lib/team-membership"
@@ -178,6 +184,15 @@ export const teamMembersRouter = router({
               eq(issueSubscribers.teamId, target.teamId),
               eq(issueSubscribers.userId, target.userId)
             )
+          )
+        // Membership end = pin end (EXP-778). The pins shape is per USER and
+        // never team-scoped, so an ex-member's pins in this team would keep
+        // syncing to them as target-less rows (hidden, but never reclaimed)
+        // and resurface the moment a re-invite makes the targets resolve.
+        await tx
+          .delete(pins)
+          .where(
+            and(eq(pins.teamId, target.teamId), eq(pins.userId, target.userId))
           )
         await tx
           .update(issues)

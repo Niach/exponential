@@ -1,3 +1,14 @@
+- Videos und Audio in Beschreibungen und Kommentaren: hänge einen Clip an, und er läuft direkt dort, mit Vorschaubild und Länge; was du hochlädst, wird vorher auf 720p umgewandelt
+- GitHub-Konten: die Team-Einstellungen listen jedes verbundene Konto mit einem Link zu „Configure“, und „Connect another account“ öffnet die Kontoauswahl von GitHub, sodass sich auch eine zweite Organisation installieren lässt
+- Repository hinzufügen: die Auswahl sagt, warum ein Repository fehlt, verlinkt die GitHub-Einstellungen jedes Kontos und nimmt ein Repository per Name
+- Kürzere Liste früherer Läufe: ein beendeter Lauf zeigt Gerät und Zeit, ohne den Namen des Agenten und den Grund für das Ende
+- Der Punkt für eine laufende Session sitzt jetzt am Chat-Button in der unteren Leiste, den es nun auf jedem Tab gibt; bei Devices bleibt nur der Hinweis zur Anmeldung
+- Das Eingabefeld nennt immer das Gerät, auf dem ein Lauf startet, und öffnet ein Menü nur, wenn es mehr als eines gibt
+- Limit-Banner verschwinden von selbst, sobald die Rücksetzzeit vorbei ist, und eine reine Verbrauchswarnung wird nie als Limit angezeigt
+- Ein Gerät mit mehreren Teams teilen: das Geräte-Sheet hat einen Schalter pro Team statt einer einzigen Auswahl
+- Details im Eingabefeld: „Plan“ ist ein Schalter, ein gewähltes Issue oder eine Action wird über ihr eigenes Schließen-Symbol entfernt, und die untere Leiste eines Boards fasst Chat und neues Issue in einer Kapsel zusammen
+- Pins: hefte ein Issue, eine Session oder eine Action über ihr Menü an, und sie steht im Bereich „Pinned“ oben in der Board-Auswahl
+- Konten auf der Seite „Devices“: eine Zeile pro Agentenkonto mit seinen Verbrauchsbalken und einem Chip pro Gerät, derselbe Bereich wie auf Web und Desktop
 - Ein Eingabefeld für alles: das Eingabefeld der Seite „Agent“ startet alles, mit Issues oder einer Action oben und Gerät, Agent, Modell und Plan-Modus darunter; das Sheet „Start coding“ ist weg
 - Jeder Play-Button führt dorthin: „Start coding“ an einem Issue, die Mehrfachauswahl, „Run“ einer Action und „Fix merge conflicts“ öffnen das Eingabefeld mit dem Passenden bereits ausgewählt
 - Anweisungen beim Start: was du neben den gewählten Issues oder der Action tippst, erreicht den Lauf als zusätzliche Anweisung; bei einem Chat ist es der Prompt
@@ -7,16 +18,3 @@
 - Antworten in der Karte: ein Plan oder eine Frage wird in der eigenen Karte beantwortet, mit einem Feld darin, wenn du schreiben statt wählen willst; das Eingabefeld tritt so lange zurück
 - Agenten-Nachrichten: ein Agent kann deinem Team über MCP eine Nachricht schicken; sie kommt als Push und als eigene Zeile in der Inbox an
 - Limits, die zusammenpassen: eine Verbrauchswarnung markiert einen Lauf nicht mehr als limitiert, und bei einem echten Limit beschreiben Fenster und Rücksetzzeit dasselbe Limit
-- Limitiert statt hängend: geht einem Agenten mitten im Lauf das Kontingent aus, wird die Session als limitiert markiert, mit der Zeit, zu der es zurückgesetzt wird; sie bleibt aktiv und steuerbar, statt still zu werden
-- Steuerungs-Eingabe: das Session-Feld nimmt @ für Teammitglieder, # für Issues und : für Emoji, dieselben drei wie das Kommentarfeld
-- Änderungen inline: der Diff einer Bearbeitung erscheint unter ihrer Zeile im Transkript, eingeklappt, bis du ihn antippst
-- Werkzeuggruppen sagen, was passiert ist: eine eingeklappte Folge von Werkzeugaufrufen liest sich als „4 Befehle ausgeführt, 2 Dateien bearbeitet, 1 fehlgeschlagen“ statt als Zählung
-- Ein aussichtsloser Start wird abgelehnt: der Start auf einem Gerät, dessen Agent bereits kein Kontingent mehr hat, sagt das und nennt die Rücksetzzeit
-- Verbrauchsbalken für ein zweites Agentenkonto auf demselben Gerät
-- Agenten-Auswahl: ist ein Agent auf einem Gerät nicht bereit, sagt die Auswahl das und blockiert den Start, bis du dort den doctor ausführst
-- Steuerungs-Feed: Issue-Kennungen wie #EXP-12 werden zu antippbaren Chips, und Agentenbefehle erscheinen als Befehls-Badges
-- Issue-Verknüpfungen: verknüpfe Issues als übergeordnet, Sub-Issue, blockiert, blockiert von, Duplikat oder verwandt direkt im Eigenschaften-Sheet; ein #EXP-12 in einer Beschreibung oder einem Kommentar verknüpft die beiden Issues von selbst
-- Kommentar-Threads: antworte unter einem Kommentar aus dem angedockten Editor; Threads bleiben eine Ebene tief, und ein Kommentar, den ein Agent über MCP geschrieben hat, sagt das in seiner Kopfzeile
-- Ein geführter erster Start: das Anlegen eines Teams führt dich durch das erste Board, das Einladen von Teamkollegen und das Einrichten von Geräten, in derselben Reihenfolge wie Web und Desktop
-- Merge aus Action- und Chat-Läufen: ein Lauf, der einen Pull Request geöffnet hat, zeigt „Merge“ in seiner Steuerungsansicht, und Reviews listet diese Pull Requests unter „Agent runs“
-- Sessions bleiben auf deinem Gerät: Transkripte liegen auf dem Gerät, das sie ausgeführt hat, nie auf dem Server; frühere Läufe öffnest du aus Devices, Chat und Automations, und sie werden von diesem Gerät geholt, sobald es online ist

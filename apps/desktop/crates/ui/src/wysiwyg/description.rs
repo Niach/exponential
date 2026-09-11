@@ -752,7 +752,12 @@ impl WysiwygDescription {
         // row without a poster — never `Failed`, which would loop the
         // retry timer for something that cannot succeed).
         let mut media: HashMap<String, gpui_markdown_editor::MediaInfo> = HashMap::new();
-        for block in crate::markdown::markdown_to_blocks(&markdown) {
+        let origin = crate::queries::instance_origin(cx);
+        for block in crate::markdown::parse::markdown_to_blocks_for(
+            &markdown,
+            crate::markdown::parse::SoftBreakMode::Space,
+            origin.as_deref(),
+        ) {
             let crate::markdown::ContentBlock::AttachmentLink { url, .. } = block else {
                 continue;
             };

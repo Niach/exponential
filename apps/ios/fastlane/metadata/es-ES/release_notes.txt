@@ -1,3 +1,14 @@
+- Vídeo y audio en descripciones y comentarios: adjunta un clip y se reproduce ahí mismo, con imagen de portada y su duración; lo que subes se convierte antes a 720p
+- Cuentas de GitHub: los ajustes del equipo listan cada cuenta conectada con un enlace «Configure», y «Connect another account» abre el selector de cuentas del propio GitHub, así se puede instalar una segunda organización
+- Añadir repositorio: el selector dice por qué falta un repositorio, enlaza los ajustes de GitHub de cada cuenta y acepta un repositorio por nombre
+- Lista de ejecuciones pasadas más corta: una ejecución terminada muestra la máquina y la hora, sin el nombre del agente ni el motivo del final
+- El punto de una sesión en curso se ha movido al botón Chat de la barra inferior, que ahora aparece en todas las pestañas; en Devices queda solo el aviso de inicio de sesión
+- El campo nombra siempre la máquina en la que arrancará una ejecución y abre un menú solo cuando hay más de una
+- El aviso de límite desaparece solo cuando pasa la hora de reinicio, y un simple aviso de consumo nunca se muestra como límite
+- Comparte una máquina con varios equipos: la hoja del dispositivo tiene un interruptor por equipo en vez de una única elección
+- Detalles del campo: «Plan» es un interruptor, una issue o una acción elegidas se quitan con su propio botón de cierre, y la barra inferior de un board une chat y nueva issue en una sola cápsula
+- Pines: fija una issue, una sesión o una acción desde su menú y queda en la sección «Pinned» arriba del selector de boards
+- Cuentas en la página «Devices»: una fila por cuenta de agente con sus barras de consumo y un chip por máquina, la misma sección que ya tienen web y escritorio
 - Un solo campo para todo: el campo de la página «Agent» lo lanza todo, con las issues o una acción elegidas arriba y la máquina, el agente, el modelo y el modo plan debajo; la hoja «Start coding» desaparece
 - Cada botón de reproducción lleva ahí: «Start coding» en una issue, la barra de selección múltiple, «Run» de una acción y «Fix merge conflicts» abren el campo con lo correcto ya elegido
 - Instrucciones al arrancar: lo que escribas junto a las issues o la acción elegidas llega a la ejecución como instrucciones adicionales; en un chat es el prompt
@@ -7,16 +18,3 @@
 - Responder dentro de la tarjeta: un plan o una pregunta se responde en su propia tarjeta, con un campo integrado cuando prefieres escribir en vez de elegir; el campo de pilotaje se aparta mientras tanto
 - Mensajes de agente: un agente puede enviar una notificación a tu equipo por MCP; llega como push y como su propia fila en la Inbox
 - Límites que cuadran: un aviso de consumo ya no marca una ejecución como limitada, y en un límite real la ventana y la hora de reinicio describen lo mismo
-- Limitado, no atascado: cuando un agente agota su cuota a mitad de la ejecución, la sesión se marca como limitada con la hora en que se restablece, y sigue activa y dirigible en vez de quedarse en silencio
-- Campo de dirección: el campo de sesión admite @ para compañeros, # para issues y : para emoji, los mismos tres que ya tenía el cuadro de comentarios
-- Ediciones en línea: el diff de una edición se muestra bajo su fila en la transcripción, plegado hasta que lo tocas
-- Grupos de herramientas que dicen qué pasó: una serie plegada de llamadas a herramientas se lee como «4 comandos ejecutados, 2 archivos editados, 1 fallido» en lugar de contar llamadas
-- Se rechaza un inicio que no llevaría a nada: iniciar en una máquina cuyo agente ya no tiene cuota lo indica y dice cuándo se restablece
-- Barras de uso para una segunda cuenta de agente en la misma máquina
-- Selector de agente: cuando un agente no está listo en un dispositivo, el selector lo dice y bloquea el arranque hasta que ejecutes allí el doctor
-- Feed de dirección: los identificadores de issues como #EXP-12 se convierten en chips que puedes tocar, y los comandos del agente se muestran como etiquetas de comando
-- Relaciones entre issues: enlaza issues como padre, sub-issue, bloquea, bloqueado por, duplicado o relacionado desde la hoja de propiedades; escribir #EXP-12 en una descripción o un comentario enlaza los dos issues por su cuenta
-- Comentarios en hilo: responde debajo de un comentario desde el editor acoplado; los hilos se quedan en un solo nivel, y un comentario que un agente publicó por MCP lo indica en su cabecera
-- Un primer arranque guiado: crear un equipo te lleva por el primer board, las invitaciones a compañeros y la configuración de dispositivos, en el mismo orden que en web y escritorio
-- Merge desde ejecuciones de acciones y de chat: una ejecución que abrió una pull request muestra «Merge» en su vista de dirección, y Reviews lista esas pull requests bajo «Agent runs»
-- Las sesiones se quedan en tu dispositivo: las transcripciones se guardan en el dispositivo que las ejecutó, nunca en el servidor; las ejecuciones pasadas se abren desde Devices, Chat y Automations y se traen de ese dispositivo cuando está en línea

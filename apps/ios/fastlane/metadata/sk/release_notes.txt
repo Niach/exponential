@@ -1,3 +1,14 @@
+- Video a zvuk v popisoch a komentároch: prilož klip a prehrá sa priamo v texte, s náhľadom a dĺžkou; čo nahráš, sa predtým prevedie na 720p
+- Účty GitHub: nastavenia tímu vypisujú každý pripojený účet s odkazom „Configure“ a „Connect another account“ otvorí výber účtu priamo na GitHube, takže sa dá nainštalovať aj druhá organizácia
+- Pridanie repozitára: výber povie, prečo repozitár chýba, odkáže na nastavenia GitHubu pri každom účte a prijme repozitár podľa názvu
+- Kratší zoznam minulých behov: ukončený beh ukazuje zariadenie a čas, bez mena agenta a dôvodu ukončenia
+- Bodka bežiacej relácie sa presunula na tlačidlo Chat v spodnej lište, ktoré je teraz na každej záložke; pri Devices zostáva len upozornenie na prihlásenie
+- Pole vždy pomenuje zariadenie, na ktorom beh začne, a menu otvorí, len keď je na výber viac než jedno
+- Banner o limite zmizne sám, len čo uplynie čas obnovenia, a samotné upozornenie na spotrebu sa ako limit nikdy nezobrazí
+- Zdieľanie zariadenia s viacerými tímami: panel zariadenia má jeden prepínač pre každý tím namiesto jedinej voľby
+- Detaily poľa: „Plan“ je prepínač, vybraná úloha alebo akcia sa odoberie vlastným krížikom a spodná lišta boardu spája chat a novú úlohu do jednej kapsuly
+- Piny: pripni úlohu, reláciu alebo akciu z jej menu a bude v sekcii „Pinned“ hore v prepínači boardov
+- Účty na stránke „Devices“: jeden riadok na každý účet agenta s jeho pruhmi spotreby a chipom pre každé zariadenie, tá istá sekcia akú majú web a desktop
 - Jedno pole na všetko: pole na stránke „Agent“ spúšťa všetko, s úlohami alebo akciou vybranými hore a zariadením, agentom, modelom a režimom plánu pod ním; panel „Start coding“ je preč
 - Každé tlačidlo prehrania vedie sem: „Start coding“ pri úlohe, panel hromadného výberu, „Run“ pri akcii aj „Fix merge conflicts“ otvoria pole so správnym výberom už hotovým
 - Pokyny pri štarte: čo napíšeš vedľa vybraných úloh alebo akcie, dorazí do behu ako doplňujúce pokyny; pri chate je to samotný prompt
@@ -7,16 +18,3 @@
 - Odpoveď priamo v karte: plán alebo otázku zodpovieš v jej vlastnej karte, s poľom vnútri, keď chceš radšej písať než vyberať; ovládacie pole zatiaľ ustúpi
 - Správy od agentov: agent môže tvojmu tímu poslať upozornenie cez MCP; príde ako push a ako vlastný riadok v Inboxe
 - Limity, ktoré sedia: upozornenie na spotrebu už neoznačí beh ako obmedzený a pri skutočnom limite opisujú okno aj čas obnovenia to isté
-- Obmedzené, nie zaseknuté: keď agentovi uprostred behu dôjde kvóta, relácia sa označí ako obmedzená s časom obnovenia a zostane živá a riaditeľná, namiesto toho, aby stíchla
-- Pole riadenia: pole relácie prijíma @ pre kolegov, # pre issues a : pre emoji, rovnaké tri ako pole komentára
-- Úpravy v riadku: diff úpravy sa zobrazí pod jej riadkom v prepise, zbalený, kým naň neklepnete
-- Skupiny nástrojov hovoria, čo sa stalo: zbalený rad volaní nástrojov znie „Spustené 4 príkazy, upravené 2 súbory, 1 zlyhalo“ namiesto počítania volaní
-- Bezvýchodiskový štart je odmietnutý: spustenie na stroji, ktorého agent už nemá kvótu, to oznámi a uvedie čas obnovenia
-- Stĺpce využitia pre druhý účet agenta na tom istom stroji
-- Výber agenta: keď agent na zariadení nie je pripravený, výber to uvedie a zablokuje štart, kým tam nespustíte doctor
-- Prehľad riadenia: identifikátory úloh ako #EXP-12 sa menia na klepnuteľné čipy a príkazy agenta sa vykresľujú ako štítky príkazov
-- Väzby medzi úlohami: prepojte úlohy ako nadradenú, podúlohu, blokuje, blokovaná, duplikát alebo súvisiaca priamo v paneli vlastností; napísanie #EXP-12 do popisu alebo komentára prepojí obe úlohy samo
-- Vlákna komentárov: odpovedzte pod komentárom priamo v ukotvenom editore; vlákna zostávajú len o úroveň hlbšie a komentár, ktorý agent poslal cez MCP, to uvádza vo svojej hlavičke
-- Sprevádzaný prvý štart: po vytvorení tímu vás sprievodca prevedie prvým boardom, pozvánkami pre kolegov a nastavením zariadení, v rovnakom poradí ako na webe a na desktope
-- Merge z behov akcií a chatu: beh, ktorý otvoril pull request, ukazuje vo svojom zobrazení riadenia tlačidlo „Merge“ a Reviews tieto pull requesty vypisuje pod „Agent runs“
-- Relácie zostávajú na vašom zariadení: prepisy sa ukladajú na zariadenie, ktoré ich spustilo, nikdy na server; minulé behy otvoríte v sekciách Devices, Chat a Automations a načítajú sa z daného zariadenia, keď je online

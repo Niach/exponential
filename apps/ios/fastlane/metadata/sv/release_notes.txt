@@ -1,3 +1,14 @@
+- Video och ljud i beskrivningar och kommentarer: bifoga ett klipp så spelas det upp direkt i texten, med omslagsbild och längd; det du laddar upp konverteras först till 720p
+- GitHub-konton: teaminställningarna listar varje anslutet konto med en "Configure"-länk, och "Connect another account" öppnar GitHubs egen kontoväljare, så att en andra organisation kan installeras
+- Lägg till repository: väljaren säger varför ett repository saknas, länkar till varje kontos GitHub-inställningar och tar ett repository på namn
+- Kortare lista över tidigare körningar: en avslutad körning visar maskinen och tiden, utan agentens namn och orsaken till att den slutade
+- Pricken för en pågående session har flyttat till Chat-knappen i nedre raden, som nu syns på varje flik; Devices behåller bara varningen om inloggning
+- Fältet namnger alltid maskinen en körning startar på och öppnar en meny bara när det finns mer än en
+- Bannern om en nådd gräns försvinner av sig själv när återställningstiden har passerat, och en ren förbrukningsvarning visas aldrig som en gräns
+- Dela en maskin med flera team: enhetsbladet har en brytare per team i stället för ett enda val
+- Detaljer i fältet: "Plan" är en brytare, ett valt ärende eller en vald åtgärd tas bort med sin egen stängknapp, och ett boards nedre rad slår ihop chatt och nytt ärende till en kapsel
+- Nålar: nåla fast ett ärende, en session eller en åtgärd från dess meny, så ligger den i avsnittet "Pinned" högst upp i boardväljaren
+- Konton på Devices-sidan: en rad per agentkonto med sina förbrukningsstaplar och en chip per maskin, samma avsnitt som webb och skrivbord har
 - Ett fält för allt: fältet på "Agent"-sidan startar allt, med ärenden eller en åtgärd valda överst och maskin, agent, modell och planläge under; "Start coding"-bladet är borta
 - Varje uppspelningsknapp leder dit: "Start coding" på ett ärende, markeringsraden, "Run" på en åtgärd och "Fix merge conflicts" öppnar fältet med rätt saker redan valda
 - Instruktioner vid start: det du skriver bredvid de valda ärendena eller åtgärden når körningen som extra instruktioner; i en chatt är det prompten
@@ -7,16 +18,3 @@
 - Svara i kortet: en plan eller en fråga besvaras i sitt eget kort, med ett fält i kortet när du hellre skriver än väljer; styrfältet kliver undan så länge
 - Agentmeddelanden: en agent kan skicka ditt team en avisering via MCP; den kommer som push och som en egen rad i Inbox
 - Gränser som stämmer: en förbrukningsvarning markerar inte längre en körning som begränsad, och vid en verklig gräns beskriver fönstret och återställningstiden samma sak
-- Begränsad, inte fast: när en agent gör slut på sin kvot mitt i en körning markeras sessionen som begränsad med tiden för återställning, och den förblir aktiv och styrbar i stället för att tystna
-- Styrfält: sessionsfältet tar @ för lagkamrater, # för ärenden och : för emoji, samma tre som kommentarsrutan redan hade
-- Ändringar inline: en ändrings diff visas under dess rad i utskriften, hopfälld tills du trycker på den
-- Verktygsgrupper som säger vad som hände: en hopfälld rad verktygsanrop läses som "Körde 4 kommandon, ändrade 2 filer, 1 misslyckades" i stället för att räkna anrop
-- En utsiktslös start avvisas: att starta på en maskin vars agent redan saknar kvot säger det och anger när den återställs
-- Förbrukningsstaplar för ett andra agentkonto på samma maskin
-- Agentväljare: när en agent inte är redo på en enhet säger väljaren det och blockerar starten tills du kör doctor där
-- Styrningsflöde: ärendeidentifierare som #EXP-12 blir chips du kan trycka på, och agentkommandon visas som kommandomärken
-- Relationer mellan ärenden: koppla ärenden som överordnat, underärende, blockerar, blockeras av, dubblett eller relaterat från egenskapsbladet; skriver du #EXP-12 i en beskrivning eller kommentar kopplas de två ärendena ihop av sig själva
-- Kommentarstrådar: svara under en kommentar från det dockade skrivfältet; trådar går bara en nivå ned, och en kommentar som en agent lagt via MCP säger det i sin rubrik
-- En guidad första start: att skapa ett team tar dig genom första boarden, att bjuda in lagkamrater och att sätta upp enheter, i samma ordning som på webben och desktop
-- Merge från åtgärds- och chattkörningar: en körning som öppnat en pull request visar "Merge" i sin styrningsvy, och Reviews listar de pull requestarna under "Agent runs"
-- Sessionerna stannar på din egen enhet: utskrifter sparas på enheten som körde dem, aldrig på servern; tidigare körningar öppnas från Devices, Chat och Automations och hämtas från den enheten när den är online

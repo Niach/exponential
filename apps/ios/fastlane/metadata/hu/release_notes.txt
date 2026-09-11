@@ -1,3 +1,14 @@
+- Videó és hang a leírásokban és a hozzászólásokban: csatolj egy klipet, és ott helyben lejátszódik, borítóképpel és a hosszával; amit feltöltesz, előbb 720p-re alakul
+- GitHub-fiókok: a csapat beállításai minden csatlakoztatott fiókot felsorolnak egy „Configure” hivatkozással, a „Connect another account” pedig a GitHub saját fiókválasztóját nyitja meg, így egy második szervezet is telepíthető
+- Repository hozzáadása: a választó megmondja, miért hiányzik egy repository, hivatkozik minden fiók GitHub-beállításaira, és név szerint is elfogad egy repositoryt
+- Rövidebb lista a korábbi futásokról: egy befejezett futás a gépet és az időt mutatja, az ügynök neve és a befejezés oka nélkül
+- A futó munkamenet pontja az alsó sáv Chat gombjára került, amely mostantól minden lapon látszik; a Devices csak a bejelentkezési figyelmeztetést tartja meg
+- A mező mindig megnevezi a gépet, amelyen a futás elindul, és csak akkor nyit menüt, ha egynél több van
+- A korlát sávja magától eltűnik, ha a visszaállás ideje elmúlt, és a puszta fogyasztási figyelmeztetés soha nem jelenik meg korlátként
+- Egy gép több csapattal is megosztható: az eszköz lapján csapatonként egy kapcsoló áll egyetlen választás helyett
+- A mező részletei: a „Plan” kapcsoló lett, a kiválasztott feladatot vagy műveletet a saját bezáró gombja veszi le, egy board alsó sávja pedig a chatet és az új feladatot egy kapszulába vonja össze
+- Rögzítés: rögzíts egy feladatot, munkamenetet vagy műveletet a menüjéből, és a board-váltó tetején a „Pinned” szakaszban lesz
+- Fiókok a „Devices” oldalon: ügynöki fiókonként egy sor a fogyasztási sávjaival és gépenként egy chippel, ugyanaz a szakasz, ami a weben és az asztali appban már megvan
 - Egy mező mindenre: az „Agent” oldal mezője indít mindent, felül a kiválasztott feladatokkal vagy művelettel, alatta a géppel, az ügynökkel, a modellel és a terv móddal; a „Start coding” lap eltűnt
 - Minden indítógomb ide vezet: a feladat „Start coding” gombja, a többes kijelölés sávja, egy művelet „Run” gombja és a „Fix merge conflicts” a mezőt nyitja meg, a megfelelő elemekkel már kiválasztva
 - Utasítások az indításhoz: amit a kiválasztott feladatok vagy a művelet mellé írsz, kiegészítő utasításként jut el a futáshoz; chatnél ez maga a prompt
@@ -7,16 +18,3 @@
 - Válasz magában a kártyában: egy tervre vagy kérdésre a saját kártyájában válaszolsz, benne egy mezővel, ha inkább írnál, mint választanál; a vezérlőmező addig félreáll
 - Ügynöki üzenetek: egy ügynök MCP-n keresztül értesítést küldhet a csapatodnak; pushként és az Inboxban saját sorként érkezik
 - Összhangban lévő korlátok: a fogyasztási figyelmeztetés többé nem jelöli korlátozottnak a futást, valódi korlátnál pedig az ablak és a visszaállás ideje ugyanazt írja le
-- Korlátozva, nem elakadva: ha egy ügynök futás közben kimeríti a keretét, a munkamenet korlátozottként jelenik meg a visszaállítás idejével, és aktív és irányítható marad ahelyett, hogy elnémulna
-- Irányítómező: a munkamenet mezője elfogadja a @ jelet csapattagokhoz, a # jelet ügyekhez és a : jelet emojihoz, ugyanazt a hármat, amit a megjegyzésmező már tudott
-- Szerkesztések beágyazva: egy szerkesztés diffje a sora alatt jelenik meg az átiratban, összecsukva, amíg rá nem koppintasz
-- Eszközcsoportok, amelyek elmondják, mi történt: egy összecsukott eszközhívás-sorozat így olvasható: „4 parancs lefutott, 2 fájl szerkesztve, 1 sikertelen”, számlálás helyett
-- A kilátástalan indítást elutasítjuk: egy olyan gépen való indítás, amelynek ügynöke már kimerítette a keretét, ezt jelzi és megnevezi a visszaállítás idejét
-- Használati sávok egy második ügynökfiókhoz ugyanazon a gépen
-- Agentválasztó: ha egy agent nem áll készen az eszközön, a választó ezt jelzi, és blokkolja az indítást, amíg ott le nem futtatod a doctort
-- Irányítási folyam: a feladatazonosítók, például a #EXP-12, koppintható chipekké válnak, az agent parancsai pedig parancscímkeként jelennek meg
-- Feladatkapcsolatok: kösd össze a feladatokat szülőként, részfeladatként, blokkolóként, blokkoltként, duplikátumként vagy kapcsolódóként a tulajdonságlapon; ha #EXP-12 szerepel egy leírásban vagy kommentben, a két feladat magától összekapcsolódik
-- Kommentszálak: válaszolj egy komment alatt a dokkolt szerkesztőből; a szálak egy szint mélyek maradnak, és az a komment, amelyet egy agent MCP-n át írt, ezt jelzi a fejlécében
-- Vezetett első indulás: a csapat létrehozása végigvisz az első boardon, a csapattársak meghívásán és az eszközök beállításán, ugyanabban a sorrendben, mint a weben és az asztali appban
-- Merge a művelet- és chatfuttatásokból: az a futtatás, amely pull requestet nyitott, a „Merge” gombot mutatja az irányítási nézetében, a Reviews pedig ezeket a pull requesteket az „Agent runs” alatt sorolja fel
-- A munkamenetek az eszközödön maradnak: az átiratok azon az eszközön tárolódnak, amelyik lefuttatta őket, soha nem a szerveren; a korábbi futtatások a Devices, a Chat és az Automations felől nyílnak meg, és arról az eszközről töltődnek be, ha online

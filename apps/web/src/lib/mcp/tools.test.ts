@@ -3155,6 +3155,8 @@ describe(`exponential_devices_list`, () => {
         caps: [`actions`, `resume-run`],
         version: `1.2.3`,
         sharedTeamIds: [],
+        // FEED-33 compat: the single-team alias, null when private.
+        sharedTeamId: null,
         isDefault: true,
         // EXP-484: null until the machine's collector reports.
         agentAccounts: null,

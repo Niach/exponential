@@ -46,6 +46,26 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-pins-shared-machines-and-video",
+    date: "2026-09-11",
+    title: "Pins, machines shared with several teams, and video that plays inline",
+    summary: "Pin issues, sessions and actions to the sidebar, share a build server with every team that needs it, watch a clip right inside a description or comment, and connect a second GitHub organisation.",
+    body: r#"- **Pinned**: pin an issue, a session or an action from its menu and it sits in a Pinned group at the top of the sidebar on web, desktop, iOS and Android. Pins are yours alone and follow you across devices.
+- **A machine shared with several teams**: a build server's device settings now show one switch per team instead of a single picker, so one runner can serve every team you belong to. Withdrawing a share still ends that team's runs on it and pauses its automations.
+- **Video and audio inline**: drop a clip into a description or a comment and it plays in place, with a poster, a duration chip and a lightbox, on every client. Uploads are normalised on your device (H.264 MP4, 720p on mobile); older apps show the same clip as a plain link.
+- **Connect another GitHub account**: team settings list every connected GitHub account with a Configure link and offer Connect another account separately from Refresh access, so a second organisation can be installed even when you already control one. An organisation waiting on the App's approval is named on the claim page with an approve link.
+- **Accounts on mobile**: the iOS and Android Devices pages carry the Accounts section (one row per agent account, machines as chips, a check on the active login) that web and desktop got last release.
+- **Live-session dot on Agent**: the green or amber running-session dot moved from Devices to the Agent entry on every client; on the phone it rides the chat launcher, which is now reachable from every tab. The mobile composer always names the machine it will start on.
+- **A quieter session list**: past runs read "<machine> · <time>" instead of repeating the agent and the ending reason, and ended runs no longer take a rail row.
+- **Composer polish**: an icon-only submit, subject chips with their own close button, tables in the chat feed that scroll sideways without stealing the wheel, dark-scheme time pickers, and boards on mobile merge chat and new issue into one capsule. Remote agent login now targets a specific account profile, and you can add a machine to an account from the web.
+- **Rate-limit wall that expires**: a run that keeps working after its reset time no longer wears a stale "Rate limited" banner; the wall clears on the next allowed call or once the reset passes.
+- **Faster Actions and Automations in the IDE**: hovering those rows no longer re-derives every session on each frame; the Automations render went from 744 µs to 180 µs on a large team.
+- **Resume after a merge**: resuming a chat run whose worktree was reclaimed after its PR landed re-creates the worktree from the recorded branch instead of refusing."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-one-composer",
     date: "2026-09-11",
     title: "One composer for chat, coding and actions",
@@ -58,21 +78,6 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Options where you need them**: machine, agent, model and plan mode sit under the composer; effort, ultracode, MCP servers and the account are one click away.
 - **Answer inside the card**: a pending plan or question is answered in its own card. Free-text and reject rows open an inline field, the composer steps aside until the card is done, and an answered ask step reopens until you submit.
 - **Agent messages**: an agent can notify your team over MCP with the new notifications_send tool. It lands as a push and an Inbox row for every member; a notification preference blocks other members' agents while your own always get through."#,
-};
-
-/// The previous head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-rate-limited-means-rate-limited",
-    date: "2026-09-10",
-    title: "Rate limited means rate limited, and a queued update that arrives",
-    summary: "A usage warning no longer marks a run blocked, the wall names its window, and a queued CLI update ends idle sessions instead of waiting forever, with Update now on the Devices page.",
-    body: r#"- **Warnings are not walls**: Claude's "approaching your limit" notice no longer marks the run "Rate limited" or tells the run that started it to wait. A run is blocked only when the agent itself refused a call.
-- **The wall names its window**: a blocked run's window and reset time now describe the same thing (the 5-hour session window, the weekly one or a model's), on the badge, in the session tools and in the message a parent run receives ("rate limited (weekly window) until ...").
-- **Queued updates arrive**: a CLI daemon with an update queued no longer waits for an attended chat that never closes. Sessions idle for 2 hours are ended and the daemon restarts on the new version.
-- **What holds an update**: the Devices page lists the live sessions a queued update is waiting on, who started them and when, and the Update button's tooltip says how the machine will get there.
-- **Update now**: a machine whose daemon supports it offers Update now next to a queued update. It ends every live session on that machine (repo-backed runs can be resumed from their session page) and restarts on the new version.
-- **Switch account on another machine**: clicking Switch account in a remote machine's device settings crashed the desktop app on the machine you were sitting at. The switch now queues on the remote machine as intended."#,
 };
 
 /// Whether the rail's "What's new" card renders, given the stored

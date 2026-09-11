@@ -107,6 +107,10 @@
       "reason": "Cloud-only (CLOUD_INSTANCE=true). Unreachable on the local instance the capturers drive, and the nav item is hidden there."
     },
     {
+      "route": "/t/$teamSlug/sessions/$sessionId/issue",
+      "reason": "EXP-827: a run's linked issue opened inside the Agent shell from the session's issue band. Same IssueDetailView composition as issue-detail beside the steering sessions list; a recipe would need a seeded issue-linked live run, which steering already covers."
+    },
+    {
       "route": "/admin",
       "reason": "Global admin console. Operator surface, not a product view; gated by INITIAL_ADMIN_EMAILS."
     },

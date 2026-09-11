@@ -2802,9 +2802,19 @@ fn prepare_resume_run(
     let reclaimed_note = workspace_reclaimed
         .then(|| {
             record.branch.as_deref().map(|branch| {
+                // Which story is true depends on what the re-created worktree
+                // actually holds: a reclaimer only deletes a MERGED branch
+                // (fresh cut, nothing ahead), while a worktree a person
+                // removed leaves the branch and its commits standing.
+                let ahead = crate::run_cleanup::count_commits(
+                    &cwd,
+                    &format!("origin/{default_branch}..{branch}"),
+                )
+                .unwrap_or(0);
                 crate::prompt::reclaimed_workspace_note(
                     branch,
                     &default_branch,
+                    ahead,
                     native_resume && extra.is_none(),
                 )
             })

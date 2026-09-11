@@ -44,6 +44,12 @@ const DEVICE_COLUMNS = [
   `last_seen_at`,
   // FEED-33: uuid[] — every team the server is shared with (`{}` = private).
   `shared_team_ids`,
+  // FEED-33 compat mirror: `shared_team_ids[1]` (trigger #17, NULL when
+  // private) for the clients in the wild that still read the single column
+  // (iOS 0.14.28/0.14.29, Android 0.14.31, desktop/CLI 0.14.36) — without
+  // it teammates' shared servers vanish from their pickers. The where clause
+  // stays on `shared_team_ids`. Removable at the floor in api-conventions.ts.
+  `shared_team_id`,
   `is_default`,
   `update_requested_at`,
   `created_at`,

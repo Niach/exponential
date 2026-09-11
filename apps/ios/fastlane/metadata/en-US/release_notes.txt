@@ -1,3 +1,14 @@
+- Videos and audio in descriptions and comments: attach a clip and it plays inline, with a poster frame and its length; what you upload is converted to 720p first
+- GitHub accounts: team settings lists every connected account with a Configure link, and Connect another account opens GitHub's own picker, so a second organization can be installed
+- Add repository: the picker says why a repository is missing, links to each account's GitHub settings, and takes a repository by name
+- Shorter past runs: an ended run reads the machine and the time, without the agent name and the reason it ended
+- The running session dot moved to the Chat button in the bottom bar, which now shows on every tab; Devices keeps only the sign-in warning
+- The composer always names the machine a run will start on, and opens a menu only when there is more than one
+- Rate limit banners clear themselves once the reset time has passed, and a plain usage warning never shows as one
+- Share a machine with several teams: the device sheet has one switch per team instead of a single choice
+- Composer details: Plan is a switch, a picked issue or action is removed with its own close button, and a board's bottom bar merges chat and new issue into one capsule
+- Pins: pin an issue, a session or an action from its menu, and it sits in a Pinned section at the top of the board switcher
+- Accounts on the Devices page: one row per agent account with its usage bars and a chip per machine, the same section web and desktop have
 - One composer: the Agent page composer starts everything, with issues or an action picked at the top and the machine, agent, model and plan mode under it; the Start coding sheet is gone
 - Every play button lands there: Start coding on an issue, the bulk bar, an action's Run and Fix merge conflicts open the composer with the right things already picked
 - Instructions with a start: whatever you type beside the picked issues or action reaches the run as extra instructions, and for a chat it is the prompt
@@ -7,16 +18,3 @@
 - Answer inside the card: a plan or a question is answered in its own card, with an inline field when you want to write instead of pick; the composer steps aside until the card is done
 - Agent messages: an agent can send your team a notification over MCP, and it arrives as a push and its own row in the Inbox
 - Rate limits that add up: a usage warning no longer marks a run rate limited, and a blocked run's window and reset time now describe the same limit
-- Rate limited, not stuck: when an agent runs out of usage mid-run, the session is marked as rate limited with the time it resets, and stays live and steerable instead of going quiet
-- Steer composer: the session field takes @ for teammates, # for issues and : for emoji, the same three the comment box already had
-- Edits inline: an edit's diff renders under its row in the transcript, folded away until you tap it
-- Tool groups that say what happened: a collapsed run of tool calls reads "Ran 4 commands, edited 2 files, 1 failed" instead of counting calls
-- A start that would go nowhere is refused: starting on a machine whose agent is already out of usage says so and names when it resets
-- Usage bars for a second agent account on the same machine
-- Agent picker: when an agent is not ready on a machine, the picker says so and blocks the start until you run the doctor there
-- Steering feed: issue identifiers like #EXP-12 become tappable chips, and agent commands render as command pills
-- Issue relations: link issues as parent, sub-issue, blocking, blocked by, duplicate or related from the properties sheet; typing #EXP-12 in a description or comment links the two issues on its own
-- Threaded comments: reply under a comment from the docked composer; threads stay one level deep, and a comment an agent posted over MCP says so in its header
-- A guided first run: creating a team walks through the first board, inviting teammates and setting up devices, in the same order as web and desktop
-- Merge from action and chat runs: a run that opened a pull request shows Merge in its steering view, and Reviews lists those pull requests under Agent runs
-- Sessions stay on your machine: transcripts are stored on the device that ran them, never on the server; past runs open from Devices, Chat and Automations and are fetched from that machine when it is online

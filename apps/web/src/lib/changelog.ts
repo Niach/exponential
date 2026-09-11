@@ -25,6 +25,23 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-pins-shared-machines-and-video`,
+    date: `2026-09-11`,
+    title: `Pins, machines shared with several teams, and video that plays inline`,
+    summary: `Pin issues, sessions and actions to the sidebar, share a build server with every team that needs it, watch a clip right inside a description or comment, and connect a second GitHub organisation.`,
+    body: `- **Pinned**: pin an issue, a session or an action from its menu and it sits in a Pinned group at the top of the sidebar on web, desktop, iOS and Android. Pins are yours alone and follow you across devices.
+- **A machine shared with several teams**: a build server's device settings now show one switch per team instead of a single picker, so one runner can serve every team you belong to. Withdrawing a share still ends that team's runs on it and pauses its automations.
+- **Video and audio inline**: drop a clip into a description or a comment and it plays in place, with a poster, a duration chip and a lightbox, on every client. Uploads are normalised on your device (H.264 MP4, 720p on mobile); older apps show the same clip as a plain link.
+- **Connect another GitHub account**: team settings list every connected GitHub account with a Configure link and offer Connect another account separately from Refresh access, so a second organisation can be installed even when you already control one. An organisation waiting on the App's approval is named on the claim page with an approve link.
+- **Accounts on mobile**: the iOS and Android Devices pages carry the Accounts section (one row per agent account, machines as chips, a check on the active login) that web and desktop got last release.
+- **Live-session dot on Agent**: the green or amber running-session dot moved from Devices to the Agent entry on every client; on the phone it rides the chat launcher, which is now reachable from every tab. The mobile composer always names the machine it will start on.
+- **A quieter session list**: past runs read "<machine> · <time>" instead of repeating the agent and the ending reason, and ended runs no longer take a rail row.
+- **Composer polish**: an icon-only submit, subject chips with their own close button, tables in the chat feed that scroll sideways without stealing the wheel, dark-scheme time pickers, and boards on mobile merge chat and new issue into one capsule. Remote agent login now targets a specific account profile, and you can add a machine to an account from the web.
+- **Rate-limit wall that expires**: a run that keeps working after its reset time no longer wears a stale "Rate limited" banner; the wall clears on the next allowed call or once the reset passes.
+- **Faster Actions and Automations in the IDE**: hovering those rows no longer re-derives every session on each frame; the Automations render went from 744 µs to 180 µs on a large team.
+- **Resume after a merge**: resuming a chat run whose worktree was reclaimed after its PR landed re-creates the worktree from the recorded branch instead of refusing.`,
+  },
+  {
     id: `2026-09-one-composer`,
     date: `2026-09-11`,
     title: `One composer for chat, coding and actions`,

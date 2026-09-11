@@ -88,6 +88,19 @@ describe(`media block markdown round-trip`, () => {
     expect(roundTrip(markdown)).toBe(markdown)
   })
 
+  it(`keeps a standalone attachment link on a FOREIGN host a link`, () => {
+    // The path alone is not ours: only relative or same-origin URLs lift.
+    const markdown = `[clip.mp4](https://other-host.example/api/attachments/abc)`
+    expect(blockTypes(markdown)).toEqual([`paragraph`])
+    expect(roundTrip(markdown)).toBe(markdown)
+  })
+
+  it(`lifts an absolute same-origin attachment link`, () => {
+    const markdown = `[clip.mp4](${window.location.origin}/api/attachments/abc)`
+    expect(blockTypes(markdown)).toEqual([mediaLinkNodeName])
+    expect(roundTrip(markdown)).toBe(markdown)
+  })
+
   it(`keeps two links on one paragraph as links`, () => {
     const markdown = `[a.mp4](/api/attachments/a) [b.mp4](/api/attachments/b)`
     expect(blockTypes(markdown)).toEqual([`paragraph`])
