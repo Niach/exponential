@@ -832,7 +832,7 @@ impl RailView {
             // it resolves (issues/sessions are observed already).
             cx.observe(&collections.pins, |_, _, cx| cx.notify()),
             cx.observe(&collections.actions, |_, _, cx| cx.notify()),
-            // The Devices dot is a live read over my coding_sessions rows.
+            // The Agent dot is a live read over my coding_sessions rows.
             cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()),
             // EXP-791: the Sessions rows include the runs THIS process hosts
             // (and their paused edge reads the devices rows below).
@@ -1365,7 +1365,11 @@ impl RailView {
     /// the Chat page as its center (a plain `activate_tool` would leave the
     /// center empty). Highlights like a tool: while its list is up and no
     /// full page covers the center.
-    fn rail_agent_entry(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+    fn rail_agent_entry(
+        &self,
+        badge: Option<RailBadge>,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
         let active = self.shared.read(cx).tool == ToolWindow::Sessions
             && !self.full_page_screen_up(cx);
         rail_row(
@@ -1373,7 +1377,7 @@ impl RailView {
             Icon::from(registry::ACTION_CHAT),
             "Agent",
             active,
-            None,
+            badge,
             cx,
         )
         .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
@@ -1843,12 +1847,14 @@ impl Render for RailView {
         // primary-tinted dot the mobile tab bars show.
         let inbox_badge = queries::inbox_unread(cx)
             .then(|| RailBadge::Dot(theme::tokens::PRIMARY.to_hsla()));
-        // Devices badge (EXP-699): any of MY live coding sessions in the
+        // Agent badge (EXP-699): any of MY live coding sessions in the
         // team — green, amber while one waits on a plan approval / question.
+        // It sat on Devices until the sessions list moved to the Agent tool
+        // (EXP-818); the dot followed the list.
         let agents = active_team_id(&self.nav, cx)
             .map(|id| queries::agents_running(cx, &id))
             .unwrap_or_default();
-        let devices_badge = agents.running.then(|| {
+        let agent_badge = agents.running.then(|| {
             RailBadge::Dot(if agents.needs_input {
                 theme::tokens::YELLOW.to_hsla()
             } else {
@@ -2113,7 +2119,7 @@ impl Render for RailView {
                         Icon::from(icons::registry::NAV_DEVICES),
                         "Devices",
                         Screen::Devices,
-                        devices_badge,
+                        None,
                         cx,
                     ))
                     .child(self.rail_screen_entry(
@@ -2148,7 +2154,7 @@ impl Render for RailView {
                     // page (EXP-772). EXP-818: it is a TOOL now — the sessions
                     // list on the left, the Chat prompt in the center until a
                     // row is clicked (the Support master-detail shape).
-                    .child(self.rail_agent_entry(cx))
+                    .child(self.rail_agent_entry(agent_badge, cx))
                     // EXP-778: Pinned sits between the nav entries and the
                     // boards (rail order: entries / Pinned / boards / Sessions).
                     .children(pinned_section)

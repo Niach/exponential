@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -41,11 +42,13 @@ import com.exponential.app.ui.theme.TextEmphasis
 // Linear-style floating bottom navigation: a dark pill with the top-level
 // destinations (Issues, My Work — the merged Inbox + My Issues personal tab,
 // with an unread dot — Support — the team helpdesk inbox, present only while
-// the active team's helpdesk flag is on (EXP-180) — Devices — the machines +
-// live sessions surface, with a green live dot — Actions — the team's action
-// prompts, its own entry since EXP-686 — and Reviews) plus a detached circular
-// compose button on the right. Search left the bar in EXP-686: it is a button
-// in the board header now.
+// the active team's helpdesk flag is on (EXP-180) — Devices — the machines
+// surface — Actions — the team's action prompts, its own entry since EXP-686
+// — and Reviews) plus a detached launcher on the right: the Chat circle that
+// opens the Agent page on EVERY top-level surface (the sessions list lives
+// there since EXP-825, so it carries the green live dot the Devices tab used
+// to wear), joined by New issue in one capsule on a board. Search left the
+// bar in EXP-686: it is a button in the board header now.
 // Overlaid above the NavHost; AppNavHost shows it only on the top-level routes.
 // (Compose has no cheap backdrop blur, so the bar takes the shared OPAQUE glass
 // fill — GlassTokens.OpaqueCardFill, EXP-698 — instead of the iOS material and
@@ -74,10 +77,10 @@ class BottomBarSuppression {
 /** Null outside the nav shell (previews, tests) — every read is optional. */
 val LocalBottomBarSuppression = staticCompositionLocalOf<BottomBarSuppression?> { null }
 
-// EXP-214 dot colors: the Devices dot escalates to amber while a session
-// waits on a plan approval / question; the Reviews dot is the review green
-// (the in_review issue-status tint). EXP-699: Devices shares the semantic
-// green — every platform's live dot is the same color now.
+// EXP-214 dot colors: the Agent launcher's dot escalates to amber while a
+// session waits on a plan approval / question; the Reviews dot is the review
+// green (the in_review issue-status tint). EXP-699: the live dot shares the
+// semantic green — every platform's live dot is the same color now.
 private val AgentsLiveGreen = DesignTokens.Semantic.Green
 private val AgentsNeedsInputAmber = DesignTokens.Semantic.Yellow
 private val ReviewsGreen = DesignTokens.Semantic.Green
@@ -97,9 +100,6 @@ fun BottomNavBar(
     showsSupport: Boolean,
     supportUnread: Boolean,
     showsCompose: Boolean,
-    // EXP-631: the Devices surface puts a Chat launcher in the compose slot —
-    // composing an issue is board-scoped and hidden there anyway.
-    showsChat: Boolean,
     onIssues: () -> Unit,
     onDevices: () -> Unit,
     onActions: () -> Unit,
@@ -160,17 +160,13 @@ fun BottomNavBar(
                     onClick = onSupport,
                 )
             }
-            // Devices (EXP-686, the renamed Agents surface): the machine list
-            // plus its sessions.
+            // Devices (EXP-686, the renamed Agents surface): the machine list.
+            // Its live dot moved to the Agent launcher with the sessions list.
             TabItem(
                 icon = ExpIcons.navDevices,
                 contentDescription = "Devices",
                 testTag = "tab-devices",
                 active = devicesActive,
-                showDot = agentsRunning,
-                // Amber while any session waits on a plan approval / question
-                // (EXP-214), live green otherwise.
-                dotColor = if (agentsNeedInput) AgentsNeedsInputAmber else AgentsLiveGreen,
                 onClick = onDevices,
             )
             // Actions (EXP-686): actions / automations / suggestions, no longer
@@ -198,24 +194,28 @@ fun BottomNavBar(
 
         Spacer(Modifier.weight(1f))
 
-        // The detached circular button beside the pill — one slot, whatever
-        // the active surface puts in it (compose an issue, start a chat).
-        // EXP-827: a board surface offers BOTH, so the slot becomes one
-        // capsule with two arms (chat | new issue); a surface with only one
-        // of them keeps the single circle.
-        when {
-            showsCompose && showsChat -> LauncherCapsule(onChat = onChat, onCompose = onCompose)
-            showsCompose -> Fab(
-                icon = ExpIcons.navCreateIssue,
-                contentDescription = "New issue",
-                testTag = "compose-button",
-                onClick = onCompose,
-            )
-            showsChat -> Fab(
+        // The detached launcher beside the pill. The Chat circle opens the
+        // Agent page from every top-level surface (EXP-631/694/827, and the
+        // rest since the sessions list moved there): it wears the live dot —
+        // amber while any of my sessions waits on a plan approval / question
+        // (EXP-214), green while one runs. EXP-827: a board offers New issue
+        // too, so the slot becomes one capsule with two arms (chat | new issue).
+        val agentDot = if (!agentsRunning) {
+            null
+        } else if (agentsNeedInput) {
+            AgentsNeedsInputAmber
+        } else {
+            AgentsLiveGreen
+        }
+        if (showsCompose) {
+            LauncherCapsule(onChat = onChat, onCompose = onCompose, chatDot = agentDot)
+        } else {
+            Fab(
                 icon = ExpIcons.actionChat,
                 contentDescription = "Start chat",
                 testTag = "chat-button",
                 onClick = onChat,
+                dotColor = agentDot,
             )
         }
     }
@@ -230,6 +230,7 @@ fun BottomNavBar(
 private fun LauncherCapsule(
     onChat: () -> Unit,
     onCompose: () -> Unit,
+    chatDot: Color?,
 ) {
     Row(
         modifier = Modifier
@@ -244,6 +245,7 @@ private fun LauncherCapsule(
             contentDescription = "Start chat",
             testTag = "chat-button",
             onClick = onChat,
+            dotColor = chatDot,
         )
         Box(
             Modifier
@@ -260,13 +262,17 @@ private fun LauncherCapsule(
     }
 }
 
-/** One arm of [LauncherCapsule]: a 52dp square hit area, no chrome of its own. */
+/**
+ * One arm of [LauncherCapsule]: a 52dp square hit area, no chrome of its own.
+ * [dotColor] draws the tab-style status dot in its top-end corner.
+ */
 @Composable
 private fun LauncherArm(
     icon: ImageVector,
     contentDescription: String,
     testTag: String,
     onClick: () -> Unit,
+    dotColor: Color? = null,
 ) {
     Box(
         modifier = Modifier
@@ -281,6 +287,7 @@ private fun LauncherArm(
             modifier = Modifier.size(20.dp),
             tint = Color.White,
         )
+        LauncherDot(dotColor)
     }
 }
 
@@ -290,6 +297,7 @@ private fun Fab(
     contentDescription: String,
     testTag: String,
     onClick: () -> Unit,
+    dotColor: Color? = null,
 ) {
     Box(
         modifier = Modifier
@@ -307,7 +315,26 @@ private fun Fab(
             modifier = Modifier.size(20.dp),
             tint = Color.White,
         )
+        LauncherDot(dotColor)
     }
+}
+
+/**
+ * The launcher's status dot — the same 8dp disc a tab wears, at the same
+ * spot relative to the 20dp glyph (its top-end corner), re-based on the
+ * 52dp square.
+ */
+@Composable
+private fun BoxScope.LauncherDot(color: Color?) {
+    if (color == null) return
+    Box(
+        modifier = Modifier
+            .align(Alignment.TopEnd)
+            .offset(x = (-18).dp, y = 12.dp)
+            .size(8.dp)
+            .clip(CircleShape)
+            .background(color),
+    )
 }
 
 @Composable

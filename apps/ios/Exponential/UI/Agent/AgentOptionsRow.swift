@@ -35,23 +35,36 @@ struct AgentOptionsRow: View {
 
     // MARK: - Pills
 
-    /// The machine — only when there is a choice (a lone machine is not one).
+    /// The machine the run lands on — always named once one resolves (the
+    /// desktop and web say it too); a menu only while there is a choice, a
+    /// lone machine reads as a plain label like a lone agent does.
     @ViewBuilder
     private var devicePill: some View {
-        if model.candidateDevices.count > 1 {
-            GlassMenu {
-                ForEach(model.candidateDevices) { device in
-                    GlassMenuItem(LaunchVocabulary.deviceCaption(device)) {
-                        model.selectDevice(device.deviceId)
+        if let device = model.device {
+            if model.candidateDevices.count > 1 {
+                GlassMenu {
+                    ForEach(model.candidateDevices) { candidate in
+                        GlassMenuItem(LaunchVocabulary.deviceCaption(candidate)) {
+                            model.selectDevice(candidate.deviceId)
+                        }
                     }
+                } label: {
+                    OptionPillLabel(
+                        icon: device.isServer ? AppIcons.uiServer : AppIcons.uiDevice,
+                        text: LaunchVocabulary.deviceName(device)
+                    )
                 }
-            } label: {
+                .accessibilityLabel("Device")
+                .accessibilityIdentifier("agent-device-pill")
+            } else {
                 OptionPillLabel(
-                    icon: model.device?.isServer == true ? AppIcons.uiServer : AppIcons.uiDevice,
-                    text: model.device.map(LaunchVocabulary.deviceName) ?? "Device"
+                    icon: device.isServer ? AppIcons.uiServer : AppIcons.uiDevice,
+                    text: LaunchVocabulary.deviceName(device),
+                    chevron: false
                 )
+                .accessibilityLabel("Device")
+                .accessibilityIdentifier("agent-device-pill")
             }
-            .accessibilityLabel("Device")
         }
     }
 

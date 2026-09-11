@@ -102,16 +102,20 @@ internal fun AgentOptionsRow(
             .testTag("agent-options-row"),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        // The machine — only when there is a choice (a lone machine is not one).
-        if (devices.size > 1) {
+        // The machine the run lands on — always named once one resolves (the
+        // desktop and web say it too); a menu only while there is a choice,
+        // a lone machine reads as a plain label like a lone agent does.
+        if (device != null) {
             OptionMenuPill(
-                icon = if (device?.isServer == true) ExpIcons.uiServer else ExpIcons.uiDevice,
-                text = device?.let(::deviceOptionLabel) ?: "Device",
+                icon = if (device.isServer) ExpIcons.uiServer else ExpIcons.uiDevice,
+                text = deviceOptionLabel(device),
                 contentDescription = "Device",
                 options = devices.map { it.deviceId },
                 optionLabel = { id -> devices.firstOrNull { it.deviceId == id }?.let(::deviceOptionLabel) ?: id },
-                selected = device?.deviceId,
+                selected = device.deviceId,
                 onSelect = onDeviceChange,
+                enabled = devices.size > 1,
+                modifier = Modifier.testTag("agent-device-pill"),
             )
         }
         // The agent — brand-marked like the segmented strip it replaces.

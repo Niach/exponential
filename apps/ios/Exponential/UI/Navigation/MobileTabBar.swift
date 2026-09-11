@@ -4,12 +4,14 @@ import SwiftUI
 /// Linear-style floating bottom navigation: a glass pill with the top-level
 /// destinations (Issues, My Work — with an unread dot — Support — the team
 /// helpdesk inbox, present only while the active team's helpdesk flag is on
-/// (EXP-180) — Devices — with a running-session dot — Actions — the team's
+/// (EXP-180) — Devices — the machines surface — Actions — the team's
 /// actions/automations surface, its own entry per EXP-686 — and Reviews — its
-/// own entry per EXP-147; base order per EXP-81) plus a detached circular
-/// button on the right — compose an issue on the board surfaces, start a chat
-/// on Devices and Actions (EXP-631/EXP-694). Search is no longer a tab (EXP-686): it is a pushed
-/// detail reached from the board header. Attached via
+/// own entry per EXP-147; base order per EXP-81) plus a detached launcher on
+/// the right: the Chat circle opens the Agent page from EVERY top-level
+/// surface (the sessions list lives there since EXP-825, so it wears the
+/// running-session dot the Devices tab used to carry); a board adds New
+/// issue beside it in one capsule (EXP-827). Search is no longer a tab
+/// (EXP-686): it is a pushed detail reached from the board header. Attached via
 /// `.overlay(alignment: .bottom)` so content
 /// scrolls underneath it; each bar-visible scrollable reserves clearance with
 /// `.tabBarBottomInset()` (EXP-36). MainNavigator hides it on detail screens.
@@ -27,10 +29,6 @@ struct MobileTabBar: View {
     let showsSupport: Bool
     let supportUnread: Bool
     let showsCompose: Bool
-    /// EXP-631: the Devices surface puts a Chat launcher in the compose slot —
-    /// composing an issue is board-scoped and hidden there anyway. EXP-694:
-    /// the Actions surface does the same.
-    let showsChat: Bool
     let onIssues: () -> Void
     let onDevices: () -> Void
     let onActions: () -> Void
@@ -95,17 +93,12 @@ struct MobileTabBar: View {
                     .accessibilityIdentifier("tab-support")
                 }
                 // Devices (EXP-686, the renamed Agents surface): the machine
-                // list plus its sessions.
+                // list. Its live dot moved to the Agent launcher with the
+                // sessions list.
                 tab(
                     glyph: AppIcons.navDevices,
                     label: "Devices",
                     active: devicesActive,
-                    badge: agentsRunning,
-                    // Amber while any session waits on a plan approval /
-                    // question (EXP-214), live green otherwise.
-                    badgeColor: agentsNeedInput
-                        ? DesignTokens.Semantic.yellow
-                        : DesignTokens.Semantic.green,
                     action: onDevices
                 )
                 .accessibilityIdentifier("tab-devices")
@@ -143,17 +136,16 @@ struct MobileTabBar: View {
 
             Spacer()
 
-            // EXP-827: a board surface offers BOTH launchers, so the slot
-            // becomes one capsule with two arms (chat | new issue). A surface
-            // with only one of them keeps the single circle.
-            if showsCompose && showsChat {
+            // The Chat launcher opens the Agent page from every top-level
+            // surface (EXP-631/694/827, and the rest since the sessions list
+            // moved there): it wears the live dot — amber while any of my
+            // sessions waits on a plan approval / question (EXP-214), green
+            // while one runs. EXP-827: a board offers New issue too, so the
+            // slot becomes one capsule with two arms (chat | new issue).
+            if showsCompose {
                 launcherCapsule
-            } else if showsCompose {
-                fab(glyph: AppIcons.navCreateIssue, action: onCompose)
-                    .accessibilityLabel("New issue")
-                    .accessibilityIdentifier("compose-button")
-            } else if showsChat {
-                fab(glyph: AppIcons.actionChat, action: onChat)
+            } else {
+                fab(glyph: AppIcons.actionChat, badge: agentBadge, action: onChat)
                     .accessibilityLabel("Start chat")
                     .accessibilityIdentifier("chat-button")
             }
@@ -166,9 +158,15 @@ struct MobileTabBar: View {
     /// EXP-827: the merged launcher on a board — the same 52pt height as the
     /// circle, two 52pt arms split by a hairline, each its own button with
     /// the labels and identifiers the single circles carry.
+    /// The launcher's dot color: nil while nothing of mine runs.
+    private var agentBadge: Color? {
+        guard agentsRunning else { return nil }
+        return agentsNeedInput ? DesignTokens.Semantic.yellow : DesignTokens.Semantic.green
+    }
+
     private var launcherCapsule: some View {
         HStack(spacing: 0) {
-            arm(glyph: AppIcons.actionChat, action: onChat)
+            arm(glyph: AppIcons.actionChat, badge: agentBadge, action: onChat)
                 .accessibilityLabel("Start chat")
                 .accessibilityIdentifier("chat-button")
             Rectangle()
@@ -187,23 +185,46 @@ struct MobileTabBar: View {
 
     /// One arm of the launcher capsule: a 52pt square hit area, no chrome of
     /// its own (the capsule paints it).
-    private func arm(glyph: String, action: @escaping () -> Void) -> some View {
+    private func arm(
+        glyph: String,
+        badge: Color? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             AppIcon(glyph, size: AppIcon.Size.large, weight: .semibold)
                 .foregroundStyle(.white)
                 .frame(width: 52, height: 52)
+                .overlay(alignment: .topTrailing) { launcherDot(badge) }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
 
+    /// The launcher's status dot — the tab's 8pt disc at the same spot
+    /// relative to the glyph (its top-trailing corner), re-based on the
+    /// 52pt square.
+    @ViewBuilder
+    private func launcherDot(_ color: Color?) -> some View {
+        if let color {
+            Circle()
+                .fill(color)
+                .frame(width: 8, height: 8)
+                .offset(x: -12, y: 12)
+        }
+    }
+
     /// The detached circular button beside the pill — one slot, whatever the
     /// active surface puts in it (compose an issue, start a chat).
-    private func fab(glyph: String, action: @escaping () -> Void) -> some View {
+    private func fab(
+        glyph: String,
+        badge: Color? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             AppIcon(glyph, size: AppIcon.Size.large, weight: .semibold)
                 .foregroundStyle(.white)
                 .frame(width: 52, height: 52)
+                .overlay(alignment: .topTrailing) { launcherDot(badge) }
                 // EXP-698: the same opaque chrome as the pill beside it — a
                 // circle floating over the feed, so no material, no tint.
                 .background(GlassTokens.opaqueCardFill, in: Circle())
