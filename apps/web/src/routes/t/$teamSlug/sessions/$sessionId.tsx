@@ -3,9 +3,7 @@ import {
   createFileRoute,
   Link,
   redirect,
-  useCanGoBack,
   useNavigate,
-  useRouter,
 } from "@tanstack/react-router"
 import { useLiveQuery } from "@tanstack/react-db"
 import { LoaderCircle } from "lucide-react"
@@ -59,8 +57,6 @@ export const Route = createFileRoute(`/t/$teamSlug/sessions/$sessionId`)({
 
 function SessionPage() {
   const { teamSlug, sessionId } = Route.useParams()
-  const router = useRouter()
-  const canGoBack = useCanGoBack()
   const navigate = useNavigate()
   const team = useTeamBySlug(teamSlug)
   const { data: authSession } = useSession()
@@ -72,16 +68,20 @@ function SessionPage() {
     sessionId
   )
 
-  // Back is the browser's back wherever there is history to pop (the session
-  // was opened FROM somewhere — an issue, the sidebar, the Agent page); a
-  // cold deep link falls back to the Agent page, which lists every run.
+  // EXP-827: Back is ALWAYS the Agent page — the shell's list is where a run
+  // is opened from, and popping browser history landed on whatever issue
+  // happened to be open before (the sidebar's Sessions rows navigate from
+  // anywhere). The browser's own back is untouched.
   const goBack = useCallback(() => {
-    if (canGoBack) {
-      router.history.back()
-      return
-    }
     void navigate({ to: `/t/$teamSlug/agent`, params: { teamSlug } })
-  }, [canGoBack, router, navigate, teamSlug])
+  }, [navigate, teamSlug])
+  // EXP-827: the linked issue opens IN the shell, beside the sessions list.
+  const openIssue = useCallback(() => {
+    void navigate({
+      to: `/t/$teamSlug/sessions/$sessionId/issue`,
+      params: { teamSlug, sessionId },
+    })
+  }, [navigate, teamSlug, sessionId])
 
   if (!team || !currentUserId || !isReady) {
     return (
@@ -167,6 +167,8 @@ function SessionPage() {
             <EndedRunHeader session={session} />
           ) : undefined
         }
+        issue={row.issue ?? null}
+        onOpenIssue={row.issue ? openIssue : undefined}
         onBack={goBack}
       />
     </div>
