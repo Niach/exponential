@@ -32,12 +32,30 @@ public enum ContentBlock: Identifiable, Equatable {
     /// A GFM pipe table (EXP-726). Its CELL ids share this id namespace, so
     /// `IssueEditorModel` routes a cell edit exactly like a block edit.
     case table(id: UUID, table: TableBlock)
+    /// EXP-824: a paragraph that is SOLELY one link to an attachment URL —
+    /// `[clip.mp4](/api/attachments/{id})`, the inline media form. The
+    /// renderer upgrades it to a video/audio player when the synced row's
+    /// content type says so, and renders the plain link otherwise; the
+    /// serializer writes the link back byte for byte. `url` is the stored
+    /// (relative) form, or a `draft://` placeholder while uploading.
+    case attachmentLink(id: UUID, url: String, label: String)
 
     public var id: UUID {
         switch self {
         case .text(let id, _): return id
         case .image(let id, _, _): return id
         case .table(let id, _): return id
+        case .attachmentLink(let id, _, _): return id
+        }
+    }
+
+    /// The URL of an image or attachment-link block — the two block kinds
+    /// that carry an upload placeholder (`draft://`) until their bytes land.
+    public var draftableURL: String? {
+        switch self {
+        case .image(_, let url, _): return url
+        case .attachmentLink(_, let url, _): return url
+        case .text, .table: return nil
         }
     }
 
@@ -288,6 +306,9 @@ public enum MarkdownConversion {
             case .table(_, let table):
                 let md = serializeTable(table)
                 if !md.isEmpty { parts.append(md) }
+            case .attachmentLink(_, let url, let label):
+                // EXP-824: the plain-link media form, never `![](…)`.
+                parts.append("[\(AttachmentLinks.escapeLabel(label))](\(url))")
             }
         }
         return parts.joined(separator: "\n\n")
@@ -468,6 +489,11 @@ private class BlockCollector {
         blocks.append(.table(id: UUID(), table: table))
     }
 
+    func emitAttachmentLink(url: String, label: String) {
+        flushText()
+        blocks.append(.attachmentLink(id: UUID(), url: url, label: label))
+    }
+
     func finalize() -> [ContentBlock] {
         flushText()
         ContentBlock.normalize(&blocks)
@@ -484,6 +510,15 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
 
     case CMARK_NODE_PARAGRAPH:
         appendBlockSeparatorToCollector(collector: collector, context: &context)
+        // EXP-824: a top-level paragraph that is SOLELY one attachment link
+        // is the inline media block. Inside a quote, a list item or a table
+        // cell the link stays inline text, exactly like an image there.
+        if !context.inBlockquote, context.listStack.isEmpty, !context.inTableCell,
+           let link = soleAttachmentLink(in: node, baseURL: context.baseURL) {
+            collector.emitAttachmentLink(url: link.url, label: link.label)
+            context.needsBlockSeparator = false
+            return
+        }
         if context.inBlockquote {
             context.pushStyle(color: MarkdownStyle.blockquoteTextColor, extra: [
                 .markdownBlockquote: true,
@@ -900,6 +935,31 @@ private func stripTaskMarker(_ node: UnsafeMutablePointer<cmark_node>) {
         break
     }
     text.withCString { _ = cmark_node_set_literal(textNode, $0) }
+}
+
+/// EXP-824: the paragraph's ONLY child is a link whose URL is an attachment
+/// URL (or an upload placeholder) and whose label is plain text — no title,
+/// no emphasis/code inside. Returns the stored URL and the unescaped label.
+private func soleAttachmentLink(
+    in paragraph: UnsafeMutablePointer<cmark_node>,
+    baseURL: URL?
+) -> (url: String, label: String)? {
+    guard let link = cmark_node_first_child(paragraph),
+          cmark_node_next(link) == nil,
+          cmark_node_get_type(link) == CMARK_NODE_LINK else { return nil }
+    let url = cmark_node_get_url(link).flatMap { String(cString: $0) } ?? ""
+    guard !url.isEmpty, AttachmentLinks.isBlockURL(url, baseURL: baseURL) else { return nil }
+    if let title = cmark_node_get_title(link), strlen(title) > 0 { return nil }
+    var label = ""
+    var child = cmark_node_first_child(link)
+    while let c = child {
+        guard cmark_node_get_type(c) == CMARK_NODE_TEXT, let literal = cmark_node_get_literal(c) else {
+            return nil
+        }
+        label += String(cString: literal)
+        child = cmark_node_next(c)
+    }
+    return (url, label)
 }
 
 private func collectText(from node: UnsafeMutablePointer<cmark_node>) -> String {

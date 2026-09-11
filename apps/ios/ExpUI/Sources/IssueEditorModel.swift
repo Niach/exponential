@@ -134,6 +134,22 @@ public final class IssueEditorModel {
     /// the derived markdown is byte-identical either way.
     public var issueRefStatusResolver: ((String) -> IssueRefStatusInfo?)?
 
+    /// EXP-824 — attachment id → the synced row's media facts, so an
+    /// `attachmentLink` block can become a video/audio player (or stay a
+    /// plain link when the row is not synced / not media). Render-only, like
+    /// `issueRefResolver`: the derived markdown is byte-identical either way.
+    /// Hosts feed it from their attachments observation and call
+    /// `attachmentsDidChange()` when the rows move so the blocks re-resolve.
+    public var attachmentResolver: ((String) -> AttachmentMediaInfo?)?
+
+    /// Bumped by `attachmentsDidChange()`; media block views read it so a row
+    /// landing after the block rendered upgrades the plain link to a player.
+    public private(set) var attachmentInfoRevision = 0
+
+    public func attachmentsDidChange() {
+        attachmentInfoRevision &+= 1
+    }
+
     /// Read-only comment cards set this so the chip title is spliced in as
     /// text (`IssueRefs.decorateForDisplay`) instead of riding an attachment.
     /// Never set it on a model whose markdown gets saved.
@@ -316,7 +332,10 @@ public final class IssueEditorModel {
 
     public var isEditing: Bool { focusedBlockId != nil }
     public var isDirty: Bool { currentMarkdown() != lastSavedMarkdown }
-    public var hasUncommittedDrafts: Bool { MarkdownImageUtils.hasDraftImages(currentMarkdown()) }
+    /// Any `draft://` placeholder still in the document — an image OR a media
+    /// link (EXP-824). Every save gate checks this, so a failed video upload
+    /// can never leak a placeholder link into a persisted body.
+    public var hasUncommittedDrafts: Bool { MarkdownImageUtils.hasDraftReferences(currentMarkdown()) }
 
     public func revision(for id: UUID) -> Int { revisions[id] ?? 0 }
     public func uploadState(for id: UUID) -> ImageUploadState { imageUploadStates[id] ?? .idle }
@@ -445,7 +464,7 @@ public final class IssueEditorModel {
                     return result.changed ? result.attributed : nil
                 }
                 if !changed.isEmpty { blocks[idx] = .table(id: id, table: mutated) }
-            case .image:
+            case .image, .attachmentLink:
                 continue
             }
         }
@@ -481,7 +500,7 @@ public final class IssueEditorModel {
                 guard !changed.isEmpty else { continue }
                 blocks[idx] = .table(id: id, table: mutated)
                 for cellId in changed { bumpRevision(cellId) }
-            case .image:
+            case .image, .attachmentLink:
                 continue
             }
         }
@@ -1041,12 +1060,12 @@ public final class IssueEditorModel {
         selection = (id, NSRange(location: location, length: 0))
     }
 
-    // MARK: - Image insertion
+    // MARK: - Image / media insertion
 
     public func insertImage(data: Data, filename: String, contentType: String, width: Int?, height: Int?) {
-        insertImage(
-            data: data, filename: filename, contentType: contentType,
-            width: width, height: height, atEnd: false
+        insertDraft(
+            PendingImage(data: data, filename: filename, contentType: contentType, width: width, height: height),
+            atEnd: false
         )
     }
 
@@ -1055,25 +1074,35 @@ public final class IssueEditorModel {
     /// insertion point — the user was attaching, not typing — so it lands after
     /// everything already written instead of splitting the focused paragraph.
     public func appendImage(data: Data, filename: String, contentType: String, width: Int?, height: Int?) {
-        insertImage(
-            data: data, filename: filename, contentType: contentType,
-            width: width, height: height, atEnd: true
+        insertDraft(
+            PendingImage(data: data, filename: filename, contentType: contentType, width: width, height: height),
+            atEnd: true
         )
     }
 
-    private func insertImage(
-        data: Data,
-        filename: String,
-        contentType: String,
-        width: Int?,
-        height: Int?,
-        atEnd: Bool
-    ) {
+    /// EXP-824: insert a normalised video/audio clip at the caret as an
+    /// `attachmentLink` block behind a `draft://` placeholder — the same
+    /// upload lifecycle as an image (`commitPendingImages` swaps the URL for
+    /// the real attachment), just the plain-link markdown form on save.
+    public func insertMedia(_ media: PendingImage) {
+        insertDraft(media, atEnd: false)
+    }
+
+    /// EXP-824: the file-picker twin of `insertMedia` — lands last, like
+    /// `appendImage`.
+    public func appendMedia(_ media: PendingImage) {
+        insertDraft(media, atEnd: true)
+    }
+
+    private func insertDraft(_ pending: PendingImage, atEnd: Bool) {
         let draftUrl = MarkdownImageUtils.draftUrl()
-        pendingImages[draftUrl] = PendingImage(
-            data: data, filename: filename, contentType: contentType, width: width, height: height
-        )
+        pendingImages[draftUrl] = pending
         let imageBlockId = UUID()
+        // The block form follows the content type: media is a plain link
+        // labelled with its filename, an image is `![image](…)`.
+        let draftBlock: ContentBlock = pending.isMedia
+            ? .attachmentLink(id: imageBlockId, url: draftUrl, label: pending.filename)
+            : .image(id: imageBlockId, url: draftUrl, alt: "image")
 
         let targetId = atEnd ? nil : (focusedBlockId ?? selection?.blockId)
 
@@ -1086,7 +1115,7 @@ public final class IssueEditorModel {
             let afterId = UUID()
             blocks.insert(
                 contentsOf: [
-                    .image(id: imageBlockId, url: draftUrl, alt: "image"),
+                    draftBlock,
                     .text(id: afterId, attributedContent: NSAttributedString()),
                 ],
                 at: tableIndex + 1)
@@ -1104,7 +1133,7 @@ public final class IssueEditorModel {
               let blockIndex = blocks.firstIndex(where: { $0.id == targetId }),
               case .text(_, let content) = blocks[blockIndex] else {
             let afterId = UUID()
-            blocks.append(.image(id: imageBlockId, url: draftUrl, alt: "image"))
+            blocks.append(draftBlock)
             blocks.append(.text(id: afterId, attributedContent: NSAttributedString()))
             ContentBlock.normalize(&blocks)
             bumpAllRevisions()
@@ -1135,7 +1164,7 @@ public final class IssueEditorModel {
         let afterId = UUID()
         blocks.replaceSubrange(blockIndex...blockIndex, with: [
             .text(id: beforeId, attributedContent: beforeContent),
-            .image(id: imageBlockId, url: draftUrl, alt: "image"),
+            draftBlock,
             .text(id: afterId, attributedContent: afterContent),
         ])
         bumpRevision(beforeId)
@@ -1147,14 +1176,16 @@ public final class IssueEditorModel {
         notifyEdit()
     }
 
-    // MARK: - Image deletion / merge
+    // MARK: - Image / media deletion / merge
 
-    /// Backspace at the start of a text block deletes the image immediately
-    /// above it, merging the surrounding text blocks when both exist.
+    /// Backspace at the start of a text block deletes the image (or EXP-824
+    /// media block) immediately above it, merging the surrounding text blocks
+    /// when both exist. A table above is left alone (EXP-727 deletes those
+    /// through their own menu).
     public func deleteImage(beforeTextBlock textBlockId: UUID) {
         guard let textIndex = blocks.firstIndex(where: { $0.id == textBlockId }),
               textIndex > 0,
-              case .image = blocks[textIndex - 1] else { return }
+              blocks[textIndex - 1].draftableURL != nil else { return }
         dropPendingDraft(at: textIndex - 1)
 
         if textIndex >= 2,
@@ -1177,8 +1208,11 @@ public final class IssueEditorModel {
         notifyEdit()
     }
 
+    /// Remove an image or media block (its X button). Text neighbours
+    /// concatenate — the block split a paragraph when it was inserted.
     public func deleteImageBlock(id: UUID) {
-        guard let index = blocks.firstIndex(where: { $0.id == id }) else { return }
+        guard let index = blocks.firstIndex(where: { $0.id == id }),
+              blocks[index].draftableURL != nil else { return }
         imageUploadStates[id] = nil
         dropPendingDraft(at: index)
 
@@ -1272,11 +1306,12 @@ public final class IssueEditorModel {
         lastUploader = uploader
         removeDanglingDraftBlocks()
 
+        // Images and (EXP-824) media links share the one draft lifecycle.
         let drafts: [(blockId: UUID, draftUrl: String, image: PendingImage)] = blocks.compactMap { block in
-            guard case .image(let id, let url, _) = block,
+            guard let url = block.draftableURL,
                   MarkdownImageUtils.isDraft(url),
                   let image = pendingImages[url] else { return nil }
-            return (id, url, image)
+            return (block.id, url, image)
         }
         guard !drafts.isEmpty else { return !hasUncommittedDrafts }
 
@@ -1334,7 +1369,7 @@ public final class IssueEditorModel {
         guard let uploader = lastUploader,
               case .failed = uploadState(for: blockId),
               let idx = blocks.firstIndex(where: { $0.id == blockId }),
-              case .image(_, let draftUrl, _) = blocks[idx],
+              let draftUrl = blocks[idx].draftableURL,
               MarkdownImageUtils.isDraft(draftUrl),
               let image = pendingImages[draftUrl] else { return }
         imageUploadStates[blockId] = .uploading
@@ -1353,30 +1388,38 @@ public final class IssueEditorModel {
     // MARK: - Internals
 
     private func setImageURL(blockId: UUID, url: String) {
-        guard let idx = blocks.firstIndex(where: { $0.id == blockId }),
-              case .image(let id, _, let alt) = blocks[idx] else { return }
-        // Changing the URL re-runs BlockImageView's load task against the real
-        // attachment; the loader cache is pre-seeded so it does not re-download.
-        blocks[idx] = .image(id: id, url: url, alt: alt)
+        guard let idx = blocks.firstIndex(where: { $0.id == blockId }) else { return }
+        switch blocks[idx] {
+        case .image(let id, _, let alt):
+            // Changing the URL re-runs BlockImageView's load task against the real
+            // attachment; the loader cache is pre-seeded so it does not re-download.
+            blocks[idx] = .image(id: id, url: url, alt: alt)
+        case .attachmentLink(let id, _, let label):
+            // EXP-824: the media block now points at the synced row — the
+            // resolver upgrades it to a player once the row lands.
+            blocks[idx] = .attachmentLink(id: id, url: url, label: label)
+        case .text, .table:
+            return
+        }
     }
 
     private func dropPendingDraft(at index: Int) {
         guard index >= 0, index < blocks.count,
-              case .image(_, let url, _) = blocks[index],
+              let url = blocks[index].draftableURL,
               MarkdownImageUtils.isDraft(url) else { return }
         pendingImages[url] = nil
     }
 
-    /// Remove `draft://` image blocks that have no backing pending data (e.g.
-    /// the in-memory bytes were lost to an app restart before commit).
+    /// Remove `draft://` image/media blocks that have no backing pending data
+    /// (e.g. the in-memory bytes were lost to an app restart before commit).
     private func removeDanglingDraftBlocks() {
         var changed = false
         for index in stride(from: blocks.count - 1, through: 0, by: -1) {
-            if case .image(let id, let url, _) = blocks[index],
+            if let url = blocks[index].draftableURL,
                MarkdownImageUtils.isDraft(url),
                pendingImages[url] == nil {
+                imageUploadStates[blocks[index].id] = nil
                 blocks.remove(at: index)
-                imageUploadStates[id] = nil
                 changed = true
             }
         }

@@ -178,6 +178,50 @@ final class WireDecodingTests: XCTestCase {
         XCTAssertEqual(attachment.filename, "screenshot.png")
     }
 
+    // EXP-824: media rows carry duration_ms (a wire STRING like every int) and
+    // poster_storage_key; both nullable, both absent on pre-rotation snapshots.
+    func testAttachmentDecodesVideoMetadata() throws {
+        let attachment = try decode(AttachmentEntity.self, #"""
+        {
+          "id": "a1", "team_id": "w1", "issue_id": "i1", "uploader_id": "u1",
+          "filename": "clip.mp4", "content_type": "video/mp4",
+          "size_bytes": "12345", "storage_key": "k", "url": "/api/attachments/a1",
+          "width": "1280", "height": "720",
+          "duration_ms": "7250", "poster_storage_key": "teams/w1/a1.poster.jpg",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertEqual(attachment.durationMs, 7250)
+        XCTAssertEqual(attachment.posterStorageKey, "teams/w1/a1.poster.jpg")
+        XCTAssertTrue(attachment.hasPoster)
+    }
+
+    func testAttachmentVideoMetadataNullOrAbsentIsNil() throws {
+        let nulled = try decode(AttachmentEntity.self, #"""
+        {
+          "id": "a1", "team_id": "w1", "issue_id": "i1", "uploader_id": "u1",
+          "filename": "a.pdf", "content_type": "application/pdf",
+          "size_bytes": "1", "storage_key": "k", "url": "/x",
+          "width": null, "height": null, "duration_ms": null, "poster_storage_key": null,
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertNil(nulled.durationMs)
+        XCTAssertNil(nulled.posterStorageKey)
+        XCTAssertFalse(nulled.hasPoster)
+
+        let absent = try decode(AttachmentEntity.self, #"""
+        {
+          "id": "a1", "team_id": "w1", "issue_id": "i1", "uploader_id": "u1",
+          "filename": "a.pdf", "content_type": "application/pdf",
+          "size_bytes": "1", "storage_key": "k", "url": "/x",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertNil(absent.durationMs)
+        XCTAssertNil(absent.posterStorageKey)
+    }
+
     // MARK: - Notification (issue-less support_reply rows carry team_id)
 
     func testNotificationDecodesIssuelessSupportReplyWithTeamId() throws {

@@ -70,6 +70,9 @@ struct MarkdownEditor: View {
     /// focus back to once it dismisses.
     @State private var showEmojiPicker = false
     @State private var emojiRefocusTarget: UUID?
+    /// EXP-824: the last media-pick failure (export/read/cap), shown under
+    /// the blocks; cleared by the next pick.
+    @State private var mediaError: String?
     private let emojiPreferences = EmojiPreferences()
 
     // NOTE: deliberately no internal ScrollView. Every usage embeds this
@@ -126,7 +129,37 @@ struct MarkdownEditor: View {
                                 onIssueRefTap: onIssueRefTap
                             )
                             .id(id)
+
+                        case .attachmentLink(let id, let url, let label):
+                            // EXP-824: a video/audio player, or the plain
+                            // link, depending on what the row resolves to.
+                            BlockMediaView(
+                                model: model,
+                                blockId: id,
+                                url: url,
+                                label: label,
+                                baseURL: baseURL,
+                                accountId: accountId,
+                                httpClient: httpClient,
+                                pendingImages: model.pendingImages,
+                                isReadOnly: isReadOnly,
+                                maxHeight: imageMaxHeight,
+                                onDelete: { model.deleteImageBlock(id: id) },
+                                onTapBelow: { focusBlock(after: id) },
+                                onRetry: { Task { await model.retryImage(blockId: id) } }
+                            )
+                            .id(id)
                         }
+                    }
+
+                    // EXP-824: a media pick that could not be normalised has
+                    // no block to report on (nothing was inserted), so the
+                    // editor says so itself, once, until the next pick.
+                    if let mediaError, !isReadOnly {
+                        Text(mediaError)
+                            .font(.caption2)
+                            .foregroundStyle(DesignTokens.Semantic.red)
+                            .padding(.top, 4)
                     }
                 }
                 .padding(.horizontal, isReadOnly ? 0 : 8)
@@ -155,7 +188,9 @@ struct MarkdownEditor: View {
             }
         }
         .onChange(of: mentionMembers) { _, newValue in model.mentionMembers = newValue }
-        .photosPicker(isPresented: $showPhotoPicker, selection: $photoItem, matching: .images)
+        // EXP-824: the library offers videos too; a video pick is normalised
+        // to 720p H.264/AAC and lands as an inline player block.
+        .photosPicker(isPresented: $showPhotoPicker, selection: $photoItem, matching: .any(of: [.images, .videos]))
         .onChange(of: photoItem) { _, newItem in
             guard let newItem else { return }
             Task { await ingestPhoto(newItem) }
@@ -226,6 +261,11 @@ struct MarkdownEditor: View {
 
     private func ingestPhoto(_ item: PhotosPickerItem) async {
         defer { photoItem = nil }
+        mediaError = nil
+        if MediaUploadPrep.isMedia(item.supportedContentTypes) {
+            await ingestPickedMedia(item)
+            return
+        }
         guard let data = try? await item.loadTransferable(type: Data.self) else { return }
         let contentType = item.supportedContentTypes.first?.preferredMIMEType ?? "image/jpeg"
         let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
@@ -234,10 +274,53 @@ struct MarkdownEditor: View {
         model.insertImage(data: data, filename: filename, contentType: contentType, width: width, height: height)
     }
 
+    /// EXP-824: a video/audio pick from the photo library. The item is loaded
+    /// as a FILE (never buffered whole), normalised off-main by
+    /// `MediaUploadPrep` (720p H.264/AAC MP4 + poster + probe), then queued at
+    /// the caret behind a `draft://` placeholder like an image.
+    private func ingestPickedMedia(_ item: PhotosPickerItem) async {
+        let type = item.supportedContentTypes.first
+        let contentType = AttachmentFiles.canonicalContentType(type?.preferredMIMEType ?? "video/quicktime")
+        let ext = type?.preferredFilenameExtension ?? "mov"
+        let filename = "clip-\(Int(Date().timeIntervalSince1970)).\(ext)"
+        guard let picked = try? await item.loadTransferable(type: PickedMediaFile.self) else {
+            mediaError = MediaUploadPrep.PrepError.unreadable.localizedDescription
+            return
+        }
+        await prepareAndInsertMedia(fileURL: picked.url, filename: filename, contentType: contentType, atEnd: false)
+    }
+
+    /// Normalise a temp media file off-main and insert (or append) it. The
+    /// temp file is deleted afterwards whatever happens.
+    private func prepareAndInsertMedia(fileURL: URL, filename: String, contentType: String, atEnd: Bool) async {
+        let editorModel = model
+        let outcome = await Task.detached { () -> Result<PendingImage, any Error> in
+            defer { try? FileManager.default.removeItem(at: fileURL) }
+            do {
+                return .success(try await MediaUploadPrep.prepare(
+                    fileURL: fileURL, filename: filename, contentType: contentType
+                ))
+            } catch {
+                return .failure(error)
+            }
+        }.value
+        switch outcome {
+        case .success(let media):
+            if atEnd { editorModel.appendMedia(media) } else { editorModel.insertMedia(media) }
+        case .failure(let error):
+            log.error("Media pick failed: \(error.localizedDescription, privacy: .public)")
+            mediaError = (error as? MediaUploadPrep.PrepError)?.errorDescription
+                ?? MediaUploadPrep.PrepError.exportFailed.errorDescription
+        }
+    }
+
     /// Sort a "Files" pick (EXP-327): an inline-image type is APPENDED to the
     /// description — same draft/upload lifecycle as the photo picker, just at
     /// the end rather than at the caret, because the user was attaching rather
-    /// than typing. Everything else goes to the host as a real attachment.
+    /// than typing. EXP-824: a video/audio pick is normalised and appended as
+    /// a media block the same way (no pre-read size gate — the export is what
+    /// brings a recording under the cap). Everything else goes to the host as
+    /// a real attachment.
     ///
     /// The read runs off-main inside the security scope: a 50 MB pick from a
     /// cloud-backed provider streams over the network and would freeze the UI.
@@ -245,6 +328,25 @@ struct MarkdownEditor: View {
         let contentType = AttachmentFiles.canonicalContentType(
             UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
         )
+        mediaError = nil
+        if AttachmentFiles.isInlineMedia(contentType: contentType) {
+            let filename = AttachmentFiles.sanitizedFilename(url.lastPathComponent)
+            Task {
+                // Copy out inside the security scope, off-main, then release
+                // the scope before the (slow) export runs.
+                let copied: URL? = await Task.detached {
+                    let scoped = url.startAccessingSecurityScopedResource()
+                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                    return try? MediaUploadPrep.copyToTemp(url)
+                }.value
+                guard let copied else {
+                    mediaError = MediaUploadPrep.PrepError.unreadable.localizedDescription
+                    return
+                }
+                await prepareAndInsertMedia(fileURL: copied, filename: filename, contentType: contentType, atEnd: true)
+            }
+            return
+        }
         guard AttachmentFiles.isInlineImage(contentType: contentType) else {
             onAttachFile?(url)
             return

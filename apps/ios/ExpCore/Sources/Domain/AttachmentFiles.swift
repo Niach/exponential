@@ -35,6 +35,11 @@ public enum AttachmentFiles {
     /// file cap; every composer that queues images (steer, comments) shares it.
     public static let maxImageUploadBytes = 10 * 1024 * 1024
 
+    /// EXP-824 — 2 MB, the server's cap for the optional `poster` part that
+    /// rides a video upload (`maxPosterUploadBytes`). The poster generator
+    /// re-encodes below it before the multipart body is built.
+    public static let maxPosterUploadBytes = 2 * 1024 * 1024
+
     /// EXP-554 — how many attachments one comment may carry. Mirrors
     /// `MAX_COMMENT_ATTACHMENTS` in packages/db-schema/src/domain.ts, which the
     /// `comments.create`/`comments.update` inputs enforce server-side.
@@ -50,6 +55,31 @@ public enum AttachmentFiles {
     /// upload, never at classification time.
     public static func isInlineImage(contentType: String) -> Bool {
         inlineImageContentTypes.contains(contentType)
+    }
+
+    /// EXP-824 — a `video/*` row is an INLINE VIDEO: embedded as the plain
+    /// link `[clip.mp4](/api/attachments/{id})` and rendered as a player
+    /// (poster + controls). Prefix match on the canonical essence, mirroring
+    /// the server's `isVideoContentType` and its web/desktop/Android twins.
+    public static func isInlineVideo(contentType: String) -> Bool {
+        normalized(contentType).hasPrefix("video/")
+    }
+
+    /// `audio/*` rides the same link form and renders as an audio player row.
+    public static func isInlineAudio(contentType: String) -> Bool {
+        normalized(contentType).hasPrefix("audio/")
+    }
+
+    /// The third class beside inline image and file: rows that render as
+    /// inline media. They leave the Files rail exactly like inline images do.
+    public static func isInlineMedia(contentType: String) -> Bool {
+        isInlineVideo(contentType: contentType) || isInlineAudio(contentType: contentType)
+    }
+
+    /// True for rows that belong in the Files rail — neither an inline image
+    /// nor inline media (mirrors web `isFileAttachment`).
+    public static func isFile(contentType: String) -> Bool {
+        !isInlineImage(contentType: contentType) && !isInlineMedia(contentType: contentType)
     }
 
     /// Canonical upload form of a picker-derived content type: lowercased media

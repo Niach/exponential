@@ -646,8 +646,9 @@ struct CreateIssueView: View {
         // associated with an existing issue id). Create with images stripped,
         // then upload + patch them in once the issue exists.
         let fullMarkdown = editor.currentMarkdown()
+        // EXP-824: media placeholders are plain links — strip both forms.
         let stripped = MarkdownImageUtils
-            .stripUnknownDraftImages(fullMarkdown, keep: [])
+            .stripUnknownDrafts(fullMarkdown, keep: [])
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Drop selections for labels deleted while drafting — the server
@@ -686,7 +687,8 @@ struct CreateIssueView: View {
                         issueId: createdId,
                         data: image.data,
                         filename: image.filename,
-                        contentType: image.contentType
+                        contentType: image.contentType,
+                        media: image.mediaUploadParts
                     )
                     return uploaded.url
                 }

@@ -320,6 +320,8 @@ struct CommentThreadView: View {
                 editor.issueRefTitleResolver = { resolveIssueRefTitle($0) }
                 editor.issueRefStatusResolver = { resolveIssueRefStatus($0) }
                 editor.issueRefSearch = { searchIssueRefs($0) }
+                // EXP-824: media blocks in the edited body keep their player.
+                editor.attachmentResolver = AttachmentInfoCache.resolver(db: deps.db, accountId: accountId)
                 editor.load(
                     markdown: getCommentBodyText(comment.body),
                     baseURL: deps.auth.instanceBaseURL(forAccountId: accountId)
@@ -366,7 +368,8 @@ struct CommentThreadView: View {
         return { image in
             let uploaded = try await api.upload(
                 accountId: acc, issueId: issueId,
-                data: image.data, filename: image.filename, contentType: image.contentType
+                data: image.data, filename: image.filename, contentType: image.contentType,
+                media: image.mediaUploadParts
             )
             return uploaded.url
         }
@@ -881,6 +884,9 @@ private struct CommentCardContent: View {
                         model.issueRefResolver = resolveIssueRef
                         model.issueRefTitleResolver = resolveIssueRefTitle
                         model.issueRefStatusResolver = resolveIssueRefStatus
+                        // EXP-824: `[clip.mp4](/api/attachments/{id})` in a
+                        // comment body renders as a player off the store.
+                        model.attachmentResolver = AttachmentInfoCache.resolver(db: deps.db, accountId: accountId)
                         model.load(markdown: text, baseURL: baseURL)
                         displayModel = model
                     }
@@ -900,7 +906,8 @@ private struct CommentCardContent: View {
             isPresented: $showPhotoPicker,
             selection: $photoItems,
             maxSelectionCount: AttachmentFiles.maxCommentAttachments,
-            matching: .images
+            // EXP-824: videos too — normalised to 720p and queued as a media tile.
+            matching: .any(of: [.images, .videos])
         )
         .onChange(of: photoItems) { _, newItems in
             guard !newItems.isEmpty else { return }
@@ -965,13 +972,7 @@ private struct CommentCardContent: View {
                 attachmentError = "A comment can carry \(AttachmentFiles.maxCommentAttachments) attachments."
                 break
             }
-            guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
-            let type = item.supportedContentTypes.first
-            let outcome = AttachmentPicks.normalizedPhoto(
-                data: data,
-                contentTypeHint: type?.preferredMIMEType,
-                filenameExtensionHint: type?.preferredFilenameExtension
-            )
+            let outcome = await AttachmentPicks.ingestPhotoItem(item)
             if let attachment = outcome.attachment {
                 pendingAttachments.append(attachment)
             } else {

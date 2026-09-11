@@ -100,7 +100,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v27_issue_relations", "v28_comment_threads",
              "v29_device_acp_agents", "v30_coding_session_blocked",
              "v31_coding_session_parent", "v32_action_prompt_placeholder",
-             "v33_pins", "v34_device_shared_team_ids"]
+             "v33_pins", "v34_device_shared_team_ids",
+             "v35_attachment_video_metadata"]
         )
     }
 
@@ -127,7 +128,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v27_issue_relations", "v28_comment_threads",
              "v29_device_acp_agents", "v30_coding_session_blocked",
              "v31_coding_session_parent", "v32_action_prompt_placeholder",
-             "v33_pins", "v34_device_shared_team_ids"]
+             "v33_pins", "v34_device_shared_team_ids",
+             "v35_attachment_video_metadata"]
         )
     }
 
@@ -182,7 +184,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v27_issue_relations", "v28_comment_threads",
              "v29_device_acp_agents", "v30_coding_session_blocked",
              "v31_coding_session_parent", "v32_action_prompt_placeholder",
-             "v33_pins", "v34_device_shared_team_ids"]
+             "v33_pins", "v34_device_shared_team_ids",
+             "v35_attachment_video_metadata"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -257,7 +260,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v27_issue_relations", "v28_comment_threads",
              "v29_device_acp_agents", "v30_coding_session_blocked",
              "v31_coding_session_parent", "v32_action_prompt_placeholder",
-             "v33_pins", "v34_device_shared_team_ids"]
+             "v33_pins", "v34_device_shared_team_ids",
+             "v35_attachment_video_metadata"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1286,6 +1290,44 @@ final class DatabaseMigrationTests: XCTestCase {
             )
         }
         XCTAssertEqual(reset, true)
+    }
+
+    // v35 (EXP-824): a store created before `attachments.duration_ms` /
+    // `poster_storage_key` existed must gain both and get the attachments
+    // offset reset so already-synced rows re-arrive carrying them.
+    func testAttachmentVideoMetadataColumnsAddedToExistingStore() throws {
+        let pool = try makePool("attachment-video-metadata")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v34_device_shared_team_ids")
+        try pool.write { db in
+            for column in ["duration_ms", "poster_storage_key"]
+            where try db.columns(in: "attachments").contains(where: { $0.name == column }) {
+                try db.alter(table: "attachments") { t in t.drop(column: column) }
+            }
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('attachments', 'h', '0_0', 0, 1)
+                """)
+        }
+        XCTAssertFalse(try columnNames(pool, "attachments").contains("duration_ms"))
+        XCTAssertFalse(try columnNames(pool, "attachments").contains("poster_storage_key"))
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        let cols = try columnNames(pool, "attachments")
+        XCTAssertTrue(cols.contains("duration_ms"))
+        XCTAssertTrue(cols.contains("poster_storage_key"))
+        let reset = try pool.read { db in
+            try Bool.fetchOne(
+                db,
+                sql: "SELECT \"handle\" = '' AND \"offset\" = '-1' AND \"needs_refetch\" = 1 "
+                    + "AND \"is_live\" = 0 FROM \"electric_offsets\" "
+                    + "WHERE \"shape\" = 'attachments'"
+            )
+        }
+        XCTAssertEqual(reset, true)
+        // Re-running converges without a duplicate-column throw.
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 
     func testFileURLUsesV5Suffix() throws {

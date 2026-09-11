@@ -153,6 +153,7 @@ final class MarkdownTableRoundTripTests: XCTestCase {
             case .text: return "text"
             case .image: return "image"
             case .table: return "table"
+            case .attachmentLink: return "media"
             }
         }
     }
