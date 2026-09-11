@@ -140,8 +140,13 @@ function TabDot({ className }: { className: string }) {
 }
 
 // The detached circular FAB beside the nav pill — one slot, whatever the
-// active surface puts in it.
-const FAB_CLASS = `pointer-events-auto flex size-[3.25rem] shrink-0 items-center justify-center rounded-full border border-glass-stroke-card bg-popover/85 text-foreground shadow-lg shadow-black/40 backdrop-blur-xl`
+// active surface puts in it. EXP-827: on a board the slot is ONE 52px
+// capsule with two 52px arms — Start chat | New issue — split by a hairline
+// (`FAB_GROUP_CLASS` + `FAB_ARM_CLASS`); elsewhere a single circle.
+const FAB_CHROME = `pointer-events-auto shrink-0 border border-glass-stroke-card bg-popover/85 text-foreground shadow-lg shadow-black/40 backdrop-blur-xl`
+const FAB_CLASS = `${FAB_CHROME} flex size-[3.25rem] items-center justify-center rounded-full`
+const FAB_GROUP_CLASS = `${FAB_CHROME} flex h-[3.25rem] items-stretch overflow-hidden rounded-full`
+const FAB_ARM_CLASS = `flex w-[3.25rem] items-center justify-center text-foreground transition-colors active:bg-glass-active`
 
 function tabClass(active: boolean): string {
   return cn(
@@ -196,6 +201,12 @@ export function MobileTabBar({
   const onReviews = Boolean(
     matchRoute({ to: `/t/$teamSlug/reviews`, fuzzy: true })
   )
+  // EXP-827: which FAB arms the slot draws — chat on Devices / Actions and
+  // on a board (where compose joins it in one capsule), compose wherever a
+  // board target resolves and nothing replaced it. Same predicates as iOS
+  // `showsChat` / Android `showsChat`.
+  const showsChat = onDevices || onActions || (onBoard && boardTarget !== undefined)
+  const showsCompose = boardTarget !== undefined && !onDevices && !onActions
   const onSupport = Boolean(
     matchRoute({ to: `/t/$teamSlug/support`, fuzzy: true })
   )
@@ -282,23 +293,49 @@ export function MobileTabBar({
           EXP-694: the Actions tab gets the same chat FAB — there is no issue
           to compose there either, and every client offers chat from both.
           EXP-739: both now LINK to the team's chat page, which holds the live
-          conversation and its history, instead of opening a one-shot dialog. */}
-      {onDevices || onActions ? (
+          conversation and its history, instead of opening a one-shot dialog.
+          EXP-827: a board shows BOTH, merged into one capsule (×3 mobile). */}
+      {showsChat && showsCompose ? (
+        <div className={FAB_GROUP_CLASS} data-testid="fab-group">
+          <Link
+            to="/t/$teamSlug/agent"
+            params={{ teamSlug }}
+            aria-label="Start chat"
+            data-testid="chat-button"
+            className={FAB_ARM_CLASS}
+          >
+            <ActionChatIcon className="size-5" />
+          </Link>
+          <span aria-hidden className="my-3 w-px shrink-0 bg-glass-stroke-card" />
+          <Link
+            to="/t/$teamSlug/boards/$boardSlug"
+            params={{ teamSlug, boardSlug: boardTarget!.slug }}
+            search={{ new: 1 }}
+            aria-label="New issue"
+            data-testid="compose-button"
+            className={FAB_ARM_CLASS}
+          >
+            <NavCreateIssueIcon className="size-5" />
+          </Link>
+        </div>
+      ) : showsChat ? (
         <Link
           to="/t/$teamSlug/agent"
           params={{ teamSlug }}
           aria-label="Start chat"
+          data-testid="chat-button"
           className={FAB_CLASS}
         >
           <ActionChatIcon className="size-5" />
         </Link>
       ) : (
-        boardTarget && (
+        showsCompose && (
           <Link
             to="/t/$teamSlug/boards/$boardSlug"
-            params={{ teamSlug, boardSlug: boardTarget.slug }}
+            params={{ teamSlug, boardSlug: boardTarget!.slug }}
             search={{ new: 1 }}
             aria-label="New issue"
+            data-testid="compose-button"
             className={FAB_CLASS}
           >
             <NavCreateIssueIcon className="size-5" />

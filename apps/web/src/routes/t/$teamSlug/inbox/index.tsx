@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
+import { InboxIssuePane } from "@/components/inbox/inbox-issue-pane"
 import { InboxView } from "@/components/inbox/inbox-view"
+import { useIsMobile } from "@/hooks/use-mobile"
 import {
   MyIssuesFilterAction,
   MyIssuesView,
@@ -30,6 +32,8 @@ const MyIssuesTabIcon = conceptIcon(`ui-assignee`)
 // both tabs stay shareable and survive refresh.
 type InboxSearch = IssueFilterSearch & {
   tab?: `my-issues`
+  /** EXP-827: the issue the desktop split view shows on the right. */
+  issue?: string
 }
 
 export const Route = createFileRoute(`/t/$teamSlug/inbox/`)({
@@ -38,6 +42,10 @@ export const Route = createFileRoute(`/t/$teamSlug/inbox/`)({
   // issue_statuses row uuids alongside the legacy anchor-enum tokens.
   validateSearch: (search: Record<string, unknown>): InboxSearch => ({
     tab: search.tab === `my-issues` ? `my-issues` : undefined,
+    issue:
+      typeof search.issue === `string` && search.issue !== ``
+        ? search.issue
+        : undefined,
     ...parseIssueFilterSearch(search),
   }),
   beforeLoad: async ({ context, location }) => {
@@ -84,6 +92,21 @@ function InboxPage() {
   const { data: session } = useSession()
   const tab = search.tab === `my-issues` ? `my-issues` : `inbox`
   const [bulkSlot, setBulkSlot] = useState<HTMLDivElement | null>(null)
+  // EXP-827: on md+ the Inbox tab is a master-detail (the Agent shell's
+  // pattern): the stream on the left, the selected issue on the right, the
+  // selection in `?issue=` so refresh and back keep it. The phone and the
+  // My Issues tab are unchanged.
+  const isMobile = useIsMobile()
+  const split = tab === `inbox` && !isMobile
+  const selectedIssueId = split ? (search.issue ?? null) : null
+  const selectIssue = (issueId: string) => {
+    void navigate({
+      to: `/t/$teamSlug/inbox`,
+      params: { teamSlug },
+      search: { ...search, tab: undefined, issue: issueId },
+      replace: true,
+    })
+  }
 
   const filters = useMemo<IssueFilters>(
     () => issueFiltersFromSearch(search),
@@ -161,7 +184,27 @@ function InboxPage() {
       </div>
 
       <div className="min-h-0 flex-1">
-        {tab === `inbox` ? (
+        {split ? (
+          <div className="flex h-full min-h-0">
+            <div className="flex w-80 shrink-0 flex-col border-r border-border">
+              <InboxView
+                teamSlug={teamSlug}
+                compact
+                activeIssueId={selectedIssueId}
+                onOpenIssue={(issue) => selectIssue(issue.id)}
+              />
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col">
+              {selectedIssueId ? (
+                <InboxIssuePane key={selectedIssueId} issueId={selectedIssueId} />
+              ) : (
+                <div className="flex flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
+                  Select a notification
+                </div>
+              )}
+            </div>
+          </div>
+        ) : tab === `inbox` ? (
           <InboxView teamSlug={teamSlug} />
         ) : (
           <MyIssuesView

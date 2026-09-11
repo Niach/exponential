@@ -633,12 +633,26 @@ fn rail_badge_element(badge: RailBadge, glyph_px: f32, cx: &App) -> gpui::AnyEle
 }
 
 /// EXP-791: the rail's Sessions rows, in order — this window's OPEN session
-/// tabs first (tab order, so a row never jumps when its run ends), then the
-/// caller's live runs that have no tab yet (`session_bar::running_session_ids`
-/// order: newest start first). The exact order the retired session-bar
-/// entries had. Pure, so the rule is unit-tested.
-pub(crate) fn rail_session_rows(open_tabs: &[String], running: &[String]) -> Vec<String> {
-    let mut rows: Vec<String> = open_tabs.to_vec();
+/// tabs first (tab order), then the caller's live runs that have no tab yet
+/// (`session_bar::running_session_ids` order: newest start first). The exact
+/// order the retired session-bar entries had.
+///
+/// EXP-827: only LIVE runs get a row. A past chat opened from the Agent list
+/// (or a run that ends while its tab is open) keeps its center tab but
+/// leaves the rail: the rail lists what is running, the Agent page lists
+/// the history. `ended` is the synced row's verdict (`status == ended`); a
+/// tab with no synced row yet (a local start ahead of its echo) counts as
+/// live. Pure, so the rule is unit-tested.
+pub(crate) fn rail_session_rows(
+    open_tabs: &[String],
+    running: &[String],
+    ended: impl Fn(&str) -> bool,
+) -> Vec<String> {
+    let mut rows: Vec<String> = open_tabs
+        .iter()
+        .filter(|session_id| !ended(session_id))
+        .cloned()
+        .collect();
     for session_id in running {
         if !rows.iter().any(|open| open == session_id) {
             rows.push(session_id.clone());
@@ -881,9 +895,10 @@ impl RailView {
     /// turns are invisible here, so it never spins). Children of a run
     /// (`parent_session_id`, `domain::session_tree`) nest under it, indented,
     /// behind the parent's collapse chevron. Clicking opens the run the way
-    /// every entry point does (`session_screen::open_session`); an ended
-    /// run's row carries the × that closes its transcript tab. Empty when
-    /// nothing is up — the caller hides the section.
+    /// every entry point does (`session_screen::open_session`). EXP-827: an
+    /// ended run has no row here (its transcript stays a center tab; the
+    /// Agent page lists the history). Empty when nothing is up — the caller
+    /// hides the section.
     fn render_session_rows(
         &mut self,
         window: &Window,
@@ -896,13 +911,21 @@ impl RailView {
             self.observe_screens = Some(cx.observe(&screens, |_, _, cx| cx.notify()));
         }
         let open = screens.read(cx).open_session_ids();
-        let ids = rail_session_rows(&open, &crate::session_bar::running_session_ids(cx));
+        let running = crate::session_bar::running_session_ids(cx);
+        let store = Store::global(cx);
+        let collections = store.collections().clone();
+        let ids = {
+            let sessions = collections.coding_sessions.read(cx);
+            rail_session_rows(&open, &running, |session_id| {
+                sessions.get(session_id).is_some_and(|row| {
+                    row.status.as_deref() == Some(domain::contract::CODING_SESSION_STATUS_ENDED)
+                })
+            })
+        };
         if ids.is_empty() {
             return Vec::new();
         }
         let active_screen = resolved_screen(&self.nav, cx);
-        let store = Store::global(cx);
-        let collections = store.collections().clone();
         let now = chrono::Utc::now().timestamp();
         let muted = cx.theme().muted_foreground;
         let local_sessions = coding_flow::LocalSessions::global_ref(cx);
@@ -3456,13 +3479,34 @@ mod tests {
     /// both open and live is listed once, in its tab slot.
     #[test]
     fn session_rows_are_open_tabs_then_tabless_live_runs() {
+        let live = |_: &str| false;
         assert_eq!(
-            rail_session_rows(&ids(&["s2", "s1"]), &ids(&["s3", "s1", "s4"])),
+            rail_session_rows(&ids(&["s2", "s1"]), &ids(&["s3", "s1", "s4"]), live),
             ids(&["s2", "s1", "s3", "s4"])
         );
-        assert_eq!(rail_session_rows(&[], &ids(&["s3"])), ids(&["s3"]));
-        assert_eq!(rail_session_rows(&ids(&["s1"]), &[]), ids(&["s1"]));
-        assert!(rail_session_rows(&[], &[]).is_empty());
+        assert_eq!(rail_session_rows(&[], &ids(&["s3"]), live), ids(&["s3"]));
+        assert_eq!(rail_session_rows(&ids(&["s1"]), &[], live), ids(&["s1"]));
+        assert!(rail_session_rows(&[], &[], live).is_empty());
+    }
+
+    /// EXP-827: an ENDED run's open tab gets no rail row: a past chat
+    /// opened from the Agent list stays a center tab only, and a run that
+    /// ends under an open tab drops out of the rail. The live tabs around it
+    /// keep their order; a tabless live run still follows.
+    #[test]
+    fn ended_open_tabs_get_no_rail_row() {
+        let ended = |id: &str| id == "s1" || id == "s9";
+        assert_eq!(
+            rail_session_rows(&ids(&["s2", "s1", "s4"]), &ids(&["s3", "s4"]), ended),
+            ids(&["s2", "s4", "s3"])
+        );
+        // Only ended tabs open: the section is empty (the caller hides it).
+        assert!(rail_session_rows(&ids(&["s1", "s9"]), &[], ended).is_empty());
+        // A tab with no synced row yet is live by definition.
+        assert_eq!(
+            rail_session_rows(&ids(&["local"]), &[], |id| id != "local"),
+            ids(&["local"])
+        );
     }
 
     /// EXP-791: ended beats paused beats needs-input — a finished run never

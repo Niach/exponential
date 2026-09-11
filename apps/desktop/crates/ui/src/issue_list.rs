@@ -82,30 +82,60 @@ const COMPACT_LIST_WIDTH: f32 = 440.;
 /// buttons carry their text labels; below it they collapse to icon-only with
 /// their tooltips. The bar itself never wraps (`surface::glass_bar`) — a
 /// second line would move the list rows under it — so the threshold is the
-/// width the whole LABELED control row needs on ONE line:
+/// width the whole LABELED control row needs on ONE line.
+///
+/// EXP-827: the row is not the same on every panel. Assignee is hidden on a
+/// solo team and the Filter trigger lives in the host's tool strip on the
+/// Inbox (`external_trigger`), so a fixed sum over the FULL row collapsed a
+/// bar that would have fit with room to spare (a ~690px panel without
+/// Assignee). The width is summed over the controls the bar actually
+/// renders:
 ///
 /// ```text
+/// always
 ///   20  bar padding (px_2p5 ×2)
 /// + 32  the ✕ (web_icon_sm)
 /// + 16  the count
 /// + 82  Status    ┐ ghost web_sm, icon + label
 /// + 88  Priority  │
-/// + 98  Assignee  │
 /// + 78  Labels    ┘
 /// +128  Start coding (Md primary pill, icon + label)
 /// +  9  the separator (1px + mx_1)
 /// + 84  Delete
-/// + 32  8px gaps ×4
+/// + 24  8px gaps ×3
+/// = 561
+///
+/// with Assignee (a multi-member team)
+/// + 98  the button (ghost web_sm, icon + label)
+/// +  8  its gap
+/// = 106
+///
+/// with the Filter trigger beside the bar (no external trigger)
 /// + 32  the filter row's own px_4
-/// + 90  the Filter trigger beside the bar
-/// = 789 → 780, the nearest round number below it
+/// + 90  the trigger
+/// = 122
 /// ```
 ///
 /// It is measured against the LIST's probe, not the bar's own box: the bar
 /// and the filter row share the panel's width, and only the panel width is
 /// known before the bar is built. gpui has no cheap "lay this out and tell me
 /// how wide it came out" pass, hence the sum above rather than a measurement.
-const BULK_BAR_LABEL_MIN_W: f32 = 780.;
+const BULK_BAR_BASE_W: f32 = 561.;
+const BULK_BAR_ASSIGNEE_W: f32 = 106.;
+const BULK_BAR_FILTER_W: f32 = 122.;
+
+/// The panel width the LABELED bulk bar needs on one line, given which of
+/// its optional controls render (see the table above).
+fn bulk_bar_label_min_width(has_assignee: bool, has_filter: bool) -> Pixels {
+    let mut width = BULK_BAR_BASE_W;
+    if has_assignee {
+        width += BULK_BAR_ASSIGNEE_W;
+    }
+    if has_filter {
+        width += BULK_BAR_FILTER_W;
+    }
+    px(width)
+}
 
 gpui::actions!(
     issue_list,
@@ -225,10 +255,17 @@ pub struct IssueListView {
     /// their label chips to bare color dots. Global per frame, so every row
     /// keeps the same grid.
     compact: bool,
-    /// EXP-698: measured width at or above [`BULK_BAR_LABEL_MIN_W`] — the
+    /// EXP-698: measured width at or above [`bulk_bar_label_min_width`] — the
     /// bulk bar shows its button labels. Kept as a field only so the width
     /// probe can notify when the classification flips.
     wide: bool,
+    /// EXP-827: the label threshold of the CURRENT render (the optional
+    /// controls decide it); the probe compares against it.
+    bulk_label_min_w: Pixels,
+    /// EXP-525/827: the host renders the Filter trigger elsewhere, so the
+    /// bulk bar's row has no trigger beside it. Handed in by the board
+    /// through [`Self::bulk_bar`] (the board owns `external_filter`).
+    external_filter: bool,
     /// Focus target of the [`KEY_CONTEXT`] bindings (terminal-dock pattern).
     focus_handle: FocusHandle,
     /// This window's navigation — the rows highlight the issue whose detail
@@ -297,6 +334,8 @@ impl IssueListView {
             measured_width: Rc::new(Cell::new(px(0.))),
             compact: false,
             wide: false,
+            bulk_label_min_w: bulk_bar_label_min_width(true, true),
+            external_filter: false,
             focus_handle: cx.focus_handle(),
             rows: Rc::new(Vec::new()),
             team_statuses: Rc::new(Vec::new()),
@@ -772,7 +811,18 @@ impl IssueListView {
     /// projection `render` prunes `selected` with. Since REV-39 that read is
     /// the memoized [`Self::data`], so agreeing with the rows underneath no
     /// longer costs an extra board query per frame.
-    pub(crate) fn bulk_bar(&mut self, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
+    ///
+    /// `external_filter`: the host renders the Filter trigger elsewhere (the
+    /// Inbox tool strip), so the bar's row has no trigger beside it and its
+    /// label threshold shrinks accordingly (EXP-827). Recorded here because
+    /// the board asks for the bar BEFORE this view's own render, which is
+    /// where the width probe reads it.
+    pub(crate) fn bulk_bar(
+        &mut self,
+        external_filter: bool,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        self.external_filter = external_filter;
         if self.selected.is_empty() {
             return None;
         }
@@ -801,9 +851,9 @@ impl IssueListView {
     /// [`crate::surface::glass_bar`] capsule with `icon + label` buttons, the
     /// web bar's labels included. The capsule is ONE fixed-height line and
     /// never wraps (a second line would move the list rows under it), so a
-    /// panel narrower than [`BULK_BAR_LABEL_MIN_W`] — the default ~650px tool
-    /// panel among them — collapses the buttons to icon-only and leans on the
-    /// tooltips they all carry.
+    /// panel narrower than [`bulk_bar_label_min_width`] — the default ~650px
+    /// tool panel among them — collapses the buttons to icon-only and leans
+    /// on the tooltips they all carry.
     fn render_bulk_bar(
         &self,
         team_id: String,
@@ -814,10 +864,15 @@ impl IssueListView {
         let busy = self.bulk_busy;
         let list = cx.entity().downgrade();
         let danger = cx.theme().danger;
+        // Hidden on a solo team (see `assignee_menu` below), and then not
+        // counted toward the label threshold either (EXP-827).
+        let users = queries::team_users(cx, &team_id);
+        let has_assignee = users.len() > 1;
         // Read straight off the probe, not off `self.wide`: the parent asks
         // for this element BEFORE this view's own render runs, so the field
         // would be one frame stale on the first selection.
-        let labels = self.measured_width.get() >= px(BULK_BAR_LABEL_MIN_W);
+        let labels = self.measured_width.get()
+            >= bulk_bar_label_min_width(has_assignee, !self.external_filter);
         // `.label()` takes a value, so the collapse is a small helper rather
         // than a `when` chain on six buttons.
         let with_label = move |button: Button, label: &'static str| {
@@ -926,8 +981,7 @@ impl IssueListView {
         let assignee_menu = {
             let ids = ids.clone();
             let list = list.clone();
-            let users = queries::team_users(cx, &team_id);
-            (users.len() > 1).then(|| {
+            has_assignee.then(|| {
                 with_label(
                     Button::new("bulk-assignee")
                         .ghost()
@@ -1312,7 +1366,14 @@ impl Render for IssueListView {
         // so a resize across the threshold re-renders exactly once.
         let measured = self.measured_width.get();
         self.compact = measured > px(0.) && measured < px(COMPACT_LIST_WIDTH);
-        self.wide = measured >= px(BULK_BAR_LABEL_MIN_W);
+        // EXP-827: the bar's threshold depends on which optional controls it
+        // renders (same gates as `render_bulk_bar`), so the probe compares
+        // against THIS render's sum.
+        let has_assignee = self
+            .bulk_team_id(cx)
+            .is_some_and(|team_id| queries::team_users(cx, &team_id).len() > 1);
+        self.bulk_label_min_w = bulk_bar_label_min_width(has_assignee, !self.external_filter);
+        self.wide = measured >= self.bulk_label_min_w;
 
         // Base surface: NONE — the list sits directly on the window's page
         // gradient (EXP-282; `colors.list` has been transparent since the
@@ -1321,6 +1382,7 @@ impl Render for IssueListView {
         // (terminal-dock pattern).
         let rendered_compact = self.compact;
         let rendered_wide = self.wide;
+        let label_min_w = self.bulk_label_min_w;
         let measured_width = self.measured_width.clone();
         let entity = cx.entity().downgrade();
         let base = v_flex()
@@ -1339,7 +1401,7 @@ impl Render for IssueListView {
                         // EXP-698: the bulk bar's label threshold rides the
                         // same probe — a resize across EITHER line re-renders
                         // exactly once.
-                        let wide = bounds.size.width >= px(BULK_BAR_LABEL_MIN_W);
+                        let wide = bounds.size.width >= label_min_w;
                         if compact != rendered_compact || wide != rendered_wide {
                             let entity = entity.clone();
                             cx.defer(move |cx| {
@@ -2495,6 +2557,21 @@ fn header_id(kind: &str, group_key: &str) -> ElementId {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-827: the label threshold sums only the controls the bar renders.
+    /// The full row is the EXP-698 sum (789); a solo team's bar (no
+    /// Assignee) fits a ~690px panel with its labels, and an Inbox bar (no
+    /// Filter trigger beside it) shrinks by the trigger and the row padding.
+    #[test]
+    fn bulk_bar_label_threshold_counts_only_rendered_controls() {
+        assert_eq!(bulk_bar_label_min_width(true, true), px(789.));
+        assert_eq!(bulk_bar_label_min_width(false, true), px(683.));
+        assert_eq!(bulk_bar_label_min_width(true, false), px(667.));
+        assert_eq!(bulk_bar_label_min_width(false, false), px(561.));
+        // The screenshot case: a 691px panel on a solo team keeps its labels.
+        assert!(px(691.) >= bulk_bar_label_min_width(false, true));
+        assert!(px(691.) < bulk_bar_label_min_width(true, true));
+    }
 
     #[test]
     fn due_date_presets_mirror_web_issue_due_date() {

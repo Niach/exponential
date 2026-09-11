@@ -867,8 +867,11 @@ export const devicesRouter = router({
         // because it is typed into a PTY as one line.
         code: z.string().trim().min(1).max(AGENT_LOGIN_CODE_MAX).optional(),
         // EXP-747 C4 `agent_usage_refresh`: which profile to re-read
-        // (`system` = the ambient login).
+        // (`system` = the ambient login). EXP-827: `agent_login` takes it
+        // too (sign into that EXISTING profile), or `newProfileLabel` to
+        // create a profile on the machine and sign into it — never both.
         profileId: z.string().min(1).max(64).optional(),
+        newProfileLabel: z.string().trim().min(1).max(64).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -941,9 +944,19 @@ export const devicesRouter = router({
             message: `That device does not declare the agent-login capability`,
           })
         }
+        if (input.profileId && input.newProfileLabel) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `agent_login takes profileId or newProfileLabel, not both`,
+          })
+        }
         payload = {
           agent: input.agent,
           switch: input.switch === true ? `true` : `false`,
+          ...(input.profileId ? { profileId: input.profileId } : {}),
+          ...(input.newProfileLabel
+            ? { newProfileLabel: input.newProfileLabel }
+            : {}),
         }
       }
 

@@ -29,8 +29,9 @@ use gpui::{
     canvas, deferred, div, img, point, px, App, AppContext as _, Bounds, ClipboardEntry,
     ClipboardItem, Context, ElementId, Entity, Focusable as _, FontStyle, FontWeight,
     HighlightStyle, InteractiveElement as _, InteractiveText, IntoElement, MouseButton,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement as _, Pixels, Render, SharedString,
-    StatefulInteractiveElement as _, StrikethroughStyle, Styled as _, StyledImage as _, StyledText,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement as _, Pixels, Render, ScrollHandle,
+    SharedString, StatefulInteractiveElement as _, StrikethroughStyle, Styled as _,
+    StyledImage as _, StyledText,
     Subscription, TextRun, UnderlineStyle, WeakEntity, Window,
 };
 use gpui_base::{TextSelectionHandle, TextSelectionRegistration, TextSelectionRun};
@@ -42,6 +43,7 @@ use gpui_component::{
     checkbox::Checkbox,
     h_flex,
     menu::{ContextMenuExt as _, PopupMenuItem},
+    scroll::{Scrollbar, ScrollbarAxis},
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
 };
 
@@ -2505,14 +2507,55 @@ fn render_view_table(
     if fits {
         div().w_full().child(grid).into_any_element()
     } else {
+        // EXP-827: a wide table is a HORIZONTAL scroller inside a vertical
+        // feed. gpui maps a wheel's y delta onto an x-only scroller
+        // (`Style::restrict_scroll_to_axis` documents exactly this), so a
+        // vertical wheel over the table used to slide it sideways instead of
+        // scrolling the feed. `restrict_scroll_to_axis` keeps each gesture
+        // on its own axis: the table takes only x deltas, the y ones bubble
+        // on to the feed's scroller (the wheel handler never stops
+        // propagation). The scroll offset lives in a per-table handle kept
+        // as element state, which also drives a visible horizontal
+        // scrollbar laid over the bottom edge (the create-team dialog's
+        // overlay idiom) so the overflow is discoverable.
+        let scroll_key = format!("{}-table-{block_index}", view.id);
+        let scroll_handle = window
+            .use_keyed_state(
+                ElementId::from(SharedString::from(format!("{scroll_key}-scroll-state"))),
+                cx,
+                |_, _| ScrollHandle::new(),
+            )
+            .read(cx)
+            .clone();
         div()
-            .id(ElementId::from(SharedString::from(format!(
-                "{}-table-{block_index}",
-                view.id
-            ))))
+            .relative()
             .w_full()
-            .overflow_x_scroll()
-            .child(grid)
+            .child(
+                div()
+                    .id(ElementId::from(SharedString::from(scroll_key.clone())))
+                    .debug_selector(|| format!("{scroll_key}-scroll"))
+                    .w_full()
+                    .overflow_x_scroll()
+                    .restrict_scroll_to_axis()
+                    .track_scroll(&scroll_handle)
+                    .child(grid),
+            )
+            .child(
+                div()
+                    .debug_selector(|| format!("{scroll_key}-scrollbar"))
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .right_0()
+                    .bottom_0()
+                    .child(
+                        Scrollbar::new(&scroll_handle)
+                            .id(ElementId::from(SharedString::from(format!(
+                                "{scroll_key}-scrollbar"
+                            ))))
+                            .axis(ScrollbarAxis::Horizontal),
+                    ),
+            )
             .into_any_element()
     }
 }
@@ -3870,8 +3913,8 @@ mod tests {
                         )
                         .resolver(test_resolver()),
                     )
-                    // A table far wider than the test window takes the
-                    // fixed-width + `overflow_x_scroll` branch.
+                    // A table wider than the (shrunk, see below) test window
+                    // takes the fixed-width + `overflow_x_scroll` branch.
                     .child(
                         MarkdownView::new(
                             SharedString::from("table-paint-test-wide"),
@@ -3890,12 +3933,33 @@ mod tests {
             theme::init(cx);
         });
         let (_view, cx) = cx.add_window_view(|_window, _cx| Host);
+        // EXP-827: the test text system advances 0.6em per glyph, so the
+        // "wide" table measures ~650px, narrower than the 1920px test
+        // display. Shrink the window so it really overflows (the narrow
+        // table, three one-glyph columns at the 48px floor, still fits).
+        cx.simulate_resize(gpui::size(px(480.), px(640.)));
         // Three frames: the first has no recorded width (the "fits" fallback),
         // the canvas records one, the third takes the real branch.
         for _ in 0..3 {
             cx.update(|window, cx| window.draw(cx).clear(cx));
             cx.run_until_parked();
         }
+        // EXP-827: the wide table took the scroller branch, and the branch
+        // carries its horizontal scrollbar overlay over the scroller's box.
+        // (Block 1: a document that opens with a table gets an empty text
+        // block 0 in front of it.)
+        let scroller = cx
+            .debug_bounds("table-paint-test-wide-table-1-scroll")
+            .expect("the wide table renders inside its horizontal scroller");
+        let scrollbar = cx
+            .debug_bounds("table-paint-test-wide-table-1-scrollbar")
+            .expect("the wide table carries a horizontal scrollbar overlay");
+        assert_eq!(scrollbar.size.width, scroller.size.width);
+        assert_eq!(scrollbar.origin, scroller.origin);
+        assert!(scroller.size.width <= px(480.), "the scroller is bound by the window");
+        // The narrow table (block 1 after "before") fits and has neither.
+        assert!(cx.debug_bounds("table-paint-test-table-1-scroll").is_none());
+        assert!(cx.debug_bounds("table-paint-test-table-1-scrollbar").is_none());
     }
 
     /// EXP-521: a pointer sweep across two selectable [`MarkdownView`]s

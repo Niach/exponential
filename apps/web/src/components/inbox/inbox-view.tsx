@@ -93,7 +93,21 @@ const GROUP_CHUNK = 200
 // no composition, no actor avatar). Reviewing open PRs moved to the
 // dedicated Reviews page. Rendered as the "Inbox" tab of the Inbox page
 // (EXP-186), whose header owns the tab switcher + "Mark all read".
-export function InboxView({ teamSlug }: { teamSlug: string }) {
+export function InboxView({
+  teamSlug,
+  compact = false,
+  activeIssueId = null,
+  onOpenIssue,
+}: {
+  teamSlug: string
+  /** EXP-827: the desktop split view's LEFT column — a narrow list whose
+   *  issue rows SELECT (`onOpenIssue`) instead of navigating to the issue
+   *  page; the support and message rows are unchanged. */
+  compact?: boolean
+  /** The issue the split view shows on the right (the highlighted row). */
+  activeIssueId?: string | null
+  onOpenIssue?: (issue: Issue, board: Board, teamSlug: string) => void
+}) {
   // The notifications shape is scoped to the current user, NOT to a
   // team — the stream spans all the user's teams (matching the
   // user-wide sidebar unread badge and "Mark all read").
@@ -249,7 +263,11 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
     // route owns it), so it stays put while this list scrolls.
     <div className="h-full overflow-y-auto">
       <div
-        className={`mx-auto flex w-full max-w-3xl flex-col gap-0 px-4 py-4 ${TAB_BAR_CLEARANCE}`}
+        className={cn(
+          `flex w-full flex-col gap-0`,
+          compact ? `p-2` : `mx-auto max-w-3xl px-4 py-4`,
+          TAB_BAR_CLEARANCE
+        )}
       >
         {groups.length === 0 ? (
           <EmptyState
@@ -364,6 +382,61 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
               )
             }
             const Icon = typeIcon[latest.type] ?? Bell
+            const issueRowBody = (
+              <>
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
+                  <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                      {g.issue.identifier}
+                    </span>
+                    <span
+                      className={cn(
+                        `truncate text-sm`,
+                        g.unread > 0 && `font-medium`
+                      )}
+                    >
+                      {g.issue.title}
+                    </span>
+                    <span className="ml-auto w-16 shrink-0 text-right text-xs text-muted-foreground">
+                      {relativeTime(latest.createdAt)}
+                    </span>
+                    <span className="w-2 shrink-0" aria-hidden>
+                      {g.unread > 0 && (
+                        <span className="block h-2 w-2 rounded-full bg-primary" />
+                      )}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                    {latest.title}
+                  </div>
+                </div>
+              </>
+            )
+            if (compact && onOpenIssue) {
+              // EXP-827: the split view — selecting keeps the list, the
+              // pane on the right shows the issue. Mark-read on select stays.
+              return (
+                <ListRow
+                  key={g.issue.id}
+                  interactive
+                  active={g.issue.id === activeIssueId}
+                  className={cn(
+                    `items-start px-3 py-2`,
+                    g.unread === 0 && g.issue.id !== activeIssueId && `opacity-60`
+                  )}
+                  data-testid={`inbox-row-${g.issue.identifier}`}
+                  onClick={() => {
+                    void markGroupRead(g)
+                    onOpenIssue(g.issue, g.board, g.teamSlug)
+                  }}
+                >
+                  {issueRowBody}
+                </ListRow>
+              )
+            }
             return (
               <ListRow
                 key={g.issue.id}
@@ -383,35 +456,7 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
                   }}
                   onClick={() => void markGroupRead(g)}
                 >
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
-                    <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                        {g.issue.identifier}
-                      </span>
-                      <span
-                        className={cn(
-                          `truncate text-sm`,
-                          g.unread > 0 && `font-medium`
-                        )}
-                      >
-                        {g.issue.title}
-                      </span>
-                      <span className="ml-auto w-16 shrink-0 text-right text-xs text-muted-foreground">
-                        {relativeTime(latest.createdAt)}
-                      </span>
-                      <span className="w-2 shrink-0" aria-hidden>
-                        {g.unread > 0 && (
-                          <span className="block h-2 w-2 rounded-full bg-primary" />
-                        )}
-                      </span>
-                    </div>
-                    <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                      {latest.title}
-                    </div>
-                  </div>
+                  {issueRowBody}
                 </Link>
               </ListRow>
             )

@@ -41,7 +41,7 @@ use crate::filter_popover::{FilterView, IssueFilterPopover, OnFiltersChange, OnV
 /// into it. EXP-698 round 5: it was 44 while the bulk cluster was a bare
 /// tray; the opaque capsule is 6px taller. The capsule never wraps — a narrow
 /// panel collapses its buttons to icon-only instead
-/// (`issue_list::BULK_BAR_LABEL_MIN_W`) — so 50 is the bulk branch's height
+/// (`issue_list::bulk_bar_label_min_width`) — so 50 is the bulk branch's height
 /// at EVERY width, and the swap stays jump-free.
 const CONTROL_ROW_MIN_H: f32 = 50.;
 

@@ -100,14 +100,32 @@ struct AgentOptionsRow: View {
 
     /// Plan mode is claude + pi (EXP-441); a resume never re-enters plan
     /// mode (the machine clamps it too), so the switch hides while one is on.
+    /// EXP-827: a slide switch on every platform (web and desktop use one),
+    /// not a lit select pill. The app-wide glass toggle is UISwitch-sized, so
+    /// it scales down to sit in the 28pt row; the caption toggles it too.
     @ViewBuilder
     private var planPill: some View {
         if LaunchVocabulary.supportsPlanMode(launch.agent), !model.resumeActive {
-            GlassPill(
-                "Plan",
-                mode: .select(isSelected: launch.planMode) { launch.planMode.toggle() }
-            )
-            .accessibilityLabel("Plan mode")
+            @Bindable var launch = model.launch
+            HStack(spacing: 6) {
+                Text("Plan")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .lineLimit(1)
+                Toggle("Plan", isOn: $launch.planMode)
+                    .labelsHidden()
+                    .fixedSize()
+                    .scaleEffect(0.7)
+                    .frame(width: 36, height: 22)
+                    .accessibilityLabel("Plan mode")
+            }
+            .padding(.leading, 10)
+            .padding(.trailing, 5)
+            .frame(height: 28)
+            .background(GlassTokens.fillRow, in: Capsule())
+            .overlay(Capsule().stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
+            .contentShape(Capsule())
+            .onTapGesture { launch.planMode.toggle() }
         }
     }
 

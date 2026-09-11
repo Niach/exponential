@@ -38,6 +38,14 @@
 //! The requester hands it back as an `agent_login_code` command; [`enter_code`]
 //! drops it into the [`CodeInbox`] slot the live login registered for its
 //! agent, and the poll loop types it into the PTY on its next tick.
+//!
+//! EXP-827: the payload may name an account PROFILE (`profileId`, an
+//! existing one) or ask for a new one (`newProfileLabel`); the run points
+//! the CLI's config-dir variable at that profile's dir for the logout and
+//! the login (`coding::agent_login::parse_login_payload` +
+//! `resolve_login_profile`), and the published result names the id it
+//! signed into. The doctor re-probe on the way out re-reads the profile
+//! index, so a freshly created profile rides the next heartbeat by itself.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -111,23 +119,20 @@ pub fn run(
     codes: CodeInbox,
     doctor_soon: Arc<AtomicBool>,
 ) {
-    let raw_agent = command.payload["agent"].as_str().unwrap_or_default();
-    let switch = command.payload["switch"].as_str() == Some("true");
-    let agent = match CodingAgent::parse(raw_agent) {
-        // pi's `/login` is a slash command inside its TUI that opens a
-        // provider flow with no remote-finishable handle (the server refuses
-        // it too — this is the belt to that suspenders).
-        Some(CodingAgent::Pi) | None => {
-            let message = if raw_agent == "pi" {
-                "pi has no remote sign-in"
-            } else {
-                "Malformed command payload."
-            };
-            complete(ctx, &command.id, false, message);
+    // pi's `/login` is a slash command inside its TUI that opens a provider
+    // flow with no remote-finishable handle (the server refuses it too —
+    // this is the belt to that suspenders); the parser refuses it with the
+    // sentence the clients show verbatim.
+    let request = match agent_login::parse_login_payload(&command.payload) {
+        Ok(request) => request,
+        Err(message) => {
+            complete(ctx, &command.id, false, &message);
             return;
         }
-        Some(agent) => agent,
     };
+    let agent = request.agent;
+    let switch = request.switch;
+    let target = request.target;
 
     // The redelivery gate. Claimed here, on the serialized worker, so two
     // pulls of the same id can never both pass it.
@@ -149,21 +154,41 @@ pub fn run(
     let thread = std::thread::Builder::new()
         .name("exp-agent-login".to_string())
         .spawn(move || {
-            // EXP-765: the slot the requester's code lands in while this
-            // login runs. Keyed by agent — one login per agent at a time is
-            // what the server's pending-dedupe already guarantees.
-            let (code_tx, code_rx) = flume::unbounded::<String>();
-            if let Ok(mut inbox) = codes.lock() {
-                inbox.insert(agent.id().to_string(), code_tx.clone());
-            }
-            let outcome = drive(&trpc, &settings, agent, switch, &command_id, &code_rx);
-            if let Ok(mut inbox) = codes.lock() {
-                // Only OUR slot — a login started after this one exited
-                // must keep its own.
-                if inbox.get(agent.id()).is_some_and(|tx| tx.same_channel(&code_tx)) {
-                    inbox.remove(agent.id());
+            // EXP-827: the profile this login lands on, created here when
+            // the payload asked for a new one. A refused target (unknown
+            // id, pi) is the completion; nothing is spawned.
+            let outcome = match agent_login::resolve_login_profile(&data_dir, agent, &target) {
+                Err(message) => Some((false, message)),
+                Ok(profile_id) => {
+                    let env = agent_login::login_env(&data_dir, agent, &profile_id);
+                    // EXP-765: the slot the requester's code lands in while
+                    // this login runs. Keyed by agent — one login per agent
+                    // at a time is what the server's pending-dedupe already
+                    // guarantees.
+                    let (code_tx, code_rx) = flume::unbounded::<String>();
+                    if let Ok(mut inbox) = codes.lock() {
+                        inbox.insert(agent.id().to_string(), code_tx.clone());
+                    }
+                    let outcome = drive(
+                        &trpc,
+                        &settings,
+                        agent,
+                        switch,
+                        &profile_id,
+                        env.as_ref(),
+                        &command_id,
+                        &code_rx,
+                    );
+                    if let Ok(mut inbox) = codes.lock() {
+                        // Only OUR slot — a login started after this one
+                        // exited must keep its own.
+                        if inbox.get(agent.id()).is_some_and(|tx| tx.same_channel(&code_tx)) {
+                            inbox.remove(agent.id());
+                        }
+                    }
+                    outcome
                 }
-            }
+            };
             if let Some((ok, message)) = outcome {
                 complete_with(&trpc, &command_id, ok, &message);
             }
@@ -190,18 +215,26 @@ pub fn run(
 
 /// Run the login to its end. Returns the completion to post, or `None` when
 /// the command was already completed early (the URL went out).
+///
+/// EXP-827: `profile_id` names the account the login lands on and rides the
+/// published result; `env` is that profile's config-dir pair (`None` for
+/// the ambient login), set on the logout AND the login so both act inside
+/// the same profile dir.
+#[allow(clippy::too_many_arguments)]
 fn drive(
     trpc: &Arc<api::trpc::TrpcClient>,
     settings: &Settings,
     agent: CodingAgent,
     switch: bool,
+    profile_id: &str,
+    env: Option<&(String, String)>,
     command_id: &str,
     code_rx: &flume::Receiver<String>,
 ) -> Option<(bool, String)> {
     // A switch signs OUT first — otherwise every agent CLI here would just
     // report the account already signed in and exit.
     if switch {
-        if let Err(err) = agent_login::logout(settings, agent) {
+        if let Err(err) = agent_login::logout_in(settings, agent, env) {
             // Not fatal: the login below may still prompt.
             log::info!("agent_login: sign-out before the switch failed: {err}");
         }
@@ -209,7 +242,10 @@ fn drive(
 
     // Always a remote sign-in here (EXP-695): the daemon must never pop a
     // browser on the machine — the requester opens the published link.
-    let plan = agent_login::login_plan(settings, agent, true);
+    let mut plan = agent_login::login_plan(settings, agent, true);
+    if let Some((key, value)) = env {
+        plan.spawn.env.push((key.clone(), value.clone()));
+    }
     let mut emulator = Emulator::new(COLS, ROWS);
     let mut pty = match pty::open(&plan.spawn, COLS, ROWS) {
         Ok(pty) => pty,
@@ -254,7 +290,7 @@ fn drive(
         if !published {
             match observe_login_screen(agent.id(), &lines) {
                 LoginObservation::Url { url, code } => {
-                    let progress = LoginProgress::url(agent, url, code);
+                    let progress = LoginProgress::url(agent, url, code).with_profile(profile_id);
                     complete_with(trpc, command_id, true, &progress.to_result_text());
                     published = true;
                 }
@@ -364,12 +400,37 @@ mod tests {
     }
 
     /// pi is refused with the sentence the clients show verbatim, and an
-    /// unknown agent never reaches a PTY either.
+    /// unknown agent never reaches a PTY either. EXP-827: the same parse
+    /// reads the profile half of the payload: an existing id, a new
+    /// label, or neither (the ambient login).
     #[test]
     fn only_claude_and_codex_are_runnable_agents() {
-        assert_eq!(CodingAgent::parse("pi"), Some(CodingAgent::Pi));
-        assert_eq!(CodingAgent::parse(""), None);
-        assert_eq!(CodingAgent::parse("claude"), Some(CodingAgent::Claude));
-        assert_eq!(CodingAgent::parse("codex"), Some(CodingAgent::Codex));
+        use coding::agent_login::{parse_login_payload, LoginTarget};
+        assert_eq!(
+            parse_login_payload(&serde_json::json!({"agent": "pi", "switch": "false"})),
+            Err("pi has no remote sign-in".to_string())
+        );
+        assert!(parse_login_payload(&serde_json::json!({"switch": "false"})).is_err());
+        let claude = parse_login_payload(&serde_json::json!({"agent": "claude", "switch": "true"}))
+            .unwrap();
+        assert_eq!(claude.agent, CodingAgent::Claude);
+        assert!(claude.switch);
+        assert_eq!(claude.target, LoginTarget::System);
+        let codex = parse_login_payload(&serde_json::json!({
+            "agent": "codex", "switch": "false", "profileId": "0badf00d"
+        }))
+        .unwrap();
+        assert_eq!(codex.agent, CodingAgent::Codex);
+        assert_eq!(codex.target, LoginTarget::Profile("0badf00d".to_string()));
+        let fresh = parse_login_payload(&serde_json::json!({
+            "agent": "claude", "switch": "false", "newProfileLabel": "Work"
+        }))
+        .unwrap();
+        assert_eq!(fresh.target, LoginTarget::NewProfile("Work".to_string()));
+        // pi is refused before its profile half is even looked at.
+        assert!(parse_login_payload(&serde_json::json!({
+            "agent": "pi", "newProfileLabel": "Work"
+        }))
+        .is_err());
     }
 }

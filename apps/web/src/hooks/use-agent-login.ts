@@ -31,11 +31,23 @@ export interface AgentLoginState {
   codeError: string
 }
 
+/** EXP-827: WHICH account profile a login lands in — an existing one by id,
+ * or a new one the machine creates first (labelled). Absent = the ambient
+ * login (`system`). */
+export interface AgentLoginProfileTarget {
+  profileId?: string
+  newProfileLabel?: string
+}
+
 export interface AgentLogin {
   stateFor: (agent: string) => AgentLoginState
   /** Queue a login; `switchAccount` signs the current account out first. The
    * caller owns any confirmation (codex's logout is server-side). */
-  queueLogin: (agent: string, switchAccount: boolean) => void
+  queueLogin: (
+    agent: string,
+    switchAccount: boolean,
+    target?: AgentLoginProfileTarget
+  ) => void
   /** EXP-765: hand claude's authorization code back to the waiting login. */
   queueLoginCode: (agent: string, code: string) => void
   /** Whether any login/code command is still in flight. */
@@ -62,7 +74,7 @@ export function useAgentLogin({
   const queueCommand = async (
     key: string,
     input:
-      | { kind: `agent_login`; agent: string; switch: boolean }
+      | ({ kind: `agent_login`; agent: string; switch: boolean } & AgentLoginProfileTarget)
       | { kind: `agent_login_code`; agent: string; code: string }
   ) => {
     if (!deviceId) return
@@ -137,7 +149,11 @@ export function useAgentLogin({
   const pendingKey = (key: string) =>
     tracked.some((command) => command.key === key)
 
-  const queueLogin = (agent: string, switchAccount: boolean) => {
+  const queueLogin = (
+    agent: string,
+    switchAccount: boolean,
+    target: AgentLoginProfileTarget = {}
+  ) => {
     // A fresh login supersedes whatever its code round trip last said.
     const codeKey = agentLoginCodeKey(agent)
     setResults((current) => {
@@ -151,6 +167,10 @@ export function useAgentLogin({
       kind: `agent_login`,
       agent,
       switch: switchAccount,
+      ...(target.profileId ? { profileId: target.profileId } : {}),
+      ...(target.newProfileLabel
+        ? { newProfileLabel: target.newProfileLabel }
+        : {}),
     })
   }
 

@@ -15,7 +15,7 @@ import { linkSegments } from "@/lib/linkify"
 import { splitIssueRefs } from "@/lib/issue-refs"
 import { ArrowDown, Check, ChevronDown, ChevronRight, X } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
-import type { CodingSession, User } from "@/db/schema"
+import type { CodingSession, Issue, User } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import {
   mergeTargetProps,
@@ -106,6 +106,8 @@ import {
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { IssueRefPill } from "@/components/issue-ref-pill"
+import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
+import { PriorityIcon } from "@/components/issue-properties/priority-dropdown"
 import { acceptedImageContentTypes } from "@/lib/storage/issue-attachments"
 import { uploadSessionImageFile } from "@/lib/storage/issue-image-upload"
 import {
@@ -172,6 +174,7 @@ const UiMoreIcon = conceptIcon(`ui-more`)
 const UiPermissionIcon = conceptIcon(`ui-permission`)
 const UiRefreshIcon = conceptIcon(`ui-refresh`)
 const UiUsageIcon = conceptIcon(`ui-usage`)
+const NavIssuesIcon = conceptIcon(`nav-issues`)
 // EXP-529: multi-select options carry an explicit checkbox state (Android
 // parity) — the amber tint alone read as "nothing selected".
 const UiSelectedIcon = conceptIcon(`ui-selected`)
@@ -284,6 +287,8 @@ export function AgentSessionView({
   identity,
   mergeTarget,
   banner,
+  issue = null,
+  onOpenIssue,
   onBack,
 }: {
   session: CodingSession
@@ -299,6 +304,11 @@ export function AgentSessionView({
   /** EXP-773: a strip between the header and the feed — the session route's
    *  ended-run close-out (byline, Resume, the agent's summary). */
   banner?: React.ReactNode
+  /** EXP-827: the run's linked issue (its synced row), drawn as a band under
+   *  the header with an "Open issue" pill — `onOpenIssue` switches the pane
+   *  to the issue while the sessions list stays. */
+  issue?: Issue | null
+  onOpenIssue?: () => void
   /** Leave the session page (the socket outlives the unmount, EXP-621). */
   onBack: () => void
 }) {
@@ -851,6 +861,10 @@ export function AgentSessionView({
           </DropdownMenu>
         )}
       </div>
+
+      {issue && (
+        <SessionIssueBand issue={issue} onOpen={onOpenIssue} />
+      )}
 
       {banner}
 
@@ -3087,5 +3101,43 @@ function MessageComposer({
         </DialogContent>
       </Dialog>
     </>
+  )
+}
+
+/** EXP-827: the issue a run is attached to, one line under the session
+ *  header — status glyph, mono identifier, title, priority — with an "Open
+ *  issue" pill that swaps the pane for the issue detail (the sessions list on
+ *  the left stays; `routes/t/$teamSlug/sessions/$sessionId_.issue.tsx`). The
+ *  duplicate band on the issue page is the visual twin. */
+function SessionIssueBand({
+  issue,
+  onOpen,
+}: {
+  issue: Issue
+  onOpen?: () => void
+}) {
+  return (
+    <div
+      className="flex min-w-0 items-center gap-2 border-b border-border bg-accent/30 px-3 py-1.5 text-sm"
+      data-testid="session-issue-band"
+    >
+      <IssueStatusIcon issue={issue} className="!h-3.5 !w-3.5 shrink-0" />
+      <span className="shrink-0 font-mono text-xs text-muted-foreground">
+        {issue.identifier}
+      </span>
+      <span className="min-w-0 truncate">{issue.title}</span>
+      {issue.priority !== `none` && (
+        <PriorityIcon
+          priority={issue.priority}
+          className="!h-3.5 !w-3.5 shrink-0"
+        />
+      )}
+      {onOpen && (
+        <Pill mode="action" className="ml-auto shrink-0" onClick={onOpen}>
+          <NavIssuesIcon className="size-3" />
+          Open issue
+        </Pill>
+      )}
+    </div>
   )
 }

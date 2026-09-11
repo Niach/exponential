@@ -37,6 +37,21 @@ const UiSubmitIcon = conceptIcon(`ui-submit`)
 const UiLoadingIcon = conceptIcon(`ui-loading`)
 const UiCloseIcon = conceptIcon(`ui-close`)
 
+/** EXP-827: a suggestion carrying a `#` placeholder lands the caret right
+ *  behind that `#` (wherever it sits), so the issue-ref menu opens at once;
+ *  a complete prompt lands it at the end. */
+export function suggestionCaretOffset(text: string): number | undefined {
+  const hash = text.indexOf(`#`)
+  return hash >= 0 ? hash + 1 : undefined
+}
+
+function insertSuggestion(
+  field: MentionTextareaHandle | null,
+  suggestion: string
+) {
+  field?.insertText(suggestion, suggestionCaretOffset(suggestion))
+}
+
 /** What the field asks for, per subject. */
 export function composerPlaceholder(model: LaunchComposerModel): string {
   const { subject, selectedAction } = model
@@ -109,7 +124,7 @@ export function LaunchComposer({
               key={suggestion}
               size="sm"
               mode="action"
-              onClick={() => fieldRef.current?.insertText(suggestion)}
+              onClick={() => insertSuggestion(fieldRef.current, suggestion)}
             >
               {suggestion}
             </Pill>
@@ -231,22 +246,21 @@ export function LaunchComposer({
           </>
         }
         submit={
-          /* The round send glyph, LABELLED: the label is the contract's
-             per-subject submit text, so the card reads what it will do. */
+          /* The round send glyph. EXP-827: icon-only — the chips already say
+             what the send starts; the contract's per-subject label stays
+             the button's name (aria-label + tooltip). */
           <ComposerSubmit
             aria-label={submitLabel}
             title={submitLabel}
             data-testid="agent-composer-submit"
             disabled={blocked}
             onClick={send}
-            className="w-auto gap-1 px-2 text-xs font-medium"
           >
             {busy ? (
-              <UiLoadingIcon className="!size-5 animate-spin" />
+              <UiLoadingIcon className="!size-6 animate-spin" />
             ) : (
-              <UiSubmitIcon className="!size-5" />
+              <UiSubmitIcon className="!size-6" />
             )}
-            <span>{submitLabel}</span>
           </ComposerSubmit>
         }
         onDrop={(event) => {

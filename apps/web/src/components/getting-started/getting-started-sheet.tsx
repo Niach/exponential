@@ -23,7 +23,7 @@ import {
 import { GettingStartedCards } from "@/components/getting-started/getting-started-cards"
 import { ActionSuggestionsPanel } from "@/components/action-suggestions-list"
 import type { Team } from "@/db/schema"
-import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import { conceptIcon } from "@/lib/icons.generated"
 
 // EXP-686: the Getting started sheet moved out of the sidebar button so the
@@ -127,18 +127,20 @@ export function GettingStartedSheetProvider({
 const ActionSuggestionIcon = conceptIcon(`action-suggestion`)
 
 /** The icon-only lightbulb next to a page's "New …" button (EXP-686) — it
- * opens Getting started on its Suggested actions tab. */
+ * opens Getting started on its Suggested actions tab. EXP-827: the same
+ * 24px `Pill` capsule as the New pill beside it, so the two read as one row
+ * (the icon Button stood a size taller in the header's trailing slot). */
 export function SuggestionsButton() {
   const sheet = useGettingStartedSheet()
   return (
-    <Button
-      variant="glass"
-      size="icon-xs"
+    <Pill
+      mode="action"
       aria-label="Suggestions"
       title="Suggestions"
+      className="size-6 justify-center px-0"
       onClick={() => sheet.open(`suggestions`)}
     >
       <ActionSuggestionIcon className="size-3.5" />
-    </Button>
+    </Pill>
   )
 }

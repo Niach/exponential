@@ -41,6 +41,13 @@ import {
   type SteerDevice,
 } from "@/lib/steer-devices"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
+import { AddAccountDialog } from "@/components/add-account-dialog"
+import {
+  addAccountDevices,
+  addAccountLoginTarget,
+  clampProfileLabel,
+} from "@/lib/agent-account-add"
+import { steerDeviceFromRow } from "@/lib/steer-devices"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -60,6 +67,7 @@ const OfflineIcon = conceptIcon(`ui-device-offline`)
 const CheckIcon = conceptIcon(`ui-check`)
 const SwapIcon = conceptIcon(`ui-swap`)
 const SignInIcon = conceptIcon(`ui-sign-in`)
+const AddIcon = conceptIcon(`ui-add`)
 
 /** How long a queued refresh shows as in flight before giving up on the
  * device answering (it answers by re-reporting on its next beat). */
@@ -228,18 +236,45 @@ export function AgentAccountsSection({
     () => new Map(devices.filter((row) => row.userId === currentUserId).map((row) => [row.deviceId, row])),
     [devices, currentUserId]
   )
+  // EXP-827: "Add account" — the Add-device twin in the header, only while
+  // one of my machines could take a sign-in.
+  const [addOpen, setAddOpen] = useState(false)
+  const canAdd = useMemo(
+    () => addAccountDevices(devices, { currentUserId, now }).length > 0,
+    [devices, currentUserId, now]
+  )
 
   return (
-    <div className="mb-6">
+    // EXP-827: `#accounts` is where device settings' Usage button lands.
+    <div className="mb-6 scroll-mt-4" id="accounts">
       <GlassSectionHeader
         label="Accounts"
         trailing={
-          autoRefreshes ? (
-            <span className="text-[11px] text-muted-foreground">
-              Refreshes every 5 minutes
-            </span>
-          ) : undefined
+          <>
+            {autoRefreshes && (
+              <span className="text-[11px] text-muted-foreground">
+                Refreshes every 5 minutes
+              </span>
+            )}
+            {canAdd && (
+              <Pill
+                mode="action"
+                onClick={() => setAddOpen(true)}
+                data-testid="add-account-button"
+              >
+                <AddIcon className="size-3" />
+                Add account
+              </Pill>
+            )}
+          </>
         }
+      />
+      <AddAccountDialog
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        devices={devices}
+        currentUserId={currentUserId}
+        now={now}
       />
       {deviceRows === undefined ? (
         <div className="px-3 py-2 text-xs text-muted-foreground">Loading…</div>
@@ -261,6 +296,7 @@ export function AgentAccountsSection({
                   group={group}
                   now={now}
                   ownDevices={ownDevices}
+                  currentUserId={currentUserId}
                   refreshing={group.key in refreshing}
                   onRefresh={() => void refresh(group, false)}
                 />
@@ -303,6 +339,7 @@ function AccountCard({
   group,
   now,
   ownDevices,
+  currentUserId,
   refreshing,
   onRefresh,
 }: {
@@ -311,10 +348,41 @@ function AccountCard({
   /** The caller's own synced devices rows by device id — a chip of one of
    *  these may open the sign-in menu. */
   ownDevices: Map<string, Device>
+  currentUserId: string
   refreshing: boolean
   onRefresh: () => void
 }) {
   const fresh = usageIsFresh(group.usage, now)
+  // EXP-827: "add a machine to this account" — my online machines with the
+  // agent installed that do NOT hold the account yet. Only a NAMED account
+  // (an email) can be added elsewhere; the machine reports the login under
+  // the same email and the chip joins this card.
+  const addTargets = useMemo(
+    () =>
+      group.signedIn && group.email
+        ? addAccountDevices([...ownDevices.values()], {
+            currentUserId,
+            now,
+            agent: group.agent,
+            exclude: group.rows.map((row) => row.deviceId),
+          })
+        : [],
+    [group, ownDevices, currentUserId, now]
+  )
+  const addTo = (row: Device) => {
+    const target = addAccountLoginTarget(
+      row,
+      group.agent,
+      clampProfileLabel(group.email ?? group.plan ?? agentLabel(group.agent))
+    )
+    const device = steerDeviceFromRow(row, { now, currentUserId })
+    // The dialog is hosted elsewhere in the tree — open it after the menu
+    // closed (same handoff as `DeviceChip`).
+    setTimeout(
+      () => requestAgentLogin({ device, agent: group.agent, ...target }),
+      0
+    )
+  }
   const hasWindows = (group.usage?.windows.length ?? 0) > 0
   const nextAllowed = refreshAllowedAt(group.usage, now)
   const asOf = group.usage?.fetchedAt ?? group.checkedAt
@@ -373,6 +441,30 @@ function AccountCard({
             device={ownDevices.get(row.deviceId) ?? null}
           />
         ))}
+        {addTargets.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Pill
+                size="sm"
+                mode="action"
+                aria-label="Add a machine to this account"
+                title="Sign in to this account on another machine"
+                className="px-1.5"
+                data-testid={`account-add-device-${group.key}`}
+              >
+                <AddIcon className="size-3" />
+              </Pill>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              {addTargets.map((row) => (
+                <DropdownMenuItem key={row.deviceId} onSelect={() => addTo(row)}>
+                  <SignInIcon className="size-4" />
+                  {`Sign in on ${row.label || row.deviceId}`}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
       {hasWindows && group.usage ? (
         <div className={cn(`pt-0.5`, !fresh && `opacity-50`)}>
@@ -448,16 +540,20 @@ function DeviceChip({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
         <DropdownMenuItem
-          onSelect={() =>
-            requestAgentLogin({
+          // EXP-827: the item opens a Radix Dialog hosted elsewhere in the
+          // tree. Opening it in the same tick the menu closes lost it to the
+          // menu's own close + focus return, so the handoff waits a tick.
+          onSelect={() => {
+            const target = {
               device: {
                 deviceId: device!.deviceId,
                 deviceLabel: device!.label ?? device!.deviceId,
                 caps: device!.caps ?? [],
               } as SteerDevice,
               agent: row.agent,
-            })
-          }
+            }
+            setTimeout(() => requestAgentLogin(target), 0)
+          }}
         >
           {row.signedIn ? <SwapIcon className="size-4" /> : <SignInIcon className="size-4" />}
           {`${action} on ${row.deviceLabel || row.deviceId}`}

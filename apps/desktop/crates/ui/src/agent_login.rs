@@ -29,6 +29,14 @@
 //! ("Paste code here if prompted >"). A requester on another device hands it
 //! back as an `agent_login_code` command; [`enter_remote_code`] finds the
 //! agent's live login tab in [`LoginTabs`] and types it there.
+//!
+//! EXP-827: a remote login may target an account PROFILE (`profileId`, an
+//! existing one) or ask for a new one (`newProfileLabel`). The run points
+//! the CLI's config-dir variable at that profile's dir for the sign-out and
+//! the login tab it spawns (`coding::agent_login::resolve_login_profile` +
+//! `login_env`), and the published result names the id it signed into. The
+//! exit re-probe re-reads the profile index, so a fresh profile rides the
+//! next heartbeat by itself.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -39,7 +47,7 @@ use gpui::{App, Entity, SharedString};
 use gpui_component::{button::ButtonVariant, notification::Notification, WindowExt as _};
 use terminal::{TabId, TerminalManager, TerminalManagerEvent};
 
-use coding::agent_login::{self, LoginProgress};
+use coding::agent_login::{self, LoginProgress, LoginTarget};
 use coding::CodingAgent;
 
 use crate::coding_flow::CodingHub;
@@ -134,26 +142,33 @@ struct RemoteLogin {
 /// account buttons). `switch` signs out first.
 pub(crate) fn open_login_tab(agent: CodingAgent, switch: bool, cx: &mut App) {
     if switch {
-        confirm_switch_then(agent, cx, move |cx| start(agent, true, None, cx));
+        confirm_switch_then(agent, cx, move |cx| {
+            start(agent, true, LoginTarget::System, None, cx)
+        });
         return;
     }
-    start(agent, false, None, cx);
+    start(agent, false, LoginTarget::System, None, cx);
 }
 
 /// EXP-484 (D): run an `agent_login` device command. The payload was already
 /// validated and claimed by [`crate::device_sync`]; this opens the same tab
 /// the local button does and answers the command the moment a URL is up.
 pub(crate) fn start_remote_login(command: api::devices::PendingCommand, cx: &mut App) {
-    let agent = command.payload["agent"]
-        .as_str()
-        .and_then(CodingAgent::parse)
-        .unwrap_or(CodingAgent::Claude);
-    let switch = command.payload["switch"].as_str() == Some("true");
+    // The beat already refused a malformed payload; this is the belt.
+    let request = match agent_login::parse_login_payload(&command.payload) {
+        Ok(request) => request,
+        Err(message) => {
+            complete(&command.id, false, message, cx);
+            crate::device_sync::release_login(&command.id, cx);
+            return;
+        }
+    };
     // No local confirm: the requester's own dialog already carried the codex
     // warning, and nobody is necessarily sitting at this machine.
     start(
-        agent,
-        switch,
+        request.agent,
+        request.switch,
+        request.target,
         Some(RemoteLogin {
             command_id: command.id,
             published: Arc::new(AtomicBool::new(false)),
@@ -198,21 +213,64 @@ pub(crate) fn confirm_switch_then(
     });
 }
 
-/// The one sequence: (optional) logout → login tab → grid watch → exit
-/// re-probe. Deferred, because the caller is typically inside its own
-/// window's update and [`crate::coding_flow::any_terminal_dock`] has to
-/// update windows to find the dock.
-fn start(agent: CodingAgent, switch: bool, remote: Option<RemoteLogin>, cx: &mut App) {
+/// The one sequence: profile resolve → (optional) logout → login tab → grid
+/// watch → exit re-probe. Deferred, because the caller is typically inside
+/// its own window's update and [`crate::coding_flow::any_terminal_dock`]
+/// has to update windows to find the dock.
+///
+/// EXP-827: `target` picks the account profile. It resolves first (a new
+/// label creates the profile dir); a refused target answers the requester
+/// and starts nothing. The profile's config-dir pair goes on the sign-out
+/// AND the login tab, so both act inside the same profile dir.
+fn start(
+    agent: CodingAgent,
+    switch: bool,
+    target: LoginTarget,
+    remote: Option<RemoteLogin>,
+    cx: &mut App,
+) {
     let settings = CodingHub::global(cx).read(cx).settings.clone();
+    let data_dir = crate::coding_flow::coding_data_dir(cx);
     // EXP-695: a REMOTE sign-in must not pop a browser on this machine —
     // the requester gets the link through the command result instead.
-    let plan = agent_login::login_plan(&settings, agent, remote.is_some());
+    let mut plan = agent_login::login_plan(&settings, agent, remote.is_some());
     cx.spawn(async move |cx| {
+        let resolved = {
+            let data_dir = data_dir.clone();
+            cx.background_executor()
+                .spawn(async move {
+                    agent_login::resolve_login_profile(&data_dir, agent, &target).map(|id| {
+                        let env = agent_login::login_env(&data_dir, agent, &id);
+                        (id, env)
+                    })
+                })
+                .await
+        };
+        let (profile_id, env) = match resolved {
+            Ok(resolved) => resolved,
+            Err(message) => {
+                log::warn!("[agent-login] {agent:?} profile refused: {message}");
+                let _ = cx.update(|cx| {
+                    notify(Notification::error(SharedString::from(message.clone())), cx);
+                    // Never started: answer the requester and drop the claim
+                    // (no run exists to do it on exit).
+                    if let Some(remote) = remote.as_ref() {
+                        complete(&remote.command_id, false, message, cx);
+                        crate::device_sync::release_login(&remote.command_id, cx);
+                    }
+                });
+                return;
+            }
+        };
+        if let Some((key, value)) = env.as_ref() {
+            plan.spawn.env.push((key.clone(), value.clone()));
+        }
         if switch {
             let settings = settings.clone();
+            let env = env.clone();
             let logout = cx
                 .background_executor()
-                .spawn(async move { agent_login::logout(&settings, agent) })
+                .spawn(async move { agent_login::logout_in(&settings, agent, env.as_ref()) })
                 .await;
             if let Err(message) = logout {
                 // A failed sign-out still lets the login run (the CLI may
@@ -221,7 +279,7 @@ fn start(agent: CodingAgent, switch: bool, remote: Option<RemoteLogin>, cx: &mut
                 let _ = cx.update(|cx| notify(Notification::warning(SharedString::from(message)), cx));
             }
         }
-        let _ = cx.update(|cx| spawn_login_tab(agent, plan, remote, cx));
+        let _ = cx.update(|cx| spawn_login_tab(agent, plan, profile_id, remote, cx));
     })
     .detach();
 }
@@ -239,6 +297,9 @@ fn start(agent: CodingAgent, switch: bool, remote: Option<RemoteLogin>, cx: &mut
 ///   can be released around it).
 struct LoginRun {
     agent: CodingAgent,
+    /// EXP-827: the profile the login lands on (`system` for the ambient
+    /// login), named in the published result.
+    profile_id: String,
     remote: Option<RemoteLogin>,
     finished: AtomicBool,
     /// EXP-765: the tab this run opened — set once it exists, so `finish`
@@ -315,11 +376,13 @@ impl LoginRun {
 fn spawn_login_tab(
     agent: CodingAgent,
     plan: coding::LoginPlan,
+    profile_id: String,
     remote: Option<RemoteLogin>,
     cx: &mut App,
 ) {
     let run = Arc::new(LoginRun {
         agent,
+        profile_id,
         remote,
         finished: AtomicBool::new(false),
         tab: OnceLock::new(),
@@ -450,7 +513,8 @@ fn watch_login(
                             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
                             .is_ok()
                         {
-                            let progress = LoginProgress::url(agent, url, code);
+                            let progress = LoginProgress::url(agent, url, code)
+                                .with_profile(run.profile_id.clone());
                             let _ = cx.update(|cx| {
                                 complete(&remote.command_id, true, progress.to_result_text(), cx)
                             });

@@ -448,10 +448,9 @@ struct MainNavigator: View {
                     showsSupport: helpdeskEnabled,
                     supportUnread: supportUnread,
                     showsCompose: composeRoute != nil,
-                    // EXP-694: Actions launches chats too. Neither surface has
-                    // a board context, so `composeRoute` is nil on both and the
-                    // one FAB slot never clashes.
-                    showsChat: isOnAgents || isOnActions,
+                    // EXP-694: Actions launches chats too. EXP-827: so does a
+                    // board, where the slot renders both arms in one capsule.
+                    showsChat: isOnAgents || isOnActions || composeRoute != nil,
                     onIssues: { path = [] },
                     onDevices: { if !isOnAgents { path = [.agents] } },
                     onActions: { if !isOnActions { path = [.actions] } },

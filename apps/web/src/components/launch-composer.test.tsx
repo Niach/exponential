@@ -24,7 +24,10 @@ vi.mock(`@/lib/collections`, () => ({
 }))
 vi.mock(`@/hooks/use-mobile`, () => ({ useIsMobile: () => false }))
 
-import { LaunchComposer } from "@/components/launch-composer"
+import {
+  LaunchComposer,
+  suggestionCaretOffset,
+} from "@/components/launch-composer"
 
 const device: SteerDevice = {
   deviceId: `dev-1`,
@@ -120,12 +123,14 @@ function fakeModel(overrides: Partial<LaunchComposerModel> = {}): LaunchComposer
 }
 
 describe(`LaunchComposer`, () => {
-  it(`renders the chat state: placeholder, suggestions, a labelled submit`, () => {
+  it(`renders the chat state: placeholder, suggestions, an icon-only submit`, () => {
     render(<LaunchComposer model={fakeModel()} users={[]} />)
     expect(screen.getByTestId(`agent-composer`)).toBeTruthy()
     expect(screen.getByPlaceholderText(`Ask the agent…`)).toBeTruthy()
     const submit = screen.getByTestId(`agent-composer-submit`) as HTMLButtonElement
-    expect(submit.textContent).toContain(`Start chat`)
+    // EXP-827: the label is the button's NAME, never its text.
+    expect(submit.getAttribute(`aria-label`)).toBe(`Start chat`)
+    expect(submit.textContent).toBe(``)
     expect(submit.disabled).toBe(true)
     // EXP-820: a few pool chips over the empty field (a random draw).
     const pills = screen
@@ -145,12 +150,16 @@ describe(`LaunchComposer`, () => {
     render(<LaunchComposer model={model} users={[]} />)
     expect(screen.getByTestId(`agent-composer-chip-issue-APP-3`)).toBeTruthy()
     expect(screen.getByTestId(`agent-composer-chip-issue-APP-6`)).toBeTruthy()
-    expect(screen.getByTestId(`agent-composer-submit`).textContent).toContain(
-      `Start batch · 2`
-    )
+    expect(
+      screen.getByTestId(`agent-composer-submit`).getAttribute(`aria-label`)
+    ).toBe(`Start batch · 2`)
     // Text is optional once there is a subject — the field says so.
     expect(screen.getByPlaceholderText(`Additional instructions (optional)…`)).toBeTruthy()
+    // EXP-827: the chip body is the issue pill (inert without an issue-ref
+    // provider); only its ✕ removes.
     fireEvent.click(screen.getByTestId(`agent-composer-chip-issue-APP-3`))
+    expect(model.toggleIssue).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByTestId(`agent-composer-chip-issue-APP-3-remove`))
     expect(model.toggleIssue).toHaveBeenCalledWith(`i1`)
   })
 
@@ -165,7 +174,10 @@ describe(`LaunchComposer`, () => {
     const chip = screen.getByTestId(`agent-composer-chip-action`)
     expect(chip.textContent).toContain(`Create action`)
     expect(screen.getByPlaceholderText(/Describe the action/)).toBeTruthy()
+    // EXP-827: clicking the chip keeps the action; its ✕ clears it.
     fireEvent.click(chip)
+    expect(model.clearAction).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByTestId(`agent-composer-chip-action-remove`))
     expect(model.clearAction).toHaveBeenCalled()
   })
 
@@ -213,6 +225,14 @@ describe(`LaunchComposer`, () => {
       target: { value: `Fix #` },
     })
     expect(model.setText).toHaveBeenCalledWith(`Fix #`)
+  })
+
+  // EXP-827: a `#` suggestion parks the caret right behind the `#`, wherever
+  // it sits, so the issue-ref menu opens without a backspace.
+  it(`lands the caret after a suggestion's # placeholder`, () => {
+    expect(suggestionCaretOffset(`Fix #`)).toBe(5)
+    expect(suggestionCaretOffset(`Start a session for # on my other machine`)).toBe(21)
+    expect(suggestionCaretOffset(`Label every issue in the backlog`)).toBeUndefined()
   })
 
   it(`says so when no desktop is online`, () => {

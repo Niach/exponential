@@ -22,12 +22,25 @@
 //! the whole login to finish. `devices.completeCommand` caps a result at
 //! 2000 chars — [`LoginProgress::to_result_text`] keeps the URL whole and
 //! truncates the message instead.
+//!
+//! EXP-827: a remote login can target an account PROFILE
+//! (`crate::agent_profiles`): the payload names an existing one
+//! (`profileId`) or asks for a fresh one (`newProfileLabel`), and the host
+//! points the CLI's config-dir variable at that profile's dir for the
+//! logout and the login it spawns ([`parse_login_payload`],
+//! [`resolve_login_profile`], [`logout_in`]). The result names the id it
+//! signed into (`profileId`, `system` for the ambient login) so the
+//! requester can pair the link with the profile row the next heartbeat
+//! ships.
+
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
 use terminal::pty::SpawnSpec;
 
 use crate::agent::CodingAgent;
+use crate::agent_profiles::{self, SYSTEM_PROFILE};
 use crate::settings::Settings;
 
 /// `devices.completeCommand`'s result cap.
@@ -116,10 +129,23 @@ pub fn warn_on_switch(agent: CodingAgent) -> Option<&'static str> {
     }
 }
 
+/// Sign `agent` OUT on this machine (the first half of a switch), in the
+/// ambient login. See [`logout_in`].
+pub fn logout(settings: &Settings, agent: CodingAgent) -> Result<(), String> {
+    logout_in(settings, agent, None)
+}
+
 /// Sign `agent` OUT on this machine (the first half of a switch). pi has no
 /// logout — its credentials are provider files, and clearing them is not
-/// ours to do. Blocking; `Err` carries a user-facing sentence.
-pub fn logout(settings: &Settings, agent: CodingAgent) -> Result<(), String> {
+/// ours to do. `env` is the profile's config-dir pair
+/// ([`agent_profiles::config_env`]) so a switch inside a profile signs out
+/// THAT login and never the ambient one; `None` = the ambient login.
+/// Blocking; `Err` carries a user-facing sentence.
+pub fn logout_in(
+    settings: &Settings,
+    agent: CodingAgent,
+    env: Option<&(String, String)>,
+) -> Result<(), String> {
     let args: &[&str] = match agent {
         CodingAgent::Claude => &["auth", "logout"],
         CodingAgent::Codex => &["logout"],
@@ -128,6 +154,9 @@ pub fn logout(settings: &Settings, agent: CodingAgent) -> Result<(), String> {
     let program = settings.resolved_path_for(agent);
     let mut cmd = terminal::process::background_command(&program);
     cmd.env("PATH", terminal::pty::login_path()).args(args);
+    if let Some((key, value)) = env {
+        cmd.env(key, value);
+    }
     match crate::doctor::output_with_timeout(cmd, crate::doctor::PROBE_TIMEOUT) {
         Ok(output) if output.status.success() => Ok(()),
         Ok(output) => {
@@ -141,6 +170,109 @@ pub fn logout(settings: &Settings, agent: CodingAgent) -> Result<(), String> {
         }
         Err(err) => Err(format!("Could not run {program}: {err}")),
     }
+}
+
+/// EXP-827: which account an `agent_login` command signs into.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LoginTarget {
+    /// The ambient login (no `profileId`, no `newProfileLabel`).
+    System,
+    /// An existing profile, by id (`system` lands on [`Self::System`]).
+    Profile(String),
+    /// Create a profile with this label first, then sign into it.
+    NewProfile(String),
+}
+
+/// A parsed `agent_login` payload.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LoginRequest {
+    pub agent: CodingAgent,
+    /// Sign out first (inside the target profile's dir).
+    pub switch: bool,
+    pub target: LoginTarget,
+}
+
+/// The sentence both hosts refuse a remote pi login with (the clients show
+/// a failed row's `result` verbatim).
+pub const PI_NO_REMOTE_LOGIN: &str = "pi has no remote sign-in";
+pub const UNKNOWN_AGENT: &str = "This machine does not know that agent.";
+pub const MALFORMED_PAYLOAD: &str = "Malformed command payload.";
+
+/// Parse an `agent_login` payload: `{agent, switch: "true"|"false",
+/// profileId?, newProfileLabel?}`. `Err` carries the refusal sentence the
+/// command completes with. pi is refused outright: its `/login` is a slash
+/// command inside its TUI with nothing to hand back, and it has no profiles
+/// either.
+pub fn parse_login_payload(payload: &serde_json::Value) -> Result<LoginRequest, String> {
+    let raw_agent = payload["agent"].as_str().unwrap_or_default();
+    let agent = match CodingAgent::parse(raw_agent) {
+        Some(CodingAgent::Pi) => return Err(PI_NO_REMOTE_LOGIN.to_string()),
+        Some(agent) => agent,
+        // Byte-identical to the pre-profile refusals: a blank agent was a
+        // malformed payload, an unknown one an unknown agent.
+        None if raw_agent.is_empty() => return Err(MALFORMED_PAYLOAD.to_string()),
+        None => return Err(UNKNOWN_AGENT.to_string()),
+    };
+    let switch = match payload["switch"].as_str().unwrap_or("false") {
+        "true" => true,
+        "false" => false,
+        _ => return Err(MALFORMED_PAYLOAD.to_string()),
+    };
+    let profile_id = payload["profileId"].as_str().map(str::trim).filter(|id| !id.is_empty());
+    let new_label = payload["newProfileLabel"]
+        .as_str()
+        .map(str::trim)
+        .filter(|label| !label.is_empty());
+    let target = match (profile_id, new_label) {
+        (Some(_), Some(_)) => {
+            return Err("Pick an existing profile or a new label, not both.".to_string());
+        }
+        (Some(id), None) if id == SYSTEM_PROFILE => LoginTarget::System,
+        (Some(id), None) => LoginTarget::Profile(id.to_string()),
+        (None, Some(label)) => LoginTarget::NewProfile(label.to_string()),
+        (None, None) => LoginTarget::System,
+    };
+    Ok(LoginRequest {
+        agent,
+        switch,
+        target,
+    })
+}
+
+/// Turn the target into the profile id the login lands on, creating a new
+/// profile when asked. `Err` is the refusal sentence: an unknown id, an
+/// agent without profiles, a label the index would not take. A freshly
+/// created profile is NOT made the device's active one; the requester
+/// picks that on the Accounts page.
+pub fn resolve_login_profile(
+    data_dir: &Path,
+    agent: CodingAgent,
+    target: &LoginTarget,
+) -> Result<String, String> {
+    match target {
+        LoginTarget::System => Ok(SYSTEM_PROFILE.to_string()),
+        LoginTarget::Profile(id) => {
+            if agent_profiles::config_env_var(agent).is_none() {
+                return Err(format!("{} has no account profiles.", agent.id()));
+            }
+            match agent_profiles::profile_dir(data_dir, agent, id) {
+                Some(_) => Ok(id.clone()),
+                None => Err(format!(
+                    "This machine has no {} profile {id}.",
+                    agent.label()
+                )),
+            }
+        }
+        LoginTarget::NewProfile(label) => agent_profiles::create(data_dir, agent, label)
+            .map(|profile| profile.id)
+            .map_err(|err| format!("Could not create the profile: {err}")),
+    }
+}
+
+/// The config-dir pair the login (and its logout) runs under for
+/// `profile_id`; `None` for `system`.
+pub fn login_env(data_dir: &Path, agent: CodingAgent, profile_id: &str) -> Option<(String, String)> {
+    agent_profiles::config_env(data_dir, agent, Some(profile_id))
 }
 
 /// How far a login got. `Url` is the useful one — the sign-in link (and
@@ -166,6 +298,10 @@ pub struct LoginProgress {
     /// A failure sentence (or a note beside a URL).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    /// EXP-827: the profile the login signed into (`system` for the
+    /// ambient login). Absent on a pre-profile build's result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile_id: Option<String>,
 }
 
 impl LoginProgress {
@@ -177,7 +313,14 @@ impl LoginProgress {
             url: Some(url.into()),
             code,
             message: None,
+            profile_id: None,
         }
+    }
+
+    /// EXP-827: name the profile the login landed on.
+    pub fn with_profile(mut self, profile_id: impl Into<String>) -> Self {
+        self.profile_id = Some(profile_id.into());
+        self
     }
 
     /// The login ended without ever showing one.
@@ -188,6 +331,7 @@ impl LoginProgress {
             url: None,
             code: None,
             message: Some(message.into()),
+            profile_id: None,
         }
     }
 
@@ -266,6 +410,155 @@ mod tests {
             remote.spawn.env,
             vec![("BROWSER".to_string(), "true".to_string())]
         );
+    }
+
+    fn scratch_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "exp-agent-login-{tag}-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// EXP-827: the payload's three shapes, and the refusals. A blank
+    /// `profileId`/`newProfileLabel` reads as absent; `system` as an id is
+    /// the ambient login.
+    #[test]
+    fn login_payload_parses_profile_id_new_label_or_neither() {
+        let neither = parse_login_payload(&serde_json::json!({"agent": "claude", "switch": "true"}))
+            .unwrap();
+        assert_eq!(
+            neither,
+            LoginRequest {
+                agent: CodingAgent::Claude,
+                switch: true,
+                target: LoginTarget::System,
+            }
+        );
+        let existing = parse_login_payload(&serde_json::json!({
+            "agent": "codex", "switch": "false", "profileId": "0badf00d"
+        }))
+        .unwrap();
+        assert_eq!(existing.agent, CodingAgent::Codex);
+        assert!(!existing.switch);
+        assert_eq!(existing.target, LoginTarget::Profile("0badf00d".to_string()));
+        let fresh = parse_login_payload(&serde_json::json!({
+            "agent": "claude", "newProfileLabel": "  Work  "
+        }))
+        .unwrap();
+        assert_eq!(fresh.target, LoginTarget::NewProfile("Work".to_string()));
+        assert!(!fresh.switch, "switch defaults to false");
+        let blank = parse_login_payload(&serde_json::json!({
+            "agent": "claude", "profileId": "", "newProfileLabel": "  "
+        }))
+        .unwrap();
+        assert_eq!(blank.target, LoginTarget::System);
+        let system = parse_login_payload(&serde_json::json!({
+            "agent": "claude", "profileId": "system"
+        }))
+        .unwrap();
+        assert_eq!(system.target, LoginTarget::System);
+
+        // Refusals.
+        assert_eq!(
+            parse_login_payload(&serde_json::json!({"agent": "pi", "profileId": "0badf00d"})),
+            Err(PI_NO_REMOTE_LOGIN.to_string())
+        );
+        assert_eq!(
+            parse_login_payload(&serde_json::json!({"agent": "pi"})),
+            Err(PI_NO_REMOTE_LOGIN.to_string())
+        );
+        assert_eq!(
+            parse_login_payload(&serde_json::json!({"agent": "gemini"})),
+            Err(UNKNOWN_AGENT.to_string())
+        );
+        assert_eq!(
+            parse_login_payload(&serde_json::json!({})),
+            Err(MALFORMED_PAYLOAD.to_string())
+        );
+        assert_eq!(
+            parse_login_payload(&serde_json::json!({"agent": "claude", "switch": "yes"})),
+            Err(MALFORMED_PAYLOAD.to_string())
+        );
+        assert!(parse_login_payload(&serde_json::json!({
+            "agent": "claude", "profileId": "0badf00d", "newProfileLabel": "Work"
+        }))
+        .is_err());
+    }
+
+    /// EXP-827: `system` resolves without touching the disk, an unknown id
+    /// is refused, a new label creates the profile (indexed, NOT active)
+    /// and the login env points at its dir; pi has no profiles to log into.
+    #[test]
+    fn login_profile_resolves_creates_and_refuses() {
+        let dir = scratch_dir("resolve");
+        assert_eq!(
+            resolve_login_profile(&dir, CodingAgent::Claude, &LoginTarget::System).unwrap(),
+            SYSTEM_PROFILE
+        );
+        assert_eq!(login_env(&dir, CodingAgent::Claude, SYSTEM_PROFILE), None);
+        assert!(resolve_login_profile(
+            &dir,
+            CodingAgent::Claude,
+            &LoginTarget::Profile("0badf00d".to_string())
+        )
+        .is_err());
+
+        let id = resolve_login_profile(
+            &dir,
+            CodingAgent::Claude,
+            &LoginTarget::NewProfile("Work".to_string()),
+        )
+        .unwrap();
+        let listed = agent_profiles::list(&dir, CodingAgent::Claude);
+        assert_eq!(listed.len(), 2);
+        assert_eq!(listed[1].id, id);
+        assert_eq!(listed[1].label, "Work");
+        assert_eq!(
+            agent_profiles::active_profile(&dir, CodingAgent::Claude),
+            SYSTEM_PROFILE,
+            "a new profile does not become the device default"
+        );
+        // Now it exists, so it resolves as an existing profile too.
+        assert_eq!(
+            resolve_login_profile(&dir, CodingAgent::Claude, &LoginTarget::Profile(id.clone()))
+                .unwrap(),
+            id
+        );
+        let (key, value) = login_env(&dir, CodingAgent::Claude, &id).unwrap();
+        assert_eq!(key, "CLAUDE_CONFIG_DIR");
+        assert!(value.ends_with(&id));
+
+        // pi: no profiles, existing or new.
+        assert!(resolve_login_profile(
+            &dir,
+            CodingAgent::Pi,
+            &LoginTarget::Profile("0badf00d".to_string())
+        )
+        .is_err());
+        assert!(resolve_login_profile(
+            &dir,
+            CodingAgent::Pi,
+            &LoginTarget::NewProfile("Work".to_string())
+        )
+        .is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-827: the result names the profile; an older result without one
+    /// still parses.
+    #[test]
+    fn login_progress_carries_the_profile_id() {
+        let progress = LoginProgress::url(CodingAgent::Claude, "https://claude.ai/x", None)
+            .with_profile("0badf00d");
+        let text = progress.to_result_text();
+        assert!(text.contains("\"profileId\":\"0badf00d\""), "{text}");
+        assert_eq!(LoginProgress::parse(&text).unwrap().profile_id.as_deref(), Some("0badf00d"));
+        let legacy = LoginProgress::parse(r#"{"agent":"claude","phase":"url","url":"https://x"}"#)
+            .unwrap();
+        assert_eq!(legacy.profile_id, None);
     }
 
     #[test]

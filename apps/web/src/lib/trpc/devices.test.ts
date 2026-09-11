@@ -1269,6 +1269,55 @@ describe(`devices.createCommand — agent_login`, () => {
       })
     ).rejects.toMatchObject({ code: `CONFLICT` })
   })
+
+  // EXP-827: multi-account — a login into an existing profile, or into a
+  // profile the machine creates first.
+  it(`carries profileId for an existing profile`, async () => {
+    h.state.selectQueue = [...capableProbe(), []]
+    h.state.insertReturning = [[{ id: `cmd-1` }]]
+    await caller.createCommand({
+      deviceId: `dev-1`,
+      kind: `agent_login`,
+      agent: `claude`,
+      profileId: `p-work`,
+    })
+    expect(h.state.inserted[0]).toMatchObject({
+      payload: { agent: `claude`, switch: `false`, profileId: `p-work` },
+    })
+  })
+
+  it(`carries newProfileLabel to create a profile first`, async () => {
+    h.state.selectQueue = [...capableProbe(), []]
+    h.state.insertReturning = [[{ id: `cmd-1` }]]
+    await caller.createCommand({
+      deviceId: `dev-1`,
+      kind: `agent_login`,
+      agent: `codex`,
+      newProfileLabel: `  Codex account 2 `,
+    })
+    expect(h.state.inserted[0]).toMatchObject({
+      payload: {
+        agent: `codex`,
+        switch: `false`,
+        newProfileLabel: `Codex account 2`,
+      },
+    })
+    expect((h.state.inserted[0] as { payload: object }).payload).not.toHaveProperty(`profileId`)
+  })
+
+  it(`refuses profileId and newProfileLabel together`, async () => {
+    h.state.selectQueue = capableProbe()
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_login`,
+        agent: `claude`,
+        profileId: `p-work`,
+        newProfileLabel: `Claude account 2`,
+      })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    expect(h.state.inserted).toHaveLength(0)
+  })
 })
 
 // EXP-765: handing claude's authorization code back to the waiting login.

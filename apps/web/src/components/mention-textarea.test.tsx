@@ -115,4 +115,21 @@ describe(`MentionTextarea :emoji`, () => {
     await waitFor(() => expect(document.activeElement).toBe(el))
     expect(el.selectionStart).toBe(`hello🎉`.length)
   })
+
+  // EXP-827: a caret offset INTO the inserted text — the chat suggestions
+  // park the caret behind their `#` so the issue-ref menu opens at once.
+  it(`insertText with a caret offset parks the caret inside the insert`, async () => {
+    const handle = createRef<MentionTextareaHandle>()
+    const values: string[] = []
+    render(<Harness handle={handle} onValue={(v) => values.push(v)} />)
+    const el = screen.getByLabelText(`Reply`) as HTMLTextAreaElement
+    const text = `Start a session for # on my other machine`
+    act(() => handle.current!.insertText(text, text.indexOf(`#`) + 1))
+    expect(values.at(-1)).toBe(text)
+    await waitFor(() => expect(document.activeElement).toBe(el))
+    expect(el.selectionStart).toBe(text.indexOf(`#`) + 1)
+    // The issue-ref menu is what that caret is for: the token detector sees
+    // an open `#` (no provider here, so no rows — just no crash).
+    expect(el.selectionEnd).toBe(el.selectionStart)
+  })
 })

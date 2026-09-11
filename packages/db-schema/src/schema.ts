@@ -1345,9 +1345,14 @@ export const deviceWorktrees = pgTable(
 // Rows stay `pending` until completed — redelivery on a missed cycle is free
 // idempotency. `kind` is a documented varchar: `worktree_remove` (payload
 // {repoFullName, branch}) | `worktree_prune` (payload {}) | `agent_login`
-// (EXP-484, payload {agent, switch: "true"|"false"} — the device runs the
-// agent CLI's own login flow and completes the command EARLY, as soon as the
-// sign-in URL is on screen, with the JSON progress in `result`) |
+// (EXP-484, payload {agent, switch: "true"|"false", profileId?,
+// newProfileLabel?}: the device runs the agent CLI's own login flow inside
+// the named account profile (EXP-827: `profileId` = an existing profile,
+// `newProfileLabel` = create one first, neither = the ambient login; pi has
+// none) and completes the command EARLY, as soon as the sign-in URL is on
+// screen, with the JSON progress in `result` ({agent, phase, url?, code?,
+// message?, profileId}, `profileId` = the id it signed into, `system` when
+// none was named)) |
 // `agent_login_code` (payload {agent, code} — the typed device code for a
 // pending login) | `mcp_oauth_start` (EXP-792, payload {serverId, state,
 // redirectUri} — the device runs discovery + PKCE and completes EARLY with
