@@ -141,41 +141,71 @@ struct AgentComposerCard: View {
         }
     }
 
-    /// One checked issue: status glyph · mono identifier · ✕. The chip IS the
-    /// remove control.
+    /// One checked issue: status glyph · mono identifier · ✕. EXP-827: only
+    /// the ✕ removes (web and Android agree); the chip body is inert.
     private func issueChip(_ option: IssueOption) -> some View {
-        GlassPill(
-            option.identifier ?? option.title,
-            mode: .action { model.toggleIssue(option.id) },
+        let name = option.identifier ?? option.title
+        let id = "agent-composer-chip-issue-\(option.identifier ?? option.id)"
+        return GlassPill(
+            name,
+            mode: .readonly,
             leading: {
                 AppIcon(IssueStatus.from(option.status).iconName, size: 12)
                     .foregroundStyle(IssueStatus.from(option.status).color)
             },
-            trailing: {
-                AppIcon(AppIcons.uiClose, size: 10)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
+            trailing: { chipClose }
         )
-        .accessibilityLabel("Remove \(option.identifier ?? option.title)")
-        .accessibilityIdentifier("agent-composer-chip-issue-\(option.identifier ?? option.id)")
+        .overlay(alignment: .trailing) {
+            chipRemoveButton(name: name, identifier: "\(id)-remove") {
+                model.toggleIssue(option.id)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(id)
     }
 
-    /// The one action: its curated glyph · name · ✕.
+    /// The one action: its curated glyph · name · ✕. Same split: the ✕ clears
+    /// the action, the body does nothing.
     private func actionChip(_ action: ActionDto) -> some View {
         GlassPill(
             action.name,
-            mode: .action { model.clearAction() },
+            mode: .readonly,
             leading: {
                 AppIcon(action.icon ?? AppIcons.actionDefault, size: 12)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
             },
-            trailing: {
-                AppIcon(AppIcons.uiClose, size: 10)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
+            trailing: { chipClose }
         )
-        .accessibilityLabel("Remove \(action.name)")
+        .overlay(alignment: .trailing) {
+            chipRemoveButton(name: action.name, identifier: "agent-composer-chip-action-remove") {
+                model.clearAction()
+            }
+        }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("agent-composer-chip-action")
+    }
+
+    /// The ✕ glyph a chip wears in its trailing slot. A readonly pill takes no
+    /// hits, so the tap target is the overlay button below, sat over it.
+    private var chipClose: some View {
+        AppIcon(AppIcons.uiClose, size: 10)
+            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+    }
+
+    /// The chip's ONE control: a clear 28pt button over the trailing ✕.
+    private func chipRemoveButton(
+        name: String,
+        identifier: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Color.clear
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Remove \(name)")
+        .accessibilityIdentifier(identifier)
     }
 
     // MARK: - Return

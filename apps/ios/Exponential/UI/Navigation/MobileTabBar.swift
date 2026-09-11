@@ -143,7 +143,12 @@ struct MobileTabBar: View {
 
             Spacer()
 
-            if showsCompose {
+            // EXP-827: a board surface offers BOTH launchers, so the slot
+            // becomes one capsule with two arms (chat | new issue). A surface
+            // with only one of them keeps the single circle.
+            if showsCompose && showsChat {
+                launcherCapsule
+            } else if showsCompose {
                 fab(glyph: AppIcons.navCreateIssue, action: onCompose)
                     .accessibilityLabel("New issue")
                     .accessibilityIdentifier("compose-button")
@@ -156,6 +161,40 @@ struct MobileTabBar: View {
         .padding(.horizontal, showsSupport ? 12 : 20)
         .padding(.top, 8)
         .padding(.bottom, 4)
+    }
+
+    /// EXP-827: the merged launcher on a board — the same 52pt height as the
+    /// circle, two 52pt arms split by a hairline, each its own button with
+    /// the labels and identifiers the single circles carry.
+    private var launcherCapsule: some View {
+        HStack(spacing: 0) {
+            arm(glyph: AppIcons.actionChat, action: onChat)
+                .accessibilityLabel("Start chat")
+                .accessibilityIdentifier("chat-button")
+            Rectangle()
+                .fill(GlassTokens.strokeStrong)
+                .frame(width: GlassTokens.hairline, height: 28)
+            arm(glyph: AppIcons.navCreateIssue, action: onCompose)
+                .accessibilityLabel("New issue")
+                .accessibilityIdentifier("compose-button")
+        }
+        .background(GlassTokens.opaqueCardFill, in: Capsule())
+        .overlay(
+            Capsule().stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
+        )
+        .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
+    }
+
+    /// One arm of the launcher capsule: a 52pt square hit area, no chrome of
+    /// its own (the capsule paints it).
+    private func arm(glyph: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            AppIcon(glyph, size: AppIcon.Size.large, weight: .semibold)
+                .foregroundStyle(.white)
+                .frame(width: 52, height: 52)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     /// The detached circular button beside the pill — one slot, whatever the
