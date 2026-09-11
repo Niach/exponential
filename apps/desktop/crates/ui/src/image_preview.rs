@@ -5,20 +5,26 @@
 //! come from the one dialog pattern the app uses. EXP-426: the window sizes
 //! itself to the image's aspect ratio when the natural dimensions are known,
 //! the in-window title is gone (the filename stays the OS window title), and
-//! "Open in browser" sits in the header next to the ✕.
+//! "Open in browser" sits in the header next to the ✕. EXP-824 adds the
+//! media variant ([`open_media_preview`]): the poster (or a neutral box)
+//! behind a big "Open in player" button — the desktop decodes no media, so
+//! the preview is a launcher for the system player, not a player.
 
 use gpui::{
     div, img, px, size, App, AppContext as _, Entity, IntoElement, ParentElement, Pixels, Render,
-    Size, Styled, StyledImage as _, Subscription, Window,
+    SharedString, Size, Styled, StyledImage as _, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    ActiveTheme as _, Icon,
+    ActiveTheme as _, Disableable as _, Icon,
 };
 
 use crate::controls::WebControl as _;
 use crate::icons::ExpIcon;
 use crate::markdown::{attachment_natural_size, placeholder_box, ImageCache, ImageSlot};
+use crate::media_tile::{
+    self, MediaKind, MediaTile, VIDEO_TILE_DEFAULT_H, VIDEO_TILE_DEFAULT_W,
+};
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::queries;
 
@@ -66,25 +72,159 @@ pub(crate) fn open_image_preview(
         let mut content = DialogContent::new(preview).chromeless_header("").padless();
         if let Some(open_url) = open_url {
             content = content.chromeless_header_actions(move |_, cx| {
-                let open_url = open_url.clone();
-                Button::new("image-preview-open-browser")
-                    .ghost()
-                    .web_xs()
-                    .icon(
-                        Icon::from(ExpIcon::ArrowUpRight)
-                            .text_color(cx.theme().muted_foreground),
-                    )
-                    .label("Open in browser")
-                    .on_click(move |_, _, _| {
-                        if let Err(error) = api::opener::open_in_browser(&open_url) {
-                            log::warn!("[ui] image preview: open in browser failed: {error}");
-                        }
-                    })
-                    .into_any_element()
+                open_in_browser_button("image-preview-open-browser", open_url.clone(), cx)
             });
         }
         content
     });
+}
+
+/// The header's "Open in browser" affordance, shared by both lightboxes.
+fn open_in_browser_button(id: &'static str, open_url: String, cx: &App) -> gpui::AnyElement {
+    Button::new(id)
+        .ghost()
+        .web_xs()
+        .icon(Icon::from(ExpIcon::ArrowUpRight).text_color(cx.theme().muted_foreground))
+        .label("Open in browser")
+        .on_click(move |_, _, _| {
+            if let Err(error) = api::opener::open_in_browser(&open_url) {
+                log::warn!("[ui] preview: open in browser failed: {error}");
+            }
+        })
+        .into_any_element()
+}
+
+/// EXP-824: the lightbox for a video/audio attachment. Sized like an image
+/// preview from the poster's box (16:9 default); the body is the poster or
+/// a neutral box with a big "Open in player" button that runs the same
+/// temp-download-and-open path as the tile click. "Open in browser" stays
+/// in the header.
+pub(crate) fn open_media_preview(
+    tile: MediaTile,
+    images: Option<Entity<ImageCache>>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let images = match images {
+        Some(images) => images,
+        None => {
+            let transport = queries::attachment_transport(cx);
+            cx.new(|_| ImageCache::new(transport))
+        }
+    };
+    let open_url = queries::absolute_api_url(
+        cx,
+        &format!("/api/attachments/{}", tile.attachment_id),
+    );
+    let natural = match tile.kind {
+        MediaKind::Video => Some(tile.video_box()),
+        MediaKind::Audio => Some((VIDEO_TILE_DEFAULT_W, VIDEO_TILE_DEFAULT_H)),
+    };
+    let window_size = preview_window_size(natural, window.viewport_size());
+    let spec = DialogSpec::new(tile.label.clone(), window_size).chromeless();
+    native_dialog::open_dialog_window(window, cx, spec, move |_, cx| {
+        let preview = cx.new(|cx| MediaPreview::new(tile, images, cx));
+        let mut content = DialogContent::new(preview).chromeless_header("").padless();
+        if let Some(open_url) = open_url {
+            content = content.chromeless_header_actions(move |_, cx| {
+                open_in_browser_button("media-preview-open-browser", open_url.clone(), cx)
+            });
+        }
+        content
+    });
+}
+
+struct MediaPreview {
+    tile: MediaTile,
+    images: Entity<ImageCache>,
+    _images_changed: Subscription,
+}
+
+impl MediaPreview {
+    fn new(tile: MediaTile, images: Entity<ImageCache>, cx: &mut gpui::Context<Self>) -> Self {
+        let images_changed = cx.observe(&images, |_, _, cx| cx.notify());
+        Self {
+            tile,
+            images,
+            _images_changed: images_changed,
+        }
+    }
+}
+
+impl Render for MediaPreview {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let busy = media_tile::is_opening(&self.tile.attachment_id);
+        let poster = self
+            .tile
+            .poster_url
+            .clone()
+            .map(|url| self.images.update(cx, |cache, cx| cache.slot(&url, cx)));
+        let backdrop = match poster {
+            Some(ImageSlot::Ready(image)) => img(image)
+                .max_w_full()
+                .max_h_full()
+                .object_fit(gpui::ObjectFit::ScaleDown)
+                .rounded(cx.theme().radius)
+                .into_any_element(),
+            _ => div()
+                .size_full()
+                .rounded(cx.theme().radius)
+                .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
+                .into_any_element(),
+        };
+        let attachment_id = self.tile.attachment_id.clone();
+        let label = self.tile.label.clone();
+        let is_audio = self.tile.kind == MediaKind::Audio;
+        let caption = self.tile.duration_chip();
+
+        div()
+            .size_full()
+            .relative()
+            .flex()
+            .items_center()
+            .justify_center()
+            .p_2()
+            .child(backdrop)
+            .child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .justify_center()
+                    .gap_3()
+                    .child(media_tile::play_badge(72., busy))
+                    .child(
+                        Button::new("media-preview-open-player")
+                            .primary()
+                            .icon(Icon::from(ExpIcon::Play))
+                            .label(if busy { "Opening…" } else { "Open in player" })
+                            .disabled(busy)
+                            .on_click(move |_, window, cx| {
+                                media_tile::open_media_in_player(
+                                    attachment_id.clone(),
+                                    label.clone(),
+                                    window,
+                                    cx,
+                                );
+                            }),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(SharedString::from(match (is_audio, caption) {
+                                (true, Some(duration)) => {
+                                    format!("{} · {duration}", self.tile.label)
+                                }
+                                (true, None) => self.tile.label.clone(),
+                                (false, Some(duration)) => duration,
+                                (false, None) => String::new(),
+                            })),
+                    ),
+            )
+    }
 }
 
 /// Chip/alt label → filename fallback → generic.

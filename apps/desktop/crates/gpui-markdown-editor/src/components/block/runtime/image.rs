@@ -23,7 +23,9 @@ impl Block {
     /// derived from the title text rather than the computed runtime, so it is
     /// valid before image runtimes are (re)built.
     pub(crate) fn renders_as_standalone_image(&self) -> bool {
-        self.can_present_as_image() && self.standalone_image_markdown_for_runtime().is_some()
+        self.can_present_as_image()
+            && (self.standalone_image_markdown_for_runtime().is_some()
+                || self.standalone_media().is_some())
     }
 
     pub(super) fn compute_image_runtime(
@@ -37,6 +39,35 @@ impl Block {
             src: resolved_target.src.clone(),
             title: resolved_target.title.clone(),
             resolved_source: self.resolve_image_source_with_env(&resolved_target.src, base_dir),
+            media: None,
+        })
+    }
+
+    /// EXP-824 vendoring: `(src, info)` when this block is solely one plain
+    /// link whose destination the host's resolver describes as media. Only
+    /// top-level paragraphs qualify (a list item keeps its link — the media
+    /// block has no spelling that preserves the marker).
+    pub(crate) fn standalone_media(&self) -> Option<(String, crate::host::MediaInfo)> {
+        if self.kind() != BlockKind::Paragraph || self.is_table_cell() {
+            return None;
+        }
+        let resolver = self.environment.image_source_resolver.as_ref()?;
+        let visible = self.record.title.visible_text().to_string();
+        let (_, src) = crate::components::parse_standalone_link(&visible).or_else(|| {
+            crate::components::parse_standalone_link(&self.record.title.serialize_markdown())
+        })?;
+        let info = resolver.media_info(&src)?;
+        Some((src, info))
+    }
+
+    fn compute_media_runtime(&self) -> Option<ImageRuntime> {
+        let (src, info) = self.standalone_media()?;
+        Some(ImageRuntime {
+            alt: info.label.clone(),
+            resolved_source: self.resolve_image_source_with_env(&src, self.image_base_dir.as_deref()),
+            src,
+            title: None,
+            media: Some(info),
         })
     }
 
@@ -120,6 +151,8 @@ impl Block {
                 .and_then(|syntax| {
                     self.compute_image_runtime(self.image_base_dir.as_deref(), syntax)
                 })
+                // EXP-824: a standalone attachment link to a media row.
+                .or_else(|| self.compute_media_runtime())
         } else {
             None
         };

@@ -8,7 +8,8 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::anyhow;
 use gpui_markdown_editor::{
-    ImagePasteHandler, ImageSourceResolution, ImageSourceResolver, ImageTarget, PastedImage,
+    ImagePasteHandler, ImageSourceResolution, ImageSourceResolver, ImageTarget, MediaInfo,
+    PastedImage,
 };
 
 use crate::markdown::image_paste::{
@@ -34,6 +35,12 @@ pub(crate) struct SharedImageState {
     /// the picture and clamps resize drags with it — web reads the same synced
     /// dimensions.
     pub natural_sizes: Mutex<HashMap<String, (f32, f32)>>,
+    /// EXP-824: per query-stripped link src, the media description of a
+    /// standalone attachment link whose synced row is video/audio — the
+    /// vendored editor renders those as tiles. The wrapper mirrors it from
+    /// the synced `attachments` rows; the matching `resolutions` entry is
+    /// the POSTER frame (`Pending` when the row has none).
+    pub media: Mutex<HashMap<String, MediaInfo>>,
 }
 
 /// Query-stripped cache key (the `?w=` display width never affects identity —
@@ -74,6 +81,15 @@ impl ImageSourceResolver for WysiwygImageResolver {
             .ok()?
             .get(cache_key(src))
             .copied()
+    }
+
+    fn media_info(&self, src: &str) -> Option<MediaInfo> {
+        self.state
+            .media
+            .lock()
+            .ok()?
+            .get(cache_key(src))
+            .cloned()
     }
 
     fn resolve(&self, src: &str) -> Option<ImageSourceResolution> {

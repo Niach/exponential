@@ -56,8 +56,8 @@ use crate::coding_flow::StartCodingControl;
 use crate::controls::{glass_input, WebControl as _};
 use crate::icons::{registry, ExpIcon};
 use crate::issue_files::{
-    all_attachment_ids, attachment_label, file_attachments, format_bytes, icon_for_content_type,
-    is_inline_image,
+    all_attachment_ids, attachment_label, description_embed, description_fragment,
+    file_attachments, format_bytes, icon_for_content_type,
 };
 use crate::navigation::{navigate, Screen};
 use crate::issue_header::{spawn_issue_update, IssueHeader};
@@ -1353,9 +1353,10 @@ impl IssueDetailView {
 
     /// Stage one picked path and upload it in the background. The 50 MB read
     /// happens off the foreground too (a big file would otherwise freeze the
-    /// window before the row even appears). Inline-image picks route to the
-    /// image upload endpoint and land INLINE at the bottom of the description
-    /// (EXP-316) — they never live in the Files rail on any client.
+    /// window before the row even appears). Inline-image picks land INLINE
+    /// at the bottom of the description (EXP-316) and video/audio picks as
+    /// a standalone link paragraph there (EXP-824) — neither ever lives in
+    /// the Files rail on any client.
     fn start_file_upload(
         &mut self,
         issue_id: String,
@@ -1389,24 +1390,26 @@ impl IssueDetailView {
                 .spawn(async move {
                     let (filename, content_type, bytes) =
                         crate::markdown::read_any_file(&path)?;
-                    // One upload route for both; the flag only routes the
-                    // RESULT — an inline image joins the description, every
-                    // other type stays a Files row.
-                    let is_image = is_inline_image(Some(content_type.as_str()));
+                    // One upload route for all; the embed only routes the
+                    // RESULT — an inline image or media file joins the
+                    // description, every other type stays a Files row.
+                    let embed = description_embed(&content_type);
                     transport
                         .upload(&upload_issue, &filename, &content_type, &bytes)
-                        .map(|uploaded| (uploaded, is_image))
+                        .map(|uploaded| (uploaded, embed))
                 })
                 .await;
             this.update_in(cx, |this, window, cx| match result {
-                Ok((uploaded, true)) => {
-                    // The image is part of the description now — the pending
+                Ok((uploaded, Some(embed))) => {
+                    // The file is part of the description now — the pending
                     // Files row has nothing to wait for.
                     this.pending_files.retain(|pending| pending.key != key);
-                    this.append_image_to_description(issue_id, uploaded, window, cx);
+                    let fragment =
+                        description_fragment(embed, uploaded.filename.as_deref(), &uploaded.url);
+                    this.append_to_description(issue_id, fragment, window, cx);
                     cx.notify();
                 }
-                Ok((uploaded, false)) => {
+                Ok((uploaded, None)) => {
                     if let Some(pending) = this
                         .pending_files
                         .iter_mut()
@@ -1426,22 +1429,18 @@ impl IssueDetailView {
         .detach();
     }
 
-    /// EXP-316: append a just-uploaded inline image to the BOTTOM of the
-    /// description and persist. Any pending user edit is flushed first so the
-    /// append builds on the flushed text and `set_markdown` replaces a clean
-    /// buffer (the file dialog already took focus off the editor).
-    fn append_image_to_description(
+    /// EXP-316/EXP-824: append a just-uploaded embed (`![alt](url)` image or
+    /// `[name](url)` media link) as its own paragraph at the BOTTOM of the
+    /// description and persist. Any pending user edit is flushed first so
+    /// the append builds on the flushed text and `set_markdown` replaces a
+    /// clean buffer (the file dialog already took focus off the editor).
+    fn append_to_description(
         &mut self,
         issue_id: String,
-        uploaded: crate::markdown::UploadedImage,
+        image_ref: String,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        let alt = uploaded
-            .filename
-            .clone()
-            .unwrap_or_else(|| "image".to_string());
-        let image_ref = format!("![{alt}]({})", uploaded.url);
         // REV-28: the upload outlives navigation, but this view is SHARED —
         // `set_issue` may have re-pointed editor + `last_saved_description`
         // at another issue while the upload ran. Appending through the

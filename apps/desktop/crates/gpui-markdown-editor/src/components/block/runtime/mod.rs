@@ -256,6 +256,10 @@ pub(crate) struct ImageRuntime {
     pub(crate) src: String,
     pub(crate) title: Option<String>,
     pub(crate) resolved_source: ImageResolvedSource,
+    /// EXP-824 vendoring: `Some` when this runtime stands for a standalone
+    /// attachment LINK to a video/audio row rather than an image —
+    /// `resolved_source` is then the poster frame (or `Pending` for none).
+    pub(crate) media: Option<crate::host::MediaInfo>,
 }
 
 /// How a collapsed caret at an inline projection boundary inherits style.

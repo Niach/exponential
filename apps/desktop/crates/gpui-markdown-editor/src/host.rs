@@ -32,6 +32,31 @@ pub enum ImageSourceResolution {
     Failed,
 }
 
+/// EXP-824 vendoring: the media family of a standalone attachment link.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MediaKind {
+    Video,
+    Audio,
+}
+
+/// EXP-824 vendoring: what the host knows about a paragraph that is solely
+/// one link (`[clip.mp4](/api/attachments/{id})`) whose target is a
+/// video/audio attachment. When the resolver answers `Some`, the block
+/// renders as a media tile instead of a link: the `resolve(src)` result is
+/// then the POSTER frame (or `Pending` for none), `natural_size(src)` the
+/// video's probed size. Domain-free: the host pre-formats the duration and
+/// names the play glyph's embedded SVG asset.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MediaInfo {
+    pub kind: MediaKind,
+    /// The filename, shown on audio tiles and as the drag ghost label.
+    pub label: String,
+    /// Pre-formatted duration chip (`0:07`), when known.
+    pub duration: Option<String>,
+    /// Embedded SVG asset path of the play glyph (e.g. `icons/play.svg`).
+    pub play_icon: gpui::SharedString,
+}
+
 /// EXP-261 vendoring: kind of an inline reference decorated by the host.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReferenceKind {
@@ -95,6 +120,14 @@ pub trait ImageSourceResolver: Send + Sync + 'static {
     /// resize drag has no honest upper clamp. Default `None` keeps the
     /// fill-and-letterbox behaviour for hosts that cannot answer.
     fn natural_size(&self, _src: &str) -> Option<(f32, f32)> {
+        None
+    }
+
+    /// EXP-824 vendoring: `Some` when `src` (the destination of a standalone
+    /// link paragraph) is a video/audio attachment the host can describe —
+    /// the block then renders as a media tile. Default `None` keeps every
+    /// link a link.
+    fn media_info(&self, _src: &str) -> Option<MediaInfo> {
         None
     }
 }

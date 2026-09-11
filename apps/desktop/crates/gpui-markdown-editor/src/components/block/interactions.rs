@@ -1398,6 +1398,24 @@ impl Block {
         self.set_hovered_reference(None, cx);
         if self.showing_rendered_image() {
             self.is_selecting = false;
+            // EXP-824 vendoring: a media tile opens its link on click (the
+            // host routes it to the system player); the block still takes
+            // focus so keyboard removal works, but never expands to source.
+            if let Some(src) = self
+                .image_runtime()
+                .filter(|runtime| runtime.media.is_some())
+                .map(|runtime| runtime.src.clone())
+            {
+                if !self.focus_handle.is_focused(window) {
+                    cx.emit(BlockEvent::RequestFocus);
+                }
+                cx.emit(BlockEvent::RequestOpenLink {
+                    prompt_target: src.clone(),
+                    open_target: src,
+                });
+                cx.stop_propagation();
+                return;
+            }
             if self.environment.enable_image_source_editing {
                 self.request_image_edit_expansion();
             }

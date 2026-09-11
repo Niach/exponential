@@ -406,6 +406,8 @@ pub struct Attachment {
     #[serde(default)]
     pub issue_id: Option<String>,
     #[serde(default)]
+    pub board_id: Option<String>,
+    #[serde(default)]
     pub comment_id: Option<String>,
     #[serde(default)]
     pub uploader_id: Option<String>,
@@ -424,6 +426,12 @@ pub struct Attachment {
     pub width: Option<i64>,
     #[serde(default, deserialize_with = "tolerant_opt_i64")]
     pub height: Option<i64>,
+    /// EXP-824: probed media duration (video/audio rows only).
+    #[serde(default, deserialize_with = "tolerant_opt_i64")]
+    pub duration_ms: Option<i64>,
+    /// EXP-824: non-null when a poster frame exists (`/api/attachments/{id}?poster=1`).
+    #[serde(default)]
+    pub poster_storage_key: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
@@ -950,6 +958,28 @@ impl DeviceWorktreeRow {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// EXP-824: media rows hydrate their probed duration (a quoted wire int
+    /// too) and the poster marker; an older server's narrower row still
+    /// hydrates with both absent.
+    #[test]
+    fn attachment_row_hydrates_media_fields_tolerantly() {
+        let row: Attachment = serde_json::from_value(json!({
+            "id": "att-1",
+            "board_id": "b-1",
+            "content_type": "video/mp4",
+            "duration_ms": "154000",
+            "poster_storage_key": "posters/att-1.jpg",
+        }))
+        .unwrap();
+        assert_eq!(row.board_id.as_deref(), Some("b-1"));
+        assert_eq!(row.duration_ms, Some(154_000));
+        assert_eq!(row.poster_storage_key.as_deref(), Some("posters/att-1.jpg"));
+        let narrow: Attachment = serde_json::from_value(json!({ "id": "att-2" })).unwrap();
+        assert_eq!(narrow.duration_ms, None);
+        assert_eq!(narrow.poster_storage_key, None);
+        assert_eq!(narrow.board_id, None);
+    }
 
     #[test]
     fn device_row_hydrates_tolerantly_and_lists_agents() {

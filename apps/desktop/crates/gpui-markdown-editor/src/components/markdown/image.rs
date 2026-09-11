@@ -174,6 +174,44 @@ pub(crate) fn resolve_image_source(source: &str, base_dir: Option<&Path>) -> Ima
     ImageResolvedSource::Local(resolved)
 }
 
+/// EXP-824 vendoring: `(label, destination)` when `markdown` is exactly one
+/// plain inline link — `[label](dest)`, no title, no whitespace in the
+/// destination, a plain-text label (no nested marks) — the shape a standalone
+/// media link takes. Whether it IS media is the host resolver's call.
+pub(crate) fn parse_standalone_link(markdown: &str) -> Option<(String, String)> {
+    if markdown.contains('\n') || markdown.contains('\r') {
+        return None;
+    }
+    let markdown = markdown.trim();
+    if !markdown.starts_with('[') || !markdown.ends_with(')') {
+        return None;
+    }
+    let bytes = markdown.as_bytes();
+    let mut label_end = None;
+    for index in 1..bytes.len() {
+        if bytes[index] == b']' && !is_escaped(markdown, index) {
+            label_end = Some(index);
+            break;
+        }
+    }
+    let label_end = label_end?;
+    if bytes.get(label_end + 1) != Some(&b'(') {
+        return None;
+    }
+    let raw_label = &markdown[1..label_end];
+    if raw_label.is_empty() || raw_label.contains(['*', '`', '[', '<', '\\']) || raw_label.contains("~~") {
+        return None;
+    }
+    let inner = &markdown[label_end + 2..markdown.len() - 1];
+    if inner.is_empty()
+        || inner.contains(char::is_whitespace)
+        || inner.contains(['(', ')', '"', '\''])
+    {
+        return None;
+    }
+    Some((raw_label.to_string(), inner.to_string()))
+}
+
 pub(crate) fn parse_standalone_image(markdown: &str) -> Option<ImageSyntax> {
     if markdown.contains('\n') || markdown.contains('\r') {
         return None;
@@ -758,7 +796,8 @@ mod tests {
     use super::{
         ImageReferenceDefinition, ImageResolvedSource, ImageSyntax, ImageTarget,
         TableCellInlineImageSegment, normalize_reference_label, parse_image_reference_definitions,
-        parse_standalone_image, parse_table_cell_inline_images, resolve_image_source,
+        parse_standalone_image, parse_standalone_link, parse_table_cell_inline_images,
+        resolve_image_source,
     };
     use std::path::Path;
 
@@ -989,6 +1028,33 @@ mod tests {
             normalize_reference_label("  Ref\t Image  "),
             Some("ref image".to_string())
         );
+    }
+
+    /// EXP-824: the standalone-link shape, and everything that is NOT it.
+    #[test]
+    fn parses_standalone_links_only() {
+        assert_eq!(
+            parse_standalone_link("[clip.mp4](/api/attachments/abc)"),
+            Some(("clip.mp4".to_string(), "/api/attachments/abc".to_string()))
+        );
+        assert_eq!(
+            parse_standalone_link("  [clip_v2.mp4](/api/attachments/abc?w=480)  "),
+            Some(("clip_v2.mp4".to_string(), "/api/attachments/abc?w=480".to_string()))
+        );
+        for not_it in [
+            "![clip](/api/attachments/abc)",
+            "see [clip](/api/attachments/abc)",
+            "[clip](/api/attachments/abc) here",
+            "[clip](/api/attachments/abc \"title\")",
+            "[**clip**](/api/attachments/abc)",
+            "[clip](/api/attachments/abc)\nmore",
+            "[](/api/attachments/abc)",
+            "[clip]()",
+            "[clip]",
+            "plain",
+        ] {
+            assert_eq!(parse_standalone_link(not_it), None, "{not_it:?}");
+        }
     }
 
     #[test]

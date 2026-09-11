@@ -32,6 +32,11 @@ pub fn blocks_to_markdown(blocks: &[ContentBlock]) -> String {
             ContentBlock::Image { url, alt, .. } => {
                 parts.push(format!("![{alt}]({url})"));
             }
+            // EXP-824: the inline-media form is a PLAIN link paragraph —
+            // never the image form.
+            ContentBlock::AttachmentLink { url, label, .. } => {
+                parts.push(format!("[{label}]({url})"));
+            }
             ContentBlock::Table {
                 header,
                 rows,
@@ -420,6 +425,10 @@ pub(crate) const CONTRACT_FIXTURES: &[(&str, &str)] = &[
     ("multi_line_code_block", "```kotlin\nval a = 1\nval b = 2\n```"),
     ("block_image", "![diagram](/api/attachments/abc123)"),
     ("text_image_text", "before\n\n![alt](/api/attachments/abc)\n\nafter"),
+    // EXP-824: inline media is a plain attachment LINK on its own paragraph
+    // (never the image form). Byte-mirrored on web, iOS and Android.
+    ("video_link", "[clip.mp4](/api/attachments/abc123)"),
+    ("text_video_text", "before\n\n[clip.mp4](/api/attachments/abc)\n\nafter"),
     ("nested_bullet_list", "- parent\n  - child"),
     (
         "mixed_document",
@@ -682,6 +691,38 @@ mod tests {
     #[test]
     fn block_image() {
         assert_stable("![diagram](/api/attachments/abc123)");
+    }
+
+    /// EXP-824: a standalone attachment link is its OWN block, an attachment
+    /// link inside prose (or a non-attachment standalone link) stays a mark.
+    #[test]
+    fn standalone_attachment_links_become_blocks_and_round_trip() {
+        let blocks = markdown_to_blocks("before\n\n[clip.mp4](/api/attachments/abc)\n\nafter");
+        assert!(matches!(
+            &blocks[1],
+            ContentBlock::AttachmentLink { url, label, .. }
+                if url == "/api/attachments/abc" && label == "clip.mp4"
+        ));
+        assert_stable("[clip.mp4](/api/attachments/abc123)");
+        assert_stable("[clip.mp4](/api/attachments/abc123?w=480)");
+        assert_stable("before\n\n[clip.mp4](/api/attachments/abc)\n\nafter");
+        // Two in a row stay two blocks.
+        assert_stable("[a.mp4](/api/attachments/a)\n\n[b.mp3](/api/attachments/b)");
+        for inline in [
+            "see [clip.mp4](/api/attachments/abc) here",
+            "[clip.mp4](/api/attachments/abc) trailing",
+            "[docs](/help/page)",
+            "[clip.mp4](https://elsewhere.example/clip.mp4)",
+            "- [clip.mp4](/api/attachments/abc)",
+            "> [clip.mp4](/api/attachments/abc)",
+        ] {
+            let blocks = markdown_to_blocks(inline);
+            assert!(
+                !blocks.iter().any(|block| matches!(block, ContentBlock::AttachmentLink { .. })),
+                "{inline:?} must stay an inline link"
+            );
+            assert_stable(inline);
+        }
     }
 
     #[test]
