@@ -21,6 +21,7 @@ import { Markdown } from "tiptap-markdown"
 // python/rust/go — enough for plan code blocks without pulling all 200 grammars.
 const lowlight = createLowlight(common)
 import { MarkdownImage } from "@/lib/markdown-image"
+import { MarkdownMedia, mediaLinkNodeName } from "@/lib/markdown-media"
 import {
   MarkdownTableExtensions,
   moveSelectionAfterTable,
@@ -53,7 +54,10 @@ import {
   searchEmoji,
   useEmojiData,
 } from "@/lib/emoji"
-import { isAcceptedImageContentType } from "@/lib/storage/issue-attachments"
+import {
+  isAcceptedImageContentType,
+  isInlineMediaContentType,
+} from "@/lib/storage/issue-attachments"
 import {
   releaseKeyboardClearance,
   revealCaretAboveKeyboard,
@@ -71,7 +75,21 @@ export interface MarkdownEditorImageUploadConfig {
    * absent, such files are ignored.
    */
   onOtherFiles?: (files: File[]) => void | Promise<void>
+  /**
+   * EXP-824: pasted/dropped/picked `video/*` and `audio/*` files — they are
+   * embedded as media blocks (`[clip.mp4](/api/attachments/{id})`). When
+   * absent they fall through to `onOtherFiles`, so a host without an inline
+   * media flow still keeps the bytes (the create dialog embeds them after
+   * the issue exists).
+   */
+  onMediaFiles?: (files: File[]) => void | Promise<void>
   uploading?: boolean
+  /**
+   * A visible line under the editor while a long upload runs ("Uploading
+   * clip.mp4… 42%") — a 50 MB clip is not instant and a spinner alone leaves
+   * the user guessing.
+   */
+  statusText?: string | null
 }
 
 export interface MarkdownEditorRef {
@@ -85,6 +103,9 @@ export interface MarkdownEditorRef {
   // Inserts at the very end of the document instead of the caret — the Files
   // section's attach button routes images here (EXP-316).
   appendImage: (image: { alt?: string; src: string }) => void
+  // EXP-824: the media block twins of insertImage/appendImage.
+  insertMedia: (media: { label: string; src: string }) => void
+  appendMedia: (media: { label: string; src: string }) => void
 }
 
 interface MarkdownEditorProps {
@@ -158,15 +179,39 @@ function getEditorMarkdown(editor: Editor | null) {
 
 /**
  * Splits an upload batch into inline-embeddable images (the exact 5-type
- * accepted set — the only types the markdown pipeline may reference) and
+ * accepted set — the only types the markdown pipeline may reference), inline
+ * media (`video/*` + `audio/*`, EXP-824 — embedded as plain-link blocks) and
  * everything else, which routes to the Files-section flow via onOtherFiles.
  */
 export function partitionUploadFiles(fileList: FileList | null | undefined) {
   const files = Array.from(fileList ?? [])
   return {
     images: files.filter((file) => isAcceptedImageContentType(file.type)),
-    others: files.filter((file) => !isAcceptedImageContentType(file.type)),
+    media: files.filter((file) => isInlineMediaContentType(file.type)),
+    others: files.filter(
+      (file) =>
+        !isAcceptedImageContentType(file.type) &&
+        !isInlineMediaContentType(file.type)
+    ),
   }
+}
+
+/**
+ * Media files go to the host's media flow when it has one, else they ride
+ * the plain-file flow (the create dialog embeds them after creation).
+ */
+function routeMediaAndOthers(
+  upload: MarkdownEditorImageUploadConfig,
+  media: File[],
+  others: File[]
+) {
+  if (upload.onMediaFiles) {
+    if (media.length > 0) void upload.onMediaFiles(media)
+    if (others.length > 0) void upload.onOtherFiles?.(others)
+    return
+  }
+  const rest = [...media, ...others]
+  if (rest.length > 0) void upload.onOtherFiles?.(rest)
 }
 
 export const MarkdownEditor = forwardRef<
@@ -230,10 +275,14 @@ export const MarkdownEditor = forwardRef<
     // handler needs to know BEFORE it decides to move the caret.
     const willHandleDroppedFiles = (fileList: FileList | null | undefined) => {
       const upload = imageUploadRef.current
-      const { images, others } = partitionUploadFiles(fileList)
+      const { images, media, others } = partitionUploadFiles(fileList)
       if (!editableRef.current || !upload) return false
+      const restHandled = Boolean(upload.onOtherFiles)
+      const mediaHandled = Boolean(upload.onMediaFiles) || restHandled
       return (
-        images.length > 0 || (others.length > 0 && Boolean(upload.onOtherFiles))
+        images.length > 0 ||
+        (media.length > 0 && mediaHandled) ||
+        (others.length > 0 && restHandled)
       )
     }
 
@@ -244,17 +293,24 @@ export const MarkdownEditor = forwardRef<
       event: Event
     ) => {
       const upload = imageUploadRef.current
-      const { images, others } = partitionUploadFiles(fileList)
+      const { images, media, others } = partitionUploadFiles(fileList)
       const hasImages = images.length > 0
-      const hasOthers = others.length > 0 && Boolean(upload?.onOtherFiles)
+      const restHandled = Boolean(upload?.onOtherFiles)
+      const hasMedia =
+        media.length > 0 && (Boolean(upload?.onMediaFiles) || restHandled)
+      const hasOthers = others.length > 0 && restHandled
 
-      if (!editableRef.current || !upload || (!hasImages && !hasOthers)) {
+      if (
+        !editableRef.current ||
+        !upload ||
+        (!hasImages && !hasMedia && !hasOthers)
+      ) {
         return false
       }
 
       event.preventDefault()
       if (hasImages) void upload.onFiles(images)
-      if (hasOthers) void upload.onOtherFiles?.(others)
+      routeMediaAndOthers(upload, hasMedia ? media : [], hasOthers ? others : [])
       return true
     }
 
@@ -289,6 +345,7 @@ export const MarkdownEditor = forwardRef<
         TaskList,
         TaskItem.configure({ nested: true }),
         MarkdownImage,
+        MarkdownMedia,
         // EXP-726 — declared AFTER StarterKit so the in-table Enter/Shift-Enter
         // keymap outranks splitBlock, and BEFORE the ref/mention/autocomplete
         // extensions because tiptap builds its plugins from the REVERSED
@@ -411,6 +468,30 @@ export const MarkdownEditor = forwardRef<
         editor.commands.focus(`end`)
         moveSelectionAfterTable(editor)
         editor.chain().focus().setImage({ alt, src }).run()
+      },
+      insertMedia: ({ label, src }) => {
+        if (!editor) return
+        // Same table/NodeSelection care as insertImage (EXP-824).
+        moveSelectionAfterTable(editor)
+        const { selection } = editor.state
+        if (selection instanceof NodeSelection) {
+          editor
+            .chain()
+            .focus()
+            .insertContentAt(selection.to, {
+              type: mediaLinkNodeName,
+              attrs: { label, src },
+            })
+            .run()
+          return
+        }
+        editor.chain().focus().setMediaLink({ label, src }).run()
+      },
+      appendMedia: ({ label, src }) => {
+        if (!editor) return
+        editor.commands.focus(`end`)
+        moveSelectionAfterTable(editor)
+        editor.chain().focus().setMediaLink({ label, src }).run()
       },
     }))
 
@@ -700,6 +781,17 @@ export const MarkdownEditor = forwardRef<
           )
         ) : null}
         <EditorContent editor={editor} />
+        {/* EXP-824: long media uploads narrate themselves under the body. */}
+        {editable && imageUpload?.statusText ? (
+          <p
+            className="flex items-center gap-1.5 px-1 pt-1 text-xs text-muted-foreground"
+            role="status"
+            aria-live="polite"
+          >
+            <span className="size-3 shrink-0 animate-spin rounded-full border border-current border-t-transparent" />
+            <span className="min-w-0 truncate">{imageUpload.statusText}</span>
+          </p>
+        ) : null}
         {/* EXP-760: `#IDENT` chips are ProseMirror DECORATIONS, so their hover
             preview cannot be a wrapped React trigger — one delegated layer per
             editor covers every one of them (descriptions, comments, the plan

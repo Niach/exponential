@@ -42,13 +42,24 @@ import {
   uploadIssueImageFile,
 } from "@/lib/storage/issue-image-upload"
 import {
+  appendMediaBlocks,
+  buildMediaBlockMarkdown,
+  mediaPlayabilityHint,
+  prepareMediaUpload,
+  uploadIssueMediaFile,
+} from "@/lib/storage/media-upload"
+import { toast } from "sonner"
+import {
   buildPostCreateFileErrorMessage,
   buildPostCreateImageErrorMessage,
   revokeDraftImages,
   type DraftFile,
   type DraftImage,
 } from "@/lib/create-issue-helpers"
-import { isInlineImageAttachment } from "@/lib/attachment-files"
+import {
+  isInlineImageAttachment,
+  isInlineMediaAttachment,
+} from "@/lib/attachment-files"
 import type { Board, User } from "@/db/schema"
 import { IssueEditorDialogShell } from "@/components/issue-editor/dialog-shell"
 import { IssueEditorAttachmentRail } from "@/components/issue-editor/attachment-rail"
@@ -308,7 +319,8 @@ export function CreateIssueDialog({
     // Inline-image picks embed into the description like any other image add.
     // A draft FILE row of an inline type would upload to an attachment every
     // client's Files section filters out — invisible and unreferenced, exactly
-    // what the sweep deletes (EXP-297 classification contract).
+    // what the sweep deletes (EXP-297 classification contract). Clips
+    // (EXP-824) stay in the draft rail and are embedded after creation.
     const images = files.filter((file) => isInlineImageAttachment(file.type))
     const others = files.filter((file) => !isInlineImageAttachment(file.type))
 
@@ -421,19 +433,36 @@ export function CreateIssueDialog({
 
       // EXP-297: plain file attachments ride the same post-create window but
       // never touch the markdown — a failure only costs that one attachment.
+      // EXP-824: a clip queued before the issue existed is uploaded through
+      // the media path here and its block `[name](url)` appended to the
+      // description, so it never ends up an invisible row.
       let failedFileCount = 0
+      const mediaBlocks: string[] = []
 
       for (const draftFile of draftFiles) {
         try {
-          await uploadIssueFile(issue.id, draftFile.file)
+          if (isInlineMediaAttachment(draftFile.file.type)) {
+            const prepared = await prepareMediaUpload(draftFile.file)
+            const uploaded = await uploadIssueMediaFile(issue.id, prepared)
+            mediaBlocks.push(
+              buildMediaBlockMarkdown(uploaded.filename, uploaded.url)
+            )
+            const hint = mediaPlayabilityHint(uploaded)
+            if (hint) toast.message(hint)
+          } else {
+            await uploadIssueFile(issue.id, draftFile.file)
+          }
         } catch {
           failedFileCount += 1
         }
       }
 
-      const finalDescription = replaceMarkdownImageUrls(
-        removeMarkdownImagesByUrl(currentDescription, failedDraftUrls),
-        uploadedImageUrls
+      const finalDescription = appendMediaBlocks(
+        replaceMarkdownImageUrls(
+          removeMarkdownImagesByUrl(currentDescription, failedDraftUrls),
+          uploadedImageUrls
+        ),
+        mediaBlocks
       )
 
       editorRef.current?.setMarkdown(finalDescription)

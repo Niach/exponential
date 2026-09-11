@@ -8,6 +8,8 @@ import {
   collectAttachmentStorageKeys,
   collectReferencedAttachmentIds,
   isAcceptedImageContentType,
+  isAudioContentType,
+  isVideoContentType,
 } from "@/lib/storage/issue-attachments"
 import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
 import { replaceAttachmentReferencesInTx } from "@/lib/storage/attachment-references"
@@ -164,6 +166,8 @@ export const attachmentsRouter = router({
           sizeBytes: attachments.sizeBytes,
           width: attachments.width,
           height: attachments.height,
+          durationMs: attachments.durationMs,
+          posterStorageKey: attachments.posterStorageKey,
           createdAt: attachments.createdAt,
         })
         .from(attachments)
@@ -180,6 +184,10 @@ export const attachmentsRouter = router({
         attachments: rows.map((row) => ({
           ...row,
           isImage: isAcceptedImageContentType(row.contentType),
+          // EXP-824: inline media rows preview in the lightbox and show a
+          // duration; `referenced` already counts their plain-link embeds.
+          isVideo: isVideoContentType(row.contentType),
+          isAudio: isAudioContentType(row.contentType),
           referenced: referencedIds.has(row.id),
         })),
         totalBytes: rows.reduce((total, row) => total + row.sizeBytes, 0),

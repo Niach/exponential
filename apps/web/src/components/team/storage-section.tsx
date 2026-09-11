@@ -9,6 +9,8 @@ import { trpc } from "@/lib/trpc-client"
 import { useBillingPlan, invalidateBillingCache } from "@/hooks/use-billing"
 import { useTeamBoards, useTeamUsers } from "@/hooks/use-team-data"
 import { formatAttachmentSize, getAttachmentIcon } from "@/lib/attachment-files"
+import { buildAttachmentPosterUrl } from "@/lib/storage/issue-attachments"
+import { formatDuration } from "@/lib/storage/video-metadata"
 import { formatStorage, UsageBar } from "@/components/team/billing-section"
 import { Pill } from "@/components/ui/pill"
 import { Button } from "@/components/ui/button"
@@ -227,6 +229,8 @@ export function TeamStorageSection({
               const uploader = row.uploaderId
                 ? userMap.get(row.uploaderId)
                 : undefined
+              // EXP-824: clips preview in the same lightbox as images.
+              const previewable = row.isImage || row.isVideo || row.isAudio
 
               return (
                 <GlassRow
@@ -239,7 +243,7 @@ export function TeamStorageSection({
                     {/* Stacked when narrow; `@lg:contents` flattens the stack
                         so the cells become the row's own flex items. */}
                     <div className="flex min-w-0 flex-1 flex-col gap-1 @lg:contents">
-                      {row.isImage ? (
+                      {previewable ? (
                         <button
                           type="button"
                           className="min-w-0 cursor-pointer truncate text-left text-sm hover:underline @lg:flex-1"
@@ -260,6 +264,12 @@ export function TeamStorageSection({
                         <span className="shrink-0 tabular-nums @lg:w-20">
                           {formatAttachmentSize(row.sizeBytes)}
                         </span>
+                        {typeof row.durationMs === `number` &&
+                        row.durationMs > 0 ? (
+                          <span className="shrink-0 tabular-nums @lg:w-14">
+                            {formatDuration(row.durationMs)}
+                          </span>
+                        ) : null}
                         <span className="flex shrink-0 @lg:w-24">
                           {issue && boardSlug ? (
                             <Pill mode="action" asChild className="font-mono">
@@ -286,7 +296,7 @@ export function TeamStorageSection({
                           {formatDate(row.createdAt)}
                         </span>
                         <span className="flex shrink-0 @lg:w-26">
-                          {!row.isImage ? (
+                          {!row.isImage && !row.isVideo && !row.isAudio ? (
                             <Pill>File</Pill>
                           ) : row.referenced ? (
                             <Pill>In use</Pill>
@@ -322,6 +332,18 @@ export function TeamStorageSection({
           src={`/api/attachments/${previewRow.id}`}
           alt={previewRow.filename}
           label={previewRow.filename}
+          kind={
+            previewRow.isVideo
+              ? `video`
+              : previewRow.isAudio
+                ? `audio`
+                : `image`
+          }
+          poster={
+            previewRow.posterStorageKey
+              ? buildAttachmentPosterUrl(previewRow.id)
+              : undefined
+          }
         />
       )}
 

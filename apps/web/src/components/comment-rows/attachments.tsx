@@ -7,11 +7,21 @@ import {
   buildAttachmentDownloadUrl,
   formatAttachmentSize,
   getAttachmentIcon,
+  isFileAttachment,
   isInlineImageAttachment,
+  isInlineMediaAttachment,
 } from "@/lib/attachment-files"
+import {
+  buildAttachmentPosterUrl,
+  isVideoContentType,
+} from "@/lib/storage/issue-attachments"
 import { Button } from "@/components/ui/button"
 import { IconTooltip } from "@/components/icon-tooltip"
-import { ImagePreviewDialog } from "@/components/image-preview-dialog"
+import { AttachmentMediaPlayer } from "@/components/attachment-media-player"
+import {
+  ImagePreviewDialog,
+  type PreviewMediaKind,
+} from "@/components/image-preview-dialog"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -55,9 +65,18 @@ export function CommentAttachments({
   const images = attachments.filter((row) =>
     isInlineImageAttachment(row.contentType)
   )
-  const files = attachments.filter(
-    (row) => !isInlineImageAttachment(row.contentType)
+  // EXP-824: video/audio rows are inline players, never file chips.
+  const media = attachments.filter((row) =>
+    isInlineMediaAttachment(row.contentType)
   )
+  const files = attachments.filter((row) => isFileAttachment(row.contentType))
+  const previewKind: PreviewMediaKind = preview
+    ? isVideoContentType(preview.contentType)
+      ? `video`
+      : isInlineMediaAttachment(preview.contentType)
+        ? `audio`
+        : `image`
+    : `image`
 
   const handleConfirmDelete = async () => {
     if (!pendingDelete) return
@@ -112,6 +131,22 @@ export function CommentAttachments({
               className="block h-auto max-h-[480px] w-auto max-w-full rounded-lg border border-glass-stroke-card bg-glass-section object-contain"
             />
           </button>
+          {canModify && removeButton(row)}
+        </div>
+      ))}
+      {media.map((row) => (
+        <div
+          key={row.id}
+          className="group/attachment relative w-full max-w-[640px]"
+        >
+          <AttachmentMediaPlayer
+            attachment={row}
+            onExpand={
+              isVideoContentType(row.contentType)
+                ? () => setPreview(row)
+                : undefined
+            }
+          />
           {canModify && removeButton(row)}
         </div>
       ))}
@@ -178,6 +213,12 @@ export function CommentAttachments({
         src={preview?.url ?? ``}
         alt={preview?.filename}
         label={preview?.filename ?? `Attachment`}
+        kind={previewKind}
+        poster={
+          preview?.posterStorageKey
+            ? buildAttachmentPosterUrl(preview.id)
+            : undefined
+        }
       />
 
       <AlertDialog
