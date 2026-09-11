@@ -504,11 +504,10 @@ impl LocalSessions {
                         })
                         .await;
                     let _ = cx.update(|cx| {
-                        if matches!(verdict, coding::CleanupOutcome::Removed) {
-                            // The workspace is gone: nothing left to resume,
-                            // so the record goes too.
-                            coding::run_registry::remove(&data_dir, &session_id);
-                        }
+                        // The record STAYS on a removal: a resume re-creates
+                        // the worktree on the recorded branch (the prune
+                        // reclaims it again once the work lands), and the
+                        // registry's TTL retires the record.
                         log::info!(
                             "run cleanup [{session_id}] on {}: {verdict:?}",
                             cleanup.branch
@@ -1239,8 +1238,9 @@ pub fn build_batch_deps(cx: &mut App) -> Option<CodingDeps> {
     })
 }
 
-/// EXP-637: does the run registry still hold a resumable workspace for
-/// `session_id`? Callable from a render pass (`&App`).
+/// EXP-637: does the run registry hold a resumable record for `session_id`?
+/// Callable from a render pass (`&App`). A repo-backed run stays resumable
+/// after the prune reclaimed its worktree — the resume re-creates it.
 ///
 /// EXP-764: a repo-less run answers `false` even while its scratch dir
 /// stands. The dir, the record and the journal are purged with the run the

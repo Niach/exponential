@@ -156,6 +156,23 @@ it to `done` — you do not set the issue status yourself. Do not use `gh`. {clo
     append_additional_instructions(prompt, extra)
 }
 
+/// The first thing a RESUMED run hears when its worktree had to be
+/// re-created ([`crate::run_registry::RunRecord::workspace_reclaimed`]):
+/// the prune reclaimed it once the PR landed, so the branch now starts
+/// fresh from `origin/<base>` and the agent's memory of "my commits are on
+/// this branch, my PR is open" is stale. Prepended to whatever else the
+/// resume sends; `alone` (a native resume with no composer text) adds the
+/// "wait" so the turn it opens does not put the agent back to work unasked.
+pub fn reclaimed_workspace_note(branch: &str, default_branch: &str, alone: bool) -> String {
+    let mut note = format!(
+        "Your worktree was reclaimed after your earlier work landed on `{default_branch}` and has been re-created for this resume: branch `{branch}` now starts fresh from `origin/{default_branch}`, which already contains everything you committed before, so `git log origin/{default_branch}..HEAD` is empty and your previous pull request is closed. Any new change goes on this branch and needs a NEW pull request; if origin still has the old `{branch}`, push with `--force-with-lease`."
+    );
+    if alone {
+        note.push_str(" Nothing has been asked yet: acknowledge this in one line and wait.");
+    }
+    note
+}
+
 /// The issue-context body.
 fn issue_body(description: Option<&str>) -> &str {
     match description {
@@ -249,6 +266,17 @@ The login page flickers on slow connections.
         // summary are part of every run's contract now.
         assert!(prompt.contains("leave the worktree clean"));
         assert!(prompt.contains("`exponential_sessions_end`"));
+    }
+
+    #[test]
+    fn reclaimed_workspace_note_names_the_branch_and_base() {
+        let alone = reclaimed_workspace_note("exp/chat-1a2b3c4d", "main", true);
+        assert!(alone.contains("branch `exp/chat-1a2b3c4d` now starts fresh from `origin/main`"), "{alone}");
+        assert!(alone.contains("needs a NEW pull request"), "{alone}");
+        assert!(alone.contains("`--force-with-lease`"), "{alone}");
+        assert!(alone.ends_with("acknowledge this in one line and wait."), "{alone}");
+        let with_text = reclaimed_workspace_note("exp/chat-1a2b3c4d", "main", false);
+        assert!(!with_text.contains("acknowledge"), "{with_text}");
     }
 
     #[test]

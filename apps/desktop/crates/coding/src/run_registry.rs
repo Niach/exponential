@@ -459,15 +459,32 @@ impl RunRecord {
     }
 
     /// Whether the recorded workspace can still be resumed INTO. A
-    /// repo-backed run needs its worktree, `.git` link included (a removed
-    /// worktree leaves the dir gone, or gutted). EXP-764: a repo-less run's
-    /// scratch dir is purged with the whole run the moment it ends
+    /// repo-backed run with a recorded branch always can: its worktree is
+    /// re-created on the way in ([`Self::workspace_reclaimed`]) — the prune
+    /// reclaims a run worktree the moment its PR lands, and "resume after
+    /// the merge" is the most ordinary follow-up there is. A branch-less
+    /// repo-backed record (a pre-EXP-637 trunk-clone run) needs its dir,
+    /// `.git` link included. EXP-764: a repo-less run's scratch dir is
+    /// purged with the whole run the moment it ends
     /// ([`crate::scratch::purge`]), so it is resumable only while that dir
     /// still stands — in practice, while the run is live.
     pub fn resumable(&self) -> bool {
         if self.clone.is_none() {
             return self.cwd.is_dir();
         }
+        self.branch.is_some() || self.workspace_stands()
+    }
+
+    /// A repo-backed record whose worktree is gone (removed by the run
+    /// cleanup or the prune once the branch landed, or gutted to a bare
+    /// dir) but whose branch is recorded — the resume re-creates the
+    /// worktree, cut fresh from `origin/<base>` when the branch is gone
+    /// too, and tells the agent so.
+    pub fn workspace_reclaimed(&self) -> bool {
+        self.clone.is_some() && self.branch.is_some() && !self.workspace_stands()
+    }
+
+    fn workspace_stands(&self) -> bool {
         self.cwd.is_dir() && self.cwd.join(".git").exists()
     }
 
@@ -1195,16 +1212,28 @@ mod tests {
                 .as_deref(),
             Some("sess-2")
         );
-        // A record whose worktree is gone is not resumable — it must not
-        // shadow the older one that still is.
-        let mut gone = issue_sample(&dir, "sess-6", "issue-1");
-        gone.cwd = dir.join("vanished");
+        // A record whose worktree the prune reclaimed is STILL the newest
+        // resumable one — the resume re-creates the worktree on its branch.
+        let mut reclaimed = issue_sample(&dir, "sess-6", "issue-1");
+        reclaimed.cwd = dir.join("vanished");
+        record(&dir, reclaimed);
+        assert_eq!(
+            latest_for_issue(&dir, "acc-1", "issue-1")
+                .map(|record| record.session_id)
+                .as_deref(),
+            Some("sess-6")
+        );
+        // A branch-less record with no worktree has nothing to re-create
+        // from — it must not shadow the one that resumes.
+        let mut gone = issue_sample(&dir, "sess-7", "issue-1");
+        gone.cwd = dir.join("vanished-too");
+        gone.branch = None;
         record(&dir, gone);
         assert_eq!(
             latest_for_issue(&dir, "acc-1", "issue-1")
                 .map(|record| record.session_id)
                 .as_deref(),
-            Some("sess-2")
+            Some("sess-6")
         );
         assert_eq!(latest_for_issue(&dir, "acc-1", "issue-nope"), None);
         let _ = std::fs::remove_dir_all(&dir);
@@ -1486,7 +1515,16 @@ mod tests {
         let mut record = sample("sess-1");
         record.cwd = dir.join("gone");
         record.clone = Some(dir.clone());
+        // A repo-backed run with a recorded branch resumes into a
+        // RE-CREATED worktree (the prune reclaims it once the PR lands).
+        assert!(record.branch.is_some());
+        assert!(record.resumable(), "a reclaimed run worktree is re-created");
+        assert!(record.workspace_reclaimed());
+        // A branch-less repo-backed record (pre-EXP-637 trunk-clone run)
+        // has nothing to re-create from.
+        let branch = record.branch.take();
         assert!(!record.resumable(), "a removed worktree is not resumable");
+        assert!(!record.workspace_reclaimed());
 
         let worktree = dir.join("wt");
         std::fs::create_dir_all(&worktree).unwrap();
@@ -1494,6 +1532,9 @@ mod tests {
         assert!(!record.resumable(), "a gutted worktree has no .git");
         std::fs::write(worktree.join(".git"), "gitdir: /elsewhere").unwrap();
         assert!(record.resumable());
+        record.branch = branch;
+        assert!(record.resumable());
+        assert!(!record.workspace_reclaimed(), "a standing worktree is reused");
 
         // EXP-764: a repo-less scratch run is resumable only while its
         // directory stands — the purge takes it with the run.
