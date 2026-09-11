@@ -9,21 +9,30 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.AgentAccountProfile
 import com.exponential.app.data.api.SteerDevice
@@ -40,11 +49,13 @@ import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.PickerRow
 import com.exponential.app.ui.components.PillMode
 import com.exponential.app.ui.components.SwitchRow
+import com.exponential.app.ui.components.SwitchThumb
 import com.exponential.app.ui.components.agentIconRes
 import com.exponential.app.ui.components.agentLabel
 import com.exponential.app.ui.components.deviceOptionLabel
 import com.exponential.app.ui.components.effortLabel
 import com.exponential.app.ui.components.effortValuesFor
+import com.exponential.app.ui.components.glassSwitchColors
 import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.components.modelOptionsFor
 import com.exponential.app.ui.components.supportsPlanMode
@@ -126,14 +137,12 @@ internal fun AgentOptionsRow(
             selected = launch.model,
             onSelect = onModelChange,
         )
-        // Plan mode is claude + pi (EXP-441).
+        // Plan mode is claude + pi (EXP-441). EXP-827: a slide switch on
+        // every platform, not a lit select pill.
         if (supportsPlanMode(launch.agent) && !resumeActive) {
-            GlassPill(
-                "Plan",
-                onClick = { onPlanModeChange(!launch.planMode) },
-                mode = PillMode.Select,
-                selected = launch.planMode,
-                contentDescription = "Plan mode",
+            PlanSwitchPill(
+                checked = launch.planMode,
+                onCheckedChange = onPlanModeChange,
             )
         }
         // EXP-481: offered only while the picked machine's synced worktree
@@ -175,6 +184,43 @@ internal fun AgentOptionsRow(
             contentDescription = "More options",
         )
     }
+}
+
+/**
+ * EXP-827: the Plan switch on the row's capsule. The whole pill is the tap
+ * target and reads as ONE switch to TalkBack; the M3 switch inside is a pure
+ * indicator ([glassSwitchColors] chrome), scaled to sit in the 28dp capsule.
+ */
+@Composable
+private fun PlanSwitchPill(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    GlassPill(
+        "Plan",
+        onClick = { onCheckedChange(!checked) },
+        trailing = {
+            Box(
+                modifier = Modifier.size(width = 36.dp, height = 22.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Switch(
+                    checked = checked,
+                    onCheckedChange = null,
+                    colors = glassSwitchColors(),
+                    thumbContent = SwitchThumb,
+                    modifier = Modifier
+                        .requiredSize(width = 52.dp, height = 32.dp)
+                        .scale(0.7f),
+                )
+            }
+        },
+        contentDescription = "Plan mode",
+        modifier = Modifier.semantics {
+            role = Role.Switch
+            toggleableState = if (checked) ToggleableState.On else ToggleableState.Off
+        },
+    )
 }
 
 /**

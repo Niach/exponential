@@ -9,10 +9,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -198,11 +200,87 @@ fun BottomNavBar(
 
         // The detached circular button beside the pill — one slot, whatever
         // the active surface puts in it (compose an issue, start a chat).
-        if (showsCompose) {
-            Fab(icon = ExpIcons.navCreateIssue, contentDescription = "New issue", onClick = onCompose)
-        } else if (showsChat) {
-            Fab(icon = ExpIcons.actionChat, contentDescription = "Start chat", onClick = onChat)
+        // EXP-827: a board surface offers BOTH, so the slot becomes one
+        // capsule with two arms (chat | new issue); a surface with only one
+        // of them keeps the single circle.
+        when {
+            showsCompose && showsChat -> LauncherCapsule(onChat = onChat, onCompose = onCompose)
+            showsCompose -> Fab(
+                icon = ExpIcons.navCreateIssue,
+                contentDescription = "New issue",
+                testTag = "compose-button",
+                onClick = onCompose,
+            )
+            showsChat -> Fab(
+                icon = ExpIcons.actionChat,
+                contentDescription = "Start chat",
+                testTag = "chat-button",
+                onClick = onChat,
+            )
         }
+    }
+}
+
+/**
+ * EXP-827: the merged launcher on a board — the circle's 52dp height, two
+ * 52dp arms split by a hairline, each its own button with the labels and
+ * tags the single circles carry.
+ */
+@Composable
+private fun LauncherCapsule(
+    onChat: () -> Unit,
+    onCompose: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .height(52.dp)
+            .clip(RoundedCornerShape(percent = 50))
+            .background(GlassTokens.OpaqueCardFill)
+            .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, RoundedCornerShape(percent = 50)),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        LauncherArm(
+            icon = ExpIcons.actionChat,
+            contentDescription = "Start chat",
+            testTag = "chat-button",
+            onClick = onChat,
+        )
+        Box(
+            Modifier
+                .width(GlassTokens.Hairline)
+                .height(28.dp)
+                .background(GlassTokens.StrokeStrong),
+        )
+        LauncherArm(
+            icon = ExpIcons.navCreateIssue,
+            contentDescription = "New issue",
+            testTag = "compose-button",
+            onClick = onCompose,
+        )
+    }
+}
+
+/** One arm of [LauncherCapsule]: a 52dp square hit area, no chrome of its own. */
+@Composable
+private fun LauncherArm(
+    icon: ImageVector,
+    contentDescription: String,
+    testTag: String,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(52.dp)
+            .testTag(testTag)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            icon,
+            contentDescription = contentDescription,
+            modifier = Modifier.size(20.dp),
+            tint = Color.White,
+        )
     }
 }
 
@@ -210,11 +288,13 @@ fun BottomNavBar(
 private fun Fab(
     icon: ImageVector,
     contentDescription: String,
+    testTag: String,
     onClick: () -> Unit,
 ) {
     Box(
         modifier = Modifier
             .size(52.dp)
+            .testTag(testTag)
             .clip(CircleShape)
             .background(GlassTokens.OpaqueCardFill)
             .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, CircleShape)

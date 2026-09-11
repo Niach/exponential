@@ -1,7 +1,9 @@
 package com.exponential.app.ui.agent
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -10,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -19,8 +22,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.TextFieldValue
@@ -45,9 +53,9 @@ import com.exponential.app.ui.theme.TextEmphasis
  * EXP-825: the ONE launcher's card — the same [GlassComposer] the steer and
  * comment composers wear. Slot order is leading · strip · field · tools:
  *
- * - leading: the subject chips (issue chips OR one action chip — tapping a
- *   chip removes it) and, under an action that declares inputs, its typed
- *   pick rows ([ActionInputFields]);
+ * - leading: the subject chips (issue chips OR one action chip — the chip's
+ *   ✕ removes it, the body is inert, EXP-827) and, under an action that
+ *   declares inputs, its typed pick rows ([ActionInputFields]);
  * - field: the draft with the `@` / `#` / `:` typeahead (the page mounts the
  *   candidate rows under the card and splices at this value's caret);
  * - strip: the pending images (the steer composer's tiles + `[Image #k]`
@@ -121,26 +129,36 @@ internal fun AgentComposer(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     if (actionChip != null) {
-                        // The one action: its curated glyph · name · ✕.
+                        // The one action: its curated glyph · name · ✕. Only
+                        // the ✕ clears it (EXP-827, web and iOS agree); the
+                        // pill itself is readonly.
                         GlassPill(
                             actionChip.name,
-                            onClick = onClearAction,
                             icon = actionGlyph(actionChip),
-                            trailing = { ChipClose() },
-                            contentDescription = "Remove ${actionChip.name}",
+                            trailing = {
+                                ChipClose(
+                                    contentDescription = "Remove ${actionChip.name}",
+                                    testTag = "agent-composer-chip-action-remove",
+                                    onClick = onClearAction,
+                                )
+                            },
                             modifier = Modifier.testTag("agent-composer-chip-action"),
                         )
                     } else {
                         // One checked issue: status glyph · mono identifier ·
-                        // ✕. The chip IS the remove control.
+                        // ✕. Same split: the ✕ removes, the body is inert.
                         issueChips.forEach { option ->
                             GlassPill(
                                 option.identifier,
-                                onClick = { onRemoveIssue(option.id) },
                                 leading = { StatusIcon(IssueStatus.fromWire(option.status), size = 12.dp) },
-                                trailing = { ChipClose() },
+                                trailing = {
+                                    ChipClose(
+                                        contentDescription = "Remove ${option.identifier}",
+                                        testTag = "agent-composer-chip-issue-${option.identifier}-remove",
+                                        onClick = { onRemoveIssue(option.id) },
+                                    )
+                                },
                                 fontFamily = FontFamily.Monospace,
-                                contentDescription = "Remove ${option.identifier}",
                                 modifier = Modifier.testTag("agent-composer-chip-issue-${option.identifier}"),
                             )
                         }
@@ -244,11 +262,28 @@ internal fun AgentComposer(
 }
 
 @Composable
-private fun ChipClose() {
-    Icon(
-        ExpIcons.uiClose,
-        contentDescription = null,
-        modifier = Modifier.size(10.dp),
-        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-    )
+private fun ChipClose(
+    contentDescription: String,
+    testTag: String,
+    onClick: () -> Unit,
+) {
+    // The chip's ONE control (EXP-827): a 20dp round hit area around the
+    // 10dp glyph, named for TalkBack as the remove it performs.
+    val describedAs = contentDescription
+    Box(
+        modifier = Modifier
+            .size(20.dp)
+            .clip(CircleShape)
+            .clickable(role = Role.Button, onClick = onClick)
+            .testTag(testTag)
+            .semantics { this.contentDescription = describedAs },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            ExpIcons.uiClose,
+            contentDescription = null,
+            modifier = Modifier.size(10.dp),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        )
+    }
 }
