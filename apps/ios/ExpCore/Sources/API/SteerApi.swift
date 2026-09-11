@@ -345,9 +345,10 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// EXP-411: the pending update is parked behind live coding sessions —
     /// the daemon applies it once they close ("Update queued", no spinner).
     public let updateBlocked: Bool?
-    /// EXP-432: the team this machine is shared with (nil = private). Carried
-    /// on the caller's OWN rows too, so it can never stand in for `owner`.
-    public let sharedTeamId: String?
+    /// EXP-432/FEED-33: the teams this machine is shared with (empty =
+    /// private). Carried on the caller's OWN rows too, so it can never stand
+    /// in for `owner`.
+    public let sharedTeamIds: [String]
     /// EXP-432: set ONLY on a teammate's shared row — the machine's owner.
     /// Absent on the caller's own rows, which is exactly what `isMine` reads.
     public let owner: DeviceOwner?
@@ -394,7 +395,7 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         version: String? = nil,
         updateRequested: Bool? = nil,
         updateBlocked: Bool? = nil,
-        sharedTeamId: String? = nil,
+        sharedTeamIds: [String] = [],
         owner: DeviceOwner? = nil,
         isDefault: Bool? = nil,
         agentAccounts: [String: AgentAccount]? = nil,
@@ -418,7 +419,7 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         self.version = version
         self.updateRequested = updateRequested
         self.updateBlocked = updateBlocked
-        self.sharedTeamId = sharedTeamId
+        self.sharedTeamIds = sharedTeamIds
         self.owner = owner
         self.isDefault = isDefault
         self.agentAccounts = agentAccounts
@@ -426,6 +427,44 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         self.agentUsageAt = agentUsageAt
         self.launchDefaults = launchDefaults
         self.rowId = rowId
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case deviceId, deviceLabel, connectedAt, agents, unauthedAgents, acpAgents, caps
+        case kind, platform, online, lastSeenAt, registered, version, updateRequested
+        case updateBlocked, sharedTeamIds, owner, isDefault, agentAccounts, agentUsage
+        case agentUsageAt, launchDefaults, rowId
+    }
+
+    // Hand-written only because `sharedTeamIds` is non-optional: a relay
+    // presence row and a pre-FEED-33 server omit it, and that must read as
+    // "private", never as a dropped row. Everything else is decodeIfPresent
+    // exactly as the synthesized decoder did it.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        deviceId = try c.decode(String.self, forKey: .deviceId)
+        deviceLabel = try c.decode(String.self, forKey: .deviceLabel)
+        connectedAt = try c.decodeIfPresent(Double.self, forKey: .connectedAt)
+        agents = try c.decodeIfPresent([String].self, forKey: .agents)
+        unauthedAgents = try c.decodeIfPresent([String].self, forKey: .unauthedAgents)
+        acpAgents = try c.decodeIfPresent([String].self, forKey: .acpAgents)
+        caps = try c.decodeIfPresent([String].self, forKey: .caps)
+        kind = try c.decodeIfPresent(String.self, forKey: .kind)
+        platform = try c.decodeIfPresent(String.self, forKey: .platform)
+        online = try c.decodeIfPresent(Bool.self, forKey: .online)
+        lastSeenAt = try c.decodeIfPresent(String.self, forKey: .lastSeenAt)
+        registered = try c.decodeIfPresent(Bool.self, forKey: .registered)
+        version = try c.decodeIfPresent(String.self, forKey: .version)
+        updateRequested = try c.decodeIfPresent(Bool.self, forKey: .updateRequested)
+        updateBlocked = try c.decodeIfPresent(Bool.self, forKey: .updateBlocked)
+        sharedTeamIds = c.decodeWireStringList(forKey: .sharedTeamIds)
+        owner = try c.decodeIfPresent(DeviceOwner.self, forKey: .owner)
+        isDefault = try c.decodeIfPresent(Bool.self, forKey: .isDefault)
+        agentAccounts = try c.decodeIfPresent([String: AgentAccount].self, forKey: .agentAccounts)
+        agentUsage = try c.decodeIfPresent([String: AgentUsage].self, forKey: .agentUsage)
+        agentUsageAt = try c.decodeIfPresent(String.self, forKey: .agentUsageAt)
+        launchDefaults = try c.decodeIfPresent(DeviceLaunchDefaults.self, forKey: .launchDefaults)
+        rowId = try c.decodeIfPresent(String.self, forKey: .rowId)
     }
 
     /// EXP-432: whether this is one of the caller's OWN machines. A teammate's

@@ -100,7 +100,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v27_issue_relations", "v28_comment_threads",
              "v29_device_acp_agents", "v30_coding_session_blocked",
              "v31_coding_session_parent", "v32_action_prompt_placeholder",
-             "v33_pins"]
+             "v33_pins", "v34_device_shared_team_ids"]
         )
     }
 
@@ -127,7 +127,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v27_issue_relations", "v28_comment_threads",
              "v29_device_acp_agents", "v30_coding_session_blocked",
              "v31_coding_session_parent", "v32_action_prompt_placeholder",
-             "v33_pins"]
+             "v33_pins", "v34_device_shared_team_ids"]
         )
     }
 
@@ -182,7 +182,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v27_issue_relations", "v28_comment_threads",
              "v29_device_acp_agents", "v30_coding_session_blocked",
              "v31_coding_session_parent", "v32_action_prompt_placeholder",
-             "v33_pins"]
+             "v33_pins", "v34_device_shared_team_ids"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -257,7 +257,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v27_issue_relations", "v28_comment_threads",
              "v29_device_acp_agents", "v30_coding_session_blocked",
              "v31_coding_session_parent", "v32_action_prompt_placeholder",
-             "v33_pins"]
+             "v33_pins", "v34_device_shared_team_ids"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -942,7 +942,7 @@ final class DatabaseMigrationTests: XCTestCase {
             "version", "agents", "caps", "unauthed_agents", "launch_defaults",
             "launch_defaults_updated_at", "agent_accounts", "agent_usage",
             "agent_usage_at", "active_sessions", "last_seen_at",
-            "shared_team_id", "is_default", "update_requested_at", "created_at",
+            "shared_team_ids", "is_default", "update_requested_at", "created_at",
             "updated_at",
         ]))
         let worktreeCols = try columnNames(pool, "device_worktrees")
@@ -1251,6 +1251,41 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(offsetValue, "-1")
         XCTAssertEqual(needsRefetch, true)
         XCTAssertEqual(isLive, false)
+    }
+
+    // v34 (FEED-33): a store created before `devices.shared_team_ids` existed
+    // must gain it and get the devices offset reset so the already-synced
+    // rows re-arrive carrying the team set. The old `shared_team_id` column
+    // stays declared (never dropped, never read).
+    func testDeviceSharedTeamIdsColumnAddedToExistingStore() throws {
+        let pool = try makePool("device-shared-team-ids")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v32_action_prompt_placeholder")
+        try pool.write { db in
+            if try db.columns(in: "devices").contains(where: { $0.name == "shared_team_ids" }) {
+                try db.alter(table: "devices") { t in t.drop(column: "shared_team_ids") }
+            }
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('devices', 'h', '0_0', 0, 1)
+                """)
+        }
+        XCTAssertFalse(try columnNames(pool, "devices").contains("shared_team_ids"))
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        let cols = try columnNames(pool, "devices")
+        XCTAssertTrue(cols.contains("shared_team_ids"))
+        XCTAssertTrue(cols.contains("shared_team_id"))
+        let reset = try pool.read { db in
+            try Bool.fetchOne(
+                db,
+                sql: "SELECT \"handle\" = '' AND \"offset\" = '-1' AND \"needs_refetch\" = 1 "
+                    + "AND \"is_live\" = 0 FROM \"electric_offsets\" "
+                    + "WHERE \"shape\" = 'devices'"
+            )
+        }
+        XCTAssertEqual(reset, true)
     }
 
     func testFileURLUsesV5Suffix() throws {

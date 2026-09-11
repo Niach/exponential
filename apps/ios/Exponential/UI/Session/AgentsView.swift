@@ -245,14 +245,14 @@ struct AgentsView: View {
                             .accessibilityLabel("Default machine")
                     }
                     // EXP-432: a teammate's machine is attributed to its owner;
-                    // one of the caller's own that is shared just says so (the
-                    // share toggle itself is web-only).
+                    // one of the caller's own that is shared with any team just
+                    // says so (the per-team toggles live in the settings sheet).
                     if let owner = device.owner {
                         Text("shared by \(owner.name)")
                             .font(.caption2)
                             .foregroundStyle(.white.opacity(TextOpacity.quaternary))
                             .lineLimit(1)
-                    } else if device.sharedTeamId != nil {
+                    } else if !device.sharedTeamIds.isEmpty {
                         Text("Shared")
                             .font(.caption2)
                             .foregroundStyle(.white.opacity(TextOpacity.quaternary))

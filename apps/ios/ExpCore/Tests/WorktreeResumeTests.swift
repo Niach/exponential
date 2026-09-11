@@ -87,12 +87,12 @@ final class WorktreeResumeTests: XCTestCase {
         userId: String,
         deviceId: String,
         lastSeenAt: String?,
-        sharedTeamId: String? = nil,
+        sharedTeamIds: [String] = [],
         kind: String = "server"
     ) -> DeviceEntity {
         DeviceEntity(
             id: id, userId: userId, deviceId: deviceId, label: deviceId,
-            kind: kind, lastSeenAt: lastSeenAt, sharedTeamId: sharedTeamId
+            kind: kind, lastSeenAt: lastSeenAt, sharedTeamIds: sharedTeamIds
         )
     }
 
@@ -103,10 +103,15 @@ final class WorktreeResumeTests: XCTestCase {
                    lastSeenAt: "2026-08-01T00:00:00Z"),
             entity(id: "r2", userId: "me", deviceId: "fresh-box",
                    lastSeenAt: "2026-08-11T09:59:50Z"),
+            // FEED-33: shared with several teams — the active one among them.
             entity(id: "r3", userId: "mate", deviceId: "shared-box",
-                   lastSeenAt: "2026-08-11T09:59:50Z", sharedTeamId: "team-1"),
+                   lastSeenAt: "2026-08-11T09:59:50Z", sharedTeamIds: ["team-9", "team-1"]),
             entity(id: "r4", userId: "mate", deviceId: "other-team-box",
-                   lastSeenAt: "2026-08-11T09:59:50Z", sharedTeamId: "team-2"),
+                   lastSeenAt: "2026-08-11T09:59:50Z", sharedTeamIds: ["team-2"]),
+            // A shared DESKTOP never rides along: only servers are shareable.
+            entity(id: "r5", userId: "mate", deviceId: "shared-laptop",
+                   lastSeenAt: "2026-08-11T09:59:50Z", sharedTeamIds: ["team-1"],
+                   kind: "desktop"),
         ]
         let users = [
             UserEntity(id: "mate", name: "Mate", email: "m@example.com", image: nil,
@@ -158,7 +163,7 @@ final class WorktreeResumeTests: XCTestCase {
             DeviceEntity(id: "r1", userId: "me", deviceId: "mine", label: "mine",
                          kind: "server", isDefault: true),
             DeviceEntity(id: "r2", userId: "mate", deviceId: "shared", label: "shared",
-                         kind: "server", sharedTeamId: "team-1", isDefault: true),
+                         kind: "server", sharedTeamIds: ["team-1"], isDefault: true),
         ]
         let composed = DeviceQueries.compose(
             rows: rows, users: [], teamId: "team-1", userId: "me"
@@ -172,7 +177,7 @@ final class WorktreeResumeTests: XCTestCase {
         let rows = [
             entity(id: "r1", userId: "me", deviceId: "mine", lastSeenAt: nil),
             entity(id: "r2", userId: "mate", deviceId: "shared", lastSeenAt: nil,
-                   sharedTeamId: "team-1"),
+                   sharedTeamIds: ["team-1"]),
         ]
         let composed = DeviceQueries.compose(
             rows: rows, users: [], teamId: nil, userId: "me"

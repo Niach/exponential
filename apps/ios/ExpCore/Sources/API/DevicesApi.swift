@@ -23,23 +23,13 @@ private struct SetDefaultInput: Encodable {
     let isDefault: Bool
 }
 
-/// EXP-481: `devices.setShared` — the server input is `teamId: string | null`
-/// where the key must ALWAYS be present (null clears the share). Synthesized
-/// Encodable drops nil via encodeIfPresent, so this encodes by hand.
+/// FEED-33: `devices.setShared` toggles ONE team in or out of the machine's
+/// shared set (`{deviceId, teamId, shared}`); the pre-FEED-33 single-team
+/// `teamId: string | null` form is legacy.
 private struct SetSharedInput: Encodable {
     let deviceId: String
-    let teamId: String?
-
-    enum CodingKeys: String, CodingKey {
-        case deviceId, teamId
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(deviceId, forKey: .deviceId)
-        // Explicit null, never an absent key.
-        try c.encode(teamId, forKey: .teamId)
-    }
+    let teamId: String
+    let shared: Bool
 }
 
 /// EXP-481: one agent's launch defaults in `devices.setLaunchDefaults` wire
@@ -211,15 +201,15 @@ public final class DevicesApi: Sendable {
         )
     }
 
-    /// EXP-481: share / unshare one of the caller's SERVER machines with a
-    /// team (nil clears — encoded as an explicit JSON null, the key is
-    /// required). Sharing is the consent that lets teammates remote-start on
-    /// the box; moving/clearing it ends their hosted runs server-side.
-    public func setShared(accountId: String, deviceId: String, teamId: String?) async throws {
+    /// EXP-481/FEED-33: share / unshare one of the caller's SERVER machines
+    /// with ONE team; the other teams in its set are untouched. Sharing is
+    /// the consent that lets that team's members remote-start on the box;
+    /// removing a team ends its hosted runs server-side.
+    public func setShared(accountId: String, deviceId: String, teamId: String, shared: Bool) async throws {
         try await trpc.mutationVoid(
             accountId: accountId,
             path: "devices.setShared",
-            input: SetSharedInput(deviceId: deviceId, teamId: teamId)
+            input: SetSharedInput(deviceId: deviceId, teamId: teamId, shared: shared)
         )
     }
 

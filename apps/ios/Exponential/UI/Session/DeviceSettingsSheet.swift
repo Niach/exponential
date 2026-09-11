@@ -9,7 +9,8 @@ import SwiftUI
 //              debounced while typing and flushed on blur/submit/close.
 //   Default  — devices.setDefault (EXP-622), the machine every device picker
 //              prefills; a single toggle, written straight through.
-//   Sharing  — devices.setShared, SERVER machines only (nil clears).
+//   Sharing  — devices.setShared, SERVER machines only: one toggle per team
+//              (FEED-33), each written straight through off the live row.
 //   Defaults — the machine's SERVER-AUTHORITATIVE launch defaults
 //              (devices.setLaunchDefaults), debounced per edit. Editable while
 //              the machine is OFFLINE too: the row is the truth and the
@@ -45,8 +46,6 @@ struct DeviceSettingsSheet: View {
     @Environment(\.accountId) private var accountId
     @Environment(\.dismiss) private var dismiss
 
-    /// Sentinel tag for "Not shared" in the team picker.
-    private static let notShared = "not-shared"
     /// Typing/tapping settles before a save goes out — the issue-detail
     /// autosave window.
     private static let autosaveDelay = Duration.seconds(1.2)
@@ -69,7 +68,6 @@ struct DeviceSettingsSheet: View {
     /// An edit the server has not accepted yet: blocks the live echo and keeps
     /// the flush-on-close honest.
     @State private var namePending = false
-    @State private var sharedTeamTag = DeviceSettingsSheet.notShared
     @State private var savingShare = false
     @State private var savingDefaultDevice = false
     @State private var defaultAgent = "claude"
@@ -162,10 +160,6 @@ struct DeviceSettingsSheet: View {
             guard !nameFocused, !namePending, !savingName else { return }
             name = newValue
         }
-        .onChange(of: device.sharedTeamId) { _, newValue in
-            guard !savingShare else { return }
-            sharedTeamTag = newValue ?? Self.notShared
-        }
         .onChange(of: device.launchDefaults) { _, _ in
             guard seeded, !defaultsPending, !savingDefaults else { return }
             applyDefaults(device, keepTab: true)
@@ -213,7 +207,6 @@ struct DeviceSettingsSheet: View {
         guard !seeded else { return }
         seeded = true
         name = device.deviceLabel
-        sharedTeamTag = device.sharedTeamId ?? Self.notShared
         applyDefaults(device, keepTab: false)
     }
 
@@ -384,45 +377,40 @@ struct DeviceSettingsSheet: View {
         }
     }
 
+    /// FEED-33: one toggle per team, each rendered off the live row like the
+    /// default-device switch (no draft, so nothing to roll back on error: the
+    /// row simply never changed). Every row waits while one write is out.
     private func sharingSection(_ device: SteerDevice) -> some View {
         Section {
-            GlassPickerRow(
-                "Shared with",
-                selection: $sharedTeamTag,
-                options: [Self.notShared] + teams.map(\.id),
-                label: { id in
-                    guard id != Self.notShared else { return "Not shared" }
-                    return teams.first { $0.id == id }?.name ?? id
-                },
-                enabled: !savingShare
-            )
-            .onChange(of: sharedTeamTag) { oldValue, newValue in
-                guard seeded, oldValue != newValue else { return }
-                // The live echo writes this too — a re-seed to what the row
-                // already says is not an edit.
-                guard newValue != (device.sharedTeamId ?? Self.notShared) else { return }
-                saveShare(teamId: newValue == Self.notShared ? nil : newValue)
+            ForEach(teams) { team in
+                Toggle(
+                    team.name,
+                    isOn: Binding(
+                        get: { device.sharedTeamIds.contains(team.id) },
+                        set: { saveShare(teamId: team.id, shared: $0) }
+                    )
+                )
+                .disabled(savingShare)
+                .accessibilityIdentifier("device-share-\(team.id)")
             }
         } header: {
             GlassSectionHeader("Sharing")
         } footer: {
-            Text("Teammates of the shared team can start coding sessions on this server. Moving or clearing the share ends their running sessions.")
+            Text("Teammates of a shared team can start coding sessions on this server. Removing a team ends its running sessions on it.")
         }
         .listRowBackground(glassFormRowFill)
     }
 
-    private func saveShare(teamId: String?) {
+    private func saveShare(teamId: String, shared: Bool) {
         savingShare = true
         errorMessage = nil
         Task {
             do {
                 try await deps.devicesApi.setShared(
-                    accountId: accountId, deviceId: deviceId, teamId: teamId
+                    accountId: accountId, deviceId: deviceId, teamId: teamId, shared: shared
                 )
             } catch {
                 errorMessage = error.localizedDescription
-                // Roll the picker back to what the live row says.
-                sharedTeamTag = liveDevice?.sharedTeamId ?? Self.notShared
             }
             savingShare = false
         }

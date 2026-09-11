@@ -418,7 +418,7 @@ final class AgentsViewModel {
     private func rebuildAccounts(_ entities: [DeviceEntity], now: Date) {
         let scoped = entities.filter { row in
             (userId != nil && row.userId == userId)
-                || (activeTeamId != nil && row.sharedTeamId == activeTeamId && row.kind == "server")
+                || (activeTeamId.map { row.sharedTeamIds.contains($0) } == true && row.kind == "server")
         }
         let capsByDevice: [String: [String]] = Dictionary(
             (devices ?? []).map { ($0.deviceId, $0.caps ?? []) },

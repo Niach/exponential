@@ -154,6 +154,42 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertEqual(row?.label, "box")
     }
 
+    // FEED-33: `shared_team_ids` survives BOTH store paths — a full row goes
+    // through GRDB's encoder (JSON text), a partial update stores the raw
+    // Postgres literal — and reads back as the same id list either way.
+    func testDeviceSharedTeamIdsRoundTripFullRowAndPartial() async throws {
+        try await pool.write { db in
+            try DeviceEntity(
+                id: "row-1", userId: "u1", deviceId: "dev-1", label: "box",
+                kind: "server", sharedTeamIds: ["team-1", "team-2"]
+            ).save(db)
+        }
+        let stored = try await pool.read { db in
+            try DeviceEntity.fetchOne(db, key: "row-1")
+        }
+        XCTAssertEqual(stored?.sharedTeamIds, ["team-1", "team-2"])
+
+        let message = ShapeMessage<DeviceEntity>.partialUpdate(
+            key: #""public"."devices"/"row-1""#,
+            columns: columns(["id": "row-1", "shared_team_ids": "{team-3}"])
+        )
+        try await applyBatch(messages: [message], name: "devices", table: "devices", pool: pool)
+        let patched = try await pool.read { db in
+            try DeviceEntity.fetchOne(db, key: "row-1")
+        }
+        XCTAssertEqual(patched?.sharedTeamIds, ["team-3"])
+
+        let cleared = ShapeMessage<DeviceEntity>.partialUpdate(
+            key: #""public"."devices"/"row-1""#,
+            columns: columns(["id": "row-1", "shared_team_ids": "{}"])
+        )
+        try await applyBatch(messages: [cleared], name: "devices", table: "devices", pool: pool)
+        let privateRow = try await pool.read { db in
+            try DeviceEntity.fetchOne(db, key: "row-1")
+        }
+        XCTAssertEqual(privateRow?.sharedTeamIds, [])
+    }
+
     // EXP-481: the worktree `busy` BOOLEAN column takes the wire-bool mapping
     // on partials ("t" → real bool), like coding_sessions.needs_input.
     func testWorktreePartialCoercesBusyBool() async throws {
