@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import type { Automation, Team } from "@/db/schema"
+import type { Automation, SyncedAction, Team } from "@/db/schema"
 import { actionCollection, automationCollection } from "@/lib/collections"
 import {
   BUILTIN_CREATE_ACTION_ID,
@@ -49,6 +49,7 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs"
 import { getActionIcon } from "@/lib/board-icons"
+import { PinToggleMenuItem } from "@/components/pin-toggle-button"
 
 // The team Actions surface (EXP-257/EXP-530), extracted from the Agents route
 // in EXP-574. EXP-686 split it across three routes: on a desktop viewport
@@ -73,14 +74,17 @@ export type ActionsPanelView = `tabs` | `actions` | `automations`
 /** The mobile tab strip's value — also the `?tab=` search param. */
 export type ActionsPanelTab = `actions` | `automations` | `suggestions`
 
-// Owner-only ⋯ menu — hidden entirely on the builtin (server-shipped, not
-// editable or deletable).
+// The row's ⋯ menu — hidden entirely on the builtin (server-shipped, not
+// editable, deletable or pinnable). EXP-778: every member gets Pin/Unpin (a
+// pin is personal); Edit and Delete stay owner-only, like the IDE's row menu.
 function ActionMenu({
   action,
+  isOwner,
   onEdit,
   onDelete,
 }: {
-  action: TeamAction
+  action: SyncedAction
+  isOwner: boolean
   onEdit: () => void
   onDelete: () => void
 }) {
@@ -96,14 +100,23 @@ function ActionMenu({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={onEdit}>
-          <Pencil className="h-4 w-4" />
-          Edit
-        </DropdownMenuItem>
-        <DropdownMenuItem variant="destructive" onClick={onDelete}>
-          <Trash2 className="h-4 w-4" />
-          Delete
-        </DropdownMenuItem>
+        <PinToggleMenuItem
+          teamId={action.teamId}
+          kind="action"
+          targetId={action.id}
+        />
+        {isOwner && (
+          <>
+            <DropdownMenuItem onClick={onEdit}>
+              <Pencil className="h-4 w-4" />
+              Edit
+            </DropdownMenuItem>
+            <DropdownMenuItem variant="destructive" onClick={onDelete}>
+              <Trash2 className="h-4 w-4" />
+              Delete
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -163,8 +176,13 @@ function ActionRow({
           <ActionRunIcon />
         </Button>
       )}
-      {isOwner && !action.builtin && (
-        <ActionMenu action={action} onEdit={onEdit} onDelete={onDelete} />
+      {!action.builtin && (
+        <ActionMenu
+          action={action}
+          isOwner={isOwner}
+          onEdit={onEdit}
+          onDelete={onDelete}
+        />
       )}
     </ListRow>
   )
