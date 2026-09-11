@@ -230,7 +230,8 @@ export function AgentAccountsSection({
   )
 
   return (
-    <div className="mb-6">
+    // EXP-827: `#accounts` is where device settings' Usage button lands.
+    <div className="mb-6 scroll-mt-4" id="accounts">
       <GlassSectionHeader
         label="Accounts"
         trailing={
@@ -448,16 +449,20 @@ function DeviceChip({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
         <DropdownMenuItem
-          onSelect={() =>
-            requestAgentLogin({
+          // EXP-827: the item opens a Radix Dialog hosted elsewhere in the
+          // tree. Opening it in the same tick the menu closes lost it to the
+          // menu's own close + focus return, so the handoff waits a tick.
+          onSelect={() => {
+            const target = {
               device: {
                 deviceId: device!.deviceId,
                 deviceLabel: device!.label ?? device!.deviceId,
                 caps: device!.caps ?? [],
               } as SteerDevice,
               agent: row.agent,
-            })
-          }
+            }
+            setTimeout(() => requestAgentLogin(target), 0)
+          }}
         >
           {row.signedIn ? <SwapIcon className="size-4" /> : <SignInIcon className="size-4" />}
           {`${action} on ${row.deviceLabel || row.deviceId}`}

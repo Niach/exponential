@@ -272,6 +272,11 @@ function GlassInputRow({
         id={id}
         className={cn(
           `h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-right text-sm text-foreground/70 shadow-none focus-visible:border-0 focus-visible:ring-0 md:text-sm`,
+          // EXP-827: a native time/date widget paints its clock/calendar
+          // glyph for the LIGHT scheme (black on the dark row) unless the
+          // control itself says dark.
+          (inputProps.type === `time` || inputProps.type === `date`) &&
+            `[color-scheme:dark]`,
           inputClassName
         )}
         {...inputProps}
@@ -398,7 +403,7 @@ function GlassPickerRow({
                     setOpen(false)
                   }}
                 >
-                  <span className="flex-1 truncate text-left">
+                  <span className="flex-1 truncate text-left [&_svg]:inline">
                     {option.label}
                   </span>
                   {option.value === value && (

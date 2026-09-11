@@ -26,9 +26,7 @@ import {
   accountLine,
   parseAgentLoginResult,
   parseAgentUsage,
-  usageIsFresh,
 } from "@/lib/agent-usage"
-import { AgentUsageCards } from "@/components/agent-usage-bar"
 import { relativeTime } from "@/components/comment-rows/format"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -37,6 +35,7 @@ const SignInIcon = conceptIcon(`ui-sign-in`)
 const SwapIcon = conceptIcon(`ui-swap`)
 const CopyIcon = conceptIcon(`ui-copy`)
 const ExternalLinkIcon = conceptIcon(`ui-external-link`)
+const UsageIcon = conceptIcon(`ui-usage`)
 
 /** The command key the dialog tracks a per-agent login under. */
 export function agentLoginKey(agent: string): string {
@@ -67,6 +66,7 @@ export function AgentAccountBlock({
   pending,
   result,
   onLogin,
+  onOpenUsage,
   codeError,
   codePending,
   codeResult,
@@ -83,6 +83,9 @@ export function AgentAccountBlock({
   result: string | null
   /** Queue a login; the dialog owns the Codex switch confirmation. */
   onLogin: (agent: string, switchAccount: boolean) => void
+  /** EXP-827: open the Devices page's Accounts section (the usage lives
+   *  there now, not inline under the account line). Absent = no button. */
+  onOpenUsage?: () => void
   codeError: string
   codePending: boolean
   codeResult: string | null
@@ -95,8 +98,12 @@ export function AgentAccountBlock({
   // back — local only, and the server refuses the command outright.
   const canLogin = online && canAgentLogin && agent !== `pi`
   const signedIn = account?.signedIn === true
-  const fresh = usageIsFresh(usage, now)
   const asOf = account?.checkedAt ?? row?.agentUsageAt ?? null
+  // EXP-827: the usage windows moved to the Devices page's Accounts
+  // section; the block only says how old the account report is and links
+  // there. `now` still drives the caption's relative time.
+  void now
+  const hasUsage = (usage?.windows.length ?? 0) > 0
 
   return (
     // EXP-694: the FINAL ROWS of the agent's own glass group — the row rhythm
@@ -122,6 +129,18 @@ export function AgentAccountBlock({
               <SignInIcon className="size-3" />
             )}
             {signedIn ? `Switch account` : `Login`}
+          </Button>
+        )}
+        {onOpenUsage && (account || hasUsage) && (
+          <Button
+            variant="glass"
+            size="icon-sm"
+            className="shrink-0 rounded-full"
+            aria-label="Usage"
+            title="Usage"
+            onClick={onOpenUsage}
+          >
+            <UsageIcon />
           </Button>
         )}
       </div>
@@ -151,18 +170,12 @@ export function AgentAccountBlock({
         <p className="text-xs text-muted-foreground">{codeResult}</p>
       )}
       {codeError && <p className="text-xs text-destructive">{codeError}</p>}
-      {/* Fresh numbers become cards; anything older (or an account with no
-          usage at all, like pi) says how old the report is — the same
-          fall-through the desktop/iOS/Android sheets use. */}
-      {fresh && usage && usage.windows.length > 0 ? (
-        <AgentUsageCards usage={usage} now={now} compact />
-      ) : (
-        (usage || account) &&
-        asOf && (
-          <p className="text-[11px] text-muted-foreground">
-            as of {relativeTime(asOf)}
-          </p>
-        )
+      {/* EXP-827: no inline usage cards any more (the Usage button above
+          opens the Accounts section); the report age stays as a caption. */}
+      {(usage || account) && asOf && (
+        <p className="text-[11px] text-muted-foreground">
+          as of {relativeTime(asOf)}
+        </p>
       )}
     </div>
   )

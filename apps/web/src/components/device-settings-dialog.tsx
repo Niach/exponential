@@ -6,6 +6,7 @@
 // (worktree_remove / worktree_prune — queued commands run when an offline
 // device returns). Owner-only: the menu only exists on "My machines" rows.
 import { useEffect, useMemo, useRef, useState } from "react"
+import { useNavigate, useParams } from "@tanstack/react-router"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { LoaderCircle } from "lucide-react"
 import { contract } from "@exp/domain-contract"
@@ -98,6 +99,10 @@ export function DeviceSettingsDialog({
 }) {
   const rowId = device?.rowId
   const deviceId = device?.deviceId
+  // Loose: the dialog mounts under `/t/$teamSlug`, but must not throw in a
+  // story that renders it elsewhere.
+  const { teamSlug } = useParams({ strict: false })
+  const navigate = useNavigate()
 
   // The LIVE synced row — renames/share/defaults applied elsewhere stream in;
   // the drafts below latch once per open so sync never stomps typing.
@@ -549,6 +554,18 @@ export function DeviceSettingsDialog({
   const pendingKey = (key: string) =>
     tracked.some((command) => command.key === key)
 
+  // EXP-827: the Usage button under an agent's account closes this dialog
+  // and lands on the Devices page's Accounts section.
+  const openUsage = () => {
+    if (!teamSlug) return
+    onOpenChange(false)
+    void navigate({
+      to: `/t/$teamSlug/devices`,
+      params: { teamSlug },
+      hash: `accounts`,
+    })
+  }
+
   const startAgentLogin = (agent: string, switchAccount: boolean) => {
     // `codex logout` revokes the token SERVER-side — switching accounts is
     // not a local-only act, so it asks first. Claude's is local.
@@ -574,7 +591,7 @@ export function DeviceSettingsDialog({
           pointing at a description that no longer exists. */}
       <DialogContent
         mobile="sheet-full"
-        className="gap-4 sm:h-[min(85dvh,36rem)] sm:max-h-[85dvh] sm:max-w-3xl"
+        className="gap-4 sm:h-[min(90dvh,46rem)] sm:max-h-[90dvh] sm:max-w-3xl"
         aria-describedby={undefined}
         // EXP-698: Radix autofocuses the first field and SELECTS its text, so
         // the Name row opened as a white selection block filling the row (and
@@ -749,6 +766,7 @@ export function DeviceSettingsDialog({
                     pending={state.pending}
                     result={state.result}
                     onLogin={startAgentLogin}
+                    onOpenUsage={openUsage}
                     codeError={state.codeError}
                     codePending={state.codePending}
                     codeResult={state.codeResult}
