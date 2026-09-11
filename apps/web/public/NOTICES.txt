@@ -30,7 +30,7 @@ CONTENTS
 1. Open-source components
 ==============================================================================
 
-640 third-party components are distributed as part of this build. They are
+643 third-party components are distributed as part of this build. They are
 grouped below by the licence text that applies to them; each group reproduces
 that text once, in full, and lists every component it covers together with
 that component's own copyright notice.
@@ -1564,70 +1564,63 @@ Applies to the following 12 components:
 MIT
 ------------------------------------------------------------------------------
 
-Applies to the following 11 components:
+Applies to the following 12 components:
 
-  prosemirror-commands 1.7.1
-    Copyright (C) 2015-2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and
-    others
-  prosemirror-dropcursor 1.8.2
-    Copyright (C) 2015-2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and
-    others
-  prosemirror-gapcursor 1.4.1
-    Copyright (C) 2015-2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and
-    others
-  prosemirror-history 1.5.0
-    Copyright (C) 2015-2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and
-    others
-  prosemirror-keymap 1.2.3
-    Copyright (C) 2015-2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and
-    others
-  prosemirror-markdown 1.13.4
-    Copyright (C) 2015-2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and
-    others
-  prosemirror-model 1.25.4
-    Copyright (C) 2015-2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and
-    others
-  prosemirror-schema-list 1.5.1
-    Copyright (C) 2015-2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and
-    others
-  prosemirror-state 1.4.4
-    Copyright (C) 2015-2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and
-    others
-  prosemirror-transform 1.12.0
-    Copyright (C) 2015-2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and
-    others
-  prosemirror-view 1.41.8
-    Copyright (C) 2015-2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and
-    others
+  @microsoft/fetch-event-source 2.0.1
+    Copyright (c) Microsoft Corporation.
+  @types/dom-mediacapture-transform 0.1.11
+    Copyright (c) Microsoft Corporation.
+  @types/dom-webcodecs 0.1.13
+    Copyright (c) Microsoft Corporation.
+  @types/hast 3.0.4
+    Copyright (c) Microsoft Corporation.
+  @types/linkify-it 3.0.5
+    Copyright (c) Microsoft Corporation.
+  @types/linkify-it 5.0.0
+    Copyright (c) Microsoft Corporation.
+  @types/markdown-it 13.0.9
+    Copyright (c) Microsoft Corporation.
+  @types/markdown-it 14.1.2
+    Copyright (c) Microsoft Corporation.
+  @types/mdurl 1.0.5
+    Copyright (c) Microsoft Corporation.
+  @types/mdurl 2.0.0
+    Copyright (c) Microsoft Corporation.
+  @types/unist 3.0.3
+    Copyright (c) Microsoft Corporation.
+  @types/use-sync-external-store 0.0.6
+    Copyright (c) Microsoft Corporation.
 
 ..............................................................................
 
-Copyright (C) 2015-2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
+    MIT License
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+    Copyright (c) Microsoft Corporation.
 
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE
 
 
 ------------------------------------------------------------------------------
 MPL-2.0
 ------------------------------------------------------------------------------
 
-Applies to the following 11 components:
+Applies to the following 12 components:
 
   lightningcss-android-arm64 1.32.0
   lightningcss-darwin-arm64 1.32.0
@@ -1640,6 +1633,7 @@ Applies to the following 11 components:
   lightningcss-linux-x64-musl 1.32.0
   lightningcss-win32-arm64-msvc 1.32.0
   lightningcss-win32-x64-msvc 1.32.0
+  mediabunny 1.56.1
 
 ..............................................................................
 
@@ -2019,6 +2013,69 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
 
 
 ------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following 11 components:
+
+  prosemirror-commands 1.7.1
+    Copyright (C) 2015-2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and
+    others
+  prosemirror-dropcursor 1.8.2
+    Copyright (C) 2015-2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and
+    others
+  prosemirror-gapcursor 1.4.1
+    Copyright (C) 2015-2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and
+    others
+  prosemirror-history 1.5.0
+    Copyright (C) 2015-2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and
+    others
+  prosemirror-keymap 1.2.3
+    Copyright (C) 2015-2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and
+    others
+  prosemirror-markdown 1.13.4
+    Copyright (C) 2015-2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and
+    others
+  prosemirror-model 1.25.4
+    Copyright (C) 2015-2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and
+    others
+  prosemirror-schema-list 1.5.1
+    Copyright (C) 2015-2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and
+    others
+  prosemirror-state 1.4.4
+    Copyright (C) 2015-2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and
+    others
+  prosemirror-transform 1.12.0
+    Copyright (C) 2015-2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and
+    others
+  prosemirror-view 1.41.8
+    Copyright (C) 2015-2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and
+    others
+
+..............................................................................
+
+Copyright (C) 2015-2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+
+------------------------------------------------------------------------------
 BSD-2-Clause
 ------------------------------------------------------------------------------
 
@@ -2058,58 +2115,6 @@ Redistributions in binary form must reproduce the above copyright notice, this l
 
 THIS IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS,
 EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-
-------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
-Applies to the following 10 components:
-
-  @microsoft/fetch-event-source 2.0.1
-    Copyright (c) Microsoft Corporation.
-  @types/hast 3.0.4
-    Copyright (c) Microsoft Corporation.
-  @types/linkify-it 3.0.5
-    Copyright (c) Microsoft Corporation.
-  @types/linkify-it 5.0.0
-    Copyright (c) Microsoft Corporation.
-  @types/markdown-it 13.0.9
-    Copyright (c) Microsoft Corporation.
-  @types/markdown-it 14.1.2
-    Copyright (c) Microsoft Corporation.
-  @types/mdurl 1.0.5
-    Copyright (c) Microsoft Corporation.
-  @types/mdurl 2.0.0
-    Copyright (c) Microsoft Corporation.
-  @types/unist 3.0.3
-    Copyright (c) Microsoft Corporation.
-  @types/use-sync-external-store 0.0.6
-    Copyright (c) Microsoft Corporation.
-
-..............................................................................
-
-    MIT License
-
-    Copyright (c) Microsoft Corporation.
-
-    Permission is hereby granted, free of charge, to any person obtaining a copy
-    of this software and associated documentation files (the "Software"), to deal
-    in the Software without restriction, including without limitation the rights
-    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-    copies of the Software, and to permit persons to whom the Software is
-    furnished to do so, subject to the following conditions:
-
-    The above copyright notice and this permission notice shall be included in all
-    copies or substantial portions of the Software.
-
-    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-    SOFTWARE
 
 
 ------------------------------------------------------------------------------
@@ -13459,6 +13464,9 @@ obtained.
     Distributed unmodified.
   lightningcss-win32-x64-msvc 1.32.0
     Source Code Form: https://github.com/parcel-bundler/lightningcss
+    Distributed unmodified.
+  mediabunny 1.56.1
+    Source Code Form: https://github.com/Vanilagy/mediabunny
     Distributed unmodified.
 
 

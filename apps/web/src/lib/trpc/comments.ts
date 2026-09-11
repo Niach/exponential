@@ -11,6 +11,7 @@ import {
 import { resolveTeamAccess, getIssueTeamContext } from "@/lib/team-membership"
 import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
 import { replaceAttachmentReferencesInTx } from "@/lib/storage/attachment-references"
+import { collectAttachmentStorageKeys } from "@/lib/storage/issue-attachments"
 import {
   fireAndForgetCommentNotify,
   fireAndForgetIssueMentionNotify,
@@ -139,6 +140,7 @@ async function syncCommentAttachmentsInTx(
       id: attachments.id,
       filename: attachments.filename,
       storageKey: attachments.storageKey,
+      posterStorageKey: attachments.posterStorageKey,
     })
     .from(attachments)
     .where(eq(attachments.commentId, args.commentId))
@@ -173,7 +175,7 @@ async function syncCommentAttachmentsInTx(
     )
   }
 
-  return { deletedStorageKeys: toRemove.map((row) => row.storageKey) }
+  return { deletedStorageKeys: collectAttachmentStorageKeys(toRemove) }
 }
 
 export const commentsRouter = router({
@@ -460,6 +462,7 @@ export const commentsRouter = router({
             id: attachments.id,
             filename: attachments.filename,
             storageKey: attachments.storageKey,
+            posterStorageKey: attachments.posterStorageKey,
           })
           .from(attachments)
           .where(inArray(attachments.commentId, dyingIds))
@@ -497,7 +500,7 @@ export const commentsRouter = router({
           nextText: ``,
           excludeCommentId: input.id,
         })
-        return { txId, storageKeys: linked.map((row) => row.storageKey) }
+        return { txId, storageKeys: collectAttachmentStorageKeys(linked) }
       })
 
       await deleteStorageObjects(result.storageKeys)

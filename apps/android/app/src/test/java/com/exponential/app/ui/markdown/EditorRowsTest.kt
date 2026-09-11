@@ -36,6 +36,20 @@ class EditorRowsTest {
             roundTripViaRows("before\n\n![a](/api/attachments/x)\n\nafter"),
         )
 
+    @Test fun mediaLinkSurvivesRowRoundTrip() =
+        assertEquals(
+            "before\n\n[clip.mp4](/api/attachments/x)\n\nafter",
+            roundTripViaRows("before\n\n[clip.mp4](/api/attachments/x)\n\nafter"),
+        )
+
+    @Test fun mediaRowSplitsTextRunsLikeAnImage() {
+        val rows = EditorRows.fromBlocks(MarkdownParser.parse("a\n\n[c.mp4](/api/attachments/y)\n\nb"))
+        assertEquals(listOf("TextRun", "Media", "TextRun"), rows.map { it::class.simpleName })
+        val media = rows[1] as EditorRow.Media
+        assertEquals("/api/attachments/y", media.url)
+        assertEquals("c.mp4", media.label)
+    }
+
     @Test fun marksSurviveRowRoundTrip() =
         assertEquals("a **b** c", roundTripViaRows("a **b** c"))
 

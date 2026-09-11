@@ -32,6 +32,22 @@ class AttachmentFilesTest {
         assertFalse(isInlineImage(""))
     }
 
+    // EXP-824: video / audio is inline MEDIA, never an inline image — it
+    // leaves the Files rail through its own classification.
+    @Test
+    fun videoAndAudioAreInlineMediaNotImages() {
+        assertTrue(isInlineVideo("video/mp4"))
+        assertTrue(isInlineVideo("video/quicktime"))
+        assertTrue(isInlineAudio("audio/mpeg"))
+        assertTrue(isInlineMedia("video/webm"))
+        assertTrue(isInlineMedia("audio/ogg"))
+        assertFalse(isInlineImage("video/mp4"))
+        assertFalse(isInlineImage("audio/mpeg"))
+        assertFalse(isInlineMedia("image/png"))
+        assertFalse(isInlineMedia("application/pdf"))
+        assertFalse(isInlineMedia(null))
+    }
+
     @Test
     fun classificationIsAnExactMatchLikeEveryOtherClient() {
         // Non-canonical stored types are Files rows on server/web/desktop —

@@ -39,9 +39,11 @@ vi.mock(`@/lib/storage`, () => ({
 }))
 
 import { handleIssueAttachmentUpload } from "@/lib/storage/issue-attachment-upload"
+import { db } from "@/db/connection"
 import {
   maxFileUploadBytes,
   maxImageUploadBytes,
+  maxPosterUploadBytes,
 } from "@/lib/storage/issue-attachments"
 
 const ISSUE_ID = `00000000-0000-4000-8000-000000000001`
@@ -116,5 +118,125 @@ describe(`handleIssueAttachmentUpload`, () => {
       message: `Images must be ${maxImageUploadBytes / (1024 * 1024)} MB or smaller`,
     })
     expect(h.uploadObject).not.toHaveBeenCalled()
+  })
+})
+
+// EXP-824: media uploads probe the header, take an optional poster part and
+// fall back to bounded client-supplied metadata.
+describe(`handleIssueAttachmentUpload (media, EXP-824)`, () => {
+  // jsdom's File has no arrayBuffer(); the handler reads bytes through it.
+  function bytesFile(name: string, type: string, text: string) {
+    const file = new File([text], name, { type })
+    const bytes = new TextEncoder().encode(text)
+    Object.defineProperty(file, `arrayBuffer`, {
+      value: async () => bytes.buffer,
+    })
+    Object.defineProperty(file, `size`, { value: bytes.length })
+    return file
+  }
+
+  function insertSpy() {
+    const values = vi.fn().mockResolvedValue(undefined)
+    ;(db.insert as ReturnType<typeof vi.fn>).mockReturnValue({ values })
+    return values
+  }
+
+  it(`stores a webm with client metadata and a poster, serving the poster url`, async () => {
+    const values = insertSpy()
+    const formData = new FormData()
+    formData.append(`file`, bytesFile(`clip.webm`, `video/webm`, `webm-bytes`))
+    formData.append(`poster`, bytesFile(`poster.jpg`, `image/jpeg`, `jpeg-bytes`))
+    formData.append(`width`, `1280`)
+    formData.append(`height`, `720`)
+    formData.append(`durationMs`, `7250`)
+
+    const response = await upload(formData)
+    const body = (await response.json()) as Record<string, unknown>
+
+    expect(h.uploadObject).toHaveBeenCalledTimes(2)
+    const keys = h.uploadObject.mock.calls.map((call) => call[0].key as string)
+    expect(keys[1]).toBe(`${keys[0]}.poster`)
+    expect(h.uploadObject.mock.calls[1][0].contentType).toBe(`image/jpeg`)
+    expect(h.assertWithinStorageLimit).toHaveBeenCalledWith(`t-1`, 10 + 10)
+    expect(values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contentType: `video/webm`,
+        width: 1280,
+        height: 720,
+        durationMs: 7250,
+        posterStorageKey: keys[1],
+      })
+    )
+    expect(body).toMatchObject({
+      contentType: `video/webm`,
+      width: 1280,
+      height: 720,
+      durationMs: 7250,
+      posterUrl: `/api/attachments/${body.id as string}?poster=1`,
+    })
+  })
+
+  it(`ignores implausible client metadata and non-image posters`, async () => {
+    const values = insertSpy()
+    const formData = new FormData()
+    formData.append(`file`, bytesFile(`clip.webm`, `video/webm`, `webm-bytes`))
+    formData.append(`poster`, bytesFile(`poster.html`, `text/html`, `html`))
+    formData.append(`width`, `99999`)
+    formData.append(`height`, `720`)
+    formData.append(`durationMs`, `-1`)
+
+    await upload(formData)
+
+    expect(h.uploadObject).toHaveBeenCalledTimes(1)
+    expect(values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        width: null,
+        height: null,
+        durationMs: null,
+        posterStorageKey: null,
+      })
+    )
+  })
+
+  it(`rejects an oversized poster before storing anything`, async () => {
+    insertSpy()
+    const formData = new FormData()
+    formData.append(`file`, bytesFile(`clip.mp4`, `video/mp4`, `mp4`))
+    formData.append(
+      `poster`,
+      fileOfSize(`poster.jpg`, `image/jpeg`, maxPosterUploadBytes + 1)
+    )
+
+    await expect(upload(formData)).rejects.toMatchObject({
+      code: `BAD_REQUEST`,
+      message: `Poster frames must be 2 MB or smaller`,
+    })
+    expect(h.uploadObject).not.toHaveBeenCalled()
+  })
+
+  it(`rolls back both blobs when the row insert fails`, async () => {
+    const values = vi.fn().mockRejectedValue(new Error(`boom`))
+    ;(db.insert as ReturnType<typeof vi.fn>).mockReturnValue({ values })
+    const formData = new FormData()
+    formData.append(`file`, bytesFile(`clip.mp4`, `video/mp4`, `mp4`))
+    formData.append(`poster`, bytesFile(`poster.jpg`, `image/jpeg`, `jpg`))
+
+    await expect(upload(formData)).rejects.toThrow(`boom`)
+    expect(h.deleteObject).toHaveBeenCalledTimes(2)
+  })
+
+  it(`never probes or posters a plain file upload`, async () => {
+    const values = insertSpy()
+    const formData = new FormData()
+    formData.append(`file`, bytesFile(`dump.zip`, `application/zip`, `zip`))
+    formData.append(`poster`, bytesFile(`poster.jpg`, `image/jpeg`, `jpg`))
+    formData.append(`durationMs`, `1000`)
+
+    await upload(formData)
+
+    expect(h.uploadObject).toHaveBeenCalledTimes(1)
+    expect(values).toHaveBeenCalledWith(
+      expect.objectContaining({ durationMs: null, posterStorageKey: null })
+    )
   })
 })

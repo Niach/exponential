@@ -1340,6 +1340,14 @@ public struct AttachmentEntity: FetchableRecord, PersistableRecord, Identifiable
     public let url: String
     public let width: Int?
     public let height: Int?
+    /// EXP-824: a `video/*` / `audio/*` row's probed length, for the duration
+    /// chip on the player. NULL on every other row (and on media rows the
+    /// server could not probe).
+    public let durationMs: Int?
+    /// EXP-824: set when a poster frame is stored beside the bytes — served
+    /// as `/api/attachments/{id}?poster=1`. The key itself is never used by a
+    /// client; non-nil IS the "has a poster" signal.
+    public let posterStorageKey: String?
     public let createdAt: String
     public let updatedAt: String
 
@@ -1356,6 +1364,8 @@ public struct AttachmentEntity: FetchableRecord, PersistableRecord, Identifiable
         url: String,
         width: Int?,
         height: Int?,
+        durationMs: Int? = nil,
+        posterStorageKey: String? = nil,
         createdAt: String,
         updatedAt: String
     ) {
@@ -1371,9 +1381,14 @@ public struct AttachmentEntity: FetchableRecord, PersistableRecord, Identifiable
         self.url = url
         self.width = width
         self.height = height
+        self.durationMs = durationMs
+        self.posterStorageKey = posterStorageKey
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
+
+    /// Whether a poster frame exists for this row (EXP-824).
+    public var hasPoster: Bool { posterStorageKey != nil }
 
     enum CodingKeys: String, CodingKey {
         case id, filename, url, width, height
@@ -1384,6 +1399,8 @@ public struct AttachmentEntity: FetchableRecord, PersistableRecord, Identifiable
         case contentType = "content_type"
         case sizeBytes = "size_bytes"
         case storageKey = "storage_key"
+        case durationMs = "duration_ms"
+        case posterStorageKey = "poster_storage_key"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -1411,6 +1428,9 @@ extension AttachmentEntity: Codable {
         url = try c.decode(String.self, forKey: .url)
         width = try c.decodeWireInt(forKey: .width)
         height = try c.decodeWireInt(forKey: .height)
+        // EXP-824: both nullable and absent on pre-rotation snapshots.
+        durationMs = try c.decodeWireInt(forKey: .durationMs)
+        posterStorageKey = try c.decodeIfPresent(String.self, forKey: .posterStorageKey)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
     }

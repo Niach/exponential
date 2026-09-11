@@ -100,7 +100,7 @@ fun BlockImageEditView(
 }
 
 @Composable
-private fun UploadingBadge(modifier: Modifier) {
+internal fun UploadingBadge(modifier: Modifier, text: String = "Uploading…") {
     androidx.compose.foundation.layout.Row(
         modifier = modifier
             .clip(RoundedCornerShape(percent = 50))
@@ -114,12 +114,12 @@ private fun UploadingBadge(modifier: Modifier) {
             color = Color.White,
         )
         Spacer(Modifier.size(6.dp))
-        Text("Uploading…", color = Color.White, style = MdStyle.body.copy(fontSize = MdStyle.bodySize * 0.8f))
+        Text(text, color = Color.White, style = MdStyle.body.copy(fontSize = MdStyle.bodySize * 0.8f))
     }
 }
 
 @Composable
-private fun RetryBadge(modifier: Modifier, error: String?, onRetry: () -> Unit) {
+internal fun RetryBadge(modifier: Modifier, error: String?, onRetry: () -> Unit) {
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))

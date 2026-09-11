@@ -25,7 +25,9 @@ import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.MAX_FILE_UPLOAD_BYTES
 import com.exponential.app.domain.MAX_IMAGE_UPLOAD_BYTES
 import com.exponential.app.domain.canonicalContentType
+import com.exponential.app.domain.MediaPreparer
 import com.exponential.app.domain.isInlineImage
+import com.exponential.app.domain.isInlineMedia
 import com.exponential.app.ui.markdown.MarkdownMediaUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
@@ -70,6 +72,8 @@ class CommentThreadViewModel @Inject constructor(
     private val auth: AuthRepository,
     @dagger.hilt.android.qualifiers.ApplicationContext
     private val appContext: android.content.Context,
+    // EXP-824: video / audio picks are normalised before they queue.
+    private val mediaPreparer: MediaPreparer,
 ) : ViewModel() {
 
     // Reactive account scoping: all queries re-scope on account switch (no
@@ -226,15 +230,53 @@ class CommentThreadViewModel @Inject constructor(
                     "A comment can carry at most $MAX_COMMENT_ATTACHMENTS attachments"
                 return@launch
             }
-            val picked = withContext(Dispatchers.IO) {
-                val bytes = MarkdownMediaUtils.readBytes(appContext, uri) ?: return@withContext null
-                val contentType = canonicalContentType(
+            val contentType = withContext(Dispatchers.IO) {
+                canonicalContentType(
                     MarkdownMediaUtils.guessMimeType(
                         appContext,
                         uri,
                         fallback = "application/octet-stream",
                     ),
                 )
+            }
+            // EXP-824: a video is transcoded to 720p H.264/AAC (poster +
+            // probe alongside) BEFORE it queues, so the strip shows the poster
+            // and the size cap applies to what will actually upload.
+            if (isInlineMedia(contentType)) {
+                val filename = withContext(Dispatchers.IO) {
+                    MarkdownMediaUtils.guessFilename(appContext, uri)
+                }
+                val prepared = try {
+                    mediaPreparer.prepare(uri, filename, contentType)
+                } catch (cancel: CancellationException) {
+                    throw cancel
+                } catch (t: Throwable) {
+                    android.util.Log.w("CommentThreadViewModel", "Media prepare failed", t)
+                    _commentError.value = t.message?.takeIf { it.isNotBlank() }
+                        ?: "That file could not be prepared"
+                    return@launch
+                }
+                if (prepared.bytes.size > MAX_FILE_UPLOAD_BYTES) {
+                    _commentError.value =
+                        "Videos must be ${MAX_FILE_UPLOAD_BYTES / (1024 * 1024)} MB or smaller"
+                    return@launch
+                }
+                target.value = target.value + PendingAttachment(
+                    uri = uri,
+                    bytes = prepared.bytes,
+                    filename = prepared.filename,
+                    contentType = prepared.contentType,
+                    isImage = false,
+                    isMedia = true,
+                    poster = prepared.poster,
+                    width = prepared.width,
+                    height = prepared.height,
+                    durationMs = prepared.durationMs,
+                )
+                return@launch
+            }
+            val picked = withContext(Dispatchers.IO) {
+                val bytes = MarkdownMediaUtils.readBytes(appContext, uri) ?: return@withContext null
                 PendingAttachment(
                     uri = uri,
                     bytes = bytes,
@@ -282,6 +324,11 @@ class CommentThreadViewModel @Inject constructor(
                 } else {
                     attachmentsApi.upload(
                         accountId, issueId, item.bytes, item.filename, item.contentType,
+                        // EXP-824: the media parts ride along for video / audio.
+                        poster = item.poster,
+                        width = item.width,
+                        height = item.height,
+                        durationMs = item.durationMs,
                     ).id
                 }
             } catch (cancel: CancellationException) {

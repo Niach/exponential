@@ -512,7 +512,8 @@ html {
 /* Vertical only — the image node's horizontal `auto` keeps it centred. */
 .tiptap-chat .tiptap-content img,
 .tiptap-chat .tiptap-content .editor-image,
-.tiptap-chat .tiptap-content .editor-image-node {
+.tiptap-chat .tiptap-content .editor-image-node,
+.tiptap-chat .tiptap-content .editor-media-node {
   margin-top: 0.5rem;
   margin-bottom: 0.5rem;
 }
@@ -1084,6 +1085,169 @@ html {
 .editor-image-node.is-resizing {
   user-select: none;
   -webkit-user-select: none;
+}
+
+/* EXP-824: inline video/audio blocks. The node hugs its player like the
+   image node does (centred, fit-content) so the hover menu and the resize
+   handles anchor to the frame's edges; the frame reserves the probed
+   aspect-ratio so the column never jumps while the poster loads. */
+.tiptap-content .editor-media-node {
+  position: relative;
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0.75rem auto;
+  line-height: 0;
+  isolation: isolate;
+}
+
+.tiptap-content .editor-media-node.is-audio {
+  width: 100%;
+  max-width: 32rem;
+  line-height: normal;
+}
+
+.editor-media-frame {
+  position: relative;
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: oklch(0 0 0);
+  line-height: 0;
+}
+
+.editor-media-frame .editor-media {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+/* A frame with no probed dimensions grows with the stream's own metadata. */
+.editor-media-frame:not([style*="aspect-ratio"]) {
+  min-width: 12rem;
+  min-height: 6rem;
+}
+
+.tiptap-content .editor-media-node.is-selected .editor-media-frame,
+.tiptap-content .editor-media-node.is-selected .editor-audio {
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--foreground) 28%, transparent),
+    0 0 0 4px color-mix(in oklab, var(--ring) 16%, transparent);
+}
+
+.editor-media-duration {
+  position: absolute;
+  top: 0.6rem;
+  left: 0.6rem;
+  z-index: 1;
+  padding: 0.125rem 0.4rem;
+  border-radius: 9999px;
+  font-size: 0.6875rem;
+  line-height: 1rem;
+  font-variant-numeric: tabular-nums;
+  color: oklch(1 0 0 / 0.92);
+  background: oklch(0 0 0 / 0.55);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+
+/* Expand-to-lightbox affordance — same glass pill as the image menu trigger,
+   revealed on hover/focus. */
+.editor-media-expand {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+  z-index: 1;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 1px solid var(--glass-stroke-card);
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--popover) 95%, transparent);
+  color: color-mix(in oklab, var(--popover-foreground) 85%, transparent);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.editor-media-frame:hover .editor-media-expand,
+.editor-media-frame:focus-within .editor-media-expand {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.editor-media-node:hover .editor-image-menu-trigger,
+.editor-media-node.is-selected .editor-image-menu-trigger,
+.editor-media-node:focus-within .editor-image-menu-trigger {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+}
+
+.editor-media-node:hover .editor-image-handle,
+.editor-media-node.is-selected .editor-image-handle,
+.editor-media-node.is-resizing .editor-image-handle {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.editor-media-node.is-resizing {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* The row hasn't synced yet (or the link points at nothing we know): a quiet
+   box carrying the label, sized like a small player. */
+.editor-media-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16rem;
+  max-width: 100%;
+  min-height: 6rem;
+  padding: 1rem;
+  border-radius: 12px;
+  border: 1px dashed var(--border);
+  background: color-mix(in oklab, var(--muted) 40%, transparent);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+.editor-media-fallback {
+  margin: 0;
+  line-height: 1.5rem;
+}
+
+.editor-audio {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  width: 100%;
+  padding: 0.5rem 0.625rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: color-mix(in oklab, var(--muted) 40%, transparent);
+}
+
+.editor-audio-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.editor-audio-control {
+  display: block;
+  width: 100%;
+  height: 2.25rem;
 }
 
 .tiptap-content s {

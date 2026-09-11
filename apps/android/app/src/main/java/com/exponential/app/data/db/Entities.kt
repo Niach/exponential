@@ -457,9 +457,18 @@ data class AttachmentEntity(
     // avoid layout shift. Nullable for non-image / not-yet-probed attachments.
     val width: Int? = null,
     val height: Int? = null,
+    // EXP-824 inline media: probed playback length of a `video/*` / `audio/*`
+    // row and the storage key of its poster frame (non-null = the poster route
+    // `/api/attachments/{id}?poster=1` serves one). Both nullable with
+    // defaults: a required field would stall the shape on a partial update.
+    @ColumnInfo(name = "duration_ms") @SerialName("duration_ms") @JsonNames("durationMs") val durationMs: Long? = null,
+    @ColumnInfo(name = "poster_storage_key") @SerialName("poster_storage_key") @JsonNames("posterStorageKey") val posterStorageKey: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
-)
+) {
+    /** True when the server holds a poster frame for this media row. */
+    val hasPoster: Boolean get() = posterStorageKey != null
+}
 
 @Entity(
     tableName = "notifications",

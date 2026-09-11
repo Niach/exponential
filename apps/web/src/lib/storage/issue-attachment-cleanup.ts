@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm"
 import { attachments } from "@/db/schema"
 import { deleteObject } from "@/lib/storage"
+import { collectAttachmentStorageKeys } from "@/lib/storage/issue-attachments"
 
 type Tx = Parameters<
   // eslint-disable-next-line quotes
@@ -32,8 +33,11 @@ export async function collectIssueAttachmentStorageKeysInTx(
   issueId: string
 ): Promise<string[]> {
   const attachmentRows = await tx
-    .select({ storageKey: attachments.storageKey })
+    .select({
+      storageKey: attachments.storageKey,
+      posterStorageKey: attachments.posterStorageKey,
+    })
     .from(attachments)
     .where(eq(attachments.issueId, issueId))
-  return attachmentRows.map((row) => row.storageKey)
+  return collectAttachmentStorageKeys(attachmentRows)
 }

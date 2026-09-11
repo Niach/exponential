@@ -33,7 +33,8 @@ import kotlinx.coroutines.coroutineScope
 @Stable
 class EditorModel {
 
-    enum class ImageUploadState { Idle, Uploading, Failed }
+    /** [Preparing] = a media pick is being transcoded / probed before its upload (EXP-824). */
+    enum class ImageUploadState { Idle, Preparing, Uploading, Failed }
 
     var rows by mutableStateOf<List<EditorRow>>(listOf(EditorRows.emptyRun()))
         private set
@@ -289,7 +290,7 @@ class EditorModel {
         val idx = rows.indexOfFirst { it.id == rowId }
         if (idx <= 0) return
         val row = rows[idx] as? EditorRow.TextRun ?: return
-        val prev = rows[idx - 1] as? EditorRow.Image ?: return
+        val prev = rows[idx - 1] as? EditorRow.Embed ?: return
 
         dropPendingDraft(prev)
         uploadStates.remove(prev.id)
@@ -750,10 +751,10 @@ class EditorModel {
         notifyEdit()
     }
 
-    // -- Images -----------------------------------------------------------------
+    // -- Images + inline media (EXP-824) ----------------------------------------
 
     fun insertImage(image: PendingImage): String =
-        doInsertImage(url = draftUrl(), alt = "image", pending = image)
+        doInsertEmbed(EditorRow.Image(url = draftUrl(), alt = "image"), pending = image)
 
     /**
      * Insert an image with a caller-supplied URL (real `/api/attachments/...` or a
@@ -763,7 +764,19 @@ class EditorModel {
      * [runUpload] / [retryUpload]).
      */
     fun insertImageUrl(url: String, alt: String = "image", pending: PendingImage? = null): String =
-        doInsertImage(url = url, alt = alt, pending = pending)
+        doInsertEmbed(EditorRow.Image(url = url, alt = alt), pending = pending)
+
+    /**
+     * Insert an inline video / audio block at the caret (EXP-824) — the same
+     * lifecycle as [insertImageUrl], projected to an [EditorRow.Media] that
+     * serializes as the plain link `[label](url)`.
+     */
+    fun insertMediaUrl(url: String, label: String, pending: PendingImage? = null): String =
+        doInsertEmbed(EditorRow.Media(url = url, label = label), pending = pending)
+
+    /** [insertMediaUrl] at the END of the document (the file-picker path). */
+    fun appendMediaUrl(url: String, label: String, pending: PendingImage? = null): String =
+        doInsertEmbed(EditorRow.Media(url = url, label = label), pending = pending, atEnd = true)
 
     /**
      * Append an image at the END of the description, ignoring the caret (EXP-327).
@@ -772,16 +785,15 @@ class EditorModel {
      * written instead of splitting whatever paragraph happened to hold focus.
      */
     fun appendImageUrl(url: String, alt: String = "image", pending: PendingImage? = null): String =
-        doInsertImage(url = url, alt = alt, pending = pending, atEnd = true)
+        doInsertEmbed(EditorRow.Image(url = url, alt = alt), pending = pending, atEnd = true)
 
-    private fun doInsertImage(
-        url: String,
-        alt: String,
+    private fun doInsertEmbed(
+        imageRow: EditorRow.Embed,
         pending: PendingImage?,
         atEnd: Boolean = false,
     ): String {
+        val url = imageRow.url
         if (pending != null) pendingImages[url] = pending
-        val imageRow = EditorRow.Image(url = url, alt = alt)
 
         val targetId = if (atEnd) null else focusedRowId ?: selection?.first
 
@@ -877,7 +889,7 @@ class EditorModel {
         val newUrl = runCatching { upload() }
             .onFailure { error -> uploadErrors[rowId] = trpcErrorMessage(error, "Upload failed") }
             .getOrNull()
-        val current = rows.firstOrNull { it.id == rowId } as? EditorRow.Image
+        val current = rows.firstOrNull { it.id == rowId } as? EditorRow.Embed
         if (current == null) {
             // Row was deleted while the upload ran — drop all tracking.
             uploaders.remove(rowId)
@@ -907,10 +919,11 @@ class EditorModel {
         runUpload(rowId, upload)
     }
 
+    /** Delete an image OR media row (EXP-824), merging the runs around it. */
     fun deleteImageRow(rowId: String) {
         val idx = rows.indexOfFirst { it.id == rowId }
         if (idx < 0) return
-        val img = rows[idx] as? EditorRow.Image ?: return
+        val img = rows[idx] as? EditorRow.Embed ?: return
         dropPendingDraft(img)
         uploadStates.remove(img.id)
         uploadErrors.remove(img.id)
@@ -940,7 +953,7 @@ class EditorModel {
         notifyEdit()
     }
 
-    private fun dropPendingDraft(img: EditorRow.Image) {
+    private fun dropPendingDraft(img: EditorRow.Embed) {
         if (isDraftUrl(img.url)) pendingImages.remove(img.url)
     }
 
@@ -951,7 +964,7 @@ class EditorModel {
      */
     suspend fun commitPendingImages(uploader: suspend (PendingImage) -> String?): Boolean {
         removeDanglingDrafts()
-        val drafts = rows.filterIsInstance<EditorRow.Image>()
+        val drafts = rows.filterIsInstance<EditorRow.Embed>()
             .filter { isDraftUrl(it.url) && pendingImages[it.url] != null }
         if (drafts.isEmpty()) return !hasUncommittedDrafts
 
@@ -988,8 +1001,8 @@ class EditorModel {
     private fun setImageUrl(rowId: String, url: String) {
         val idx = rows.indexOfFirst { it.id == rowId }
         if (idx < 0) return
-        val img = rows[idx] as? EditorRow.Image ?: return
-        replaceRow(idx, img.copy(url = url))
+        val img = rows[idx] as? EditorRow.Embed ?: return
+        replaceRow(idx, img.withUrl(url))
     }
 
     private fun removeDanglingDrafts() {
@@ -997,7 +1010,7 @@ class EditorModel {
         var changed = false
         for (i in next.indices.reversed()) {
             val r = next[i]
-            if (r is EditorRow.Image && isDraftUrl(r.url) && pendingImages[r.url] == null) {
+            if (r is EditorRow.Embed && isDraftUrl(r.url) && pendingImages[r.url] == null) {
                 uploadStates.remove(r.id)
                 uploaders.remove(r.id)
                 next.removeAt(i)
@@ -1033,7 +1046,7 @@ class EditorModel {
         val next = rows.map { r ->
             when (r) {
                 // A block-level row breaks every open list run.
-                is EditorRow.Image, is EditorRow.Table -> {
+                is EditorRow.Image, is EditorRow.Media, is EditorRow.Table -> {
                     counters.clear()
                     types.clear()
                     r

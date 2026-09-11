@@ -28,6 +28,67 @@ class EditorModelTest {
     private fun runs(m: EditorModel) = m.rows.filterIsInstance<EditorRow.TextRun>()
     private fun run(m: EditorModel) = runs(m).single()
 
+    // --- Inline media rows (EXP-824) share the image row's lifecycle. ---
+
+    @Test
+    fun insertingMediaAtTheCaretSplitsTheRunAndSerializesAPlainLink() {
+        val m = model("HelloWorld")
+        m.setFocused(run(m).id)
+        m.updateSelection(run(m).id, 5..5)
+        val rowId = m.insertMediaUrl("draft://v1", label = "clip.mp4")
+        assertEquals(listOf("TextRun", "Media", "TextRun"), m.rows.map { it::class.simpleName })
+        assertEquals(EditorModel.ImageUploadState.Idle, m.uploadState(rowId))
+        assertEquals("Hello\n\n[clip.mp4](draft://v1)\n\nWorld", m.currentMarkdown())
+        assertTrue(m.hasUncommittedDrafts)
+    }
+
+    @Test
+    fun appendingMediaLandsAtTheEndRegardlessOfFocus() {
+        val m = model("First\n\nSecond")
+        m.setFocused(run(m).id)
+        m.updateSelection(run(m).id, 0..0)
+        m.appendMediaUrl("/api/attachments/x", label = "clip.mp4")
+        assertEquals("First\n\nSecond\n\n[clip.mp4](/api/attachments/x)", m.currentMarkdown())
+        assertFalse(m.hasUncommittedDrafts)
+    }
+
+    @Test
+    fun deletingAMediaRowMergesTheRunsAroundIt() {
+        val m = model("before\n\n[clip.mp4](/api/attachments/x)\n\nafter")
+        val media = m.rows.filterIsInstance<EditorRow.Media>().single()
+        m.deleteImageRow(media.id)
+        assertEquals("beforeafter", m.currentMarkdown())
+        assertTrue(m.rows.none { it is EditorRow.Media })
+    }
+
+    @Test
+    fun aMediaUploadSwapsTheDraftUrlAndKeepsTheLabel() = kotlinx.coroutines.runBlocking {
+        val m = model("")
+        val rowId = m.insertMediaUrl("draft://v1", label = "clip.mp4")
+        m.runUpload(rowId) { "/api/attachments/real" }
+        val media = m.rows.filterIsInstance<EditorRow.Media>().single()
+        assertEquals("/api/attachments/real", media.url)
+        assertEquals("clip.mp4", media.label)
+        assertEquals(EditorModel.ImageUploadState.Idle, m.uploadState(rowId))
+        assertEquals("[clip.mp4](/api/attachments/real)", m.currentMarkdown())
+    }
+
+    @Test
+    fun aFailedMediaUploadKeepsTheRowForRetry() = kotlinx.coroutines.runBlocking {
+        val m = model("")
+        val rowId = m.insertMediaUrl("draft://v1", label = "clip.mp4")
+        var attempts = 0
+        m.runUpload(rowId) {
+            attempts++
+            if (attempts == 1) throw IllegalStateException("boom") else "/api/attachments/ok"
+        }
+        assertEquals(EditorModel.ImageUploadState.Failed, m.uploadState(rowId))
+        assertTrue(m.rows.any { it is EditorRow.Media && it.url == "draft://v1" })
+        m.retryUpload(rowId)
+        assertEquals(EditorModel.ImageUploadState.Idle, m.uploadState(rowId))
+        assertEquals("[clip.mp4](/api/attachments/ok)", m.currentMarkdown())
+    }
+
     @Test
     fun enterAtEndAddsALine() {
         val m = model("Hello")

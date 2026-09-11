@@ -488,6 +488,10 @@ impl Block {
         strings: &I18nStrings,
         overlay: Option<AnyElement>,
     ) -> AnyElement {
+        // EXP-824 vendoring: a media runtime is a tile, not a picture.
+        if let Some(media) = runtime.media.as_ref() {
+            return self.render_media_content(runtime, media, max_width, max_height, theme, overlay);
+        }
         let c = &theme.colors;
         let d = &theme.dimensions;
         let t = &theme.typography;
@@ -612,6 +616,173 @@ impl Block {
         }
 
         container.into_any_element()
+    }
+
+    /// EXP-824 vendoring: the media tile a standalone attachment link renders
+    /// as. Video: a box at the poster's aspect (the host's natural size, a
+    /// 16:9 default without one; a `?w=` or live resize width pins the
+    /// width), the decoded poster under a centered play disc and a duration
+    /// chip. Audio: a card with the play disc, the filename and the duration.
+    /// The overlay (resize handles + `…` menu) rides the tile exactly like an
+    /// image's. Clicks are handled by the block (`RequestOpenLink`).
+    fn render_media_content(
+        &self,
+        runtime: &ImageRuntime,
+        media: &crate::host::MediaInfo,
+        max_width: Length,
+        max_height: Pixels,
+        theme: &Theme,
+        overlay: Option<AnyElement>,
+    ) -> AnyElement {
+        let c = &theme.colors;
+        let d = &theme.dimensions;
+        let t = &theme.typography;
+        let play_disc = |diameter: f32| {
+            div()
+                .size(px(diameter))
+                .flex_shrink_0()
+                .rounded_full()
+                .bg(gpui::black().opacity(0.6))
+                .border_1()
+                .border_color(gpui::white().opacity(0.25))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    gpui::svg()
+                        .path(media.play_icon.clone())
+                        .size(px((diameter * 0.46).round()))
+                        .text_color(gpui::white()),
+                )
+        };
+        let body: AnyElement = match media.kind {
+            crate::host::MediaKind::Video => {
+                let column = match max_width {
+                    Length::Definite(DefiniteLength::Absolute(AbsoluteLength::Pixels(width))) => {
+                        Some(f32::from(width))
+                    }
+                    _ => None,
+                };
+                let (natural_w, natural_h) = self
+                    .environment
+                    .image_source_resolver
+                    .as_ref()
+                    .and_then(|resolver| resolver.natural_size(&runtime.src))
+                    .filter(|(width, height)| *width > 0.0 && *height > 0.0)
+                    .unwrap_or((480.0, 270.0));
+                let cap = f32::from(max_height);
+                let mut fit_width = natural_w.min(natural_w * (cap / natural_h));
+                if let Some(column) = column {
+                    fit_width = fit_width.min(column);
+                }
+                let width = self
+                    .image_resize_drag
+                    .map(|drag| drag.current_width)
+                    .or_else(|| {
+                        crate::components::markdown::image::width_param_from_src(&runtime.src)
+                    })
+                    .unwrap_or(fit_width)
+                    .max(1.0);
+                let height = width * natural_h / natural_w;
+                let poster = match &runtime.resolved_source {
+                    ImageResolvedSource::Decoded(image) => Some(
+                        img(image.clone())
+                            .size_full()
+                            .object_fit(ObjectFit::Cover)
+                            .into_any_element(),
+                    ),
+                    _ => None,
+                };
+                div()
+                    .relative()
+                    .w(px(width))
+                    .h(px(height))
+                    .max_w(relative(1.0))
+                    .overflow_hidden()
+                    .rounded(px(d.image_radius))
+                    .border_1()
+                    .border_color(c.image_placeholder_border)
+                    .bg(c.image_placeholder_bg)
+                    .children(poster)
+                    .child(
+                        div()
+                            .absolute()
+                            .inset_0()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(play_disc(56.0)),
+                    )
+                    .children(media.duration.clone().map(|duration| {
+                        div()
+                            .absolute()
+                            .bottom(px(8.0))
+                            .right(px(8.0))
+                            .px(px(6.0))
+                            .py(px(2.0))
+                            .rounded(px(4.0))
+                            .bg(gpui::black().opacity(0.65))
+                            .text_size(px(t.code_size))
+                            .text_color(gpui::white())
+                            .child(SharedString::from(duration))
+                    }))
+                    .into_any_element()
+            }
+            crate::host::MediaKind::Audio => div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(12.0))
+                .w_full()
+                .max_w(px(480.0))
+                .px(px(12.0))
+                .py(px(8.0))
+                .rounded(px(d.image_radius))
+                .border_1()
+                .border_color(c.image_placeholder_border)
+                .bg(c.image_placeholder_bg)
+                .child(play_disc(40.0))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .min_w_0()
+                        .flex_1()
+                        .gap(px(2.0))
+                        .child(
+                            div()
+                                .whitespace_nowrap()
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .text_color(c.text_default)
+                                .child(SharedString::from(media.label.clone())),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(t.code_size))
+                                .text_color(c.image_caption_text)
+                                .child(SharedString::from(
+                                    media.duration.clone().unwrap_or_else(|| "Audio".to_string()),
+                                )),
+                        ),
+                )
+                .into_any_element(),
+        };
+        let tile_box = div()
+            .relative()
+            .flex()
+            .flex_shrink_0()
+            .max_w(relative(1.0))
+            .child(body)
+            .children(overlay);
+        div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .child(tile_box)
+            .into_any_element()
     }
 
     /// EXP-261 vendoring: the hover controls layered over a standalone image —
@@ -1813,6 +1984,7 @@ impl Block {
             src: src.to_string(),
             title: None,
             resolved_source: resolve_image_source(src, self.image_base_dir()),
+            media: None,
         };
         let strings = self.environment.strings.clone();
         let content = self.render_image_content(

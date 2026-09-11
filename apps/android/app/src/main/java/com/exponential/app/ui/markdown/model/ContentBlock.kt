@@ -32,6 +32,20 @@ sealed interface ContentBlock {
         override val id: String = UUID.randomUUID().toString(),
         val table: TableData,
     ) : ContentBlock
+
+    /**
+     * EXP-824: a paragraph that is SOLELY one link to an attachment —
+     * `[clip.mp4](/api/attachments/{id})` (or a local `draft://` placeholder
+     * while the pick uploads). The ×4 interchange form of inline media: the
+     * read view upgrades it to a video / audio player once the referenced row
+     * has synced with a `video/` / `audio/` type, and renders the plain link
+     * otherwise. A link inside running text is an ordinary [InlineKind.Link].
+     */
+    data class AttachmentLinkBlock(
+        override val id: String = UUID.randomUUID().toString(),
+        val url: String,
+        val label: String,
+    ) : ContentBlock
 }
 
 /** A table column's GFM alignment, from its delimiter cell (`---`/`:---`/`:---:`/`---:`). */
@@ -160,6 +174,12 @@ enum class InlineKind { Bold, Italic, Strikethrough, InlineCode, Link }
  * An image picked locally but not yet uploaded, stashed by its `draft://` URL.
  * Carries the probed pixel size so the editor can reserve correct aspect-ratio
  * space before/while uploading (mirrors iOS `PendingImage`).
+ *
+ * EXP-824 generalises it to inline MEDIA: for a video [bytes] is the
+ * normalised MP4 the upload sends, [poster] its JPEG poster frame (what the
+ * editor tile shows) and [durationMs] the probed length; an audio pick has
+ * neither poster nor size. [isMedia] tells the two apart — the row it backs
+ * is an [com.exponential.app.ui.markdown.EditorRow.Media], not an image row.
  */
 data class PendingImage(
     val uri: Uri,
@@ -168,6 +188,9 @@ data class PendingImage(
     val contentType: String,
     val width: Int?,
     val height: Int?,
+    val isMedia: Boolean = false,
+    val durationMs: Long? = null,
+    val poster: ByteArray? = null,
 ) {
     // ByteArray breaks data-class equality; identity is the draft URL key, so
     // compare by stable scalar fields only.
@@ -175,7 +198,8 @@ data class PendingImage(
         if (this === other) return true
         if (other !is PendingImage) return false
         return uri == other.uri && filename == other.filename &&
-            contentType == other.contentType && width == other.width && height == other.height
+            contentType == other.contentType && width == other.width && height == other.height &&
+            isMedia == other.isMedia && durationMs == other.durationMs
     }
 
     override fun hashCode(): Int {
@@ -184,6 +208,8 @@ data class PendingImage(
         result = 31 * result + contentType.hashCode()
         result = 31 * result + (width ?: 0)
         result = 31 * result + (height ?: 0)
+        result = 31 * result + isMedia.hashCode()
+        result = 31 * result + (durationMs?.hashCode() ?: 0)
         return result
     }
 }

@@ -423,13 +423,13 @@ pub(crate) fn download_image(
             .await;
         let note = match result {
             Ok(()) => Notification::info(SharedString::from(format!(
-                "Image saved to {}",
+                "Saved to {}",
                 path.display()
             ))),
             Err(error) => {
-                log::warn!("image download failed for {url}: {error}");
+                log::warn!("attachment download failed for {url}: {error}");
                 Notification::error(SharedString::from(format!(
-                    "Image download failed: {error}"
+                    "Download failed: {error}"
                 )))
             }
         };
@@ -782,6 +782,53 @@ fn attach_image_context_menu(
     })
 }
 
+/// EXP-824: the read-only rendering of a [`ContentBlock::AttachmentLink`].
+/// A synced video/audio row becomes a centered media tile
+/// ([`crate::media_tile`]); a row of any other type, or one not (yet)
+/// synced, renders exactly like an inline link in prose — the link form IS
+/// the stored markdown, so nothing is lost either way.
+fn render_media_slot(
+    view: &MarkdownView,
+    blocks: &Rc<Vec<ContentBlock>>,
+    block_index: usize,
+    url: &str,
+    label: &str,
+    cx: &mut App,
+) -> gpui::AnyElement {
+    if let Some(tile) = crate::media_tile::MediaTile::for_url(url, cx) {
+        let tile = crate::media_tile::render_media_tile(
+            ElementId::from(SharedString::from(format!(
+                "{}-media-{block_index}",
+                view.id
+            ))),
+            &tile,
+            view.images.as_ref(),
+            cx,
+        );
+        return h_flex()
+            .w_full()
+            .justify_center()
+            .child(tile)
+            .into_any_element();
+    }
+    let marks = vec![InlineMark {
+        start: 0,
+        end: label.len(),
+        kind: InlineKind::Link,
+        href: Some(url.to_string()),
+    }];
+    render_view_line(
+        view,
+        blocks,
+        block_index,
+        0,
+        label,
+        &ParagraphAttrs::PLAIN,
+        marks,
+        cx,
+    )
+}
+
 pub(crate) fn placeholder_box(label: &str, cx: &App) -> gpui::AnyElement {
     // No `w_full` here: a percent width resolves fit-content under a
     // `max_w`-clamped ancestor (EXP-179) — leaving the width auto lets the
@@ -1095,7 +1142,11 @@ impl MarkdownEditor {
                 // surface, which edits tables natively). Its canonical raw
                 // text goes into a text block, so it renders as source and
                 // still re-serializes byte-identically.
-                ContentBlock::Text { .. } | ContentBlock::Table { .. } => {
+                // EXP-824: an attachment link is source text here too — the
+                // legacy editor keeps `[clip.mp4](url)` editable as-is.
+                ContentBlock::Text { .. }
+                | ContentBlock::Table { .. }
+                | ContentBlock::AttachmentLink { .. } => {
                     let fragment = blocks_to_markdown(std::slice::from_ref(block));
                     let placeholder = (index == 0).then(|| self.placeholder.clone());
                     self.new_text_block_with_placeholder(&fragment, placeholder, window, cx)
@@ -2199,6 +2250,18 @@ impl gpui::RenderOnce for MarkdownView {
                         url,
                         alt,
                         None,
+                        cx,
+                    ));
+                }
+                // EXP-824: a standalone attachment link — a media tile when
+                // the synced row is video/audio, an ordinary link otherwise.
+                ContentBlock::AttachmentLink { url, label, .. } => {
+                    children.push(render_media_slot(
+                        &self,
+                        &blocks,
+                        block_index,
+                        url,
+                        label,
                         cx,
                     ));
                 }

@@ -26,7 +26,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,8 +42,17 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.exponential.app.data.db.AttachmentEntity
 import com.exponential.app.domain.PendingAttachment
+import com.exponential.app.domain.isInlineAudio
 import com.exponential.app.domain.isInlineImage
+import com.exponential.app.domain.isInlineMedia
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.markdown.AttachmentInfo
+import com.exponential.app.ui.markdown.attachmentPosterUrl
+import com.exponential.app.ui.markdown.media.AudioBlockView
+import com.exponential.app.ui.markdown.media.DurationChip
+import com.exponential.app.ui.markdown.media.MediaPlayerDialog
+import com.exponential.app.ui.markdown.media.PlayGlyph
+import com.exponential.app.ui.markdown.media.VideoBlockView
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -75,7 +87,28 @@ fun PendingAttachmentStrip(
     ) {
         items.forEachIndexed { index, item ->
             Box {
-                if (item.isImage) {
+                if (item.isMedia) {
+                    // EXP-824: the prepared pick's poster (video) or a neutral
+                    // tile (audio), with the play glyph and duration chip.
+                    val poster = item.poster
+                    val bitmap = remember(item.uri, poster) {
+                        poster?.let { BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap() }
+                    }
+                    Box(modifier = Modifier.size(TileSize)) {
+                        if (bitmap != null) {
+                            Image(
+                                bitmap = bitmap,
+                                contentDescription = item.filename,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize().clip(TileShape),
+                            )
+                        } else {
+                            PlaceholderTile()
+                        }
+                        PlayGlyph(Modifier.align(Alignment.Center), size = 28.dp)
+                        DurationChip(item.durationMs, Modifier.align(Alignment.BottomEnd).padding(3.dp))
+                    }
+                } else if (item.isImage) {
                     val bitmap = remember(item.uri, item.bytes) {
                         BitmapFactory.decodeByteArray(item.bytes, 0, item.bytes.size)
                             ?.asImageBitmap()
@@ -134,7 +167,9 @@ fun CommentAttachmentsStrip(
     ) {
         attachments.forEach { attachment ->
             Box {
-                if (isInlineImage(attachment.contentType)) {
+                if (isInlineMedia(attachment.contentType)) {
+                    MediaThumbTile(attachment)
+                } else if (isInlineImage(attachment.contentType)) {
                     AsyncImage(
                         model = attachment.url,
                         contentDescription = attachment.filename,
@@ -190,7 +225,22 @@ fun LargeCommentAttachments(
     ) {
         attachments.forEach { attachment ->
             Box {
-                if (isInlineImage(attachment.contentType)) {
+                if (isInlineAudio(attachment.contentType)) {
+                    // EXP-824: a comment's audio plays in place, like the body's.
+                    AudioBlockView(
+                        url = attachment.url,
+                        label = attachment.filename,
+                        info = AttachmentInfo.from(attachment),
+                    )
+                } else if (isInlineMedia(attachment.contentType)) {
+                    // EXP-824: a comment's video is the point of the comment —
+                    // the same inline player the description uses.
+                    VideoBlockView(
+                        url = attachment.url,
+                        label = attachment.filename,
+                        info = AttachmentInfo.from(attachment),
+                    )
+                } else if (isInlineImage(attachment.contentType)) {
                     val width = attachment.width
                     val height = attachment.height
                     AsyncImage(
@@ -228,6 +278,36 @@ fun LargeCommentAttachments(
                 }
             }
         }
+    }
+}
+
+/**
+ * A media attachment at thumb size (EXP-824): poster (when the row has one)
+ * under the play glyph and duration chip; a tap opens the fullscreen player.
+ */
+@Composable
+private fun MediaThumbTile(attachment: AttachmentEntity) {
+    var playing by remember(attachment.id) { mutableStateOf(false) }
+    Box(
+        modifier = Modifier
+            .size(TileSize)
+            .clip(TileShape)
+            .background(GlassTokens.RowFill)
+            .clickable { playing = true },
+    ) {
+        if (attachment.hasPoster) {
+            AsyncImage(
+                model = attachmentPosterUrl(attachment.url),
+                contentDescription = attachment.filename,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        PlayGlyph(Modifier.align(Alignment.Center), size = 28.dp)
+        DurationChip(attachment.durationMs, Modifier.align(Alignment.BottomEnd).padding(3.dp))
+    }
+    if (playing) {
+        MediaPlayerDialog(url = attachment.url, onDismiss = { playing = false })
     }
 }
 

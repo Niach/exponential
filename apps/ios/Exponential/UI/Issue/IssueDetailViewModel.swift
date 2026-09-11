@@ -81,6 +81,10 @@ final class IssueDetailViewModel {
     var fileAttachments: [AttachmentEntity] = []
     /// Picked files whose upload is in flight (or failed) — see PendingFileUpload.
     var pendingFileUploads: [PendingFileUpload] = []
+    /// EXP-824: every synced attachment on this issue by id — what the
+    /// description editor's media blocks resolve against (live: a video row
+    /// landing after its block rendered upgrades the link to a player).
+    private var attachmentsById: [String: AttachmentEntity] = [:]
     /// Attachment ids with a delete request in flight; the row stays visible but
     /// inert until sync removes it.
     var deletingAttachmentIds: Set<String> = []
@@ -196,6 +200,11 @@ final class IssueDetailViewModel {
         // plain `#IDENTIFIER` interchange token.
         editor.issueRefSearch = { [weak self] query in
             self?.searchIssueRefs(query) ?? []
+        }
+        // EXP-824: `[clip.mp4](/api/attachments/{id})` blocks resolve against
+        // the issue's synced rows (render-only, like the ref resolvers).
+        editor.attachmentResolver = { [weak self] attachmentId in
+            self?.attachmentsById[attachmentId].map(AttachmentMediaInfo.init)
         }
     }
 
@@ -628,7 +637,9 @@ final class IssueDetailViewModel {
                 issueId: issueId,
                 data: image.data,
                 filename: image.filename,
-                contentType: image.contentType
+                contentType: image.contentType,
+                // EXP-824: a video's poster + probed size/length ride along.
+                media: image.mediaUploadParts
             )
             return uploaded.url
         }
@@ -641,8 +652,13 @@ final class IssueDetailViewModel {
     var canManageFiles: Bool { permissions.isModerator }
 
     private func applyAttachments(_ rows: [AttachmentEntity]) {
+        // EXP-824: the editor's media blocks read this; bump so they re-resolve.
+        attachmentsById = Dictionary(rows.map { ($0.id.lowercased(), $0) }, uniquingKeysWith: { _, last in last })
+        editor.attachmentsDidChange()
         fileAttachments = rows
-            .filter { !AttachmentFiles.isInlineImage(contentType: $0.contentType) }
+            // Inline images and (EXP-824) inline media live in the body, not
+            // the rail.
+            .filter { AttachmentFiles.isFile(contentType: $0.contentType) }
             // EXP-554: a file attached to a COMMENT renders in that comment's
             // strip, not the issue's Files rail — otherwise it lists twice.
             .filter { $0.commentId == nil }
@@ -680,6 +696,13 @@ final class IssueDetailViewModel {
         // over precisely because this path can report the failure.)
         guard !AttachmentFiles.isInlineImage(contentType: contentType) else {
             appendImageToDescription(from: url, filename: filename, contentType: contentType)
+            return
+        }
+        // EXP-824: a video/audio pick is inline media — normalised and
+        // appended to the description as a player block, never a Files row
+        // (media rows leave the rail, so one uploaded here would be invisible).
+        guard !AttachmentFiles.isInlineMedia(contentType: contentType) else {
+            appendMediaToDescription(from: url, filename: filename, contentType: contentType)
             return
         }
 
@@ -765,6 +788,40 @@ final class IssueDetailViewModel {
                 height: (height ?? 0) > 0 ? height : nil
             )
             await self?.commitDescriptionNow()
+        }
+    }
+
+    /// EXP-824: copy a picked media file out inside its security scope, run
+    /// the 720p normalisation + poster probe off-main, append the block and
+    /// save. A failure surfaces as a failed Files row (the one error surface
+    /// this screen has for a pick that inserted nothing).
+    private func appendMediaToDescription(from url: URL, filename: String, contentType: String) {
+        let editor = editor
+        Task.detached { [weak self] in
+            let scoped = url.startAccessingSecurityScopedResource()
+            let copied = try? MediaUploadPrep.copyToTemp(url)
+            if scoped { url.stopAccessingSecurityScopedResource() }
+            guard let copied else {
+                await self?.appendFailedUpload(
+                    filename: filename, contentType: contentType, failure: "Couldn't read this file."
+                )
+                return
+            }
+            defer { try? FileManager.default.removeItem(at: copied) }
+            do {
+                let media = try await MediaUploadPrep.prepare(
+                    fileURL: copied, filename: filename, contentType: contentType
+                )
+                await editor.appendMedia(media)
+                await self?.commitDescriptionNow()
+            } catch {
+                await self?.appendFailedUpload(
+                    filename: filename,
+                    contentType: contentType,
+                    failure: (error as? MediaUploadPrep.PrepError)?.errorDescription
+                        ?? "Couldn't process this video."
+                )
+            }
         }
     }
 

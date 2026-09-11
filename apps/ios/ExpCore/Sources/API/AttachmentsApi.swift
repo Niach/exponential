@@ -17,13 +17,58 @@ public struct UploadedAttachment: Decodable, Sendable {
     public let filename: String
     public let contentType: String
     public let sizeBytes: Int
+    // EXP-824: media rows answer with their probed length, the poster URL
+    // (`/api/attachments/{id}?poster=1`, nil without a poster) and the codec
+    // pair the server sniffed. All nullable and tolerated absent — an older
+    // server simply omits them.
+    public let durationMs: Int?
+    public let posterUrl: String?
+    public let videoCodec: String?
+    public let audioCodec: String?
 
-    public init(id: String, url: String, filename: String, contentType: String, sizeBytes: Int) {
+    public init(
+        id: String,
+        url: String,
+        filename: String,
+        contentType: String,
+        sizeBytes: Int,
+        durationMs: Int? = nil,
+        posterUrl: String? = nil,
+        videoCodec: String? = nil,
+        audioCodec: String? = nil
+    ) {
         self.id = id
         self.url = url
         self.filename = filename
         self.contentType = contentType
         self.sizeBytes = sizeBytes
+        self.durationMs = durationMs
+        self.posterUrl = posterUrl
+        self.videoCodec = videoCodec
+        self.audioCodec = audioCodec
+    }
+}
+
+/// EXP-824 — what a normalised video/audio upload sends beside its bytes:
+/// an optional JPEG poster part (≤ `AttachmentFiles.maxPosterUploadBytes`)
+/// and the rotation-aware dimensions + length the client probed. The server
+/// prefers its own MP4/MOV header probe and falls back to these for anything
+/// it cannot parse; every field is optional and only positive ints are sent.
+public struct MediaUploadParts: Sendable, Equatable {
+    public var poster: Data?
+    public var width: Int?
+    public var height: Int?
+    public var durationMs: Int?
+
+    public init(poster: Data? = nil, width: Int? = nil, height: Int? = nil, durationMs: Int? = nil) {
+        self.poster = poster
+        self.width = width
+        self.height = height
+        self.durationMs = durationMs
+    }
+
+    public var isEmpty: Bool {
+        poster == nil && width == nil && height == nil && durationMs == nil
     }
 }
 
@@ -55,14 +100,16 @@ public final class AttachmentsApi: Sendable {
         issueId: String,
         data: Data,
         filename: String,
-        contentType: String
+        contentType: String,
+        media: MediaUploadParts? = nil
     ) async throws -> UploadedAttachment {
         try await upload(
             accountId: accountId,
             path: "/api/issues/\(issueId)/files",
             data: data,
             filename: filename,
-            contentType: contentType
+            contentType: contentType,
+            media: media
         )
     }
 
@@ -115,7 +162,8 @@ public final class AttachmentsApi: Sendable {
         path: String,
         data: Data,
         filename: String,
-        contentType: String
+        contentType: String,
+        media: MediaUploadParts? = nil
     ) async throws -> UploadedAttachment {
         guard let baseUrl = instanceUrl(for: accountId) else {
             throw AttachmentsError.noInstanceUrl
@@ -124,25 +172,14 @@ public final class AttachmentsApi: Sendable {
             throw AttachmentsError.invalidUrl
         }
 
-        // Hand-rolled body: the quoted `name="file"` form is the contract the
-        // route parses (EXP-61).
-        // Quotes/backslashes/CRLF in the user's filename would break the
-        // quoted-string disposition — replaced like Android's
-        // buildImageUploadBody does, regardless of caller sanitization.
-        let safeFilename = filename.replacingOccurrences(
-            of: "[\"\\\\\r\n]",
-            with: "_",
-            options: .regularExpression
-        )
         let boundary = "Boundary-\(UUID().uuidString)"
-        var body = Data()
-        body.append(Data("--\(boundary)\r\n".utf8))
-        body.append(Data(
-            "Content-Disposition: form-data; name=\"file\"; filename=\"\(safeFilename)\"\r\n".utf8
-        ))
-        body.append(Data("Content-Type: \(contentType)\r\n\r\n".utf8))
-        body.append(data)
-        body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+        let body = Self.multipartBody(
+            boundary: boundary,
+            data: data,
+            filename: filename,
+            contentType: contentType,
+            media: media
+        )
 
         var request = httpClient.request(
             url,
@@ -160,6 +197,60 @@ public final class AttachmentsApi: Sendable {
             throw AttachmentsError.httpError(response.statusCode, text)
         }
         return try JSONDecoder().decode(UploadedAttachment.self, from: responseData)
+    }
+
+    /// The multipart body of an upload. Hand-rolled: the quoted `name="file"`
+    /// form is the contract the route parses (EXP-61). Quotes/backslashes/CRLF
+    /// in the user's filename would break the quoted-string disposition —
+    /// replaced like Android's buildImageUploadBody does, regardless of caller
+    /// sanitization.
+    ///
+    /// EXP-824: a media upload may add a `poster` part (image/jpeg) and the
+    /// plain string fields `width`/`height`/`durationMs`, in that order after
+    /// the file — positive values only, the server ignores anything else.
+    /// Internal so the part layout is unit-tested.
+    static func multipartBody(
+        boundary: String,
+        data: Data,
+        filename: String,
+        contentType: String,
+        media: MediaUploadParts?
+    ) -> Data {
+        let safeFilename = filename.replacingOccurrences(
+            of: "[\"\\\\\r\n]",
+            with: "_",
+            options: .regularExpression
+        )
+        var body = Data()
+        body.append(Data("--\(boundary)\r\n".utf8))
+        body.append(Data(
+            "Content-Disposition: form-data; name=\"file\"; filename=\"\(safeFilename)\"\r\n".utf8
+        ))
+        body.append(Data("Content-Type: \(contentType)\r\n\r\n".utf8))
+        body.append(data)
+
+        if let media {
+            if let poster = media.poster, !poster.isEmpty {
+                body.append(Data("\r\n--\(boundary)\r\n".utf8))
+                body.append(Data(
+                    "Content-Disposition: form-data; name=\"poster\"; filename=\"poster.jpg\"\r\n".utf8
+                ))
+                body.append(Data("Content-Type: image/jpeg\r\n\r\n".utf8))
+                body.append(poster)
+            }
+            let fields: [(String, Int?)] = [
+                ("width", media.width), ("height", media.height), ("durationMs", media.durationMs),
+            ]
+            for (name, value) in fields {
+                guard let value, value > 0 else { continue }
+                body.append(Data("\r\n--\(boundary)\r\n".utf8))
+                body.append(Data("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".utf8))
+                body.append(Data("\(value)".utf8))
+            }
+        }
+
+        body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+        return body
     }
 
     // MARK: - Delete

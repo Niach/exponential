@@ -88,6 +88,18 @@ pub struct UploadedImage {
     pub width: Option<i64>,
     #[serde(default)]
     pub height: Option<i64>,
+    /// EXP-824: probed media duration (video/audio uploads; null otherwise).
+    #[serde(default, rename = "durationMs")]
+    pub duration_ms: Option<i64>,
+    /// EXP-824: `/api/attachments/{id}?poster=1` when the server holds a
+    /// poster frame for the upload (desktop sends none, the server may still
+    /// extract one).
+    #[serde(default, rename = "posterUrl")]
+    pub poster_url: Option<String>,
+    #[serde(default, rename = "videoCodec")]
+    pub video_codec: Option<String>,
+    #[serde(default, rename = "audioCodec")]
+    pub audio_codec: Option<String>,
 }
 
 /// Reject unsupported/oversized images with the web's reasons.

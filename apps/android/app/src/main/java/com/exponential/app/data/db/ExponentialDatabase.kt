@@ -244,9 +244,12 @@ import androidx.room.TypeConverters
     //      uuid[] stored as JSON array text via StringListConverters). The
     //      old column is gone from the shape; destructive fallback wipes +
     //      resyncs.
+    // v54 (EXP-824): attachments.duration_ms + poster_storage_key — inline
+    //      video/audio playback length and the poster-frame marker. Both
+    //      nullable; destructive fallback wipes + resyncs.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 53,
+    version = 54,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

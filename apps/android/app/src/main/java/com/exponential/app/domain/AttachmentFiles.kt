@@ -30,6 +30,27 @@ fun isInlineImage(contentType: String?): Boolean =
     contentType != null && contentType in INLINE_IMAGE_CONTENT_TYPES
 
 /**
+ * EXP-824 inline media, the ×4 mirror of the server's `isInlineVideo` /
+ * `isInlineAudio`: a PREFIX match on the canonical type (`video/mp4`,
+ * `video/quicktime`, `audio/mpeg`, …), unlike the exact five-type image set
+ * above. A media row leaves the Files rail like an inline image does and is
+ * referenced from markdown as a plain link on its own paragraph
+ * (`[clip.mp4](/api/attachments/{id})`), which the renderer upgrades to a
+ * player once the row has synced. Stored types are canonical already, so a
+ * parameterised or upper-cased type is deliberately NOT media here — the
+ * same exactness rule the image classification documents.
+ */
+fun isInlineVideo(contentType: String?): Boolean =
+    contentType != null && contentType.startsWith("video/")
+
+fun isInlineAudio(contentType: String?): Boolean =
+    contentType != null && contentType.startsWith("audio/")
+
+/** Video or audio — anything the markdown pipeline plays inline. */
+fun isInlineMedia(contentType: String?): Boolean =
+    isInlineVideo(contentType) || isInlineAudio(contentType)
+
+/**
  * Canonical upload form of a picker-derived content type: lowercased media
  * essence with any `;`-parameter suffix stripped, falling back to
  * `application/octet-stream`. Mirrors the server's `canonicalizeContentType`

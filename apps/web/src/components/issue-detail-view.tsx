@@ -18,6 +18,12 @@ import {
   uploadIssueFile,
   uploadIssueImageFile,
 } from "@/lib/storage/issue-image-upload"
+import {
+  mediaPlayabilityHint,
+  prepareMediaUpload,
+  uploadIssueMediaFile,
+} from "@/lib/storage/media-upload"
+import { isInlineMediaAttachment } from "@/lib/attachment-files"
 import { useSession } from "@/hooks/use-session"
 import { parseLocalDate } from "@/lib/utils"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -176,6 +182,8 @@ export function IssueDetailView({
   )
   const [attachmentStatus, setAttachmentStatus] = useState<string | null>(null)
   const [activeUploadCount, setActiveUploadCount] = useState(0)
+  // EXP-824: the narrated progress of a media upload ("Uploading clip.mp4… 42%").
+  const [uploadStatusText, setUploadStatusText] = useState<string | null>(null)
   // EXP-568: the floating phone bar steps aside while the description is being
   // written — the keyboard formatting rail owns the bottom edge then.
   const [descriptionFocused, setDescriptionFocused] = useState(false)
@@ -413,6 +421,68 @@ export function IssueDetailView({
         error instanceof Error ? error.message : `Failed to upload image`
       )
     }
+  }
+
+  // EXP-824: video/audio → probe + poster + `.mov` remux in the browser, a
+  // progress-narrated upload, then the media block `[name](url)` at the caret
+  // (paste/drop/rail) or the bottom (Files rail attach button). A clip that
+  // is not H.264 MP4 gets a non-blocking "may not play everywhere" toast.
+  const handleMediaFiles = async (
+    files: File[],
+    placement: `insert` | `append`
+  ) => {
+    setAttachmentStatus(null)
+    try {
+      await enqueueUploadTask(async () => {
+        for (const file of files) {
+          try {
+            setUploadStatusText(`Preparing ${file.name}…`)
+            const prepared = await prepareMediaUpload(file, (stage) =>
+              setUploadStatusText(
+                stage === `remuxing`
+                  ? `Converting ${file.name} to MP4…`
+                  : `Preparing ${file.name}…`
+              )
+            )
+            setUploadStatusText(`Uploading ${prepared.file.name}…`)
+            const uploaded = await uploadIssueMediaFile(issue.id, prepared, {
+              onProgress: (percent) =>
+                setUploadStatusText(
+                  `Uploading ${prepared.file.name}… ${percent}%`
+                ),
+            })
+            const block = { label: uploaded.filename, src: uploaded.url }
+            if (placement === `append`) {
+              editorRef.current?.appendMedia(block)
+            } else {
+              editorRef.current?.insertMedia(block)
+            }
+            const nextDescription =
+              editorRef.current?.getMarkdown() ?? descriptionRef.current
+            setDescriptionValue(nextDescription)
+            await queueDescriptionSave(nextDescription)
+            const hint = mediaPlayabilityHint(uploaded)
+            if (hint) toast.message(hint)
+          } finally {
+            setUploadStatusText(null)
+          }
+        }
+      })
+    } catch (error) {
+      setAttachmentStatus(
+        error instanceof Error ? error.message : `Failed to upload media`
+      )
+    }
+  }
+
+  // The Files rail's attach button hands over every INLINE pick (images and
+  // media both leave the rail): images append as image nodes, clips as media
+  // blocks.
+  const handleAppendInlineFiles = async (files: File[]) => {
+    const media = files.filter((file) => isInlineMediaAttachment(file.type))
+    const images = files.filter((file) => !isInlineMediaAttachment(file.type))
+    if (images.length > 0) await handleAppendImageFiles(images)
+    if (media.length > 0) await handleMediaFiles(media, `append`)
   }
 
   // Pasted/dropped files that are NOT inline-embeddable images (EXP-297): they
@@ -831,7 +901,9 @@ export function IssueDetailView({
         imageUpload={{
           enabled: !readOnly,
           uploading: activeUploadCount > 0,
+          statusText: uploadStatusText,
           onFiles: handleImageFiles,
+          onMediaFiles: (files) => handleMediaFiles(files, `insert`),
           onOtherFiles: handleOtherFiles,
         }}
       />
@@ -851,7 +923,7 @@ export function IssueDetailView({
     <IssueFilesSection
       issueId={issue.id}
       readOnly={readOnly}
-      onImageFiles={handleAppendImageFiles}
+      onInlineFiles={handleAppendInlineFiles}
     />
   )
 

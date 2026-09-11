@@ -33,6 +33,36 @@ final class AttachmentFilesTests: XCTestCase {
         XCTAssertFalse(AttachmentFiles.isInlineImage(contentType: "image/jpeg; charset=binary"))
     }
 
+    // EXP-824: `video/*` and `audio/*` are the inline MEDIA class — embedded
+    // as a plain link and rendered as a player; they leave the Files rail
+    // like inline images. Prefix match on the canonical essence (mirrors the
+    // server's isVideoContentType / isAudioContentType).
+    func testInlineMediaClassification() {
+        for type in ["video/mp4", "video/quicktime", "video/webm", "VIDEO/MP4", "video/mp4; codecs=avc1"] {
+            XCTAssertTrue(AttachmentFiles.isInlineVideo(contentType: type), type)
+            XCTAssertTrue(AttachmentFiles.isInlineMedia(contentType: type), type)
+            XCTAssertFalse(AttachmentFiles.isInlineAudio(contentType: type), type)
+            XCTAssertFalse(AttachmentFiles.isFile(contentType: type), type)
+        }
+        for type in ["audio/mpeg", "audio/mp4", "audio/x-m4a", "AUDIO/OGG"] {
+            XCTAssertTrue(AttachmentFiles.isInlineAudio(contentType: type), type)
+            XCTAssertTrue(AttachmentFiles.isInlineMedia(contentType: type), type)
+            XCTAssertFalse(AttachmentFiles.isInlineVideo(contentType: type), type)
+            XCTAssertFalse(AttachmentFiles.isFile(contentType: type), type)
+        }
+        for type in ["image/png", "application/pdf", "text/plain", "", "videox/mp4"] {
+            XCTAssertFalse(AttachmentFiles.isInlineMedia(contentType: type), type)
+        }
+        // Inline images stay the EXACT five-type match — media never widens it.
+        XCTAssertFalse(AttachmentFiles.isInlineImage(contentType: "video/mp4"))
+        XCTAssertTrue(AttachmentFiles.isFile(contentType: "application/pdf"))
+        XCTAssertFalse(AttachmentFiles.isFile(contentType: "image/png"))
+    }
+
+    func testMaxPosterUploadBytesIs2MB() {
+        XCTAssertEqual(AttachmentFiles.maxPosterUploadBytes, 2_097_152)
+    }
+
     func testCanonicalContentTypeNormalizesPickerTypes() {
         XCTAssertEqual(AttachmentFiles.canonicalContentType("IMAGE/PNG"), "image/png")
         XCTAssertEqual(AttachmentFiles.canonicalContentType("image/jpeg; charset=binary"), "image/jpeg")

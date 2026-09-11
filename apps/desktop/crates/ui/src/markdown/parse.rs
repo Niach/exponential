@@ -6,7 +6,8 @@
 //! §12.6#1): it is a line-for-line port of cmark-gfm, so edge cases (text-node
 //! consolidation, bracket fallback, fence handling) behave identically.
 //!
-//! Only images and GFM tables (EXP-726) split blocks. Headings, lists, quotes
+//! Only images, GFM tables (EXP-726) and standalone attachment links (EXP-824)
+//! split blocks. Headings, lists, quotes
 //! and fenced code become paragraph-level attributes inside a
 //! [`ContentBlock::Text`]. Task-list items are detected manually (NOT via
 //! comrak's tasklist extension) so unchecked
@@ -26,6 +27,7 @@ use super::blocks::{
     normalize_blocks, BlockKind, ContentBlock, InlineKind, InlineMark, ListType, ParagraphAttrs,
     RichText, TableAlignment, THEMATIC_BREAK_GLYPH,
 };
+use super::image_url;
 
 /// How a GFM SOFT break (a lone `\n` inside a paragraph) is interpreted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -248,6 +250,12 @@ impl BlockCollector {
         self.blocks.push(ContentBlock::image(url, alt));
     }
 
+    /// EXP-824: a paragraph that is solely one attachment link.
+    fn emit_attachment_link(&mut self, url: String, label: String) {
+        self.flush_text();
+        self.blocks.push(ContentBlock::attachment_link(url, label));
+    }
+
     /// A table is always a TOP-LEVEL block: flushing the running text block
     /// hoists one nested in a list item or blockquote out to the document
     /// level (EXP-728, deliberate — nested tables are unsupported; the
@@ -319,6 +327,20 @@ fn visit<'a>(node: &'a AstNode<'a>, collector: &mut BlockCollector, ctx: &mut Re
         NodeValue::Document => render_children(node, collector, ctx),
 
         NodeValue::Paragraph => {
+            // EXP-824: a TOP-LEVEL paragraph holding nothing but one plain
+            // attachment link is the inline-media block. Inside a list item,
+            // a quote or a table cell it stays an ordinary link — the block
+            // has no spelling that keeps that context.
+            if ctx.list_stack.is_empty()
+                && !ctx.in_blockquote
+                && !ctx.in_table_cell
+                && ctx.pending_item_attrs.is_none()
+            {
+                if let Some((url, label)) = standalone_attachment_link(node) {
+                    collector.emit_attachment_link(url, label);
+                    return;
+                }
+            }
             let attrs = ctx.pending_item_attrs.take().unwrap_or(if ctx.in_blockquote {
                 ParagraphAttrs {
                     kind: BlockKind::Blockquote,
@@ -639,6 +661,39 @@ fn task_item_state<'a>(item: &'a AstNode<'a>) -> (bool, bool) {
     } else {
         (false, false)
     }
+}
+
+/// EXP-824: `(url, label)` when `paragraph` consists of exactly one `Link`
+/// whose destination is an attachment URL and whose content is exactly one
+/// plain text literal (no nested marks, no title) — anything richer would not
+/// re-serialize byte-identically from `[label](url)`, so it stays inline.
+fn standalone_attachment_link<'a>(paragraph: &'a AstNode<'a>) -> Option<(String, String)> {
+    let mut children = paragraph.children();
+    let link = children.next()?;
+    if children.next().is_some() {
+        return None;
+    }
+    let data = link.data.borrow();
+    let NodeValue::Link(link_value) = &data.value else {
+        return None;
+    };
+    if !link_value.title.is_empty() {
+        return None;
+    }
+    image_url::attachment_id_from_src(&link_value.url)?;
+    let mut link_children = link.children();
+    let text = link_children.next()?;
+    if link_children.next().is_some() {
+        return None;
+    }
+    let text_data = text.data.borrow();
+    let NodeValue::Text(label) = &text_data.value else {
+        return None;
+    };
+    if label.is_empty() {
+        return None;
+    }
+    Some((link_value.url.clone(), label.to_string()))
 }
 
 fn collect_text<'a>(node: &'a AstNode<'a>) -> String {

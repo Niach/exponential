@@ -945,6 +945,15 @@ export const attachments = pgTable(
     // use them to reserve aspect-ratio space and avoid layout shift.
     width: integer(),
     height: integer(),
+    // EXP-824: inline video/audio. `duration_ms` is probed from the MP4/MOV
+    // header at upload (or supplied by the normalising client for containers
+    // the server does not parse); the poster frame is a SECOND blob keyed by
+    // `poster_storage_key` on the same row (never its own attachments row, so
+    // it can't be swept as an unreferenced image and dies with its video —
+    // every reclaim path collects both keys via `attachmentStorageKeys`).
+    // Served by the byte route as `/api/attachments/{id}?poster=1`.
+    durationMs: integer(`duration_ms`),
+    posterStorageKey: text(`poster_storage_key`),
     ...timestamps,
   },
   (table) => [

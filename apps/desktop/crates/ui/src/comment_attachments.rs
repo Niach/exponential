@@ -9,9 +9,11 @@
 //!   rows carry `attachments.comment_id` and render below the body: EXP-723
 //!   makes inline-image types LARGE tiles stacked in their own column (full
 //!   column width, capped at [`LARGE_TILE_MAX_H`], the aspect taken from the
-//!   row's probed `width`/`height`; click → the in-app lightbox), with the
-//!   file chips wrapping in a row beneath them (click → fetch + hand to the
-//!   OS), exactly like the Files rail's rows. The composer's PENDING strip is
+//!   row's probed `width`/`height`; click → the in-app lightbox), EXP-824
+//!   puts video/audio rows in that same column as media tiles (poster + play
+//!   glyph + duration; click → the system player), with the file chips
+//!   wrapping in a row beneath them (click → fetch + hand to the OS),
+//!   exactly like the Files rail's rows. The composer's PENDING strip is
 //!   unaffected: an in-flight pick is a queue entry, so it stays a pill with
 //!   its filename and upload error, never a preview.
 //! - Upload happens ON SEND, sequentially, and each item stamps its
@@ -45,6 +47,7 @@ use crate::issue_files::{
     is_inline_image,
 };
 use crate::markdown::{placeholder_box, AttachmentTransport, ImageCache, ImageSlot};
+use crate::media_tile::{render_media_tile, MediaTile};
 use crate::queries;
 use crate::timeline::{IssueTimeline, PendingCommentAttachment, PendingScope};
 
@@ -172,6 +175,16 @@ pub(crate) fn comment_attachments_strip(
         if is_inline_image(row.content_type.as_deref()) {
             any_image = true;
             images_column = images_column.child(image_tile(row, images, remove, cx));
+        } else if let Some(tile) = MediaTile::from_attachment(row) {
+            // EXP-824: media rows are large tiles too, never chips.
+            any_image = true;
+            let element = render_media_tile(
+                SharedString::from(format!("comment-attachment-media-{}", row.id)),
+                &tile,
+                Some(images),
+                cx,
+            );
+            images_column = images_column.child(with_remove_badge(element, &row.id, remove, cx));
         } else {
             any_file = true;
             files_row = files_row.child(file_chip(row, remove, cx));
@@ -284,10 +297,19 @@ fn image_tile(
             }
         });
 
+    with_remove_badge(tile.into_any_element(), &attachment.id, remove, cx)
+}
+
+/// Edit mode's ✕ over a large tile's top-right corner (web's
+/// `-right-1.5 -top-1.5`); `stop_propagation` keeps a remove from also
+/// opening the lightbox / player. `None` = the tile as it is.
+fn with_remove_badge(
+    tile: gpui::AnyElement,
+    attachment_id: &str,
+    remove: Option<impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static>,
+    cx: &App,
+) -> gpui::AnyElement {
     match remove {
-        // The ✕ overlays the tile's top-right corner (web's
-        // `-right-1.5 -top-1.5`); `stop_propagation` keeps a remove from also
-        // opening the lightbox.
         Some(on_remove) => div()
             .relative()
             .flex_shrink_0()
@@ -296,10 +318,7 @@ fn image_tile(
                 // EXP-698: the glass chrome every trailing action wears, at
                 // the 24px size — a 32px badge covers half a 64px thumbnail.
                 crate::controls::glass_icon_button(
-                    SharedString::from(format!(
-                        "comment-attachment-remove-{}",
-                        attachment.id
-                    )),
+                    SharedString::from(format!("comment-attachment-remove-{attachment_id}")),
                     Icon::new(registry::UI_CLOSE),
                     cx,
                 )
@@ -313,7 +332,7 @@ fn image_tile(
                 }),
             )
             .into_any_element(),
-        None => tile.into_any_element(),
+        None => tile,
     }
 }
 

@@ -330,6 +330,9 @@ public final class DatabaseManager: @unchecked Sendable {
                 // Intrinsic image dimensions (nullable for non-image rows).
                 t.column("width", .integer)
                 t.column("height", .integer)
+                // EXP-824 (v35 heals older stores): media length + poster.
+                t.column("duration_ms", .integer)
+                t.column("poster_storage_key", .text)
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
             }
@@ -1425,6 +1428,35 @@ public final class DatabaseManager: @unchecked Sendable {
                     UPDATE "electric_offsets"
                     SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
                     WHERE "shape" = 'devices'
+                    """)
+            }
+        }
+
+        // v35 (EXP-824 inline video): `attachments.duration_ms` +
+        // `attachments.poster_storage_key` ride the attachments shape — the
+        // probed media length for the duration chip and the "a poster frame
+        // exists" signal behind `?poster=1`. Guarded additive ALTERs so an
+        // older store converges on the v1 create above, then the attachments
+        // offset resets so already-synced rows re-arrive carrying both (the
+        // v29/v30 precedent; the shape key is `attachments`).
+        migrator.registerMigration("v35_attachment_video_metadata") { db in
+            guard try db.tableExists("attachments") else { return }
+            let existing = Set(try db.columns(in: "attachments").map(\.name))
+            if !existing.contains("duration_ms") {
+                try db.alter(table: "attachments") { t in
+                    t.add(column: "duration_ms", .integer)
+                }
+            }
+            if !existing.contains("poster_storage_key") {
+                try db.alter(table: "attachments") { t in
+                    t.add(column: "poster_storage_key", .text)
+                }
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'attachments'
                     """)
             }
         }

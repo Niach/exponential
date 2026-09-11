@@ -58,6 +58,18 @@ class MarkdownParserTest {
     }
 
     @Test
+    fun soleAttachmentLinkParagraphBecomesAMediaBlock() {
+        val blocks = MarkdownParser.parse("[clip.mp4](/api/attachments/x)")
+        assertTrue(blocks.first() is ContentBlock.TextBlock)
+        assertTrue(blocks.last() is ContentBlock.TextBlock)
+        val media = blocks.filterIsInstance<ContentBlock.AttachmentLinkBlock>().single()
+        assertEquals("/api/attachments/x", media.url)
+        assertEquals("clip.mp4", media.label)
+        // A local draft placeholder takes the same shape while it uploads.
+        assertEquals(1, MarkdownParser.parse("[clip.mp4](draft://abc)").filterIsInstance<ContentBlock.AttachmentLinkBlock>().size)
+    }
+
+    @Test
     fun blockDocumentAlwaysStartsAndEndsWithText() {
         val blocks = MarkdownParser.parse("![only](/api/attachments/x)")
         assertTrue(blocks.first() is ContentBlock.TextBlock)

@@ -257,6 +257,7 @@ final class TableCellEditTests: XCTestCase {
             case .text: return "text"
             case .image: return "image"
             case .table: return "table"
+            case .attachmentLink: return "media"
             }
         }
         // `normalize` pads the table/image pair with the empty text block the

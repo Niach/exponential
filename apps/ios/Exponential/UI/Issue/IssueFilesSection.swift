@@ -3,14 +3,18 @@ import ExpCore
 import QuickLook
 import SwiftUI
 
-/// The issue's non-image attachments (EXP-297).
+/// The issue's FILE attachments (EXP-297): neither inline images nor, since
+/// EXP-824, inline video/audio — those two classes live in the description
+/// (`![](…)` / `[clip.mp4](…)` blocks rendered by the editor) and a comment's
+/// own strip, never here.
 ///
 /// Files are NOT part of the description markdown — they render straight from
 /// the synced `attachments` rows, so nothing about the editor or the inline
-/// image pipeline is involved here. Tapping a row downloads the bytes into a
-/// temp folder and hands them to Quick Look, whose own share button covers
-/// "save"/"open in…" — so there is no bespoke export UI (and, per EXP-297, no
-/// video player anywhere).
+/// pipelines is involved here. Tapping a row downloads the bytes into a temp
+/// folder and hands them to Quick Look, whose own share button covers
+/// "save"/"open in…" — so there is no bespoke export UI. Video and audio play
+/// inline where they are embedded (`InlineMediaPlayers.swift`), not from this
+/// rail.
 ///
 /// EXP-327: there is no attach button here any more, and no empty state. Files
 /// are attached from the description editor's image button ("Files / Photo

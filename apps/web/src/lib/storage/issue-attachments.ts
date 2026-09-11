@@ -8,6 +8,16 @@ const attachmentPathPattern =
 const markdownImagePattern =
   /!\[((?:\\.|[^\\\]])*)]\(([^)\s]+)(?:\s+"[^"]*")?\)/g
 
+// EXP-824: inline video/audio is stored as a PLAIN LINK,
+// `[clip.mp4](/api/attachments/{id})` — never the image form, which any
+// third-party GFM viewer would render as a broken picture. The renderer
+// upgrades the link to a player when the referenced row's content type is
+// `video/*` or `audio/*`. The negative lookbehind keeps images (whose `[`
+// follows a `!`) out of this scan; the label consumes escape pairs like the
+// image alt does.
+const markdownLinkPattern =
+  /(?<!!)\[((?:\\.|[^\\\]])*)]\(([^)\s]+)(?:\s+"[^"]*")?\)/g
+
 // Reverses CommonMark backslash escapes (ASCII punctuation only) so occurrence
 // alts carry the display text, not the serialized escape form.
 function unescapeMarkdownText(text: string) {
@@ -211,6 +221,72 @@ export function isAcceptedImageContentType(contentType: string) {
 }
 
 /**
+ * EXP-824 classification, shared by every client: a `video/*` row renders
+ * as an inline player (poster + controls), an `audio/*` row as an inline
+ * audio player. Both leave the Files rail — they are embedded through the
+ * plain-link markdown form. Prefix match on the canonical essence.
+ */
+export function isVideoContentType(contentType: string) {
+  return canonicalizeContentType(contentType).startsWith(`video/`)
+}
+
+export function isAudioContentType(contentType: string) {
+  return canonicalizeContentType(contentType).startsWith(`audio/`)
+}
+
+export function isInlineMediaContentType(contentType: string) {
+  return isVideoContentType(contentType) || isAudioContentType(contentType)
+}
+
+/**
+ * Containers every client can decode without an asterisk: H.264 + AAC in
+ * MP4 (see EXP-775). Anything else uploads fine but the client shows a
+ * "may not play everywhere" hint. `video/quicktime` is listed because the
+ * clients remux .mov → .mp4 losslessly before upload whenever they can.
+ */
+export const acceptedVideoUploadContentTypes = [
+  `video/mp4`,
+  `video/quicktime`,
+  `video/webm`,
+] as const
+
+export function isAcceptedVideoUploadContentType(contentType: string) {
+  return acceptedVideoUploadContentTypes.includes(
+    contentType as (typeof acceptedVideoUploadContentTypes)[number]
+  )
+}
+
+// The poster frame is a small still; images past this are not posters.
+export const maxPosterUploadBytes = 2 * 1024 * 1024
+
+/**
+ * Every S3 object an attachment row owns: its bytes plus (video rows) the
+ * poster frame. EVERY reclaim path — attachment/comment/issue/board/team
+ * deletes and the sweeps — collects through this helper so a poster can
+ * never be stranded in the bucket.
+ */
+export function collectAttachmentStorageKeys(
+  rows: Iterable<{ storageKey: string; posterStorageKey?: string | null }>
+) {
+  const keys = new Set<string>()
+  for (const row of rows) {
+    keys.add(row.storageKey)
+    if (row.posterStorageKey) keys.add(row.posterStorageKey)
+  }
+  return [...keys]
+}
+
+/** Storage key of a video row's poster frame — derived, never user-named. */
+export function buildAttachmentPosterStorageKey(storageKey: string) {
+  return `${storageKey}.poster`
+}
+
+/** Byte-route URL of a video attachment's poster frame. */
+export function buildAttachmentPosterUrl(attachmentId: string) {
+  return `${buildAttachmentUrl(attachmentId)}?poster=1`
+}
+
+/**
  * Per-type upload ceiling: inline images stay at 10 MB, everything else gets
  * the 50 MB file cap (EXP-297).
  */
@@ -241,7 +317,10 @@ export function isInlineSafeContentType(contentType: string) {
  * be. Deliberately NOT image-shaped: the issues.update round-trip guard 400s
  * descriptions that reference attachments which no longer exist.
  */
-export function buildDeletedAttachmentPlaceholder(label: string) {
+export function buildDeletedAttachmentPlaceholder(
+  label: string,
+  kind: `image` | `file` = `image`
+) {
   const cleaned = label
     .replace(/[\r\n]+/g, ` `)
     .replace(/[[\]()!]/g, ``)
@@ -250,7 +329,7 @@ export function buildDeletedAttachmentPlaceholder(label: string) {
     .slice(0, 100)
     .trim()
 
-  return `*(deleted image: ${cleaned || `image`})*`
+  return `*(deleted ${kind}: ${cleaned || kind})*`
 }
 
 /**
@@ -267,7 +346,7 @@ export function replaceAttachmentReferencesWithPlaceholder(
 ): { text: string; changed: boolean } {
   let changed = false
 
-  const next = updateMarkdownImages(text, (match) => {
+  const afterImages = updateMarkdownImages(text, (match) => {
     if (getAttachmentIdFromUrl(match.url, origin) !== attachmentId) {
       return undefined
     }
@@ -276,7 +355,75 @@ export function replaceAttachmentReferencesWithPlaceholder(
     return buildDeletedAttachmentPlaceholder(match.alt || filenameFallback)
   })
 
+  // EXP-824: a video/audio (or any file) embedded as a plain link dies the
+  // same way, so no body is left pointing at a 404.
+  const next = updateMarkdownLinks(afterImages, (match) => {
+    if (getAttachmentIdFromUrl(match.url, origin) !== attachmentId) {
+      return undefined
+    }
+
+    changed = true
+    return buildDeletedAttachmentPlaceholder(
+      match.alt || filenameFallback,
+      `file`
+    )
+  })
+
   return { text: next, changed }
+}
+
+/**
+ * Plain-link occurrences (`[label](url)`, never `![…]`) — the EXP-824 media
+ * embed form. Same shape as the image occurrences so callers can treat both
+ * with one code path.
+ */
+export function extractMarkdownLinkOccurrences(
+  text: string
+): MarkdownImageOccurrence[] {
+  return [...text.matchAll(markdownLinkPattern)].map(
+    (match, occurrenceIndex) => {
+      const start = match.index ?? 0
+
+      return {
+        alt: unescapeMarkdownText(match[1] ?? ``),
+        end: start + match[0].length,
+        occurrenceIndex,
+        start,
+        markdown: match[0],
+        url: match[2] ?? ``,
+      }
+    }
+  )
+}
+
+function updateMarkdownLinks(
+  text: string,
+  transform: (match: MarkdownImageOccurrence) => string | undefined
+) {
+  let result = ``
+  let lastIndex = 0
+
+  for (const match of extractMarkdownLinkOccurrences(text)) {
+    result += text.slice(lastIndex, match.start)
+    result += transform(match) ?? match.markdown
+    lastIndex = match.end
+  }
+
+  result += text.slice(lastIndex)
+  return result
+}
+
+/**
+ * Attachment ids referenced by plain links (the media embed form). Links to
+ * anything else are ignored — a liveness scan, not validation.
+ */
+export function extractLinkedAttachmentIds(text: string, origin: string) {
+  const attachmentIds = new Set<string>()
+  for (const link of extractMarkdownLinkOccurrences(text)) {
+    const attachmentId = getAttachmentIdFromUrl(link.url, origin)
+    if (attachmentId) attachmentIds.add(attachmentId)
+  }
+  return [...attachmentIds]
 }
 
 export function extractMarkdownImageOccurrences(
@@ -448,6 +595,9 @@ export function collectReferencedAttachmentIds(
       .attachmentIds) {
       attachmentIds.add(attachmentId)
     }
+    for (const attachmentId of extractLinkedAttachmentIds(text, origin)) {
+      attachmentIds.add(attachmentId)
+    }
   }
 
   return attachmentIds
@@ -468,7 +618,7 @@ export function hasMarkdownImages(text: string) {
  * while every other query param (and any non-integer `w`) is stripped.
  */
 export function canonicalizeMarkdownImageUrls(text: string, origin: string) {
-  return updateMarkdownImages(text, (match) => {
+  const canonicalize = (match: MarkdownImageOccurrence) => {
     const attachmentId = getAttachmentIdFromUrl(match.url, origin)
     if (!attachmentId) return undefined
 
@@ -479,5 +629,9 @@ export function canonicalizeMarkdownImageUrls(text: string, origin: string) {
     if (match.url === canonical) return undefined
 
     return match.markdown.replace(match.url, canonical)
-  })
+  }
+
+  // EXP-824: media links get the same relative canonical form (and keep the
+  // `?w=` display width the video block shares with images).
+  return updateMarkdownLinks(updateMarkdownImages(text, canonicalize), canonicalize)
 }

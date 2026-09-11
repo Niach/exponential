@@ -5,8 +5,11 @@ import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { attachments, comments, issues } from "@/db/schema"
 import { assertTeamMember, assertTeamOwner } from "@/lib/team-membership"
 import {
+  collectAttachmentStorageKeys,
   collectReferencedAttachmentIds,
   isAcceptedImageContentType,
+  isAudioContentType,
+  isVideoContentType,
 } from "@/lib/storage/issue-attachments"
 import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
 import { replaceAttachmentReferencesInTx } from "@/lib/storage/attachment-references"
@@ -111,6 +114,7 @@ export const attachmentsRouter = router({
             id: attachments.id,
             filename: attachments.filename,
             storageKey: attachments.storageKey,
+            posterStorageKey: attachments.posterStorageKey,
             teamId: attachments.teamId,
           })
           .from(attachments)
@@ -132,11 +136,11 @@ export const attachmentsRouter = router({
 
         await tx.delete(attachments).where(eq(attachments.id, input.id))
 
-        return { txId, storageKey: row.storageKey }
+        return { txId, storageKeys: collectAttachmentStorageKeys([row]) }
       })
 
       // Blob reclamation happens only after the row is really gone.
-      await deleteStorageObjects([result.storageKey])
+      await deleteStorageObjects(result.storageKeys)
 
       return { txId: result.txId }
     }),
@@ -162,6 +166,8 @@ export const attachmentsRouter = router({
           sizeBytes: attachments.sizeBytes,
           width: attachments.width,
           height: attachments.height,
+          durationMs: attachments.durationMs,
+          posterStorageKey: attachments.posterStorageKey,
           createdAt: attachments.createdAt,
         })
         .from(attachments)
@@ -178,6 +184,10 @@ export const attachmentsRouter = router({
         attachments: rows.map((row) => ({
           ...row,
           isImage: isAcceptedImageContentType(row.contentType),
+          // EXP-824: inline media rows preview in the lightbox and show a
+          // duration; `referenced` already counts their plain-link embeds.
+          isVideo: isVideoContentType(row.contentType),
+          isAudio: isAudioContentType(row.contentType),
           referenced: referencedIds.has(row.id),
         })),
         totalBytes: rows.reduce((total, row) => total + row.sizeBytes, 0),
@@ -207,6 +217,7 @@ export const attachmentsRouter = router({
             contentType: attachments.contentType,
             sizeBytes: attachments.sizeBytes,
             storageKey: attachments.storageKey,
+            posterStorageKey: attachments.posterStorageKey,
             createdAt: attachments.createdAt,
           })
           .from(attachments)
@@ -244,7 +255,7 @@ export const attachmentsRouter = router({
         return { txId, deleted, skippedRecentCount }
       })
 
-      await deleteStorageObjects(result.deleted.map((row) => row.storageKey))
+      await deleteStorageObjects(collectAttachmentStorageKeys(result.deleted))
 
       return {
         txId: result.txId,

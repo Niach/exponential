@@ -284,6 +284,7 @@ pub const SHAPES: [ShapeSpec; 21] = [
             "id",
             "team_id",
             "issue_id",
+            "board_id",
             "comment_id",
             "uploader_id",
             "filename",
@@ -293,6 +294,8 @@ pub const SHAPES: [ShapeSpec; 21] = [
             "url",
             "width",
             "height",
+            "duration_ms",
+            "poster_storage_key",
             "created_at",
             "updated_at",
         ],
@@ -641,6 +644,36 @@ mod tests {
             SHAPES.iter().filter(|s| s.composite_keys()).count(),
             1,
             "issue_labels is the only composite-PK shape"
+        );
+    }
+
+    /// EXP-824: the attachments column list is the server's allowlist byte
+    /// for byte — `duration_ms` and `poster_storage_key` drive the media
+    /// tiles, `board_id` the trash mirror.
+    #[test]
+    fn attachments_model_the_media_columns() {
+        let spec = shape_by_name("attachments").unwrap();
+        assert_eq!(
+            spec.columns.to_vec(),
+            vec![
+                "id",
+                "team_id",
+                "issue_id",
+                "board_id",
+                "comment_id",
+                "uploader_id",
+                "filename",
+                "content_type",
+                "size_bytes",
+                "storage_key",
+                "url",
+                "width",
+                "height",
+                "duration_ms",
+                "poster_storage_key",
+                "created_at",
+                "updated_at",
+            ]
         );
     }
 

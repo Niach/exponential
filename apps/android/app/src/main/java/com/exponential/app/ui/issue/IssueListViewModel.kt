@@ -42,7 +42,9 @@ import com.exponential.app.domain.toggleStatus
 import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.markdownImageUrls
 import com.exponential.app.ui.markdown.removeMarkdownImagesByUrl
+import com.exponential.app.ui.markdown.markdownEmbedUrls
 import com.exponential.app.ui.markdown.replaceMarkdownImageUrls
+import com.exponential.app.domain.PreparedMedia
 import com.exponential.app.ui.steer.onlineStartTargets
 import com.exponential.app.ui.steer.steerDeviceFlow
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -635,6 +637,9 @@ class IssueListViewModel @Inject constructor(
         assigneeId: String? = null,
         labelIds: List<String> = emptyList(),
         pendingImages: Map<String, android.net.Uri> = emptyMap(),
+        // EXP-824: prepared video / audio picks keyed by their `draft://`
+        // media-link placeholder — same deferred lifecycle as the images.
+        pendingMedia: Map<String, PreparedMedia> = emptyMap(),
         // Draft file attachments (EXP-327): uploaded once the issue exists,
         // like the images above — attachments need an issue id.
         pendingFiles: List<android.net.Uri> = emptyList(),
@@ -652,8 +657,13 @@ class IssueListViewModel @Inject constructor(
             val referencedImages = rawDescription
                 ?.let { md -> pendingImages.filterKeys { it in markdownImageUrls(md) } }
                 .orEmpty()
+            // EXP-824: media blocks are plain links, so their placeholders
+            // are looked up in the embed set (image + link forms).
+            val referencedMedia = rawDescription
+                ?.let { md -> pendingMedia.filterKeys { it in markdownEmbedUrls(md) } }
+                .orEmpty()
             val strippedDescription = rawDescription
-                ?.let { removeMarkdownImagesByUrl(it, referencedImages.keys) }
+                ?.let { removeMarkdownImagesByUrl(it, referencedImages.keys + referencedMedia.keys) }
                 ?.takeIf { it.isNotBlank() }
 
             val created = issuesApi.create(
@@ -672,12 +682,16 @@ class IssueListViewModel @Inject constructor(
             )
             upsertCreatedLocally(accountId, created, labelIds)
 
-            if (rawDescription != null && referencedImages.isNotEmpty()) {
-                val urlByPlaceholder = uploadPendingImages(accountId, created.id, referencedImages)
+            if (rawDescription != null && (referencedImages.isNotEmpty() || referencedMedia.isNotEmpty())) {
+                val urlByPlaceholder = uploadPendingImages(accountId, created.id, referencedImages) +
+                    uploadPendingMedia(accountId, created.id, referencedMedia)
+                // A placeholder whose upload failed is stripped (never a
+                // `draft://` link in a stored body); the rest swap to their
+                // real attachment URLs in their own form.
                 val finalDescription = replaceMarkdownImageUrls(
                     markdown = removeMarkdownImagesByUrl(
                         rawDescription,
-                        referencedImages.keys.minus(urlByPlaceholder.keys),
+                        (referencedImages.keys + referencedMedia.keys).minus(urlByPlaceholder.keys),
                     ),
                     replacements = urlByPlaceholder,
                 )
@@ -745,6 +759,36 @@ class IssueListViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    /**
+     * EXP-824: upload the create screen's prepared media against the new
+     * issue. Best-effort per clip like the images: a rejected one is logged
+     * and its placeholder stripped from the description, and the user is told
+     * which (a clip the user attached must never disappear without a word).
+     */
+    private suspend fun uploadPendingMedia(
+        accountId: String,
+        issueId: String,
+        pending: Map<String, PreparedMedia>,
+    ): Map<String, String> {
+        val out = mutableMapOf<String, String>()
+        val failed = mutableListOf<String>()
+        for ((placeholder, media) in pending) {
+            try {
+                out[placeholder] = issueImagesApi.uploadMedia(accountId, issueId, media).url
+            } catch (cancel: kotlinx.coroutines.CancellationException) {
+                throw cancel
+            } catch (error: Throwable) {
+                android.util.Log.w("IssueListViewModel", "Pending media upload failed", error)
+                failed += media.filename
+            }
+        }
+        if (failed.isNotEmpty()) {
+            _error.value = "Couldn't attach ${failed.joinToString(", ")}. " +
+                "Add ${if (failed.size == 1) "it" else "them"} from the issue."
+        }
+        return out
     }
 
     private suspend fun uploadPendingImages(

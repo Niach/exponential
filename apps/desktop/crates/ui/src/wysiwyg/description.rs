@@ -48,6 +48,21 @@ pub(crate) type OnSave = Rc<dyn Fn(String, &mut Window, &mut App)>;
 /// embed at the caret through the editor's own image pipeline.
 pub(crate) type OnAttachFiles = Rc<dyn Fn(Vec<std::path::PathBuf>, &mut Window, &mut App)>;
 
+/// EXP-824: the vendored editor's domain-free description of a media tile,
+/// from the synced row's [`crate::media_tile::MediaTile`].
+fn media_info_for(tile: &crate::media_tile::MediaTile) -> gpui_markdown_editor::MediaInfo {
+    use gpui_component::IconNamed as _;
+    gpui_markdown_editor::MediaInfo {
+        kind: match tile.kind {
+            crate::media_tile::MediaKind::Video => gpui_markdown_editor::MediaKind::Video,
+            crate::media_tile::MediaKind::Audio => gpui_markdown_editor::MediaKind::Audio,
+        },
+        label: tile.label.clone(),
+        duration: tile.duration_chip(),
+        play_icon: crate::icons::ExpIcon::Play.path(),
+    }
+}
+
 /// An open image context menu (host-rendered — the vendored editor only
 /// reports the right-click via `ImageContextMenuRequested`).
 struct ImageMenuState {
@@ -210,7 +225,21 @@ impl WysiwygDescription {
                     cx.notify();
                 }
                 MarkdownEditorEvent::OpenLinkRequested(request) => {
-                    if let Err(error) = api::opener::open_in_browser(&request.open_target) {
+                    // EXP-824: a link to a synced video/audio attachment
+                    // opens in the system player (temp download through the
+                    // bearer transport — the browser could not authenticate
+                    // the bare URL). Everything else is an ordinary link.
+                    if let Some(tile) =
+                        crate::media_tile::MediaTile::for_url(&request.open_target, cx)
+                    {
+                        crate::media_tile::open_media_in_player(
+                            tile.attachment_id,
+                            tile.label,
+                            window,
+                            cx,
+                        );
+                    } else if let Err(error) = api::opener::open_in_browser(&request.open_target)
+                    {
                         log::warn!("open link failed: {error}");
                     }
                 }
@@ -716,6 +745,54 @@ impl WysiwygDescription {
             next.insert(key, resolution);
         }
 
+        // EXP-824: standalone attachment LINKS whose synced row is media.
+        // The vendored editor asks `media_info(src)` and renders a tile; its
+        // `resolve(src)` is then the poster frame, so the resolution slot
+        // for the link's key holds the `?poster=1` fetch (or `Pending` for a
+        // row without a poster — never `Failed`, which would loop the
+        // retry timer for something that cannot succeed).
+        let mut media: HashMap<String, gpui_markdown_editor::MediaInfo> = HashMap::new();
+        for block in crate::markdown::markdown_to_blocks(&markdown) {
+            let crate::markdown::ContentBlock::AttachmentLink { url, .. } = block else {
+                continue;
+            };
+            let key = images::cache_key(&url).to_string();
+            if media.contains_key(&key) {
+                continue;
+            }
+            let Some(tile) = crate::media_tile::MediaTile::for_url(&url, cx) else {
+                continue;
+            };
+            let resolution = match &tile.poster_url {
+                Some(poster_url) => {
+                    match self.images.update(cx, |cache, cx| cache.slot(poster_url, cx)) {
+                        ImageSlot::Ready(image) => ImageSourceResolution::Decoded(image),
+                        ImageSlot::Loading => ImageSourceResolution::Pending,
+                        ImageSlot::Failed(_) => ImageSourceResolution::Failed,
+                    }
+                }
+                None => ImageSourceResolution::Pending,
+            };
+            if let Some(size) = tile.natural {
+                natural.insert(key.clone(), size);
+            }
+            media.insert(key.clone(), media_info_for(&tile));
+            next.insert(key, resolution);
+        }
+        let media_changed = self
+            .shared
+            .media
+            .lock()
+            .map(|mut current| {
+                if *current == media {
+                    false
+                } else {
+                    *current = media;
+                    true
+                }
+            })
+            .unwrap_or(false);
+
         let sizes_changed = self
             .shared
             .natural_sizes
@@ -750,7 +827,7 @@ impl WysiwygDescription {
                 }
             })
             .unwrap_or(false);
-        if changed || sizes_changed {
+        if changed || sizes_changed || media_changed {
             self.refresh_editor_environment(cx);
         }
         if any_failed_fetch {
@@ -818,14 +895,21 @@ impl WysiwygDescription {
 
     fn delete_image(&mut self, src: &str, window: &mut Window, cx: &mut Context<Self>) {
         let markdown = self.markdown(cx);
-        let occurrences = crate::attachments_row::extract_image_occurrences(&markdown);
-        let Some(index) = occurrences
-            .iter()
-            .position(|occurrence| occurrence.url == src)
-        else {
-            return;
+        // EXP-824: a media tile is a standalone LINK paragraph, not an image
+        // occurrence — its removal is line-level surgery on that paragraph.
+        let next = match crate::media_tile::remove_media_link_paragraph(&markdown, src) {
+            Some(next) => next,
+            None => {
+                let occurrences = crate::attachments_row::extract_image_occurrences(&markdown);
+                let Some(index) = occurrences
+                    .iter()
+                    .position(|occurrence| occurrence.url == src)
+                else {
+                    return;
+                };
+                crate::attachments_row::remove_image_occurrence(&markdown, index)
+            }
         };
-        let next = crate::attachments_row::remove_image_occurrence(&markdown, index);
         // The occurrence indices were computed on the restored (save-form)
         // markdown above; the RELOAD must go through the same normalization
         // as every other load path, or `&nbsp;` blank-line markers render as
@@ -1291,6 +1375,9 @@ impl WysiwygDescription {
         let src = menu.src.clone();
         let key = images::cache_key(&src).to_string();
         let own_attachment = key.starts_with("/api/attachments/");
+        // EXP-824: the `…` menu of a media tile — Open in player · Preview ·
+        // Download · Remove from description (no "View image" / copy).
+        let media = crate::media_tile::MediaTile::for_url(&src, cx);
         let theme = cx.theme();
 
         // EXP-421: parity with the web image menu — icons per row and a
@@ -1331,8 +1418,53 @@ impl WysiwygDescription {
             .border_1()
             .border_color(theme.border)
             .bg(theme.popover)
-            .shadow_md()
-            .child(
+            .shadow_md();
+        if let Some(tile) = media.clone() {
+            list = list
+                .child(
+                    item(
+                        "wysiwyg-media-open",
+                        "Open in player",
+                        crate::icons::ExpIcon::Play,
+                        false,
+                    )
+                    .on_mouse_down(MouseButton::Left, {
+                        let tile = tile.clone();
+                        cx.listener(move |this, _event, window, cx| {
+                            this.image_menu = None;
+                            crate::media_tile::open_media_in_player(
+                                tile.attachment_id.clone(),
+                                tile.label.clone(),
+                                window,
+                                cx,
+                            );
+                            cx.notify();
+                        })
+                    }),
+                )
+                .child(
+                    item(
+                        "wysiwyg-media-preview",
+                        "Preview",
+                        crate::icons::registry::UI_WATCH,
+                        false,
+                    )
+                    .on_mouse_down(MouseButton::Left, {
+                        let images = images_entity.clone();
+                        cx.listener(move |this, _event, window, cx| {
+                            this.image_menu = None;
+                            crate::image_preview::open_media_preview(
+                                tile.clone(),
+                                Some(images.clone()),
+                                window,
+                                cx,
+                            );
+                            cx.notify();
+                        })
+                    }),
+                );
+        } else {
+            list = list.child(
                 item(
                     "wysiwyg-image-view",
                     "View image",
@@ -1364,6 +1496,7 @@ impl WysiwygDescription {
                     })
                 }),
             );
+        }
         if own_attachment {
             list = list.child(
                 item(
@@ -1385,8 +1518,9 @@ impl WysiwygDescription {
             // Linux clipboard backends are text-only at pin 1d217ee (Wayland
             // offers only TEXT_MIME_TYPES; X11 routes write_to_clipboard
             // through set_text — its set_image exists but is unwired), so
-            // Copy image ships on macOS/Windows only.
-            if cfg!(any(target_os = "macos", target_os = "windows")) {
+            // Copy image ships on macOS/Windows only. Never for media: the
+            // cache holds at most the poster under a different key.
+            if media.is_none() && cfg!(any(target_os = "macos", target_os = "windows")) {
                 list = list.child(
                     item(
                         "wysiwyg-image-copy",

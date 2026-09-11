@@ -87,6 +87,7 @@ mod device_settings;
 mod devices_view;
 mod device_sync;
 mod machines;
+mod media_tile;
 #[cfg(target_os = "macos")]
 pub mod macos_blur;
 mod macos_window;

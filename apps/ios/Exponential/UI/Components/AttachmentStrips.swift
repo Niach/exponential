@@ -1,5 +1,6 @@
 import ExpUI
 import ExpCore
+import PhotosUI
 import QuickLook
 import SwiftUI
 import UIKit
@@ -30,19 +31,51 @@ struct PendingCommentAttachment: Identifiable, Equatable, Sendable {
     let filename: String
     let contentType: String
     var uploadedId: String?
+    // EXP-824: a normalised video's poster + probed size/length (nil on
+    // images and files), sent beside the bytes as `MediaUploadParts`.
+    var poster: Data?
+    var width: Int?
+    var height: Int?
+    var durationMs: Int?
 
     init(
         id: UUID = UUID(),
         data: Data,
         filename: String,
         contentType: String,
-        uploadedId: String? = nil
+        uploadedId: String? = nil,
+        poster: Data? = nil,
+        width: Int? = nil,
+        height: Int? = nil,
+        durationMs: Int? = nil
     ) {
         self.id = id
         self.data = data
         self.filename = filename
         self.contentType = contentType
         self.uploadedId = uploadedId
+        self.poster = poster
+        self.width = width
+        self.height = height
+        self.durationMs = durationMs
+    }
+
+    /// The editor's queued form, mapped onto the comment strip's.
+    init(_ pending: PendingImage) {
+        self.init(
+            data: pending.data,
+            filename: pending.filename,
+            contentType: pending.contentType,
+            poster: pending.poster,
+            width: pending.width,
+            height: pending.height,
+            durationMs: pending.durationMs
+        )
+    }
+
+    var mediaUploadParts: MediaUploadParts? {
+        guard AttachmentFiles.isInlineMedia(contentType: contentType) else { return nil }
+        return MediaUploadParts(poster: poster, width: width, height: height, durationMs: durationMs)
     }
 }
 
@@ -53,10 +86,16 @@ protocol PendingAttachmentItem: Identifiable where ID == UUID {
     var data: Data { get }
     var filename: String { get }
     var contentType: String { get }
+    /// EXP-824: a queued video's poster frame; nil for everything else.
+    var poster: Data? { get }
+    var durationMs: Int? { get }
 }
 
 extension PendingAttachmentItem {
+    var poster: Data? { nil }
+    var durationMs: Int? { nil }
     var isImage: Bool { AttachmentFiles.isInlineImage(contentType: contentType) }
+    var isVideo: Bool { AttachmentFiles.isInlineVideo(contentType: contentType) }
 }
 
 extension PendingCommentAttachment: PendingAttachmentItem {}
@@ -104,6 +143,31 @@ struct PendingAttachmentStrip<Item: PendingAttachmentItem>: View {
                 .scaledToFill()
                 .frame(width: 64, height: 64)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
+        } else if item.isVideo {
+            // EXP-824: the poster crop with a play glyph and the duration.
+            ZStack {
+                if let poster = item.poster.flatMap(UIImage.init(data:)) {
+                    Image(uiImage: poster)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    Color.white.opacity(0.06)
+                }
+                MediaPlayGlyph(size: 26)
+            }
+            .frame(width: 64, height: 64)
+            .overlay(alignment: .bottomTrailing) {
+                if let durationMs = item.durationMs, durationMs > 0 {
+                    Text(MediaDuration.format(ms: durationMs))
+                        .font(.system(size: 9, weight: .medium).monospacedDigit())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 2)
+                        .background(.black.opacity(0.6), in: Capsule())
+                        .padding(3)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 8))
         } else {
             AttachmentFileTile(filename: item.filename, contentType: item.contentType)
         }
@@ -162,17 +226,25 @@ struct CommentAttachmentsStrip: View {
         attachments.filter { AttachmentFiles.isInlineImage(contentType: $0.contentType) }
     }
 
+    /// EXP-824: video/audio rows get their own inline player tile.
+    private var media: [AttachmentEntity] {
+        attachments.filter { AttachmentFiles.isInlineMedia(contentType: $0.contentType) }
+    }
+
     private var files: [AttachmentEntity] {
-        attachments.filter { !AttachmentFiles.isInlineImage(contentType: $0.contentType) }
+        attachments.filter { AttachmentFiles.isFile(contentType: $0.contentType) }
     }
 
     var body: some View {
         if !attachments.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
-                if !images.isEmpty {
+                if !images.isEmpty || !media.isEmpty {
                     VStack(spacing: 8) {
                         ForEach(images) { attachment in
                             imageTile(attachment)
+                        }
+                        ForEach(media) { attachment in
+                            mediaTile(attachment)
                         }
                     }
                 }
@@ -186,6 +258,41 @@ struct CommentAttachmentsStrip: View {
     }
 
     // MARK: - Rows
+
+    /// EXP-824: a comment's video plays inline (poster + play + duration,
+    /// fullscreen through the player's own control); audio is a player row.
+    /// Same views the description's media blocks use.
+    @ViewBuilder
+    private func mediaTile(_ attachment: AttachmentEntity) -> some View {
+        let info = AttachmentMediaInfo(attachment)
+        ZStack(alignment: .topTrailing) {
+            if info.isVideo {
+                InlineVideoPlayerView(
+                    attachmentId: attachment.id,
+                    url: attachment.url,
+                    info: info,
+                    baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
+                    accountId: accountId,
+                    httpClient: deps.httpClient,
+                    maxHeight: 480
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
+                )
+            } else {
+                InlineAudioPlayerView(
+                    url: attachment.url,
+                    label: attachment.filename,
+                    info: info,
+                    baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
+                    accountId: accountId
+                )
+            }
+            removeButton(attachment)
+        }
+        .accessibilityLabel(attachment.filename)
+    }
 
     private func imageTile(_ attachment: AttachmentEntity) -> some View {
         ZStack(alignment: .topTrailing) {
@@ -446,10 +553,55 @@ enum AttachmentPicks {
         )
     }
 
+    /// EXP-824: one photo-library item, image OR video. A video is loaded as
+    /// a file and normalised (720p H.264/AAC MP4 + poster + probe) by
+    /// `MediaUploadPrep`; an image goes through `normalizedPhoto`.
+    static func ingestPhotoItem(_ item: PhotosPickerItem) async -> AttachmentPickOutcome {
+        let type = item.supportedContentTypes.first
+        if MediaUploadPrep.isMedia(item.supportedContentTypes) {
+            let contentType = AttachmentFiles.canonicalContentType(type?.preferredMIMEType ?? "video/quicktime")
+            let ext = type?.preferredFilenameExtension ?? "mov"
+            let filename = "clip-\(Int(Date().timeIntervalSince1970)).\(ext)"
+            guard let picked = try? await item.loadTransferable(type: PickedMediaFile.self) else {
+                return AttachmentPickOutcome(failure: "Couldn't read this video.")
+            }
+            return await prepareMedia(fileURL: picked.url, filename: filename, contentType: contentType)
+        }
+        guard let data = try? await item.loadTransferable(type: Data.self) else {
+            return AttachmentPickOutcome(failure: "Couldn't read this image.")
+        }
+        return normalizedPhoto(
+            data: data,
+            contentTypeHint: type?.preferredMIMEType,
+            filenameExtensionHint: type?.preferredFilenameExtension
+        )
+    }
+
+    /// Normalise a temp media file off-main into a pending attachment; the
+    /// temp file is removed afterwards.
+    private static func prepareMedia(fileURL: URL, filename: String, contentType: String) async -> AttachmentPickOutcome {
+        await Task.detached { () -> AttachmentPickOutcome in
+            defer { try? FileManager.default.removeItem(at: fileURL) }
+            do {
+                let media = try await MediaUploadPrep.prepare(
+                    fileURL: fileURL, filename: filename, contentType: contentType
+                )
+                return AttachmentPickOutcome(attachment: PendingCommentAttachment(media))
+            } catch {
+                return AttachmentPickOutcome(
+                    failure: (error as? MediaUploadPrep.PrepError)?.errorDescription
+                        ?? "Couldn't process this video."
+                )
+            }
+        }.value
+    }
+
     /// Read a `.fileImporter` pick. The security-scoped access is started and
     /// stopped off-main around the read (mirroring
     /// `IssueDetailViewModel.uploadFile`) so a 50 MB, possibly cloud-backed file
-    /// can never freeze the main thread.
+    /// can never freeze the main thread. EXP-824: a video/audio pick is copied
+    /// out and normalised instead (no pre-read cap — the export is what brings
+    /// a recording under 50 MB).
     static func readPickedFile(at url: URL) async -> AttachmentPickOutcome {
         let filename = AttachmentFiles.sanitizedFilename(url.lastPathComponent)
         // Canonical (lowercased, parameter-free) so the stored row classifies
@@ -457,6 +609,15 @@ enum AttachmentPicks {
         let contentType = AttachmentFiles.canonicalContentType(
             UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
         )
+        if AttachmentFiles.isInlineMedia(contentType: contentType) {
+            let copied: URL? = await Task.detached {
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                return try? MediaUploadPrep.copyToTemp(url)
+            }.value
+            guard let copied else { return AttachmentPickOutcome(failure: "Couldn't read this file.") }
+            return await prepareMedia(fileURL: copied, filename: filename, contentType: contentType)
+        }
         let isImage = AttachmentFiles.isInlineImage(contentType: contentType)
         let limit = isImage
             ? AttachmentFiles.maxImageUploadBytes
@@ -520,7 +681,9 @@ enum CommentAttachmentUploads {
                     issueId: issueId,
                     data: item.data,
                     filename: item.filename,
-                    contentType: item.contentType
+                    contentType: item.contentType,
+                    // EXP-824: poster + probed size/length for a video.
+                    media: item.mediaUploadParts
                 ).id
             } catch {
                 return Outcome(items: result, failure: error.userFacingMessage)

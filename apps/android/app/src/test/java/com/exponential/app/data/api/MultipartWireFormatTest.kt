@@ -35,6 +35,63 @@ class MultipartWireFormatTest {
         assertEquals(payload.toList(), body.copyOfRange(headEnd, tailStart).toList())
     }
 
+    // EXP-824: a media upload adds an OPTIONAL `poster` part and plain string
+    // fields, every one in the same quoted-disposition form, after the file.
+
+    @Test
+    fun mediaPartsRideAfterTheFileInTheQuotedForm() {
+        val video = ByteArray(8) { (0x40 + it).toByte() }
+        val poster = ByteArray(4) { (0x60 + it).toByte() }
+        val (body, boundary) = buildImageUploadBody(
+            video,
+            "clip.mp4",
+            "video/mp4",
+            poster = poster,
+            fields = mediaUploadFields(width = 1280, height = 720, durationMs = 7345),
+        )
+        val wire = String(body, Charsets.ISO_8859_1)
+        val dispositions = wire.lines().filter { it.startsWith("Content-Disposition:") }
+        assertEquals(
+            listOf(
+                "Content-Disposition: form-data; name=\"file\"; filename=\"clip.mp4\"",
+                "Content-Disposition: form-data; name=\"poster\"; filename=\"poster.jpg\"",
+                "Content-Disposition: form-data; name=\"width\"",
+                "Content-Disposition: form-data; name=\"height\"",
+                "Content-Disposition: form-data; name=\"durationMs\"",
+            ),
+            dispositions,
+        )
+        assertTrue(wire, wire.contains("Content-Type: video/mp4\r\n\r\n" + String(video, Charsets.ISO_8859_1) + "\r\n--$boundary\r\n"))
+        assertTrue(wire, wire.contains("Content-Type: image/jpeg\r\n\r\n" + String(poster, Charsets.ISO_8859_1) + "\r\n--$boundary\r\n"))
+        assertTrue(wire, wire.contains("name=\"width\"\r\n\r\n1280\r\n--$boundary\r\n"))
+        assertTrue(wire, wire.contains("name=\"height\"\r\n\r\n720\r\n--$boundary\r\n"))
+        assertTrue(wire, wire.contains("name=\"durationMs\"\r\n\r\n7345\r\n--$boundary--\r\n"))
+        assertTrue(wire, wire.endsWith("\r\n--$boundary--\r\n"))
+        // Every part opens on the same boundary: file + poster + 3 fields.
+        assertEquals(5, Regex("--$boundary\r\n").findAll(wire).count())
+    }
+
+    @Test
+    fun mediaFieldsSendOnlyPositiveIntegers() {
+        assertEquals(emptyMap<String, String>(), mediaUploadFields(null, null, null))
+        assertEquals(emptyMap<String, String>(), mediaUploadFields(0, -1, 0))
+        assertEquals(
+            listOf("width" to "640", "durationMs" to "1"),
+            mediaUploadFields(640, null, 1).toList(),
+        )
+    }
+
+    @Test
+    fun noMediaPartsMeansTheOnePartBodyIsByteIdentical() {
+        val payload = ByteArray(3) { 1 }
+        val (plain, _) = buildImageUploadBody(payload, "a.png", "image/png")
+        val (withEmpty, _) = buildImageUploadBody(payload, "a.png", "image/png", poster = null, fields = emptyMap())
+        // Boundaries differ per call; compare the shape, not the bytes.
+        fun shape(b: ByteArray) = String(b, Charsets.ISO_8859_1).replace(Regex("exp-[0-9a-f-]+"), "B")
+        assertEquals(shape(plain), shape(withEmpty))
+        assertEquals(1, String(plain, Charsets.ISO_8859_1).lines().count { it.startsWith("Content-Disposition:") })
+    }
+
     @Test
     fun headerBreakingFilenameCharactersAreNeutralized() {
         val (body, _) = buildImageUploadBody(

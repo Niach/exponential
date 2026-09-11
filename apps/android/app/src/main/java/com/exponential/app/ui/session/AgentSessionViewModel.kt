@@ -318,15 +318,7 @@ class AgentSessionViewModel @Inject constructor(
                 dbFlow.scopedQuery(emptyList()) { it.attachmentDao().observeByIssue(issueId) }
             }
         }
-        .map { rows ->
-            AttachmentDims(
-                rows.mapNotNull { row ->
-                    val width = row.width
-                    val height = row.height
-                    if (width == null || height == null) null else row.id to (width to height)
-                }.toMap(),
-            )
-        }
+        .map { rows -> AttachmentDims.fromRows(rows) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AttachmentDims.Empty)
 
     val currentUserId: StateFlow<String?> = auth.userId

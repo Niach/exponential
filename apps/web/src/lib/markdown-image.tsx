@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils"
 
 /** Pull the attachment id out of a `/api/attachments/{id}` (relative or
  *  absolute) image src so we can look up its probed pixel dimensions. */
-function attachmentIdFromSrc(src: string): string | null {
+export function attachmentIdFromSrc(src: string): string | null {
   const match = src.match(/\/api\/attachments\/([^/?#]+)/)
   return match ? match[1] : null
 }
@@ -30,7 +30,7 @@ function attachmentIdFromSrc(src: string): string | null {
 /** The display width persisted as a `?w=<int>` query param on the attachment
  *  src (EXP-52). The markdown stays plain GFM — `![alt](/api/attachments/{id}?w=480)`
  *  — and clients that don't understand the param simply ignore it. */
-function widthParamFromSrc(src: string): number | null {
+export function widthParamFromSrc(src: string): number | null {
   const match = src.match(/[?&]w=(\d+)(?:[&#]|$)/)
   if (!match) return null
   const parsed = Number.parseInt(match[1], 10)
@@ -38,12 +38,12 @@ function widthParamFromSrc(src: string): number | null {
 }
 
 /** The src stripped of query/hash — the canonical full-size attachment form. */
-function stripQuery(src: string): string {
+export function stripQuery(src: string): string {
   return src.split(`#`)[0].split(`?`)[0]
 }
 
 /** Rebuild an attachment src carrying (or dropping) the `?w=` width param. */
-function srcWithWidth(src: string, width: number | null): string {
+export function srcWithWidth(src: string, width: number | null): string {
   const base = stripQuery(src)
   return width ? `${base}?w=${width}` : base
 }

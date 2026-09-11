@@ -12,6 +12,7 @@ import { attachments, boards } from "@/db/schema"
 import { BOARD_TRASH_RETENTION_MS } from "@exp/db-schema/domain"
 import { deleteStorageObjectsViaBun } from "@/lib/storage/bun-s3-cleanup"
 import { reportSchedulerRun } from "@/lib/metrics/registry"
+import { collectAttachmentStorageKeys } from "@/lib/storage/issue-attachments"
 
 type Tx = Parameters<Parameters<(typeof db)[`transaction`]>[0]>[0]
 
@@ -39,7 +40,10 @@ export async function purgeBoardInTx(
   cutoff: Date
 ): Promise<{ purged: boolean; storageKeys: string[] }> {
   const attachmentRows = await tx
-    .select({ storageKey: attachments.storageKey })
+    .select({
+      storageKey: attachments.storageKey,
+      posterStorageKey: attachments.posterStorageKey,
+    })
     .from(attachments)
     .where(eq(attachments.boardId, boardId))
 
@@ -55,7 +59,10 @@ export async function purgeBoardInTx(
     .returning({ id: boards.id })
 
   if (deleted.length === 0) return { purged: false, storageKeys: [] }
-  return { purged: true, storageKeys: attachmentRows.map((r) => r.storageKey) }
+  return {
+    purged: true,
+    storageKeys: collectAttachmentStorageKeys(attachmentRows),
+  }
 }
 
 // One sweep pass, injectable clock for tests/manual runs. Returns counts for

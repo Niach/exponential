@@ -23,6 +23,14 @@ data class PendingAttachment(
      *  to `/images` and render as a thumbnail. */
     val isImage: Boolean,
     val uploadedId: String? = null,
+    // EXP-824: a `video/*` / `audio/*` pick, already normalised by the
+    // MediaPreparer (bytes = the 720p H.264/AAC MP4 for video). The poster
+    // JPEG and probed metadata ride the same multipart upload as extra parts.
+    val isMedia: Boolean = false,
+    val poster: ByteArray? = null,
+    val width: Int? = null,
+    val height: Int? = null,
+    val durationMs: Long? = null,
 ) {
     // ByteArray breaks data-class equality; compare by the scalar fields only.
     override fun equals(other: Any?): Boolean {
@@ -30,7 +38,8 @@ data class PendingAttachment(
         if (other !is PendingAttachment) return false
         return uri == other.uri && filename == other.filename &&
             contentType == other.contentType && isImage == other.isImage &&
-            uploadedId == other.uploadedId
+            uploadedId == other.uploadedId && isMedia == other.isMedia &&
+            width == other.width && height == other.height && durationMs == other.durationMs
     }
 
     override fun hashCode(): Int {
@@ -39,6 +48,8 @@ data class PendingAttachment(
         result = 31 * result + contentType.hashCode()
         result = 31 * result + isImage.hashCode()
         result = 31 * result + (uploadedId?.hashCode() ?: 0)
+        result = 31 * result + isMedia.hashCode()
+        result = 31 * result + (durationMs?.hashCode() ?: 0)
         return result
     }
 }

@@ -368,7 +368,8 @@ private fun CommentCardContent(
                         .clickable {
                             imagePicker.launch(
                                 PickVisualMediaRequest(
-                                    ActivityResultContracts.PickVisualMedia.ImageOnly,
+                                    // EXP-824: videos attach too.
+                                    ActivityResultContracts.PickVisualMedia.ImageAndVideo,
                                 ),
                             )
                         }

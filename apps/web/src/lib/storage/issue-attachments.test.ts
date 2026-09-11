@@ -1,23 +1,31 @@
 import { describe, expect, it } from "vitest"
 import {
+  buildAttachmentPosterStorageKey,
+  buildAttachmentPosterUrl,
   buildContentDispositionHeader,
   buildDeletedAttachmentPlaceholder,
-  getMaxUploadBytesForContentType,
-  isInlineSafeContentType,
-  maxFileUploadBytes,
-  maxImageUploadBytes,
-  replaceAttachmentReferencesWithPlaceholder,
+  canonicalizeContentType,
   canonicalizeMarkdownImageUrls,
+  collectAttachmentStorageKeys,
   collectMarkdownImageUrls,
   collectReferencedAttachmentIds,
-  extractMarkdownImageOccurrences,
   extractAttachmentIdsFromDescription,
+  extractMarkdownImageOccurrences,
   extractMarkdownImageUrls,
+  extractMarkdownLinkOccurrences,
   getAttachmentImageWidthFromUrl,
-  canonicalizeContentType,
+  getMaxUploadBytesForContentType,
   hasMarkdownImages,
+  isAcceptedVideoUploadContentType,
+  isAudioContentType,
+  isInlineMediaContentType,
+  isInlineSafeContentType,
+  isVideoContentType,
+  maxFileUploadBytes,
+  maxImageUploadBytes,
   removeMarkdownImageByOccurrence,
   removeMarkdownImagesByUrl,
+  replaceAttachmentReferencesWithPlaceholder,
   replaceMarkdownImageUrls,
   sanitizeUploadFilename,
 } from "@/lib/storage/issue-attachments"
@@ -646,5 +654,86 @@ describe(`replaceAttachmentReferencesWithPlaceholder`, () => {
     )
     expect(result.changed).toBe(false)
     expect(result.text).toBe(text)
+  })
+})
+
+// EXP-824: inline media rides a PLAIN LINK, never the image form.
+describe(`inline media (EXP-824)`, () => {
+  const origin = `https://app.example.com`
+  const id = `123e4567-e89b-12d3-a456-426614174000`
+
+  it(`classifies video and audio by prefix and everything else as before`, () => {
+    expect(isVideoContentType(`video/mp4`)).toBe(true)
+    expect(isVideoContentType(`video/quicktime; codecs=hvc1`)).toBe(true)
+    expect(isVideoContentType(`VIDEO/WEBM`)).toBe(true)
+    expect(isVideoContentType(`image/png`)).toBe(false)
+    expect(isAudioContentType(`audio/mpeg`)).toBe(true)
+    expect(isAudioContentType(`video/mp4`)).toBe(false)
+    expect(isInlineMediaContentType(`audio/mp4`)).toBe(true)
+    expect(isInlineMediaContentType(`application/pdf`)).toBe(false)
+    expect(isAcceptedVideoUploadContentType(`video/mp4`)).toBe(true)
+    expect(isAcceptedVideoUploadContentType(`video/x-msvideo`)).toBe(false)
+  })
+
+  it(`counts plain-link attachment references as referenced ids`, () => {
+    const referenced = collectReferencedAttachmentIds(
+      [
+        `Watch [clip.mp4](/api/attachments/${id})`,
+        `See [docs](/help/page) and [ext](https://other.test/api/attachments/${id})`,
+      ],
+      origin
+    )
+    expect([...referenced]).toEqual([id])
+  })
+
+  it(`never mistakes an image for a link`, () => {
+    expect(extractMarkdownLinkOccurrences(`![shot](/api/attachments/${id})`)).toEqual([])
+    const both = extractMarkdownLinkOccurrences(
+      `![shot](/api/attachments/a) then [clip \\[1\\].mp4](/api/attachments/${id} "t")`
+    )
+    expect(both).toHaveLength(1)
+    expect(both[0]).toMatchObject({
+      alt: `clip [1].mp4`,
+      url: `/api/attachments/${id}`,
+    })
+  })
+
+  it(`rewrites a deleted media link to the file placeholder`, () => {
+    const text = `intro\n\n[clip.mp4](/api/attachments/${id})\n\n![pic](/api/attachments/${id})\n\n[other](/api/attachments/223e4567-e89b-12d3-a456-426614174000)`
+    const result = replaceAttachmentReferencesWithPlaceholder(
+      text,
+      id,
+      origin,
+      `fallback.mp4`
+    )
+    expect(result.changed).toBe(true)
+    expect(result.text).toBe(
+      `intro\n\n*(deleted file: clip.mp4)*\n\n*(deleted image: pic)*\n\n[other](/api/attachments/223e4567-e89b-12d3-a456-426614174000)`
+    )
+  })
+
+  it(`canonicalizes same-origin media links and keeps ?w=`, () => {
+    const text = `[clip.mp4](${origin}/api/attachments/${id}?w=480&x=1) and [docs](https://other.test/page)`
+    expect(canonicalizeMarkdownImageUrls(text, origin)).toBe(
+      `[clip.mp4](/api/attachments/${id}?w=480) and [docs](https://other.test/page)`
+    )
+  })
+
+  it(`collects the poster blob with the attachment bytes, deduped`, () => {
+    expect(
+      collectAttachmentStorageKeys([
+        { storageKey: `issues/i/a-clip.mp4`, posterStorageKey: `issues/i/a-clip.mp4.poster` },
+        { storageKey: `issues/i/b-shot.png`, posterStorageKey: null },
+        { storageKey: `issues/i/b-shot.png` },
+      ])
+    ).toEqual([
+      `issues/i/a-clip.mp4`,
+      `issues/i/a-clip.mp4.poster`,
+      `issues/i/b-shot.png`,
+    ])
+    expect(buildAttachmentPosterStorageKey(`issues/i/a-clip.mp4`)).toBe(
+      `issues/i/a-clip.mp4.poster`
+    )
+    expect(buildAttachmentPosterUrl(id)).toBe(`/api/attachments/${id}?poster=1`)
   })
 })

@@ -45,7 +45,9 @@ import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.TeamPermissions
 import com.exponential.app.domain.canonicalContentType
 import com.exponential.app.domain.relationSortKey
+import com.exponential.app.domain.PreparedMedia
 import com.exponential.app.domain.isInlineImage
+import com.exponential.app.domain.isInlineMedia
 import com.exponential.app.domain.sanitizeFilename
 import com.exponential.app.ui.markdown.AttachmentDims
 import com.exponential.app.ui.markdown.IssueRefTarget
@@ -287,18 +289,10 @@ class IssueDetailViewModel @Inject constructor(
 
     // Probed sizes of this issue's attachments (REV2-79) — read views pre-size
     // embedded images from them instead of measuring 0-height and jumping when
-    // the bitmap lands.
+    // the bitmap lands. EXP-824: the same map carries content type, duration
+    // and poster presence, which is what upgrades a media link to a player.
     val attachmentDims: StateFlow<AttachmentDims> = attachmentsFlow
-        .map { rows ->
-            AttachmentDims(
-                rows.mapNotNull { row ->
-                    val width = row.width
-                    val height = row.height
-                    if (width == null || height == null) null
-                    else row.id to (width to height)
-                }.toMap()
-            )
-        }
+        .map { rows -> AttachmentDims.fromRows(rows) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AttachmentDims.Empty)
 
     // ── Files section (EXP-297) ──────────────────────────────────────────────
@@ -312,10 +306,14 @@ class IssueDetailViewModel @Inject constructor(
      *
      * EXP-554: comment-linked rows are excluded — they render in their comment's
      * attachment strip, and listing them here too would double-list them.
+     * EXP-824: inline media (video / audio) leaves the rail like images do —
+     * it is referenced from the description as a plain link and plays there.
      */
     val fileAttachments: StateFlow<List<AttachmentEntity>> = attachmentsFlow
         .map { rows ->
-            rows.filter { it.commentId == null && !isInlineImage(it.contentType) }
+            rows.filter {
+                it.commentId == null && !isInlineImage(it.contentType) && !isInlineMedia(it.contentType)
+            }
                 .sortedBy { it.createdAt }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -971,6 +969,29 @@ class IssueDetailViewModel @Inject constructor(
         }
     }
 
+    /** The synced row behind a `/api/attachments/{id}` URL of this issue, if any (EXP-824). */
+    fun attachmentForUrl(url: String): AttachmentEntity? {
+        val id = com.exponential.app.ui.markdown.attachmentIdFromUrl(url) ?: return null
+        return attachmentsFlow.value.firstOrNull { it.id == id }
+    }
+
+    /**
+     * EXP-824: upload a prepared video / audio pick against the issue and hand
+     * the editor its `/api/attachments/{id}` URL. Throws like [uploadImage] so
+     * the row's retry badge can show the server's reason.
+     */
+    suspend fun uploadMedia(media: PreparedMedia): String? {
+        val accountId = auth.activeAccountId.value ?: return null
+        try {
+            return issueImagesApi.uploadMedia(accountId, issueId, media).url
+        } catch (cancel: kotlinx.coroutines.CancellationException) {
+            throw cancel
+        } catch (error: Throwable) {
+            android.util.Log.w("IssueDetailViewModel", "Media upload failed (type=${media.contentType}, ${media.bytes.size} bytes)", error)
+            throw error
+        }
+    }
+
     // ── File attachments (EXP-297) ───────────────────────────────────────────
 
     /**
@@ -1034,7 +1055,7 @@ class IssueDetailViewModel @Inject constructor(
             val contentType = canonicalContentType(
                 withContext(Dispatchers.IO) { resolver.getType(pending.uri) }
             )
-            if (isInlineImage(contentType)) {
+            if (isInlineImage(contentType) || isInlineMedia(contentType)) {
                 // An inline-image type uploaded through the Files flow would be
                 // invisible everywhere: filtered out of every client's Files
                 // section, referenced by no markdown, and eventually deleted by
@@ -1043,6 +1064,8 @@ class IssueDetailViewModel @Inject constructor(
                 // the other button, put it where it belongs — the end of the
                 // description. (The attach menu classifies picks up front, so
                 // this only catches a URI whose type resolves differently here.)
+                // EXP-824: a video / audio type takes the same detour — the
+                // screen's handler routes it through the media path.
                 _pendingFiles.value = _pendingFiles.value.filterNot { it.key == key }
                 onInlineImagePicked?.invoke(pending.uri, contentType)
                 return@launch

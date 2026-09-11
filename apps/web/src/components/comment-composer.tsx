@@ -4,7 +4,9 @@ import type { Attachment, User } from "@/db/schema"
 import { MAX_COMMENT_ATTACHMENTS } from "@/lib/domain"
 import {
   acceptedImageContentTypes,
+  acceptedVideoUploadContentTypes,
   isAcceptedImageContentType,
+  isVideoContentType,
   maxFileUploadBytes,
   maxImageUploadBytes,
 } from "@/lib/storage/issue-attachments"
@@ -13,9 +15,15 @@ import {
   uploadIssueImageFile,
 } from "@/lib/storage/issue-image-upload"
 import {
+  mediaPlayabilityHint,
+  prepareMediaUpload,
+  uploadIssueMediaFile,
+} from "@/lib/storage/media-upload"
+import {
   formatAttachmentSize,
   getAttachmentIcon,
   isInlineImageAttachment,
+  isInlineMediaAttachment,
 } from "@/lib/attachment-files"
 import { Pill } from "@/components/ui/pill"
 import {
@@ -95,6 +103,8 @@ export function CommentComposer({
     (initialAttachments ?? []).map((row) => ({ key: row.id, existing: row }))
   )
   const [submitting, setSubmitting] = useState(false)
+  // EXP-824: narrated progress of a clip upload while sending.
+  const [uploadStatus, setUploadStatus] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<MentionTextareaHandle>(null)
@@ -147,9 +157,12 @@ export function CommentComposer({
       ...taking.map((file) => ({
         key: `${file.name}-${crypto.randomUUID()}`,
         file,
-        previewUrl: isAcceptedImageContentType(file.type)
-          ? URL.createObjectURL(file)
-          : undefined,
+        // Images and videos get an object URL for the strip thumb (a muted
+        // `<video>` shows its first frame); audio keeps the file chip.
+        previewUrl:
+          isAcceptedImageContentType(file.type) || isVideoContentType(file.type)
+            ? URL.createObjectURL(file)
+            : undefined,
       })),
     ])
   }
@@ -179,10 +192,35 @@ export function CommentComposer({
           continue
         }
         if (!item.uploadedId && item.file) {
-          const uploaded = isInlineImageAttachment(item.file.type)
-            ? await uploadIssueImageFile(issueId, item.file)
-            : await uploadIssueFile(issueId, item.file)
-          items[i] = { ...item, uploadedId: uploaded.id }
+          let uploadedId: string
+          if (isInlineMediaAttachment(item.file.type)) {
+            // EXP-824: probe + poster + `.mov` remux, then a progress-
+            // narrated upload; a non-H.264 clip gets the playability hint.
+            const file = item.file
+            setUploadStatus(`Preparing ${file.name}…`)
+            const prepared = await prepareMediaUpload(file, (stage) =>
+              setUploadStatus(
+                stage === `remuxing`
+                  ? `Converting ${file.name} to MP4…`
+                  : `Preparing ${file.name}…`
+              )
+            )
+            setUploadStatus(`Uploading ${prepared.file.name}…`)
+            const uploaded = await uploadIssueMediaFile(issueId, prepared, {
+              onProgress: (percent) =>
+                setUploadStatus(`Uploading ${prepared.file.name}… ${percent}%`),
+            })
+            setUploadStatus(null)
+            const hint = mediaPlayabilityHint(uploaded)
+            if (hint) toast.message(hint)
+            uploadedId = uploaded.id
+          } else {
+            const uploaded = isInlineImageAttachment(item.file.type)
+              ? await uploadIssueImageFile(issueId, item.file)
+              : await uploadIssueFile(issueId, item.file)
+            uploadedId = uploaded.id
+          }
+          items[i] = { ...item, uploadedId }
           const next = items[i]
           setPending((prev) =>
             prev.map((entry) => (entry.key === next.key ? next : entry))
@@ -202,19 +240,35 @@ export function CommentComposer({
       })
     } finally {
       setSubmitting(false)
+      setUploadStatus(null)
     }
   }
 
-  const strip = pending.length > 0 && (
+  const strip = (pending.length > 0 || uploadStatus) && (
     <div className="flex flex-wrap items-center gap-2 px-2 pt-2">
+      {uploadStatus ? (
+        <span
+          className="w-full truncate text-xs text-muted-foreground"
+          role="status"
+          aria-live="polite"
+        >
+          {uploadStatus}
+        </span>
+      ) : null}
       {pending.map((item) => {
         const contentType = item.existing?.contentType ?? item.file?.type ?? ``
         const filename = item.existing?.filename ?? item.file?.name ?? ``
+        const isVideo = isVideoContentType(contentType)
         const imageSrc = item.existing
           ? isInlineImageAttachment(contentType)
             ? item.existing.url
             : undefined
-          : item.previewUrl
+          : isVideo
+            ? undefined
+            : item.previewUrl
+        const videoSrc = isVideo
+          ? (item.existing?.url ?? item.previewUrl)
+          : undefined
         const removeButton = (
           <button
             type="button"
@@ -233,6 +287,23 @@ export function CommentComposer({
                 src={imageSrc}
                 alt={filename}
                 className="size-16 rounded-md border border-glass-stroke-card object-cover"
+              />
+              {removeButton}
+            </div>
+          )
+        }
+        if (videoSrc) {
+          // EXP-824: a muted, metadata-only `<video>` is the cheapest
+          // first-frame thumb — no decode until the row exists server-side.
+          return (
+            <div key={item.key} className="relative">
+              <video
+                src={videoSrc}
+                muted
+                playsInline
+                preload="metadata"
+                aria-label={filename}
+                className="size-16 rounded-md border border-glass-stroke-card bg-black object-cover"
               />
               {removeButton}
             </div>
@@ -258,7 +329,12 @@ export function CommentComposer({
       <input
         ref={imageInputRef}
         type="file"
-        accept={acceptedImageContentTypes.join(`,`)}
+        // EXP-824: clips ride the image button — they render inline too.
+        accept={[
+          ...acceptedImageContentTypes,
+          ...acceptedVideoUploadContentTypes,
+          `audio/*`,
+        ].join(`,`)}
         multiple
         className="hidden"
         onChange={(event) => {

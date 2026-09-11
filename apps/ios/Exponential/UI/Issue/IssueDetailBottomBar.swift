@@ -115,7 +115,8 @@ struct IssueDetailBottomBar: View {
             isPresented: $showPhotoPicker,
             selection: $photoItems,
             maxSelectionCount: AttachmentFiles.maxCommentAttachments,
-            matching: .images
+            // EXP-824: videos too — normalised to 720p and queued as a media tile.
+            matching: .any(of: [.images, .videos])
         )
         .onChange(of: photoItems) { _, newItems in
             guard !newItems.isEmpty else { return }
@@ -444,6 +445,9 @@ struct IssueDetailBottomBar: View {
         composerEditor.issueRefTitleResolver = { resolveIssueRefTitle($0) }
         composerEditor.issueRefStatusResolver = { resolveIssueRefStatus($0) }
         composerEditor.issueRefSearch = { searchIssueRefs($0) }
+        // EXP-824: a pasted `[clip.mp4](/api/attachments/{id})` renders as a
+        // player in the composer too.
+        composerEditor.attachmentResolver = AttachmentInfoCache.resolver(db: deps.db, accountId: accountId)
     }
 
     private func resetComposer() {
@@ -528,13 +532,7 @@ struct IssueDetailBottomBar: View {
                 attachmentError = "A comment can carry \(AttachmentFiles.maxCommentAttachments) attachments."
                 break
             }
-            guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
-            let type = item.supportedContentTypes.first
-            let outcome = AttachmentPicks.normalizedPhoto(
-                data: data,
-                contentTypeHint: type?.preferredMIMEType,
-                filenameExtensionHint: type?.preferredFilenameExtension
-            )
+            let outcome = await AttachmentPicks.ingestPhotoItem(item)
             if let attachment = outcome.attachment {
                 pendingAttachments.append(attachment)
             } else {

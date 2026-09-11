@@ -134,6 +134,46 @@ async function getAttachment({
     await assertTeamMember(session!.user.id, attachment.teamId)
   }
 
+  // EXP-824: `?poster=1` serves the video row's poster frame — a second blob
+  // on the same row, same membership decision, always an accepted image
+  // type (the upload route enforces it). A row without one is a 404 so the
+  // player falls back to its own first frame.
+  const wantsPoster =
+    new URL(request.url).searchParams.get(`poster`) === `1`
+  if (wantsPoster) {
+    const posterStorageKey =
+      `posterStorageKey` in attachment ? attachment.posterStorageKey : null
+    if (!posterStorageKey) {
+      throw new TRPCError({
+        code: `NOT_FOUND`,
+        message: `Poster not found`,
+      })
+    }
+    const object = await getObject(posterStorageKey)
+    const body = object ? await toResponseBody(object.Body) : null
+    if (!object || !body) {
+      throw new TRPCError({
+        code: `NOT_FOUND`,
+        message: `Poster not found`,
+      })
+    }
+    const headers = new Headers({
+      "Cache-Control": `private, max-age=3600`,
+      "Content-Disposition": buildContentDispositionHeader(
+        `inline`,
+        `${attachment.filename}.poster`
+      ),
+      // The poster's stored type is authoritative; a missing one is still an
+      // accepted raster type, so jpeg is the safe default.
+      "Content-Type": object.ContentType || `image/jpeg`,
+      "X-Content-Type-Options": `nosniff`,
+    })
+    if (typeof object.ContentLength === `number`) {
+      headers.set(`Content-Length`, object.ContentLength.toString())
+    }
+    return new Response(body, { headers })
+  }
+
   // An empty stored type must never be sniffed by the browser.
   const contentType = attachment.contentType || `application/octet-stream`
   const forceDownload =

@@ -49,6 +49,8 @@ import com.exponential.app.ui.markdown.model.InlineKind
 import com.exponential.app.ui.markdown.model.InlineMark
 import com.exponential.app.ui.markdown.model.ListType
 import com.exponential.app.ui.markdown.model.ParagraphAttrs
+import com.exponential.app.ui.markdown.media.AudioBlockView
+import com.exponential.app.ui.markdown.media.VideoBlockView
 import com.exponential.app.ui.markdown.model.RichText
 import com.exponential.app.ui.theme.resolvedStatusColor
 
@@ -89,6 +91,8 @@ fun MarkdownView(
                 when (block) {
                     is ContentBlock.TextBlock -> TextBlockView(block.content, issueRefs)
                     is ContentBlock.ImageBlock -> ImageBlockView(block.url, block.alt)
+                    is ContentBlock.AttachmentLinkBlock ->
+                        AttachmentLinkBlockView(block.url, block.label, issueRefs)
                     is ContentBlock.TableBlock -> TableBlockView(block.table, issueRefs)
                 }
             }
@@ -129,6 +133,57 @@ private fun ImageBlockView(url: String, alt: String) {
             .clip(RoundedCornerShape(8.dp)),
     )
 }
+
+/**
+ * EXP-824: a paragraph that is solely one attachment link. The synced row
+ * decides the treatment — a `video/` type plays inline (poster + play glyph
+ * + duration, fullscreen on demand), `audio/` gets the compact player row,
+ * and any other type, or a row that hasn't synced yet, renders the plain
+ * link it was written as. The plain fallback opens through
+ * [LocalAttachmentLinkOpener] when a screen provides one: a relative
+ * `/api/attachments/…` URL is nothing the system URI handler could open.
+ */
+@Composable
+private fun AttachmentLinkBlockView(url: String, label: String, issueRefs: IssueRefHandler?) {
+    val info = LocalAttachmentDims.current.infoOf(url)
+    when {
+        info?.isVideo == true -> VideoBlockView(url = url, label = label, info = info)
+        info?.isAudio == true -> AudioBlockView(url = url, label = label, info = info)
+        else -> {
+            val opener = LocalAttachmentLinkOpener.current
+            val body = LocalMarkdownBodyStyle.current
+            val text = buildAnnotatedString {
+                append(label)
+                val styles = TextLinkStyles(style = SpanStyle(color = MdStyle.Link))
+                if (opener != null) {
+                    addLink(
+                        LinkAnnotation.Clickable(
+                            tag = url,
+                            styles = styles,
+                            linkInteractionListener = { opener(url) },
+                        ),
+                        0,
+                        label.length,
+                    )
+                } else {
+                    addLink(LinkAnnotation.Url(url = url, styles = styles), 0, label.length)
+                }
+            }
+            Text(
+                text = text,
+                style = body,
+                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+            )
+        }
+    }
+}
+
+/**
+ * How a screen opens an attachment link the renderer could not upgrade to a
+ * player (EXP-824) — typically download-to-cache + hand to the system. Null
+ * (the default) leaves the link to the platform URI handler.
+ */
+val LocalAttachmentLinkOpener = compositionLocalOf<((String) -> Unit)?> { null }
 
 @Composable
 private fun TextBlockView(rich: RichText, issueRefs: IssueRefHandler?) {

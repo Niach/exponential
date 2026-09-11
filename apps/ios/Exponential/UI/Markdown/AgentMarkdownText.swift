@@ -137,6 +137,9 @@ struct AgentMarkdownText: View {
         if let cached = cache.object(forKey: key) { return cached }
         let model = IssueEditorModel()
         if let refs {
+            // EXP-824: an agent narrating `[clip.mp4](/api/attachments/{id})`
+            // gets the same player, resolved off the store.
+            model.attachmentResolver = AttachmentInfoCache.resolver(db: refs.db, accountId: accountId)
             // Read-only chips, resolved against the run's team through the
             // same memo the issue editors use. `bareIssueRefs` is what makes a
             // narrated `EXP-758` chip alongside `#EXP-758` (EXP-760); the raw

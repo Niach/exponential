@@ -5,7 +5,9 @@
 //! (`apps/android/.../ui/markdown/model/ContentBlock.kt`): **only images and
 //! tables split the document into blocks** (EXP-726 added tables). Headings,
 //! lists, quotes and fenced code become
-//! *paragraph-level attributes* inside a single [`ContentBlock::Text`];
+//! *paragraph-level attributes* inside a single [`ContentBlock::Text`]
+//! (EXP-824 added [`ContentBlock::AttachmentLink`] — a paragraph that is
+//! SOLELY one link to an attachment, the media-tile form);
 //! inline formatting is a list of [`InlineMark`] ranges. Markdown is derived
 //! from blocks only at save time — never round-tripped per keystroke.
 //!
@@ -174,7 +176,8 @@ pub enum TableAlignment {
     Right,
 }
 
-/// One block of the document. Images and tables split blocks.
+/// One block of the document. Images, tables and attachment links split
+/// blocks.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ContentBlock {
     Text {
@@ -199,6 +202,20 @@ pub enum ContentBlock {
         header: Vec<RichText>,
         rows: Vec<Vec<RichText>>,
         alignments: Vec<TableAlignment>,
+    },
+    /// EXP-824: a paragraph consisting SOLELY of one plain link whose URL is
+    /// an attachment URL — `[clip.mp4](/api/attachments/{id})`. The
+    /// cross-client inline-media form: the renderer upgrades it to a
+    /// video/audio tile when the synced row's content type is media, and
+    /// draws an ordinary link otherwise. A link inside running text never
+    /// becomes one of these. Serializes back as `[label](url)` verbatim.
+    AttachmentLink {
+        id: u64,
+        /// The RAW destination (relative `/api/attachments/{id}`, optionally
+        /// carrying a `?w=` display width like images).
+        url: String,
+        /// The link text — by convention the filename.
+        label: String,
     },
 }
 
@@ -231,9 +248,20 @@ impl ContentBlock {
         }
     }
 
+    pub fn attachment_link(url: impl Into<String>, label: impl Into<String>) -> Self {
+        Self::AttachmentLink {
+            id: next_block_id(),
+            url: url.into(),
+            label: label.into(),
+        }
+    }
+
     pub fn id(&self) -> u64 {
         match self {
-            Self::Text { id, .. } | Self::Image { id, .. } | Self::Table { id, .. } => *id,
+            Self::Text { id, .. }
+            | Self::Image { id, .. }
+            | Self::Table { id, .. }
+            | Self::AttachmentLink { id, .. } => *id,
         }
     }
 
@@ -244,7 +272,10 @@ impl ContentBlock {
     /// True for the blocks that are NOT editable text — the ones
     /// [`normalize_blocks`] pads with text neighbours.
     pub fn is_block_level(&self) -> bool {
-        matches!(self, Self::Image { .. } | Self::Table { .. })
+        matches!(
+            self,
+            Self::Image { .. } | Self::Table { .. } | Self::AttachmentLink { .. }
+        )
     }
 }
 
@@ -254,7 +285,7 @@ impl ContentBlock {
 /// 1. An empty document becomes exactly one empty text block.
 /// 2. The first block is always a text block.
 /// 3. The last block is always a text block.
-/// 4. No two block-level blocks (image, table) are adjacent.
+/// 4. No two block-level blocks (image, table, attachment link) are adjacent.
 ///
 /// These guarantee every image and table has a text block above and below it,
 /// so backspace merges and caret placement always have somewhere to land.
@@ -317,6 +348,22 @@ mod tests {
         assert_eq!(blocks.len(), 5);
         assert!(!blocks[0].is_block_level());
         assert!(matches!(&blocks[1], ContentBlock::Table { .. }));
+        assert!(!blocks[2].is_block_level());
+        assert!(blocks[3].is_image());
+        assert!(!blocks[4].is_block_level());
+    }
+
+    #[test]
+    fn normalize_wraps_attachment_links_with_text_blocks() {
+        let mut blocks = vec![
+            ContentBlock::attachment_link("/api/attachments/a", "a.mp4"),
+            ContentBlock::image("/api/attachments/b", "b"),
+        ];
+        normalize_blocks(&mut blocks);
+        // text, link, text, image, text
+        assert_eq!(blocks.len(), 5);
+        assert!(!blocks[0].is_block_level());
+        assert!(matches!(&blocks[1], ContentBlock::AttachmentLink { .. }));
         assert!(!blocks[2].is_block_level());
         assert!(blocks[3].is_image());
         assert!(!blocks[4].is_block_level());

@@ -9,7 +9,7 @@ import {
   buildAttachmentDownloadUrl,
   formatAttachmentSize,
   getAttachmentIcon,
-  isInlineImageAttachment,
+  isFileAttachment,
 } from "@/lib/attachment-files"
 import { Button } from "@/components/ui/button"
 import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
@@ -30,23 +30,24 @@ interface IssueFilesSectionProps {
   issueId: string
   readOnly?: boolean
   /**
-   * Receives inline-image files picked via the attach button (EXP-316: they
-   * are inlined into the description instead of living here). When absent,
-   * image picks are rejected with a pointer to the editor's image button.
+   * Receives INLINE files picked via the attach button — images (EXP-316)
+   * and video/audio (EXP-824) are embedded in the description instead of
+   * living here. When absent, such picks are rejected with a pointer to the
+   * editor's image button.
    */
-  onImageFiles?: (files: File[]) => void | Promise<void>
+  onInlineFiles?: (files: File[]) => void | Promise<void>
 }
 
 /**
- * EXP-297 Files rail: the issue's NON-inline-image attachments, rendered
- * straight from the synced `attachments` shape (they never appear in the
- * description markdown). Members can attach any file type, open/download it,
- * or delete the row.
+ * EXP-297 Files rail: the issue's attachments that are neither inline images
+ * nor inline media (EXP-824), rendered straight from the synced `attachments`
+ * shape (they never appear in the description markdown). Members can attach
+ * any file type, open/download it, or delete the row.
  */
 export function IssueFilesSection({
   issueId,
   readOnly = false,
-  onImageFiles,
+  onInlineFiles,
 }: IssueFilesSectionProps) {
   const { data } = useLiveQuery(
     (query) =>
@@ -59,7 +60,7 @@ export function IssueFilesSection({
   const files = useMemo(() => {
     const rows = (data ?? []) as Attachment[]
     return rows
-      .filter((row) => !isInlineImageAttachment(row.contentType))
+      .filter((row) => isFileAttachment(row.contentType))
       // Comment attachments (EXP-554) render under their comment, not here.
       .filter((row) => row.commentId === null)
       .sort(
@@ -76,28 +77,25 @@ export function IssueFilesSection({
   const handleFiles = async (selected: File[]) => {
     setError(null)
 
-    // Inline-image types never live in the Files section — every client
-    // filters them out (EXP-297). With an onImageFiles handler they are
-    // inlined into the description instead (EXP-316); without one they are
-    // deflected so the sweep can't silently delete an unreferenced upload.
-    const images = selected.filter((file) =>
-      isInlineImageAttachment(file.type)
-    )
-    const uploadable = selected.filter(
-      (file) => !isInlineImageAttachment(file.type)
-    )
-    const failures: string[] = onImageFiles
+    // Inline types (images, video, audio) never live in the Files section —
+    // every client filters them out (EXP-297/EXP-824). With an onInlineFiles
+    // handler they are embedded in the description instead (EXP-316); without
+    // one they are deflected so the sweep can't silently delete an
+    // unreferenced upload.
+    const inline = selected.filter((file) => !isFileAttachment(file.type))
+    const uploadable = selected.filter((file) => isFileAttachment(file.type))
+    const failures: string[] = onInlineFiles
       ? []
-      : images.map(
+      : inline.map(
           (file) =>
-            `${file.name}: images go in the description. Add them with the editor's image button.`
+            `${file.name}: images and clips go in the description. Add them with the editor's image button.`
         )
 
     setUploading(true)
-    if (onImageFiles && images.length > 0) {
+    if (onInlineFiles && inline.length > 0) {
       // The handler owns its own error surface (the description editor's
       // upload status) — failures there don't join this section's list.
-      await onImageFiles(images)
+      await onInlineFiles(inline)
     }
     // Every pick is attempted; failures are collected per file so one oversize
     // upload never silently drops the rest (parity with the native clients).

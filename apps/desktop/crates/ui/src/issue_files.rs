@@ -6,9 +6,12 @@
 //! iff its `content_type` is exactly one of
 //! [`ACCEPTED_IMAGE_CONTENT_TYPES`] — those live in the description markdown
 //! as `![alt](/api/attachments/{id})` and are rendered by the editor, never
-//! listed here. EVERYTHING else (pdf/zip/video/audio/plain text, and also
-//! non-inline `image/*` types like tiff or svg) belongs to the Files section.
-//! Web, iOS and Android apply the identical rule.
+//! listed here. EXP-824: a row is *inline media* iff its `content_type`
+//! starts with `video/` or `audio/` — those live in the markdown as a plain
+//! link on its own paragraph (`[clip.mp4](/api/attachments/{id})`) and render
+//! as a media tile, never listed here either. EVERYTHING else (pdf/zip/plain
+//! text, and also non-inline `image/*` types like tiff or svg) belongs to the
+//! Files section. Web, iOS and Android apply the identical rules.
 //!
 //! Nothing here talks to the network: uploads/downloads go through the
 //! [`crate::markdown::AttachmentTransport`] and deletion through
@@ -29,7 +32,74 @@ pub(crate) fn is_inline_image(content_type: Option<&str>) -> bool {
     content_type.is_some_and(|value| ACCEPTED_IMAGE_CONTENT_TYPES.contains(&value))
 }
 
-/// The issue's FILE attachments (non-inline-image rows) from the synced
+/// EXP-824: is this a video row (`video/*`)? Inline media is a PREFIX match,
+/// unlike the exact five-type image contract — the server accepts any
+/// `video/*` / `audio/*` upload and probes what it can.
+pub(crate) fn is_inline_video(content_type: Option<&str>) -> bool {
+    content_type.is_some_and(|value| value.starts_with("video/"))
+}
+
+/// EXP-824: is this an audio row (`audio/*`)?
+pub(crate) fn is_inline_audio(content_type: Option<&str>) -> bool {
+    content_type.is_some_and(|value| value.starts_with("audio/"))
+}
+
+/// EXP-824: video or audio — the rows that embed as a media tile.
+pub(crate) fn is_inline_media(content_type: Option<&str>) -> bool {
+    is_inline_video(content_type) || is_inline_audio(content_type)
+}
+
+/// EXP-824: a media duration chip — `0:07`, `2:34`, `1:02:03` (hours only
+/// once there are any; seconds floor, never round up past the real length).
+/// Mirrors the web/iOS/Android formatter byte for byte.
+pub(crate) fn format_duration(duration_ms: i64) -> String {
+    // Nearest second, like web `formatDuration` and iOS `MediaDuration`.
+    let total_seconds = (duration_ms.max(0) + 500) / 1000;
+    let hours = total_seconds / 3600;
+    let minutes = (total_seconds % 3600) / 60;
+    let seconds = total_seconds % 60;
+    if hours > 0 {
+        format!("{hours}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("{minutes}:{seconds:02}")
+    }
+}
+
+/// How a just-uploaded file joins the DESCRIPTION (EXP-316 images, EXP-824
+/// media) — `None` means it stays a Files row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DescriptionEmbed {
+    /// `![filename](url)`
+    Image,
+    /// `[filename](url)` on its own paragraph — the inline-media form.
+    Media,
+}
+
+pub(crate) fn description_embed(content_type: &str) -> Option<DescriptionEmbed> {
+    if is_inline_image(Some(content_type)) {
+        Some(DescriptionEmbed::Image)
+    } else if is_inline_media(Some(content_type)) {
+        Some(DescriptionEmbed::Media)
+    } else {
+        None
+    }
+}
+
+/// The markdown paragraph appended for an embed (the upload's canonical
+/// relative `url`; the filename is the alt / link label).
+pub(crate) fn description_fragment(
+    embed: DescriptionEmbed,
+    filename: Option<&str>,
+    url: &str,
+) -> String {
+    let name = filename.map(str::trim).filter(|name| !name.is_empty());
+    match embed {
+        DescriptionEmbed::Image => format!("![{}]({url})", name.unwrap_or("image")),
+        DescriptionEmbed::Media => format!("[{}]({url})", name.unwrap_or("file")),
+    }
+}
+
+/// The issue's FILE attachments (non-inline-image, non-media rows) from the synced
 /// `attachments` shape, oldest first — the exact list the Files section
 /// renders. Reads the collection the same way
 /// `markdown::attachment_natural_size` does, so an Electric delta re-renders
@@ -50,6 +120,7 @@ pub(crate) fn file_attachments(issue_id: &str, cx: &App) -> Vec<Attachment> {
         .filter(|attachment| attachment.issue_id.as_deref() == Some(issue_id))
         .filter(|attachment| attachment.comment_id.is_none())
         .filter(|attachment| !is_inline_image(attachment.content_type.as_deref()))
+        .filter(|attachment| !is_inline_media(attachment.content_type.as_deref()))
         .cloned()
         .collect();
     // `created_at` is an ISO-8601 UTC string — lexicographic order is
@@ -225,6 +296,76 @@ mod tests {
         assert!(!is_inline_image(Some("image/png; charset=binary")));
     }
 
+    /// EXP-824: media is a PREFIX match on the family, and never overlaps
+    /// the image contract or the Files rail.
+    #[test]
+    fn media_classification_is_a_family_prefix_match() {
+        for video in ["video/mp4", "video/quicktime", "video/webm", "video/x-matroska"] {
+            assert!(is_inline_video(Some(video)), "{video}");
+            assert!(is_inline_media(Some(video)), "{video}");
+            assert!(!is_inline_audio(Some(video)), "{video}");
+            assert!(!is_inline_image(Some(video)), "{video}");
+        }
+        for audio in ["audio/mpeg", "audio/wav", "audio/mp4", "audio/ogg"] {
+            assert!(is_inline_audio(Some(audio)), "{audio}");
+            assert!(is_inline_media(Some(audio)), "{audio}");
+            assert!(!is_inline_video(Some(audio)), "{audio}");
+        }
+        for other in [
+            "image/png",
+            "application/pdf",
+            "application/octet-stream",
+            "text/plain",
+            "videos/mp4",
+            "",
+        ] {
+            assert!(!is_inline_media(Some(other)), "{other}");
+        }
+        assert!(!is_inline_media(None));
+        // Case variants are not the contract values.
+        assert!(!is_inline_video(Some("VIDEO/MP4")));
+    }
+
+    /// EXP-824: an upload's destination — image and media embed, the rest
+    /// stays a Files row — and the exact paragraph each embed appends.
+    #[test]
+    fn uploads_route_to_the_description_by_type() {
+        assert_eq!(description_embed("image/png"), Some(DescriptionEmbed::Image));
+        assert_eq!(description_embed("video/mp4"), Some(DescriptionEmbed::Media));
+        assert_eq!(description_embed("audio/mpeg"), Some(DescriptionEmbed::Media));
+        assert_eq!(description_embed("image/tiff"), None);
+        assert_eq!(description_embed("application/pdf"), None);
+        assert_eq!(
+            description_fragment(DescriptionEmbed::Image, Some("shot.png"), "/api/attachments/a"),
+            "![shot.png](/api/attachments/a)"
+        );
+        assert_eq!(
+            description_fragment(DescriptionEmbed::Media, Some("clip.mp4"), "/api/attachments/a"),
+            "[clip.mp4](/api/attachments/a)"
+        );
+        assert_eq!(
+            description_fragment(DescriptionEmbed::Media, Some("  "), "/api/attachments/a"),
+            "[file](/api/attachments/a)"
+        );
+        assert_eq!(
+            description_fragment(DescriptionEmbed::Image, None, "/api/attachments/a"),
+            "![image](/api/attachments/a)"
+        );
+    }
+
+    #[test]
+    fn duration_chips_format_like_the_other_clients() {
+        assert_eq!(format_duration(0), "0:00");
+        assert_eq!(format_duration(7_000), "0:07");
+        assert_eq!(format_duration(7_499), "0:07");
+        assert_eq!(format_duration(7_500), "0:08");
+        assert_eq!(format_duration(154_000), "2:34");
+        assert_eq!(format_duration(3_723_000), "1:02:03");
+        assert_eq!(format_duration(36_000_000), "10:00:00");
+        // Garbage never panics or goes negative.
+        assert_eq!(format_duration(-5_000), "0:00");
+    }
+
     #[test]
     fn format_bytes_scales_and_floors_at_zero() {
         assert_eq!(format_bytes(0), "0 B");
@@ -287,6 +428,7 @@ mod tests {
             id: "att-1".into(),
             team_id: None,
             issue_id: None,
+            board_id: None,
             comment_id: None,
             uploader_id: None,
             filename: Some("  notes.txt ".into()),
@@ -296,6 +438,8 @@ mod tests {
             url: None,
             width: None,
             height: None,
+            duration_ms: None,
+            poster_storage_key: None,
             created_at: None,
             updated_at: None,
         };

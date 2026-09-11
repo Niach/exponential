@@ -9,7 +9,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { acceptedImageContentTypes } from "@/lib/storage/issue-attachments"
+import {
+  acceptedImageContentTypes,
+  acceptedVideoUploadContentTypes,
+} from "@/lib/storage/issue-attachments"
 import {
   partitionUploadFiles,
   type MarkdownEditorImageUploadConfig,
@@ -489,9 +492,16 @@ export function EditorInsertControls({
 
   const routeFiles = (fileList: FileList | null) => {
     if (!imageUpload) return
-    const { images, others } = partitionUploadFiles(fileList)
+    const { images, media, others } = partitionUploadFiles(fileList)
     if (images.length > 0) void imageUpload.onFiles(images)
-    if (others.length > 0) void imageUpload.onOtherFiles?.(others)
+    // EXP-824: clips embed as media blocks; a host without that flow keeps
+    // them as plain files (the create dialog embeds them post-create).
+    if (imageUpload.onMediaFiles) {
+      if (media.length > 0) void imageUpload.onMediaFiles(media)
+      if (others.length > 0) void imageUpload.onOtherFiles?.(others)
+    } else if (media.length + others.length > 0) {
+      void imageUpload.onOtherFiles?.([...media, ...others])
+    }
   }
 
   const hiddenInputs = imageUpload?.enabled ? (
@@ -499,7 +509,13 @@ export function EditorInsertControls({
       <input
         ref={imageInputRef}
         type="file"
-        accept={acceptedImageContentTypes.join(`,`)}
+        // EXP-824: the picker offers clips beside images — a video lands as
+        // an inline media block, so it belongs on the same button.
+        accept={[
+          ...acceptedImageContentTypes,
+          ...acceptedVideoUploadContentTypes,
+          `audio/*`,
+        ].join(`,`)}
         multiple
         hidden
         onChange={(event) => {
