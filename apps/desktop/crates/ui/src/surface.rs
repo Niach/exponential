@@ -167,6 +167,17 @@ pub(crate) fn glass_row_shell() -> Div {
 /// every consumer.
 pub(crate) const ROW_DESCRIPTION_MAX_W: f32 = 460.;
 
+/// How narrow a picker row's trailing CONTROL column may get (EXP-830). The
+/// label column sizes to its content (the description up to
+/// [`ROW_DESCRIPTION_MAX_W`]) and SHRINKS when the row cannot hold both, so a
+/// long hint wraps onto a second line instead of crowding the picker: a
+/// [`Select`]'s trigger IS its menu width (`menu_width: Auto`), so a trigger
+/// squeezed to a few glyphs opened a menu that clipped every option to its
+/// first letters, and the device editor's "Shared with" row did exactly that
+/// in a narrow settings pane. 200 seats the longest builtin value with its
+/// caret and keeps the menu wide enough to read a team name.
+const PICKER_CONTROL_MIN_W: f32 = 200.;
+
 /// A picker row: the label leading at full foreground (with an optional muted
 /// second line), the value trailing at 70% with its own chevron, and NO field
 /// chrome — the group IS the field. Pass the trailing control through
@@ -182,7 +193,10 @@ pub(crate) fn glass_picker_row(
     glass_row_shell()
         .child(
             v_flex()
-                .flex_shrink_0()
+                // `min_w_0`: gpui measures min-content text UNWRAPPED, so
+                // without it the column could never shrink below the hint's
+                // single-line width and nothing would ever wrap.
+                .min_w_0()
                 .gap_0p5()
                 .text_sm()
                 .text_color(foreground)
@@ -198,7 +212,7 @@ pub(crate) fn glass_picker_row(
         .child(
             div()
                 .flex_1()
-                .min_w_0()
+                .min_w(px(PICKER_CONTROL_MIN_W))
                 .flex()
                 .justify_end()
                 .text_sm()
