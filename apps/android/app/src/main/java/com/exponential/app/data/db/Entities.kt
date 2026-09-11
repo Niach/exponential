@@ -578,9 +578,11 @@ data class DeviceEntity(
     val activeSessions: Int = 0,
     @ColumnInfo(name = "last_seen_at") @SerialName("last_seen_at") @JsonNames("lastSeenAt")
     val lastSeenAt: String? = null,
-    // EXP-432: the ONE team this (server) machine is shared with; null = private.
-    @ColumnInfo(name = "shared_team_id") @SerialName("shared_team_id") @JsonNames("sharedTeamId")
-    val sharedTeamId: String? = null,
+    // FEED-33: every team this (server) machine is shared with; empty =
+    // private. A Postgres uuid[] — Electric ships it as the text literal
+    // `{a,b}` inside a JSON string, hence the tolerant serializer.
+    @ColumnInfo(name = "shared_team_ids") @SerialName("shared_team_ids") @JsonNames("sharedTeamIds")
+    @Serializable(with = PgUuidArraySerializer::class) val sharedTeamIds: List<String> = emptyList(),
     // EXP-622: the ROW OWNER's default machine — the one every device picker
     // prefills. Honoured only when `user_id` is the signed-in user: a
     // teammate's shared server carries THEIR preference, not ours.

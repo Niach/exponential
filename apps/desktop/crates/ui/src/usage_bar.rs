@@ -1407,7 +1407,7 @@ mod tests {
             "device_id": "dev-2",
             "label": "Server",
             "user_id": "someone-else",
-            "shared_team_id": "team-1",
+            "shared_team_ids": "{team-1}",
             "agent_accounts": { "claude": { "signedIn": true, "checkedAt": "" } },
         }));
         let rows = agent_profile_usage_rows(&[theirs], "me", |_| false);

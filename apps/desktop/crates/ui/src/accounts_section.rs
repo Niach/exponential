@@ -148,15 +148,17 @@ impl AccountsSection {
         let me = queries::active_account(cx)?.user_id;
         let team = active_team_id(&self.nav, cx);
         // Web parity: my machines, plus the SERVERS shared with the team I am
-        // looking at — a teammate's shared server belongs to its own team's
-        // page, not to every team I am a member of.
+        // looking at — a teammate's shared server belongs to the pages of the
+        // teams it is shared with (FEED-33: possibly several), not to every
+        // team I am a member of.
         let rows: Vec<domain::rows::DeviceRow> = devices
             .iter()
             .filter(|row| {
                 row.user_id.as_deref() == Some(me.as_str())
                     || (row.is_server()
-                        && row.shared_team_id.is_some()
-                        && row.shared_team_id == team)
+                        && team
+                            .as_deref()
+                            .is_some_and(|team| row.is_shared_with(team)))
             })
             .cloned()
             .collect();

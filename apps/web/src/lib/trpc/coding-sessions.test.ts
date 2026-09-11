@@ -1034,7 +1034,7 @@ const REQUESTER = `requester`
 
 // What the caller's own devices row looks like for a valid share.
 function sharedDevice(overrides: Record<string, unknown> = {}) {
-  return { kind: `server`, sharedTeamId: `ws-issue`, ...overrides }
+  return { kind: `server`, sharedTeamIds: [`ws-issue`], ...overrides }
 }
 
 describe(`codingSessions.start — shared-device attribution (EXP-432)`, () => {
@@ -1068,7 +1068,7 @@ describe(`codingSessions.start — shared-device attribution (EXP-432)`, () => {
   })
 
   it(`attributes a batch start the same way, against the batch's team`, async () => {
-    selectResults.push([sharedDevice({ sharedTeamId: TEAM_ID })])
+    selectResults.push([sharedDevice({ sharedTeamIds: [TEAM_ID] })])
 
     await caller.start({
       teamId: TEAM_ID,
@@ -1086,7 +1086,7 @@ describe(`codingSessions.start — shared-device attribution (EXP-432)`, () => {
 
   it(`attributes an action start, resolving the team from the action row`, async () => {
     selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Code review` }])
-    selectResults.push([sharedDevice({ sharedTeamId: TEAM_ID })])
+    selectResults.push([sharedDevice({ sharedTeamIds: [TEAM_ID] })])
 
     await caller.start({
       actionId: ACTION_ID,
@@ -1102,7 +1102,7 @@ describe(`codingSessions.start — shared-device attribution (EXP-432)`, () => {
   })
 
   it(`attributes a builtin start (no DB action row)`, async () => {
-    selectResults.push([sharedDevice({ sharedTeamId: TEAM_ID })])
+    selectResults.push([sharedDevice({ sharedTeamIds: [TEAM_ID] })])
 
     await caller.start({
       actionId: `builtin:create-action`,
@@ -1129,7 +1129,7 @@ describe(`codingSessions.start — shared-device attribution (EXP-432)`, () => {
   })
 
   it(`refuses a device shared with a DIFFERENT team`, async () => {
-    selectResults.push([sharedDevice({ sharedTeamId: `ws-other` })])
+    selectResults.push([sharedDevice({ sharedTeamIds: [`ws-other`] })])
 
     const error = await rejectionOf(
       caller.start({

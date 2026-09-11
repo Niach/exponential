@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router"
 import {
-  buildWhereClause,
+  buildArrayOverlapClause,
   getUserTeamIds,
   orClauses,
   sqlStringLiteral,
@@ -11,10 +11,11 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // the device (devices.reportWorktrees). Powers resume offers, the
 // device-settings worktree list, and prune UX even while the device is
 // offline. The allowlist EXCLUDES the trigger-maintained scoping mirrors
-// (`user_id`, `shared_team_id` — populate_device_worktree_owner /
+// (`user_id`, `shared_team_ids` — populate_device_worktree_owner /
 // propagate_device_shared_team); Electric evaluates the where clause
 // server-side. No `kind` arm needed here: the trigger's CASE guarantees only
-// server devices ever carry a shared_team_id mirror. Identity rotates ONLY
+// server devices ever carry a non-empty shared_team_ids mirror (FEED-33: a
+// uuid[], hence the `&&` overlap arm). Identity rotates ONLY
 // on team-membership changes — never a device-id list (the forbidden
 // pattern; exactly what the denormalized mirrors buy).
 const DEVICE_WORKTREE_COLUMNS = [
@@ -43,7 +44,7 @@ export const Route = createFileRoute(`/api/shapes/device-worktrees`)({
           const teamIds = await getUserTeamIds(userId)
           return orClauses(
             `"user_id" = ${sqlStringLiteral(userId)}`,
-            buildWhereClause(`shared_team_id`, teamIds)
+            buildArrayOverlapClause(`shared_team_ids`, teamIds)
           )
         },
       }),

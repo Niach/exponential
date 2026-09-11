@@ -22,7 +22,8 @@ use serde::Deserialize;
 
 use crate::enums::{IssuePriority, IssueStatus};
 use crate::hydrate::{
-    tolerant_i64, tolerant_opt_bool, tolerant_opt_f64, tolerant_opt_i64, tolerant_opt_json,
+    tolerant_i64, tolerant_id_list, tolerant_opt_bool, tolerant_opt_f64, tolerant_opt_i64,
+    tolerant_opt_json,
 };
 
 /// `teams` shape row. Teams are always private — the shape carries
@@ -782,8 +783,11 @@ pub struct DeviceRow {
     pub active_sessions: Option<i64>,
     #[serde(default)]
     pub last_seen_at: Option<String>,
-    #[serde(default)]
-    pub shared_team_id: Option<String>,
+    /// FEED-33 `uuid[]`: every team this (server) machine is shared with,
+    /// sorted + deduped server-side, EMPTY when private. Arrives as the
+    /// Postgres array literal in a JSON string (`"{a,b}"`).
+    #[serde(default, deserialize_with = "tolerant_id_list")]
+    pub shared_team_ids: Vec<String>,
     /// EXP-622: the ROW OWNER's default machine — the one every device picker
     /// prefills. Honour it only when `user_id` is the signed-in user: a
     /// teammate's shared server carries THEIR preference, not ours.
@@ -855,6 +859,16 @@ impl DeviceRow {
         self.kind.as_deref() == Some("server")
     }
 
+    /// FEED-33: shared with at least one team.
+    pub fn is_shared(&self) -> bool {
+        !self.shared_team_ids.is_empty()
+    }
+
+    /// FEED-33: shared with `team_id` specifically.
+    pub fn is_shared_with(&self, team_id: &str) -> bool {
+        self.shared_team_ids.iter().any(|id| id == team_id)
+    }
+
     /// EXP-484: this machine's account row for `agent` (`claude`/`codex`/
     /// `pi`), still as the raw wire object — `domain` deliberately does not
     /// depend on `coding`, so the typed shape stays there and callers
@@ -881,7 +895,7 @@ impl DeviceRow {
 }
 
 /// `device_worktrees` shape row (EXP-481) — one reported session worktree.
-/// The scoping mirrors (`user_id`/`shared_team_id`) are proxy-excluded and
+/// The scoping mirrors (`user_id`/`shared_team_ids`) are proxy-excluded and
 /// deliberately NOT modeled (issue_subscribers-email stance).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct DeviceWorktreeRow {
@@ -966,6 +980,46 @@ mod tests {
         let narrow: DeviceRow = serde_json::from_value(json!({"id": "row-2"})).unwrap();
         assert!(!narrow.is_server());
         assert!(narrow.agent_ids().is_empty());
+        assert!(!narrow.is_shared());
+    }
+
+    /// FEED-33: `shared_team_ids` is a `uuid[]`: the wire cell is the
+    /// Postgres array literal as a string; a JSON array, null and garbage
+    /// hydrate too (the last two as private).
+    #[test]
+    fn device_row_hydrates_shared_team_ids_from_every_wire_form() {
+        let row: DeviceRow = serde_json::from_value(json!({
+            "id": "row-1",
+            "shared_team_ids": "{team-1,team-2}",
+        }))
+        .unwrap();
+        assert_eq!(row.shared_team_ids, vec!["team-1", "team-2"]);
+        assert!(row.is_shared());
+        assert!(row.is_shared_with("team-2"));
+        assert!(!row.is_shared_with("team-3"));
+
+        let one: DeviceRow = serde_json::from_value(json!({
+            "id": "row-1",
+            "shared_team_ids": "{\"team-1\"}",
+        }))
+        .unwrap();
+        assert_eq!(one.shared_team_ids, vec!["team-1"]);
+
+        let json_array: DeviceRow = serde_json::from_value(json!({
+            "id": "row-1",
+            "shared_team_ids": ["team-1"],
+        }))
+        .unwrap();
+        assert_eq!(json_array.shared_team_ids, vec!["team-1"]);
+
+        for cell in [json!("{}"), json!(null), json!("garbage"), json!(7)] {
+            let row: DeviceRow = serde_json::from_value(json!({
+                "id": "row-1",
+                "shared_team_ids": cell,
+            }))
+            .unwrap();
+            assert!(!row.is_shared(), "{cell} must read as private");
+        }
     }
 
     /// EXP-484: the two agent-status columns hydrate through the same

@@ -395,13 +395,13 @@ export function MyMachines({
                         <DefaultIcon className="size-3 fill-current" />
                       </span>
                     )}
-                    {device.sharedTeamId && (
+                    {(device.sharedTeamIds?.length ?? 0) > 0 && (
                       <span
                         className="shrink-0 rounded-sm border border-border/60 px-1 text-[10px] text-muted-foreground"
                         title={
-                          device.sharedTeamId === teamId
+                          teamId && device.sharedTeamIds?.includes(teamId)
                             ? `Shared with this team — teammates can start coding sessions on this machine.`
-                            : `Shared with another team.`
+                            : `Shared with other teams.`
                         }
                       >
                         Shared

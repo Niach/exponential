@@ -12,7 +12,8 @@
 //! |----------------|-------------------------------------------------------|
 //! | Name           | `devices.rename` (registry row — works offline)       |
 //! | Default        | `devices.setDefault` (EXP-622, own devices only)     |
-//! | Sharing        | `devices.setShared` (server-kind own devices only)    |
+//! | Sharing        | `devices.setShared` (server-kind own devices only;    |
+//! |                | FEED-33: one toggle per team, straight through)       |
 //! | Agent defaults | `setLaunchDefaults` (UNCONDITIONAL — a UI edit is     |
 //! |                | last-write-wins on both); the OWN device ALSO saves   |
 //! |                | settings.json first through [`CodingHub::save_settings`] |
@@ -23,9 +24,11 @@
 //! (never relay presence): defaults stay editable while the machine is
 //! offline ("Applies when the device comes online."), and the worktree rows
 //! reflect the machine's last report. EXP-490: the dialog mirrors the LIVE
-//! baseline while open — every section (name, sharing and, since EXP-696,
-//! the defaults controls) re-seeds only while the user has NOT diverged from
-//! the previous baseline, so a background delta never stomps a draft.
+//! baseline while open — the drafted sections (name and, since EXP-696, the
+//! defaults controls) re-seed only while the user has NOT diverged from the
+//! previous baseline, so a background delta never stomps a draft; the
+//! default-device and sharing switches hold no draft and render straight off
+//! the row.
 //! Queued commands
 //! are polled (`devices.getCommand`) until terminal — a failure renders its
 //! device-reported message inline; success shows up as the row vanishing
@@ -62,10 +65,6 @@ use crate::launch_options::{AgentDefaultsGroup, AgentPill, DefaultsToggle};
 use crate::native_dialog::{self, AlertSpec, DialogContent, DialogSpec};
 use crate::queries;
 use crate::surface;
-
-/// "Not shared" sentinel in the sharing select (the web dialog's Radix
-/// sentinel twin — a select row needs a non-empty value).
-const NOT_SHARED: &str = "__not_shared__";
 
 /// EXP-762: the worktrees column's width. Fixed rather than a flex share so
 /// resizing the dialog widens the settings column (its pickers and account
@@ -177,7 +176,6 @@ struct LoginNote {
 /// runs exactly one write at a time.
 enum SectionRollback {
     Label(String),
-    Share(String),
     Defaults(Box<coding::Settings>),
 }
 
@@ -501,9 +499,6 @@ pub struct DeviceSettingsView {
     /// This install's own device row (defaults edit locally through the hub).
     own: bool,
     name_input: Entity<InputState>,
-    share_select: ChoiceSelect,
-    /// Team (id, name) pairs behind the share select's rows, sentinel-first.
-    share_teams: Vec<(String, String)>,
     // -- per-agent defaults drafts (the AgentsPane control set, minus paths) --
     agent_select: ChoiceSelect,
     model_select: ChoiceSelect,
@@ -522,15 +517,13 @@ pub struct DeviceSettingsView {
     /// autosave keys off drafted != seeded — a programmatic control rewrite
     /// (a resync, a rebuilt select) can therefore never echo back as a write.
     seeded: coding::Settings,
-    /// The row label/share value at the last (re)seed — the "has the user
-    /// diverged?" reference for the two non-defaults inputs.
+    /// The row label at the last (re)seed — the "has the user diverged?"
+    /// reference for the name input.
     seeded_label: String,
-    seeded_share: String,
-    /// EXP-694: the label/share values the autosave last SENT — the dedupe
-    /// that keeps a debounce landing next to a blur (or a resync echo) from
-    /// writing the same value twice.
+    /// EXP-694: the label the autosave last SENT — the dedupe that keeps a
+    /// debounce landing next to a blur (or a resync echo) from writing the
+    /// same value twice.
     last_saved_label: String,
-    last_saved_share: String,
     /// The pending debounced rename (dropping it cancels — the shell's
     /// `queue_save_*` idiom).
     name_save: Option<Task<()>>,
@@ -596,7 +589,7 @@ impl DeviceSettingsView {
                 agent_usage_at: None,
                 active_sessions: None,
                 last_seen_at: None,
-                shared_team_id: None,
+                shared_team_ids: Vec::new(),
                 is_default: None,
                 update_requested_at: None,
                 created_at: None,
@@ -630,31 +623,6 @@ impl DeviceSettingsView {
             ));
             code_inputs.insert(agent.id().to_string(), input);
         }
-
-        // Sharing rows: "Not shared" + the caller's teams.
-        let share_teams: Vec<(String, String)> = collections
-            .teams_sorted(cx)
-            .into_iter()
-            .map(|team| (team.id, team.name))
-            .collect();
-        let share_choices: Vec<(String, String)> =
-            std::iter::once(("Not shared".to_string(), NOT_SHARED.to_string()))
-                .chain(
-                    share_teams
-                        .iter()
-                        .map(|(id, name)| (name.clone(), id.clone())),
-                )
-                .collect();
-        let share_refs: Vec<(&str, &str)> = share_choices
-            .iter()
-            .map(|(label, value)| (label.as_str(), value.as_str()))
-            .collect();
-        let share_select = choice_select(
-            &share_refs,
-            row.shared_team_id.as_deref().unwrap_or(NOT_SHARED),
-            window,
-            cx,
-        );
 
         let agent_select = choice_select(&AGENT_CHOICES, seeded.default_agent.id(), window, cx);
         let model_select = choice_select(
@@ -733,10 +701,6 @@ impl DeviceSettingsView {
                 cx.notify();
             }));
         }
-        subscriptions.push(cx.observe(&share_select, |this: &mut Self, _, cx| {
-            this.save_sharing(cx);
-            cx.notify();
-        }));
         // EXP-694: the name saves debounced while typing and immediately on
         // blur / Enter — no Save button.
         subscriptions.push(cx.subscribe(&name_input, |this: &mut Self, _, event: &InputEvent, cx| {
@@ -762,8 +726,6 @@ impl DeviceSettingsView {
             device_id,
             own,
             name_input,
-            share_select,
-            share_teams,
             agent_select,
             model_select,
             effort_select,
@@ -777,15 +739,7 @@ impl DeviceSettingsView {
             agent_tab: seeded.default_agent,
             editor_agents,
             seeded_label: row.label.clone().unwrap_or_default(),
-            seeded_share: row
-                .shared_team_id
-                .clone()
-                .unwrap_or_else(|| NOT_SHARED.to_string()),
             last_saved_label: row.label.clone().unwrap_or_default(),
-            last_saved_share: row
-                .shared_team_id
-                .clone()
-                .unwrap_or_else(|| NOT_SHARED.to_string()),
             name_save: None,
             seeded,
             busy_section: None,
@@ -880,9 +834,10 @@ impl DeviceSettingsView {
     }
 
     /// EXP-490: mirror the live baseline into the open dialog — the name
-    /// input, the share select and (EXP-696) the defaults controls all
-    /// re-seed only while the user has NOT diverged from the previous
-    /// baseline, so a background delta can never stomp a draft.
+    /// input and (EXP-696) the defaults controls re-seed only while the user
+    /// has NOT diverged from the previous baseline, so a background delta can
+    /// never stomp a draft. (FEED-33: the sharing switches render straight
+    /// off the row, like the default-device toggle, so they need no seed.)
     ///
     /// EXP-696: the defaults half used to rewrite UNCONDITIONALLY. On the
     /// OWN device that fires on every `CodingHub` notify — a doctor re-run,
@@ -906,20 +861,6 @@ impl DeviceSettingsView {
             self.seeded_label = label;
         }
 
-        let share = row
-            .shared_team_id
-            .clone()
-            .unwrap_or_else(|| NOT_SHARED.to_string());
-        if share != self.seeded_share {
-            if selected(&self.share_select, cx) == self.seeded_share {
-                self.share_select.update(cx, |select, cx| {
-                    select.set_selected_value(&SharedString::from(share.clone()), window, cx)
-                });
-                self.last_saved_share = share.clone();
-            }
-            self.seeded_share = share;
-        }
-
         let (baseline, editor_agents) = Self::baseline_for(&row, self.own, cx);
         if baseline == self.seeded && editor_agents == self.editor_agents {
             return;
@@ -929,7 +870,7 @@ impl DeviceSettingsView {
         self.editor_agents = editor_agents;
         // EXP-696: the user has an unsaved (or failed-and-retryable) pick on
         // screen that the incoming baseline does not already match — leave
-        // it, exactly as the name input and the share select do.
+        // it, exactly as the name input does.
         // `self.seeded` is deliberately NOT advanced: the standing draft
         // stays different from the baseline, so its next commit still goes
         // out. (A draft that HAPPENS to equal the new baseline falls through
@@ -1013,7 +954,6 @@ impl DeviceSettingsView {
         }
         match self.rollback.take() {
             Some((_, SectionRollback::Label(label))) => self.last_saved_label = label,
-            Some((_, SectionRollback::Share(share))) => self.last_saved_share = share,
             Some((_, SectionRollback::Defaults(seeded))) => self.seeded = *seeded,
             None => {}
         }
@@ -1080,7 +1020,6 @@ impl DeviceSettingsView {
         }
         match self.queued.remove(0) {
             "name" => self.save_name(cx),
-            "sharing" => self.save_sharing(cx),
             "defaults" => self.save_defaults(cx),
             _ => {}
         }
@@ -1144,22 +1083,17 @@ impl DeviceSettingsView {
         );
     }
 
-    fn save_sharing(&mut self, cx: &mut gpui::Context<Self>) {
-        let picked = selected(&self.share_select, cx);
-        if picked == self.last_saved_share {
-            return; // a resync echo, not a pick
-        }
-        if self.busy_section.is_some() {
-            self.queue_section("sharing");
-            return;
-        }
-        let previous = std::mem::replace(&mut self.last_saved_share, picked.clone());
-        self.rollback = Some(("sharing", SectionRollback::Share(previous)));
-        let team_id = (picked != NOT_SHARED).then_some(picked);
+    /// FEED-33: share/unshare this SERVER machine with ONE team. Written
+    /// straight through like the default toggle (no draft): the switches
+    /// render off the row's `shared_team_ids`, so the Electric echo is what
+    /// flips them and a failed write simply leaves them where the row is.
+    /// The switches are disabled while a section write is in flight, so a
+    /// second toggle never lands on a busy executor.
+    fn save_sharing(&mut self, team_id: String, shared: bool, cx: &mut gpui::Context<Self>) {
         let device_id = self.device_id.clone();
         self.run_section(
             "sharing",
-            move |trpc| api::devices::set_shared(trpc, &device_id, team_id.as_deref()),
+            move |trpc| api::devices::set_shared(trpc, &device_id, &team_id, shared),
             cx,
         );
     }
@@ -2171,6 +2105,55 @@ impl DeviceSettingsView {
         }
         body.child(surface::glass_group_rows(rows))
     }
+
+    /// FEED-33: the Sharing group — one switch per team the signed-in user
+    /// belongs to, checked when the row's `shared_team_ids` names it. A
+    /// machine can be shared with several teams at once, so this is a set of
+    /// toggles rather than a picker. The rows read straight off the live
+    /// row; a write in flight disables the whole set (one section write at a
+    /// time).
+    fn render_sharing_section(
+        &self,
+        row: Option<&domain::rows::DeviceRow>,
+        cx: &mut gpui::Context<Self>,
+    ) -> Div {
+        let muted = cx.theme().muted_foreground;
+        let teams = Store::global(cx).collections().teams_sorted(cx);
+        if teams.is_empty() {
+            return div()
+                .text_xs()
+                .text_color(muted)
+                .child("Join a team to share this machine.");
+        }
+        let busy = self.busy_section.is_some();
+        let rows: Vec<Div> = teams
+            .into_iter()
+            .map(|team| {
+                let checked = row.is_some_and(|row| row.is_shared_with(&team.id));
+                let team_id = team.id.clone();
+                surface::glass_toggle_row(
+                    team.name.clone(),
+                    None,
+                    Switch::new(SharedString::from(format!("device-share-{}", team.id)))
+                        .checked(checked)
+                        .disabled(busy)
+                        .on_click(cx.listener(move |this, checked: &bool, _, cx| {
+                            this.save_sharing(team_id.clone(), *checked, cx);
+                            cx.notify();
+                        }))
+                        .into_any_element(),
+                    cx,
+                )
+            })
+            .collect();
+        v_flex()
+            .w_full()
+            .gap_1()
+            .child(surface::glass_group_rows(rows))
+            .child(div().text_xs().text_color(muted).child(
+                "Teammates of a shared team can start coding sessions on this machine.",
+            ))
+    }
 }
 
 impl Render for DeviceSettingsView {
@@ -2187,8 +2170,8 @@ impl Render for DeviceSettingsView {
         // shared 8px group rhythm — the name typed into its row (autosaved, no
         // Save button), the default-device switch (EXP-622: a straight-through
         // write, which is now what every control here does), and the sharing
-        // picker. One card per section, exactly as the Android/iOS/web dialogs
-        // render them.
+        // switches (FEED-33: one per team). One card per section, exactly as
+        // the Android/iOS/web dialogs render them.
         let is_default = row.as_ref().and_then(|row| row.is_default).unwrap_or(false);
         let mut body = v_flex()
             .w_full()
@@ -2207,16 +2190,7 @@ impl Render for DeviceSettingsView {
                 cx,
             )]));
         if server {
-            body = body.child(surface::glass_group_rows(vec![surface::glass_picker_row(
-                "Shared with",
-                Some(SharedString::from(
-                    "Teammates of that team can start coding sessions on this machine.",
-                )),
-                surface::glass_picker_select(Select::new(&self.share_select))
-                    .disabled(self.share_teams.is_empty())
-                    .into_any_element(),
-                cx,
-            )]));
+            body = body.child(self.render_sharing_section(row.as_ref(), cx));
         }
         // The autosave says nothing while it succeeds; a write in flight or a
         // failed one reports under the group it belongs to.

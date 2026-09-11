@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, desc, eq, gte, inArray } from "drizzle-orm"
+import { and, arrayContains, desc, eq, gte, inArray } from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
 import {
   CODING_SESSION_STALE_MS,
@@ -741,7 +741,7 @@ export const steerRouter = router({
           .where(
             and(
               eq(devicesTable.deviceId, input.deviceId),
-              eq(devicesTable.sharedTeamId, teamId),
+              arrayContains(devicesTable.sharedTeamIds, [teamId]),
               eq(devicesTable.kind, `server`)
             )
           )

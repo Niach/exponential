@@ -11,11 +11,20 @@
 // EXP-485 `register` is the SOLE agents/caps/unauthedAgents/acpAgents writer
 // (the relay online frame no longer advertises them).
 // EXP-432 bends the per-user rule exactly once: a server device may be SHARED
-// with one team (`shared_team_id`, owner-toggled via `setShared`) so members
-// can remote-start on it.
+// with teams (`shared_team_ids`, owner-toggled via `setShared`; FEED-33 made
+// it a set) so their members can remote-start on it.
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, asc, desc, eq, ne, sql } from "drizzle-orm"
+import {
+  and,
+  arrayContains,
+  asc,
+  desc,
+  eq,
+  inArray,
+  ne,
+  sql,
+} from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
 import {
   router,
@@ -364,7 +373,7 @@ export async function visibleDeviceRows(
     )
     .where(
       and(
-        eq(devices.sharedTeamId, teamId),
+        arrayContains(devices.sharedTeamIds, [teamId]),
         eq(devices.kind, `server`),
         ne(devices.userId, userId)
       )
@@ -378,6 +387,25 @@ export async function visibleDeviceRows(
       ])
     ),
   }
+}
+
+/** FEED-33: the share set after a `devices.setShared` call — sorted + deduped
+ * (the array is shape data, so a stable order keeps a no-op write a no-op).
+ * Toggle form (`shared` present): one team in or out. Legacy form: the whole
+ * set becomes `[teamId]`, or empty for `null`. */
+export function nextSharedTeamIds(
+  current: readonly string[],
+  input: { teamId: string | null; shared?: boolean }
+): string[] {
+  let next: string[]
+  if (input.shared === undefined) {
+    next = input.teamId ? [input.teamId] : []
+  } else if (input.shared) {
+    next = input.teamId ? [...current, input.teamId] : [...current]
+  } else {
+    next = current.filter((teamId) => teamId !== input.teamId)
+  }
+  return [...new Set(next)].sort()
 }
 
 export const devicesRouter = router({
@@ -1145,24 +1173,33 @@ export const devicesRouter = router({
     }
   ),
 
-  // EXP-432: share/unshare one of the caller's SERVER devices with a team
-  // they belong to (teamId: null clears the share). Sharing is the consent
-  // that lets teammates remote-start on the box — the resulting sessions run
-  // under the owner's daemon but belong to the requesting teammate
-  // (coding-sessions `resolveStartAttribution`).
+  // EXP-432: share/unshare one of the caller's SERVER devices with teams
+  // they belong to. Sharing is the consent that lets teammates remote-start
+  // on the box — the resulting sessions run under the owner's daemon but
+  // belong to the requesting teammate (coding-sessions
+  // `resolveStartAttribution`). FEED-33: the share is a SET of teams. The
+  // toggle form (`shared` present) moves ONE team in or out of it — what
+  // every client's per-team switch sends; the legacy form (no `shared`)
+  // replaces the whole set with `[teamId]` or clears it (`null`), so a
+  // pre-FEED-33 client keeps working as a single-team picker.
   setShared: authedProcedure
     .input(
-      z.object({
-        deviceId: deviceIdInput,
-        teamId: z.string().uuid().nullable(),
-      })
+      z
+        .object({
+          deviceId: deviceIdInput,
+          teamId: z.string().uuid().nullable(),
+          shared: z.boolean().optional(),
+        })
+        .refine((v) => v.shared === undefined || v.teamId !== null, {
+          message: `teamId is required to toggle a share`,
+        })
     )
     .mutation(async ({ ctx, input }) => {
       const [row] = await ctx.db
         .select({
           id: devices.id,
           kind: devices.kind,
-          sharedTeamId: devices.sharedTeamId,
+          sharedTeamIds: devices.sharedTeamIds,
         })
         .from(devices)
         .where(
@@ -1181,35 +1218,40 @@ export const devicesRouter = router({
           message: `Only server machines can be shared`,
         })
       }
-      if (input.teamId) {
-        await assertTeamMember(ctx.session.user.id, input.teamId)
+      const current = row.sharedTeamIds ?? []
+      const next = nextSharedTeamIds(current, input)
+      const added = next.filter((teamId) => !current.includes(teamId))
+      const revoked = current.filter((teamId) => !next.includes(teamId))
+      for (const teamId of added) {
+        await assertTeamMember(ctx.session.user.id, teamId)
       }
-      // EXP-530 follow-up: an automation bound to this device by one of the
-      // OLD team's owners keeps firing on the device owner's credentials once
-      // the share is withdrawn (there is no server scheduler — the device
-      // self-selects automations off Electric), and the toggle is owner-only,
-      // so the machine's owner cannot stop it. Withdrawing the share disables
-      // those automations in the same transaction as the column write. Skipped
-      // when the device owner is an OWNER of that team: then the bindings are
-      // plausibly their own, and they keep the toggle to undo them.
-      const revoked = row.sharedTeamId
-      const disableAutomations =
-        revoked !== null &&
-        revoked !== input.teamId &&
-        (await getTeamMember(ctx.session.user.id, revoked))?.role !== `owner`
+      // EXP-530 follow-up: an automation bound to this device by one of a
+      // REVOKED team's owners keeps firing on the device owner's credentials
+      // once the share is withdrawn (there is no server scheduler — the
+      // device self-selects automations off Electric), and the toggle is
+      // owner-only, so the machine's owner cannot stop it. Withdrawing the
+      // share disables those automations in the same transaction as the
+      // column write. Skipped when the device owner is an OWNER of that
+      // team: then the bindings are plausibly their own, and they keep the
+      // toggle to undo them.
+      const disarm: string[] = []
+      for (const teamId of revoked) {
+        const member = await getTeamMember(ctx.session.user.id, teamId)
+        if (member?.role !== `owner`) disarm.push(teamId)
+      }
       const txid = await ctx.db.transaction(async (tx) => {
         const id = await generateTxId(tx)
         await tx
           .update(devices)
-          .set({ sharedTeamId: input.teamId, updatedAt: new Date() })
+          .set({ sharedTeamIds: next, updatedAt: new Date() })
           .where(eq(devices.id, row.id))
-        if (disableAutomations && revoked) {
+        if (disarm.length > 0) {
           await tx
             .update(automations)
             .set({ enabled: false, updatedAt: new Date() })
             .where(
               and(
-                eq(automations.teamId, revoked),
+                inArray(automations.teamId, disarm),
                 eq(automations.deviceId, input.deviceId),
                 // Already-off rows stay untouched (no needless Electric op).
                 eq(automations.enabled, true)
@@ -1218,18 +1260,18 @@ export const devicesRouter = router({
         }
         return id
       })
-      // EXP-445: withdrawing the share must end the runs it was the consent
-      // for — otherwise a teammate's agent keeps working on this machine with
-      // no client able to reach it. Ordered AFTER the column write on purpose:
-      // once shared_team_id has moved, resolveStartAttribution refuses new
-      // foreign attributions, so nothing can slip in behind the fan-out.
-      // First share (null → team) and a same-team re-share end nothing.
-      // Device-scoped (EXP-560): only THIS machine's foreign runs die — the
-      // owner's other same-team shares keep theirs.
-      if (row.sharedTeamId !== null && row.sharedTeamId !== input.teamId) {
+      // EXP-445: withdrawing a share must end the runs it was the consent
+      // for — otherwise a teammate's agent keeps working on this machine
+      // with no client able to reach it. Ordered AFTER the column write on
+      // purpose: once shared_team_ids has moved, resolveStartAttribution
+      // refuses new foreign attributions, so nothing can slip in behind the
+      // fan-out. Adding a team and a no-op toggle end nothing. Device-scoped
+      // (EXP-560): only THIS machine's foreign runs die — the owner's other
+      // same-team shares keep theirs.
+      for (const teamId of revoked) {
         await endForeignHostedSessions(
           ctx.session.user.id,
-          row.sharedTeamId,
+          teamId,
           input.deviceId
         )
       }

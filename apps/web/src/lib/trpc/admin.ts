@@ -717,7 +717,7 @@ export const adminRouter = router({
               version: devices.version,
               lastSeenAt: devices.lastSeenAt,
               createdAt: devices.createdAt,
-              sharedTeamId: devices.sharedTeamId,
+              sharedTeamIds: devices.sharedTeamIds,
               agents: devices.agents,
             })
             .from(devices)

@@ -4,9 +4,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -75,6 +73,14 @@ data class DeviceCommandDto(
 
 @Serializable
 private data class CommandIdInput(@SerialName("commandId") val commandId: String)
+
+/** `devices.setShared`'s toggle form (FEED-33): one team in or out. */
+@Serializable
+internal data class SetSharedInput(
+    @SerialName("deviceId") val deviceId: String,
+    @SerialName("teamId") val teamId: String,
+    @SerialName("shared") val shared: Boolean,
+)
 
 @Serializable
 private data class SetLaunchDefaultsInput(
@@ -153,18 +159,16 @@ class DevicesApi @Inject constructor(private val trpc: TrpcClient) {
     }
 
     /**
-     * `devices.setShared` (EXP-481 — the toggle was web-only before): share
-     * one of the caller's SERVER machines with [teamId], or clear the share
-     * with null. The server requires the `teamId` KEY to be present even for
-     * clearing, and the shared Json drops nulls (explicitNulls = false) — so
-     * the input is built by hand with an explicit [JsonNull].
+     * `devices.setShared` (EXP-481, FEED-33): toggle ONE team in or out of
+     * the share set of one of the caller's SERVER machines. The other teams
+     * on the row are untouched; the synced `shared_team_ids` re-renders it.
      */
-    suspend fun setShared(accountId: String, deviceId: String, teamId: String?) {
+    suspend fun setShared(accountId: String, deviceId: String, teamId: String, shared: Boolean) {
         trpc.mutationUnit(
             accountId,
             path = "devices.setShared",
-            input = setSharedInput(deviceId, teamId),
-            inputSerializer = JsonObject.serializer(),
+            input = SetSharedInput(deviceId = deviceId, teamId = teamId, shared = shared),
+            inputSerializer = SetSharedInput.serializer(),
         )
     }
 
@@ -216,17 +220,6 @@ class DevicesApi @Inject constructor(private val trpc: TrpcClient) {
             inputSerializer = CommandIdInput.serializer(),
             outputSerializer = DeviceCommandDto.serializer(),
         )
-}
-
-/**
- * `devices.setShared`'s input. Built by hand: the server requires the
- * `teamId` KEY even when clearing, and the shared Json drops nulls
- * (explicitNulls = false) — a synthesized Encodable would silently turn
- * "stop sharing" into a no-op BAD_REQUEST.
- */
-internal fun setSharedInput(deviceId: String, teamId: String?): JsonObject = buildJsonObject {
-    put("deviceId", deviceId)
-    put("teamId", teamId?.let(::JsonPrimitive) ?: JsonNull)
 }
 
 /** The `worktree_remove` input for [DevicesApi.createCommand]. */

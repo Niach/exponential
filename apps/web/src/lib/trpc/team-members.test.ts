@@ -172,7 +172,8 @@ describe(`teamMembers.remove — offboarding cleanup (REV-8)`, () => {
       { table: issues, values: { assigneeId: null } },
       {
         table: devices,
-        values: { sharedTeamId: null, updatedAt: expect.any(Date) },
+        // FEED-33: `array_remove(shared_team_ids, team)` — an SQL chunk.
+        values: { sharedTeamIds: expect.anything(), updatedAt: expect.any(Date) },
       },
     ])
     // No share was actually cleared (returning was empty) — no kill fan-out.
@@ -204,7 +205,7 @@ describe(`teamMembers.remove — offboarding cleanup (REV-8)`, () => {
       { table: issues, values: { assigneeId: null } },
       {
         table: devices,
-        values: { sharedTeamId: null, updatedAt: expect.any(Date) },
+        values: { sharedTeamIds: expect.anything(), updatedAt: expect.any(Date) },
       },
     ])
   })

@@ -94,8 +94,6 @@ import com.exponential.app.ui.theme.TextEmphasis
 /** `devices.rename` caps the label at 255 chars server-side. */
 private const val MAX_DEVICE_LABEL = 255
 
-private const val NOT_SHARED = ""
-
 @Composable
 fun DeviceSettingsSheet(
     device: SteerDevice,
@@ -240,34 +238,26 @@ fun DeviceSettingsSheet(
             ErrorCaption(defaultError)
             Spacer(Modifier.height(8.dp))
 
-            // ── Sharing (server machines only, EXP-432/EXP-481) ─────────
+            // ── Sharing (server machines only, EXP-432/EXP-481/FEED-33) ─
+            // One switch per team, rendered straight off the live row like
+            // the default-device toggle: a machine may be shared with
+            // several teams at once.
             if (device.isServer) {
                 SectionHeader("Sharing", modifier = Modifier.padding(horizontal = 12.dp))
                 OptionGroup {
-                    PickerRow(
-                        label = "Shared with",
-                        value = teams.firstOrNull { it.id == device.sharedTeamId }?.name
-                            ?: "Not shared",
-                        options = listOf(NOT_SHARED) + teams.map { it.id },
-                        selected = device.sharedTeamId ?: NOT_SHARED,
-                        optionLabel = { id ->
-                            if (id == NOT_SHARED) {
-                                "Not shared"
-                            } else {
-                                teams.firstOrNull { it.id == id }?.name ?: id
-                            }
-                        },
-                        enabled = !shareBusy,
-                        onSelect = { id ->
-                            viewModel.setShared(
-                                device.deviceId,
-                                id.takeIf { it != NOT_SHARED },
-                            )
-                        },
-                    )
+                    teams.forEach { team ->
+                        SwitchRow(
+                            title = team.name,
+                            checked = device.sharedTeamIds.contains(team.id),
+                            onCheckedChange = { next ->
+                                viewModel.setShared(device.deviceId, team.id, next)
+                            },
+                            enabled = !shareBusy,
+                        )
+                    }
                 }
                 Text(
-                    "Teammates of the shared team can start coding sessions on this " +
+                    "Teammates of a shared team can start coding sessions on this " +
                         "machine. Runs are attributed to whoever starts them.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),

@@ -108,8 +108,9 @@ object AgentAccountsRows {
     /**
      * Which synced rows the section reads (web `AgentAccountsSection`): the
      * caller's own machines plus the SERVERS shared with the team being
-     * looked at — a teammate's shared server belongs to its own team's page,
-     * not to every team the caller is a member of. Signed out lists nothing.
+     * looked at — a teammate's shared server belongs to the pages of the
+     * teams it is shared with (FEED-33: possibly several), not to every team
+     * the caller is a member of. Signed out lists nothing.
      */
     fun sectionDevices(
         rows: List<DeviceEntity>,
@@ -119,7 +120,7 @@ object AgentAccountsRows {
         if (currentUserId == null) return emptyList()
         return rows.filter {
             it.userId == currentUserId ||
-                (teamId != null && it.sharedTeamId == teamId && it.kind == SteerDevice.KIND_SERVER)
+                (teamId != null && it.sharedTeamIds.contains(teamId) && it.kind == SteerDevice.KIND_SERVER)
         }
     }
 

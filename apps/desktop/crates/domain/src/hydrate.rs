@@ -145,6 +145,47 @@ where
     })
 }
 
+/// FEED-33: a Postgres `uuid[]` column (`devices.shared_team_ids`). Electric
+/// ships the cell as the array TEXT literal inside a JSON string
+/// (`"{a,b}"`, `"{}"` when empty), the store re-wraps that unchanged, and a
+/// hand-built fixture may hand over a real JSON array. Anything else (null,
+/// absent, garbage) reads as EMPTY: a device the row cannot describe is
+/// simply not shared, never a dropped row.
+pub fn tolerant_id_list<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Value::deserialize(deserializer)?;
+    Ok(value_to_id_list(&value))
+}
+
+fn value_to_id_list(value: &Value) -> Vec<String> {
+    let clean = |raw: &str| {
+        let id = raw.trim().trim_matches('"').trim();
+        (!id.is_empty()).then(|| id.to_string())
+    };
+    match value {
+        Value::Array(items) => items
+            .iter()
+            .filter_map(|item| item.as_str().and_then(clean))
+            .collect(),
+        Value::String(s) => {
+            let text = s.trim();
+            // A JSON array stored as TEXT (the jsonb path) parses first.
+            if text.starts_with('[') {
+                return serde_json::from_str::<Value>(text)
+                    .map(|v| value_to_id_list(&v))
+                    .unwrap_or_default();
+            }
+            let Some(inner) = text.strip_prefix('{').and_then(|t| t.strip_suffix('}')) else {
+                return Vec::new();
+            };
+            inner.split(',').filter_map(clean).collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,5 +262,43 @@ mod tests {
         // A malformed container-looking string survives as its text.
         let t: T = serde_json::from_value(json!({"p": "{broken"})).unwrap();
         assert_eq!(t.p, Some(Value::String("{broken".into())));
+    }
+    /// FEED-33: the `uuid[]` cell in every wire form, plus everything that
+    /// must read as "private".
+    #[test]
+    fn tolerant_id_list_accepts_pg_array_literals_and_json_arrays() {
+        #[derive(Deserialize)]
+        struct T {
+            #[serde(default, deserialize_with = "tolerant_id_list")]
+            v: Vec<String>,
+        }
+        let parse = |input: Value| -> Vec<String> {
+            serde_json::from_value::<T>(input.clone())
+                .unwrap_or_else(|e| panic!("{input} should deserialize: {e}"))
+                .v
+        };
+        assert!(parse(json!({"v": "{}"})).is_empty());
+        assert_eq!(parse(json!({"v": "{team-1}"})), vec!["team-1"]);
+        assert_eq!(
+            parse(json!({"v": "{7b62ba88-8dda-4166-9b8e-606acb5d1954,9836918a-8de3-4299-a167-1dc987a99f2b}"})),
+            vec![
+                "7b62ba88-8dda-4166-9b8e-606acb5d1954",
+                "9836918a-8de3-4299-a167-1dc987a99f2b"
+            ]
+        );
+        // Quoted elements and stray whitespace.
+        assert_eq!(
+            parse(json!({"v": "{ \"team-1\" , team-2 ,}"})),
+            vec!["team-1", "team-2"]
+        );
+        // A real JSON array, and the same array TEXT-stored.
+        assert_eq!(parse(json!({"v": ["team-1", "team-2"]})), vec!["team-1", "team-2"]);
+        assert_eq!(parse(json!({"v": "[\"team-1\"]"})), vec!["team-1"]);
+        // null / absent / garbage all mean private.
+        assert!(parse(json!({"v": null})).is_empty());
+        assert!(parse(json!({})).is_empty());
+        assert!(parse(json!({"v": "not an array"})).is_empty());
+        assert!(parse(json!({"v": 42})).is_empty());
+        assert!(parse(json!({"v": [1, 2]})).is_empty());
     }
 }

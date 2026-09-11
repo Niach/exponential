@@ -294,7 +294,7 @@ function AdminUserDetail() {
                       <div className="truncate font-medium">{d.label}</div>
                       <div className="truncate text-muted-foreground">
                         {d.agents.length > 0 ? d.agents.join(`, `) : `no agents`}
-                        {d.sharedTeamId ? ` · shared` : ``}
+                        {d.sharedTeamIds.length > 0 ? ` · shared` : ``}
                       </div>
                     </div>
                     <div>{d.kind === `server` ? `CLI` : `Desktop`}</div>

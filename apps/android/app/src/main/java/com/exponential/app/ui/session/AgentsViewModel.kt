@@ -689,7 +689,7 @@ fun composeDeviceList(
         .filter {
             it.userId != currentUserId &&
                 teamId != null &&
-                it.sharedTeamId == teamId &&
+                it.sharedTeamIds.contains(teamId) &&
                 it.kind == SteerDevice.KIND_SERVER
         }
         .sortedWith(stableDeviceOrder(nowMs))

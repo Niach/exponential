@@ -854,7 +854,7 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
     // Sorted team ids + the static kind literal: identity rotates ONLY on
     // membership changes; individual share toggles move rows via the column.
     expect(originUrl.searchParams.get(`where`)).toBe(
-      `("user_id" = 'user-1') OR (("shared_team_id" IN ('w-1','w-2')) AND ("kind" = 'server'))`
+      `("user_id" = 'user-1') OR (("shared_team_ids" && '{w-1,w-2}'::uuid[]) AND ("kind" = 'server'))`
     )
     const columns = originUrl.searchParams.get(`columns`)?.split(`,`) ?? []
     // user_id IS synced (mine-vs-shared split + owner name resolution).
@@ -892,7 +892,7 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
     })
 
     expect(originUrl.searchParams.get(`where`)).toBe(
-      `("user_id" = 'user-1') OR (("shared_team_id" = '00000000-0000-0000-0000-000000000000') AND ("kind" = 'server'))`
+      `("user_id" = 'user-1') OR (("shared_team_ids" && '{00000000-0000-0000-0000-000000000000}'::uuid[]) AND ("kind" = 'server'))`
     )
   })
 
@@ -911,7 +911,7 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
     })
 
     expect(originUrl.searchParams.get(`where`)).toBe(
-      `("user_id" = 'user-1') OR ("shared_team_id" IN ('w-1'))`
+      `("user_id" = 'user-1') OR ("shared_team_ids" && '{w-1}'::uuid[])`
     )
     const columns = originUrl.searchParams.get(`columns`)?.split(`,`) ?? []
     expect(columns).toEqual([

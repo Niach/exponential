@@ -85,7 +85,7 @@ const caller = automationsRouter.createCaller({
 const schedule = { kind: `schedule` as const, interval: `daily` as const, minuteOfDay: 420 }
 const ownDevice = {
   userId: `actor`,
-  sharedTeamId: null,
+  sharedTeamIds: [],
   // The caller's OWN registration is usable whatever kind it is; only the
   // shared tier is server-only (EXP-672, mirroring visibleDeviceRows).
   kind: `desktop`,
@@ -185,7 +185,7 @@ describe(`automations.create`, () => {
   it(`accepts a SERVER device shared with the team by a current member`, async () => {
     selectResults.push([action])
     selectResults.push([
-      { ...ownDevice, userId: `host`, sharedTeamId: TEAM_ID, kind: `server` },
+      { ...ownDevice, userId: `host`, sharedTeamIds: [TEAM_ID], kind: `server` },
     ])
     selectResults.push([{ userId: `host` }]) // teamMembers probe
     selectResults.push([])
@@ -199,7 +199,7 @@ describe(`automations.create`, () => {
   it(`rejects a shared DESKTOP device (server-only, like every other reader)`, async () => {
     selectResults.push([action])
     selectResults.push([
-      { ...ownDevice, userId: `host`, sharedTeamId: TEAM_ID, kind: `desktop` },
+      { ...ownDevice, userId: `host`, sharedTeamIds: [TEAM_ID], kind: `desktop` },
     ])
     const error = await rejectionOf(
       caller.create({ teamId: TEAM_ID, actionId: ACTION_ID, deviceId: `d`, trigger: schedule })

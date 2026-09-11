@@ -63,7 +63,7 @@ class AgentAccountsRowsTest {
         deviceId: String,
         label: String = deviceId,
         userId: String = "me",
-        sharedTeamId: String? = null,
+        sharedTeamIds: List<String> = emptyList(),
         kind: String = "desktop",
         agentAccounts: String? = null,
         agentUsage: String? = null,
@@ -81,7 +81,7 @@ class AgentAccountsRowsTest {
         agentUsage = agentUsage,
         agentUsageAt = agentUsageAt,
         lastSeenAt = lastSeenAt,
-        sharedTeamId = sharedTeamId,
+        sharedTeamIds = sharedTeamIds,
     )
 
     // ── agentProfileUsageRows ────────────────────────────────────────────────
@@ -127,7 +127,7 @@ class AgentAccountsRowsTest {
             deviceId = "dev-2",
             label = "Server",
             userId = "someone-else",
-            sharedTeamId = "team-1",
+            sharedTeamIds = listOf("team-1"),
             kind = "server",
             agentAccounts = """{"claude":{"signedIn":true,"checkedAt":""}}""",
         )
@@ -370,13 +370,19 @@ class AgentAccountsRowsTest {
     fun `the section reads my machines plus the servers shared with the team`() {
         val rows = listOf(
             device(deviceId = "mine"),
-            device(deviceId = "their-server", userId = "them", sharedTeamId = "team-1", kind = "server"),
-            device(deviceId = "their-desktop", userId = "them", sharedTeamId = "team-1", kind = "desktop"),
-            device(deviceId = "other-team", userId = "them", sharedTeamId = "team-2", kind = "server"),
+            device(deviceId = "their-server", userId = "them", sharedTeamIds = listOf("team-1"), kind = "server"),
+            device(deviceId = "their-desktop", userId = "them", sharedTeamIds = listOf("team-1"), kind = "desktop"),
+            device(deviceId = "other-team", userId = "them", sharedTeamIds = listOf("team-2"), kind = "server"),
+            // FEED-33: one server shared with both teams reads on both pages.
+            device(deviceId = "both", userId = "them", sharedTeamIds = listOf("team-1", "team-2"), kind = "server"),
         )
         assertEquals(
-            listOf("mine", "their-server"),
+            listOf("mine", "their-server", "both"),
             AgentAccountsRows.sectionDevices(rows, "me", "team-1").map { it.deviceId },
+        )
+        assertEquals(
+            listOf("mine", "other-team", "both"),
+            AgentAccountsRows.sectionDevices(rows, "me", "team-2").map { it.deviceId },
         )
         assertEquals(listOf("mine"), AgentAccountsRows.sectionDevices(rows, "me", null).map { it.deviceId })
         assertTrue(AgentAccountsRows.sectionDevices(rows, null, "team-1").isEmpty())

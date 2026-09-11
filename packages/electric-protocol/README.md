@@ -133,6 +133,17 @@ uses `@JsonNames` on entity fields; the iOS client maps in the entity
 initializer. The Drizzle/tRPC mutation path stays camelCase. See
 `fixtures/` for both variants.
 
+### Array columns
+
+A Postgres array column (`devices.shared_team_ids`, `uuid[]`; FEED-33)
+arrives as the Postgres text literal inside a JSON string: `"{a,b}"`,
+`"{}"` when empty; the `electric-schema` header carries `"dims": 1`.
+Elements never need quoting for uuids, but decoders strip surrounding
+double quotes anyway and treat null/absent/garbage as empty. Only the
+web client (`@electric-sql/client`) parses these natively; the natives
+each carry a small tolerant parser (desktop `hydrate::tolerant_id_list`,
+iOS `WireDecoding`, Android `PgUuidArraySerializer`).
+
 ---
 
 ## Required client behavior

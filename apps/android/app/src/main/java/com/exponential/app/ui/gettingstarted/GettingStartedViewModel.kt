@@ -58,7 +58,7 @@ class GettingStartedViewModel @Inject constructor(
     private val _githubStatus = MutableStateFlow<Pair<String, Boolean>?>(null)
 
     /** Own machines by kind — the devices shape already carries only rows the
-     *  caller may see, but `shared_team_id` puts teammates' servers in it too. */
+     *  caller may see, but `shared_team_ids` puts teammates' servers in it too. */
     private val ownDevices = combine(
         dbFlow.scopedQuery(emptyList()) { it.deviceDao().observeAll() },
         auth.userId,

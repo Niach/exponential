@@ -61,8 +61,9 @@ export interface SteerDevice {
   /** EXP-411: the pending update is parked behind live coding sessions —
    * the daemon applies it once they close. */
   updateBlocked?: boolean
-  /** EXP-432: the team this device is shared with (null/absent = private). */
-  sharedTeamId?: string | null
+  /** EXP-432/FEED-33: the teams this device is shared with (empty/absent =
+   * private). */
+  sharedTeamIds?: string[]
   /** EXP-432: set only on teammates' shared rows — the device owner. Absent
    * on the caller's own rows. */
   owner?: { id: string; name: string }
@@ -430,7 +431,7 @@ export function steerDeviceFromRow(
     version: row.version,
     updateRequested,
     updateBlocked: updateRequested && row.activeSessions > 0,
-    sharedTeamId: row.sharedTeamId,
+    sharedTeamIds: row.sharedTeamIds ?? [],
     // EXP-622: a default belongs to the row's OWNER — never surface a
     // teammate's shared server as the caller's default.
     isDefault: row.userId === opts.currentUserId && row.isDefault,
@@ -475,7 +476,7 @@ export function composeDeviceList(
         .filter(
           (row) =>
             row.userId !== currentUserId &&
-            row.sharedTeamId === teamId &&
+            (row.sharedTeamIds ?? []).includes(teamId) &&
             row.kind === `server`
         )
         .sort(stableOrder)

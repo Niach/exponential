@@ -160,6 +160,7 @@ import {
   clampAgentAccounts,
   clampAgentUsage,
   devicesRouter,
+  nextSharedTeamIds,
 } from "@/lib/trpc/devices"
 
 const caller = devicesRouter.createCaller({
@@ -168,9 +169,11 @@ const caller = devicesRouter.createCaller({
   request: new Request(`http://localhost/`),
 } as never)
 
-// What setShared's ownership probe selects (id, kind, shared_team_id).
-const sharedProbe = (sharedTeamId: string | null) => [
-  [{ id: `row-1`, kind: `server`, sharedTeamId }],
+// What setShared's ownership probe selects (id, kind, shared_team_ids).
+// FEED-33: the share is a SET — the legacy single-team tests below pass one
+// team (or none) and the toggle-form tests pass several.
+const sharedProbe = (...sharedTeamIds: string[]) => [
+  [{ id: `row-1`, kind: `server`, sharedTeamIds }],
 ]
 
 beforeEach(() => {
@@ -471,7 +474,7 @@ describe(`devices.remove`, () => {
 // EXP-432: sharing a server device with a team.
 describe(`devices.setShared`, () => {
   it(`shares an own server device with a team the caller belongs to`, async () => {
-    h.state.selectQueue = sharedProbe(null)
+    h.state.selectQueue = sharedProbe()
     const result = await caller.setShared({
       deviceId: `dev-1`,
       teamId: `11111111-1111-4111-8111-111111111111`,
@@ -482,21 +485,21 @@ describe(`devices.setShared`, () => {
       `11111111-1111-4111-8111-111111111111`
     )
     expect(h.state.updates[0]?.set).toMatchObject({
-      sharedTeamId: `11111111-1111-4111-8111-111111111111`,
+      sharedTeamIds: [`11111111-1111-4111-8111-111111111111`],
     })
   })
 
   it(`clears the share with teamId: null without a membership check`, async () => {
-    h.state.selectQueue = sharedProbe(null)
+    h.state.selectQueue = sharedProbe()
     const result = await caller.setShared({ deviceId: `dev-1`, teamId: null })
     expect(result).toMatchObject({ ok: true })
     expect(h.assertTeamMember).not.toHaveBeenCalled()
-    expect(h.state.updates[0]?.set).toMatchObject({ sharedTeamId: null })
+    expect(h.state.updates[0]?.set).toMatchObject({ sharedTeamIds: [] })
   })
 
   it(`rejects desktop devices — only servers are shareable`, async () => {
     h.state.selectQueue = [
-      [{ id: `row-1`, kind: `desktop`, sharedTeamId: null }],
+      [{ id: `row-1`, kind: `desktop`, sharedTeamIds: [] }],
     ]
     await expect(
       caller.setShared({
@@ -515,6 +518,89 @@ describe(`devices.setShared`, () => {
         teamId: `11111111-1111-4111-8111-111111111111`,
       })
     ).rejects.toMatchObject({ code: `NOT_FOUND` })
+  })
+})
+
+// FEED-33: the share is a SET of teams; the toggle form moves one team in or
+// out of it and the row write is the sorted, deduped result.
+describe(`devices.setShared — toggle form`, () => {
+  const TEAM_A = `11111111-1111-4111-8111-111111111111`
+  const TEAM_B = `22222222-2222-4222-8222-222222222222`
+  const TEAM_C = `33333333-3333-4333-8333-333333333333`
+
+  it(`adds a team to an existing share (membership-checked, sorted, nothing ended)`, async () => {
+    h.state.selectQueue = sharedProbe(TEAM_B)
+    const result = await caller.setShared({
+      deviceId: `dev-1`,
+      teamId: TEAM_A,
+      shared: true,
+    })
+    expect(result).toMatchObject({ ok: true })
+    expect(h.assertTeamMember).toHaveBeenCalledTimes(1)
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, TEAM_A)
+    expect(h.state.updates).toHaveLength(1)
+    expect(h.state.updates[0]?.set).toMatchObject({
+      sharedTeamIds: [TEAM_A, TEAM_B],
+    })
+    expect(h.endForeignHostedSessions).not.toHaveBeenCalled()
+  })
+
+  it(`removes ONE team, keeps the others, and ends only that team's hosted runs`, async () => {
+    h.state.selectQueue = sharedProbe(TEAM_A, TEAM_B, TEAM_C)
+    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_B, shared: false })
+    expect(h.assertTeamMember).not.toHaveBeenCalled()
+    expect(h.state.updates[0]?.set).toMatchObject({
+      sharedTeamIds: [TEAM_A, TEAM_C],
+    })
+    // The revoked team's automations are disarmed (device owner is a plain
+    // member there), and only its foreign runs on this box die.
+    expect(h.getTeamMember).toHaveBeenCalledWith(`actor`, TEAM_B)
+    expect(h.state.updates).toHaveLength(2)
+    expect(h.endForeignHostedSessions).toHaveBeenCalledTimes(1)
+    expect(h.endForeignHostedSessions).toHaveBeenCalledWith(
+      `actor`,
+      TEAM_B,
+      `dev-1`
+    )
+  })
+
+  it(`is idempotent: re-adding a shared team or removing an unshared one changes nothing`, async () => {
+    h.state.selectQueue = sharedProbe(TEAM_A)
+    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_A, shared: true })
+    expect(h.state.updates[0]?.set).toMatchObject({ sharedTeamIds: [TEAM_A] })
+    expect(h.assertTeamMember).not.toHaveBeenCalled()
+    expect(h.endForeignHostedSessions).not.toHaveBeenCalled()
+
+    h.state.updates.length = 0
+    h.state.selectQueue = sharedProbe(TEAM_A)
+    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_B, shared: false })
+    expect(h.state.updates[0]?.set).toMatchObject({ sharedTeamIds: [TEAM_A] })
+    expect(h.endForeignHostedSessions).not.toHaveBeenCalled()
+  })
+
+  it(`rejects the toggle form without a teamId`, async () => {
+    await expect(
+      caller.setShared({ deviceId: `dev-1`, teamId: null, shared: true })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    expect(h.state.updates).toHaveLength(0)
+  })
+
+  it(`legacy form replaces the whole set and ends every dropped team's runs`, async () => {
+    h.state.selectQueue = sharedProbe(TEAM_A, TEAM_B)
+    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_C })
+    expect(h.state.updates[0]?.set).toMatchObject({ sharedTeamIds: [TEAM_C] })
+    expect(h.endForeignHostedSessions).toHaveBeenCalledTimes(2)
+    expect(h.endForeignHostedSessions).toHaveBeenCalledWith(`actor`, TEAM_A, `dev-1`)
+    expect(h.endForeignHostedSessions).toHaveBeenCalledWith(`actor`, TEAM_B, `dev-1`)
+  })
+})
+
+describe(`nextSharedTeamIds`, () => {
+  it(`sorts and dedupes every form`, () => {
+    expect(nextSharedTeamIds([`b`, `a`], { teamId: `c`, shared: true })).toEqual([`a`, `b`, `c`])
+    expect(nextSharedTeamIds([`b`, `a`, `a`], { teamId: `a`, shared: false })).toEqual([`b`])
+    expect(nextSharedTeamIds([`b`, `a`], { teamId: `c` })).toEqual([`c`])
+    expect(nextSharedTeamIds([`b`, `a`], { teamId: null })).toEqual([])
   })
 })
 
@@ -584,7 +670,7 @@ describe(`devices.setShared — kill fan-out`, () => {
 
     await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_B })
 
-    expect(h.state.updates[0]?.set).toMatchObject({ sharedTeamId: TEAM_B })
+    expect(h.state.updates[0]?.set).toMatchObject({ sharedTeamIds: [TEAM_B] })
     // Device-scoped since EXP-560 — only this machine's foreign runs die.
     expect(h.endForeignHostedSessions).toHaveBeenCalledWith(
       `actor`,
@@ -594,7 +680,7 @@ describe(`devices.setShared — kill fan-out`, () => {
   })
 
   it(`ends nothing on a first share (null → team)`, async () => {
-    h.state.selectQueue = sharedProbe(null)
+    h.state.selectQueue = sharedProbe()
 
     await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_A })
 
@@ -649,7 +735,7 @@ describe(`devices.setShared — automation disarm`, () => {
   })
 
   it(`touches nothing on a first share or a same-team re-share`, async () => {
-    h.state.selectQueue = sharedProbe(null)
+    h.state.selectQueue = sharedProbe()
     await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_A })
     expect(h.state.updates).toHaveLength(1)
 

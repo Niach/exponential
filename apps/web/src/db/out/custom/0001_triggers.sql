@@ -88,12 +88,12 @@ CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON pins FOR EACH ROW E
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON mcp_server_readiness FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issue_number_counters FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 -- device_worktrees guards like the board_deleted_at mirrors: the share
--- fan-out (propagate_device_shared_team, #13) only flips shared_team_id, and
+-- fan-out (propagate_device_shared_team, #13) only flips shared_team_ids, and
 -- bumping updated_at there would stamp every worktree as freshly reported on
 -- share/unshare. `devices` itself deliberately has NO trigger — the devices
 -- router stamps updatedAt explicitly (heartbeat writes both timestamps).
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON device_worktrees FOR EACH ROW
-  WHEN (NEW.shared_team_id IS NOT DISTINCT FROM OLD.shared_team_id)
+  WHEN (NEW.shared_team_ids IS NOT DISTINCT FROM OLD.shared_team_ids)
   EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON device_commands FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 -- creem_subscriptions is written from BOTH sides (REV2-70): the app's own seat/
@@ -530,13 +530,13 @@ CREATE OR REPLACE TRIGGER populate_issue_status_id
 --     team-membership changes (REV2-5 stance — no device-id lists in where
 --     clauses). The CASE guard is belt-and-braces: setShared is
 --     router-enforced server-kind-only, but a non-server share must never
---     scope a shape.
+--     scope a shape. FEED-33: the share is a uuid[] (several teams).
 CREATE OR REPLACE FUNCTION populate_device_worktree_owner()
 RETURNS TRIGGER AS $$
 BEGIN
   SELECT d.user_id,
-         CASE WHEN d.kind = 'server' THEN d.shared_team_id END
-    INTO NEW.user_id, NEW.shared_team_id
+         CASE WHEN d.kind = 'server' THEN d.shared_team_ids ELSE '{}'::uuid[] END
+    INTO NEW.user_id, NEW.shared_team_ids
   FROM devices d WHERE d.id = NEW.device_row_id;
   RETURN NEW;
 END;
@@ -546,7 +546,7 @@ CREATE OR REPLACE TRIGGER populate_device_worktree_owner
   BEFORE INSERT ON device_worktrees
   FOR EACH ROW EXECUTE FUNCTION populate_device_worktree_owner();
 
--- 13. (EXP-481) Fan a devices.shared_team_id change out to the worktree
+-- 13. (EXP-481) Fan a devices.shared_team_ids change out to the worktree
 --     mirrors (the board-trash fan-out pattern): share/unshare becomes
 --     incremental move-in/move-out shape deltas, never a where-clause
 --     rewrite. Also fires when the kind flips (a device re-registering as
@@ -555,10 +555,10 @@ CREATE OR REPLACE FUNCTION propagate_device_shared_team()
 RETURNS TRIGGER AS $$
 BEGIN
   UPDATE device_worktrees
-    SET shared_team_id = (CASE WHEN NEW.kind = 'server' THEN NEW.shared_team_id END)
+    SET shared_team_ids = (CASE WHEN NEW.kind = 'server' THEN NEW.shared_team_ids ELSE '{}'::uuid[] END)
     WHERE device_row_id = NEW.id
-      AND shared_team_id IS DISTINCT FROM
-          (CASE WHEN NEW.kind = 'server' THEN NEW.shared_team_id END);
+      AND shared_team_ids IS DISTINCT FROM
+          (CASE WHEN NEW.kind = 'server' THEN NEW.shared_team_ids ELSE '{}'::uuid[] END);
   RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
@@ -566,7 +566,7 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE TRIGGER propagate_device_shared_team
   AFTER UPDATE ON devices
   FOR EACH ROW
-  WHEN (OLD.shared_team_id IS DISTINCT FROM NEW.shared_team_id
+  WHEN (OLD.shared_team_ids IS DISTINCT FROM NEW.shared_team_ids
      OR OLD.kind IS DISTINCT FROM NEW.kind)
   EXECUTE FUNCTION propagate_device_shared_team();
 
@@ -574,12 +574,12 @@ CREATE OR REPLACE TRIGGER propagate_device_shared_team
 -- the migrate→boot gap or under a pre-trigger binary.
 UPDATE device_worktrees w
   SET user_id = d.user_id,
-      shared_team_id = CASE WHEN d.kind = 'server' THEN d.shared_team_id END
+      shared_team_ids = CASE WHEN d.kind = 'server' THEN d.shared_team_ids ELSE '{}'::uuid[] END
   FROM devices d
   WHERE d.id = w.device_row_id
     AND (w.user_id IS DISTINCT FROM d.user_id
-      OR w.shared_team_id IS DISTINCT FROM
-         CASE WHEN d.kind = 'server' THEN d.shared_team_id END);
+      OR w.shared_team_ids IS DISTINCT FROM
+         CASE WHEN d.kind = 'server' THEN d.shared_team_ids ELSE '{}'::uuid[] END);
 
 -- 14. (REV-37) Mirror each user's sorted team-id set onto users.team_ids so
 --     the users shape's where clause is `id = me OR team_ids && {my teams}` —
@@ -672,3 +672,35 @@ CREATE OR REPLACE TRIGGER reject_creem_subscription_rekey
   WHEN (OLD.creem_subscription_id IS NOT NULL
     AND NEW.creem_subscription_id IS DISTINCT FROM OLD.creem_subscription_id)
   EXECUTE FUNCTION reject_creem_subscription_rekey();
+
+-- 16. (FEED-33) devices.shared_team_ids is a uuid[] (a device shared with
+--     several teams), and an array column carries no foreign key: this is
+--     the `ON DELETE SET NULL` the old single shared_team_id column had.
+--     Deleting a team strips its id from every device's share set; #13 fans
+--     the change out to the worktree mirrors. Membership removal is handled
+--     in the router (teamMembers.remove), where the kill fan-out lives.
+CREATE OR REPLACE FUNCTION unshare_deleted_team()
+RETURNS TRIGGER AS $$
+BEGIN
+  UPDATE devices
+    SET shared_team_ids = array_remove(shared_team_ids, OLD.id)
+    WHERE shared_team_ids @> ARRAY[OLD.id];
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER unshare_deleted_team
+  AFTER DELETE ON teams
+  FOR EACH ROW EXECUTE FUNCTION unshare_deleted_team();
+
+-- Heal pass (idempotent, every boot): shares left pointing at teams deleted
+-- in the migrate→boot gap or under a pre-trigger binary.
+UPDATE devices d
+  SET shared_team_ids = (
+    SELECT COALESCE(array_agg(t.id ORDER BY t.id), '{}')
+    FROM unnest(d.shared_team_ids) AS s(id)
+    JOIN teams t ON t.id = s.id)
+  WHERE EXISTS (
+    SELECT 1 FROM unnest(d.shared_team_ids) AS s(id)
+    LEFT JOIN teams t ON t.id = s.id
+    WHERE t.id IS NULL);

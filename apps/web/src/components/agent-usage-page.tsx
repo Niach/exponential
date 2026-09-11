@@ -107,7 +107,7 @@ export function AgentAccountsSection({
       ((deviceRows ?? []) as Device[]).filter(
         (row) =>
           row.userId === currentUserId ||
-          (row.sharedTeamId === teamId && row.kind === `server`)
+          ((row.sharedTeamIds ?? []).includes(teamId) && row.kind === `server`)
       ),
     [deviceRows, currentUserId, teamId]
   )
