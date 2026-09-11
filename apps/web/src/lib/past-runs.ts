@@ -83,46 +83,18 @@ export function pastRunTitle(
   return session.actionName?.trim() || `Batch run`
 }
 
-/** How the run ended, as the byline says it. NULL `ended_by` (a row ended by
- *  a pre-EXP-637 server) drops the clause rather than guessing. */
-function endedByPhrase(endedBy: string | null | undefined): string | null {
-  switch (endedBy) {
-    case `agent`:
-      return `agent`
-    case `user`:
-      return `you`
-    case `client`:
-      return `the app`
-    case `merge`:
-      return `a merge`
-    case `system`:
-      return `the system`
-    default:
-      return null
-  }
-}
-
-/** The row's caption: `<device> · <agent label> · ended by <who> · <rel
- *  time>`. Every part is optional — an old row that named no device, no agent
- *  or no ender simply drops that segment instead of printing a placeholder.
- *  The agent label and the relative time are formatted by the caller (each
- *  client owns its own vocabulary and date formatter); the ORDER, the
- *  separator and the "ended by" wording are what the four clients share. */
-export function pastRunByline(
-  session: Pick<CodingSession, `endedBy`>,
-  parts: {
-    deviceLabel: string | null | undefined
-    agentLabel: string | null | undefined
-    relativeTime: string
-  }
-): string {
-  const ended = endedByPhrase(session.endedBy)
-  return [
-    parts.deviceLabel,
-    parts.agentLabel,
-    ended ? `ended by ${ended}` : null,
-    parts.relativeTime,
-  ]
+/** The row's caption: `<device> · <rel time>`. Both parts are optional — an
+ *  old row that named no device, or one that stamped no time, simply drops
+ *  that segment instead of printing a placeholder. The relative time is
+ *  formatted by the caller (each client owns its date formatter); the ORDER
+ *  and the separator are what the four clients share. EXP-833 dropped the
+ *  agent and the "ended by" clause: the list's right side had grown wider
+ *  than its titles, and the agent already shows as the row's lead glyph. */
+export function pastRunByline(parts: {
+  deviceLabel: string | null | undefined
+  relativeTime: string
+}): string {
+  return [parts.deviceLabel, parts.relativeTime]
     .filter((part): part is string => Boolean(part && part.length > 0))
     .join(` · `)
 }

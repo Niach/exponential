@@ -647,32 +647,14 @@ class AgentRowsTest {
     }
 
     @Test
-    fun `the past byline names device, agent and who ended it`() {
+    fun `the past byline names the device and when it ended`() {
         // Byte-identical ×4 — web `pastRunByline`, iOS `PastRuns.byline`,
-        // desktop `devices_view::past_run_byline`.
-        assertEquals(
-            "buildbox · Claude Code · ended by you · 5m ago",
-            pastRunByline("buildbox", "Claude Code", "user", "5m ago"),
-        )
-        assertEquals(
-            "buildbox · Codex · ended by agent · 2h ago",
-            pastRunByline("buildbox", "Codex", "agent", "2h ago"),
-        )
-        assertEquals(
-            "buildbox · ended by the app · 1d ago",
-            pastRunByline("buildbox", null, "client", "1d ago"),
-        )
-        assertEquals(
-            "buildbox · ended by a merge · just now",
-            pastRunByline("buildbox", "", "merge", "just now"),
-        )
-        assertEquals(
-            "buildbox · ended by the system · just now",
-            pastRunByline("buildbox", null, "system", "just now"),
-        )
-        // An unknown (or absent) ended_by drops its clause rather than
-        // printing a raw wire token.
-        assertEquals("buildbox · 3m ago", pastRunByline("buildbox", null, null, "3m ago"))
-        assertEquals("buildbox · 3m ago", pastRunByline("buildbox", null, "sideways", "3m ago"))
+        // desktop `run_rows::past_run_byline`. EXP-833: device and time only,
+        // no agent, no "ended by".
+        assertEquals("buildbox · 5m ago", pastRunByline("buildbox", "5m ago"))
+        // A missing segment drops out instead of printing a placeholder.
+        assertEquals("5m ago", pastRunByline(null, "5m ago"))
+        assertEquals("5m ago", pastRunByline("  ", "5m ago"))
+        assertEquals("buildbox", pastRunByline("buildbox", ""))
     }
 }

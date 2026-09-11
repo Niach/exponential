@@ -172,7 +172,6 @@ import com.exponential.app.domain.rowClass
 import com.exponential.app.domain.transcriptGap
 import com.exponential.app.domain.locksCard
 import com.exponential.app.domain.visibleSubagentTabs
-import com.exponential.app.ui.components.agentLabel
 import com.exponential.app.ui.components.ComposerSubmitButton
 import com.exponential.app.ui.components.ComposerToolButton
 import com.exponential.app.ui.components.GlassComposer
@@ -3892,8 +3891,6 @@ private fun EndedRunHeader(
                 // itself only carries a link.
                 pastRunByline(
                     deviceLabel = hostLabel,
-                    agentLabel = session.agent?.takeIf { it.isNotBlank() }?.let(::agentLabel),
-                    endedBy = session.endedBy,
                     timeLabel = relativeTime(session.endedAt ?: session.updatedAt),
                 ),
                 style = MaterialTheme.typography.bodySmall,

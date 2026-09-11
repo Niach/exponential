@@ -641,14 +641,12 @@ struct AgentSessionView: View {
         }
     }
 
-    /// "macbook · Claude Code · ended by you · 5m ago" — the ×4 `PastRuns`
-    /// rule the list rows print, now that the row itself only carries a link.
+    /// "macbook · 5m ago" — the ×4 `PastRuns` rule the list rows print, now
+    /// that the row itself only carries a link.
     private func endedByline(_ model: AgentSessionModel) -> String {
         let row = model.session ?? session
         return PastRuns.byline(
             device: model.hostDevice.displayLabel,
-            agent: row.agent.map { LaunchVocabulary.agentLabel($0) },
-            endedBy: row.endedBy,
             relativeTime: relativeDate(PastRuns.endedAt(row))
         )
     }

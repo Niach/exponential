@@ -49,7 +49,7 @@ fun EndedRunRow(
     deviceLabel: String? = null,
     /**
      * EXP-746: the Agents screen's "Past" caption, composed once by
-     * `pastRunByline` — `<device> · <agent label> · ended by <who> · <time>`.
+     * `pastRunByline` — `<device> · <time>` (EXP-833).
      * When set it REPLACES the device/time line below, so the ×4 string is
      * whatever that one function produced; the Automations list passes none
      * and keeps the caption it always had.

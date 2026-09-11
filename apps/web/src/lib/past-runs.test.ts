@@ -155,38 +155,22 @@ describe(`pastRunTitle`, () => {
 })
 
 describe(`pastRunByline`, () => {
-  it(`the past byline names device, agent and who ended it`, () => {
-    const parts = {
-      deviceLabel: `macbook`,
-      agentLabel: `Claude Code`,
-      relativeTime: `2 hours ago`,
-    }
-    expect(pastRunByline(run({ endedBy: `agent` }), parts)).toBe(
-      `macbook · Claude Code · ended by agent · 2 hours ago`
-    )
-    expect(pastRunByline(run({ endedBy: `user` }), parts)).toBe(
-      `macbook · Claude Code · ended by you · 2 hours ago`
-    )
-    expect(pastRunByline(run({ endedBy: `client` }), parts)).toBe(
-      `macbook · Claude Code · ended by the app · 2 hours ago`
-    )
-    expect(pastRunByline(run({ endedBy: `merge` }), parts)).toBe(
-      `macbook · Claude Code · ended by a merge · 2 hours ago`
-    )
-    expect(pastRunByline(run({ endedBy: `system` }), parts)).toBe(
-      `macbook · Claude Code · ended by the system · 2 hours ago`
-    )
-    // A row from a pre-EXP-637 server names no ender, and a run that named no
-    // machine or agent drops those segments instead of printing a placeholder.
-    expect(pastRunByline(run({ endedBy: null }), parts)).toBe(
-      `macbook · Claude Code · 2 hours ago`
-    )
+  it(`the past byline names the device and when it ended`, () => {
     expect(
-      pastRunByline(run({ endedBy: `user` }), {
-        deviceLabel: null,
-        agentLabel: null,
-        relativeTime: `2 hours ago`,
-      })
-    ).toBe(`ended by you · 2 hours ago`)
+      pastRunByline({ deviceLabel: `macbook`, relativeTime: `2 hours ago` })
+    ).toBe(`macbook · 2 hours ago`)
+    // EXP-833: neither the agent nor who ended the run is part of the byline
+    // any more — the sentence is device and time, nothing else.
+    expect(pastRunByline({ deviceLabel: `macbook`, relativeTime: `2 hours ago` })).not.toMatch(
+      /ended by|Claude/
+    )
+    // A run that named no machine, or one with no honest time, drops that
+    // segment instead of printing a placeholder.
+    expect(
+      pastRunByline({ deviceLabel: null, relativeTime: `2 hours ago` })
+    ).toBe(`2 hours ago`)
+    expect(pastRunByline({ deviceLabel: `macbook`, relativeTime: `` })).toBe(
+      `macbook`
+    )
   })
 })

@@ -455,8 +455,7 @@ impl SessionScreenView {
     }
 
     /// EXP-773 — the ended run's byline, the one its list row used to carry
-    /// (machine, agent, who ended it, when). `None` while the row has not
-    /// synced.
+    /// (machine and when, EXP-833). `None` while the row has not synced.
     fn ended_byline(&self, cx: &App) -> Option<SharedString> {
         let inner = self.inner.read(cx);
         let row = inner.session_row()?;
