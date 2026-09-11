@@ -218,4 +218,35 @@ describe(`github claim ticket`, () => {
       d: true,
     })
   })
+
+  // FEED-31: the display-only pending-org list rides the ticket.
+  it(`round-trips the pending (undetermined) org list`, () => {
+    const p = [{ id: 21, login: `acme` }]
+    const ticket = mintGithubClaimTicket({ ...payload, p })!
+    expect(readGithubClaimTicket(ticket, `user-1`)).toMatchObject({ p })
+  })
+
+  it(`refuses a malformed pending list under a valid signature`, () => {
+    const forged = (p: unknown) =>
+      `${Buffer.from(
+        JSON.stringify({ ...payload, p, exp: Date.now() + 60_000 })
+      ).toString(`base64url`)}`
+    // Same secret, so re-sign the forged body the way the module does.
+    const crypto = require(`node:crypto`) as typeof import("node:crypto")
+    const sign = (body: string) =>
+      crypto
+        .createHmac(`sha256`, process.env.BETTER_AUTH_SECRET!)
+        .update(body)
+        .digest(`base64url`)
+    const bad = forged([{ id: `21`, login: `acme` }])
+    expect(readGithubClaimTicket(`${bad}.${sign(bad)}`, `user-1`)).toBeNull()
+    const notArray = forged({ id: 21 })
+    expect(
+      readGithubClaimTicket(`${notArray}.${sign(notArray)}`, `user-1`)
+    ).toBeNull()
+    const good = forged([{ id: 21, login: `acme` }])
+    expect(
+      readGithubClaimTicket(`${good}.${sign(good)}`, `user-1`)
+    ).toMatchObject({ p: [{ id: 21, login: `acme` }] })
+  })
 })

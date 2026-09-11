@@ -182,6 +182,12 @@ export interface GithubClaimTicket {
   ids: number[] // installation ids the OAuth enumeration proved control of
   m?: boolean // mobile flow → claim page shows the exponential:// return card
   d?: boolean // dialog flow → claim page self-closes into the opener
+  // FEED-31: org installations the enumeration could NOT verify membership
+  // of (the App's members-read permission update is still unapproved on that
+  // org). Display-only — never linkable through this ticket (`ids` stays the
+  // verified set); the claim page names them with an approve link instead of
+  // dropping them silently.
+  p?: Array<{ id: number; login: string }>
   exp: number
 }
 
@@ -228,7 +234,13 @@ export function readGithubClaimTicket(
     typeof payload?.w !== `string` ||
     !Array.isArray(payload?.ids) ||
     payload.ids.some((id) => typeof id !== `number`) ||
-    typeof payload?.exp !== `number`
+    typeof payload?.exp !== `number` ||
+    (payload.p !== undefined &&
+      (!Array.isArray(payload.p) ||
+        payload.p.some(
+          (row) =>
+            typeof row?.id !== `number` || typeof row?.login !== `string`
+        )))
   ) {
     return null
   }

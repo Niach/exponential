@@ -347,6 +347,54 @@ describe(`github OAuth callback — control-verified claiming (EXP-363)`, () => 
     expect(listUserInstallationRepos).toHaveBeenCalledTimes(2)
   })
 
+  // FEED-31: an org blocked on its members-read approval used to vanish
+  // silently whenever another installation was controlled — the personal
+  // account got re-linked and the user never learned why the org was missing.
+  it(`one controlled + one undetermined org → auto-links, then lands on the claim page naming the pending org`, async () => {
+    listUserInstallations.mockResolvedValue([
+      userInst(11, `octocat`),
+      orgInst(21, `acme`),
+    ])
+    getUserOrgMembershipState.mockResolvedValue(`permission-missing`)
+
+    const res = await handleCallback(callbackRequest(oauthState()))
+
+    // The controlled account still auto-links (unchanged behavior)…
+    expect(linkInserts()).toHaveLength(1)
+    expect(linkInserts()[0].values.githubInstallationId).toBe(`row-11`)
+    // …but the landing is the claim page with the blocked org on the ticket.
+    const location = res.headers.get(`location`)!
+    expect(location).toContain(`/integrations/github/claim?ticket=`)
+    const ticket = new URL(location, `https://app.example`).searchParams.get(
+      `ticket`
+    )
+    const payload = readGithubClaimTicket(ticket, `user-1`)
+    expect(payload?.ids).toEqual([11])
+    expect(payload?.p).toEqual([{ id: 21, login: `acme` }])
+  })
+
+  it(`several controlled + an undetermined org → the multi ticket carries the pending org too`, async () => {
+    listUserInstallations.mockResolvedValue([
+      userInst(11, `octocat`),
+      orgInst(21, `acme`),
+      orgInst(22, `megacorp`),
+    ])
+    getUserOrgMembershipState.mockImplementation(async (_token, org) =>
+      org === `megacorp` ? `active` : `permission-missing`
+    )
+
+    const res = await handleCallback(callbackRequest(oauthState()))
+
+    const location = res.headers.get(`location`)!
+    const ticket = new URL(location, `https://app.example`).searchParams.get(
+      `ticket`
+    )
+    const payload = readGithubClaimTicket(ticket, `user-1`)
+    expect(payload?.ids).toEqual([11, 22])
+    expect(payload?.p).toEqual([{ id: 21, login: `acme` }])
+    expect(linkInserts()).toHaveLength(0)
+  })
+
   it(`one controlled among several enumerated → auto-links just the controlled one`, async () => {
     listUserInstallations.mockResolvedValue([
       userInst(11, `octocat`),

@@ -834,6 +834,33 @@ describe(`integrations.github.claimPreview (EXP-370)`, () => {
     ])
   })
 
+  // FEED-31: the org the callback could not verify is echoed with its
+  // approval page so the claim page can name it instead of dropping it.
+  it(`echoes the ticket's pending orgs with their manage URL`, async () => {
+    const teamId = freshTeamId()
+    const ticket = mintGithubClaimTicket({
+      u: `user-preview`,
+      w: teamId,
+      ids: [1],
+      p: [{ id: 21, login: `acme-org` }],
+    })!
+    selectQueue.push([
+      { id: `gi-1`, installationId: 1, accountLogin: `acme`, accountType: `User` },
+    ])
+    selectQueue.push([{ githubInstallationId: `gi-1` }])
+    selectQueue.push([])
+    const result = await callerFor(`user-preview`).github.claimPreview({
+      ticket,
+    })
+    expect(result.pending).toEqual([
+      {
+        installationId: 21,
+        accountLogin: `acme-org`,
+        manageUrl: `https://manage.example/21`,
+      },
+    ])
+  })
+
   it(`refuses a non-member (members may preview their own claim — EXP-557)`, async () => {
     const teamId = freshTeamId()
     const ticket = mintGithubClaimTicket({

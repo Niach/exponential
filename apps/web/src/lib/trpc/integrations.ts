@@ -932,6 +932,19 @@ export const integrationsRouter = router({
             activeRepoCount:
               countByInstallation.get(row.installationId) ?? 0,
           })),
+          // FEED-31: org installations whose membership the callback could
+          // not verify (the App's members-read permission update is pending
+          // on that org). Display-only — an org admin approves it on the
+          // installation's settings page, then a reconnect links it.
+          pending: (claim.p ?? []).map((row) => ({
+            installationId: row.id,
+            accountLogin: row.login,
+            manageUrl: installationManageUrl({
+              installationId: row.id,
+              accountLogin: row.login,
+              accountType: `Organization`,
+            }),
+          })),
         }
       }),
 

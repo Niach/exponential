@@ -351,4 +351,59 @@ describe(`TeamRepositoriesSection`, () => {
     await screen.findByText(/GitHub suspended the Exponential app/)
     expect(screen.queryByRole(`button`, { name: `Reconnect` })).toBeNull()
   })
+
+  // FEED-31: with one account already linked the OAuth hop auto-redirects and
+  // re-links the same account — the ONLY way to a second org is GitHub's
+  // account picker (installations/new), so it must stay offered as its own
+  // button while a link exists.
+  it(`offers "Connect another account" with an existing link and opens the install URL`, async () => {
+    const popup = { focus: vi.fn(), closed: true }
+    const open = vi
+      .spyOn(window, `open`)
+      .mockReturnValue(popup as unknown as Window)
+    renderSection()
+
+    fireEvent.click(
+      await screen.findByRole(`button`, { name: `Connect another account` })
+    )
+
+    expect(open).toHaveBeenCalledWith(
+      `https://github.com/apps/test/installations/new`,
+      `gh-install`,
+      expect.any(String)
+    )
+    // The OAuth re-auth stays available as the separate refresh action.
+    fireEvent.click(screen.getByRole(`button`, { name: `Refresh access` }))
+    expect(open).toHaveBeenLastCalledWith(
+      `https://github.com/login/oauth/authorize?x=1`,
+      `gh-install`,
+      expect.any(String)
+    )
+    open.mockRestore()
+  })
+
+  it(`renders one row per account with its Configure link`, async () => {
+    mockState.statusQuery.mockResolvedValue(
+      githubStatus([
+        installation(),
+        installation({
+          installationId: 2,
+          accountLogin: `Niach`,
+          accountType: `User`,
+          manageUrl: `https://github.com/settings/installations/2`,
+        }),
+      ])
+    )
+    renderSection()
+
+    await screen.findByText(`siteviewer-app`)
+    const links = screen.getAllByRole(`link`, { name: /Configure/ })
+    expect(links.map((a) => a.getAttribute(`href`))).toEqual([
+      `https://github.com/settings/installations/1`,
+      `https://github.com/settings/installations/2`,
+    ])
+    expect(
+      screen.getByText(/An installation is per GitHub account or organization/)
+    ).toBeTruthy()
+  })
 })
