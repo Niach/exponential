@@ -2241,9 +2241,6 @@ impl SteerSessionView {
                 merge,
                 diff_view: self.changes_diff.clone(),
                 on_toggle: Box::new(|this: &mut Self, cx| this.toggle_changes_expanded(cx)),
-                // No tab to close here, and the server ends the session on
-                // merge anyway (EXP-498).
-                on_merged: None,
             },
             cx,
         ))

@@ -457,11 +457,7 @@ impl MergeState {
     }
 }
 
-/// What a [`two_click`] call did. A merge button with a close hook acts on
-/// [`TwoClick::Fired`]: it closes its session tab the moment the merge
-/// call actually fires, ending the session BEFORE the merge settles — a
-/// conflict failure must never leave a live session holding the branch and
-/// parking the "Fix conflicts" recovery button.
+/// What a [`two_click`] call did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TwoClick {
     /// A guarded call was already in flight (or no account) — nothing fired.
