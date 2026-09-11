@@ -91,11 +91,16 @@ import {
   canonicalizeContentType,
   getMaxUploadBytesForContentType,
   isAcceptedImageContentType,
+  isInlineMediaContentType,
   maxFileUploadBytes,
   maxImageUploadBytes,
   sanitizeUploadFilename,
 } from "@/lib/storage/issue-attachments"
 import { getImageDimensions } from "@/lib/storage/image-dimensions"
+import {
+  getVideoMetadata,
+  isProbeableVideoContentType,
+} from "@/lib/storage/video-metadata"
 import { mintAttachmentToken } from "@/lib/storage/attachment-token"
 import { appBaseUrl } from "@/lib/notification-email-policy"
 import { assertWithinStorageLimit } from "@/lib/billing"
@@ -1317,6 +1322,9 @@ export function registerExponentialTools(
           sizeBytes: attachment.sizeBytes,
           downloadUrl: `${origin}/api/attachments/${id}?token=${token}`,
           expiresAt: expiresAt.toISOString(),
+        }
+        if (`durationMs` in attachment && attachment.durationMs != null) {
+          payload.durationMs = attachment.durationMs
         }
 
         const contentType = attachment.contentType
@@ -3996,7 +4004,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_attachments_upload`,
     {
-      description: `Upload a base64-encoded file and attach it to an issue (UUID or identifier). Images (png/jpeg/webp/gif/avif, max 10 MB) also return a "markdown" field. Embed that string to show the image. Other types (max 50 MB) land in the issue's Files list, return no markdown, and must not be embedded. Storage limits apply; base64 inflates ~33%.`,
+      description: `Upload a base64-encoded file and attach it to an issue (UUID or identifier). Images (png/jpeg/webp/gif/avif, max 10 MB) and video/audio (max 50 MB) also return a "markdown" field. Embed that string to show the image or player. Other types (max 50 MB) land in the issue's Files list, return no markdown, and must not be embedded. Storage limits apply; base64 inflates ~33%.`,
       inputSchema: strictInput({
         issueId: z.string().min(1),
         filename: z.string().min(1).max(255),
@@ -4049,8 +4057,14 @@ export function registerExponentialTools(
           filename
         )
         const url = buildAttachmentUrl(attachmentId)
-        // Only inline images are probed — a pdf/zip/video has no pixel size.
-        const dimensions = isImage ? getImageDimensions(body) : null
+        // Inline images and (EXP-824) MP4/MOV media are probed for their
+        // size; media also for its duration. A pdf/zip has neither.
+        const isMedia = isInlineMediaContentType(contentType)
+        const media =
+          isMedia && isProbeableVideoContentType(contentType)
+            ? getVideoMetadata(body)
+            : null
+        const dimensions = isImage ? getImageDimensions(body) : media
 
         await uploadObject({
           body,
@@ -4073,6 +4087,7 @@ export function registerExponentialTools(
             url,
             width: dimensions?.width ?? null,
             height: dimensions?.height ?? null,
+            durationMs: media?.durationMs ?? null,
           })
         } catch (error) {
           try {
@@ -4089,14 +4104,20 @@ export function registerExponentialTools(
         return ok({
           id: attachmentId,
           url,
-          // Non-images are NOT markdown-embeddable — they live in the issue's
-          // Files list, so no markdown field is offered for them.
-          ...(isImage ? { markdown: `![${alt ?? ``}](${url})` } : {}),
+          // Images embed as `![]()`; video/audio (EXP-824) as a plain link
+          // on its own paragraph. Other files are NOT markdown-embeddable —
+          // they live in the issue's Files list.
+          ...(isImage
+            ? { markdown: `![${alt ?? ``}](${url})` }
+            : isMedia
+              ? { markdown: `[${filename}](${url})` }
+              : {}),
           filename,
           contentType,
           sizeBytes: body.byteLength,
           width: dimensions?.width ?? null,
           height: dimensions?.height ?? null,
+          durationMs: media?.durationMs ?? null,
         })
       } catch (e) {
         return err(e)
