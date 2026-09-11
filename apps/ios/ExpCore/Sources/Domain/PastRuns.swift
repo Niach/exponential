@@ -68,34 +68,17 @@ public enum PastRuns {
         return action.isEmpty ? "Batch run" : action
     }
 
-    /// The row's caption: `<device> · <agent label> · ended by <who> · <rel
-    /// time>`, with every unknown segment simply left out. `agent` is the
-    /// RESOLVED label (iOS `LaunchVocabulary.agentLabel`) and `relativeTime`
-    /// the caller's already-formatted stamp, so nothing here depends on a
-    /// locale or a clock. Locked ×4 by the test
-    /// `the past byline names device, agent and who ended it`.
-    public static func byline(
-        device: String, agent: String?, endedBy: String?, relativeTime: String
-    ) -> String {
+    /// The row's caption: `<device> · <rel time>`, with an empty segment
+    /// simply left out. `relativeTime` is the caller's already-formatted
+    /// stamp, so nothing here depends on a locale or a clock. EXP-833 dropped
+    /// the agent label and the "ended by" clause: the right side had grown
+    /// wider than the titles, and the agent already shows as the row's lead
+    /// glyph. Locked ×4 by the test
+    /// `the past byline names the device and when it ended`.
+    public static func byline(device: String, relativeTime: String) -> String {
         var parts: [String] = []
         if !device.isEmpty { parts.append(device) }
-        if let agent, !agent.isEmpty { parts.append(agent) }
-        if let who = endedByPhrase(endedBy) { parts.append("ended by \(who)") }
         if !relativeTime.isEmpty { parts.append(relativeTime) }
         return parts.joined(separator: " · ")
-    }
-
-    /// `coding_sessions.ended_by` as the words the byline prints. An unknown
-    /// or absent value drops the segment rather than inventing a culprit — an
-    /// older row simply says less. Locked ×4.
-    public static func endedByPhrase(_ endedBy: String?) -> String? {
-        switch endedBy {
-        case "agent": "agent"
-        case "user": "you"
-        case "client": "the app"
-        case "merge": "a merge"
-        case "system": "the system"
-        default: nil
-        }
     }
 }

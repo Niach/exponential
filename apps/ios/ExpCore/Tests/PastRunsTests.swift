@@ -141,24 +141,17 @@ final class PastRunsTests: XCTestCase {
         )
     }
 
-    func testThePastBylineNamesDeviceAgentAndWhoEndedIt() {
+    func testThePastBylineNamesTheDeviceAndWhenItEnded() {
+        // Byte-identical ×4 — web `pastRunByline`, Android `pastRunByline`,
+        // desktop `run_rows::past_run_byline`. EXP-833: device and time only,
+        // no agent, no "ended by".
         XCTAssertEqual(
-            PastRuns.byline(
-                device: "macbook", agent: "Claude Code", endedBy: "user", relativeTime: "5m ago"
-            ),
-            "macbook · Claude Code · ended by you · 5m ago"
+            PastRuns.byline(device: "macbook", relativeTime: "5m ago"),
+            "macbook · 5m ago"
         )
-        XCTAssertEqual(PastRuns.endedByPhrase("agent"), "agent")
-        XCTAssertEqual(PastRuns.endedByPhrase("client"), "the app")
-        XCTAssertEqual(PastRuns.endedByPhrase("merge"), "a merge")
-        XCTAssertEqual(PastRuns.endedByPhrase("system"), "the system")
-        // An unknown or absent value says less rather than inventing a culprit.
-        XCTAssertNil(PastRuns.endedByPhrase("sweeper"))
-        XCTAssertNil(PastRuns.endedByPhrase(nil))
-        XCTAssertEqual(
-            PastRuns.byline(device: "macbook", agent: nil, endedBy: nil, relativeTime: ""),
-            "macbook"
-        )
+        // A missing segment drops out instead of printing a placeholder.
+        XCTAssertEqual(PastRuns.byline(device: "macbook", relativeTime: ""), "macbook")
+        XCTAssertEqual(PastRuns.byline(device: "", relativeTime: "5m ago"), "5m ago")
     }
 
     func testARowTitlesItselfFromWhateverItHas() {

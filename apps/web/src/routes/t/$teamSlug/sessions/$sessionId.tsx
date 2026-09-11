@@ -10,7 +10,6 @@ import { LoaderCircle } from "lucide-react"
 import { toast } from "sonner"
 import { AgentSessionView } from "@/components/agent-session"
 import { AgentShell } from "@/components/agent-shell"
-import { agentLabel } from "@/components/agent-usage-bar"
 import { relativeTime } from "@/components/comment-rows/format"
 import { SessionStatusBadge } from "@/components/issue-coding-rows"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
@@ -214,9 +213,8 @@ function EndedRunHeader({ session }: { session: CodingSession }) {
   const device = useSessionDevice(session)
   const canResume = useCanResumeOn(session)
 
-  const byline = pastRunByline(session, {
+  const byline = pastRunByline({
     deviceLabel: device.label ?? session.deviceLabel,
-    agentLabel: session.agent ? agentLabel(session.agent) : null,
     relativeTime:
       pastRunEndedAt(session) > 0
         ? relativeTime(new Date(pastRunEndedAt(session)))

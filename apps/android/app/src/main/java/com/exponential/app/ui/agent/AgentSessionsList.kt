@@ -37,7 +37,6 @@ import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.EndedRunRow
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.actionGlyph
-import com.exponential.app.ui.components.agentLabel
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.DoneBlue
 import com.exponential.app.ui.issue.NeedsInputAmber
@@ -192,8 +191,6 @@ internal fun LazyListScope.agentSessionsList(
                 timeLabel = relativeTime(row.session.endedAt ?: row.session.updatedAt),
                 byline = pastRunByline(
                     deviceLabel = row.device.displayLabel,
-                    agentLabel = row.session.agent?.takeIf { it.isNotBlank() }?.let(::agentLabel),
-                    endedBy = row.session.endedBy,
                     timeLabel = relativeTime(row.session.endedAt ?: row.session.updatedAt),
                 ),
                 onOpen = { onOpenSteer(row.session.id) },

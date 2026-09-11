@@ -238,11 +238,12 @@ pub(crate) fn automation_row_parts(
     }
 }
 
-/// EXP-746 — the ×4 byline under a PAST run: which machine ran it, which
-/// agent, who ended it and when. Parts the row cannot prove are dropped
-/// rather than guessed (a missing device label, an agent-less external run,
-/// an `ended_by` this build predates), and the separator is the same middle
-/// dot every client uses.
+/// EXP-746 — the ×4 byline under a PAST run: which machine ran it and when
+/// it ended. Parts the row cannot prove are dropped rather than guessed (a
+/// missing device label, a row with no honest time), and the separator is
+/// the same middle dot every client uses. EXP-833 dropped the agent label
+/// and the "ended by" clause: the right side had grown wider than the
+/// titles, and the agent already shows as the row's lead glyph.
 ///
 /// Byte-identical on web, iOS and Android — change it in four places or not
 /// at all.
@@ -255,17 +256,6 @@ pub(crate) fn past_run_byline(
     if let Some(label) = device_label.map(str::trim).filter(|label| !label.is_empty()) {
         parts.push(label.to_string());
     }
-    if let Some(agent) = session
-        .agent
-        .as_deref()
-        .map(str::trim)
-        .filter(|agent| !agent.is_empty())
-    {
-        parts.push(crate::launch_options::agent_label(agent));
-    }
-    if let Some(who) = ended_by_words(session.ended_by.as_deref()) {
-        parts.push(format!("ended by {who}"));
-    }
     if let Some(at) = past_run_ended_at(session) {
         let when = crate::comments::relative_time(at, now_epoch);
         if !when.is_empty() {
@@ -273,20 +263,6 @@ pub(crate) fn past_run_byline(
         }
     }
     parts.join(" · ")
-}
-
-/// How the byline names each `ended_by` path (contract
-/// `codingSession.endedBy`). An unknown value says nothing at all — a newer
-/// server's vocabulary must not print a raw enum id at people.
-fn ended_by_words(ended_by: Option<&str>) -> Option<&'static str> {
-    match ended_by? {
-        domain::contract::CODING_SESSION_ENDED_BY_AGENT => Some("agent"),
-        domain::contract::CODING_SESSION_ENDED_BY_USER => Some("you"),
-        domain::contract::CODING_SESSION_ENDED_BY_CLIENT => Some("the app"),
-        domain::contract::CODING_SESSION_ENDED_BY_MERGE => Some("a merge"),
-        domain::contract::CODING_SESSION_ENDED_BY_SYSTEM => Some("the system"),
-        _ => None,
-    }
 }
 
 /// When a past run finished: its `ended_at`, else the last `updated_at` (a
@@ -360,41 +336,26 @@ mod tests {
     }
 
     /// EXP-746 — the ×4 past byline. Locked because web, iOS and Android
-    /// render the same sentence from the same row fields: machine, agent, who
-    /// ended the run, how long ago.
+    /// render the same sentence from the same row fields: machine and how
+    /// long ago. EXP-833: the agent and who ended the run are NOT part of it.
     #[test]
-    fn the_past_byline_names_device_agent_and_who_ended_it() {
+    fn the_past_byline_names_the_device_and_when_it_ended() {
         let now = 1_700_000_000;
         let ended_at = chrono::DateTime::from_timestamp(now - 300, 0)
             .expect("timestamp")
             .to_rfc3339();
         let mut run = session("s-1");
         run.agent = Some("codex".to_string());
-        run.ended_by = Some(domain::contract::CODING_SESSION_ENDED_BY_USER.to_string());
+        run.ended_by = Some(domain::contract::CODING_SESSION_ENDED_BY_MERGE.to_string());
         run.ended_at = Some(ended_at.clone());
         assert_eq!(
             past_run_byline(&run, Some("Studio"), now),
-            "Studio · Codex · ended by you · 5 minutes ago"
+            "Studio · 5 minutes ago"
         );
 
-        // Each `ended_by` path has its own words.
-        for (value, words) in [
-            (domain::contract::CODING_SESSION_ENDED_BY_AGENT, "agent"),
-            (domain::contract::CODING_SESSION_ENDED_BY_CLIENT, "the app"),
-            (domain::contract::CODING_SESSION_ENDED_BY_MERGE, "a merge"),
-            (domain::contract::CODING_SESSION_ENDED_BY_SYSTEM, "the system"),
-        ] {
-            run.ended_by = Some(value.to_string());
-            assert!(
-                past_run_byline(&run, Some("Studio"), now).contains(&format!("ended by {words}")),
-                "{value} must read as '{words}'"
-            );
-        }
-
-        // Nothing is invented: an unknown end path, a missing device label
-        // and a missing agent each drop their part instead of guessing.
+        // Nothing is invented: a missing device label drops its part instead
+        // of guessing.
         let mut sparse = session("s-2");
-        sparse.ended_by = Some("teleport".to_string());
         sparse.ended_at = Some(ended_at.clone());
         assert_eq!(past_run_byline(&sparse, None, now), "5 minutes ago");
 

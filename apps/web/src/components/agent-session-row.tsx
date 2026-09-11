@@ -13,7 +13,6 @@ import {
   type SessionDisplayState,
 } from "@/components/issue-coding-rows"
 import { relativeTime } from "@/components/comment-rows/format"
-import { agentLabel } from "@/components/agent-usage-bar"
 import { blockedBadgeLabel } from "@/lib/agent-usage"
 import { useNow } from "@/hooks/use-now"
 import { pastRunByline, pastRunEndedAt } from "@/lib/past-runs"
@@ -280,17 +279,16 @@ export function SessionRow({
 // title, identifier, byline, and a tap that opens `sessions/$sessionId`.
 // Mirrored on desktop, iOS and Android.
 
-/** EXP-746: the Past row's caption. The ORDER and the "ended by" wording are
- * the ×4 rule (lib/past-runs.ts); the agent label and the relative time are
- * this client's own vocabulary and formatter. Lives here (EXP-739) so the
- * Devices "Past" list and the chat page's "Past chats" caption identically. */
+/** EXP-746: the Past row's caption. The ORDER and the separator are the ×4
+ * rule (lib/past-runs.ts); the relative time is this client's own formatter.
+ * Lives here (EXP-739) so the Devices "Past" list and the chat page's "Past
+ * chats" caption identically. */
 export function pastRunRowByline(row: PastRunRow): string {
   // A row that stamped neither end nor heartbeat has no honest time to show
   // (0 would render as 1970), so that segment simply drops.
   const endedAt = pastRunEndedAt(row.session)
-  return pastRunByline(row.session, {
+  return pastRunByline({
     deviceLabel: row.device.label ?? row.session.deviceLabel,
-    agentLabel: row.session.agent ? agentLabel(row.session.agent) : null,
     relativeTime: endedAt > 0 ? relativeTime(new Date(endedAt)) : ``,
   })
 }
@@ -314,8 +312,8 @@ export function EndedSessionRow({
   /** EXP-746: an issue run's identifier, drawn as the mono lead-in
    * `SessionRow` already uses (iOS/Android `EndedRunRow` parity). */
   identifier?: string
-  /** EXP-746: the Past caption — `<device> · <agent> · ended by … · <rel
-   * time>` (lib/past-runs.ts `pastRunByline`). It ALREADY ends with the
+  /** EXP-746: the Past caption — `<device> · <rel time>` (lib/past-runs.ts
+   * `pastRunByline`, trimmed by EXP-833). It ALREADY ends with the
    * relative time, so the trailing time column stands down when it is set;
    * the Automations tab passes none and keeps the old row verbatim. */
   byline?: string

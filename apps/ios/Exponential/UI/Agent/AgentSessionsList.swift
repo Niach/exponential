@@ -187,14 +187,12 @@ struct AgentSessionsList: View {
         }
     }
 
-    /// "macbook · Claude Code · ended by you · 5m ago" — the ×4 rule, fed the
-    /// LIVE devices row's label (a rename never rewrites the session's
-    /// start-time snapshot) and this client's own relative time.
+    /// "macbook · 5m ago" — the ×4 rule, fed the LIVE devices row's label (a
+    /// rename never rewrites the session's start-time snapshot) and this
+    /// client's own relative time.
     private func pastByline(_ row: AgentsViewModel.PastRow) -> String {
         PastRuns.byline(
             device: row.device.displayLabel,
-            agent: row.session.agent.map { LaunchVocabulary.agentLabel($0) },
-            endedBy: row.session.endedBy,
             relativeTime: relativeDate(PastRuns.endedAt(row.session))
         )
     }

@@ -25,37 +25,19 @@ fun pastRunTitle(session: CodingSessionEntity, issue: IssueEntity?): String = wh
 }
 
 /**
- * How a run's `ended_by` reads in a byline. The wire vocabulary is the
- * contract's `agent | user | client | merge | system`; anything else (an older
- * or newer publisher) drops the clause rather than printing a raw token.
+ * One Past row's byline: `<device> · <time>`.
  *
- * Byte-identical ×4 — the whole byline is asserted by
- * `the past byline names device, agent and who ended it`.
- */
-fun endedByPhrase(endedBy: String?): String? = when (endedBy) {
-    "agent" -> "agent"
-    "user" -> "you"
-    "client" -> "the app"
-    "merge" -> "a merge"
-    "system" -> "the system"
-    else -> null
-}
-
-/**
- * One Past row's byline: `<device> · <agent label> · ended by <who> · <time>`.
- *
- * Every part is optional — an old row may carry no agent, a swept row no
- * `ended_by` — and a missing one simply drops its segment, so the separators
- * never double up. Byte-identical ×4.
+ * Both parts are optional — an old row may name no device, a swept row has no
+ * honest time — and a missing one simply drops its segment, so the separator
+ * never dangles. EXP-833 dropped the agent label and the "ended by" clause:
+ * the right side had grown wider than the titles, and the agent already
+ * shows as the row's lead glyph. Byte-identical ×4, asserted by
+ * `the past byline names the device and when it ended`.
  */
 fun pastRunByline(
     deviceLabel: String?,
-    agentLabel: String?,
-    endedBy: String?,
     timeLabel: String,
 ): String = listOfNotNull(
     deviceLabel?.takeIf { it.isNotBlank() },
-    agentLabel?.takeIf { it.isNotBlank() },
-    endedByPhrase(endedBy)?.let { "ended by $it" },
     timeLabel.takeIf { it.isNotBlank() },
 ).joinToString(" · ")
