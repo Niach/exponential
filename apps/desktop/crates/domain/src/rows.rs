@@ -271,6 +271,35 @@ pub struct IssueRelation {
     pub updated_at: Option<String>,
 }
 
+/// `pins` shape row (EXP-778) — one personal pin (`user_id = me`, static
+/// per-user shape, NOT team/trash scoped). `kind` is a contract `pinKind`
+/// (`issue` | `session` | `action`) and exactly one of the three target ids
+/// is set; every non-PK field is `Option` like `Notification` so an unknown
+/// kind or an absent target degrades to a hidden row, never a wedged
+/// hydration. `sort_order` ascending = display order (a new pin appends).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct Pin {
+    pub id: String,
+    #[serde(default)]
+    pub user_id: Option<String>,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub issue_id: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub action_id: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_f64")]
+    pub sort_order: Option<f64>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
 /// `users` shape row (co-member-scoped; the server pins the 6-column
 /// contract list — admin/verification/billing fields never sync).
 #[derive(Debug, Clone, PartialEq, Deserialize)]

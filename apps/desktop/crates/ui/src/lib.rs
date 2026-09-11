@@ -99,6 +99,7 @@ mod oauth;
 mod onboarding;
 pub mod os_notifications;
 mod pickers;
+mod pins;
 mod pr_diff;
 mod pr_merge;
 mod queries;

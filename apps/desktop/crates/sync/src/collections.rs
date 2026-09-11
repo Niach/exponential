@@ -46,7 +46,7 @@ use crate::store::{ShapeStore, StoreError};
 use domain::rows::{
     ActionRow, Attachment, AutomationRow, Board, CodingSession, Comment, DeviceRow,
     DeviceWorktreeRow, Issue, IssueEvent, IssueLabel, IssueRelation, IssueStatusRow,
-    IssueSubscriber, Label, Notification, Team, TeamInvite, TeamMember, User,
+    IssueSubscriber, Label, Notification, Pin, Team, TeamInvite, TeamMember, User,
 };
 
 // ---------------------------------------------------------------------------
@@ -154,7 +154,7 @@ pub fn derive_active_health(
 // Per-shape reactive collections
 // ---------------------------------------------------------------------------
 
-/// A typed row hydratable from the store's snake_case JSON objects. The 20
+/// A typed row hydratable from the store's snake_case JSON objects. The 21
 /// impls below bind each `domain::rows` struct to its [`ShapeSpec`].
 pub trait ShapeRow: serde::de::DeserializeOwned + Send + 'static {
     fn spec() -> &'static ShapeSpec;
@@ -194,6 +194,7 @@ id_shape_row!(DeviceRow, "devices");
 id_shape_row!(DeviceWorktreeRow, "device_worktrees");
 id_shape_row!(AutomationRow, "automations");
 id_shape_row!(IssueRelation, "issue_relations");
+id_shape_row!(Pin, "pins");
 
 impl ShapeRow for IssueLabel {
     fn spec() -> &'static ShapeSpec {
@@ -373,10 +374,13 @@ pub struct Collections {
     /// EXP-736 issue relations (the 20th shape) — blocks / parent /
     /// duplicate / related, scoped by the SOURCE issue's board.
     pub issue_relations: Entity<Collection<IssueRelation>>,
+    /// EXP-778 personal pins (the 21st shape) — per-user, never team/trash
+    /// scoped; the rail filters to the active team and to resolvable targets.
+    pub pins: Entity<Collection<Pin>>,
 }
 
 /// Run `$body` once per shape with `$entity` bound to that shape's collection
-/// entity — the single dispatch point that keeps the 20-way fan-out in one
+/// entity — the single dispatch point that keeps the 21-way fan-out in one
 /// place.
 macro_rules! for_each_collection {
     ($collections:expr, $entity:ident => $body:expr) => {{
@@ -420,6 +424,8 @@ macro_rules! for_each_collection {
         $body;
         let $entity = &$collections.issue_relations;
         $body;
+        let $entity = &$collections.pins;
+        $body;
     }};
 }
 
@@ -446,6 +452,7 @@ impl Collections {
             device_worktrees: cx.new(|_| Collection::new()),
             automations: cx.new(|_| Collection::new()),
             issue_relations: cx.new(|_| Collection::new()),
+            pins: cx.new(|_| Collection::new()),
         }
     }
 
@@ -488,11 +495,12 @@ impl Collections {
             "issue_relations" => {
                 apply_to(&self.issue_relations, keys, full_replace, sqlite, cx)
             }
+            "pins" => apply_to(&self.pins, keys, full_replace, sqlite, cx),
             other => log::warn!("[sync] delta for unknown shape {other}"),
         }
     }
 
-    /// Full hydrate of all 20 collections from SQLite (§5.8 "hydrate typed
+    /// Full hydrate of all 21 collections from SQLite (§5.8 "hydrate typed
     /// in-memory collections from SQLite at startup"). Runs synchronously on
     /// the foreground — deliberately: every batch committed to SQLite has a
     /// matching [`ShapeDelta`] queued behind this call, so a snapshot read
@@ -1275,7 +1283,7 @@ mod tests {
 
     #[test]
     fn every_shape_has_a_typed_row_binding() {
-        // The 20 ShapeRow impls cover the registry exactly (a 21st shape
+        // The 21 ShapeRow impls cover the registry exactly (a 22nd shape
         // without a typed row would silently never reach the UI).
         let bound = [
             Team::spec().name,
@@ -1298,6 +1306,7 @@ mod tests {
             DeviceWorktreeRow::spec().name,
             AutomationRow::spec().name,
             IssueRelation::spec().name,
+            Pin::spec().name,
         ];
         let registry: Vec<&str> = crate::shapes::SHAPES.iter().map(|s| s.name).collect();
         assert_eq!(bound.len(), registry.len());

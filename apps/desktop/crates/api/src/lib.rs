@@ -40,7 +40,7 @@
 //! Phase-3 surface (§4.1/§4.2): typed per-router mutation mirrors of
 //! `apps/web/src/lib/trpc/*` — [`issues`] (also carries the §7.8 `prFiles`
 //! query), [`boards`], [`teams`] (+ members + invites), [`labels`]
-//! (+ issueLabels), [`relations`] (EXP-736), [`comments`], [`notifications`],
+//! (+ issueLabels), [`relations`] (EXP-736), [`pins`] (EXP-778), [`comments`], [`notifications`],
 //! [`attachments`]
 //! (EXP-297 `attachments.delete`) — plus [`patch`], the
 //! tri-state omit/null/set field for zod `.nullable().optional()` updates.
@@ -75,6 +75,7 @@ pub mod notifications;
 pub mod onboarding;
 pub mod opener;
 pub mod patch;
+pub mod pins;
 pub mod relations;
 pub mod boards;
 pub mod device_identity;

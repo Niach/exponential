@@ -442,6 +442,18 @@ impl Render for ActionEditorDialogView {
             .flex_shrink_0()
             .justify_end()
             .gap_2()
+            // EXP-778: the personal pin toggle, left of the actions (the
+            // dialog has no header of its own — the native window's title
+            // is the header). Never a builtin here: `open` rejects them.
+            .child(
+                div().mr_auto().child(crate::pins::pin_toggle_button(
+                    "action-edit-pin",
+                    self.team_id.clone(),
+                    domain::contract::PIN_KIND_ACTION,
+                    self.action_id.clone(),
+                    cx,
+                )),
+            )
             .child(
                 Button::new("action-edit-cancel")
                     .ghost().cursor_pointer()

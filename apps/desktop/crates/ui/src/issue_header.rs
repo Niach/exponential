@@ -815,6 +815,18 @@ impl IssueHeader {
             .px(px(DETAIL_GUTTER))
             .pt_2()
             .child(div().flex_1().min_w_0())
+            // EXP-778: the personal pin toggle — a pinned issue lands in the
+            // rail's Pinned section. Needs the team (the board's) to address
+            // the toggle; a not-yet-synced board hides it for a repaint.
+            .children(self.team_id_of(issue, cx).map(|team_id| {
+                crate::pins::pin_toggle_button(
+                    "issue-pin",
+                    team_id,
+                    domain::contract::PIN_KIND_ISSUE,
+                    issue.id.clone(),
+                    cx,
+                )
+            }))
             .child(self.render_actions_menu(issue, cx))
             .into_any_element()
     }

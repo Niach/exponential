@@ -520,6 +520,13 @@ impl SessionScreenView {
             .read(cx)
             .session_row()
             .and_then(|row| row.issue_id.clone());
+        // EXP-778: the pin toggle needs the run's team; a local start ahead
+        // of its synced echo has no row yet and simply shows no toggle.
+        let pin_team_id = self
+            .inner
+            .read(cx)
+            .session_row()
+            .and_then(|row| row.team_id.clone());
         let muted = cx.theme().muted_foreground;
         // EXP-773: an ended run wears its list byline and, when this machine
         // still holds the workspace, the Resume the Past row used to carry.
@@ -703,6 +710,17 @@ impl SessionScreenView {
                     move |_, window, cx| {
                         inner.update(cx, |view, cx| view.prompt_kill(window, cx));
                     },
+                ))
+            })
+            // EXP-778: the personal pin toggle — a pinned run lands in the
+            // rail's Pinned section, live or ended.
+            .when_some(pin_team_id, |this, team_id| {
+                this.child(crate::pins::pin_toggle_button(
+                    "session-pin",
+                    team_id,
+                    domain::contract::PIN_KIND_SESSION,
+                    self.session_id.clone(),
+                    cx,
                 ))
             })
             .when_some(issue_id, |this, issue_id| {
