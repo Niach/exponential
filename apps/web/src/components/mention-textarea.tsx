@@ -49,8 +49,11 @@ interface MentionTextareaProps extends Omit<
  *  (the comment composer's emoji picker, EXP-551). */
 export interface MentionTextareaHandle {
   /** Inserts `text` at the caret (replacing any selection), moves the caret
+   *  behind it, or `caretOffset` characters into it when given (EXP-827: a
+   *  suggestion like "Start a session for # on my other machine" lands the
+   *  caret right after its `#`, so the issue-ref menu opens at once),
    *  behind it and re-focuses the textarea. */
-  insertText: (text: string) => void
+  insertText: (text: string, caretOffset?: number) => void
   /** The character immediately before the caret, or undefined at the very
    *  start. The `#` button needs it: the issue-ref autocomplete only triggers
    *  at a token start, so a `#` typed straight after a word needs a space in
@@ -157,10 +160,15 @@ export const MentionTextarea = forwardRef<
 
   // Replaces [start, end) with `text`, restores focus and puts the caret
   // right behind the inserted text (after React has applied the new value).
-  const splice = (start: number, end: number, text: string) => {
+  const splice = (
+    start: number,
+    end: number,
+    text: string,
+    caretOffset: number = text.length
+  ) => {
     const el = textareaRef.current
     const next = `${value.slice(0, start)}${text}${value.slice(end)}`
-    const nextCaret = start + text.length
+    const nextCaret = start + Math.max(0, Math.min(caretOffset, text.length))
     onValueChange(next)
     detect(next, nextCaret)
     requestAnimationFrame(() => {
@@ -215,13 +223,13 @@ export const MentionTextarea = forwardRef<
   }, [menu, emojiData])
 
   useImperativeHandle(ref, () => ({
-    insertText: (text: string) => {
+    insertText: (text: string, caretOffset?: number) => {
       const el = textareaRef.current
       // selectionStart/End survive blur, so a picker that took focus still
       // knows where the caret was.
       const start = el?.selectionStart ?? value.length
       const end = el?.selectionEnd ?? start
-      splice(start, end, text)
+      splice(start, end, text, caretOffset)
     },
     charBeforeCaret: () => {
       const el = textareaRef.current
