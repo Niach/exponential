@@ -26,6 +26,12 @@ import {
 export interface AgentLoginTarget {
   device: SteerDevice
   agent: string
+  /** EXP-827: sign into this EXISTING profile on the machine (absent = the
+   *  ambient login). */
+  profileId?: string
+  /** EXP-827: create a profile with this label on the machine, then sign
+   *  into it — "Add account" / "add this machine to an account". */
+  newProfileLabel?: string
 }
 
 export function AgentLoginDialog({
@@ -57,22 +63,32 @@ export function AgentLoginDialog({
       queuedRef.current = null
       return
     }
-    const key = `${device.deviceId}:${agent}`
+    const key = `${device.deviceId}:${agent}:${target?.profileId ?? ``}:${target?.newProfileLabel ?? ``}`
     if (queuedRef.current === key) return
     queuedRef.current = key
-    login.queueLogin(agent, false)
+    login.queueLogin(agent, false, {
+      profileId: target?.profileId,
+      newProfileLabel: target?.newProfileLabel,
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, device?.deviceId, agent])
+  }, [open, device?.deviceId, agent, target?.profileId, target?.newProfileLabel])
 
   const label = device ? device.deviceLabel || device.deviceId : ``
+  const addsAccount = Boolean(target?.newProfileLabel)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent mobile="sheet" className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{`Sign in to ${agentLabel(agent)}`}</DialogTitle>
+          <DialogTitle>
+            {addsAccount
+              ? `Add a ${agentLabel(agent)} account`
+              : `Sign in to ${agentLabel(agent)}`}
+          </DialogTitle>
           <DialogDescription>
-            {`The sign-in runs on ${label}. Open the link it hands back on any device.`}
+            {addsAccount
+              ? `The sign-in runs on ${label}. Sign in with the account you want to add; the machine keeps it beside its other logins.`
+              : `The sign-in runs on ${label}. Open the link it hands back on any device.`}
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-2">
