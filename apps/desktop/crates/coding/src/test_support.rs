@@ -129,6 +129,9 @@ impl WorktreeProvider for FakeWorktrees {
             branch.to_string(),
             expires_at.map(str::to_string),
         ));
+        // Like `git worktree add`, the returned path exists afterwards — a
+        // resume into a RECLAIMED worktree relies on that.
+        let _ = fs::create_dir_all(&self.worktree);
         Ok(self.worktree.clone())
     }
 }

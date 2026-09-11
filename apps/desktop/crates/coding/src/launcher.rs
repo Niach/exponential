@@ -2625,13 +2625,18 @@ fn prepare_resume_run(
         Err(reason) => return Ok(Prepared::Disabled(reason)),
     };
 
-    // Step 1 — the workspace. A worktree the prune reclaimed, or (EXP-764) a
+    // Step 1 — the workspace. A repo-backed run whose worktree the run
+    // cleanup or the prune reclaimed (its PR landed — the ordinary way a chat
+    // run ends) is re-created in step 2 on its recorded branch, cut fresh from
+    // `origin/<base>` when the branch went with it; the agent hears about it
+    // in its first turn. A branch-less repo-backed record, or (EXP-764) a
     // scratch dir the purge took with its ended run, is a hard stop: there is
     // nothing to resume INTO (the callers filter on `resumable()` first; this
     // is the backstop). A standing scratch dir is touched so a sweep racing
     // this relaunch reads it as young (`crate::scratch`).
-    let cwd = record.cwd.clone();
-    if !cwd.is_dir() {
+    let mut cwd = record.cwd.clone();
+    let workspace_reclaimed = record.workspace_reclaimed();
+    if !cwd.is_dir() && !workspace_reclaimed {
         return Err(CodingError::Io(format!(
             "this run's workspace is gone ({})",
             cwd.display()
@@ -2680,7 +2685,7 @@ fn prepare_resume_run(
         match &record.branch {
             Some(branch) => {
                 crate::git_worktree::validate_branch_arg(branch, "resume run")?;
-                deps.worktrees.prepare(
+                let worktree = deps.worktrees.prepare(
                     &deps.settings.repos_root_path(),
                     url.full_name(),
                     &default_branch,
@@ -2688,6 +2693,20 @@ fn prepare_resume_run(
                     &url,
                     minted.expires_at.as_deref(),
                 )?;
+                // A re-created worktree is the cwd wherever git put it (the
+                // layout path, normally — the same one the record names, so
+                // the agent's cwd-keyed transcript still resolves).
+                if workspace_reclaimed {
+                    if worktree != cwd {
+                        log::info!(
+                            "resume {}: worktree re-created at {} (recorded {})",
+                            record.session_id,
+                            worktree.display(),
+                            cwd.display()
+                        );
+                    }
+                    cwd = worktree;
+                }
             }
             // A branch-less repo-backed record (a pre-EXP-637 trunk-clone
             // run) still needs its ambient auth reinstalled.
@@ -2775,10 +2794,31 @@ fn prepare_resume_run(
         .as_deref()
         .map(str::trim)
         .filter(|text| !text.is_empty());
+    // A re-created worktree is news the agent's transcript cannot know: it
+    // opens the first turn, alone when nothing else was sent (the one resume
+    // shape that starts a turn on top of a native reload — the alternative
+    // is an agent pushing "its" commits onto a branch that no longer has
+    // them).
+    let reclaimed_note = workspace_reclaimed
+        .then(|| {
+            record.branch.as_deref().map(|branch| {
+                crate::prompt::reclaimed_workspace_note(
+                    branch,
+                    &default_branch,
+                    native_resume && extra.is_none(),
+                )
+            })
+        })
+        .flatten();
+    let with_note = |body: Option<String>| match (&reclaimed_note, body) {
+        (Some(note), Some(body)) => Some(format!("{note}\n\n{body}")),
+        (Some(note), None) => Some(note.clone()),
+        (None, body) => body,
+    };
     let rendered = if native_resume {
-        extra.map(str::to_string)
+        with_note(extra.map(str::to_string))
     } else {
-        Some(match record.kind {
+        with_note(Some(match record.kind {
             RunKind::Issue => {
                 let identifier = record.issue_identifier.as_deref().unwrap_or_default();
                 let seed = record
@@ -2801,7 +2841,7 @@ fn prepare_resume_run(
                 render_run_resume_prompt(record, run_reason.is_some()),
                 extra,
             ),
-        })
+        }))
     };
     let attachment_ids = prompt_attachment_ids(extra);
     let personal_key = key_handle
@@ -5475,6 +5515,76 @@ mod tests {
             }
             other => panic!("expected the missing-workspace error, got {other:?}"),
         }
+    }
+
+    /// A repo-backed CHAT run whose worktree the prune reclaimed once its PR
+    /// merged (the ordinary end of a chat run): the resume re-creates the
+    /// worktree through the provider on the recorded branch + base, spawns
+    /// INTO it, and opens with the reclaimed-workspace note — alone, since a
+    /// native transcript survived and no composer text rode the resume.
+    #[test]
+    fn prepare_resume_run_recreates_a_reclaimed_worktree() {
+        let dir = temp_dir("resume-reclaimed");
+        let (base, _captured) = canned_server_recording(vec![
+            (200, TOKEN_OK.to_string()),
+            (
+                200,
+                r#"{"result":{"data":{"session":{"id":"sess-new","issueId":null,"teamId":"ws-1","status":"running"}}}}"#
+                    .to_string(),
+            ),
+        ]);
+        let layout = dir.0.join("repos").join("acme").join("web.worktrees").join("chat-1a2b3c4d");
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: layout.clone(),
+            seen: Default::default(),
+        });
+        let mut deps = make_deps(&base, &dir.0, worktrees.clone());
+        let mut record = resume_record(&dir.0, "sess-old5");
+        record.kind = RunKind::Chat;
+        record.action_id = domain::contract::BUILTIN_CHAT_ID.to_string();
+        record.action_name = "Chat".to_string();
+        record.cwd = layout.clone();
+        record.clone = Some(dir.0.join("repos").join("acme").join("web"));
+        record.repo = Some("acme/web".to_string());
+        record.repository_id = Some("repo-resume-reclaimed".to_string());
+        record.branch = Some("exp/chat-1a2b3c4d".to_string());
+        record.base_branch = Some("main".to_string());
+        record.started_reason = None;
+        assert!(!layout.exists(), "the worktree is gone");
+        assert!(record.resumable() && record.workspace_reclaimed());
+        let projects = dir.0.join("claude-projects").join("-repos-acme-web-worktrees-chat");
+        fs::create_dir_all(&projects).unwrap();
+        fs::write(projects.join("claude-1.jsonl"), "{}\n").unwrap();
+        deps.claude_projects_root = Some(projects.parent().unwrap().to_path_buf());
+
+        let prepared = match prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps)
+            .unwrap()
+        {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        // Re-created on the recorded branch, off the recorded base.
+        let seen = worktrees.seen.lock().unwrap().clone();
+        assert_eq!(seen.len(), 1, "{seen:?}");
+        assert_eq!(seen[0].1, "main");
+        assert_eq!(seen[0].2, "exp/chat-1a2b3c4d");
+        assert_eq!(prepared.spawn.cwd.as_deref(), Some(layout.as_path()));
+        assert_eq!(prepared.worktree, layout);
+        // The native transcript still resumes; the note is the first turn.
+        assert_eq!(
+            prepared.acp.resume,
+            Some(ResumeSeed::Native("claude-1".to_string()))
+        );
+        let prompt = prepared.acp.prompt.as_deref().expect("the reclaimed note");
+        assert!(prompt.starts_with("Your worktree was reclaimed"), "{prompt}");
+        assert!(prompt.contains("`exp/chat-1a2b3c4d` now starts fresh from `origin/main`"), "{prompt}");
+        assert!(prompt.ends_with("acknowledge this in one line and wait."), "{prompt}");
+        // The re-created worktree is the run's own again.
+        assert_eq!(
+            prepared.run_cleanup.as_ref().map(|c| c.worktree.clone()),
+            Some(layout.clone())
+        );
+        let _ = fs::remove_dir_all(&dir.0);
     }
 
     /// EXP-764: a repo-LESS run's scratch dir was purged with the run when it

@@ -609,10 +609,10 @@ fn run_daemon(args: &[String]) -> CommandResult {
             for (session_id, cleanup, worktree) in reaped {
                 match cleanup {
                     Some(cleanup) => {
+                        // The record outlives a removal: a resume re-creates
+                        // the worktree on the recorded branch; the registry's
+                        // TTL retires the record.
                         let verdict = coding::remove_if_clean(&cleanup);
-                        if matches!(verdict, coding::CleanupOutcome::Removed) {
-                            coding::run_registry::remove(&ctx.data_dir, &session_id);
-                        }
                         log::info!(
                             "run cleanup [{session_id}] on {}: {verdict:?}",
                             cleanup.branch
@@ -1588,7 +1588,7 @@ repo-less run, which is purged when it ends"
         );
     };
     if !record.resumable() {
-        anyhow::bail!("run {session_id}'s workspace is gone");
+        anyhow::bail!("run {session_id}'s workspace is gone and cannot be re-created");
     }
     // EXP-662: an issue/batch record resumes as a SESSION on those issues, so
     // it takes the same one-session-per-issue guards a fresh start does.

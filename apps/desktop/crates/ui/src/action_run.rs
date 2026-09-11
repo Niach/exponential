@@ -642,8 +642,14 @@ are purged when they end.",
         );
         return;
     };
+    // A reclaimed run worktree is re-created by the launcher; only a
+    // branch-less record or a purged scratch dir has nothing to resume into.
     if !record.resumable() {
-        notify_target_error(target, "This run's workspace is gone.", cx);
+        notify_target_error(
+            target,
+            "This run's workspace is gone and can't be re-created.",
+            cx,
+        );
         return;
     }
     // EXP-662: an issue/batch record resumes back into `exp/<ID>` — the

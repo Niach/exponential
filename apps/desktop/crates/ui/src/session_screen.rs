@@ -416,8 +416,9 @@ impl SessionScreenView {
         self.ended || self.inner.read(cx).session_over()
     }
 
-    /// EXP-773 — this machine still holds the run's workspace, so the header
-    /// may offer Resume. Resolved once per screen (the registry is a file).
+    /// EXP-773 — this machine holds the run's record (a reclaimed worktree
+    /// is re-created on resume), so the header may offer Resume. Resolved
+    /// once per screen (the registry is a file).
     fn local_resumable(&mut self, cx: &App) -> bool {
         match self.resumable {
             Some(known) => known,
