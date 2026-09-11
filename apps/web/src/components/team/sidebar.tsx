@@ -28,6 +28,7 @@ import { CreateBoardDialog } from "@/components/create-board-dialog"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
 import { BoardSettingsDialog } from "@/components/team/board-settings-dialog"
 import { SettingsSidebar } from "@/components/team/settings-sidebar"
+import { SidebarPinned } from "@/components/team/sidebar-pinned"
 import { SidebarSessions } from "@/components/team/sidebar-sessions"
 import { TeamAvatar } from "@/components/team/team-avatar"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
@@ -404,6 +405,10 @@ export function TeamSidebar({
                 </SidebarGroupContent>
               </SidebarGroup>
     
+              {/* EXP-778: the caller's pinned issues / sessions / actions in
+                  this team — favourites above the boards, hidden when empty. */}
+              {team && <SidebarPinned teamId={team.id} teamSlug={teamSlug} />}
+
               <SidebarGroup>
                 <SidebarGroupLabel>Boards</SidebarGroupLabel>
                 <SidebarGroupAction

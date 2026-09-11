@@ -50,6 +50,7 @@ import {
   notificationTypeValues,
   prStateSchema,
   prStateValues,
+  pinKindSchema,
   pinKindValues,
   subscriberSourceSchema,
   subscriberSourceValues,
@@ -2492,7 +2493,9 @@ export const selectAttachmentSchema = createSelectSchema(attachments)
 
 export const selectNotificationSchema = createSelectSchema(notifications)
 
-export const selectPinSchema = createSelectSchema(pins)
+export const selectPinSchema = createSelectSchema(pins, {
+  kind: pinKindSchema,
+})
 
 export const selectIssueSubscriberSchema = createSelectSchema(
   issueSubscribers,

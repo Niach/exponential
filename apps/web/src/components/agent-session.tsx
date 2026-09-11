@@ -22,6 +22,7 @@ import {
   type SessionMergeTarget,
 } from "@/hooks/use-agents-data"
 import { SessionMergeButton } from "@/components/session-merge-button"
+import { PinToggleButton } from "@/components/pin-toggle-button"
 import { useSessionDevice } from "@/hooks/use-session-device"
 import { useTeamUsers } from "@/hooks/use-team-data"
 import { useNow } from "@/hooks/use-now"
@@ -774,6 +775,15 @@ export function AgentSessionView({
             )}
           </div>
         </div>
+        {/* EXP-778: pin the run to the sidebar's Pinned group. */}
+        <PinToggleButton
+          teamId={session.teamId ?? undefined}
+          kind="session"
+          targetId={session.id}
+          variant="ghost"
+          size="icon-sm"
+          className="shrink-0"
+        />
         {/* A dropped stream redials from here too — a phone has no desktop
             header to fall back on. */}
         {phase.kind === `closed` && !paused && (
