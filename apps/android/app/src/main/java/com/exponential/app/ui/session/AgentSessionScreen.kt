@@ -567,6 +567,8 @@ fun AgentSessionScreen(
         commitComposerToken(composerField.withEmoji(record, trailingSpace = false))
         composerEmojiPrefs.pushRecent(record.unicode)
     }
+    // EXP-778: the pin toggle beside the top bar's "…".
+    val pinned by viewModel.pinned.collectAsStateWithLifecycle()
     // EXP-688: the top bar's "…" menu, and the Usage sheet it opens.
     var overflowOpen by remember { mutableStateOf(false) }
     var usageSheetOpen by remember { mutableStateOf(false) }
@@ -624,6 +626,16 @@ fun AgentSessionScreen(
                     // context numbers too, not only on the machine's
                     // rate-limit windows.
                     val hasUsage = usage != null || sessionUsage != null
+                    // EXP-778: the personal pin toggle, beside the "…" (or
+                    // alone when the menu has nothing to offer); state comes
+                    // off the synced pins table.
+                    if (row != null) {
+                        TopBarActionButton(
+                            if (pinned) ExpIcons.uiUnpin else ExpIcons.uiPin,
+                            if (pinned) "Unpin" else "Pin",
+                            onClick = viewModel::togglePin,
+                        )
+                    }
                     if (canKill || hasUsage) {
                         // The Box stays: it anchors the dropdown to the button.
                         Box {

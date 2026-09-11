@@ -627,6 +627,33 @@ data class DeviceWorktreeEntity(
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 )
 
+// One personal pin (EXP-778, the 21st Electric shape): the caller's own
+// "Pinned" sidebar rows — an issue, a coding session or an action, exactly one
+// of the three ids set (`kind` names which). The shape is static per user
+// (`user_id = me`), NOT team- or trash-scoped: the client renders only the pins
+// of the active team whose TARGET resolves from the other synced tables, so a
+// pin whose issue/session/action is not synced is simply hidden. Every field
+// that can be absent is defaulted (the attachments.uploader_id lesson).
+@Entity(
+    tableName = "pins",
+    indices = [Index("team_id"), Index("issue_id"), Index("session_id"), Index("action_id")],
+)
+@Serializable
+data class PinEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "user_id") @SerialName("user_id") @JsonNames("userId") val userId: String = "",
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String,
+    // Contract `pinKind`: issue | session | action.
+    val kind: String,
+    @ColumnInfo(name = "issue_id") @SerialName("issue_id") @JsonNames("issueId") val issueId: String? = null,
+    @ColumnInfo(name = "session_id") @SerialName("session_id") @JsonNames("sessionId") val sessionId: String? = null,
+    @ColumnInfo(name = "action_id") @SerialName("action_id") @JsonNames("actionId") val actionId: String? = null,
+    // Ascending = display order (a Postgres double, appended one past the tail).
+    @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double = 0.0,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+)
+
 @Entity(tableName = "electric_offsets")
 data class ElectricOffsetEntity(
     @PrimaryKey @ColumnInfo(name = "shape") val shape: String,

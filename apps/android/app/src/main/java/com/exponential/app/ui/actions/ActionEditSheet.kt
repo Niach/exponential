@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.ActionDto
+import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.IconPicker
@@ -57,6 +58,10 @@ private const val MAX_ACTION_NAME = 255
 private const val MAX_ACTION_DESCRIPTION = 2048
 private const val MAX_ACTION_BODY = 64 * 1024
 
+// EXP-778: `DomainContract.builtinCreateActionId` / `builtinFixConflictsId` /
+// `builtinChatId` — the client-constructed virtual actions, never DB rows.
+private const val BUILTIN_ACTION_ID_PREFIX = "builtin:"
+
 @Composable
 fun ActionEditSheet(
     actionId: String,
@@ -66,6 +71,12 @@ fun ActionEditSheet(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val isOwner by viewModel.isTeamOwner.collectAsStateWithLifecycle()
+    // EXP-778: the personal pin toggle in the sheet header, beside the title.
+    // Builtins (`builtin:` ids) are shipped prompts with no team row and are
+    // never pinnable — the control is hidden, not disabled. The three ids
+    // (DomainContract.builtin*Id) share the `builtin:` prefix.
+    val pinned by viewModel.pinned.collectAsStateWithLifecycle()
+    val pinnable = !actionId.startsWith(BUILTIN_ACTION_ID_PREFIX)
     val teamRepos by dataViewModel.repos.collectAsStateWithLifecycle()
 
     // One fetch per PRESENTATION (iOS EditActionSheet's `.task`): the model is
@@ -119,6 +130,18 @@ fun ActionEditSheet(
         onDismiss = onDismiss,
         modifier = Modifier.testTag("action-edit-sheet"),
         height = SheetHeight.Full,
+        headerAction = if (pinnable) {
+            {
+                CircleIconButton(
+                    if (pinned) ExpIcons.uiUnpin else ExpIcons.uiPin,
+                    if (pinned) "Unpin" else "Pin",
+                    onClick = viewModel::togglePin,
+                    active = pinned,
+                )
+            }
+        } else {
+            null
+        },
         primaryAction = if (isOwner) {
             SheetPrimaryAction(
                 label = "Save changes",
