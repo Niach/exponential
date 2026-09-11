@@ -25,11 +25,13 @@ use gpui_component::{
     h_flex,
     input::{InputEvent, InputState},
     spinner::Spinner,
-    v_flex, ActiveTheme as _, Icon, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 
 use crate::controls::{glass_input, WebControl as _};
-use crate::github_connect::{fetch_github_repos, GithubRepo, GithubReposResult};
+use crate::github_connect::{
+    fetch_github_repos, is_repo_full_name, lookup_repo, GithubRepo, GithubReposResult,
+};
 use crate::icons::registry;
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::queries;
@@ -82,6 +84,12 @@ pub struct AddRepositoryDialogView {
     /// OAuth reconnect hand-off.
     grant_reconnect: bool,
     focused_once: bool,
+    /// FEED-30: the footer's "Add by name" escape hatch — `owner/name`, looked
+    /// up through `integrations.github.lookupRepo` (the connect path's own
+    /// checks) and, on a hit, added exactly like a row pick.
+    lookup: Entity<InputState>,
+    lookup_busy: bool,
+    lookup_error: Option<SharedString>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -94,10 +102,23 @@ impl AddRepositoryDialogView {
     ) -> Self {
         let query =
             cx.new(|cx| InputState::new(window, cx).placeholder("Search repositories\u{2026}"));
+        let lookup = cx.new(|cx| InputState::new(window, cx).placeholder("owner/name"));
         let subscriptions = vec![
             cx.subscribe(&query, |_, _, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change) {
                     cx.notify();
+                }
+            }),
+            // Typing clears a previous lookup failure (web parity); Enter
+            // looks the name up.
+            cx.subscribe_in(&lookup, window, |this, _, event: &InputEvent, window, cx| {
+                match event {
+                    InputEvent::Change => {
+                        this.lookup_error = None;
+                        cx.notify();
+                    }
+                    InputEvent::PressEnter { .. } => this.lookup(window, cx),
+                    _ => {}
                 }
             }),
             // The connect/install hand-off completes in the browser — coming
@@ -146,10 +167,186 @@ impl AddRepositoryDialogView {
             plan_limited: false,
             grant_reconnect: false,
             focused_once: false,
+            lookup,
+            lookup_busy: false,
+            lookup_error: None,
             _subscriptions: subscriptions,
         };
         this.fetch(false, true, cx);
         this
+    }
+
+    /// FEED-30: on OAuth instances the list IS the viewer's grant snapshot,
+    /// which only the OAuth re-auth (or the installation_repositories webhook)
+    /// rewrites — a bare cache refresh can't surface a repo granted since. So
+    /// "Refresh" runs the re-auth hop there (the deep link / window activation
+    /// re-lists on return) and a plain forced re-list where there is no OAuth.
+    fn refresh_access(&mut self, cx: &mut gpui::Context<Self>) {
+        let connect_url = match &self.load {
+            Load::Ready(result) => result.connect_url.clone(),
+            _ => None,
+        };
+        match connect_url {
+            Some(url) => open_url(cx, url),
+            None => self.fetch(true, false, cx),
+        }
+    }
+
+    /// FEED-30: `integrations.github.lookupRepo` for the typed `owner/name`;
+    /// a hit is added exactly like a row pick, a miss shows the server's
+    /// message inline (it names the real reason — grant it, connect that
+    /// account, or reconnect).
+    fn lookup(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let full_name = self.lookup.read(cx).value().trim().to_string();
+        if self.lookup_busy || !is_repo_full_name(&full_name) {
+            return;
+        }
+        let Some(trpc) = queries::trpc_client(cx) else {
+            self.lookup_error = Some("Not signed in.".into());
+            cx.notify();
+            return;
+        };
+        self.lookup_busy = true;
+        self.lookup_error = None;
+        cx.notify();
+        let team_id = self.team_id.clone();
+        cx.spawn_in(window, async move |this, window| {
+            let result = window
+                .background_executor()
+                .spawn(async move { lookup_repo(&trpc, &team_id, &full_name) })
+                .await;
+            let _ = this.update_in(window, |this, window, cx| {
+                this.lookup_busy = false;
+                match result {
+                    Ok(repo) => {
+                        this.lookup
+                            .update(cx, |state, cx| state.set_value("", window, cx));
+                        this.add(&repo, window, cx);
+                    }
+                    Err(err) => {
+                        this.lookup_error = Some(format!("{err}").into());
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// FEED-30: the list explains itself. A missing repo is (almost) always an
+    /// installation whose repo selection doesn't include it, or a repo on an
+    /// account that isn't installed at all — say so, link the exact GitHub
+    /// page per account, offer the two fixes, and the by-name escape hatch.
+    /// Rendered in EVERY installed state, the empty one included.
+    fn footer(
+        &self,
+        result: &GithubReposResult,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl IntoElement {
+        let manage_links: Vec<(String, String)> = result
+            .installations
+            .iter()
+            .filter(|inst| !inst.manage_url.is_empty())
+            .map(|inst| (inst.label(), inst.manage_url.clone()))
+            .collect();
+        let install_url = result.install_url.clone();
+        let has_more = result.has_more;
+        let loading = matches!(self.load, Load::Loading);
+        let lookup_valid = is_repo_full_name(self.lookup.read(cx).value().trim());
+
+        let mut sentence = h_flex()
+            .flex_wrap()
+            .items_center()
+            .gap_x_1()
+            .child(
+                "Only repositories your GitHub installation grants appear here. Missing one? \
+                 Grant it on GitHub, then refresh.",
+            );
+        for (index, (label, url)) in manage_links.into_iter().enumerate() {
+            sentence = sentence.child(
+                Button::new(("add-repo-manage", index))
+                    .link()
+                    .cursor_pointer()
+                    .xsmall()
+                    .label(SharedString::from(label))
+                    .icon(registry::UI_EXTERNAL_LINK)
+                    .on_click(move |_, _, cx| open_url(cx, url.clone())),
+            );
+        }
+
+        let mut lookup_button = Button::new("add-repo-lookup")
+            .outline()
+            .cursor_pointer()
+            .web_sm()
+            .label("Look up")
+            .disabled(!lookup_valid || self.lookup_busy)
+            .on_click(cx.listener(|this, _, window, cx| this.lookup(window, cx)));
+        if self.lookup_busy {
+            lookup_button = lookup_button.loading(true);
+        }
+
+        v_flex()
+            .w_full()
+            .gap_2()
+            .px_3()
+            .py_2()
+            .rounded(cx.theme().radius)
+            .border_1()
+            .border_dashed()
+            .border_color(row_stroke(cx))
+            .text_xs()
+            .text_color(cx.theme().muted_foreground)
+            .child(sentence)
+            .when(has_more, |column| {
+                column.child(
+                    "Showing the first 500 repositories per account \u{2014} use the field \
+                     below for the rest.",
+                )
+            })
+            .child(
+                h_flex()
+                    .flex_wrap()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        Button::new("add-repo-refresh")
+                            .outline()
+                            .cursor_pointer()
+                            .web_sm()
+                            .icon(registry::UI_REFRESH)
+                            .label("Refresh")
+                            .disabled(loading)
+                            .on_click(cx.listener(|this, _, _, cx| this.refresh_access(cx))),
+                    )
+                    .children(install_url.map(|url| {
+                        Button::new("add-repo-install-another")
+                            .ghost()
+                            .cursor_pointer()
+                            .web_sm()
+                            .icon(registry::UI_ADD)
+                            .label("Install on another account")
+                            .on_click(move |_, _, cx| open_url(cx, url.clone()))
+                    })),
+            )
+            .child(
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(glass_input(&self.lookup, window, cx).web_input_sm()),
+                    )
+                    .child(lookup_button),
+            )
+            .children(
+                self.lookup_error
+                    .clone()
+                    .map(|message| div().text_color(cx.theme().danger).child(message)),
+            )
     }
 
     /// Re-detect after a browser hand-off: only when the current list is
@@ -518,10 +715,12 @@ impl Render for AddRepositoryDialogView {
                         ));
                 } else {
                     body = body.child(self.message(
-                        "No repositories found for your connected GitHub accounts.",
+                        "None of your connected GitHub accounts grants a repository yet.",
                         cx,
                     ));
                 }
+                // FEED-30: the footer explains the empty list too.
+                body = body.child(self.footer(result, window, cx));
             }
             Load::Ready(result) => {
                 if result.installations.iter().any(|inst| inst.suspended) {
@@ -560,6 +759,7 @@ impl Render for AddRepositoryDialogView {
                     }
                     body = body.child(list);
                 }
+                body = body.child(self.footer(result, window, cx));
             }
         }
 

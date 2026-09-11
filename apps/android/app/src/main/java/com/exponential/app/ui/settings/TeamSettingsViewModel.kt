@@ -51,6 +51,13 @@ data class TeamSettingsState(
     val boards: List<BoardEntity> = emptyList(),
     // Server-only repositories registry, loaded over tRPC (never synced).
     val repos: List<TeamRepo> = emptyList(),
+    // FEED-32: false until the first `repositories.list` attempt for the
+    // selected team returned — a linked board reads "Loading repository…"
+    // rather than "unavailable" while that first list is still in flight.
+    val reposLoaded: Boolean = false,
+    // FEED-32: the repo id a one-shot re-list is resolving right now (a board
+    // whose synced repositoryId the registry copy doesn't know yet).
+    val resolvingRepoId: String? = null,
     // GitHub grant state (integrations.github.repos, mobile-marked URLs) —
     // drives the "Reconnect GitHub" affordance when a linked installation has
     // no captured grants (needsReauth). Null while loading / not configured.
@@ -109,6 +116,11 @@ class TeamSettingsViewModel @Inject constructor(
     private val _transient = MutableStateFlow<String?>(null)
     private val _teamDeleted = MutableStateFlow(false)
     private val _repos = MutableStateFlow<List<TeamRepo>>(emptyList())
+    private val _reposLoaded = MutableStateFlow(false)
+    private val _resolvingRepoId = MutableStateFlow<String?>(null)
+    // FEED-32: ids a one-shot re-list already ran for — a repo the server
+    // genuinely doesn't list (archived) must not loop the fetch.
+    private val resolvedRepoIds = mutableSetOf<String>()
     private val _github = MutableStateFlow<GithubReposResult?>(null)
     val transient: StateFlow<String?> = _transient.asStateFlow()
 
@@ -120,6 +132,9 @@ class TeamSettingsViewModel @Inject constructor(
             combine(auth.activeAccountId, selection.selectedId) { a, w -> a to w }
                 .collectLatest { (accountId, teamId) ->
                     _repos.value = emptyList()
+                    _reposLoaded.value = false
+                    _resolvingRepoId.value = null
+                    resolvedRepoIds.clear()
                     _github.value = null
                     if (accountId != null && teamId != null) {
                         // Failures surface as a transient instead of silently
@@ -128,6 +143,7 @@ class TeamSettingsViewModel @Inject constructor(
                         runCatching { repositoriesApi.list(accountId, teamId) }
                             .onSuccess { _repos.value = it }
                             .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't load repositories") }
+                        _reposLoaded.value = true
                         runCatching { integrationsApi.githubRepos(accountId, teamId) }
                             .onSuccess { _github.value = it }
                             .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't load the GitHub connection state") }
@@ -167,6 +183,26 @@ class TeamSettingsViewModel @Inject constructor(
         }
     }
 
+    // FEED-32: a board's synced repositoryId can point at a repo this registry
+    // copy has never seen — the settings sheet connects a new repo and the
+    // LIVE board row flips before the list refreshed, or another client
+    // connected it. Re-list ONCE per unknown id (never loop) while the row
+    // reads "Loading repository…"; still unknown afterwards reads
+    // "Repository unavailable".
+    fun ensureRepoKnown(repositoryId: String) {
+        if (_repos.value.any { it.id == repositoryId }) return
+        if (!resolvedRepoIds.add(repositoryId)) return
+        val accountId = auth.activeAccountId.value ?: return
+        val teamId = selection.selectedId.value ?: return
+        _resolvingRepoId.value = repositoryId
+        viewModelScope.launch {
+            runCatching { repositoriesApi.list(accountId, teamId) }
+                .onSuccess { _repos.value = it }
+                .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't load repositories") }
+            if (_resolvingRepoId.value == repositoryId) _resolvingRepoId.value = null
+        }
+    }
+
     // Disconnect a linked GitHub account from the team (EXP-557 — the visible
     // "Disconnect account" action on STALE accounts, which no reconnect can
     // heal). Link-creator-or-owner server-side; the grant state is re-fetched
@@ -193,6 +229,8 @@ class TeamSettingsViewModel @Inject constructor(
             _transient,
             _teamDeleted,
             auth.activeAccountId,
+            _reposLoaded,
+            _resolvingRepoId,
         )
     ) { values ->
         @Suppress("UNCHECKED_CAST")
@@ -213,6 +251,8 @@ class TeamSettingsViewModel @Inject constructor(
         val transient = values[9] as String?
         val deleted = values[10] as Boolean
         val accountId = values[11] as String?
+        val reposLoaded = values[12] as Boolean
+        val resolvingRepoId = values[13] as String?
         TeamSettingsState(
             team = team,
             // Rows whose user hasn't synced yet (user == null) still render
@@ -222,6 +262,8 @@ class TeamSettingsViewModel @Inject constructor(
             labels = labels,
             boards = boards,
             repos = repos,
+            reposLoaded = reposLoaded,
+            resolvingRepoId = resolvingRepoId,
             github = github,
             currentUserId = currentUserId,
             transient = transient,

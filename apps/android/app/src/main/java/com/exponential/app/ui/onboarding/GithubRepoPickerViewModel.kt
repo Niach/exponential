@@ -2,10 +2,13 @@ package com.exponential.app.ui.onboarding
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.exponential.app.data.api.GithubPickerRepo
 import com.exponential.app.data.api.GithubReposResult
 import com.exponential.app.data.api.IntegrationsApi
+import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.push.DeepLinkBus
 import com.exponential.app.domain.githubConnectErrorMessage
+import com.exponential.app.domain.isRepoFullName
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -43,6 +46,14 @@ class GithubRepoPickerViewModel @Inject constructor(
     private val _connectError = MutableStateFlow<String?>(null)
     val connectError: StateFlow<String?> = _connectError.asStateFlow()
 
+    // FEED-30: the footer's "Add by name" escape hatch — its own busy flag and
+    // inline error (the server's message verbatim: it names the real reason).
+    private val _lookupBusy = MutableStateFlow(false)
+    val lookupBusy: StateFlow<Boolean> = _lookupBusy.asStateFlow()
+
+    private val _lookupError = MutableStateFlow<String?>(null)
+    val lookupError: StateFlow<String?> = _lookupError.asStateFlow()
+
     private var lastAccountId: String? = null
     private var lastTeamId: String? = null
     private var loadJob: Job? = null
@@ -75,6 +86,36 @@ class GithubRepoPickerViewModel @Inject constructor(
     // A fresh connect attempt clears the previous failure.
     fun clearConnectError() {
         _connectError.value = null
+    }
+
+    // Typing clears a previous lookup failure (web parity).
+    fun clearLookupError() {
+        _lookupError.value = null
+    }
+
+    // FEED-30: integrations.github.lookupRepo for the typed `owner/name` — a
+    // hit is handed to [onFound] exactly like a row pick, a miss lands in
+    // [lookupError]. Shape-invalid names and a lookup already in flight are
+    // ignored (the button is disabled for both).
+    fun lookup(fullName: String, onFound: (GithubPickerRepo) -> Unit) {
+        val account = lastAccountId ?: return
+        val team = lastTeamId ?: return
+        val name = fullName.trim()
+        if (_lookupBusy.value || !isRepoFullName(name)) return
+        viewModelScope.launch {
+            _lookupBusy.value = true
+            _lookupError.value = null
+            try {
+                val repo = integrationsApi.lookupRepo(account, team, name)
+                _lookupBusy.value = false
+                onFound(repo)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _lookupError.value = trpcErrorMessage(e, "Couldn't look up the repository")
+                _lookupBusy.value = false
+            }
+        }
     }
 
     fun load(accountId: String, teamId: String, refresh: Boolean = false) {

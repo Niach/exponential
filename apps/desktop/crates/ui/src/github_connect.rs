@@ -248,6 +248,44 @@ pub(crate) fn fetch_github_repos(
     )
 }
 
+/// FEED-30: the ONE "owner/name" shape every repo-by-name entry point accepts
+/// — mirror of the web `REPO_FULL_NAME_RE` (`/^[^/\s]+\/[^/\s]+$/`): exactly
+/// one slash, both halves non-empty, no whitespace anywhere. The picker's
+/// "Add by name" field validates against it so a name the client lets through
+/// is never one the server rejects on shape alone.
+pub(crate) fn is_repo_full_name(value: &str) -> bool {
+    let Some((owner, name)) = value.split_once('/') else {
+        return false;
+    };
+    !owner.is_empty()
+        && !name.is_empty()
+        && !name.contains('/')
+        && !value.chars().any(char::is_whitespace)
+}
+
+/// `integrations.github.lookupRepo` (FEED-30) — the Add-repository picker's
+/// "Add by name" escape hatch. Resolves a full name through the connect path's
+/// own checks (linked installation, not suspended, the actor's own grant on
+/// OAuth instances), so its error names the real reason and is
+/// user-presentable verbatim. Read-only. The result carries exactly the
+/// picker-row fields, so a hit is handled like a row pick.
+pub(crate) fn lookup_repo(
+    trpc: &api::TrpcClient,
+    team_id: &str,
+    full_name: &str,
+) -> Result<GithubRepo, api::ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        team_id: &'a str,
+        full_name: &'a str,
+    }
+    trpc.query_with_input(
+        "integrations.github.lookupRepo",
+        &Input { team_id, full_name },
+    )
+}
+
 /// `integrations.github.unlink` — mutation (EXP-557): sever ONE linked
 /// installation from the team. Server-gated link-creator-or-owner, and
 /// refused (CONFLICT) while a connected repo still rides the installation —
@@ -474,6 +512,41 @@ mod tests {
 
         let all_stale = vec![installation("gone-stale", true, false, true)];
         assert_eq!(reauth_account_suffix(&all_stale, "from"), "");
+    }
+
+    /// FEED-30: the by-name field's shape check mirrors the web
+    /// `REPO_FULL_NAME_RE` — one slash, both halves present, no whitespace.
+    #[test]
+    fn repo_full_name_shape_matches_the_web_pattern() {
+        for ok in ["acme/web", "a/b", "org-name/repo.name", "Niach/exponential"] {
+            assert!(is_repo_full_name(ok), "{ok}");
+        }
+        for bad in [
+            "",
+            "acme",
+            "acme/",
+            "/web",
+            "acme/web/extra",
+            "acme /web",
+            "acme/we b",
+            " acme/web",
+            "acme/web\n",
+        ] {
+            assert!(!is_repo_full_name(bad), "{bad:?}");
+        }
+    }
+
+    /// The lookup result decodes into the picker-row type — `installationId`
+    /// on the wire is ignored on purpose (the server re-resolves it).
+    #[test]
+    fn lookup_result_decodes_as_a_picker_row() {
+        let repo: GithubRepo = serde_json::from_str(
+            r#"{"fullName":"acme/web","private":true,"defaultBranch":"trunk","installationId":7}"#,
+        )
+        .unwrap();
+        assert_eq!(repo.full_name, "acme/web");
+        assert!(repo.private);
+        assert_eq!(repo.default_branch, "trunk");
     }
 
     #[test]

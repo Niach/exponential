@@ -134,6 +134,16 @@ const listAllInstallationRepos = vi.fn(async (_installationId: number) => ({
 // the fallback-scan test can make the live lookup 404 (null).
 const githubOAuthConfigured = vi.fn(() => false)
 const installationIdForRepo = vi.fn(async (_repo: string): Promise<number | null> => 1)
+// FEED-30: the by-name lookup's GitHub read.
+const fetchRepoMeta = vi.fn(
+  async (
+    _repo: string,
+    _opts?: { fallbackInstallationId?: number | null }
+  ): Promise<{ defaultBranch: string; private: boolean } | null> => ({
+    defaultBranch: `develop`,
+    private: true,
+  })
+)
 
 // Captures the signed state tokens passed into each minted URL so the
 // platform/purpose tests can decode their markers (the setup-state module
@@ -154,6 +164,10 @@ vi.mock(`@/lib/integrations/github-app`, () => ({
   },
   installationIdForRepo: (...args: unknown[]) =>
     installationIdForRepo(...(args as [string])),
+  fetchRepoMeta: (...args: unknown[]) =>
+    fetchRepoMeta(
+      ...(args as [string, { fallbackInstallationId?: number | null }?])
+    ),
   installationManageUrl: (inst: { installationId: number }) =>
     `https://manage.example/${inst.installationId}`,
   listAllInstallationRepos: (...args: unknown[]) =>
@@ -210,6 +224,8 @@ beforeEach(() => {
   assertTeamMember.mockClear()
   githubOAuthConfigured.mockReturnValue(false)
   installationIdForRepo.mockClear()
+  fetchRepoMeta.mockClear()
+  fetchRepoMeta.mockResolvedValue({ defaultBranch: `develop`, private: true })
   selectQueue.length = 0
   inserted.length = 0
   deletes.length = 0
@@ -798,6 +814,75 @@ describe(`integrations.github.claimLinks apply (EXP-370)`, () => {
   })
 })
 
+// FEED-30: the picker's by-name escape hatch runs the connect path's checks
+// without its write-side lock, and answers in the picker's row shape.
+describe(`integrations.github.lookupRepo (FEED-30)`, () => {
+  it(`returns the picker row for a granted repo without taking the link lock`, async () => {
+    githubOAuthConfigured.mockReturnValue(true)
+    selectQueue.push(DEFAULT_ROWS) // linked installations
+    selectQueue.push([{ id: `grant-1` }]) // the actor's grant
+    const result = await callerFor(`user-connect`).github.lookupRepo({
+      teamId: freshTeamId(),
+      fullName: `acme/repo`,
+    })
+    expect(result).toEqual({
+      fullName: `acme/repo`,
+      private: true,
+      defaultBranch: `develop`,
+      installationId: 1,
+    })
+    expect(fetchRepoMeta).toHaveBeenCalledWith(`acme/repo`, {
+      fallbackInstallationId: 1,
+    })
+    // A read: no FOR UPDATE, no transaction.
+    expect(selectLocks).toEqual([false, false])
+    expect(transactions).toEqual([])
+  })
+
+  it(`FORBIDDEN with the reconnect message when the actor holds no grant`, async () => {
+    githubOAuthConfigured.mockReturnValue(true)
+    selectQueue.push(DEFAULT_ROWS)
+    selectQueue.push([]) // grant lookup → none
+    await expect(
+      callerFor(`user-connect`).github.lookupRepo({
+        teamId: freshTeamId(),
+        fullName: `acme/other-private`,
+      })
+    ).rejects.toMatchObject({
+      code: `FORBIDDEN`,
+      message: expect.stringMatching(/Reconnect GitHub in team settings/),
+    })
+    expect(fetchRepoMeta).not.toHaveBeenCalled()
+  })
+
+  it(`NOT_FOUND when the App can't read the repo`, async () => {
+    fetchRepoMeta.mockResolvedValue(null)
+    selectQueue.push(DEFAULT_ROWS)
+    await expect(
+      callerFor(`user-connect`).github.lookupRepo({
+        teamId: freshTeamId(),
+        fullName: `acme/repo`,
+      })
+    ).rejects.toMatchObject({ code: `NOT_FOUND` })
+  })
+
+  it(`member-gates and validates the owner/name shape`, async () => {
+    denyMembershipOnce()
+    await expect(
+      callerFor(`user-outsider`).github.lookupRepo({
+        teamId: freshTeamId(),
+        fullName: `acme/repo`,
+      })
+    ).rejects.toMatchObject({ code: `FORBIDDEN` })
+    await expect(
+      callerFor(`user-connect`).github.lookupRepo({
+        teamId: freshTeamId(),
+        fullName: `not a repo`,
+      })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+  })
+})
+
 describe(`integrations.github.claimPreview (EXP-370)`, () => {
   it(`returns per-installation linked state and active repo counts`, async () => {
     const teamId = freshTeamId()
@@ -830,6 +915,33 @@ describe(`integrations.github.claimPreview (EXP-370)`, () => {
         accountType: `Organization`,
         alreadyLinked: false,
         activeRepoCount: 0,
+      },
+    ])
+  })
+
+  // FEED-31: the org the callback could not verify is echoed with its
+  // approval page so the claim page can name it instead of dropping it.
+  it(`echoes the ticket's pending orgs with their manage URL`, async () => {
+    const teamId = freshTeamId()
+    const ticket = mintGithubClaimTicket({
+      u: `user-preview`,
+      w: teamId,
+      ids: [1],
+      p: [{ id: 21, login: `acme-org` }],
+    })!
+    selectQueue.push([
+      { id: `gi-1`, installationId: 1, accountLogin: `acme`, accountType: `User` },
+    ])
+    selectQueue.push([{ githubInstallationId: `gi-1` }])
+    selectQueue.push([])
+    const result = await callerFor(`user-preview`).github.claimPreview({
+      ticket,
+    })
+    expect(result.pending).toEqual([
+      {
+        installationId: 21,
+        accountLogin: `acme-org`,
+        manageUrl: `https://manage.example/21`,
       },
     ])
   })

@@ -14,7 +14,9 @@ import {
 } from "@/db/schema"
 import { assertTeamMember } from "@/lib/team-membership"
 import { TRPCError } from "@trpc/server"
+import { REPO_FULL_NAME_RE } from "@/lib/repo-full-name"
 import {
+  fetchRepoMeta,
   githubAppConfigured,
   githubAppInstallUrl,
   githubOAuthAuthorizeUrl,
@@ -442,33 +444,31 @@ async function lockResolvedLink(
   return inst.installationId
 }
 
-// Connect-path authorization: connecting a repo (repositories.add /
-// boards.create inline) must resolve to an installation LINKED to the target
-// team — the App JWT itself can reach every installation of the App, so
-// without this check any owner who knows a repo's full name could bind an
-// unrelated account's private repo to their team. Returns the
-// authoritative installation id so callers persist that instead of trusting
-// the client-supplied one. When GitHub's per-repo lookup 404s (it's flaky when
-// the App spans several accounts), fall back to scanning the team's
-// linked installations' repo lists — bounded, connect-time only.
+// Repo-access resolution: a repo named by full name must resolve to an
+// installation LINKED to the target team — the App JWT itself can reach every
+// installation of the App, so without this check any owner who knows a repo's
+// full name could bind an unrelated account's private repo to their team.
+// Returns the authoritative installation so callers persist ITS id instead of
+// trusting the client-supplied one. When GitHub's per-repo lookup 404s (it's
+// flaky when the App spans several accounts), fall back to scanning the
+// team's linked installations' repo lists — bounded.
 // On OAuth-configured instances the resolved installation must ALSO carry the
 // ACTING USER's grant for this exact repo (assertRepoGrant, EXP-557) — the
 // link alone is installation-granular, and neither a single-repo collaborator
-// nor a teammate riding someone else's grant may connect through it.
+// nor a teammate riding someone else's grant may reach a repo through it.
 // A SUSPENDED installation is refused with its own actionable message
 // (REV2-29): it can't mint a token, so connecting through it would register a
 // repo row that fails at the first clone with a misleading "reconnect" error.
-// Runs inside the CONNECT TRANSACTION (connectRepositoryInTx's `tx`) — not a
-// convenience: the returned installation is only meaningful while this
-// transaction holds the link row's lock, which is what stops a concurrent
-// unlink stranding the repository row this transaction writes.
-export async function assertRepoInstallationAccess(
-  tx: Tx,
+// Every check READS only, so the connect path runs it on its transaction and
+// the by-name lookup (FEED-30) on the pooled connection; the lock that makes
+// the answer safe to WRITE against is the caller's (assertRepoInstallationAccess).
+async function resolveRepoInstallation(
+  exec: Executor,
   teamId: string,
   userId: string,
   fullName: string
-): Promise<number> {
-  const linked = await resolveTeamInstallations(tx, teamId)
+): Promise<ResolvedInstallation> {
+  const linked = await resolveTeamInstallations(exec, teamId)
   if (linked.length === 0) {
     throw new TRPCError({
       code: `PRECONDITION_FAILED`,
@@ -501,8 +501,8 @@ export async function assertRepoInstallationAccess(
     }
     // The link alone is installation-granular; the ACTOR's grant (captured
     // user-scoped at OAuth time) proves they can actually access THIS repo.
-    await assertRepoGrant(tx, teamId, userId, repoInstallationId, fullName)
-    return lockResolvedLink(tx, matched, fullName)
+    await assertRepoGrant(exec, teamId, userId, repoInstallationId, fullName)
+    return matched
   }
   for (const inst of installs) {
     // On GitHub a full_name maps to exactly one repo (and so one installation
@@ -516,14 +516,30 @@ export async function assertRepoInstallationAccess(
       // A revoked/suspended installation must not fail the whole scan.
     }
     if (found) {
-      await assertRepoGrant(tx, teamId, userId, inst.installationId, fullName)
-      return lockResolvedLink(tx, inst, fullName)
+      await assertRepoGrant(exec, teamId, userId, inst.installationId, fullName)
+      return inst
     }
   }
   throw new TRPCError({
     code: `PRECONDITION_FAILED`,
-    message: `The Exponential GitHub App has no access to ${fullName}. Grant it on GitHub (team settings → Repositories → Manage), then try again.`,
+    message: `The Exponential GitHub App has no access to ${fullName}. Grant it on GitHub (team settings → Repositories → Configure), then try again.`,
   })
+}
+
+// Connect-path authorization (repositories.add / boards.create inline): the
+// resolution above PLUS the link-row lock. Runs inside the CONNECT TRANSACTION
+// (connectRepositoryInTx's `tx`) — not a convenience: the returned installation
+// id is only meaningful while this transaction holds the link row's lock,
+// which is what stops a concurrent unlink stranding the repository row this
+// transaction writes (EXP-371).
+export async function assertRepoInstallationAccess(
+  tx: Tx,
+  teamId: string,
+  userId: string,
+  fullName: string
+): Promise<number> {
+  const inst = await resolveRepoInstallation(tx, teamId, userId, fullName)
+  return lockResolvedLink(tx, inst, fullName)
 }
 
 // Token-mint gate: is this installation claimed by the repo's team?
@@ -868,6 +884,56 @@ export const integrationsRouter = router({
         }
       }),
 
+    // FEED-30: the picker's "Add by name" escape hatch. A repo the grant
+    // snapshot / page cap doesn't list can still be reached by full name —
+    // through EXACTLY the connect path's checks (linked installation, not
+    // suspended, the actor's own grant on OAuth instances), so the error is
+    // the same actionable message the connect would have produced: grant it
+    // on GitHub, connect that account, or reconnect for a fresh grant set.
+    // Read-only: no link lock (the host's add path takes it when it writes).
+    lookupRepo: authedProcedure
+      .input(
+        z.object({
+          teamId: z.string().uuid(),
+          fullName: z
+            .string()
+            .min(1)
+            .max(255)
+            .regex(REPO_FULL_NAME_RE, `Expected "owner/name"`),
+        })
+      )
+      .query(async ({ ctx, input }) => {
+        const userId = ctx.session.user.id
+        await assertTeamMember(userId, input.teamId)
+        if (!githubAppConfigured()) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `GitHub isn't configured on this server.`,
+          })
+        }
+        const inst = await resolveRepoInstallation(
+          ctx.db,
+          input.teamId,
+          userId,
+          input.fullName
+        )
+        const meta = await fetchRepoMeta(input.fullName, {
+          fallbackInstallationId: inst.installationId,
+        })
+        if (!meta) {
+          throw new TRPCError({
+            code: `NOT_FOUND`,
+            message: `The Exponential GitHub App can't read ${input.fullName}. Check the name, or grant the repository on GitHub (team settings → Repositories → Configure), then try again.`,
+          })
+        }
+        return {
+          fullName: input.fullName,
+          private: meta.private,
+          defaultBranch: meta.defaultBranch,
+          installationId: inst.installationId,
+        }
+      }),
+
     // The claim page's data: which GitHub accounts the OAuth callback proved
     // control of, and which are already linked to the target team.
     claimPreview: authedProcedure
@@ -931,6 +997,19 @@ export const integrationsRouter = router({
             alreadyLinked: linkedIds.has(row.id),
             activeRepoCount:
               countByInstallation.get(row.installationId) ?? 0,
+          })),
+          // FEED-31: org installations whose membership the callback could
+          // not verify (the App's members-read permission update is pending
+          // on that org). Display-only — an org admin approves it on the
+          // installation's settings page, then a reconnect links it.
+          pending: (claim.p ?? []).map((row) => ({
+            installationId: row.id,
+            accountLogin: row.login,
+            manageUrl: installationManageUrl({
+              installationId: row.id,
+              accountLogin: row.login,
+              accountType: `Organization`,
+            }),
           })),
         }
       }),

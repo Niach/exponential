@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useState } from "react"
 import { createFileRoute, Link } from "@tanstack/react-router"
-import { CircleAlert, Building2, Check, Github, User } from "lucide-react"
+import {
+  CircleAlert,
+  Building2,
+  Check,
+  ExternalLink,
+  Github,
+  User,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -87,6 +94,15 @@ interface PreviewInstallation {
   activeRepoCount: number
 }
 
+// FEED-31: an org installation the callback could not verify membership of —
+// listed disabled with the way out (an org admin approving the App's pending
+// permission request on GitHub), never silently dropped.
+interface PendingInstallation {
+  installationId: number
+  accountLogin: string
+  manageUrl: string
+}
+
 function GithubClaim() {
   const { ticket, error, login, install } = Route.useSearch()
   const installUrl = install ? safeGithubInstallUrl(install) : null
@@ -95,6 +111,7 @@ function GithubClaim() {
     mobile: boolean
     dialog: boolean
     installations: PreviewInstallation[]
+    pending?: PendingInstallation[]
   } | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -331,7 +348,38 @@ function GithubClaim() {
                     </Label>
                   )
                 })}
+                {(preview.pending ?? []).map((inst) => (
+                  <div
+                    key={`pending-${inst.installationId}`}
+                    className="flex items-center gap-3 rounded-md px-2 py-2.5 text-muted-foreground"
+                    data-testid="pending-installation"
+                  >
+                    <Checkbox checked={false} disabled aria-label={`${inst.accountLogin} needs org approval`} />
+                    <Building2 className="h-4 w-4" />
+                    <span className="flex-1 truncate text-sm font-medium">
+                      {inst.accountLogin}
+                    </span>
+                    <span className="text-xs">Needs org approval</span>
+                    <a
+                      href={inst.manageUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-foreground underline-offset-2 hover:underline"
+                    >
+                      Approve on GitHub
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+                ))}
               </div>
+              {(preview.pending?.length ?? 0) > 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  An organization marked &ldquo;Needs org approval&rdquo; hasn&rsquo;t
+                  approved the App&rsquo;s latest permissions yet, so your membership
+                  can&rsquo;t be verified. Ask an org admin to approve the pending
+                  request on GitHub, then connect again.
+                </p>
+              ) : null}
               {saveError ? (
                 <p className="text-sm text-red-500">{saveError}</p>
               ) : null}

@@ -2,12 +2,16 @@ import { useCallback, useEffect, useState } from "react"
 import { Link, useParams } from "@tanstack/react-router"
 import {
   TriangleAlert,
+  Building2,
   ExternalLink,
   Github,
   LoaderCircle,
   Lock,
+  Plus,
+  RefreshCw,
   Sparkles,
   Trash2,
+  User,
   X,
 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
@@ -244,9 +248,10 @@ export function TeamRepositoriesSection({
           }
         />
         <p className="px-1 pb-2 text-xs text-foreground/50">
-          Connect your GitHub repos to share them with the team — everyone can
-          code on a shared repo. Point a board at one to make it the clone
-          target for &ldquo;Start coding&rdquo;.
+          Connect a GitHub account or organization first, then add its
+          repositories to share them with the team — everyone can code on a
+          shared repo. Point a board at one to make it the clone target for
+          &ldquo;Start coding&rdquo;.
         </p>
         <div className="space-y-3">
           <GithubStatusLine
@@ -256,6 +261,7 @@ export function TeamRepositoriesSection({
             canUnlink
             connectHopUrl={connectHopUrl}
             onConnect={() => openConnectHop(connectHopUrl)}
+            onInstall={() => openConnectHop(githubStatus?.installUrl)}
             onUnlink={handleUnlink}
             onDisconnectStale={setDisconnectTarget}
           />
@@ -450,12 +456,17 @@ export function TeamRepositoriesSection({
 const installationLabel = (inst: GithubInstallation) =>
   inst.accountLogin ?? `installation ${inst.installationId}`
 
-// The ONE GitHub-connection surface of the section: a status line whose single
-// button flips by state (Connect GitHub / Reconnect / Manage — EXP-329). All
-// button actions open the same connect hop; GitHub's side handles adding
-// accounts and changing repo grants. Unlink (web-only) hides behind a
-// hover/focus-revealed ✕ per login; the server CONFLICTs while repos still
-// use the account and the message lands in the section's inline error box.
+// The ONE GitHub-connection surface of the section. FEED-31: an
+// installation is per GitHub account/organization, so the installed state
+// lists ONE ROW PER ACCOUNT (icon, login, a Configure link to that
+// installation's GitHub settings page, the hover-revealed unlink ✕) and
+// offers TWO clearly separate actions underneath: "Connect another account"
+// opens GitHub's account picker (`installUrl` = installations/new — the ONLY
+// way to reach a second org; the OAuth hop auto-redirects on re-auth and just
+// re-links what's already controlled), "Refresh access" re-runs the OAuth
+// hop that re-captures the viewer's repo grants. The server CONFLICTs an
+// unlink while repos still use the account and the message lands in the
+// section's inline error box.
 function GithubStatusLine({
   status,
   probeFailed,
@@ -463,6 +474,7 @@ function GithubStatusLine({
   canUnlink,
   connectHopUrl,
   onConnect,
+  onInstall,
   onUnlink,
   onDisconnectStale,
 }: {
@@ -472,6 +484,7 @@ function GithubStatusLine({
   canUnlink: boolean
   connectHopUrl: string | null
   onConnect: () => void
+  onInstall: () => void
   onUnlink: (installationId: number) => void
   onDisconnectStale: (installation: GithubInstallation) => void
 }) {
@@ -497,6 +510,10 @@ function GithubStatusLine({
   }
 
   if (!status.installed) {
+    // Primary = the OAuth hop (finds installations the viewer already
+    // controls; the callback sends a zero-installation user on to GitHub's
+    // install page itself). The secondary goes straight to the account
+    // picker — only worth a second button when the two URLs differ.
     return (
       <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
         <Github className="h-3.5 w-3.5 shrink-0" />
@@ -504,6 +521,11 @@ function GithubStatusLine({
         {connectHopUrl && (
           <Button size="sm" variant="outline" onClick={onConnect}>
             Connect GitHub
+          </Button>
+        )}
+        {status.connectUrl && status.installUrl && (
+          <Button size="sm" variant="ghost" onClick={onInstall}>
+            Install on an account
           </Button>
         )}
       </div>
@@ -538,7 +560,7 @@ function GithubStatusLine({
     )
   }
 
-  // The account line ALWAYS renders when installed (EXP-365): it carries the
+  // The account rows ALWAYS render when installed (EXP-365): they carry the
   // per-account unlink ✕. STALE accounts (zero grants from anyone — EXP-557)
   // get their own line with a visible Disconnect button instead of the
   // reconnect nag: reconnecting can never refresh them, which is exactly how
@@ -553,43 +575,79 @@ function GithubStatusLine({
 
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2 text-sm">
+      <div className="flex items-center gap-2 text-sm">
         {needingReauth.length > 0 ? (
           <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
         ) : (
           <span className="size-2 shrink-0 rounded-full bg-emerald-500" />
         )}
-        <span className="min-w-0 flex-1 text-muted-foreground">
-          GitHub:{` `}
-          {installations.map((inst, index) => (
-            <span key={inst.installationId}>
-              <span className="group/login inline-flex items-center text-foreground">
-                {installationLabel(inst)}
-                {canUnlink && (
-                  // Zero-width until hover/keyboard focus so the resting line
-                  // reads as plain "GitHub: a, b" with no gaps.
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-4 w-0 overflow-hidden p-0 opacity-0 group-hover/login:ml-0.5 group-hover/login:w-4 group-hover/login:opacity-100 focus-visible:ml-0.5 focus-visible:w-4 focus-visible:opacity-100 text-muted-foreground hover:text-destructive"
-                    disabled={busy}
-                    onClick={() => onUnlink(inst.installationId)}
-                    title="Disconnect this GitHub account from the team"
-                  >
-                    <X className="h-3 w-3" />
-                  </Button>
-                )}
-              </span>
-              {index < installations.length - 1 && `, `}
-            </span>
-          ))}
+        <span className="text-muted-foreground">
+          GitHub accounts connected to this team
         </span>
-        {connectHopUrl && (
-          <Button size="sm" variant="ghost" onClick={onConnect}>
-            Manage
-          </Button>
-        )}
       </div>
+      <ul className="space-y-1 pl-5">
+        {installations.map((inst) => (
+          <li
+            key={inst.installationId}
+            className="group/login flex items-center gap-2 text-sm"
+          >
+            {inst.accountType === `Organization` ? (
+              <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            ) : (
+              <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            )}
+            <span className="min-w-0 flex-1 truncate text-foreground">
+              {installationLabel(inst)}
+            </span>
+            {inst.manageUrl && (
+              <a
+                href={inst.manageUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                title={`Configure which repositories ${installationLabel(inst)} grants on GitHub`}
+              >
+                Configure
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            )}
+            {canUnlink && (
+              // Invisible until hover/keyboard focus so the resting rows read
+              // as a plain account list.
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-5 w-5 shrink-0 p-0 text-muted-foreground opacity-0 group-hover/login:opacity-100 focus-visible:opacity-100 hover:text-destructive"
+                disabled={busy}
+                onClick={() => onUnlink(inst.installationId)}
+                title="Disconnect this GitHub account from the team"
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            )}
+          </li>
+        ))}
+      </ul>
+      <p className="pl-5 text-xs text-muted-foreground">
+        An installation is per GitHub account or organization. Repositories
+        come from the accounts listed here.
+      </p>
+      {(status.installUrl || status.connectUrl) && (
+        <div className="flex flex-wrap items-center gap-2 pl-5">
+          {status.installUrl && (
+            <Button size="sm" variant="outline" onClick={onInstall}>
+              <Plus className="mr-1 h-3.5 w-3.5" />
+              Connect another account
+            </Button>
+          )}
+          {status.connectUrl && (
+            <Button size="sm" variant="ghost" onClick={onConnect}>
+              <RefreshCw className="mr-1 h-3.5 w-3.5" />
+              Refresh access
+            </Button>
+          )}
+        </div>
+      )}
       {needingReauth.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
           <span className="w-3.5 shrink-0" aria-hidden />

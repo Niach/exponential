@@ -155,6 +155,14 @@ export async function handleCallback(request: Request): Promise<Response> {
         orgMembership: (org) => getUserOrgMembershipState(userToken, org),
       })
     const controlledIds = new Set(controlled.map((inst) => inst.id))
+    // FEED-31: undetermined org installations used to vanish whenever at
+    // least one other installation was controlled — the user re-linked their
+    // personal account every time and never learned the org was blocked on a
+    // pending permission approval. Carried on the claim ticket (display-only)
+    // so the claim page can name them and link to the approval page.
+    const pending = installations
+      .filter((inst) => undeterminedIds.has(inst.id))
+      .map((inst) => ({ id: inst.id, login: inst.account }))
 
     // Mirror every CONTROLLED installation (account fields only). The rows
     // must exist before the claim page can render account names, and the
@@ -417,6 +425,26 @@ export async function handleCallback(request: Request): Promise<Response> {
         invalidateRepoCache(teamId)
       }
       if (fromMobile) return mobileConnectedResponse()
+      // FEED-31: an org still blocked on its permission approval rides along
+      // to the claim page (the web one — mobile can't reach it) so the user
+      // sees WHICH account didn't connect instead of a silent self-close.
+      if (pending.length > 0) {
+        const ticket = mintGithubClaimTicket({
+          u: actingUserId,
+          w: teamId,
+          ids: controlled.map((i) => i.id),
+          p: pending,
+          ...(fromDialog ? { d: true } : {}),
+        })
+        if (ticket) {
+          return new Response(null, {
+            status: 302,
+            headers: {
+              location: `/integrations/github/claim?ticket=${encodeURIComponent(ticket)}`,
+            },
+          })
+        }
+      }
       return new Response(null, {
         status: 302,
         headers: {
@@ -435,6 +463,7 @@ export async function handleCallback(request: Request): Promise<Response> {
       u: actingUserId,
       w: teamId,
       ids: controlled.map((i) => i.id),
+      ...(pending.length > 0 ? { p: pending } : {}),
       ...(fromMobile ? { m: true } : {}),
       ...(fromDialog ? { d: true } : {}),
     })

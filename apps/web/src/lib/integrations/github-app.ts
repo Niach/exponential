@@ -368,6 +368,36 @@ export async function resolveRepoDefaultBranch(
   }
 }
 
+// FEED-30: the by-name lookup's GitHub read. `GET /repos/{repo}` through the
+// repo's installation token (the App JWT 401s here, same as
+// resolveRepoDefaultBranch), returning what the picker row needs. Null when
+// the App can't read the repo (404/403 — not in the installation's selection,
+// or gone); throws on other failures so a transient GitHub error never reads
+// as "no access". `fallbackInstallationId` is the installation the caller
+// already resolved, for the rare per-repo lookup 404.
+export async function fetchRepoMeta(
+  repo: string,
+  opts?: { fallbackInstallationId?: number | null }
+): Promise<{ defaultBranch: string; private: boolean } | null> {
+  const token = await resolveRepoInstallationToken(repo, opts)
+  if (!token) return null
+  const res = await fetch(`https://api.github.com/repos/${repo}`, {
+    headers: githubApiHeaders(token),
+  })
+  if (res.status === 404 || res.status === 403) return null
+  if (!res.ok) {
+    throw new Error(`GitHub repo lookup failed (${res.status}) for ${repo}`)
+  }
+  const data = (await res.json()) as {
+    default_branch?: string
+    private?: boolean
+  }
+  return {
+    defaultBranch: data.default_branch ?? `main`,
+    private: data.private === true,
+  }
+}
+
 // Prune-on-insert bound for the module-level TTL caches below. A read-side TTL
 // check alone never frees anything, so keys that are only ever visited once
 // (every coding run mints a fresh `exp/…` branch) would accumulate their

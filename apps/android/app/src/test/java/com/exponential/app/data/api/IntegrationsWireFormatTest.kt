@@ -34,6 +34,31 @@ class IntegrationsWireFormatTest {
         )
     }
 
+    // FEED-30: the by-name lookup sends the flat teamId + fullName payload the
+    // server's z.object expects, and its result decodes as a picker row.
+    @Test
+    fun `lookupRepo input is the flat teamId + fullName payload`() {
+        assertEquals(
+            """{"teamId":"team-1","fullName":"acme/web"}""",
+            json.encodeToString(
+                LookupRepoInput.serializer(),
+                LookupRepoInput(teamId = "team-1", fullName = "acme/web"),
+            ),
+        )
+    }
+
+    @Test
+    fun `lookupRepo result decodes as a picker row`() {
+        val repo = json.decodeFromString(
+            GithubPickerRepo.serializer(),
+            """{"fullName":"acme/web","private":true,"defaultBranch":"trunk","installationId":7}""",
+        )
+        assertEquals("acme/web", repo.fullName)
+        assertTrue(repo.isPrivate)
+        assertEquals("trunk", repo.defaultBranch)
+        assertEquals(7, repo.installationId)
+    }
+
     @Test
     fun `installations entry without stale defaults to false`() {
         val inst = json.decodeFromString(
