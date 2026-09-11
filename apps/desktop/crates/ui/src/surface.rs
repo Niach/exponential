@@ -363,7 +363,7 @@ pub(crate) fn glass_tray() -> Div {
 /// It does NOT wrap: the bar is a single fixed-height capsule, one row on
 /// every surface. When the labeled row does not fit, the CALLER collapses its
 /// buttons to icon-only with tooltips instead of flowing them onto a second
-/// line (`issue_list::render_bulk_bar` and its `BULK_BAR_LABEL_MIN_W` gate) —
+/// line (`issue_list::render_bulk_bar` and its `bulk_bar_label_min_width` gate) —
 /// a two-line bar would change the host row's height under the list.
 pub(crate) fn glass_bar(cx: &App) -> Div {
     h_flex()

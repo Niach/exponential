@@ -224,7 +224,10 @@ impl Render for BoardView {
         // its fixed-min-height control row swaps the Filter trigger for the
         // bar while a selection exists, so the list rows never move (the
         // EXP-289 no-jump invariant, in flow).
-        let bulk_bar = self.issue_list.update(cx, |list, cx| list.bulk_bar(cx));
+        let external_filter = self.external_filter;
+        let bulk_bar = self
+            .issue_list
+            .update(cx, |list, cx| list.bulk_bar(external_filter, cx));
 
         v_flex()
             .size_full()
