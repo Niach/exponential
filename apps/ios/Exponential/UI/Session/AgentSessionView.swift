@@ -58,6 +58,9 @@ struct AgentSessionView: View {
     /// A cache of the SteerSessionStore lookup (EXP-621) — the model itself is
     /// app-scoped, so this view neither creates nor tears it down.
     @State private var model: AgentSessionModel?
+    /// EXP-778: the caller's session pins in this run's team — the `…`
+    /// menu's Pin/Unpin row.
+    @State private var pinStore: PinStore?
     @State private var showDiffSheet = false
     @State private var showKillConfirm = false
     /// EXP-688: the `…` menu's Usage sheet — the per-window cards that used to
@@ -140,7 +143,8 @@ struct AgentSessionView: View {
     /// glyph. Usage opens the per-window cards; Kill (EXP-268) force-ends a
     /// live session — owner-only, like everything about one (EXP-312).
     private var hasToolbarMenu: Bool {
-        headerIssue != nil || hasUsage || model?.canKill == true
+        // EXP-778: Pin is always there, so the menu always is.
+        true
     }
 
     /// EXP-746: Usage opens on EITHER half — the machine's rate-limit report
@@ -152,6 +156,10 @@ struct AgentSessionView: View {
 
     @ViewBuilder
     private var toolbarMenuItems: some View {
+        // EXP-778: pin this run into the sidebar.
+        if let pinStore {
+            PinMenuItem(store: pinStore, targetId: session.id)
+        }
         // EXP-698: the run's issue is reachable from the run. The Agents list
         // dropped its duplicate identifier pill (the title prints it), so this
         // menu — and the list row's long press — are the two ways there.
@@ -365,12 +373,22 @@ struct AgentSessionView: View {
                         db: deps.db
                     )
                 }
+                if pinStore == nil {
+                    let store = PinStore(
+                        accountId: accountId, teamId: session.teamId,
+                        kind: DomainContract.pinKindSession, db: deps.db, api: deps.pinsApi
+                    )
+                    store.start()
+                    pinStore = store
+                }
             }
             .onDisappear {
                 // NOT a teardown: the store keeps the socket up while the session
                 // runs and retires it once it is over (or falls off the cap).
                 deps.steerSessions.detach(accountId: accountId, sessionId: session.id)
                 startWatcher.stop()
+                pinStore?.stop()
+                pinStore = nil
                 // EXP-802: the DRAFT outlives this screen, its focus must not —
                 // the editor model would otherwise hand first responder straight
                 // back on return and pop the keyboard over a screen nobody typed

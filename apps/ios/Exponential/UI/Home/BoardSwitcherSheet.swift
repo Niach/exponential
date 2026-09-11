@@ -6,6 +6,12 @@ import SwiftUI
 /// server → team → board tree that used to be the Boards overview
 /// screen, now presented modally. Selecting a board swaps the Issues tab's
 /// list in place (the caller writes last-used and dismisses).
+/// EXP-778: which account/team's pins the switcher heads with.
+struct PinScope: Hashable {
+    let accountId: String
+    let teamId: String
+}
+
 struct BoardSwitcherSheet: View {
     let boardLoader: MultiAccountBoardLoader?
     let currentBoard: CurrentBoardRef?
@@ -15,30 +21,130 @@ struct BoardSwitcherSheet: View {
     /// nothing worth switching to should offer.
     let onCreateBoard: () -> Void
     let onCreateTeam: () -> Void
+    /// EXP-778: the account + team whose personal pins head the sheet (nil =
+    /// no team in view, no section).
+    var pinScope: PinScope? = nil
+    /// A pinned row was tapped — the caller parks the route and pushes it
+    /// once the sheet is gone (the create-entries hand-off).
+    var onOpenPinned: (PinnedItem) -> Void = { _ in }
+
+    @Environment(AppDependencies.self) private var deps
+    @State private var pinned = PinnedItemsModel()
 
     var body: some View {
         GlassSheetChrome(title: "Switch board") {
             let groups = boardLoader?.groups ?? []
-            if groups.isEmpty {
-                emptyHint
-            } else {
-                LazyVStack(alignment: .leading, spacing: 18) {
+            LazyVStack(alignment: .leading, spacing: 18) {
+                // EXP-778: the sidebar's Pinned section — on top, hidden
+                // when the team has no resolvable pin.
+                if !pinned.items.isEmpty {
+                    pinnedSection
+                }
+                if groups.isEmpty {
+                    emptyHint
+                } else {
                     ForEach(groups) { group in
                         serverSection(group)
                     }
                     // At the very bottom, under every server's teams.
                     plainActionRow(
-                    icon: AppIcons.uiAdd,
-                    title: "New team",
-                    identifier: "board-switcher-new-team",
-                    action: onCreateTeam
-                )
+                        icon: AppIcons.uiAdd,
+                        title: "New team",
+                        identifier: "board-switcher-new-team",
+                        action: onCreateTeam
+                    )
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 4)
-                .padding(.bottom, 24)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 4)
+            .padding(.bottom, 24)
+        }
+        .task(id: pinScope) {
+            guard let pinScope else {
+                pinned.stop()
+                return
+            }
+            pinned.observe(accountId: pinScope.accountId, teamId: pinScope.teamId, db: deps.db)
+        }
+    }
+
+    // MARK: - Pinned (EXP-778)
+
+    @ViewBuilder
+    private var pinnedSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                AppIcon(AppIcons.uiPin, size: 14)
+                Text("Pinned")
+                    .font(.caption.weight(.semibold))
+                Spacer()
+            }
+            .foregroundStyle(.white.opacity(0.85))
+            .padding(.horizontal, 4)
+
+            VStack(spacing: 6) {
+                ForEach(pinned.items) { item in
+                    Button {
+                        onOpenPinned(item)
+                    } label: {
+                        pinnedRow(item)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("pinned-row")
+                }
             }
         }
+    }
+
+    @ViewBuilder
+    private func pinnedRow(_ item: PinnedItem) -> some View {
+        HStack(spacing: 12) {
+            switch item {
+            case let .issue(_, issue):
+                AppIcon(AppIcons.uiIssue, size: 16)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                HStack(spacing: 6) {
+                    if let identifier = issue.identifier, !identifier.isEmpty {
+                        Text(identifier)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            .lineLimit(1)
+                    }
+                    Text(issue.title.isEmpty ? "Untitled issue" : issue.title)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            case let .session(_, session, issue):
+                // The sessions list's first line, so the two cannot drift;
+                // an ended run wears the static neutral dot.
+                let ended = session.status == DomainContract.codingSessionStatusEnded
+                SessionRowTitle(
+                    identifier: issue?.identifier,
+                    title: sessionRowTitle(issue: issue, session: session),
+                    state: CodingSessionDisplayState.of(
+                        session: session, prState: issue?.prState ?? session.prState
+                    ),
+                    paused: ended
+                )
+            case let .action(_, action):
+                AppIcon(action.icon ?? AppIcons.actionDefault, size: 16)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                Text(action.name)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+
+            AppIcon(AppIcons.uiChevronRight, size: 16)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .glassRow()
     }
 
     private var emptyHint: some View {
