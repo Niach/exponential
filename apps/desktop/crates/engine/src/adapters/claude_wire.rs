@@ -488,6 +488,23 @@ pub fn is_rate_limit_notice(model: Option<&str>, text: &str) -> bool {
     model == Some(SYNTHETIC_MODEL) && !is_login_required_result(text)
 }
 
+/// EXP-831: whether an assistant frame's content blocks are the API
+/// answering — a non-empty text block OR a tool call. The rate-limit
+/// notice clears on either; it used to clear on text alone, so a run that
+/// came back from the wall with tool calls only wore the banner until it
+/// next narrated. Thinking-only frames do not count: the CLI never emits
+/// one without a text/tool block behind it, and the answer is what clears.
+pub fn is_real_assistant_activity(blocks: &[Value]) -> bool {
+    blocks.iter().any(|block| match block.get("type").and_then(Value::as_str) {
+        Some("text") => block
+            .get("text")
+            .and_then(Value::as_str)
+            .is_some_and(|text| !text.trim().is_empty()),
+        Some("tool_use") => true,
+        _ => false,
+    })
+}
+
 /// `resetsAt` as unix MILLISECONDS for the wire: the CLI reports seconds
 /// (a value this side of 100 000 000 000 is 5138 AD in seconds and 1973 in
 /// ms, so the split is unambiguous); a millisecond value passes through.
@@ -1677,6 +1694,21 @@ mod tests {
 
     fn camel_label(msg: &RateLimitEventMsg) -> String {
         ClaudeOut::RateLimitEvent(msg.clone()).label()
+    }
+
+    /// EXP-831: what clears a notice — text with something in it or a tool
+    /// call; blank text and thinking alone do not.
+    #[test]
+    fn real_assistant_activity_is_text_or_a_tool_call() {
+        let text = json!({"type": "text", "text": "Back to work."});
+        let blank = json!({"type": "text", "text": "  \n"});
+        let thinking = json!({"type": "thinking", "thinking": "hmm"});
+        let tool = json!({"type": "tool_use", "id": "toolu_1", "name": "Read", "input": {}});
+        assert!(is_real_assistant_activity(&[text]));
+        assert!(is_real_assistant_activity(&[thinking.clone(), tool]));
+        assert!(!is_real_assistant_activity(&[blank]));
+        assert!(!is_real_assistant_activity(&[thinking]));
+        assert!(!is_real_assistant_activity(&[]));
     }
 
     /// EXP-784: the two detectors, and the one synthetic frame that is not

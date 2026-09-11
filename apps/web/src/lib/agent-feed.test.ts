@@ -45,6 +45,7 @@ import {
   askComplete,
   opensInlineField,
   rateLimitBanner,
+  rateLimitExpired,
   rateLimitIsWall,
   rateLimitResetsAtMs,
   splitTruncatedDiff,
@@ -1600,6 +1601,27 @@ describe(`rate-limit banner (EXP-784)`, () => {
     expect(rateLimitIsWall({ status: `allowed_warning` })).toBe(false)
     expect(rateLimitIsWall({ status: `allowed_warning`, message: `You've hit your limit` })).toBe(true)
     expect(rateLimitIsWall({ status: `rejected` })).toBe(true)
+  })
+
+  // EXP-831: the banner outlived its reset over a working run. Past the
+  // stamp (plus a minute of skew) it is no banner; a wall with no stamp
+  // stays until the slot clears.
+  it(`drops itself once the reset is more than a minute behind`, () => {
+    const at = now.getTime() - 61_000
+    expect(rateLimitBanner({ status: `rejected`, resetsAt: at }, now)).toBeNull()
+    expect(rateLimitExpired({ status: `rejected`, resetsAt: at }, now)).toBe(true)
+    expect(
+      rateLimitBanner(
+        { status: `rejected`, message: `You've hit your session limit`, resetsAt: at },
+        now
+      )
+    ).toBeNull()
+    expect(rateLimitBanner({ status: `rejected`, resetsAt: now.getTime() - 30_000 }, now)).toEqual({
+      text: `Rate limit reached`,
+      resets: `resets soon`,
+    })
+    expect(rateLimitExpired({ status: `rejected` }, now)).toBe(false)
+    expect(rateLimitBanner({ status: `rejected` }, now)).not.toBeNull()
   })
 
   it(`scales a seconds-valued resetsAt up to ms`, () => {

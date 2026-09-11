@@ -2064,9 +2064,12 @@ function InlineAnswerField({
 
 /** EXP-784: the agent's rate-limit window, in the status stack beside the
  *  compaction strip — its own message (else a status fallback) and the local
- *  reset time when it named one. Hand-mirrored copy ×4 (`rateLimitBanner`). */
+ *  reset time when it named one. Hand-mirrored copy ×4 (`rateLimitBanner`).
+ *  EXP-831: ticks so the countdown moves and the banner drops itself once
+ *  the reset is behind us, without waiting on a slot update. */
 function RateLimitBanner({ state }: { state: SessionRateLimitState }) {
-  const banner = rateLimitBanner(state)
+  const now = useNow(30_000)
+  const banner = rateLimitBanner(state, now)
   if (!banner) return null
   const { text, resets } = banner
   return (

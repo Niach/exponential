@@ -104,7 +104,7 @@ pub use feed::{
     FEED_BYTE_CAP, FEED_ITEM_CAP, REPLAY_MAX, REPLAY_QUIET,
 };
 pub use frames::{
-    rate_limit_clears, rate_limit_is_wall, ActivityEvent, ClientFrame, ConfigCommand, ConfigMode, ConfigOption,
+    rate_limit_clears, rate_limit_expired, rate_limit_is_wall, ActivityEvent, ClientFrame, ConfigCommand, ConfigMode, ConfigOption,
     ConfigValue, QuestionOption, ServerFrame, StartInput, StartRepoGroup, SteerRole,
     SubagentStatus, ToolKind, ToolUpdateStatus, ViewerFrame, ACTIVITY_CHANNEL, CLOSE_REPLACED,
     CLOSE_SESSION_ENDED, CLOSE_SLOW_CONSUMER, CLOSE_UNAUTHORIZED,

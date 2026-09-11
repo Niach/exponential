@@ -555,9 +555,14 @@ struct RateLimitState {
     /// `blocked.window` never pairs a `session` label with a weekly reset.
     window: Option<&'static str>,
     /// A synthetic limit notice is on the slot. Cleared by the next REAL
-    /// assistant text, never by the per-turn `allowed` event — that one
-    /// fires at the request, BEFORE the 429 that produces the notice, so
-    /// honouring it would flicker the slot clear-then-limited every turn.
+    /// assistant activity (text OR a tool call — EXP-831: a run that comes
+    /// back with tool calls only kept the wall until it next narrated), and
+    /// by a per-turn `allowed` event only once `resets_at` has passed: the
+    /// event fires at the request, BEFORE the 429 that produces the notice,
+    /// so honouring it inside the window would flicker the slot
+    /// clear-then-limited every turn. While the notice stands, `status`,
+    /// `resets_at` and `window` stay put for that later check (and for the
+    /// CLI repeating the notice).
     notice_active: bool,
     /// The slot as last published, so the CLI repeating its notice on
     /// every request of a turn (measured: N identical frames) publishes
@@ -1477,8 +1482,9 @@ impl ClaudeSession {
     }
 
     /// A `rate_limit_event`: a limited status goes on the slot (keeping a
-    /// notice's text if one is up); the ordinary `allowed` clears it only
-    /// while no notice is up — see [`RateLimitState::notice_active`].
+    /// notice's text if one is up); the ordinary `allowed` clears it while
+    /// no notice is up, or once the notice's window has reopened by the
+    /// clock — see [`RateLimitState::notice_active`].
     fn on_rate_limit_event(&self, cx: &ConnectionTo<Client>, info: &wire::RateLimitInfo) {
         self.publish_live_usage(info);
         let resets_at = wire::resets_at_millis(info.resets_at);
@@ -1493,14 +1499,26 @@ impl ClaudeSession {
             self.publish_rate_limit(cx, &status, resets_at, None, window);
             return;
         }
+        if state.rate_limit.notice_active {
+            // EXP-831: the notice named when its window reopens; past that
+            // stamp a non-limited event IS the reopening. Inside it the
+            // event is the pre-429 request check — keep the wall (and the
+            // state the next repeated notice reads).
+            let reopened = state
+                .rate_limit
+                .resets_at
+                .is_some_and(|at| now_unix_millis() >= at);
+            drop(state);
+            if reopened {
+                self.clear_rate_limit_notice(cx);
+            }
+            return;
+        }
         state.rate_limit.status = None;
         state.rate_limit.resets_at = None;
         state.rate_limit.window = None;
-        let notice_active = state.rate_limit.notice_active;
         drop(state);
-        if !notice_active {
-            self.publish_rate_limit(cx, "ok", None, None, None);
-        }
+        self.publish_rate_limit(cx, "ok", None, None, None);
     }
 
     /// EXP-819: the frame's windows into the machine's live usage registry,
@@ -1540,7 +1558,8 @@ impl ClaudeSession {
         self.publish_rate_limit(cx, &status, resets_at, Some(text.trim()), window);
     }
 
-    /// Real assistant text after a notice: the window reopened, clear it.
+    /// Real assistant activity (text or a tool call) after a notice, or a
+    /// non-limited event past its reset: the window reopened, clear it.
     fn clear_rate_limit_notice(&self, cx: &ConnectionTo<Client>) {
         let mut state = self.lock();
         if !state.rate_limit.notice_active {
@@ -1916,7 +1935,10 @@ impl ClaudeSession {
             self.on_rate_limit_notice(cx, &text);
             return;
         }
-        if !text.trim().is_empty() && model != Some(wire::SYNTHETIC_MODEL) {
+        // EXP-831: a tool call is as much an answer as text — a run that
+        // resumed with tool calls only used to keep the wall up until it
+        // next narrated.
+        if model != Some(wire::SYNTHETIC_MODEL) && wire::is_real_assistant_activity(&blocks) {
             self.clear_rate_limit_notice(cx);
         }
 
@@ -2825,6 +2847,15 @@ impl ClaudeSession {
 /// EXP-772: plan on, plan off. Permissions are bypassed in every mode, so
 /// `default`/`acceptEdits`/`auto` differ in nothing a user can see and are
 /// never offered; `dontAsk` was never offered either.
+/// EXP-831: the wall clock the rate-limit notice's `resets_at` is compared
+/// against (unix ms, the slot's own unit).
+fn now_unix_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_millis() as i64)
+        .unwrap_or_default()
+}
+
 fn available_modes() -> Vec<SessionMode> {
     vec![
         SessionMode::new(SessionModeId::new("plan"), "Plan")

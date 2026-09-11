@@ -22,7 +22,10 @@ import com.exponential.app.domain.SessionRateLimitState
 import com.exponential.app.domain.SessionUsageState
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.parseToolKind
+import com.exponential.app.domain.rateLimitBannerShows
 import com.exponential.app.domain.rateLimitClears
+import com.exponential.app.domain.rateLimitExpired
+import com.exponential.app.domain.rateLimitIsWall
 import com.exponential.app.domain.feedItemBytes
 import com.exponential.app.domain.TranscriptGap
 import com.exponential.app.domain.modeChip
@@ -1082,6 +1085,29 @@ class AgentFeedTest {
         assertNull(rejected.applying(event("""{"kind":"rate_limit"}""")).rateLimit)
         assertTrue(rateLimitClears(" OK "))
         assertFalse(rateLimitClears("allowed"))
+    }
+
+    // EXP-818/831: the banner's gate — a wall (a rejection or a notice,
+    // never a bare warning) whose reset is not more than a minute behind.
+    @Test
+    fun `the rate-limit banner is a wall inside its window`() {
+        val now = 1_700_000_000_000L
+        assertTrue(rateLimitIsWall(SessionRateLimitState("rejected")))
+        assertTrue(rateLimitIsWall(SessionRateLimitState("allowed_warning", null, "You've hit your limit")))
+        assertFalse(rateLimitIsWall(SessionRateLimitState("allowed_warning")))
+        assertFalse(rateLimitIsWall(SessionRateLimitState("allowed_warning", null, "  ")))
+
+        val past = SessionRateLimitState("rejected", now - 61_000L)
+        val recent = SessionRateLimitState("rejected", now - 30_000L)
+        assertTrue(rateLimitExpired(past, now))
+        assertFalse(rateLimitExpired(recent, now))
+        assertFalse(rateLimitExpired(SessionRateLimitState("rejected", now + 3_600_000L), now))
+        assertFalse(rateLimitExpired(SessionRateLimitState("rejected"), now))
+
+        assertFalse(rateLimitBannerShows(past, now))
+        assertTrue(rateLimitBannerShows(recent, now))
+        assertTrue(rateLimitBannerShows(SessionRateLimitState("rejected"), now))
+        assertFalse(rateLimitBannerShows(SessionRateLimitState("allowed_warning"), now))
     }
 
     @Test

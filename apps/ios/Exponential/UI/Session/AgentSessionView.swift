@@ -1365,11 +1365,14 @@ struct AgentSessionView: View {
 
     /// The agent's rate-limit window, in the compaction strip's slot: its own
     /// message and when the window resets, local time. It stands only while
-    /// the slot holds a window — an `ok`/empty status, the replay swap and
-    /// the end of the run all clear it.
+    /// the slot holds a WALL (EXP-818: a warning over a working run is not
+    /// one) whose reset has not passed (EXP-831: it re-reads the model's 30s
+    /// activity clock and drops itself a minute past the stamp) — an
+    /// `ok`/empty status, the replay swap and the end of the run all clear it.
     @ViewBuilder
     private func rateLimitBanner(_ model: AgentSessionModel) -> some View {
-        if let limit = model.sessionRateLimit, !model.isOver {
+        if let limit = model.sessionRateLimit, !model.isOver,
+           AgentFeed.rateLimitBannerShows(limit, now: model.activityNow) {
             let caption = AgentFeed.rateLimitCaption(limit)
             HStack(spacing: 8) {
                 AppIcon(AppIcons.uiWarning, size: AppIcon.Size.small)

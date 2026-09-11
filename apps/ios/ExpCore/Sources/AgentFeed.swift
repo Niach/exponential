@@ -949,6 +949,41 @@ public enum AgentFeed {
         )
     }
 
+    /// EXP-818/831: whether a rate-limit report is a WALL worth a banner —
+    /// `rejected`, or a notice the agent itself wrote. Claude files
+    /// `allowed_warning` on every turn past ~75% of a window while it keeps
+    /// working; the Usage sheet carries that percentage. Mirrors web
+    /// `rateLimitIsWall` / desktop `steer::rate_limit_is_wall`.
+    public static func rateLimitIsWall(_ limit: AgentSessionRateLimit) -> Bool {
+        if limit.status.trimmingCharacters(in: .whitespacesAndNewlines) == "rejected" {
+            return true
+        }
+        return limit.message.map {
+            !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        } ?? false
+    }
+
+    /// EXP-831: how long past its `resetsAt` a wall still renders. The
+    /// engine clears the slot on the run's next activity or its next
+    /// rate-limit event; until one arrives (and on a journal replayed after
+    /// the fact) the clock is the only thing that can drop a banner whose
+    /// reset has come and gone. One minute covers clock skew.
+    public static let rateLimitExpiryGraceMs = 60_000
+
+    /// EXP-831: whether the wall's reset is more than the grace behind `now`.
+    /// A wall with no reset time never expires by the clock. Mirrored ×4.
+    public static func rateLimitExpired(_ limit: AgentSessionRateLimit, now: Date) -> Bool {
+        guard let resetsAt = limit.resetsAt else { return false }
+        let nowMs = Int(now.timeIntervalSince1970 * 1000)
+        return nowMs - resetsAt > rateLimitExpiryGraceMs
+    }
+
+    /// EXP-831: the banner's ONE gate — a wall whose reset has not passed.
+    /// The view re-reads it on the model's 30s activity clock.
+    public static func rateLimitBannerShows(_ limit: AgentSessionRateLimit, now: Date) -> Bool {
+        rateLimitIsWall(limit) && !rateLimitExpired(limit, now: now)
+    }
+
     /// EXP-784: the ONE line the rate-limit banner prints — the agent's
     /// message (or a plain "Rate limited" when it sent none) and, when the
     /// window names its end, ` · resets HH:MM` in LOCAL time. Pure so the
