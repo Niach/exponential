@@ -639,7 +639,7 @@ fn rail_badge_element(badge: RailBadge, glyph_px: f32, cx: &App) -> gpui::AnyEle
 ///
 /// EXP-827: only LIVE runs get a row. A past chat opened from the Agent list
 /// (or a run that ends while its tab is open) keeps its center tab but
-/// leaves the rail — the rail lists what is running, the Agent page lists
+/// leaves the rail: the rail lists what is running, the Agent page lists
 /// the history. `ended` is the synced row's verdict (`status == ended`); a
 /// tab with no synced row yet (a local start ahead of its echo) counts as
 /// live. Pure, so the rule is unit-tested.
@@ -3338,7 +3338,7 @@ mod tests {
         assert!(rail_session_rows(&[], &[], live).is_empty());
     }
 
-    /// EXP-827: an ENDED run's open tab gets no rail row — a past chat
+    /// EXP-827: an ENDED run's open tab gets no rail row: a past chat
     /// opened from the Agent list stays a center tab only, and a run that
     /// ends under an open tab drops out of the rail. The live tabs around it
     /// keep their order; a tabless live run still follows.

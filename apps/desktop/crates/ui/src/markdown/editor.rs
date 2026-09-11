@@ -3934,7 +3934,7 @@ mod tests {
         });
         let (_view, cx) = cx.add_window_view(|_window, _cx| Host);
         // EXP-827: the test text system advances 0.6em per glyph, so the
-        // "wide" table measures ~650px — narrower than the 1920px test
+        // "wide" table measures ~650px, narrower than the 1920px test
         // display. Shrink the window so it really overflows (the narrow
         // table, three one-glyph columns at the 48px floor, still fits).
         cx.simulate_resize(gpui::size(px(480.), px(640.)));

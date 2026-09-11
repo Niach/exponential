@@ -260,7 +260,7 @@ pub struct IssueListView {
     /// probe can notify when the classification flips.
     wide: bool,
     /// EXP-827: the label threshold of the CURRENT render (the optional
-    /// controls decide it) — the probe compares against it.
+    /// controls decide it); the probe compares against it.
     bulk_label_min_w: Pixels,
     /// EXP-525/827: the host renders the Filter trigger elsewhere, so the
     /// bulk bar's row has no trigger beside it. Handed in by the board
@@ -864,7 +864,7 @@ impl IssueListView {
         let busy = self.bulk_busy;
         let list = cx.entity().downgrade();
         let danger = cx.theme().danger;
-        // Hidden on a solo team (see `assignee_menu` below) — and then not
+        // Hidden on a solo team (see `assignee_menu` below), and then not
         // counted toward the label threshold either (EXP-827).
         let users = queries::team_users(cx, &team_id);
         let has_assignee = users.len() > 1;
