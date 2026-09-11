@@ -116,15 +116,21 @@ function ReviewsDot({
 
 // Amber while any live session waits on a plan approval / question
 // (EXP-214), live green otherwise.
-// EXP-792 (EXP-747 A4): with nothing running, amber when one of MY online
-// machines has an agent signed out — the running colours keep precedence.
-function DevicesDot({ teamId }: { teamId?: string }) {
+// EXP-792 (EXP-747 A4): amber when one of MY online machines has an agent
+// signed out.
+function DevicesDot() {
+  const { data: session } = useSession()
+  const needsSignIn = useDevicesNeedSignIn(session?.user?.id)
+  return needsSignIn ? <TabDot className="bg-amber-500" /> : null
+}
+
+// Any of MY live coding sessions in the team, on the Chat launcher — the
+// Agent page holds the sessions list (EXP-818), so the dot rides its button.
+// Amber while one waits on a plan approval / question (EXP-214).
+function AgentDot({ teamId }: { teamId?: string }) {
   const { data: session } = useSession()
   const { count, needsInput } = useAgentsRunningCount(teamId, session?.user?.id)
-  const needsSignIn = useDevicesNeedSignIn(session?.user?.id)
-  if (count === 0) {
-    return needsSignIn ? <TabDot className="bg-amber-500" /> : null
-  }
+  if (count === 0) return null
   return <TabDot className={needsInput ? `bg-yellow-400` : `bg-green-500`} />
 }
 
@@ -144,9 +150,9 @@ function TabDot({ className }: { className: string }) {
 // capsule with two 52px arms — Start chat | New issue — split by a hairline
 // (`FAB_GROUP_CLASS` + `FAB_ARM_CLASS`); elsewhere a single circle.
 const FAB_CHROME = `pointer-events-auto shrink-0 border border-glass-stroke-card bg-popover/85 text-foreground shadow-lg shadow-black/40 backdrop-blur-xl`
-const FAB_CLASS = `${FAB_CHROME} flex size-[3.25rem] items-center justify-center rounded-full`
+const FAB_CLASS = `${FAB_CHROME} relative flex size-[3.25rem] items-center justify-center rounded-full`
 const FAB_GROUP_CLASS = `${FAB_CHROME} flex h-[3.25rem] items-stretch overflow-hidden rounded-full`
-const FAB_ARM_CLASS = `flex w-[3.25rem] items-center justify-center text-foreground transition-colors active:bg-glass-active`
+const FAB_ARM_CLASS = `relative flex w-[3.25rem] items-center justify-center text-foreground transition-colors active:bg-glass-active`
 
 function tabClass(active: boolean): string {
   return cn(
@@ -201,11 +207,10 @@ export function MobileTabBar({
   const onReviews = Boolean(
     matchRoute({ to: `/t/$teamSlug/reviews`, fuzzy: true })
   )
-  // EXP-827: which FAB arms the slot draws — chat on Devices / Actions and
-  // on a board (where compose joins it in one capsule), compose wherever a
-  // board target resolves and nothing replaced it. Same predicates as iOS
-  // `showsChat` / Android `showsChat`.
-  const showsChat = onDevices || onActions || (onBoard && boardTarget !== undefined)
+  // The Chat launcher rides every top-level surface (the Agent page holds
+  // the sessions list and the live dot); New issue joins it in one capsule
+  // wherever a board target resolves and nothing replaced it (EXP-827). Same
+  // predicate as iOS / Android `showsCompose`.
   const showsCompose = boardTarget !== undefined && !onDevices && !onActions
   const onSupport = Boolean(
     matchRoute({ to: `/t/$teamSlug/support`, fuzzy: true })
@@ -268,7 +273,7 @@ export function MobileTabBar({
           className={tabClass(onDevices)}
         >
           <NavDevicesIcon className="size-5" />
-          <DevicesDot teamId={team?.id} />
+          <DevicesDot />
         </Link>
         <Link
           to="/t/$teamSlug/actions"
@@ -288,14 +293,12 @@ export function MobileTabBar({
           <ReviewsDot boards={boards} teamId={team?.id} />
         </Link>
       </nav>
-      {/* EXP-631: the Devices tab's FAB slot starts a chat instead of an
-          issue (native parity: iOS/Android hide compose on Devices too).
-          EXP-694: the Actions tab gets the same chat FAB — there is no issue
-          to compose there either, and every client offers chat from both.
-          EXP-739: both now LINK to the team's chat page, which holds the live
-          conversation and its history, instead of opening a one-shot dialog.
-          EXP-827: a board shows BOTH, merged into one capsule (×3 mobile). */}
-      {showsChat && showsCompose ? (
+      {/* EXP-631/694: the chat launcher started on Devices and Actions,
+          EXP-739 made it a LINK to the team's Agent page, EXP-827 merged it
+          with New issue on a board (×3 mobile), and it rides every top-level
+          surface now that the Agent page holds the sessions list — the live
+          dot the Devices tab used to wear sits on it. */}
+      {showsCompose ? (
         <div className={FAB_GROUP_CLASS} data-testid="fab-group">
           <Link
             to="/t/$teamSlug/agent"
@@ -305,6 +308,7 @@ export function MobileTabBar({
             className={FAB_ARM_CLASS}
           >
             <ActionChatIcon className="size-5" />
+            <AgentDot teamId={team?.id} />
           </Link>
           <span aria-hidden className="my-3 w-px shrink-0 bg-glass-stroke-card" />
           <Link
@@ -318,7 +322,7 @@ export function MobileTabBar({
             <NavCreateIssueIcon className="size-5" />
           </Link>
         </div>
-      ) : showsChat ? (
+      ) : (
         <Link
           to="/t/$teamSlug/agent"
           params={{ teamSlug }}
@@ -327,20 +331,8 @@ export function MobileTabBar({
           className={FAB_CLASS}
         >
           <ActionChatIcon className="size-5" />
+          <AgentDot teamId={team?.id} />
         </Link>
-      ) : (
-        showsCompose && (
-          <Link
-            to="/t/$teamSlug/boards/$boardSlug"
-            params={{ teamSlug, boardSlug: boardTarget!.slug }}
-            search={{ new: 1 }}
-            aria-label="New issue"
-            data-testid="compose-button"
-            className={FAB_CLASS}
-          >
-            <NavCreateIssueIcon className="size-5" />
-          </Link>
-        )
       )}
     </div>
   )

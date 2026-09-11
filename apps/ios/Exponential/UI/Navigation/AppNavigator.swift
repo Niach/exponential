@@ -447,10 +447,10 @@ struct MainNavigator: View {
                     reviewsOpen: reviewsOpen,
                     showsSupport: helpdeskEnabled,
                     supportUnread: supportUnread,
+                    // The Chat launcher (the Agent page, with its sessions
+                    // list and live dot) rides every top-level surface; a
+                    // board adds New issue beside it in one capsule (EXP-827).
                     showsCompose: composeRoute != nil,
-                    // EXP-694: Actions launches chats too. EXP-827: so does a
-                    // board, where the slot renders both arms in one capsule.
-                    showsChat: isOnAgents || isOnActions || composeRoute != nil,
                     onIssues: { path = [] },
                     onDevices: { if !isOnAgents { path = [.agents] } },
                     onActions: { if !isOnActions { path = [.actions] } },

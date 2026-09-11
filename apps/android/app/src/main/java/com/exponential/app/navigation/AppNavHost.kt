@@ -750,11 +750,10 @@ private fun AuthenticatedNav(
             reviewsOpen = reviewsOpen,
             showsSupport = helpdeskEnabled,
             supportUnread = supportUnread,
+            // The Chat launcher (the Agent page, with its sessions list and
+            // live dot) rides every top-level surface; a board adds New issue
+            // beside it in one capsule (EXP-827).
             showsCompose = composeBoardId != null,
-            // EXP-694: the Actions tab has no compose FAB either, so the free
-            // slot carries the same Chat launcher the Devices tab does.
-            // EXP-827: a board offers it too, beside New issue in one capsule.
-            showsChat = currentRoute == "agents" || currentRoute == "actions" || composeBoardId != null,
             onIssues = { navController.popBackStack("home", inclusive = false) },
             onDevices = {
                 if (currentRoute != "agents") {

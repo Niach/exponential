@@ -127,18 +127,22 @@ function ReviewsOpenBadge({
   return <NavDot className="bg-green-500" />
 }
 
-// Any of MY live coding sessions in the team, for the Devices entry.
+// Any of MY live coding sessions in the team, for the Agent entry — the
+// sessions list lives there (EXP-818), so the dot moved off Devices with it.
 // Amber while any session waits on a plan approval / question (EXP-214).
-// EXP-792 (EXP-747 A4): with nothing running, an amber dot when one of MY
-// online machines has an agent signed out — running/needs-input win.
-function DevicesRunningBadge({ teamId }: { teamId?: string }) {
+function AgentRunningBadge({ teamId }: { teamId?: string }) {
   const { data: session } = useSession()
   const { count, needsInput } = useAgentsRunningCount(teamId, session?.user?.id)
-  const needsSignIn = useDevicesNeedSignIn(session?.user?.id)
-  if (count === 0) {
-    return needsSignIn ? <NavDot className="bg-amber-500" /> : null
-  }
+  if (count === 0) return null
   return <NavDot className={needsInput ? `bg-yellow-400` : `bg-green-500`} />
+}
+
+// EXP-792 (EXP-747 A4): an amber dot on Devices when one of MY online
+// machines has an agent signed out.
+function DevicesSignInBadge() {
+  const { data: session } = useSession()
+  const needsSignIn = useDevicesNeedSignIn(session?.user?.id)
+  return needsSignIn ? <NavDot className="bg-amber-500" /> : null
 }
 
 interface TeamSidebarProps {
@@ -361,7 +365,7 @@ export function TeamSidebar({
                           <span>Devices</span>
                         </Link>
                       </SidebarMenuButton>
-                      <DevicesRunningBadge teamId={team?.id} />
+                      <DevicesSignInBadge />
                     </SidebarMenuItem>
                     <SidebarMenuItem>
                       <SidebarMenuButton asChild>
@@ -400,6 +404,7 @@ export function TeamSidebar({
                           <span>Agent</span>
                         </Link>
                       </SidebarMenuButton>
+                      <AgentRunningBadge teamId={team?.id} />
                     </SidebarMenuItem>
                   </SidebarMenu>
                 </SidebarGroupContent>
