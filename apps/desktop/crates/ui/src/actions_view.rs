@@ -21,6 +21,19 @@
 //! the synced `actions` shape (body-less rows; the edit dialog fetches the
 //! body via `actions.get` on open). ▶ Run opens the same composer with the
 //! action picked; it owns agent/model/effort and the typed input fields.
+//!
+//! EXP-832: `render` builds elements and NOTHING else. gpui re-renders the
+//! whole window on any `notify` (a tooltip's show-delay task, a hover on a
+//! managed control), so the list's derived data — the team's rows off the
+//! synced collections, converted and sorted, plus the per-action automation
+//! count — is computed ONCE per data change in the `observe` callbacks
+//! ([`ActionsView::refresh`]) and read from `self` by `render`. The row's
+//! ▶ button carries a tooltip only while it is DISABLED (the EXP-367 reason):
+//! an enabled button's "Run on this device" cost ~70 full-window renders per
+//! pointer sweep over the column (the managed tooltip's delay + slide tasks
+//! each `notify`); without it the same sweep measures ~13.
+
+use std::collections::HashMap;
 
 use gpui::{
     div, px, App, ClickEvent, Entity, FontWeight, InteractiveElement, IntoElement, ParentElement,
@@ -116,15 +129,65 @@ pub(crate) fn suggestions_button(id: &'static str, cx: &App) -> gpui::AnyElement
 pub struct ActionsView {
     nav: Entity<Navigation>,
     scroll: ScrollHandle,
+    /// EXP-832: what the page shows, derived off the synced collections in
+    /// [`Self::refresh`] — never in `render`.
+    derived: ActionsDerived,
     _subscriptions: Vec<Subscription>,
+}
+
+/// EXP-832: the Actions page's data, ready to draw.
+#[derive(Default)]
+struct ActionsDerived {
+    /// The team the rows belong to (the active team at the last refresh).
+    team_id: Option<String>,
+    /// The team's actions in list order, the two builtins already dropped.
+    actions: Vec<api::actions::Action>,
+    /// The `actions` shape's readiness (an empty list before it is "still
+    /// syncing", never "no actions").
+    ready: bool,
+    /// EXP-583: how many automations target each action, by action id.
+    automation_counts: HashMap<String, usize>,
+}
+
+impl ActionsDerived {
+    /// The page's data for `team_id` (none when no team is active).
+    fn compute(cx: &App, team_id: Option<String>) -> Self {
+        let Some(team) = team_id.as_deref() else {
+            return Self { ready: true, ..Self::default() };
+        };
+        let (mut actions, ready) = queries::team_actions(cx, team);
+        // EXP-431/686: NEITHER builtin is a row here. Creation lives behind
+        // the header's "New action" button, and "Fix merge conflicts" is
+        // launched from Reviews (or MCP), never picked off this list.
+        // Filtered HERE, not in `queries::team_actions`: that pool must keep
+        // both — the Reviews entry point and the Start-coding dialog's
+        // preselect dead-end in `select_action` without them.
+        actions.retain(|action| {
+            action.id != api::actions::BUILTIN_CREATE_ACTION_ID
+                && action.id != api::actions::BUILTIN_FIX_CONFLICTS_ID
+        });
+        // EXP-583: automations are their own synced rows — each action row
+        // says how many target it (the list itself lives on its own screen).
+        let (automations, _) = queries::team_automations(cx, team);
+        let mut automation_counts: HashMap<String, usize> = HashMap::new();
+        for automation in &automations {
+            *automation_counts.entry(automation.action_id.clone()).or_default() += 1;
+        }
+        Self {
+            team_id,
+            actions,
+            ready,
+            automation_counts,
+        }
+    }
 }
 
 impl ActionsView {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let nav = nav_for_window(window, cx);
-        // Live list: re-render on any synced actions change (EXP-268) and on
+        // Live list: re-derive on any synced actions change (EXP-268) and on
         // navigation (team switch re-scopes the read).
-        let mut subscriptions = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
+        let mut subscriptions = vec![cx.observe(&nav, |this, _, cx| this.refresh(cx))];
         // EXP-583: each row says how many automations target it, so the
         // `automations` rows drive this screen too.
         let watched = sync::Store::try_global(cx).map(|store| {
@@ -132,18 +195,27 @@ impl ActionsView {
             (collections.actions.clone(), collections.automations.clone())
         });
         if let Some((actions, automations)) = watched {
-            subscriptions.push(cx.observe(&actions, |_, _, cx| cx.notify()));
-            subscriptions.push(cx.observe(&automations, |_, _, cx| cx.notify()));
+            subscriptions.push(cx.observe(&actions, |this, _, cx| this.refresh(cx)));
+            subscriptions.push(cx.observe(&automations, |this, _, cx| this.refresh(cx)));
         }
+        let derived = ActionsDerived::compute(cx, active_team_id(&nav, cx));
         Self {
             nav,
             scroll: ScrollHandle::new(),
+            derived,
             _subscriptions: subscriptions,
         }
     }
 
     fn team_id(&self, cx: &App) -> Option<String> {
         active_team_id(&self.nav, cx)
+    }
+
+    /// EXP-832: re-derive the page off the collections and repaint — the
+    /// ONE place the rows are computed.
+    fn refresh(&mut self, cx: &mut gpui::Context<Self>) {
+        self.derived = ActionsDerived::compute(cx, self.team_id(cx));
+        cx.notify();
     }
 
     /// ▶ Run — open the Agent page composer with this action picked
@@ -200,6 +272,7 @@ impl ActionsView {
         action: &api::actions::Action,
         automations: usize,
         is_owner: bool,
+        no_agent: Option<&SharedString>,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let theme = cx.theme();
@@ -273,7 +346,22 @@ impl ActionsView {
         }
 
         // EXP-367: no agent CLI → Run disabled with the reason, never hidden.
-        let no_agent = crate::coding_flow::no_agent_reason(cx);
+        // EXP-832: the reason is the ONLY tooltip the button wears — an
+        // enabled ▶ with a managed tooltip re-rendered the whole window on
+        // every hover and kept rendering while the pointer parked on it.
+        let mut run_button = crate::controls::glass_icon_button(
+            ("action-run", index),
+            Icon::from(registry::ACTION_RUN),
+            cx,
+        )
+        .disabled(no_agent.is_some())
+        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+            cx.stop_propagation();
+            this.run(run_id.clone(), window, cx);
+        }));
+        if let Some(reason) = no_agent {
+            run_button = run_button.tooltip(reason.clone());
+        }
         let mut row = crate::surface::flat_row()
             .flex()
             .w_full()
@@ -291,24 +379,8 @@ impl ActionsView {
                 ),
             )
             .child(middle)
-            .child(
-                // EXP-615/686: the shared round glass ▶ (web/mobile parity).
-                crate::controls::glass_icon_button(
-                    ("action-run", index),
-                    Icon::from(registry::ACTION_RUN),
-                    cx,
-                )
-                    .tooltip(
-                        no_agent
-                            .clone()
-                            .unwrap_or_else(|| "Run on this device".into()),
-                    )
-                    .disabled(no_agent.is_some())
-                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                        cx.stop_propagation();
-                        this.run(run_id.clone(), window, cx);
-                    })),
-            );
+            // EXP-615/686: the shared round glass ▶ (web/mobile parity).
+            .child(run_button);
         // The ⋯ menu renders on non-builtin rows — builtins have no
         // editable row, no delete, and (EXP-778) no pin (they are not DB
         // rows). Pin/Unpin is personal, so every member gets it; Edit and
@@ -452,35 +524,19 @@ impl ActionsView {
 impl Render for ActionsView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let muted = cx.theme().muted_foreground;
-        let team_id = self.team_id(cx);
-        let (mut actions, ready) = match team_id.as_deref() {
-            Some(team_id) => queries::team_actions(cx, team_id),
-            None => (Vec::new(), true),
-        };
-        // EXP-431/686: NEITHER builtin is a row here. Creation lives behind
-        // the header's "New action" button, and "Fix merge conflicts" is
-        // launched from Reviews (or MCP), never picked off this list.
-        // Filtered HERE, not in `queries::team_actions`: that pool must keep
-        // both — the Reviews entry point and the Start-coding dialog's
-        // preselect dead-end in `select_action` without them.
-        actions.retain(|action| {
-            action.id != api::actions::BUILTIN_CREATE_ACTION_ID
-                && action.id != api::actions::BUILTIN_FIX_CONFLICTS_ID
-        });
-        let loading = !ready;
+        // EXP-832: the rows were derived when the data last changed
+        // (`refresh`); this only draws them. The team is read off the
+        // derivation too, so a header and its rows never disagree.
+        let team_id = self.derived.team_id.clone();
+        let loading = !self.derived.ready;
         let is_owner = team_id
             .as_deref()
             .is_some_and(|team_id| crate::settings::is_owner(cx, team_id));
-        let has_custom = actions.iter().any(|action| !action.builtin);
-        // EXP-583: automations are their own synced rows — each action row
-        // says how many target it (the list itself lives on its own screen).
-        let (automations, _) = match team_id.as_deref() {
-            Some(team_id) => queries::team_automations(cx, team_id),
-            None => (Vec::new(), true),
-        };
+        let has_custom = self.derived.actions.iter().any(|action| !action.builtin);
 
         // Owner-only "New action" (EXP-367: disabled with the reason when no
-        // agent CLI is installed, never hidden).
+        // agent CLI is installed, never hidden). Read ONCE per render for the
+        // header and every row.
         let no_agent = crate::coding_flow::no_agent_reason(cx);
         let new_action = is_owner
             .then(|| team_id.clone())
@@ -514,15 +570,19 @@ impl Render for ActionsView {
         let header =
             crate::surface::glass_section_header("Actions", Some(trailing), cx);
 
-        let rows: Vec<gpui::AnyElement> = actions
+        let rows: Vec<gpui::AnyElement> = self
+            .derived
+            .actions
             .iter()
             .enumerate()
             .map(|(index, action)| {
-                let count = automations
-                    .iter()
-                    .filter(|automation| automation.action_id == action.id)
-                    .count();
-                self.render_action_row(index, action, count, is_owner, cx)
+                let count = self
+                    .derived
+                    .automation_counts
+                    .get(&action.id)
+                    .copied()
+                    .unwrap_or(0);
+                self.render_action_row(index, action, count, is_owner, no_agent.as_ref(), cx)
             })
             .collect();
         // The nudge is a full-width strip (web parity) — appended after the

@@ -1331,15 +1331,33 @@ export function rateLimitIsWall(state: SessionRateLimitState): boolean {
   return state.status.trim() === `rejected` || Boolean(state.message?.trim())
 }
 
+/** EXP-831: how long past its `resetsAt` a wall still renders. The engine
+ *  clears the slot on the run's next activity or its next rate-limit event;
+ *  until one of those arrives (and on a journal replayed after the fact) the
+ *  clock is the only thing that can drop a banner whose reset has come and
+ *  gone. One minute covers clock skew between the agent's stamp and ours. */
+export const RATE_LIMIT_EXPIRY_GRACE_MS = 60_000
+
+/** EXP-831: whether a wall's reset time has passed (by more than the grace).
+ *  Byte-mirrored ×4 (desktop `steer::rate_limit_expired`, iOS
+ *  `AgentFeed.rateLimitExpired`, Android `rateLimitExpired`). A wall with no
+ *  reset time never expires by the clock. */
+export function rateLimitExpired(state: SessionRateLimitState, now: Date): boolean {
+  if (state.resetsAt === undefined) return false
+  return now.getTime() - rateLimitResetsAtMs(state.resetsAt) > RATE_LIMIT_EXPIRY_GRACE_MS
+}
+
 /** The banner's two strings: the agent's own message (else `Rate limit
  *  reached`) and `resets in 2h 10m` (EXP-818: relative, the usage cards'
  *  countdown — a clock reading `00:00` looked like a zero) when a reset is
- *  known. `null` when the report is not a wall (`rateLimitIsWall`). */
+ *  known. `null` when the report is not a wall (`rateLimitIsWall`) or the
+ *  wall's reset is behind us (`rateLimitExpired`, EXP-831 — a banner that
+ *  outlived its own reset over a visibly working run). */
 export function rateLimitBanner(
   state: SessionRateLimitState,
   now: Date = new Date()
 ): { text: string; resets: string | null } | null {
-  if (!rateLimitIsWall(state)) return null
+  if (!rateLimitIsWall(state) || rateLimitExpired(state, now)) return null
   const text = state.message ?? `Rate limit reached`
   const resets =
     state.resetsAt === undefined

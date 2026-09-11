@@ -94,6 +94,38 @@ final class AgentSessionComposerTests: XCTestCase {
         )
     }
 
+    /// EXP-818/831: the banner's gate — a wall (a rejection or a notice,
+    /// never a bare warning) whose reset is not more than a minute behind.
+    func testRateLimitBannerGateIsAWallInsideItsWindow() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let nowMs = 1_700_000_000_000
+        XCTAssertTrue(AgentFeed.rateLimitIsWall(AgentSessionRateLimit(status: "rejected")))
+        XCTAssertTrue(
+            AgentFeed.rateLimitIsWall(
+                AgentSessionRateLimit(status: "allowed_warning", message: "You've hit your limit")
+            )
+        )
+        XCTAssertFalse(AgentFeed.rateLimitIsWall(AgentSessionRateLimit(status: "allowed_warning")))
+        XCTAssertFalse(
+            AgentFeed.rateLimitIsWall(AgentSessionRateLimit(status: "allowed_warning", message: "  "))
+        )
+
+        let past = AgentSessionRateLimit(status: "rejected", resetsAt: nowMs - 61_000)
+        let recent = AgentSessionRateLimit(status: "rejected", resetsAt: nowMs - 30_000)
+        let ahead = AgentSessionRateLimit(status: "rejected", resetsAt: nowMs + 3_600_000)
+        XCTAssertTrue(AgentFeed.rateLimitExpired(past, now: now))
+        XCTAssertFalse(AgentFeed.rateLimitExpired(recent, now: now))
+        XCTAssertFalse(AgentFeed.rateLimitExpired(ahead, now: now))
+        XCTAssertFalse(AgentFeed.rateLimitExpired(AgentSessionRateLimit(status: "rejected"), now: now))
+
+        XCTAssertFalse(AgentFeed.rateLimitBannerShows(past, now: now))
+        XCTAssertTrue(AgentFeed.rateLimitBannerShows(recent, now: now))
+        XCTAssertTrue(AgentFeed.rateLimitBannerShows(AgentSessionRateLimit(status: "rejected"), now: now))
+        XCTAssertFalse(
+            AgentFeed.rateLimitBannerShows(AgentSessionRateLimit(status: "allowed_warning"), now: now)
+        )
+    }
+
     // MARK: - Fixtures
 
     private func plan(_ id: Int) -> AgentQuestion {

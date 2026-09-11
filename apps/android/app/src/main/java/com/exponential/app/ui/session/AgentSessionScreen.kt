@@ -140,6 +140,7 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.HistoryState
 import com.exponential.app.domain.RunResumeTarget
 import com.exponential.app.domain.pastRunByline
+import com.exponential.app.domain.rateLimitBannerShows
 import com.exponential.app.domain.MergeTarget
 import com.exponential.app.domain.MAX_STEER_IMAGES
 import com.exponential.app.domain.insertImageMarker
@@ -1125,9 +1126,13 @@ fun AgentSessionScreen(
             // EXP-784: the agent's rate-limit window — ONE banner from the
             // latest-wins slot (never a run of identical feed rows), with the
             // reset instant in local time when the agent named one. Gone the
-            // moment an empty/`ok` status clears the slot.
+            // moment an empty/`ok` status clears the slot; never up for a
+            // bare warning (EXP-818) and, on the 30s clock, dropped a minute
+            // past the reset it named (EXP-831).
             val rateLimit = activity.rateLimit
-            if (rateLimit != null && phase !is AgentPhase.Ended) {
+            if (rateLimit != null && phase !is AgentPhase.Ended &&
+                rateLimitBannerShows(rateLimit, nowMs)
+            ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()

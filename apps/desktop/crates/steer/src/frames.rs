@@ -550,6 +550,21 @@ pub fn rate_limit_is_wall(status: &str, message: Option<&str>) -> bool {
     status.trim() == "rejected" || message.is_some_and(|text| !text.trim().is_empty())
 }
 
+/// EXP-831: how long past its `resets_at` a wall still renders (ms). The
+/// engine clears the slot on the run's next activity or its next rate-limit
+/// event; until one arrives (and on a journal replayed after the fact) the
+/// clock is the only thing that can drop a banner whose reset has come and
+/// gone. One minute covers clock skew between the agent's stamp and ours.
+pub const RATE_LIMIT_EXPIRY_GRACE_MS: i64 = 60_000;
+
+/// EXP-831: whether a wall's reset time (unix ms) has passed by more than
+/// [`RATE_LIMIT_EXPIRY_GRACE_MS`] at `now_ms`. Mirrored ×4 (web
+/// `rateLimitExpired`, iOS `AgentFeed.rateLimitExpired`, Android
+/// `rateLimitExpired`). A wall with no reset time never expires by the clock.
+pub fn rate_limit_expired(resets_at: Option<i64>, now_ms: i64) -> bool {
+    resets_at.is_some_and(|at| now_ms - at > RATE_LIMIT_EXPIRY_GRACE_MS)
+}
+
 /// `started` | `ended` — the two [`ActivityEvent::Compaction`] edges.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -1827,6 +1842,18 @@ mod tests {
         assert!(!rate_limit_is_wall("allowed_warning", Some("   ")));
         assert!(!rate_limit_is_wall("", None));
         assert!(!rate_limit_is_wall("ok", None));
+    }
+
+    /// EXP-831: the clock rule — past the reset plus a minute the wall is
+    /// gone; inside it, and with no reset at all, it stands.
+    #[test]
+    fn a_wall_expires_a_minute_past_its_reset() {
+        let now = 1_700_000_000_000;
+        assert!(rate_limit_expired(Some(now - 61_000), now));
+        assert!(!rate_limit_expired(Some(now - 60_000), now));
+        assert!(!rate_limit_expired(Some(now - 1_000), now));
+        assert!(!rate_limit_expired(Some(now + 3_600_000), now));
+        assert!(!rate_limit_expired(None, now));
     }
 
     #[test]

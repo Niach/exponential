@@ -1370,7 +1370,8 @@ impl SteerSessionView {
     /// FEED-26 — the header's own beat. The feed is clock-free and a stalled
     /// run produces no events by definition, so the minute count needs a
     /// wakeup of its own; it only repaints once a live run is ACTUALLY quiet
-    /// past the window, so an ordinary session pays a timer and nothing else.
+    /// past the window (or, EXP-831, while a rate-limit wall counts down),
+    /// so an ordinary session pays a timer and nothing else.
     fn arm_stale_tick(&self, cx: &mut gpui::Context<Self>) {
         cx.spawn(async move |this, cx| loop {
             cx.background_executor().timer(STALE_TICK).await;
@@ -1378,7 +1379,13 @@ impl SteerSessionView {
                 .update(cx, |this, cx| {
                     let paused = this.paused(cx);
                     let awaiting = !this.active.is_empty();
-                    if this.stale_minutes(paused, awaiting).is_some() {
+                    // The wall check runs one tick PAST the expiry too: the
+                    // last repaint is the one that takes the banner down.
+                    let now_ms = chrono::Utc::now().timestamp_millis();
+                    let wall = this.rate_limit_wall_showing(
+                        now_ms - STALE_TICK.as_millis() as i64,
+                    );
+                    if wall || this.stale_minutes(paused, awaiting).is_some() {
                         cx.notify();
                     }
                 })
@@ -4822,16 +4829,31 @@ impl SteerSessionView {
         Some(column.into_any_element())
     }
 
+    /// EXP-831: whether the status stack currently shows a rate-limit wall
+    /// — the stale tick repaints while one is up, so its countdown moves and
+    /// it drops itself once the reset is behind us.
+    fn rate_limit_wall_showing(&self, now_ms: i64) -> bool {
+        self.feed.rate_limit().is_some_and(|limit| {
+            rate_limit_is_wall(&limit.status, limit.message.as_deref())
+                && !steer::rate_limit_expired(limit.resets_at, now_ms)
+        })
+    }
+
     /// EXP-784: the agent's rate-limit report as a banner in the status
     /// stack — its message (or a generic one) plus the local reset time when
-    /// it named one. `None` once the slot cleared.
+    /// it named one. `None` once the slot cleared, and (EXP-831) once the
+    /// reset it named is behind us: the engine lifts the slot on the run's
+    /// next activity, but a banner must not outlive its own reset over a
+    /// run that is visibly working.
     fn render_rate_limit_banner(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         let limit = self.feed.rate_limit()?;
-        if !rate_limit_is_wall(&limit.status, limit.message.as_deref()) {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        if !rate_limit_is_wall(&limit.status, limit.message.as_deref())
+            || steer::rate_limit_expired(limit.resets_at, now_ms)
+        {
             return None;
         }
         let amber = theme::tokens::YELLOW.to_hsla();
-        let now_ms = chrono::Utc::now().timestamp_millis();
         let caption = rate_limit_caption(
             limit.message.as_deref(),
             limit

@@ -1346,6 +1346,81 @@ async fn a_rate_limit_notice_is_a_slot_and_never_a_bubble() {
     assert_eq!(with_message, 1);
 }
 
+/// EXP-831 — a tool call is as much an answer as text. The wall's reset is
+/// far in the future (so the clock never lifts it) and the next turn comes
+/// back with a `Read` and no narration at all: the notice used to stay on
+/// the slot (and the row's `blocked`) until the agent next narrated; now the
+/// tool call clears both.
+#[tokio::test]
+async fn a_tool_call_after_a_notice_clears_the_wall() {
+    let _session = one_session_at_a_time();
+    let work = workdir("rate-limit-tools");
+    let run = drive_turns(
+        "rate-limit-tools",
+        &work.0,
+        &["Do the thing.", "Try again."],
+        reject_all(),
+        cancel_elicitations(),
+    )
+    .await;
+    let notice = "You've hit your session limit · resets 12:10pm (Europe/Berlin)";
+    let shapes = run.shape();
+    assert!(
+        !shapes.iter().any(|shape| shape.starts_with("agent:")),
+        "no narration anywhere in the run: {shapes:?}"
+    );
+    assert!(shapes.iter().any(|shape| shape.starts_with("tool:")), "{shapes:?}");
+    assert_eq!(
+        run.rate_limits(),
+        vec![
+            serde_json::json!({"status": "rejected", "resetsAt": 4_102_444_800_000i64, "window": "session"}),
+            serde_json::json!({"status": "rejected", "resetsAt": 4_102_444_800_000i64, "message": notice, "window": "session"}),
+            serde_json::json!({"status": "ok"}),
+        ],
+        "the event, the notice once, the clear on the tool call"
+    );
+    let session_wall = Some(("session".to_string(), Some("2100-01-01T00:00:00.000Z".to_string())));
+    assert_eq!(
+        run.blocked_edges(),
+        vec![session_wall.clone(), session_wall, None],
+        "the row's wall lifts with the tool call"
+    );
+}
+
+/// EXP-831 — the notice named when its window reopens; past that stamp the
+/// per-turn `allowed` event IS the reopening. The recorded reset
+/// (2026-09-06) is in the past and the second turn carries nothing but the
+/// event and an empty result: the slot clears on the event alone. (Inside
+/// the window the same event is the pre-429 request check and keeps the
+/// wall — `a_tool_call_after_a_notice_clears_the_wall` pins that half with
+/// its future reset: there the `allowed` event precedes the tool call and
+/// the clear still comes exactly once.)
+#[tokio::test]
+async fn an_allowed_event_past_the_reset_clears_the_wall() {
+    let _session = one_session_at_a_time();
+    let work = workdir("rate-limit-expired");
+    let run = drive_turns(
+        "rate-limit-expired",
+        &work.0,
+        &["Do the thing.", "Try again."],
+        reject_all(),
+        cancel_elicitations(),
+    )
+    .await;
+    let statuses: Vec<Value> =
+        run.rate_limits().into_iter().map(|slot| slot["status"].clone()).collect();
+    assert_eq!(
+        statuses,
+        vec![
+            serde_json::json!("rejected"),
+            serde_json::json!("rejected"),
+            serde_json::json!("ok"),
+        ],
+        "the clear comes from the allowed event, no assistant frame needed"
+    );
+    assert_eq!(run.blocked_edges().last(), Some(&None), "the row's wall lifts too");
+}
+
 /// EXP-819 — a live claude session IS this machine's usage source: every
 /// `rate_limit_event`'s `unifiedWindows` publishes into
 /// `coding::agent_usage::live` in the usage sheet's shape (the recorded

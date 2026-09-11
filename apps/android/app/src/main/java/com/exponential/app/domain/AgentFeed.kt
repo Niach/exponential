@@ -323,6 +323,31 @@ data class SessionRateLimitState(
 fun rateLimitClears(status: String): Boolean =
     status.trim().let { it.isEmpty() || it.equals("ok", ignoreCase = true) }
 
+/** EXP-818/831: whether a rate-limit report is a WALL worth a banner —
+ *  `rejected`, or a notice the agent itself wrote. Claude files
+ *  `allowed_warning` on every turn past ~75% of a window while it keeps
+ *  working; the Usage sheet carries that percentage. Mirrors web
+ *  `rateLimitIsWall` / desktop `steer::rate_limit_is_wall`. */
+fun rateLimitIsWall(state: SessionRateLimitState): Boolean =
+    state.status.trim() == "rejected" || !state.message.isNullOrBlank()
+
+/** EXP-831: how long past its `resetsAt` a wall still renders (ms). The
+ *  engine clears the slot on the run's next activity or its next rate-limit
+ *  event; until one arrives (and on a journal replayed after the fact) the
+ *  clock is the only thing that can drop a banner whose reset has come and
+ *  gone. One minute covers clock skew. */
+const val RATE_LIMIT_EXPIRY_GRACE_MS = 60_000L
+
+/** EXP-831: whether the wall's reset is more than the grace behind [nowMs].
+ *  A wall with no reset time never expires by the clock. Mirrored ×4. */
+fun rateLimitExpired(state: SessionRateLimitState, nowMs: Long): Boolean =
+    state.resetsAt?.let { nowMs - it > RATE_LIMIT_EXPIRY_GRACE_MS } ?: false
+
+/** EXP-831: the banner's ONE gate — a wall whose reset has not passed. The
+ *  screen re-reads it on its 30s activity clock. */
+fun rateLimitBannerShows(state: SessionRateLimitState, nowMs: Long): Boolean =
+    rateLimitIsWall(state) && !rateLimitExpired(state, nowMs)
+
 /** EXP-785: a wire `toolKind`, or null for anything this build does not know. */
 fun parseToolKind(raw: String?): String? = raw?.takeIf { it in DomainContract.toolKindValues }
 

@@ -12,6 +12,14 @@
 //! The runs list renders even with zero automations (EXP-686): a run log is
 //! the first thing you look for after deleting the automation that produced
 //! it, and it is the ONLY finished-runs list on any client (EXP-676).
+//!
+//! EXP-832: `render` builds elements and NOTHING else. gpui re-renders the
+//! whole window on any `notify` (a hover on a managed control, a tooltip's
+//! tasks elsewhere on the page), and this page used to filter + clone every
+//! `coding_sessions` row of the team, parse every trigger and re-join
+//! actions/devices per render. All of that now happens ONCE per data change
+//! in the `observe` callbacks ([`AutomationsView::refresh`]) into
+//! [`AutomationsDerived`], which `render` only reads.
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -36,13 +44,104 @@ use crate::run_rows;
 pub struct AutomationsView {
     nav: Entity<Navigation>,
     scroll: ScrollHandle,
+    /// EXP-832: what the page shows, derived off the synced collections in
+    /// [`Self::refresh`] — never in `render`.
+    derived: AutomationsDerived,
     _subscriptions: Vec<Subscription>,
+}
+
+/// EXP-832: the Automations page's data, ready to draw.
+#[derive(Default)]
+struct AutomationsDerived {
+    /// The team the rows belong to (the active team at the last refresh).
+    team_id: Option<String>,
+    /// One per automation, in the server's list order, with its joins done.
+    rows: Vec<AutomationRow>,
+    /// The "Recent automated runs" log, newest first, already capped to
+    /// [`RECENT_RUNS_CAP`].
+    recent_runs: Vec<domain::rows::CodingSession>,
+}
+
+/// One automation row's data: the automation itself plus everything the
+/// row used to look up per render — its action's name and glyph, the
+/// trigger sentence, the bound device, the launch pins and the newest run it
+/// fired. Only the clock-dependent bits (the device's online dot, the last
+/// run's relative time) are left to `render`.
+struct AutomationRow {
+    automation: api::automations::Automation,
+    /// The target action's name — "Action" while it hasn't synced (or was
+    /// just deleted): the binding is real, and the owner can retarget it.
+    action_name: String,
+    action_icon: Option<String>,
+    /// The trigger sentence (`Every day at 09:00 (device time)`, …).
+    summary: String,
+    /// The bound device's label and its `last_seen_at` — a device that isn't
+    /// in this user's synced rows (a teammate's private machine) keeps its
+    /// raw id and shows no dot; the binding is still real.
+    device_label: String,
+    device_last_seen_at: Option<String>,
+    /// "codex · opus" when the automation pinned anything.
+    pins: Option<String>,
+    /// The most recent run THIS automation started (a manual run of the same
+    /// action says nothing about whether the automation works): when it
+    /// started and whether it has ended.
+    last_run: Option<(Option<String>, bool)>,
+}
+
+impl AutomationsDerived {
+    /// The page's data for `team_id` (none when no team is active).
+    fn compute(cx: &App, team_id: Option<String>) -> Self {
+        let Some(team) = team_id.as_deref() else {
+            return Self::default();
+        };
+        let (actions, _) = queries::team_actions(cx, team);
+        let (automations, _) = queries::team_automations(cx, team);
+        let devices = automation_devices(cx);
+        let runs = automated_runs(cx, Some(team));
+        let rows = automations
+            .into_iter()
+            .map(|automation| {
+                let action = actions.iter().find(|action| action.id == automation.action_id);
+                let device = devices
+                    .iter()
+                    .find(|device| device.device_id == automation.device_id);
+                let last_run = runs
+                    .iter()
+                    .find(|session| fired_by(session, &automation))
+                    .map(|session| {
+                        (
+                            run_rows::run_started_at(session).map(str::to_string),
+                            run_rows::run_has_ended(session),
+                        )
+                    });
+                AutomationRow {
+                    summary: trigger_summary_line(automation.trigger.as_ref()),
+                    action_name: action
+                        .map(|action| action.name.clone())
+                        .unwrap_or_else(|| "Action".to_string()),
+                    action_icon: action.and_then(|action| action.icon.clone()),
+                    device_label: device
+                        .map(|device| device.label.clone())
+                        .unwrap_or_else(|| automation.device_id.clone()),
+                    device_last_seen_at: device.and_then(|device| device.last_seen_at.clone()),
+                    pins: launch_pins_label(&automation),
+                    last_run,
+                    automation,
+                }
+            })
+            .collect();
+        Self {
+            team_id,
+            rows,
+            recent_runs: runs.into_iter().take(RECENT_RUNS_CAP).collect(),
+        }
+    }
 }
 
 impl AutomationsView {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let nav = nav_for_window(window, cx);
-        let mut subscriptions = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
+        let mut subscriptions = vec![cx.observe(&nav, |this, _, cx| this.refresh(cx))];
         // EXP-583: the rows join actions (name + glyph), devices (label +
         // online dot) and coding_sessions (last / recent automated runs), so
         // all four synced collections drive this screen.
@@ -56,14 +155,16 @@ impl AutomationsView {
             )
         });
         if let Some((actions, automations, devices, sessions)) = watched {
-            subscriptions.push(cx.observe(&actions, |_, _, cx| cx.notify()));
-            subscriptions.push(cx.observe(&automations, |_, _, cx| cx.notify()));
-            subscriptions.push(cx.observe(&devices, |_, _, cx| cx.notify()));
-            subscriptions.push(cx.observe(&sessions, |_, _, cx| cx.notify()));
+            subscriptions.push(cx.observe(&actions, |this, _, cx| this.refresh(cx)));
+            subscriptions.push(cx.observe(&automations, |this, _, cx| this.refresh(cx)));
+            subscriptions.push(cx.observe(&devices, |this, _, cx| this.refresh(cx)));
+            subscriptions.push(cx.observe(&sessions, |this, _, cx| this.refresh(cx)));
         }
+        let derived = AutomationsDerived::compute(cx, active_team_id(&nav, cx));
         Self {
             nav,
             scroll: ScrollHandle::new(),
+            derived,
             _subscriptions: subscriptions,
         }
     }
@@ -72,19 +173,23 @@ impl AutomationsView {
         active_team_id(&self.nav, cx)
     }
 
+    /// EXP-832: re-derive the page off the collections and repaint — the
+    /// ONE place the rows and the run log are computed.
+    fn refresh(&mut self, cx: &mut gpui::Context<Self>) {
+        self.derived = AutomationsDerived::compute(cx, self.team_id(cx));
+        cx.notify();
+    }
+
     // -- rows (EXP-530 / EXP-583) -------------------------------------------
 
     /// One dense automation row: the target action's glyph + name, the trigger
     /// sentence, the bound device (label + online dot), the agent/model pins,
     /// the next/last run, the enabled toggle and the owner ⋯ menu.
-    #[allow(clippy::too_many_arguments)] // one row, one call site
     fn render_automation_row(
         &self,
         index: usize,
-        automation: &api::automations::Automation,
-        action: Option<&api::actions::Action>,
-        devices: &[AutomationDevice],
-        sessions: &[&domain::rows::CodingSession],
+        row: &AutomationRow,
+        now_ms: i64,
         is_owner: bool,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
@@ -92,40 +197,12 @@ impl AutomationsView {
         let muted = theme.muted_foreground;
         // EXP-811: the ONE row hover, `list_hover` (glass fillRow) on every client.
         let row_hover = theme.list_hover;
-        let parsed = crate::automation_editor::parsed_trigger(automation.trigger.as_ref());
-        let summary = parsed
-            .as_ref()
-            .map(|parsed| {
-                let sentence = coding::automations::trigger_summary(parsed);
-                // A schedule fires on the BOUND MACHINE's wall clock, so the
-                // recurrence carries the caveat the row used to hang off an
-                // absolute next-run date (EXP-812: the calendar moved that
-                // date under every screenshot, and the recurrence says the
-                // same thing).
-                if matches!(parsed.kind, coding::automations::TriggerKind::Schedule(_)) {
-                    format!("{sentence} (device time)")
-                } else {
-                    sentence
-                }
-            })
-            // A row whose trigger this build can't even parse still names
-            // itself instead of rendering a blank line.
-            .unwrap_or_else(|| "Unsupported trigger — update the app".to_string());
-        // An action that hasn't synced (or was just deleted) keeps the row
-        // visible — the binding is real, and the owner can retarget it.
-        let name = action
-            .map(|action| action.name.clone())
-            .unwrap_or_else(|| "Action".to_string());
-        let icon = action.and_then(|action| action.icon.clone());
-        // A device that isn't in this user's synced rows (a teammate's private
-        // machine) keeps its raw id — the binding is still real.
-        let device = devices
-            .iter()
-            .find(|device| device.device_id == automation.device_id);
-        let device_label = device
-            .map(|device| device.label.clone())
-            .unwrap_or_else(|| automation.device_id.clone());
-        let device_online = device.is_some_and(|device| device.online);
+        let automation = &row.automation;
+        // The dot follows the clock: a machine goes offline WITHOUT a row
+        // change, so this is the one join left to the render.
+        let device_online = row.device_last_seen_at.as_deref().is_some_and(|seen| {
+            crate::device_settings::row_is_online(Some(seen), now_ms)
+        });
 
         let mut meta = gpui_component::h_flex()
             .w_full()
@@ -134,7 +211,7 @@ impl AutomationsView {
             .gap_1p5()
             .text_xs()
             .text_color(muted)
-            .child(SharedString::from(summary))
+            .child(SharedString::from(row.summary.clone()))
             .child(div().child("·"))
             .when(device_online, |this| {
                 this.child(
@@ -145,25 +222,24 @@ impl AutomationsView {
                         .bg(theme::tokens::GREEN.to_hsla()),
                 )
             })
-            .child(SharedString::from(device_label));
+            .child(SharedString::from(row.device_label.clone()));
         // The pins, when the automation set any — otherwise the run follows
         // the machine's own launch defaults and there is nothing to say.
-        if let Some(pins) = launch_pins_label(automation) {
+        if let Some(pins) = row.pins.clone() {
             meta = meta.child(div().child("·")).child(SharedString::from(pins));
         }
-        // The most recent run THIS automation started (a manual run of the
-        // same action says nothing about whether the automation works).
-        if let Some(last) = sessions
-            .iter()
-            .find(|session| fired_by(session, automation))
-        {
-            meta = meta
-                .child(div().child("·"))
-                .child(SharedString::from(last_run_label(last)));
+        if let Some((started_at, ended)) = &row.last_run {
+            meta = meta.child(div().child("·")).child(SharedString::from(last_run_label(
+                started_at.as_deref(),
+                *ended,
+                now_ms / 1000,
+            )));
         }
 
         let toggle_id = automation.id.clone();
         let enabled = automation.enabled;
+        let name = row.action_name.clone();
+        let icon = row.action_icon.clone();
         crate::surface::flat_row()
             .flex()
             .w_full()
@@ -289,20 +365,12 @@ impl AutomationsView {
     /// runs" list. EXP-686: the runs list renders even with ZERO automations
     /// (deleting the automation must not hide the runs it produced), so the
     /// empty state stands in for the ROWS, never for the whole page.
-    fn render_automations(
-        &self,
-        actions: &[api::actions::Action],
-        automations: &[api::automations::Automation],
-        team_id: Option<&str>,
-        is_owner: bool,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
+    fn render_automations(&self, is_owner: bool, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let muted = cx.theme().muted_foreground;
-        let devices = automation_devices(cx);
-        let runs = automated_runs(cx, team_id);
-        let run_refs: Vec<&domain::rows::CodingSession> = runs.iter().collect();
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let runs = &self.derived.recent_runs;
 
-        let rows: gpui::AnyElement = if automations.is_empty() {
+        let rows: gpui::AnyElement = if self.derived.rows.is_empty() {
             crate::controls::empty_state(
                 Icon::from(registry::ACTION_AUTOMATION),
                 "No automations yet.",
@@ -311,17 +379,12 @@ impl AutomationsView {
             )
             .into_any_element()
         } else {
-            let rows: Vec<gpui::AnyElement> = automations
+            let rows: Vec<gpui::AnyElement> = self
+                .derived
+                .rows
                 .iter()
                 .enumerate()
-                .map(|(index, automation)| {
-                    let action = actions
-                        .iter()
-                        .find(|action| action.id == automation.action_id);
-                    self.render_automation_row(
-                        index, automation, action, &devices, &run_refs, is_owner, cx,
-                    )
-                })
+                .map(|(index, row)| self.render_automation_row(index, row, now_ms, is_owner, cx))
                 .collect();
             gpui_component::v_flex()
                 .min_w_0()
@@ -348,13 +411,13 @@ impl AutomationsView {
                     .child("Nothing has fired yet."),
             );
         }
-        for (index, session) in runs.iter().take(RECENT_RUNS_CAP).enumerate() {
+        for (index, session) in runs.iter().enumerate() {
             let open_id = session.id.clone();
             // EXP-746: the row itself lives in `run_rows` now — the Devices
             // screen's Running and Past lists draw the same card. EXP-773
             // flattened it to a plain link: the transcript, the run's summary
             // and Resume are the fullscreen session view's, not the list's.
-            let parts = run_rows::automation_row_parts(session, chrono::Utc::now().timestamp());
+            let parts = run_rows::automation_row_parts(session, now_ms / 1000);
             run_rows_column = run_rows_column.child(run_rows::render_run_row(
                 run_rows::RunRowSpec {
                     id_prefix: "run",
@@ -378,15 +441,10 @@ impl AutomationsView {
 
 impl Render for AutomationsView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let team_id = self.team_id(cx);
-        let (actions, _) = match team_id.as_deref() {
-            Some(team_id) => queries::team_actions(cx, team_id),
-            None => (Vec::new(), true),
-        };
-        let (automations, _) = match team_id.as_deref() {
-            Some(team_id) => queries::team_automations(cx, team_id),
-            None => (Vec::new(), true),
-        };
+        // EXP-832: the rows were derived when the data last changed
+        // (`refresh`); this only draws them. The team is read off the
+        // derivation too, so a header and its rows never disagree.
+        let team_id = self.derived.team_id.clone();
         let is_owner = team_id
             .as_deref()
             .is_some_and(|team_id| crate::settings::is_owner(cx, team_id));
@@ -414,7 +472,7 @@ impl Render for AutomationsView {
             .into_any_element();
         let header = glass_section_header("Automations", Some(trailing), cx);
 
-        let body = self.render_automations(&actions, &automations, team_id.as_deref(), is_owner, cx);
+        let body = self.render_automations(is_owner, cx);
         // NO gap here (EXP-697) — the header's `pb_2` is the spacing to the
         // list; the body carries its own row gaps.
         let section = gpui_component::v_flex().min_w_0().child(header).child(body);
@@ -430,11 +488,13 @@ impl Render for AutomationsView {
 /// How many rows the "Recent automated runs" list shows before it stops.
 const RECENT_RUNS_CAP: usize = 10;
 
-/// One synced device, reduced to what an automation row shows.
+/// One synced device, reduced to what an automation row shows. The online
+/// dot is derived from `last_seen_at` at render time (EXP-832): a machine
+/// goes offline by the clock, without a row change.
 struct AutomationDevice {
     device_id: String,
     label: String,
-    online: bool,
+    last_seen_at: Option<String>,
 }
 
 /// The synced devices, keyed by their steer id — the Automations list resolves
@@ -446,7 +506,6 @@ fn automation_devices(cx: &App) -> Vec<AutomationDevice> {
         return Vec::new();
     };
     let collection = store.collections().devices.clone();
-    let now_ms = chrono::Utc::now().timestamp_millis();
     collection
         .read(cx)
         .iter()
@@ -454,11 +513,31 @@ fn automation_devices(cx: &App) -> Vec<AutomationDevice> {
             let device_id = row.device_id.clone().filter(|id| !id.is_empty())?;
             Some(AutomationDevice {
                 label: row.label.clone().unwrap_or_else(|| device_id.clone()),
-                online: crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms),
+                last_seen_at: row.last_seen_at.clone(),
                 device_id,
             })
         })
         .collect()
+}
+
+/// The row's trigger sentence. A schedule fires on the BOUND MACHINE's wall
+/// clock, so the recurrence carries the caveat the row used to hang off an
+/// absolute next-run date (EXP-812: the calendar moved that date under every
+/// screenshot, and the recurrence says the same thing). A row whose trigger
+/// this build can't even parse still names itself instead of rendering a
+/// blank line.
+fn trigger_summary_line(trigger: Option<&serde_json::Value>) -> String {
+    crate::automation_editor::parsed_trigger(trigger)
+        .as_ref()
+        .map(|parsed| {
+            let sentence = coding::automations::trigger_summary(parsed);
+            if matches!(parsed.kind, coding::automations::TriggerKind::Schedule(_)) {
+                format!("{sentence} (device time)")
+            } else {
+                sentence
+            }
+        })
+        .unwrap_or_else(|| "Unsupported trigger — update the app".to_string())
 }
 
 /// EXP-679: `started_reason` is no longer automation-only — `agent` marks a
@@ -531,15 +610,11 @@ fn automated_runs(cx: &App, team_id: Option<&str>) -> Vec<domain::rows::CodingSe
 /// "Last run ended, 2 hours ago" — the status word plus when it started.
 /// EXP-686 dropped the self-reported outcome vocabulary everywhere: a run is
 /// either still running or it ended, and the summary says the rest.
-fn last_run_label(session: &domain::rows::CodingSession) -> String {
-    let status = if run_rows::run_has_ended(session) {
-        "ended"
-    } else {
-        "running"
-    };
-    match run_rows::run_started_at(session) {
+fn last_run_label(started_at: Option<&str>, ended: bool, now_secs: i64) -> String {
+    let status = if ended { "ended" } else { "running" };
+    match started_at {
         Some(at) => {
-            let when = crate::comments::relative_time(at, chrono::Utc::now().timestamp());
+            let when = crate::comments::relative_time(at, now_secs);
             format!("Last run {status}, {when}")
         }
         None => format!("Last run {status}"),

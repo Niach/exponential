@@ -1754,7 +1754,9 @@ pub(crate) const NO_AGENT_SIGNED_IN_COPY: &str =
 /// running (never falsely block on a race) or before anything coding exists.
 pub(crate) fn no_agent_reason(cx: &App) -> Option<SharedString> {
     let hub = CodingHub::global_ref(cx)?;
-    let report = hub.read(cx).doctor.report.clone()?;
+    // Borrowed, not cloned: list screens ask per render (EXP-832).
+    let hub = hub.read(cx);
+    let report = hub.doctor.report.as_ref()?;
     if report.any_agent_ok() {
         return None;
     }
