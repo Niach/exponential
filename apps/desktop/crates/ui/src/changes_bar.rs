@@ -13,8 +13,6 @@
 //! session screen used to wear it as a 280px right RAIL instead; a rail beside
 //! a conversation is not where changes read.
 
-use std::rc::Rc;
-
 use gpui::{
     div, px, AnyElement, App, ClickEvent, Context, Entity, InteractiveElement, IntoElement,
     ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled,
@@ -31,15 +29,6 @@ use crate::icons::{registry, ExpIcon};
 pub(crate) const CHANGES_BAR_H: f32 = 28.;
 pub(crate) const CHANGES_DIFF_H: f32 = 288.;
 
-/// What a CONFIRMED merge does on top of firing the op.
-///
-/// Vestigial since EXP-773: the retired terminal dock closed its local tab
-/// the moment the merge call fired so a conflict failure found the branch
-/// free (its EXP-498 note). The session screen — now the ONLY merge surface
-/// here — does nothing extra and passes `None`; the server ends the session
-/// on merge anyway (EXP-498).
-pub(crate) type OnMerged = Rc<dyn Fn(&mut App)>;
-
 /// Everything one painting of the bar needs. Generic over the hosting view so
 /// the toggle stays the caller's own state (the dock keeps two snapshots, the
 /// session screen one).
@@ -52,7 +41,6 @@ pub(crate) struct ChangesSpec<V: Render> {
     pub(crate) merge: Option<MergeTarget>,
     pub(crate) diff_view: Entity<crate::diff::DiffView>,
     pub(crate) on_toggle: Box<dyn Fn(&mut V, &mut Context<V>) + 'static>,
-    pub(crate) on_merged: Option<OnMerged>,
 }
 
 /// EXP-698 — the ONE Latest-changes row: the collapsible `+N −M` summary on
@@ -67,7 +55,6 @@ pub(crate) fn render<V: Render>(spec: ChangesSpec<V>, cx: &mut Context<V>) -> An
         merge,
         diff_view,
         on_toggle,
-        on_merged,
     } = spec;
     let muted = cx.theme().muted_foreground;
     let mut left = h_flex()
@@ -111,7 +98,7 @@ pub(crate) fn render<V: Render>(spec: ChangesSpec<V>, cx: &mut Context<V>) -> An
 
     let merge_pill = merge.as_ref().map(|merge| {
         let merge_state = crate::pr_merge::MergeState::global(cx);
-        merge_button(merge, &merge_state, on_merged.clone(), cx)
+        merge_button(merge, &merge_state, cx)
     });
 
     let mut row = h_flex()
@@ -158,15 +145,11 @@ pub(crate) fn render<V: Render>(spec: ChangesSpec<V>, cx: &mut Context<V>) -> An
 /// other Merge surface drives ([`crate::pr_merge`]). A failed merge (typically
 /// conflicts) jumps to the Reviews PAGE, where the shared error caption + the
 /// Fix-conflicts button render exactly as a Reviews-originated failure.
-///
-/// `close_on_merge` runs when the confirm FIRES. It exists for the retired
-/// terminal dock, which closed its local tab there so a conflict failure
-/// never left a live session holding the branch; every surface left passes
-/// `None` (EXP-773), and the server ends the session on merge (EXP-498).
+/// Nothing runs on the confirm itself: the server ends the session on merge
+/// (EXP-498).
 pub(crate) fn merge_button<V: Render>(
     merge: &MergeTarget,
     merge_state: &Entity<crate::pr_merge::MergeState>,
-    close_on_merge: Option<OnMerged>,
     cx: &Context<V>,
 ) -> AnyElement {
     let key = merge.key();
@@ -202,7 +185,7 @@ pub(crate) fn merge_button<V: Render>(
     let button = button.on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
         cx.stop_propagation();
         let handle = window.window_handle();
-        let outcome = crate::pr_merge::two_click(
+        crate::pr_merge::two_click(
             target.op(),
             Some(Box::new(move |cx: &mut App| {
                 let _ = handle.update(cx, |_, window, cx| {
@@ -214,11 +197,6 @@ pub(crate) fn merge_button<V: Render>(
             None,
             cx,
         );
-        if outcome == crate::pr_merge::TwoClick::Fired {
-            if let Some(close) = close_on_merge.as_ref() {
-                close(cx);
-            }
-        }
     }));
     button.into_any_element()
 }
