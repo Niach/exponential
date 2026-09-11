@@ -806,18 +806,12 @@ fn run_device_command(
     // CLAIMED here and handed to the foreground. A redelivery of a claimed
     // id is dropped without a completion.
     if command.kind == "agent_login" {
-        let agent = command.payload["agent"].as_str().unwrap_or_default();
-        let switch = command.payload["switch"].as_str().unwrap_or("false");
-        let refusal = match (coding::CodingAgent::parse(agent), switch) {
-            // pi's sign-in is an interactive prompt with no device-code flow
-            // to hand back — local only (the server refuses it too).
-            (Some(coding::CodingAgent::Pi), _) => Some("pi has no remote sign-in"),
-            (None, _) => Some("This machine does not know that agent."),
-            (Some(_), "true") | (Some(_), "false") => None,
-            (Some(_), _) => Some("Malformed command payload."),
-        };
-        if let Some(refusal) = refusal {
-            complete(snapshot, &command.id, false, refusal);
+        // The ONE parse the foreground login runs as well (EXP-827: agent,
+        // switch and the profile half). pi's sign-in is an interactive
+        // prompt with no device-code flow to hand back, so it is refused
+        // here, local only (the server refuses it too).
+        if let Err(refusal) = coding::agent_login::parse_login_payload(&command.payload) {
+            complete(snapshot, &command.id, false, &refusal);
             return CommandDisposition::Completed;
         }
         if !claim_login(&snapshot.inflight_logins, &command.id) {
