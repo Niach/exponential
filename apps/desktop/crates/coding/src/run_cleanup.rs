@@ -138,7 +138,10 @@ fn remove_locked(cleanup: &RunCleanup) -> CleanupOutcome {
 }
 
 /// `git rev-list --count <range>` — `None` when the range does not resolve.
-fn count_commits(clone: &Path, range: &str) -> Option<usize> {
+/// Also the launcher's (EXP-834) "did this re-created worktree keep its
+/// commits?" probe, which decides which reclaimed-workspace note a resume
+/// hears; the two ask git the same question, so they share one caller.
+pub(crate) fn count_commits(clone: &Path, range: &str) -> Option<usize> {
     run_git(
         Some(clone),
         &["rev-list", "--count", range],

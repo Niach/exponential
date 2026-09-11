@@ -157,6 +157,50 @@ export const LICENCE_OVERRIDES: LicenceOverride[] = [
       `sibling rio-grapheme-width crate ships that exact line. MIT requires ` +
       `carrying the notice, so it is restored here.`,
   },
+  // Two Guava satellite artifacts pulled in by androidx.media3 (EXP-824). Their
+  // POMs carry no `<licenses>` element of their own — it lives in the parent
+  // `guava-parent` POM, which the gradle licence plugin does not inherit — so
+  // the report lists them with an empty licence list and the Android collector
+  // consults these entries by `group:artifact` instead of failing.
+  {
+    scope: `android`,
+    name: `com.google.guava:failureaccess`,
+    declared: `Apache-2.0`,
+    licenses: [`Apache-2.0`],
+    useTemplate: true,
+    copyright: [`Copyright (C) 2018 The Guava Authors`],
+    reason:
+      `Checked 2026-09-11 (EXP-824 media3): failureaccess-1.0.2.pom has no ` +
+      `<licenses> element; its parent com.google.guava:guava-parent:26.0-android ` +
+      `declares "The Apache Software License, Version 2.0". The jar ships only ` +
+      `MANIFEST.MF, the maven pom and two classes — no META-INF licence or ` +
+      `notice file. Upstream (github.com/google/guava, tag failureaccess-v1.0.2) ` +
+      `is Apache-2.0 and both source files ` +
+      `(futures/failureaccess/src/.../InternalFutureFailureAccess.java, ` +
+      `InternalFutures.java) open with "Copyright (C) 2018 The Guava Authors". ` +
+      `The canonical Apache-2.0 text is reproduced because the artifact ships ` +
+      `none; the copyright line is carried from those headers.`,
+  },
+  {
+    scope: `android`,
+    name: `com.google.guava:listenablefuture`,
+    declared: `Apache-2.0`,
+    licenses: [`Apache-2.0`],
+    useTemplate: true,
+    reason:
+      `Checked 2026-09-11 (EXP-824 media3): the resolved version is ` +
+      `9999.0-empty-to-avoid-conflict-with-guava, Guava's deliberately EMPTY ` +
+      `marker artifact (the jar holds MANIFEST.MF and the maven pom, no classes ` +
+      `at all; the real ListenableFuture class ships inside com.google.guava:guava, ` +
+      `which declares Apache-2.0 itself). Its POM has no <licenses> element; the ` +
+      `parent com.google.guava:guava-parent:26.0-android declares "The Apache ` +
+      `Software License, Version 2.0", and upstream (github.com/google/guava) is ` +
+      `Apache-2.0. The canonical text is reproduced for completeness; no ` +
+      `copyright line is attached because the artifact contains nothing ` +
+      `copyrightable. findOverride matches by name, so should the graph ever ` +
+      `resolve listenablefuture:1.0 again it gets the same Apache-2.0 it ` +
+      `declares for itself.`,
+  },
 ]
 
 /** Exact name first, then `*` prefixes, longest prefix wins. */

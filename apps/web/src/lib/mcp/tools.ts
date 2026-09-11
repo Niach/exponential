@@ -3093,6 +3093,11 @@ export function registerExponentialTools(
             caps: device.caps,
             version: device.version,
             sharedTeamIds: device.sharedTeamIds,
+            // FEED-33 compat: the pre-FEED-33 single-team key
+            // (`sharedTeamIds[0]`, null when private) old MCP consumers
+            // read. Removable once ios min >= 0.14.30 AND android min >=
+            // 0.14.32 AND desktop/cli min >= 0.14.37 (lib/api-conventions.ts).
+            sharedTeamId: device.sharedTeamIds?.[0] ?? null,
             isDefault: device.isDefault,
             // EXP-484: per-agent sign-in status and usage windows as the
             // machine last probed them (absent on builds without the

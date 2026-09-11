@@ -954,6 +954,10 @@ export const attachments = pgTable(
     // Served by the byte route as `/api/attachments/{id}?poster=1`.
     durationMs: integer(`duration_ms`),
     posterStorageKey: text(`poster_storage_key`),
+    // The poster blob's byte size, so the team storage budget counts it
+    // (`getTeamUsage` sums it beside `size_bytes`). SERVER-ONLY: not in the
+    // attachments shape allowlist. NULL when the row has no poster.
+    posterSizeBytes: integer(`poster_size_bytes`),
     ...timestamps,
   },
   (table) => [
@@ -1245,6 +1249,17 @@ export const devices = pgTable(
       .array()
       .notNull()
       .default(sql`'{}'::uuid[]`),
+    // FEED-33 compat mirror: `shared_team_ids[1]` (the array is sorted, so
+    // deterministic; NULL when empty), maintained by trigger #17
+    // (mirror_device_shared_team_id) — server-written only, NO foreign key,
+    // never touched by a router or the register/heartbeat path. Exists so
+    // the pre-FEED-33 clients still reading `shared_team_id` off the devices
+    // shape (iOS 0.14.28/0.14.29, Android 0.14.31, desktop/CLI 0.14.36)
+    // keep seeing teammates' shared servers. Removable (column + trigger +
+    // shape allowlist entry) when CLIENT_MIN_VERSION_IOS >= 0.14.30 AND
+    // CLIENT_MIN_VERSION_ANDROID >= 0.14.32 AND CLIENT_MIN_VERSION_DESKTOP
+    // (which also floors the CLI) >= 0.14.37.
+    sharedTeamId: uuid(`shared_team_id`),
     // EXP-622: the OWNER's default machine — the one every device picker
     // prefills when several are candidates. At most one true row per user
     // (`devices.setDefault` clears the others in the same transaction).

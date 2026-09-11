@@ -101,6 +101,18 @@ pub fn iso_from_unix_secs(secs: i64) -> Option<String> {
         .map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
 }
 
+/// The inverse, for the one place that has to COMPARE a stored stamp against
+/// the wall clock (EXP-831: a synced rate-limit wall expires by its own
+/// `resets_at`). It lives beside the formatter for the same reason the
+/// formatter is shared: one module owns the ISO<->unix conversion, so a
+/// stamp this repo wrote always parses back. An unparseable stamp is `None`,
+/// never an epoch.
+pub fn unix_millis_from_iso(iso: &str) -> Option<i64> {
+    chrono::DateTime::parse_from_rfc3339(iso)
+        .ok()
+        .map(|at| at.timestamp_millis())
+}
+
 /// pi's account row. pi has NO login and no notion of a user: its credential
 /// store (`~/.pi/agent/auth.json`) is a provider map, and
 /// `~/.pi/agent/settings.json`'s `defaultProvider` names the one a run would

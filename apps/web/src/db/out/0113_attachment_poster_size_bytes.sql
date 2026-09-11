@@ -1,0 +1,1 @@
+ALTER TABLE "attachments" ADD COLUMN "poster_size_bytes" integer;

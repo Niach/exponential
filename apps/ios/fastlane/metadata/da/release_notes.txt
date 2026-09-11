@@ -1,3 +1,14 @@
+- Video og lyd i beskrivelser og kommentarer: vedhæft et klip, og det afspilles direkte i teksten med et plakatbillede og sin længde; det du uploader, konverteres først til 720p
+- GitHub-konti: teamindstillingerne viser hver tilsluttet konto med et "Configure"-link, og "Connect another account" åbner GitHubs egen kontovælger, så en organisation nummer to kan installeres
+- Tilføj repository: vælgeren fortæller, hvorfor et repository mangler, linker til hver kontos GitHub-indstillinger og tager et repository ved navn
+- Kortere liste over tidligere kørsler: en afsluttet kørsel viser maskine og tidspunkt, uden agentens navn og årsagen til, at den sluttede
+- Prikken for en igangværende session er flyttet til Chat-knappen i bundlinjen, som nu vises på alle faner; Devices beholder kun advarslen om login
+- Feltet nævner altid den maskine, en kørsel starter på, og åbner kun en menu, når der er mere end én
+- Bannere om en nået grænse forsvinder af sig selv, når nulstillingstidspunktet er passeret, og en ren forbrugsadvarsel vises aldrig som en grænse
+- Del en maskine med flere teams: enhedsarket har én kontakt per team i stedet for et enkelt valg
+- Detaljer i feltet: "Plan" er en kontakt, en valgt issue eller handling fjernes med sit eget lukkekryds, og et boards bundlinje samler chat og ny issue i én kapsel
+- Pins: fastgør en issue, en session eller en handling fra dens menu, så ligger den i en "Pinned"-sektion øverst i boardvælgeren
+- Konti på Devices-siden: én række per agentkonto med dens forbrugsbjælker og en chip per maskine, den samme sektion som web og desktop har
 - Ét felt til det hele: feltet på "Agent"-siden starter alt, med issues eller en handling valgt øverst og maskine, agent, model og plantilstand nedenunder; "Start coding"-arket er væk
 - Hver afspilningsknap fører derhen: "Start coding" på en issue, markeringslinjen, "Run" på en handling og "Fix merge conflicts" åbner feltet med det rigtige allerede valgt
 - Instruktioner ved start: det, du skriver ved siden af de valgte issues eller handlingen, når kørslen som ekstra instruktioner; i en chat er det prompten
@@ -7,16 +18,3 @@
 - Svar inde i kortet: en plan eller et spørgsmål besvares i sit eget kort, med et felt i kortet når du hellere vil skrive end vælge; styrefeltet træder til side imens
 - Agentbeskeder: en agent kan sende dit team en notifikation via MCP; den kommer som push og som sin egen række i Inbox
 - Grænser der hænger sammen: en forbrugsadvarsel markerer ikke længere en kørsel som begrænset, og ved en rigtig grænse beskriver vinduet og nulstillingstidspunktet det samme
-- Begrænset, ikke fastlåst: når en agent bruger sin kvote op midt i en kørsel, markeres sessionen som begrænset med tidspunktet for nulstilling, og den forbliver aktiv og styrbar i stedet for at gå stille
-- Styringsfelt: sessionsfeltet tager @ for holdkammerater, # for issues og : for emoji, de samme tre som kommentarfeltet allerede havde
-- Redigeringer inline: en redigerings diff vises under dens række i udskriften, foldet sammen indtil du trykker på den
-- Værktøjsgrupper der siger hvad der skete: en sammenfoldet række værktøjskald læses som "Kørte 4 kommandoer, redigerede 2 filer, 1 fejlede" i stedet for at tælle kald
-- En udsigtsløs start afvises: start på en maskine hvis agent allerede er løbet tør for kvote siger det og nævner nulstillingstidspunktet
-- Forbrugsbjælker for en ekstra agentkonto på samme maskine
-- Agentvælger: når en agent ikke er klar på en enhed, siger vælgeren det og blokerer starten, indtil du kører doctor der
-- Styringsfeed: issue-identifikatorer som #EXP-12 bliver til chips, du kan trykke på, og agentkommandoer vises som kommandomærker
-- Relationer mellem issues: knyt issues sammen som overordnet, underissue, blokerer, blokeret af, dublet eller relateret fra egenskabsarket; skriver du #EXP-12 i en beskrivelse eller kommentar, knyttes de to issues sammen af sig selv
-- Kommentartråde: svar under en kommentar fra det fastgjorte skrivefelt; tråde går kun ét niveau ned, og en kommentar, som en agent har sendt via MCP, siger det i sin header
-- En guidet første gang: at oprette et team fører dig gennem det første board, invitationer til holdkammerater og opsætning af enheder, i samme rækkefølge som på web og desktop
-- Merge fra handlings- og chatkørsler: en kørsel, der har åbnet en pull request, viser "Merge" i sin styringsvisning, og Reviews viser de pull requests under "Agent runs"
-- Sessioner bliver på din enhed: udskrifter gemmes på den enhed, der kørte dem, aldrig på serveren; tidligere kørsler åbnes fra Devices, Chat og Automations og hentes fra den enhed, når den er online

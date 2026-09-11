@@ -57,7 +57,8 @@ export function usePinFor(kind: PinKind, targetId: string | undefined) {
 }
 
 /** Pin/unpin one target. `pinned` flips optimistically on click and settles
- *  on the synced row (the server answer resets it on failure). */
+ *  on the synced row: the optimistic flag holds until the mutation's txId
+ *  has landed in the pins collection (a failure resets it at once). */
 export function usePinToggle(
   teamId: string | undefined,
   kind: PinKind,
@@ -75,6 +76,9 @@ export function usePinToggle(
     setOptimistic(!synced)
     trpc.pins.toggle
       .mutate({ teamId, kind, targetId })
+      // Clearing on the tRPC answer alone would let `pinned` flicker back to
+      // the stale synced state until the Electric row arrives.
+      .then(({ txId }) => pinCollection.utils.awaitTxId(txId))
       .then(() => setOptimistic(null))
       .catch(() => {
         setOptimistic(null)

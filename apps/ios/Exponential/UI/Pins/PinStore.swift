@@ -65,9 +65,12 @@ final class PinStore {
     }
 
     /// Flip the pin. Optimistic locally (the menu closes on tap, so the
-    /// next open must already read right); the synced row settles it.
+    /// next open must already read right); the synced row settles it. A
+    /// failed call puts the flip back, so the control does not read wrong
+    /// until the next table emission.
     func toggle(_ targetId: String) {
-        if pinnedIds.contains(targetId) {
+        let wasPinned = pinnedIds.contains(targetId)
+        if wasPinned {
             pinnedIds.remove(targetId)
         } else {
             pinnedIds.insert(targetId)
@@ -76,10 +79,21 @@ final class PinStore {
         let accountId = accountId
         let teamId = teamId
         let kind = kind
-        Task {
-            _ = try? await api.toggle(
-                accountId: accountId, teamId: teamId, kind: kind, targetId: targetId
-            )
+        Task { [weak self] in
+            do {
+                _ = try await api.toggle(
+                    accountId: accountId, teamId: teamId, kind: kind, targetId: targetId
+                )
+            } catch {
+                // Non-fatal: restore the pre-tap state (idempotent against a
+                // table emission that landed meanwhile).
+                guard let self else { return }
+                if wasPinned {
+                    self.pinnedIds.insert(targetId)
+                } else {
+                    self.pinnedIds.remove(targetId)
+                }
+            }
         }
     }
 }

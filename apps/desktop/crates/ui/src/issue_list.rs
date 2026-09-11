@@ -1368,10 +1368,14 @@ impl Render for IssueListView {
         self.compact = measured > px(0.) && measured < px(COMPACT_LIST_WIDTH);
         // EXP-827: the bar's threshold depends on which optional controls it
         // renders (same gates as `render_bulk_bar`), so the probe compares
-        // against THIS render's sum.
-        let has_assignee = self
-            .bulk_team_id(cx)
-            .is_some_and(|team_id| queries::team_users(cx, &team_id).len() > 1);
+        // against THIS render's sum. Only while the bar is actually up,
+        // though (EXP-832 rule): with nothing selected the threshold is read
+        // by no one, and `team_users` clones and sorts the whole team on a
+        // path that runs on every list render.
+        let has_assignee = !self.selected.is_empty()
+            && self
+                .bulk_team_id(cx)
+                .is_some_and(|team_id| queries::team_users(cx, &team_id).len() > 1);
         self.bulk_label_min_w = bulk_bar_label_min_width(has_assignee, !self.external_filter);
         self.wide = measured >= self.bulk_label_min_w;
 

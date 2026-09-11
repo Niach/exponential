@@ -58,7 +58,7 @@ use super::image_paste::{
     new_draft_url, pasted_image_parts, read_image_file, validate_image, AttachmentTransport,
     StagedImage,
 };
-use super::parse::markdown_to_blocks;
+use super::parse::{markdown_to_blocks_for, SoftBreakMode};
 use super::serialize::blocks_to_markdown;
 use super::toolbar::{self, LinePrefix};
 use crate::icons::registry;
@@ -1132,7 +1132,11 @@ impl MarkdownEditor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let blocks = markdown_to_blocks(markdown);
+        let blocks = markdown_to_blocks_for(
+            markdown,
+            SoftBreakMode::Space,
+            crate::queries::instance_origin(cx).as_deref(),
+        );
         self.blocks = blocks
             .iter()
             .enumerate()
@@ -2227,7 +2231,13 @@ fn view_widths() -> &'static std::sync::Mutex<HashMap<(gpui::WindowId, SharedStr
 
 impl gpui::RenderOnce for MarkdownView {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let blocks = Rc::new(markdown_to_blocks(&self.source));
+        // EXP-824: absolute attachment links lift into media tiles only on
+        // the active instance's origin.
+        let blocks = Rc::new(markdown_to_blocks_for(
+            &self.source,
+            SoftBreakMode::Space,
+            crate::queries::instance_origin(cx).as_deref(),
+        ));
         let mut children: Vec<gpui::AnyElement> = Vec::new();
         // EXP-233: the width this view painted at on the previous frame (see
         // the long comment below). EXP-726 hoists it above the block loop —

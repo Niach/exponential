@@ -462,6 +462,20 @@ async function lockResolvedLink(
 // Every check READS only, so the connect path runs it on its transaction and
 // the by-name lookup (FEED-30) on the pooled connection; the lock that makes
 // the answer safe to WRITE against is the caller's (assertRepoInstallationAccess).
+//
+// The ONE refusal for "this team can't reach that repo". GitHub's App-JWT
+// lookup answers for EVERY installation of the App, so an id that belongs to
+// another tenant is server-side knowledge only: naming it (or wording the
+// refusal differently from the plain 404) would let a member confirm that a
+// private owner/name exists under someone else's installation. Both branches
+// throw exactly this; the real reason goes to the server log.
+function noRepoAccessError(fullName: string): TRPCError {
+  return new TRPCError({
+    code: `PRECONDITION_FAILED`,
+    message: `The Exponential GitHub App has no access to ${fullName}. Grant it on GitHub (team settings → Repositories → Configure), then try again.`,
+  })
+}
+
 async function resolveRepoInstallation(
   exec: Executor,
   teamId: string,
@@ -489,15 +503,21 @@ async function resolveRepoInstallation(
       (i) => i.installationId === repoInstallationId
     )
     if (!matched) {
+      // A suspended match is one of THIS team's own links, so naming it leaks
+      // nothing the team doesn't already see in its settings.
       const suspendedMatch = healed.find(
         (i) => i.installationId === repoInstallationId && i.suspendedAt != null
       )
-      throw new TRPCError({
-        code: suspendedMatch ? `PRECONDITION_FAILED` : `FORBIDDEN`,
-        message: suspendedMatch
-          ? `GitHub suspended the Exponential app for ${suspendedMatch.accountLogin ?? `installation ${suspendedMatch.installationId}`}, which owns ${fullName}. Unsuspend it on GitHub (team settings → Repositories → Manage), then try again.`
-          : `${fullName} belongs to a GitHub App installation that isn't connected to this team. Connect that GitHub account in team settings → Repositories first.`,
-      })
+      if (suspendedMatch) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `GitHub suspended the Exponential app for ${suspendedMatch.accountLogin ?? `installation ${suspendedMatch.installationId}`}, which owns ${fullName}. Unsuspend it on GitHub (team settings → Repositories → Manage), then try again.`,
+        })
+      }
+      console.warn(
+        `[integrations] ${fullName} resolves to installation ${repoInstallationId}, which team ${teamId} has not linked; refusing with the generic no-access error`
+      )
+      throw noRepoAccessError(fullName)
     }
     // The link alone is installation-granular; the ACTOR's grant (captured
     // user-scoped at OAuth time) proves they can actually access THIS repo.
@@ -520,10 +540,7 @@ async function resolveRepoInstallation(
       return inst
     }
   }
-  throw new TRPCError({
-    code: `PRECONDITION_FAILED`,
-    message: `The Exponential GitHub App has no access to ${fullName}. Grant it on GitHub (team settings → Repositories → Configure), then try again.`,
-  })
+  throw noRepoAccessError(fullName)
 }
 
 // Connect-path authorization (repositories.add / boards.create inline): the

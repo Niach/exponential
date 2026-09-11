@@ -1,3 +1,14 @@
+- Video og lyd i beskrivelser og kommentarer: legg ved et klipp, så spilles det av der, med plakatbilde og lengde; det du laster opp konverteres først til 720p
+- GitHub-kontoer: teaminnstillingene viser hver tilkoblede konto med en «Configure»-lenke, og «Connect another account» åpner GitHubs egen kontovelger, slik at en organisasjon nummer to kan installeres
+- Legg til repository: velgeren sier hvorfor et repository mangler, lenker til GitHub-innstillingene for hver konto og tar et repository på navn
+- Kortere liste over tidligere kjøringer: en avsluttet kjøring viser maskin og tidspunkt, uten agentens navn og grunnen til at den sluttet
+- Prikken for en pågående økt er flyttet til Chat-knappen i bunnlinjen, som nå vises på hver fane; Devices beholder bare varselet om innlogging
+- Feltet navngir alltid maskinen en kjøring starter på, og åpner bare en meny når det finnes mer enn én
+- Banneret om en nådd grense forsvinner av seg selv når nullstillingstidspunktet er passert, og en ren forbruksadvarsel vises aldri som en grense
+- Del en maskin med flere team: enhetsarket har én bryter per team i stedet for ett enkelt valg
+- Detaljer i feltet: «Plan» er en bryter, en valgt sak eller handling fjernes med sitt eget lukkekryss, og bunnlinjen på et board slår sammen chat og ny sak i én kapsel
+- Festing: fest en sak, en økt eller en handling fra menyen dens, så ligger den i «Pinned»-delen øverst i boardvelgeren
+- Kontoer på Devices-siden: én rad per agentkonto med forbruksstolpene sine og en chip per maskin, den samme delen som web og skrivebord har
 - Ett felt for alt: feltet på «Agent»-siden starter alt, med saker eller en handling valgt øverst og maskin, agent, modell og planmodus under; «Start coding»-arket er borte
 - Hver avspillingsknapp fører dit: «Start coding» på en sak, markeringslinjen, «Run» på en handling og «Fix merge conflicts» åpner feltet med det riktige allerede valgt
 - Instruksjoner ved start: det du skriver ved siden av de valgte sakene eller handlingen, når kjøringen som ekstra instruksjoner; i en chat er det prompten
@@ -7,16 +18,3 @@
 - Svar inne i kortet: en plan eller et spørsmål svarer du på i selve kortet, med et felt i kortet når du heller vil skrive enn å velge; styrefeltet trekker seg unna så lenge
 - Agentmeldinger: en agent kan sende teamet ditt et varsel via MCP; det kommer som push og som sin egen rad i Inbox
 - Grenser som henger sammen: en forbruksadvarsel merker ikke lenger en kjøring som begrenset, og ved en ekte grense beskriver vinduet og nullstillingstidspunktet det samme
-- Begrenset, ikke fastlåst: når en agent bruker opp kvoten midt i en kjøring, merkes økten som begrenset med tidspunktet for tilbakestilling, og den forblir aktiv og styrbar i stedet for å bli stille
-- Styringsfelt: øktfeltet tar @ for lagkamerater, # for saker og : for emoji, de samme tre som kommentarfeltet allerede hadde
-- Redigeringer inline: en redigerings diff vises under raden sin i utskriften, sammenslått til du trykker på den
-- Verktøygrupper som sier hva som skjedde: en sammenslått rekke verktøykall leses som «Kjørte 4 kommandoer, redigerte 2 filer, 1 mislyktes» i stedet for å telle kall
-- En utsiktsløs start avvises: start på en maskin der agenten allerede er tom for kvote sier fra og oppgir tidspunktet for tilbakestilling
-- Forbruksstolper for en ekstra agentkonto på samme maskin
-- Agentvelger: når en agent ikke er klar på en enhet, sier velgeren det og blokkerer starten til du kjører doctor der
-- Styringsstrøm: saksidentifikatorer som #EXP-12 blir til chips du kan trykke på, og agentkommandoer vises som kommandomerker
-- Relasjoner mellom saker: knytt saker som overordnet, undersak, blokkerer, blokkert av, duplikat eller relatert fra egenskapsarket; skriver du #EXP-12 i en beskrivelse eller kommentar, knyttes de to sakene sammen av seg selv
-- Kommentartråder: svar under en kommentar fra det forankrede skrivefeltet; tråder går bare ett nivå ned, og en kommentar en agent har lagt inn via MCP sier det i toppteksten sin
-- En veiledet første gang: å opprette et team tar deg gjennom den første tavlen, invitasjoner til lagkamerater og oppsett av enheter, i samme rekkefølge som på web og desktop
-- Merge fra handlings- og chatkjøringer: en kjøring som har åpnet en pull request viser «Merge» i styringsvisningen sin, og Reviews lister de pull requestene under «Agent runs»
-- Øktene blir på maskinen din: utskrifter lagres på enheten som kjørte dem, aldri på serveren; tidligere kjøringer åpnes fra Devices, Chat og Automations og hentes fra den enheten når den er på nett

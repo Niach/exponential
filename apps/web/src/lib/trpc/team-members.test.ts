@@ -116,7 +116,13 @@ vi.mock(`@/lib/coding-session-kill`, () => ({
 import { teamMembersRouter } from "@/lib/trpc/team-members"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { endForeignHostedSessions } from "@/lib/coding-session-kill"
-import { devices, issues, issueSubscribers, teamMembers } from "@/db/schema"
+import {
+  devices,
+  issues,
+  issueSubscribers,
+  pins,
+  teamMembers,
+} from "@/db/schema"
 
 const MEMBER_ID = `22222222-2222-4222-8222-222222222222`
 const WS = `11111111-1111-4111-8111-111111111111`
@@ -161,9 +167,12 @@ describe(`teamMembers.remove — offboarding cleanup (REV-8)`, () => {
     const result = await callerFor(`user-a`).remove({ memberId: MEMBER_ID })
 
     expect(result).toEqual({ ok: true })
-    expect(deletes).toHaveLength(2)
+    expect(deletes).toHaveLength(3)
     expect(deletes[0]!.table).toBe(teamMembers)
     expect(deletes[1]!.table).toBe(issueSubscribers)
+    // EXP-778: and their pins in that team — the per-user pins shape would
+    // otherwise keep streaming target-less rows to the ex-member.
+    expect(deletes[2]!.table).toBe(pins)
     // REV2-28: their assignments in that team are cleared too.
     // EXP-481: and their device shares with this team — the synced devices
     // shape scopes on shared_team_id single-table and cannot re-check
@@ -198,9 +207,10 @@ describe(`teamMembers.remove — offboarding cleanup (REV-8)`, () => {
     await callerFor(`user-b`).remove({ memberId: MEMBER_ID })
 
     expect(assertTeamMember).not.toHaveBeenCalled()
-    expect(deletes).toHaveLength(2)
+    expect(deletes).toHaveLength(3)
     expect(deletes[0]!.table).toBe(teamMembers)
     expect(deletes[1]!.table).toBe(issueSubscribers)
+    expect(deletes[2]!.table).toBe(pins)
     expect(updates).toEqual([
       { table: issues, values: { assigneeId: null } },
       {

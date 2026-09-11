@@ -1237,6 +1237,62 @@ describe(`assertRepoInstallationAccess link lock (EXP-371)`, () => {
   })
 })
 
+// The App-JWT per-repo lookup answers for EVERY installation of the App, so a
+// repo living under another tenant's installation used to come back as a
+// distinct "isn't connected to this team" FORBIDDEN, while a plain 404 said
+// "has no access". That difference was an existence oracle for private
+// owner/name pairs. Both paths must now be indistinguishable from the caller's
+// side; the real reason only reaches the server log.
+describe(`resolveRepoInstallation refusals are not an existence oracle`, () => {
+  const NO_ACCESS = /The Exponential GitHub App has no access to acme\/repo/
+
+  async function refusal(): Promise<{ code: string; message: string }> {
+    try {
+      await assertRepoInstallationAccess(
+        tx,
+        freshTeamId(),
+        `user-connect`,
+        `acme/repo`
+      )
+    } catch (err) {
+      const e = err as TRPCError
+      return { code: e.code, message: e.message }
+    }
+    throw new Error(`expected the connect to be refused`)
+  }
+
+  it(`refuses a repo under an UNLINKED installation with the generic no-access error`, async () => {
+    const warn = vi.spyOn(console, `warn`).mockImplementation(() => {})
+    // Linked: installation 1 (DEFAULT_ROWS). GitHub attributes the repo to 777.
+    installationIdForRepo.mockResolvedValueOnce(777)
+
+    const err = await refusal()
+
+    expect(err.code).toBe(`PRECONDITION_FAILED`)
+    expect(err.message).toMatch(NO_ACCESS)
+    expect(err.message).not.toMatch(/connected to this team|777/)
+    // The real reason is still diagnosable server-side.
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(`installation 777`))
+    warn.mockRestore()
+  })
+
+  it(`the unlinked-installation and the 404 branch throw the identical code + message`, async () => {
+    const warn = vi.spyOn(console, `warn`).mockImplementation(() => {})
+    installationIdForRepo.mockResolvedValueOnce(777)
+    const unlinked = await refusal()
+
+    // GitHub 404s the per-repo lookup and the fallback scan finds nothing.
+    installationIdForRepo.mockResolvedValueOnce(null)
+    listAllInstallationRepos.mockResolvedValueOnce({ repos: [], hasMore: false })
+    const notFound = await refusal()
+
+    expect(notFound.code).toBe(`PRECONDITION_FAILED`)
+    expect(notFound.message).toMatch(NO_ACCESS)
+    expect(unlinked).toEqual(notFound)
+    warn.mockRestore()
+  })
+})
+
 // REV2-29: a GitHub suspension no longer destroys the team's claim link — the
 // `suspend` webhook marks `github_installations.suspended_at` instead. The
 // router turns that mark into an INERT-but-recoverable installation: it lists

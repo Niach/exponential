@@ -111,6 +111,7 @@ vi.mock(`@/lib/integrations/github-app`, () => ({
 
 import * as prSync from "@/lib/integrations/pr-sync"
 import { resolveAppUserForGithubActor } from "@/lib/integrations/github-identity"
+import { resolveRepoDefaultBranchCached } from "@/lib/integrations/github-app"
 import * as integrations from "@/lib/trpc/integrations"
 import {
   githubInstallationRepoGrants,
@@ -709,6 +710,8 @@ describe(`github webhook — installation_repositories heal scoping`, () => {
         grantedByUserId: `user-1`,
       },
     ])
+    // One GitHub read per ADDED REPO, not per team × repo.
+    expect(resolveRepoDefaultBranchCached).toHaveBeenCalledTimes(2)
   })
 
   it(`added writes nothing for a sender who never connected a GitHub account here`, async () => {
@@ -725,6 +728,67 @@ describe(`github webhook — installation_repositories heal scoping`, () => {
 
     expect(res.status).toBe(200)
     expect(grantInserts()).toHaveLength(0)
+  })
+
+  it(`added skips the default-branch fetch when the sender belongs to no linked team`, async () => {
+    vi.mocked(resolveAppUserForGithubActor).mockResolvedValue(`user-1`)
+    getTeamMember.mockResolvedValueOnce(undefined as never)
+    h.selectQueue.push([])
+    h.selectQueue.push([{ teamId: `team-a` }])
+
+    const res = await postHandler({
+      request: webhookRequest(
+        `installation_repositories`,
+        addedPayload([
+          { full_name: `acme/app`, private: true },
+          { full_name: `acme/site`, private: false },
+        ])
+      ),
+    })
+
+    expect(res.status).toBe(200)
+    expect(getTeamMember).toHaveBeenCalledWith(`user-1`, `team-a`)
+    // Membership is decided BEFORE any GitHub call: a non-member sender costs
+    // nothing per repo and gets no rows.
+    expect(resolveRepoDefaultBranchCached).not.toHaveBeenCalled()
+    expect(grantInserts()).toHaveLength(0)
+  })
+
+  it(`a failing grant insert neither fails the delivery nor skips the cache invalidation`, async () => {
+    vi.mocked(resolveAppUserForGithubActor).mockResolvedValue(`user-1`)
+    getTeamMember.mockResolvedValueOnce({ role: `member` })
+    h.selectQueue.push([])
+    h.selectQueue.push([{ teamId: `team-a` }])
+    // Fail the GRANT insert specifically: the installation mirror upsert runs
+    // before the guarded block, and breaking that one would prove nothing.
+    const realInsert = h.fakeDb.insert.getMockImplementation()!
+    h.fakeDb.insert.mockImplementation((table: unknown) => {
+      if (table === githubInstallationRepoGrants) {
+        throw new Error(`grant insert failed`)
+      }
+      return realInsert(table)
+    })
+    const error = vi.spyOn(console, `error`).mockImplementation(() => {})
+
+    const res = await postHandler({
+      request: webhookRequest(
+        `installation_repositories`,
+        addedPayload([{ full_name: `acme/app`, private: true }])
+      ),
+    })
+
+    // Best-effort means GitHub still sees success (no retry storm) and the
+    // repo-listing cache is invalidated exactly as on the happy path.
+    expect(res.status).toBe(200)
+    expect(
+      vi.mocked(integrations.invalidateRepoCacheForInstallation)
+    ).toHaveBeenCalledWith(INSTALLATION_ID)
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining(`grant sync for installation ${INSTALLATION_ID}`),
+      expect.any(Error)
+    )
+    error.mockRestore()
+    h.fakeDb.insert.mockImplementation(realInsert)
   })
 
   it(`removed deletes the grant rows for those repos on this installation`, async () => {

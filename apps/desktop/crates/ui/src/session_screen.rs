@@ -367,7 +367,13 @@ impl SessionScreenView {
         });
         // The transcript notifies on every feed change — which is also when
         // the header's usage and status move.
-        let subscription = cx.observe(&inner, |_: &mut Self, _, cx| cx.notify());
+        let mut subscriptions = vec![cx.observe(&inner, |_: &mut Self, _, cx| cx.notify())];
+        // EXP-778: the header's pin toggle reads the per-user pins rows, which
+        // move on no other feed this screen watches.
+        if let Some(store) = sync::Store::try_global(cx) {
+            let pins = store.collections().pins.clone();
+            subscriptions.push(cx.observe(&pins, |_: &mut Self, _, cx| cx.notify()));
+        }
         let own_device_id = crate::queries::own_device_id(cx);
         Self {
             session_id,
@@ -377,7 +383,7 @@ impl SessionScreenView {
             resumable: None,
             own_device_id,
             focus_handle: cx.focus_handle(),
-            _subscriptions: vec![subscription],
+            _subscriptions: subscriptions,
         }
     }
 

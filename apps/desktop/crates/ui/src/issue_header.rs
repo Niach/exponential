@@ -124,6 +124,8 @@ impl IssueHeader {
             cx.observe(&collections.devices, |_, _, cx| cx.notify()),
             // EXP-314: a status rename/recolor re-renders the status control.
             cx.observe(&collections.issue_statuses, |_, _, cx| cx.notify()),
+            // EXP-778: the pin toggle's glyph reads the per-user pins rows.
+            cx.observe(&collections.pins, |_, _, cx| cx.notify()),
             cx.observe(&local_sessions, |_, _, cx| cx.notify()),
             // EXP-325: the Merge button's arm/spinner/error live in the
             // shared app-global merge state (any surface can drive them).

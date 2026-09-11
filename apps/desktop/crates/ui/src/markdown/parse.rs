@@ -54,6 +54,21 @@ pub fn markdown_to_blocks(markdown: &str) -> Vec<ContentBlock> {
 /// [`markdown_to_blocks`] with an explicit [`SoftBreakMode`] — only the
 /// editor's save path passes [`SoftBreakMode::ParagraphBreak`].
 pub fn markdown_to_blocks_with(markdown: &str, soft_breaks: SoftBreakMode) -> Vec<ContentBlock> {
+    markdown_to_blocks_for(markdown, soft_breaks, None)
+}
+
+/// [`markdown_to_blocks_with`] plus the instance `origin` an ABSOLUTE
+/// attachment link is checked against before it lifts into an
+/// [`ContentBlock::AttachmentLink`] (EXP-824; see
+/// [`image_url::is_own_attachment_src`]). Render paths pass the active
+/// account's instance URL; `None` lifts only the relative form. The choice
+/// never changes the serialized bytes — a standalone link block and a
+/// one-link paragraph write the same `[label](url)`.
+pub fn markdown_to_blocks_for(
+    markdown: &str,
+    soft_breaks: SoftBreakMode,
+    origin: Option<&str>,
+) -> Vec<ContentBlock> {
     if markdown.trim().is_empty() {
         let mut blocks = vec![ContentBlock::text(RichText::empty())];
         normalize_blocks(&mut blocks);
@@ -71,6 +86,7 @@ pub fn markdown_to_blocks_with(markdown: &str, soft_breaks: SoftBreakMode) -> Ve
     let mut collector = BlockCollector::default();
     let mut ctx = RenderContext {
         soft_breaks,
+        origin: origin.map(str::to_string),
         ..RenderContext::default()
     };
     render_children(doc, &mut collector, &mut ctx);
@@ -124,6 +140,9 @@ struct RenderContext {
     /// stay literal `![alt](url)` text and every break collapses to a space,
     /// because neither has a spelling inside a GFM pipe cell.
     in_table_cell: bool,
+    /// EXP-824: the instance origin an absolute attachment link must sit on
+    /// to lift into a media block (`None` = relative links only).
+    origin: Option<String>,
 }
 
 #[derive(Default)]
@@ -336,7 +355,9 @@ fn visit<'a>(node: &'a AstNode<'a>, collector: &mut BlockCollector, ctx: &mut Re
                 && !ctx.in_table_cell
                 && ctx.pending_item_attrs.is_none()
             {
-                if let Some((url, label)) = standalone_attachment_link(node) {
+                if let Some((url, label)) =
+                    standalone_attachment_link(node, ctx.origin.as_deref())
+                {
                     collector.emit_attachment_link(url, label);
                     return;
                 }
@@ -664,10 +685,14 @@ fn task_item_state<'a>(item: &'a AstNode<'a>) -> (bool, bool) {
 }
 
 /// EXP-824: `(url, label)` when `paragraph` consists of exactly one `Link`
-/// whose destination is an attachment URL and whose content is exactly one
-/// plain text literal (no nested marks, no title) — anything richer would not
-/// re-serialize byte-identically from `[label](url)`, so it stays inline.
-fn standalone_attachment_link<'a>(paragraph: &'a AstNode<'a>) -> Option<(String, String)> {
+/// whose destination is one of OUR attachment URLs (relative, or absolute on
+/// `origin`) and whose content is exactly one plain text literal (no nested
+/// marks, no title) — anything richer would not re-serialize byte-identically
+/// from `[label](url)`, so it stays inline.
+fn standalone_attachment_link<'a>(
+    paragraph: &'a AstNode<'a>,
+    origin: Option<&str>,
+) -> Option<(String, String)> {
     let mut children = paragraph.children();
     let link = children.next()?;
     if children.next().is_some() {
@@ -680,7 +705,9 @@ fn standalone_attachment_link<'a>(paragraph: &'a AstNode<'a>) -> Option<(String,
     if !link_value.title.is_empty() {
         return None;
     }
-    image_url::attachment_id_from_src(&link_value.url)?;
+    if !image_url::is_own_attachment_src(&link_value.url, origin) {
+        return None;
+    }
     let mut link_children = link.children();
     let text = link_children.next()?;
     if link_children.next().is_some() {
@@ -715,6 +742,34 @@ mod tests {
             ContentBlock::Text { content, .. } => content,
             other => panic!("expected text block at {i}, got {other:?}"),
         }
+    }
+
+    /// EXP-824: an absolute attachment link lifts into a media block only on
+    /// the instance origin; a foreign host's `/api/attachments/…` path (or
+    /// an absolute link with no origin known) stays an inline link.
+    #[test]
+    fn absolute_attachment_links_lift_only_on_the_instance_origin() {
+        let is_block = |md: &str, origin: Option<&str>| {
+            markdown_to_blocks_for(md, SoftBreakMode::Space, origin)
+                .iter()
+                .any(|block| matches!(block, ContentBlock::AttachmentLink { .. }))
+        };
+        let origin = Some("https://app.exponential.at");
+        assert!(is_block("[clip.mp4](/api/attachments/abc)", origin));
+        assert!(is_block("[clip.mp4](/api/attachments/abc)", None));
+        assert!(is_block(
+            "[clip.mp4](https://app.exponential.at/api/attachments/abc?w=480)",
+            origin
+        ));
+        assert!(!is_block(
+            "[clip.mp4](https://other-host.example/api/attachments/abc)",
+            origin
+        ));
+        assert!(!is_block(
+            "[clip.mp4](https://app.exponential.at/api/attachments/abc)",
+            None
+        ));
+        assert!(!is_block("[clip.mp4](//app.exponential.at/api/attachments/abc)", origin));
     }
 
     #[test]

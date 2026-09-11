@@ -101,15 +101,23 @@ export const pinsRouter = router({
           .select({ max: sql<number>`coalesce(max(${pins.sortOrder}), 0)` })
           .from(pins)
           .where(eq(pins.userId, userId))
-        await tx.insert(pins).values({
-          userId,
-          teamId: input.teamId,
-          kind: input.kind,
-          issueId: input.kind === `issue` ? input.targetId : null,
-          sessionId: input.kind === `session` ? input.targetId : null,
-          actionId: input.kind === `action` ? input.targetId : null,
-          sortOrder: Number(tail?.max ?? 0) + 1,
-        })
+        await tx
+          .insert(pins)
+          .values({
+            userId,
+            teamId: input.teamId,
+            kind: input.kind,
+            issueId: input.kind === `issue` ? input.targetId : null,
+            sessionId: input.kind === `session` ? input.targetId : null,
+            actionId: input.kind === `action` ? input.targetId : null,
+            sortOrder: Number(tail?.max ?? 0) + 1,
+          })
+          // A double tap races two toggles: both find no row, both insert,
+          // and the loser would trip the partial unique index
+          // (uniq_pins_user_{issue,session,action}) as a 500. A bare
+          // ON CONFLICT DO NOTHING covers partial indexes too; either way
+          // the target ends up pinned, which is what the caller asked for.
+          .onConflictDoNothing()
         return { txId, pinned: true }
       })
     }),

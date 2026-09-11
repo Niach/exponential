@@ -512,7 +512,19 @@ fn spawn_tickers(
                 }
                 needs_input.tick(ctx.needs_input.load(Ordering::SeqCst), &hook);
                 {
-                    let wall = ctx.blocked.lock().ok().and_then(|wall| wall.clone());
+                    // EXP-831 follow-up: a wall whose own reset stamp has
+                    // passed is dropped here, so the synced row agrees with
+                    // the banner rule every client already applies. An idle
+                    // walled run would otherwise keep saying "Rate limited"
+                    // in every list long after its window reopened.
+                    let wall = ctx
+                        .blocked
+                        .lock()
+                        .ok()
+                        .and_then(|wall| wall.clone())
+                        .filter(|wall| {
+                            !steer::blocked_wall_expired(wall, steer::now_unix_millis())
+                        });
                     blocked.tick(wall.as_ref(), &blocked_hook);
                 }
                 tick_stall(&ctx, &mut stall, &commands);

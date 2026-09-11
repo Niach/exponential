@@ -391,15 +391,26 @@ export async function visibleDeviceRows(
 
 /** FEED-33: the share set after a `devices.setShared` call — sorted + deduped
  * (the array is shape data, so a stable order keeps a no-op write a no-op).
- * Toggle form (`shared` present): one team in or out. Legacy form: the whole
- * set becomes `[teamId]`, or empty for `null`. */
+ * Toggle form (`shared` present): one team in or out. Legacy form (no
+ * `shared`): `teamId` ADDS that team to the set, `null` clears it.
+ *
+ * FEED-33 compat: the legacy form used to REPLACE the set with `[teamId]`.
+ * A pre-FEED-33 client (desktop/CLI <= 0.14.36, iOS <= 0.14.29, Android
+ * <= 0.14.31) reads only the single `sharedTeamId` alias, so it renders a
+ * box shared with A and C as unshared; its "share with B" then silently
+ * revoked A and C, and the revoke fan-out below ended their teammates' live
+ * runs on that machine. Additive keeps every existing share; the explicit
+ * `null` stays the one way to clear. Restore the replace (or drop the
+ * legacy form) once CLIENT_MIN_VERSION_IOS >= 0.14.30 AND
+ * CLIENT_MIN_VERSION_ANDROID >= 0.14.32 AND CLIENT_MIN_VERSION_DESKTOP
+ * (CLI) >= 0.14.37; registered in lib/api-conventions.ts. */
 export function nextSharedTeamIds(
   current: readonly string[],
   input: { teamId: string | null; shared?: boolean }
 ): string[] {
   let next: string[]
   if (input.shared === undefined) {
-    next = input.teamId ? [input.teamId] : []
+    next = input.teamId ? [...current, input.teamId] : []
   } else if (input.shared) {
     next = input.teamId ? [...current, input.teamId] : [...current]
   } else {
@@ -1180,8 +1191,9 @@ export const devicesRouter = router({
   // `resolveStartAttribution`). FEED-33: the share is a SET of teams. The
   // toggle form (`shared` present) moves ONE team in or out of it — what
   // every client's per-team switch sends; the legacy form (no `shared`)
-  // replaces the whole set with `[teamId]` or clears it (`null`), so a
-  // pre-FEED-33 client keeps working as a single-team picker.
+  // ADDS `teamId` to the set or clears it (`null`), so a pre-FEED-33
+  // single-team picker never revokes shares it cannot see (FEED-33 compat
+  // in `nextSharedTeamIds`, floor named there).
   setShared: authedProcedure
     .input(
       z

@@ -62,11 +62,31 @@ function isWhitespaceText(node: ChildNode) {
 }
 
 /**
+ * Whether a link href names one of OUR attachments: the relative
+ * `/api/attachments/{id}` form, or an absolute URL on the app's own origin.
+ * A foreign host's `/api/attachments/…` path is never ours (the server and
+ * iOS apply the same rule), so a pasted link to it stays a plain link
+ * instead of becoming a media block that can never resolve.
+ */
+export function isOwnAttachmentHref(href: string, origin: string): boolean {
+  if (!attachmentIdFromSrc(href)) return false
+  try {
+    return new URL(href, origin).origin === new URL(origin).origin
+  } catch {
+    return false
+  }
+}
+
+/**
  * Lifts every standalone attachment link paragraph into the media node's
  * DOM form. Exported for the round-trip test; runs inside tiptap-markdown's
  * parse pipeline on every setContent/paste.
  */
-export function liftStandaloneAttachmentLinks(root: HTMLElement) {
+export function liftStandaloneAttachmentLinks(
+  root: HTMLElement,
+  origin: string = root.ownerDocument.defaultView?.location.origin ??
+    window.location.origin
+) {
   root.querySelectorAll(`p`).forEach((paragraph) => {
     // Nested containers (list items, quotes, table cells) keep their links —
     // a block player has no sane place inside them.
@@ -80,7 +100,7 @@ export function liftStandaloneAttachmentLinks(root: HTMLElement) {
     // Plain-text label only: `[![img](…)](…)` and `[`code`](…)` stay links.
     if (anchor.childElementCount > 0) return
     const href = anchor.getAttribute(`href`) ?? ``
-    if (!attachmentIdFromSrc(href)) return
+    if (!isOwnAttachmentHref(href, origin)) return
     const block = paragraph.ownerDocument.createElement(`div`)
     block.setAttribute(`data-media-link`, ``)
     block.setAttribute(`data-src`, href)

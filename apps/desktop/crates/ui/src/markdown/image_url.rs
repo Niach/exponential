@@ -30,6 +30,50 @@ pub(crate) fn attachment_id_from_src(src: &str) -> Option<&str> {
     Some(&rest[..end])
 }
 
+/// EXP-824 media-lift gate (web `isOwnAttachmentHref`, iOS
+/// `AttachmentLinks.attachmentId(fromUrl:baseURL:)`): does `src` name one of
+/// OUR attachments — the relative `/api/attachments/{id}` form, or an
+/// absolute URL on `origin` (the active account's instance URL)? A foreign
+/// host's `/api/attachments/…` path is never ours, so a pasted link to it
+/// stays a plain link instead of a media tile that can never resolve. With
+/// no known origin, only the relative form passes.
+pub(crate) fn is_own_attachment_src(src: &str, origin: Option<&str>) -> bool {
+    if attachment_id_from_src(src).is_none() {
+        return false;
+    }
+    let Some((scheme, authority, path)) = split_absolute_url(src) else {
+        // No scheme: relative. `//host/…` (scheme-relative) and `x/api/…`
+        // both fail this prefix test, as they should.
+        return src.starts_with("/api/attachments/");
+    };
+    let Some(origin) = origin else {
+        return false;
+    };
+    let Some((origin_scheme, origin_authority, _)) = split_absolute_url(origin) else {
+        return false;
+    };
+    scheme.eq_ignore_ascii_case(origin_scheme)
+        && authority.eq_ignore_ascii_case(origin_authority)
+        && path.starts_with("/api/attachments/")
+}
+
+/// `(scheme, authority, path-and-after)` of an absolute URL, `None` when
+/// `url` carries no `scheme://` prefix.
+fn split_absolute_url(url: &str) -> Option<(&str, &str, &str)> {
+    let colon = url.find("://")?;
+    let scheme = &url[..colon];
+    let mut chars = scheme.chars();
+    let first = chars.next()?;
+    if !first.is_ascii_alphabetic()
+        || !chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'))
+    {
+        return None;
+    }
+    let rest = &url[colon + 3..];
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    Some((scheme, &rest[..end], &rest[end..]))
+}
+
 /// The `?w=<int>` display width (web `widthParamFromSrc`): a positive integer
 /// `w` query param, else `None`.
 pub(crate) fn width_param_from_src(src: &str) -> Option<f32> {
@@ -86,6 +130,42 @@ mod tests {
         assert_eq!(attachment_id_from_src("/api/attachments/"), None);
         assert_eq!(attachment_id_from_src("draft://xyz"), None);
         assert_eq!(attachment_id_from_src("https://elsewhere.example/x.png"), None);
+    }
+
+    /// EXP-824: the media LIFT is stricter than the id parse — only the
+    /// relative form or an absolute URL on the instance origin is ours.
+    #[test]
+    fn own_attachment_src_requires_relative_or_same_origin() {
+        let origin = Some("https://app.exponential.at");
+        assert!(is_own_attachment_src("/api/attachments/abc", origin));
+        assert!(is_own_attachment_src("/api/attachments/abc?w=480", origin));
+        assert!(is_own_attachment_src("/api/attachments/abc", None));
+        assert!(is_own_attachment_src(
+            "https://app.exponential.at/api/attachments/abc?w=480",
+            origin
+        ));
+        assert!(is_own_attachment_src(
+            "HTTPS://App.Exponential.at/api/attachments/abc",
+            Some("https://app.exponential.at/")
+        ));
+        // Foreign host, scheme mismatch, scheme-relative, unknown origin.
+        assert!(!is_own_attachment_src(
+            "https://other-host.example/api/attachments/abc",
+            origin
+        ));
+        assert!(!is_own_attachment_src(
+            "http://app.exponential.at/api/attachments/abc",
+            origin
+        ));
+        assert!(!is_own_attachment_src("//app.exponential.at/api/attachments/abc", origin));
+        assert!(!is_own_attachment_src(
+            "https://app.exponential.at/api/attachments/abc",
+            None
+        ));
+        // Not an attachment path at all, or not at the path root.
+        assert!(!is_own_attachment_src("https://app.exponential.at/x.png", origin));
+        assert!(!is_own_attachment_src("proxy/api/attachments/abc", origin));
+        assert!(!is_own_attachment_src("draft://abc", origin));
     }
 
     #[test]

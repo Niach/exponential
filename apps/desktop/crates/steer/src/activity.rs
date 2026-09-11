@@ -908,6 +908,35 @@ pub struct SessionBlocked {
     pub since: String,
 }
 
+/// EXP-831 (release-review follow-up): whether a wall's own reset stamp has
+/// passed, by the SAME rule every client's banner uses
+/// ([`crate::frames::rate_limit_expired`], mirrored x4). The banner hides
+/// itself once `resetsAt` is more than a minute old, but the synced row was
+/// forwarded verbatim for as long as the agent stayed idle, so a session that
+/// showed no banner still read "Rate limited" in every list and on both
+/// phones. The ticker drops an expired wall instead of forwarding it.
+///
+/// A wall with no reset stamp never expires by the clock: only the agent's
+/// next allowed call can clear that one. An unparseable stamp is treated the
+/// same way, never as "expired".
+pub fn blocked_wall_expired(wall: &SessionBlocked, now_ms: i64) -> bool {
+    let Some(resets_at) = wall.resets_at.as_deref() else {
+        return false;
+    };
+    match coding::agent_accounts::unix_millis_from_iso(resets_at) {
+        Some(at) => crate::frames::rate_limit_expired(Some(at), now_ms),
+        None => false,
+    }
+}
+
+/// The wall clock the expiry rule above compares against (unix ms).
+pub fn now_unix_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_millis() as i64)
+        .unwrap_or_default()
+}
+
 /// The EXP-804 synced usage wall, tracked exactly like [`NeedsInputForwarder`]
 /// tracks its flag: the last CONFIRMED server value, `None` on a write that
 /// failed and wants a retry. Forwarded on CHANGES only, so a run that sits
@@ -1021,6 +1050,34 @@ mod blocked_tests {
             resets_at: resets_at.map(str::to_string),
             since: "2026-09-09T11:30:00.000Z".to_string(),
         }
+    }
+
+    #[test]
+    fn a_wall_expires_by_its_own_reset_stamp_like_every_banner() {
+        // The ×4 banner rule (`rate_limit_expired`) with the same grace, so
+        // the synced row and the session view never disagree: a run walled
+        // until 12:00 still reads blocked at 12:00:30 and stops at 12:01:30.
+        let resets_at = "2026-09-09T12:00:00.000Z";
+        let at = coding::agent_accounts::unix_millis_from_iso(resets_at).expect("parses");
+        assert!(!blocked_wall_expired(&wall(Some(resets_at)), at - 1));
+        assert!(!blocked_wall_expired(
+            &wall(Some(resets_at)),
+            at + crate::frames::RATE_LIMIT_EXPIRY_GRACE_MS
+        ));
+        assert!(blocked_wall_expired(
+            &wall(Some(resets_at)),
+            at + crate::frames::RATE_LIMIT_EXPIRY_GRACE_MS + 1
+        ));
+    }
+
+    #[test]
+    fn a_wall_without_a_usable_reset_stamp_never_expires_by_the_clock() {
+        // Only the agent's next allowed call clears these two; guessing an
+        // expiry would hide a wall that is still up.
+        let now = coding::agent_accounts::unix_millis_from_iso("2030-01-01T00:00:00.000Z")
+            .expect("parses");
+        assert!(!blocked_wall_expired(&wall(None), now));
+        assert!(!blocked_wall_expired(&wall(Some("soon")), now));
     }
 
     #[test]

@@ -1,3 +1,14 @@
+- Vidéo et audio dans les descriptions et les commentaires : joignez un clip et il se lit sur place, avec une image d'aperçu et sa durée ; ce que vous envoyez est d'abord converti en 720p
+- Comptes GitHub : les réglages de l'équipe listent chaque compte connecté avec un lien « Configure », et « Connect another account » ouvre le sélecteur de compte de GitHub, ce qui permet d'installer une deuxième organisation
+- Ajouter un dépôt : le sélecteur explique pourquoi un dépôt manque, renvoie vers les réglages GitHub de chaque compte et accepte un dépôt par son nom
+- Liste des exécutions passées plus courte : une exécution terminée affiche la machine et l'heure, sans le nom de l'agent ni la raison de la fin
+- Le point d'une session en cours est passé sur le bouton Chat de la barre du bas, présent désormais sur chaque onglet ; Devices ne garde que l'alerte de connexion
+- Le champ nomme toujours la machine sur laquelle une exécution démarrera, et n'ouvre un menu que s'il y en a plusieurs
+- La bannière de limite disparaît d'elle-même une fois l'heure de réinitialisation passée, et un simple avertissement de quota ne s'affiche jamais comme une limite
+- Partagez une machine avec plusieurs équipes : la feuille de l'appareil a un interrupteur par équipe au lieu d'un choix unique
+- Détails du champ : « Plan » est un interrupteur, une issue ou une action choisie se retire avec son propre bouton de fermeture, et la barre du bas d'un board réunit chat et nouvelle issue en une seule capsule
+- Épingles : épinglez une issue, une session ou une action depuis son menu, elle apparaît dans la section « Pinned » en haut du sélecteur de boards
+- Comptes sur la page « Devices » : une ligne par compte d'agent avec ses barres de quota et une puce par machine, la même section que sur le web et le bureau
 - Un seul champ pour tout : le champ de la page « Agent » lance tout, avec les issues ou une action choisies en haut et l'appareil, l'agent, le modèle et le mode plan en dessous ; la feuille « Start coding » disparaît
 - Chaque bouton de lecture y mène : « Start coding » sur une issue, la barre de sélection multiple, « Run » d'une action et « Fix merge conflicts » ouvrent le champ avec la bonne sélection déjà faite
 - Des instructions au démarrage : ce que vous tapez à côté des issues ou de l'action choisies arrive à l'exécution comme instructions supplémentaires ; pour un chat, c'est le prompt
@@ -7,16 +18,3 @@
 - Répondre dans la carte : un plan ou une question se répond dans sa propre carte, avec un champ intégré quand vous préférez écrire plutôt que choisir ; le champ de pilotage s'efface le temps de la carte
 - Messages d'agent : un agent peut envoyer une notification à votre équipe via MCP ; elle arrive en notification push et comme sa propre ligne dans l'Inbox
 - Des limites cohérentes : un avertissement de quota ne marque plus une exécution comme limitée, et pour une vraie limite, la fenêtre et l'heure de réinitialisation décrivent la même chose
-- Limité, pas bloqué : quand un agent épuise son quota en cours d'exécution, la session est marquée comme limitée avec l'heure de réinitialisation, et reste active et pilotable au lieu de se taire
-- Champ de pilotage : le champ de session accepte @ pour les coéquipiers, # pour les tickets et : pour les emoji, les trois mêmes que la zone de commentaire
-- Modifications en ligne : le diff d'une modification s'affiche sous sa ligne dans la transcription, replié jusqu'à ce que vous le touchiez
-- Des groupes d'outils qui disent ce qui s'est passé : une suite repliée d'appels d'outils se lit « 4 commandes exécutées, 2 fichiers modifiés, 1 échec » au lieu d'un simple compte
-- Un démarrage voué à l'échec est refusé : démarrer sur une machine dont l'agent n'a plus de quota le signale et indique l'heure de réinitialisation
-- Barres de consommation pour un second compte d'agent sur la même machine
-- Choix de l'agent : quand un agent n'est pas prêt sur un appareil, le sélecteur le dit et bloque le démarrage tant que vous n'y avez pas lancé le doctor
-- Flux de pilotage : les identifiants d'issues comme #EXP-12 deviennent des chips sur lesquelles vous pouvez appuyer, et les commandes de l'agent s'affichent comme des badges de commande
-- Relations entre issues : liez des issues comme parent, sous-issue, bloque, bloquée par, doublon ou liée depuis la feuille de propriétés ; taper #EXP-12 dans une description ou un commentaire lie les deux issues tout seul
-- Commentaires en fil : répondez sous un commentaire depuis le champ ancré ; les fils restent sur un seul niveau, et un commentaire posté par un agent via MCP l'indique dans son en-tête
-- Un premier lancement guidé : créer une équipe vous fait passer par le premier board, les invitations de coéquipiers et la configuration des appareils, dans le même ordre que sur le web et le bureau
-- Merge depuis les exécutions d'actions et de chat : une exécution qui a ouvert une pull request affiche « Merge » dans sa vue de pilotage, et Reviews liste ces pull requests sous « Agent runs »
-- Les sessions restent sur votre machine : les transcriptions sont stockées sur l'appareil qui les a exécutées, jamais sur le serveur ; les exécutions passées s'ouvrent depuis Devices, Chat et Automations et sont récupérées depuis cet appareil quand il est en ligne

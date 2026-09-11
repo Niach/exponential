@@ -792,6 +792,20 @@
       "when": 1789098184871,
       "tag": "0112_attachment_video_metadata",
       "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "7",
+      "when": 1789148823258,
+      "tag": "0113_attachment_poster_size_bytes",
+      "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1789148953252,
+      "tag": "0114_device_shared_team_id_mirror",
+      "breakpoints": true
     }
   ]
 }

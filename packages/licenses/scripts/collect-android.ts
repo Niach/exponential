@@ -29,6 +29,17 @@
 // definition just populated). Nothing is synthesised from POM `<inceptionYear>`
 // / `<developers>` — a constructed copyright line is not a copyright notice.
 //
+// UNDECLARED ARTIFACTS
+// --------------------
+// A POM with no `<licenses>` element of its own is reported with an empty
+// `licenses` list — the gradle plugin does not inherit the element from a
+// parent POM. Such an artifact is FATAL unless `curated/overrides.ts` carries a
+// dated determination for its `group:artifact` (scope `android`); the override
+// then supplies `declared`/`licenses` (+ `copyright`) exactly as the merge step
+// would apply it, so the committed inventory already reads as the notice will.
+// This is the only path that does not come straight from the report, and it is
+// never guessed here: no entry, no inventory.
+//
 // NON-OSS COMPONENTS
 // ------------------
 // Some Google artifacts declare proprietary terms rather than an OSS licence
@@ -63,6 +74,7 @@ import {
   type Inventory,
   type LicenceText,
 } from "../src/schema"
+import { findOverride, type LicenceOverride } from "../curated/overrides"
 
 const HERE = dirname(new URL(import.meta.url).pathname)
 const PKG = resolve(HERE, `..`)
@@ -327,6 +339,7 @@ const main = (): void => {
 
   const unmapped: string[] = []
   const noArtifact: string[] = []
+  const overridden: string[] = []
   const proprietary: string[] = []
   const components: Component[] = []
 
@@ -344,13 +357,19 @@ const main = (): void => {
     const declaredNames = (entry.licenses ?? [])
       .map((licence) => (licence.license ?? ``).replace(/\s+/g, ` `).trim())
       .filter(Boolean)
+    let override: LicenceOverride | undefined
     if (declaredNames.length === 0) {
-      fail(
-        `${coordinate} declares no licence at all — resolve it by hand before regenerating`
-      )
+      override = findOverride(`android`, name)
+      if (!override) {
+        fail(
+          `${coordinate} declares no licence at all — record a dated determination for ` +
+            `\`${name}\` (scope \`android\`) in packages/licenses/curated/overrides.ts before regenerating`
+        )
+      }
+      overridden.push(`${coordinate} — ${override!.declared}`)
     }
 
-    const spdx: string[] = []
+    const spdx: string[] = override ? [...override.licenses] : []
     let termsUrl: string | null = null
     for (const declared of declaredNames) {
       const key = normaliseName(declared)
@@ -397,6 +416,7 @@ const main = (): void => {
     }
     if (archive) copyright = copyrightsFor(archive)
     else noArtifact.push(coordinate)
+    if (override?.copyright) copyright = [...override.copyright]
 
     const homepage = isProprietary
       ? termsUrl!
@@ -409,9 +429,11 @@ const main = (): void => {
       // — a POM declares a prose licence NAME, so it is mapped through
       // SPDX_BY_NAME first. Proprietary terms have no SPDX id, so they keep the
       // declared name verbatim; that string is what the notice will print.
-      declared: isProprietary
-        ? declaredNames.join(` AND `)
-        : spdx.join(` AND `),
+      declared: override
+        ? override.declared
+        : isProprietary
+          ? declaredNames.join(` AND `)
+          : spdx.join(` AND `),
       licenses: spdx,
       ...(homepage ? { homepage } : {}),
       ...(copyright.length > 0 ? { copyright } : {}),
@@ -454,6 +476,12 @@ const main = (): void => {
   for (const [spdx, artifacts] of [...missingTemplates.entries()].sort()) {
     console.error(
       `MISSING TEMPLATE: ${spdx} (needed by ${artifacts.sort().join(`, `)})`
+    )
+  }
+  if (overridden.length > 0) {
+    console.error(
+      `note: ${overridden.length} artifact(s) declare no licence in the report and were resolved ` +
+        `from curated/overrides.ts:\n  ${overridden.sort().join(`\n  `)}`
     )
   }
   if (noArtifact.length > 0) {

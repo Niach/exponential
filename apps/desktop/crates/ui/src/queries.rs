@@ -211,6 +211,18 @@ pub(crate) fn attachment_transport(
     )))
 }
 
+/// The active account's instance URL — the origin an ABSOLUTE attachment
+/// link must sit on to be ours (EXP-824 media lift, see
+/// [`crate::markdown::image_url::is_own_attachment_src`]). `None` when
+/// signed out or before the store exists.
+pub(crate) fn instance_origin(cx: &App) -> Option<String> {
+    let account_id = Store::try_global(cx)?.session(cx).account_id()?.to_string();
+    cx.try_global::<AuthContext>()?
+        .auth
+        .account(&account_id)
+        .map(|account| account.instance_url)
+}
+
 /// Resolve a relative `/api/...` URL (the canonical stored form of
 /// attachment URLs) against the active account's instance base — the same
 /// base `HttpAttachmentTransport` fetches through. Absolute URLs pass

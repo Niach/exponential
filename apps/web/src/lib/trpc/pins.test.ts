@@ -29,6 +29,8 @@ const state = {
   tail: 0,
   inserted: [] as Record<string, unknown>[],
   lookups: 0,
+  // How many inserts carried ON CONFLICT DO NOTHING (the double-tap guard).
+  conflictGuarded: 0,
 }
 
 function chain(rows: () => unknown[]) {
@@ -52,8 +54,15 @@ const fakeTx = {
     return chain(() => (state.targetFound ? [{ id: TARGET_ID }] : []))
   },
   insert: () => ({
-    values: async (row: Record<string, unknown>) => {
+    values: (row: Record<string, unknown>) => {
       state.inserted.push(row)
+      const c: Record<string, unknown> = {}
+      c.onConflictDoNothing = () => {
+        state.conflictGuarded += 1
+        return c
+      }
+      c.then = (resolve: (value: unknown) => void) => resolve(undefined)
+      return c
     },
   }),
 }
@@ -73,6 +82,7 @@ describe(`pins.toggle`, () => {
     state.tail = 0
     state.inserted = []
     state.lookups = 0
+    state.conflictGuarded = 0
     h.assertTeamMember.mockClear()
   })
 
@@ -113,6 +123,20 @@ describe(`pins.toggle`, () => {
       ])
     }
   )
+
+  it(`guards the insert against a racing pin of the same target`, async () => {
+    // Two toggles of one unpinned target (a double tap) both pass the
+    // delete and both insert; the loser hits the partial unique index. The
+    // fake db cannot race itself, so lock the guard: the insert carries
+    // ON CONFLICT DO NOTHING and the answer stays `pinned: true`.
+    const result = await caller.toggle({
+      teamId: TEAM_ID,
+      kind: `issue`,
+      targetId: TARGET_ID,
+    })
+    expect(result).toEqual({ txId: 42, pinned: true })
+    expect(state.conflictGuarded).toBe(1)
+  })
 
   it(`refuses a target that is not in the team`, async () => {
     state.targetFound = false

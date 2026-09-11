@@ -1,3 +1,14 @@
+- Video și audio în descrieri și comentarii: atașezi un clip și rulează chiar acolo, cu imagine de copertă și durata lui; ce încarci este convertit întâi la 720p
+- Conturi GitHub: setările echipei listează fiecare cont conectat cu un link „Configure”, iar „Connect another account” deschide selectorul de cont al GitHub, așa că se poate instala și o a doua organizație
+- Adăugare repository: selectorul spune de ce lipsește un repository, trimite la setările GitHub ale fiecărui cont și acceptă un repository după nume
+- Listă mai scurtă de rulări trecute: o rulare încheiată arată mașina și ora, fără numele agentului și motivul încheierii
+- Punctul unei sesiuni active s-a mutat pe butonul Chat din bara de jos, care apare acum pe fiecare filă; la Devices rămâne doar avertismentul de autentificare
+- Câmpul numește întotdeauna mașina pe care va porni o rulare și deschide un meniu doar când există mai multe
+- Bannerul de limită dispare singur după ce trece ora de resetare, iar un simplu avertisment de consum nu apare niciodată ca limită
+- Partajează o mașină cu mai multe echipe: foaia dispozitivului are câte un comutator pentru fiecare echipă, în loc de o singură alegere
+- Detalii de câmp: „Plan” este un comutator, un task sau o acțiune aleasă se scoate cu propriul buton de închidere, iar bara de jos a unui board unește chatul și taskul nou într-o singură capsulă
+- Fixări: fixează un task, o sesiune sau o acțiune din meniul ei și stă în secțiunea „Pinned” din capul selectorului de boarduri
+- Conturi pe pagina „Devices”: câte un rând pentru fiecare cont de agent, cu barele lui de consum și un chip pentru fiecare mașină, aceeași secțiune pe care o au web și desktop
 - Un singur câmp pentru tot: câmpul din pagina „Agent” pornește totul, cu taskurile sau o acțiune alese sus și mașina, agentul, modelul și modul plan dedesubt; foaia „Start coding” a dispărut
 - Fiecare buton de pornire duce acolo: „Start coding” pe un task, bara de selecție multiplă, „Run” pe o acțiune și „Fix merge conflicts” deschid câmpul cu lucrurile potrivite deja alese
 - Instrucțiuni la pornire: ce scrii lângă taskurile sau acțiunea alese ajunge la rulare ca instrucțiuni suplimentare; într-un chat este chiar promptul
@@ -7,16 +18,3 @@
 - Răspuns chiar în card: la un plan sau la o întrebare răspunzi în cardul lui, cu un câmp înăuntru când preferi să scrii în loc să alegi; câmpul de pilotare se retrage între timp
 - Mesaje de la agenți: un agent poate trimite echipei tale o notificare prin MCP; ajunge ca push și ca rând propriu în Inbox
 - Limite care se potrivesc: un avertisment de consum nu mai marchează o rulare drept limitată, iar la o limită reală fereastra și ora de resetare descriu același lucru
-- Limitat, nu blocat: când un agent își epuizează cota în timpul rulării, sesiunea este marcată ca limitată cu ora resetării și rămâne activă și dirijabilă în loc să tacă
-- Câmpul de dirijare: câmpul sesiunii acceptă @ pentru colegi, # pentru issue-uri și : pentru emoji, aceleași trei pe care le avea deja caseta de comentarii
-- Editări inline: diff-ul unei editări apare sub rândul ei în transcriere, pliat până îl atingi
-- Grupuri de unelte care spun ce s-a întâmplat: o serie pliată de apeluri de unelte se citește „4 comenzi rulate, 2 fișiere editate, 1 eșuat” în loc de o numărătoare
-- O pornire fără rost este refuzată: pornirea pe o mașină al cărei agent nu mai are cotă spune asta și indică ora resetării
-- Bare de utilizare pentru un al doilea cont de agent pe aceeași mașină
-- Alegerea agentului: când un agent nu este pregătit pe un dispozitiv, selecția o spune și blochează pornirea până rulezi acolo doctor
-- Flux de ghidare: identificatorii de taskuri precum #EXP-12 devin marcaje pe care le poți atinge, iar comenzile agentului sunt redate ca etichete de comandă
-- Relații între taskuri: leagă taskurile ca părinte, subtask, blochează, blocat de, duplicat sau înrudit din foaia de proprietăți; scrierea lui #EXP-12 într-o descriere sau într-un comentariu leagă singură cele două taskuri
-- Comentarii pe fire: răspunde sub un comentariu din editorul ancorat; firele rămân pe un singur nivel, iar un comentariu publicat de un agent prin MCP o spune în antetul lui
-- O primă pornire ghidată: crearea unei echipe te poartă prin primul board, invitarea colegilor și configurarea dispozitivelor, în aceeași ordine ca pe web și pe desktop
-- Merge din execuțiile de acțiuni și de chat: o execuție care a deschis un pull request arată „Merge” în vizualizarea sa de ghidare, iar Reviews listează acele pull request-uri sub „Agent runs”
-- Sesiunile rămân pe dispozitivul tău: transcrierile sunt păstrate pe dispozitivul care le-a rulat, niciodată pe server; execuțiile anterioare se deschid din Devices, Chat și Automations și sunt aduse de pe acel dispozitiv când este online

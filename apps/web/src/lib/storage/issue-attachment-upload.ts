@@ -243,6 +243,7 @@ export async function handleIssueAttachmentUpload({
       height: dimensions?.height ?? null,
       durationMs: media?.durationMs ?? null,
       posterStorageKey,
+      posterSizeBytes: poster && posterStorageKey ? poster.size : null,
     })
   } catch (error) {
     await rollbackObjects()

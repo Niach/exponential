@@ -306,6 +306,26 @@ describe(`steerDeviceFromRow`, () => {
     expect(mapped.owner).toEqual({ id: `them`, name: `Tessa` })
   })
 
+  // FEED-33 compat (removable at ios >= 0.14.30 / android >= 0.14.32 /
+  // desktop+cli >= 0.14.37): the single-team alias rides beside the set so
+  // a pre-FEED-33 client keeps its "Shared" badge.
+  it(`emits the legacy sharedTeamId alias beside sharedTeamIds`, () => {
+    const opts = { now: NOW, currentUserId: `me` }
+    expect(
+      steerDeviceFromRow(deviceRow({ sharedTeamIds: [`team-1`, `team-2`] }), opts)
+    ).toMatchObject({
+      sharedTeamIds: [`team-1`, `team-2`],
+      sharedTeamId: `team-1`,
+    })
+    expect(steerDeviceFromRow(deviceRow({ sharedTeamIds: [] }), opts)).toMatchObject({
+      sharedTeamIds: [],
+      sharedTeamId: null,
+    })
+    expect(
+      steerDeviceFromRow(deviceRow({ sharedTeamIds: null as never }), opts)
+    ).toMatchObject({ sharedTeamIds: [], sharedTeamId: null })
+  })
+
   // EXP-622: the flag is the ROW OWNER's preference. Reading a teammate's
   // shared server must never prefill the caller's picker with it.
   it(`carries isDefault on an own row and drops it on a teammate's`, () => {

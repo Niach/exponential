@@ -96,7 +96,13 @@ async function syncGrantsForAddedRepos(
     )
     .where(eq(githubInstallations.installationId, installationId))
   const teamIds = [...new Set(linked.map((row) => row.teamId))]
-  if (teamIds.length === 0) return
+  // Membership FIRST: only the linked teams the sender belongs to get rows,
+  // and a sender who belongs to none must not cost a GitHub call per repo.
+  const memberTeamIds: string[] = []
+  for (const teamId of teamIds) {
+    if (await getTeamMember(userId, teamId)) memberTeamIds.push(teamId)
+  }
+  if (memberTeamIds.length === 0) return
   const defaultBranches = new Map<string, string | null>()
   for (const repo of added) {
     try {
@@ -109,8 +115,7 @@ async function syncGrantsForAddedRepos(
     }
   }
   const rows: Array<typeof githubInstallationRepoGrants.$inferInsert> = []
-  for (const teamId of teamIds) {
-    if (!(await getTeamMember(userId, teamId))) continue
+  for (const teamId of memberTeamIds) {
     for (const repo of added) {
       rows.push({
         teamId,
@@ -316,15 +321,28 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
               )
             )
           )
-        await syncGrantsForAddedRepos(
-          installation.id,
-          (payload.repositories_added ?? [])
-            .filter((r): r is { full_name: string; private?: boolean } =>
-              Boolean(r.full_name)
-            )
-            .map((r) => ({ fullName: r.full_name, private: r.private === true })),
-          payload.sender
-        )
+        // Best-effort for real: a failed grant sync must neither turn the
+        // delivery into a 500 (GitHub would retry the whole heal) nor skip
+        // the cache invalidation below. The OAuth re-auth path remains.
+        try {
+          await syncGrantsForAddedRepos(
+            installation.id,
+            (payload.repositories_added ?? [])
+              .filter((r): r is { full_name: string; private?: boolean } =>
+                Boolean(r.full_name)
+              )
+              .map((r) => ({
+                fullName: r.full_name,
+                private: r.private === true,
+              })),
+            payload.sender
+          )
+        } catch (err) {
+          console.error(
+            `[github-webhook] grant sync for installation ${installation.id} failed:`,
+            err
+          )
+        }
       }
       await invalidateRepoCacheForInstallation(installation.id)
       return jsonResponse(200, { ok: true })

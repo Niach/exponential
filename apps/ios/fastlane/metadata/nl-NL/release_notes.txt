@@ -1,3 +1,14 @@
+- Video en audio in beschrijvingen en reacties: voeg een clip toe en hij speelt daar meteen af, met een voorbeeldafbeelding en zijn lengte; wat je uploadt wordt eerst naar 720p omgezet
+- GitHub-accounts: de teaminstellingen tonen elk gekoppeld account met een "Configure"-link, en "Connect another account" opent de accountkeuze van GitHub zelf, zodat ook een tweede organisatie geïnstalleerd kan worden
+- Repository toevoegen: de kiezer zegt waarom een repository ontbreekt, verwijst naar de GitHub-instellingen van elk account en neemt een repository op naam
+- Kortere lijst met eerdere runs: een beëindigde run toont de machine en de tijd, zonder de naam van de agent en de reden van het einde
+- De stip van een lopende sessie zit nu op de Chat-knop in de onderste balk, die op elk tabblad verschijnt; Devices houdt alleen de inlogwaarschuwing
+- Het veld noemt altijd de machine waarop een run start en opent alleen een menu als er meer dan één is
+- De limietbanner verdwijnt vanzelf zodra de resettijd voorbij is, en een gewone verbruikswaarschuwing wordt nooit als limiet getoond
+- Deel een machine met meerdere teams: het apparaatblad heeft één schakelaar per team in plaats van één enkele keuze
+- Details in het veld: "Plan" is een schakelaar, een gekozen issue of actie haal je weg met zijn eigen sluitknop, en de onderste balk van een board voegt chat en nieuwe issue samen in één capsule
+- Pins: zet een issue, een sessie of een actie vast vanuit zijn menu, dan staat hij in de sectie "Pinned" bovenaan de boardkiezer
+- Accounts op de pagina Devices: één regel per agentaccount met zijn verbruiksbalken en een chip per machine, dezelfde sectie die web en desktop al hebben
 - Eén invoerveld voor alles: het veld op de "Agent"-pagina start alles, met issues of een actie bovenaan en machine, agent, model en planmodus eronder; het "Start coding"-blad is weg
 - Elke afspeelknop komt daar uit: "Start coding" op een issue, de selectiebalk, "Run" van een actie en "Fix merge conflicts" openen het veld met de juiste selectie al gemaakt
 - Instructies bij een start: wat je naast de gekozen issues of actie typt, bereikt de run als extra instructies; bij een chat is het de prompt
@@ -7,16 +18,3 @@
 - Antwoorden in de kaart: een plan of een vraag beantwoord je in de kaart zelf, met een veld erin als je liever schrijft dan kiest; het stuurveld gaat zolang opzij
 - Agentberichten: een agent kan je team een melding sturen via MCP; die komt binnen als push en als eigen regel in de Inbox
 - Limieten die kloppen: een verbruikswaarschuwing markeert een run niet meer als gelimiteerd, en bij een echte limiet beschrijven het venster en de resettijd hetzelfde
-- Gelimiteerd, niet vastgelopen: als een agent halverwege zijn quotum opgebruikt, wordt de sessie als gelimiteerd gemarkeerd met het tijdstip van de reset, en blijft ze actief en bestuurbaar in plaats van stil te vallen
-- Stuurveld: het sessieveld neemt @ voor teamgenoten, # voor issues en : voor emoji, dezelfde drie als het reactievak
-- Bewerkingen inline: de diff van een bewerking staat onder zijn rij in het transcript, ingeklapt tot je erop tikt
-- Toolgroepen die zeggen wat er gebeurde: een ingeklapte reeks toolaanroepen leest als "4 opdrachten uitgevoerd, 2 bestanden bewerkt, 1 mislukt" in plaats van een telling
-- Een kansloze start wordt geweigerd: starten op een machine waarvan de agent al geen quotum meer heeft, meldt dat en noemt het resettijdstip
-- Gebruiksbalken voor een tweede agentaccount op dezelfde machine
-- Agentkiezer: is een agent niet klaar op een apparaat, dan zegt de kiezer dat en blokkeert hij de start tot je daar de doctor draait
-- Stuurfeed: issue-identifiers als #EXP-12 worden chips waarop je kunt tikken, en agentcommando's verschijnen als commandolabels
-- Relaties tussen issues: koppel issues als bovenliggend, sub-issue, blokkeert, geblokkeerd door, duplicaat of gerelateerd vanuit het eigenschappenblad; #EXP-12 typen in een beschrijving of reactie koppelt de twee issues vanzelf
-- Reacties in threads: reageer onder een reactie vanuit het vastgezette invoerveld; threads blijven één niveau diep, en een reactie die een agent via MCP plaatste, zegt dat in zijn koptekst
-- Een begeleide eerste start: een team aanmaken loodst je langs het eerste board, het uitnodigen van teamgenoten en het instellen van apparaten, in dezelfde volgorde als web en desktop
-- Merge vanuit actie- en chatruns: een run die een pull request heeft geopend, toont "Merge" in zijn stuurweergave, en Reviews toont die pull requests onder "Agent runs"
-- Sessies blijven op je eigen apparaat: transcripten staan op het apparaat dat ze draaide, nooit op de server; eerdere runs open je vanuit Devices, Chat en Automations en ze worden van dat apparaat opgehaald zodra het online is

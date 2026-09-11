@@ -585,10 +585,37 @@ describe(`devices.setShared — toggle form`, () => {
     expect(h.state.updates).toHaveLength(0)
   })
 
-  it(`legacy form replaces the whole set and ends every dropped team's runs`, async () => {
+  // FEED-33 compat (removable at ios >= 0.14.30 / android >= 0.14.32 /
+  // desktop+cli >= 0.14.37): a pre-FEED-33 client sees only `sharedTeamId`
+  // (one team), so its single-team picker must never revoke the shares it
+  // cannot render. The legacy form ADDS; only `null` clears.
+  it(`legacy form ADDS the team and keeps the shares an old client cannot see`, async () => {
+    h.state.selectQueue = sharedProbe(TEAM_C, TEAM_A)
+    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_B })
+    expect(h.assertTeamMember).toHaveBeenCalledTimes(1)
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, TEAM_B)
+    expect(h.state.updates).toHaveLength(1)
+    expect(h.state.updates[0]?.set).toMatchObject({
+      sharedTeamIds: [TEAM_A, TEAM_B, TEAM_C],
+    })
+    // Nothing was revoked, so no teammate's hosted run dies.
+    expect(h.endForeignHostedSessions).not.toHaveBeenCalled()
+  })
+
+  it(`legacy form is a no-op for an already-shared team`, async () => {
     h.state.selectQueue = sharedProbe(TEAM_A, TEAM_B)
-    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_C })
-    expect(h.state.updates[0]?.set).toMatchObject({ sharedTeamIds: [TEAM_C] })
+    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_A })
+    expect(h.assertTeamMember).not.toHaveBeenCalled()
+    expect(h.state.updates[0]?.set).toMatchObject({
+      sharedTeamIds: [TEAM_A, TEAM_B],
+    })
+    expect(h.endForeignHostedSessions).not.toHaveBeenCalled()
+  })
+
+  it(`legacy null clears the whole set and ends every dropped team's runs`, async () => {
+    h.state.selectQueue = sharedProbe(TEAM_A, TEAM_B)
+    await caller.setShared({ deviceId: `dev-1`, teamId: null })
+    expect(h.state.updates[0]?.set).toMatchObject({ sharedTeamIds: [] })
     expect(h.endForeignHostedSessions).toHaveBeenCalledTimes(2)
     expect(h.endForeignHostedSessions).toHaveBeenCalledWith(`actor`, TEAM_A, `dev-1`)
     expect(h.endForeignHostedSessions).toHaveBeenCalledWith(`actor`, TEAM_B, `dev-1`)
@@ -599,7 +626,9 @@ describe(`nextSharedTeamIds`, () => {
   it(`sorts and dedupes every form`, () => {
     expect(nextSharedTeamIds([`b`, `a`], { teamId: `c`, shared: true })).toEqual([`a`, `b`, `c`])
     expect(nextSharedTeamIds([`b`, `a`, `a`], { teamId: `a`, shared: false })).toEqual([`b`])
-    expect(nextSharedTeamIds([`b`, `a`], { teamId: `c` })).toEqual([`c`])
+    // FEED-33 compat: the legacy form adds, never replaces.
+    expect(nextSharedTeamIds([`b`, `a`], { teamId: `c` })).toEqual([`a`, `b`, `c`])
+    expect(nextSharedTeamIds([`b`, `a`, `a`], { teamId: `a` })).toEqual([`a`, `b`])
     expect(nextSharedTeamIds([`b`, `a`], { teamId: null })).toEqual([])
   })
 })
@@ -665,10 +694,10 @@ describe(`devices.setShared — kill fan-out`, () => {
     expect(updatesWhenKilled).toBe(2)
   })
 
-  it(`ends the OLD team's sessions when the device moves to another team`, async () => {
-    h.state.selectQueue = sharedProbe(TEAM_A)
+  it(`ends the OLD team's sessions when its share is withdrawn (toggle form)`, async () => {
+    h.state.selectQueue = sharedProbe(TEAM_A, TEAM_B)
 
-    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_B })
+    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_A, shared: false })
 
     expect(h.state.updates[0]?.set).toMatchObject({ sharedTeamIds: [TEAM_B] })
     // Device-scoped since EXP-560 — only this machine's foreign runs die.
@@ -677,6 +706,19 @@ describe(`devices.setShared — kill fan-out`, () => {
       TEAM_A,
       `dev-1`
     )
+  })
+
+  // FEED-33 compat: the legacy single-team form never moves a device between
+  // teams any more — it adds, so the old team's runs live on.
+  it(`legacy form adding another team ends nothing`, async () => {
+    h.state.selectQueue = sharedProbe(TEAM_A)
+
+    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_B })
+
+    expect(h.state.updates[0]?.set).toMatchObject({
+      sharedTeamIds: [TEAM_A, TEAM_B],
+    })
+    expect(h.endForeignHostedSessions).not.toHaveBeenCalled()
   })
 
   it(`ends nothing on a first share (null → team)`, async () => {
@@ -716,13 +758,27 @@ describe(`devices.setShared — automation disarm`, () => {
     expect(automationUpdate()!.set).toMatchObject({ enabled: false })
   })
 
-  it(`disables the old team's triggers when the device moves teams`, async () => {
+  it(`disables the old team's triggers when its share is withdrawn (toggle form)`, async () => {
+    h.state.selectQueue = sharedProbe(TEAM_A, TEAM_B)
+
+    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_A, shared: false })
+
+    expect(h.getTeamMember).toHaveBeenCalledWith(`actor`, TEAM_A)
+    expect(h.state.updates).toHaveLength(2)
+  })
+
+  // FEED-33 compat: the legacy form adds, so no team is revoked and no
+  // trigger is disarmed.
+  it(`leaves triggers alone when the legacy form adds another team`, async () => {
     h.state.selectQueue = sharedProbe(TEAM_A)
 
     await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_B })
 
-    expect(h.getTeamMember).toHaveBeenCalledWith(`actor`, TEAM_A)
-    expect(h.state.updates).toHaveLength(2)
+    expect(h.getTeamMember).not.toHaveBeenCalled()
+    expect(h.state.updates).toHaveLength(1)
+    expect(h.state.updates[0]?.set).toMatchObject({
+      sharedTeamIds: [TEAM_A, TEAM_B],
+    })
   })
 
   it(`leaves triggers alone when the device owner OWNS the old team`, async () => {

@@ -165,6 +165,7 @@ describe(`handleIssueAttachmentUpload (media, EXP-824)`, () => {
         height: 720,
         durationMs: 7250,
         posterStorageKey: keys[1],
+        posterSizeBytes: 10,
       })
     )
     expect(body).toMatchObject({
@@ -194,6 +195,7 @@ describe(`handleIssueAttachmentUpload (media, EXP-824)`, () => {
         height: null,
         durationMs: null,
         posterStorageKey: null,
+        posterSizeBytes: null,
       })
     )
   })
@@ -236,7 +238,11 @@ describe(`handleIssueAttachmentUpload (media, EXP-824)`, () => {
 
     expect(h.uploadObject).toHaveBeenCalledTimes(1)
     expect(values).toHaveBeenCalledWith(
-      expect.objectContaining({ durationMs: null, posterStorageKey: null })
+      expect.objectContaining({
+        durationMs: null,
+        posterStorageKey: null,
+        posterSizeBytes: null,
+      })
     )
   })
 })

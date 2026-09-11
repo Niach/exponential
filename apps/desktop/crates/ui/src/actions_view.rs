@@ -192,11 +192,18 @@ impl ActionsView {
         // `automations` rows drive this screen too.
         let watched = sync::Store::try_global(cx).map(|store| {
             let collections = store.collections();
-            (collections.actions.clone(), collections.automations.clone())
+            (
+                collections.actions.clone(),
+                collections.automations.clone(),
+                collections.pins.clone(),
+            )
         });
-        if let Some((actions, automations)) = watched {
+        if let Some((actions, automations, pins)) = watched {
             subscriptions.push(cx.observe(&actions, |this, _, cx| this.refresh(cx)));
             subscriptions.push(cx.observe(&automations, |this, _, cx| this.refresh(cx)));
+            // EXP-778: each row's Pin/Unpin menu entry reads the per-user
+            // pins rows.
+            subscriptions.push(cx.observe(&pins, |this, _, cx| this.refresh(cx)));
         }
         let derived = ActionsDerived::compute(cx, active_team_id(&nav, cx));
         Self {
