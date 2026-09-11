@@ -81,7 +81,11 @@ import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.EditorModel
 import com.exponential.app.ui.markdown.IssueRefHandler
+import com.exponential.app.domain.isInlineMedia
 import com.exponential.app.ui.markdown.LocalAttachmentDims
+import com.exponential.app.ui.markdown.LocalAttachmentLinkOpener
+import com.exponential.app.ui.markdown.insertPickedMedia
+import com.exponential.app.ui.markdown.rememberMediaPreparer
 import com.exponential.app.ui.markdown.LocalIssueRefs
 import com.exponential.app.ui.markdown.LocalMarkdownToolbarController
 import com.exponential.app.ui.markdown.LocalMentions
@@ -167,11 +171,22 @@ fun IssueDetailScreen(
     // Hoisted so an image that arrived through the FILE path can still be
     // appended to the description instead of erroring (EXP-327).
     val descriptionModel = remember(issue?.id) { EditorModel() }
+    val mediaPreparer = rememberMediaPreparer()
     LaunchedEffect(descriptionModel, viewModel) {
         viewModel.onInlineImagePicked = { uri, contentType ->
             scope.launch {
-                appendPickedImage(context, descriptionModel, uri, contentType) { picked ->
-                    viewModel.uploadImage(picked)
+                if (isInlineMedia(contentType)) {
+                    // EXP-824: a video / audio file that reached the FILE path
+                    // becomes an inline media block at the end, like an image.
+                    insertPickedMedia(
+                        context, descriptionModel, uri, contentType, mediaPreparer,
+                        uploader = { prepared -> viewModel.uploadMedia(prepared) },
+                        atEnd = true,
+                    )
+                } else {
+                    appendPickedImage(context, descriptionModel, uri, contentType) { picked ->
+                        viewModel.uploadImage(picked)
+                    }
                 }
             }
         }
@@ -295,6 +310,15 @@ fun IssueDetailScreen(
         LocalIssueRefs provides issueRefHandler,
         LocalMentions provides mentionResolver,
         LocalAttachmentDims provides attachmentDims,
+        // EXP-824: a media link the renderer could not upgrade (not yet
+        // synced, or a non-media type) opens like a Files-rail row.
+        LocalAttachmentLinkOpener provides { url ->
+            scope.launch {
+                val row = viewModel.attachmentForUrl(url) ?: return@launch
+                val local = viewModel.downloadToCache(row) ?: return@launch
+                openFile(context, local, row.contentType)
+            }
+        },
     ) {
     ProvideMarkdownToolbar {
     Scaffold(
@@ -674,6 +698,8 @@ fun IssueDetailScreen(
                     viewModel.updateDescription(it)
                 },
                 onUploadImage = if (isModerator) { uri -> viewModel.uploadImage(uri) } else null,
+                // EXP-824: videos from either picker become inline media blocks.
+                onUploadMedia = if (isModerator) { media -> viewModel.uploadMedia(media) } else null,
                 imageUploadEnabled = isModerator,
                 mentionMembers = mentionMembers,
                 onFocusChanged = { descriptionSync.setFocused(it) },

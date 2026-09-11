@@ -26,9 +26,17 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import android.content.Context
+import com.exponential.app.data.api.TrpcException
+import com.exponential.app.data.media.mediaEntryPoint
+import com.exponential.app.domain.MAX_FILE_UPLOAD_BYTES
+import com.exponential.app.domain.MediaPreparer
+import com.exponential.app.domain.PreparedMedia
 import com.exponential.app.domain.canonicalContentType
 import com.exponential.app.domain.isInlineImage
+import com.exponential.app.domain.isInlineMedia
+import com.exponential.app.domain.mediaLinkLabel
 import com.exponential.app.ui.markdown.model.PendingImage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -44,7 +52,9 @@ import kotlinx.coroutines.withContext
  * `onUploadImage` keeps its contract: it returns a real `/api/attachments/...`
  * URL (issue detail, eager upload) or a `draft://` placeholder (create sheet,
  * deferred upload). Either way the returned URL is inserted as an image block;
- * draft images preview from the locally-read bytes.
+ * draft images preview from the locally-read bytes. `onUploadMedia` is the
+ * same contract for a video / audio pick (EXP-824), fed the NORMALISED
+ * [PreparedMedia] rather than the raw URI; null keeps the pickers image-only.
  */
 @Composable
 fun MarkdownEditor(
@@ -52,6 +62,9 @@ fun MarkdownEditor(
     editable: Boolean,
     onChange: (String) -> Unit,
     onUploadImage: (suspend (uri: Uri) -> String?)? = null,
+    // EXP-824: non-null widens the photo picker to `ImageAndVideo` and routes
+    // video/audio picks (from either picker) into an inline media block.
+    onUploadMedia: (suspend (media: PreparedMedia) -> String?)? = null,
     imageUploadEnabled: Boolean = onUploadImage != null,
     placeholder: String = "Add a description…",
     minHeight: Dp = 200.dp,
@@ -124,8 +137,8 @@ fun MarkdownEditor(
         currentOnFocusChanged?.invoke(model.focusedRowId != null)
     }
 
-    val pickImage = rememberMarkdownImagePicker(model, onUploadImage)
-    val pickFile = rememberMarkdownFilePicker(model, onUploadImage, onAttachFile)
+    val pickImage = rememberMarkdownImagePicker(model, onUploadImage, onUploadMedia)
+    val pickFile = rememberMarkdownFilePicker(model, onUploadImage, onAttachFile, onUploadMedia)
 
     // The formatting toolbar is rendered by a screen-level overlay so it can
     // float above the keyboard (see ProvideMarkdownToolbar). Register this
@@ -183,6 +196,7 @@ fun MarkdownEditor(
                             modifier = Modifier.fillMaxWidth(),
                         )
                         is EditorRow.Image -> BlockImageEditView(model = model, row = row)
+                        is EditorRow.Media -> BlockMediaEditView(model = model, row = row)
                         is EditorRow.Table -> TableRowEditView(model = model, row = row)
                     }
                 }
@@ -204,20 +218,32 @@ fun MarkdownEditor(
 fun rememberMarkdownImagePicker(
     model: EditorModel,
     onUploadImage: (suspend (uri: Uri) -> String?)?,
+    onUploadMedia: (suspend (media: PreparedMedia) -> String?)? = null,
 ): () -> Unit {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val preparer = rememberMediaPreparer()
     val currentModel by rememberUpdatedState(model)
     val currentUploader by rememberUpdatedState(onUploadImage)
+    val currentMediaUploader by rememberUpdatedState(onUploadMedia)
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
     ) { uri: Uri? ->
         val target = currentModel
         val uploader = currentUploader
-        if (uri == null || uploader == null) return@rememberLauncherForActivityResult
+        val mediaUploader = currentMediaUploader
+        if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
-            val bytes = MarkdownMediaUtils.readBytes(context, uri)
+            // EXP-824: a video from the `ImageAndVideo` picker takes the
+            // media path (transcode + poster, then upload) at the caret.
             val mime = MarkdownMediaUtils.guessMimeType(context, uri)
+            if (isInlineMedia(canonicalContentType(mime))) {
+                if (mediaUploader == null) return@launch
+                insertPickedMedia(context, target, uri, canonicalContentType(mime), preparer, mediaUploader)
+                return@launch
+            }
+            if (uploader == null) return@launch
+            val bytes = MarkdownMediaUtils.readBytes(context, uri)
             val name = MarkdownMediaUtils.guessFilename(context, uri)
             val size = MarkdownMediaUtils.probeSize(context, uri)
             if (bytes == null) {
@@ -238,8 +264,16 @@ fun rememberMarkdownImagePicker(
             target.runUpload(rowId) { uploader(uri) }
         }
     }
-    return remember(launcher) {
-        { launcher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+    val withVideo = onUploadMedia != null
+    return remember(launcher, withVideo) {
+        {
+            launcher.launch(
+                PickVisualMediaRequest(
+                    if (withVideo) ActivityResultContracts.PickVisualMedia.ImageAndVideo
+                    else ActivityResultContracts.PickVisualMedia.ImageOnly,
+                ),
+            )
+        }
     }
 }
 
@@ -263,11 +297,14 @@ fun rememberMarkdownFilePicker(
     model: EditorModel,
     onUploadImage: (suspend (uri: Uri) -> String?)?,
     onAttachFile: ((Uri) -> Unit)?,
+    onUploadMedia: (suspend (media: PreparedMedia) -> String?)? = null,
 ): (() -> Unit)? {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val preparer = rememberMediaPreparer()
     val currentModel by rememberUpdatedState(model)
     val currentUploader by rememberUpdatedState(onUploadImage)
+    val currentMediaUploader by rememberUpdatedState(onUploadMedia)
     val currentAttach by rememberUpdatedState(onAttachFile)
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
@@ -275,6 +312,7 @@ fun rememberMarkdownFilePicker(
         if (uri == null) return@rememberLauncherForActivityResult
         val target = currentModel
         val uploader = currentUploader
+        val mediaUploader = currentMediaUploader
         val attach = currentAttach
         scope.launch {
             // Fall back to octet-stream, NOT the photo picker's image/jpeg: an
@@ -284,6 +322,13 @@ fun rememberMarkdownFilePicker(
                     MarkdownMediaUtils.guessMimeType(context, uri, fallback = "application/octet-stream")
                 }
             )
+            // EXP-824: a video/audio document becomes an inline media block
+            // (appended, like an image from this picker) when the host can
+            // upload media; otherwise it stays a plain file attachment.
+            if (isInlineMedia(mime) && mediaUploader != null) {
+                insertPickedMedia(context, target, uri, mime, preparer, mediaUploader, atEnd = true)
+                return@launch
+            }
             if (!isInlineImage(mime)) {
                 attach?.invoke(uri)
                 return@launch
@@ -333,6 +378,89 @@ suspend fun appendPickedImage(
     }
     val rowId = model.appendImageUrl(draftUrl(), alt = "image", pending = pending)
     model.runUpload(rowId) { uploader(uri) }
+}
+
+/** The Media3-backed [MediaPreparer] from the Hilt graph (EXP-824). */
+@Composable
+fun rememberMediaPreparer(): MediaPreparer {
+    val context = LocalContext.current
+    return remember(context) { mediaEntryPoint(context).mediaPreparer() }
+}
+
+/**
+ * Insert a picked video / audio file as an inline media block (EXP-824): the
+ * row appears at once as a `draft://` placeholder, the [preparer] transcodes
+ * (video → 720p H.264/AAC MP4 + poster) or probes (audio) it under a
+ * "Preparing…" badge, the 50 MB cap is checked on the RESULT, then the host
+ * [uploader] runs under "Uploading…" and the row's URL swaps to what it
+ * returns (a real attachment URL, or the create screen's placeholder). A
+ * failure keeps the row with a Retry badge; the retry reuses the prepared
+ * bytes instead of transcoding again. [atEnd] appends instead of splitting
+ * the focused run (the file-picker path, EXP-327 parity with images).
+ *
+ * Also the issue-detail fallback for a media file that reached the FILE
+ * path, so both produce the identical block with the same lifecycle.
+ */
+suspend fun insertPickedMedia(
+    context: Context,
+    model: EditorModel,
+    uri: Uri,
+    contentType: String,
+    preparer: MediaPreparer,
+    uploader: suspend (PreparedMedia) -> String?,
+    atEnd: Boolean = false,
+) {
+    val filename = withContext(Dispatchers.IO) { MarkdownMediaUtils.guessFilename(context, uri) }
+    val label = mediaLinkLabel(filename)
+    // An empty-bytes placeholder keeps the row out of removeDanglingDrafts
+    // until the prepared bytes replace it.
+    val placeholder = PendingImage(uri, ByteArray(0), filename, contentType, null, null, isMedia = true)
+    val rowId = if (atEnd) {
+        model.appendMediaUrl(draftUrl(), label, placeholder)
+    } else {
+        model.insertMediaUrl(draftUrl(), label, placeholder)
+    }
+    var prepared: PreparedMedia? = null
+    model.runUpload(rowId) {
+        val ready = prepared ?: run {
+            model.uploadStates[rowId] = EditorModel.ImageUploadState.Preparing
+            val result = try {
+                preparer.prepare(uri, filename, contentType)
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (t: Throwable) {
+                android.util.Log.w("MarkdownEditor", "Media prepare failed (type=$contentType)", t)
+                // A plain exception's message never reaches the retry badge
+                // (trpcErrorMessage keeps only TrpcException text).
+                throw TrpcException(t.message?.takeIf { it.isNotBlank() } ?: "The file could not be prepared")
+            }
+            if (result.bytes.size > MAX_FILE_UPLOAD_BYTES) {
+                throw TrpcException(
+                    "Videos must be ${MAX_FILE_UPLOAD_BYTES / (1024 * 1024)} MB or smaller",
+                )
+            }
+            prepared = result
+            // From here the tile shows the poster, the real size and the
+            // duration chip.
+            val key = (model.rows.firstOrNull { it.id == rowId } as? EditorRow.Embed)?.url
+            if (key != null) {
+                model.pendingImages[key] = PendingImage(
+                    uri = uri,
+                    bytes = result.bytes,
+                    filename = result.filename,
+                    contentType = result.contentType,
+                    width = result.width,
+                    height = result.height,
+                    isMedia = true,
+                    durationMs = result.durationMs,
+                    poster = result.poster,
+                )
+            }
+            model.uploadStates[rowId] = EditorModel.ImageUploadState.Uploading
+            result
+        }
+        uploader(ready)
+    }
 }
 
 /**

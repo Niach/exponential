@@ -9,7 +9,7 @@ import java.util.UUID
 
 /**
  * An editing-friendly projection of the block document: a flat, ordered list of
- * multi-line text runs and images. Each [TextRun] is one run of '\n'-separated
+ * multi-line text runs, images and media blocks. Each [TextRun] is one run of '\n'-separated
  * paragraphs between two images, backed by ONE multi-line `BasicTextField` —
  * the iOS architecture (one `UITextView` per run), which is what lets text
  * selection span paragraphs, headings, list items, quotes and code fences
@@ -35,11 +35,37 @@ sealed interface EditorRow {
         val lines: List<String> get() = if (text.isEmpty()) listOf("") else text.split("\n")
     }
 
+    /**
+     * A block row that references an upload by URL — an [Image] or a [Media]
+     * (EXP-824). [EditorModel]'s upload lifecycle (draft placeholder →
+     * uploading → real `/api/attachments/…` URL, retry, delete) is written
+     * once against this and serves both.
+     */
+    sealed interface Embed : EditorRow {
+        val url: String
+        fun withUrl(url: String): Embed
+    }
+
     data class Image(
         override val id: String = UUID.randomUUID().toString(),
-        val url: String,
+        override val url: String,
         val alt: String,
-    ) : EditorRow
+    ) : Embed {
+        override fun withUrl(url: String): Embed = copy(url = url)
+    }
+
+    /**
+     * An inline video / audio block (EXP-824): the editor projection of
+     * [ContentBlock.AttachmentLinkBlock]. Like [Image] it takes no caret and
+     * serializes to its own paragraph — the plain link `[label](url)`.
+     */
+    data class Media(
+        override val id: String = UUID.randomUUID().toString(),
+        override val url: String,
+        val label: String,
+    ) : Embed {
+        override fun withUrl(url: String): Embed = copy(url = url)
+    }
 
     /**
      * A GFM table (EXP-726). Like [Image] it is NOT a text run: the row itself
@@ -66,6 +92,8 @@ object EditorRows {
         for (block in blocks) {
             when (block) {
                 is ContentBlock.ImageBlock -> rows.add(EditorRow.Image(url = block.url, alt = block.alt))
+                is ContentBlock.AttachmentLinkBlock ->
+                    rows.add(EditorRow.Media(url = block.url, label = block.label))
                 is ContentBlock.TableBlock -> rows.add(EditorRow.Table(table = block.table))
                 is ContentBlock.TextBlock -> {
                     val rich = block.content
@@ -117,6 +145,10 @@ object EditorRows {
                 is EditorRow.Image -> {
                     flush()
                     blocks.add(ContentBlock.ImageBlock(url = row.url, alt = row.alt))
+                }
+                is EditorRow.Media -> {
+                    flush()
+                    blocks.add(ContentBlock.AttachmentLinkBlock(url = row.url, label = row.label))
                 }
                 is EditorRow.Table -> {
                     flush()

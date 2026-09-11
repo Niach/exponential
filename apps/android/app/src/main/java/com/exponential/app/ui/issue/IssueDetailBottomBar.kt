@@ -462,8 +462,9 @@ private fun ExpandedCommentComposer(
                 ExpIcons.editorImage,
                 contentDescription = "Attach image",
                 onClick = {
+                    // EXP-824: videos attach too (transcoded + postered by the VM).
                     imagePicker.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo),
                     )
                 },
             )

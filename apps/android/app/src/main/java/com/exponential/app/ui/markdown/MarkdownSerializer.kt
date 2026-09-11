@@ -39,6 +39,9 @@ object MarkdownSerializer {
                     if (md.isNotEmpty()) parts.add(md)
                 }
                 is ContentBlock.ImageBlock -> parts.add("![${block.alt}](${block.url})")
+                // EXP-824: inline media is a PLAIN link on its own paragraph —
+                // never the image form — byte-locked by MarkdownRoundTripTest.
+                is ContentBlock.AttachmentLinkBlock -> parts.add("[${block.label}](${block.url})")
                 is ContentBlock.TableBlock -> parts.add(serializeTable(block.table))
             }
         }

@@ -32,6 +32,13 @@ data class UploadedAttachment(
     val filename: String,
     val contentType: String,
     val sizeBytes: Long,
+    // EXP-824 media probe + poster route; nullable, decoded tolerantly.
+    val width: Int? = null,
+    val height: Int? = null,
+    val durationMs: Long? = null,
+    val posterUrl: String? = null,
+    val videoCodec: String? = null,
+    val audioCodec: String? = null,
 )
 
 @Serializable
@@ -59,12 +66,22 @@ class AttachmentsApi @Inject constructor(
         bytes: ByteArray,
         filename: String,
         contentType: String,
+        // EXP-824: a comment's video / audio attachment sends its poster and
+        // probe beside the bytes (see IssueImagesApi.uploadMedia).
+        poster: ByteArray? = null,
+        width: Int? = null,
+        height: Int? = null,
+        durationMs: Long? = null,
     ): UploadedAttachment {
         val account = auth.accounts.value.firstOrNull { it.id == accountId }
         val baseUrl = account?.instanceUrl
             ?: throw TrpcException("No instance URL for account $accountId")
         val token = account.token
-        val (body, boundary) = buildImageUploadBody(bytes, filename, contentType)
+        val (body, boundary) = buildImageUploadBody(
+            bytes, filename, contentType,
+            poster = poster,
+            fields = mediaUploadFields(width, height, durationMs),
+        )
         val response = client.post("$baseUrl/api/issues/$issueId/files") {
             // 50 MB on a mobile uplink needs far more than the client-wide 30s
             // request budget (and more than the image route's 120s).

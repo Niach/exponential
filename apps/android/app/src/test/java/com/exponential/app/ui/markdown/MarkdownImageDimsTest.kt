@@ -14,9 +14,9 @@ class MarkdownImageDimsTest {
 
     private val dims = AttachmentDims(
         mapOf(
-            "abc-123" to (1600 to 900),
-            "square" to (500 to 500),
-            "broken" to (0 to 0),
+            "abc-123" to AttachmentInfo(width = 1600, height = 900),
+            "square" to AttachmentInfo(width = 500, height = 500),
+            "broken" to AttachmentInfo(width = 0, height = 0),
         ),
     )
 

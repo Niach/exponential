@@ -76,6 +76,7 @@ import com.exponential.app.ui.formatDueDate
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.IssueRefHandler
 import com.exponential.app.ui.markdown.LocalIssueRefs
+import com.exponential.app.domain.PreparedMedia
 import com.exponential.app.ui.markdown.MarkdownEditor
 import com.exponential.app.ui.markdown.MarkdownMediaUtils
 import com.exponential.app.ui.markdown.MentionMember
@@ -165,6 +166,10 @@ fun CreateIssueScreen(
 
     val initialPendingImages = remember { sharePrefill?.pendingImages ?: emptyMap() }
     val pendingImages = remember { mutableStateMapOf<String, Uri>().apply { putAll(initialPendingImages) } }
+    // EXP-824: video / audio picks, already normalised (720p MP4 + poster),
+    // keyed by the `draft://` placeholder their media-link block carries;
+    // uploaded right after the create like the images above.
+    val pendingMedia = remember { mutableStateMapOf<String, PreparedMedia>() }
     // Draft file attachments (EXP-327): the issue doesn't exist yet, so —
     // exactly like draft images — the picks are held here and uploaded right
     // after the create.
@@ -202,7 +207,7 @@ fun CreateIssueScreen(
     // Anything worth a "discard?" prompt: typed/prefilled content or images
     // queued for upload.
     val hasUnsavedContent = title.isNotBlank() || description.isNotBlank() ||
-        pendingImages.isNotEmpty() || pendingFiles.isNotEmpty()
+        pendingImages.isNotEmpty() || pendingMedia.isNotEmpty() || pendingFiles.isNotEmpty()
 
     // The share prefill is NOT consumed on entry: it lives in an app-singleton
     // (TeamSelection.pendingShare), so backing out and re-entering re-fills
@@ -246,6 +251,7 @@ fun CreateIssueScreen(
                 // server rejects the whole create on an unknown label id.
                 labelIds = selectedLabelIds.filter { id -> state.labels.any { it.id == id } },
                 pendingImages = pendingImages.toMap(),
+                pendingMedia = pendingMedia.toMap(),
                 pendingFiles = pendingFiles.toList(),
             )
             if (createdId != null) {
@@ -257,6 +263,7 @@ fun CreateIssueScreen(
                     description = ""
                     selectedLabelIds = emptySet()
                     pendingImages.clear()
+                    pendingMedia.clear()
                     pendingFiles.clear()
                 } else {
                     onCreated(createdId)
@@ -358,6 +365,11 @@ fun CreateIssueScreen(
                     onUploadImage = { uri ->
                         val placeholder = "draft://${UUID.randomUUID()}"
                         pendingImages[placeholder] = uri
+                        placeholder
+                    },
+                    onUploadMedia = { prepared ->
+                        val placeholder = "draft://${UUID.randomUUID()}"
+                        pendingMedia[placeholder] = prepared
                         placeholder
                     },
                     imageUploadEnabled = true,

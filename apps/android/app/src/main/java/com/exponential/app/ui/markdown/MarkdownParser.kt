@@ -47,8 +47,9 @@ import org.commonmark.parser.Parser
  * hand — a faithful port of iOS `renderNodeToBlocks` / `BlockCollector` /
  * `RenderContext` (`apps/ios/Exponential/UI/Markdown/MarkdownConversion.swift`).
  *
- * Only images split blocks. Headings, lists, quotes and fenced code become
- * paragraph-level attributes inside a [ContentBlock.TextBlock]. Task-list items
+ * Only images, tables and inline-media links split blocks. Headings, lists,
+ * quotes and fenced code become paragraph-level attributes inside a
+ * [ContentBlock.TextBlock]. Task-list items
  * are detected manually (NOT via a tasklist extension) so unchecked boxes don't
  * degrade to plain bullets — the same reasoning the iOS implementation documents.
  */
@@ -365,6 +366,36 @@ object MarkdownParser {
             blocks.add(ContentBlock.ImageBlock(url = url, alt = alt))
         }
 
+        private fun emitAttachmentLink(link: Link) {
+            flushText()
+            blocks.add(
+                ContentBlock.AttachmentLinkBlock(
+                    url = link.destination ?: "",
+                    label = collectText(link),
+                ),
+            )
+        }
+
+        /**
+         * The [Link] when [para] consists of exactly one link whose
+         * destination is an attachment URL (or a local `draft://`
+         * placeholder) and whose text is plain (no nested emphasis, non-empty)
+         * — the inline-media contract (EXP-824). Null for everything else.
+         */
+        private fun soleAttachmentLink(para: Paragraph): Link? {
+            val link = para.firstChild as? Link ?: return null
+            if (link.next != null) return null
+            val url = link.destination ?: return null
+            if (attachmentIdFromUrl(url) == null && !isDraftUrl(url)) return null
+            var child = link.firstChild ?: return null
+            while (true) {
+                if (child !is Text) return null
+                child = child.next ?: break
+            }
+            if (collectText(link).isEmpty()) return null
+            return link
+        }
+
         fun finalize(): List<ContentBlock> {
             flushText()
             normalizeBlocks(blocks)
@@ -378,6 +409,17 @@ object MarkdownParser {
                 is Document -> renderChildren(node, ctx)
 
                 is Paragraph -> {
+                    // EXP-824: a TOP-LEVEL paragraph that is solely one
+                    // attachment link is the inline-media block. Inside a
+                    // list item, quote or cell it stays an ordinary link —
+                    // hoisting it would rewrite the surrounding structure.
+                    val mediaLink = if (ctx.pendingItemAttrs == null && !ctx.inBlockquote && !ctx.inTableCell) {
+                        soleAttachmentLink(node)
+                    } else null
+                    if (mediaLink != null) {
+                        emitAttachmentLink(mediaLink)
+                        return
+                    }
                     val attrs = ctx.pendingItemAttrs
                         ?: if (ctx.inBlockquote) ParagraphAttrs(kind = BlockKind.Blockquote) else ParagraphAttrs.PLAIN
                     ctx.pendingItemAttrs = null

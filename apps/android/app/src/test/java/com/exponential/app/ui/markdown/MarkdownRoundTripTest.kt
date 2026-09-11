@@ -85,6 +85,75 @@ class MarkdownRoundTripTest {
     @Test fun textImageText() =
         assertStable("before\n\n![alt](/api/attachments/abc)\n\nafter")
 
+    // --- Inline media (EXP-824): a PLAIN link on its own paragraph, never the
+    // image form. The two fixtures are the ×4 contract corpus (web, iOS and
+    // the desktop lock the same bytes). A link in running text, in a list
+    // item or with an external URL stays an ordinary inline link. ---
+
+    @Test fun mediaLinkBlock() = assertStable("[clip.mp4](/api/attachments/abc123)")
+
+    @Test fun textMediaLinkText() =
+        assertStable("before\n\n[clip.mp4](/api/attachments/abc)\n\nafter")
+
+    @Test fun mediaLinkParsesToItsOwnBlock() {
+        val blocks = MarkdownParser.parse("before\n\n[clip.mp4](/api/attachments/abc)\n\nafter")
+        assertEquals(listOf("TextBlock", "AttachmentLinkBlock", "TextBlock"), blocks.map { it::class.simpleName })
+        val media = blocks[1] as ContentBlock.AttachmentLinkBlock
+        assertEquals("/api/attachments/abc", media.url)
+        assertEquals("clip.mp4", media.label)
+    }
+
+    @Test fun mediaLinkWithAQueryKeepsIt() =
+        assertStable("[clip.mp4](/api/attachments/abc?w=480)")
+
+    @Test fun attachmentLinkInsideRunningTextStaysInline() {
+        val md = "see [clip.mp4](/api/attachments/abc) here"
+        assertStable(md)
+        assertTrue(MarkdownParser.parse(md).none { it is ContentBlock.AttachmentLinkBlock })
+    }
+
+    @Test fun attachmentLinkInAListItemStaysInline() {
+        val md = "- [clip.mp4](/api/attachments/abc)"
+        assertStable(md)
+        assertTrue(MarkdownParser.parse(md).none { it is ContentBlock.AttachmentLinkBlock })
+    }
+
+    @Test fun attachmentLinkInAQuoteStaysInline() {
+        val md = "> [clip.mp4](/api/attachments/abc)"
+        assertStable(md)
+        assertTrue(MarkdownParser.parse(md).none { it is ContentBlock.AttachmentLinkBlock })
+    }
+
+    @Test fun externalSoleLinkIsNotAMediaBlock() {
+        val md = "[docs](https://example.com/clip.mp4)"
+        assertStable(md)
+        assertTrue(MarkdownParser.parse(md).none { it is ContentBlock.AttachmentLinkBlock })
+    }
+
+    @Test fun formattedSoleAttachmentLinkIsNotAMediaBlock() {
+        val md = "[**clip.mp4**](/api/attachments/abc)"
+        assertStable(md)
+        assertTrue(MarkdownParser.parse(md).none { it is ContentBlock.AttachmentLinkBlock })
+    }
+
+    @Test fun twoLinksOnOneParagraphStayInline() {
+        val md = "[a.mp4](/api/attachments/a) [b.mp4](/api/attachments/b)"
+        assertStable(md)
+        assertTrue(MarkdownParser.parse(md).none { it is ContentBlock.AttachmentLinkBlock })
+    }
+
+    @Test fun imageFormNeverBecomesAMediaBlock() {
+        val blocks = MarkdownParser.parse("![clip.mp4](/api/attachments/abc)")
+        assertTrue(blocks.any { it is ContentBlock.ImageBlock })
+        assertTrue(blocks.none { it is ContentBlock.AttachmentLinkBlock })
+    }
+
+    @Test fun mediaLinkBlockIsIdempotent() {
+        val once = roundTrip("intro\n\n[clip.mp4](/api/attachments/abc)\n\n- a\n- b")
+        assertEquals("intro\n\n[clip.mp4](/api/attachments/abc)\n\n- a\n- b", once)
+        assertEquals(once, roundTrip(once))
+    }
+
     @Test fun nestedBulletList() = assertStable("- parent\n  - child")
 
     @Test fun mixedDocument() = assertStable(

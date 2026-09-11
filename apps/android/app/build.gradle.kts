@@ -210,6 +210,11 @@ dependencies {
     implementation(libs.commonmark.ext.tables)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.ktor3)
+    // EXP-824: inline video/audio playback + the upload-time 720p transcode.
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.ui)
+    implementation(libs.media3.transformer)
+    implementation(libs.media3.effect)
 
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)
