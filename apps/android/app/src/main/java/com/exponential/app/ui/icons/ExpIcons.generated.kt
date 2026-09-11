@@ -4193,6 +4193,70 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `pin`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "pin",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M12 17v5"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `pin-off`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "pin-off",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M12 17v5"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M15 9.34V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H7.89"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("m2 2 20 20"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M9 9v1.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h11"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `plane`: ImageVector by lazy {
         ImageVector.Builder(
             name = "plane",
@@ -6334,6 +6398,8 @@ public object ExpIcons {
         "pen-tool" -> `pen-tool`
         "pencil" -> `pencil`
         "phone" -> `phone`
+        "pin" -> `pin`
+        "pin-off" -> `pin-off`
         "plane" -> `plane`
         "play" -> `play`
         "plug" -> `plug`
@@ -6776,6 +6842,8 @@ public object ExpIcons {
     public val uiOwner: ImageVector get() = `crown`
     /** Concept `ui-permission`. */
     public val uiPermission: ImageVector get() = `shield-question-mark`
+    /** Concept `ui-pin`. */
+    public val uiPin: ImageVector get() = `pin`
     /** Concept `ui-private`. */
     public val uiPrivate: ImageVector get() = `lock`
     /** Concept `ui-properties`. */
@@ -6822,6 +6890,8 @@ public object ExpIcons {
     public val uiUndo: ImageVector get() = `undo-2`
     /** Concept `ui-undock`. */
     public val uiUndock: ImageVector get() = `arrow-up-right`
+    /** Concept `ui-unpin`. */
+    public val uiUnpin: ImageVector get() = `pin-off`
     /** Concept `ui-unselected`. */
     public val uiUnselected: ImageVector get() = `circle`
     /** Concept `ui-unsubscribe`. */

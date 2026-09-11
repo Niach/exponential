@@ -224,6 +224,8 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "pen-tool" => ExpIcon::PenTool,
         "pencil" => ExpIcon::Pencil,
         "phone" => ExpIcon::Phone,
+        "pin" => ExpIcon::Pin,
+        "pin-off" => ExpIcon::PinOff,
         "plane" => ExpIcon::Plane,
         "play" => ExpIcon::Play,
         "plug" => ExpIcon::Plug,
@@ -667,6 +669,8 @@ pub const UI_ORGANIZATION: ExpIcon = ExpIcon::Building2;
 pub const UI_OWNER: ExpIcon = ExpIcon::Crown;
 /// Registry concept `ui-permission` -> Lucide `shield-question-mark`.
 pub const UI_PERMISSION: ExpIcon = ExpIcon::ShieldQuestionMark;
+/// Registry concept `ui-pin` -> Lucide `pin`.
+pub const UI_PIN: ExpIcon = ExpIcon::Pin;
 /// Registry concept `ui-private` -> Lucide `lock`.
 pub const UI_PRIVATE: ExpIcon = ExpIcon::Lock;
 /// Registry concept `ui-properties` -> Lucide `sliders-horizontal`.
@@ -713,6 +717,8 @@ pub const UI_UNASSIGNED: ExpIcon = ExpIcon::UserX;
 pub const UI_UNDO: ExpIcon = ExpIcon::Undo2;
 /// Registry concept `ui-undock` -> Lucide `arrow-up-right`.
 pub const UI_UNDOCK: ExpIcon = ExpIcon::ArrowUpRight;
+/// Registry concept `ui-unpin` -> Lucide `pin-off`.
+pub const UI_UNPIN: ExpIcon = ExpIcon::PinOff;
 /// Registry concept `ui-unselected` -> Lucide `circle`.
 pub const UI_UNSELECTED: ExpIcon = ExpIcon::Circle;
 /// Registry concept `ui-unsubscribe` -> Lucide `bell-off`.

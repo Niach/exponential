@@ -219,6 +219,8 @@ public enum AppIcons {
         "pen-tool",
         "pencil",
         "phone",
+        "pin",
+        "pin-off",
         "plane",
         "play",
         "plug",
@@ -665,6 +667,8 @@ public enum AppIcons {
     public static let uiOwner: String = "crown"
     /// Concept `ui-permission`.
     public static let uiPermission: String = "shield-question-mark"
+    /// Concept `ui-pin`.
+    public static let uiPin: String = "pin"
     /// Concept `ui-private`.
     public static let uiPrivate: String = "lock"
     /// Concept `ui-properties`.
@@ -711,6 +715,8 @@ public enum AppIcons {
     public static let uiUndo: String = "undo-2"
     /// Concept `ui-undock`.
     public static let uiUndock: String = "arrow-up-right"
+    /// Concept `ui-unpin`.
+    public static let uiUnpin: String = "pin-off"
     /// Concept `ui-unselected`.
     public static let uiUnselected: String = "circle"
     /// Concept `ui-unsubscribe`.

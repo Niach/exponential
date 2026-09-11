@@ -21,6 +21,7 @@ import {
   selectIssueStatusRowSchema,
   selectLabelSchema,
   selectNotificationSchema,
+  selectPinSchema,
   selectBoardSchema,
   selectUserSchema,
   selectTeamInviteSchema,
@@ -72,7 +73,7 @@ const shapeFetch = async (
   }
 }
 
-// The per-collection shape wiring, identical for all 20 of them: the proxy URL,
+// The per-collection shape wiring, identical for all 21 of them: the proxy URL,
 // the timestamp parser and the snake→camel mapper `useLiveQuery` where clauses
 // depend on.
 function shapeOptions(path: string) {
@@ -244,6 +245,18 @@ export const issueEventCollection = createCollection(
 )
 
 // Subscription rows, for the per-issue subscribe toggle's live state.
+// EXP-778: the caller's personal pins (issues / sessions / actions), the
+// sidebar's Pinned group. Static per user; the target resolves from the
+// scoped collections.
+export const pinCollection = createCollection(
+  electricCollectionOptions({
+    id: `pins`,
+    shapeOptions: shapeOptions(`/api/shapes/pins`),
+    schema: selectPinSchema,
+    getKey: (item) => item.id,
+  })
+)
+
 export const issueSubscriberCollection = createCollection(
   electricCollectionOptions({
     id: `issue_subscribers`,

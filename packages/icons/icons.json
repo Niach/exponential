@@ -239,6 +239,8 @@
     "ui-watch": "eye",
     "ui-send": "send",
     "ui-due-date": "calendar-days",
+    "ui-pin": "pin",
+    "ui-unpin": "pin-off",
     "ui-subscribe": "bell",
     "ui-unsubscribe": "bell-off",
     "ui-invite": "user-plus",

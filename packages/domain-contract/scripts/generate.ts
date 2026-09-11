@@ -57,6 +57,7 @@ interface Contract {
   }
   toolKind: Section
   subscriberSource: Section
+  pinKind: Section
   issueEventType: Section
   issueRelationType: Section & { forwardLabels: string[]; inverseLabels: string[] }
   issueRelationSource: Section
@@ -259,6 +260,7 @@ ${swiftStringArray("codingSessionBlockedKinds", contract.codingSessionBlocked.ki
 ${swiftStringArray("codingSessionBlockedWindows", contract.codingSessionBlocked.windows)}
 ${swiftStringArray("toolKindValues", contract.toolKind.values)}
 ${swiftStringArray("subscriberSourceValues", contract.subscriberSource.values)}
+${swiftStringArray("pinKindValues", contract.pinKind.values)}
 ${swiftStringArray("issueEventTypeValues", contract.issueEventType.values)}
 ${swiftStringArray("issueRelationTypeValues", contract.issueRelationType.values)}
 ${swiftStringArray("issueRelationTypeForwardLabels", contract.issueRelationType.forwardLabels)}
@@ -315,6 +317,7 @@ ${swiftNamedValues("prState", contract.prState.values)}
 ${swiftNamedValues("codingSessionStatus", contract.codingSessionStatus.values)}
 ${swiftNamedValues("codingSessionEndedBy", contract.codingSessionEndedBy.values)}
 ${swiftNamedValues("subscriberSource", contract.subscriberSource.values)}
+${swiftNamedValues("pinKind", contract.pinKind.values)}
 ${swiftNamedValues("issueEventType", contract.issueEventType.values)}
 ${swiftNamedValues("issueRelationType", contract.issueRelationType.values)}
 ${swiftNamedValues("issueRelationSource", contract.issueRelationSource.values)}
@@ -348,6 +351,7 @@ ${kotlinStringArray("codingSessionBlockedKinds", contract.codingSessionBlocked.k
 ${kotlinStringArray("codingSessionBlockedWindows", contract.codingSessionBlocked.windows)}
 ${kotlinStringArray("toolKindValues", contract.toolKind.values)}
 ${kotlinStringArray("subscriberSourceValues", contract.subscriberSource.values)}
+${kotlinStringArray("pinKindValues", contract.pinKind.values)}
 ${kotlinStringArray("issueEventTypeValues", contract.issueEventType.values)}
 ${kotlinStringArray("issueRelationTypeValues", contract.issueRelationType.values)}
 ${kotlinStringArray("issueRelationTypeForwardLabels", contract.issueRelationType.forwardLabels)}
@@ -404,6 +408,7 @@ ${kotlinNamedValues("prState", contract.prState.values)}
 ${kotlinNamedValues("codingSessionStatus", contract.codingSessionStatus.values)}
 ${kotlinNamedValues("codingSessionEndedBy", contract.codingSessionEndedBy.values)}
 ${kotlinNamedValues("subscriberSource", contract.subscriberSource.values)}
+${kotlinNamedValues("pinKind", contract.pinKind.values)}
 ${kotlinNamedValues("issueEventType", contract.issueEventType.values)}
 ${kotlinNamedValues("issueRelationType", contract.issueRelationType.values)}
 ${kotlinNamedValues("issueRelationSource", contract.issueRelationSource.values)}
@@ -439,6 +444,7 @@ ${rustStrSlice("codingSessionBlockedKinds", contract.codingSessionBlocked.kinds)
 ${rustStrSlice("codingSessionBlockedWindows", contract.codingSessionBlocked.windows)}
 ${rustStrSlice("toolKindValues", contract.toolKind.values)}
 ${rustStrSlice("subscriberSourceValues", contract.subscriberSource.values)}
+${rustStrSlice("pinKindValues", contract.pinKind.values)}
 ${rustStrSlice("issueEventTypeValues", contract.issueEventType.values)}
 ${rustStrSlice("issueRelationTypeValues", contract.issueRelationType.values)}
 ${rustStrSlice("issueRelationTypeForwardLabels", contract.issueRelationType.forwardLabels)}
@@ -495,6 +501,7 @@ ${rustNamedValues("prState", contract.prState.values)}
 ${rustNamedValues("codingSessionStatus", contract.codingSessionStatus.values)}
 ${rustNamedValues("codingSessionEndedBy", contract.codingSessionEndedBy.values)}
 ${rustNamedValues("subscriberSource", contract.subscriberSource.values)}
+${rustNamedValues("pinKind", contract.pinKind.values)}
 ${rustNamedValues("issueEventType", contract.issueEventType.values)}
 ${rustNamedValues("issueRelationType", contract.issueRelationType.values)}
 ${rustNamedValues("issueRelationSource", contract.issueRelationSource.values)}

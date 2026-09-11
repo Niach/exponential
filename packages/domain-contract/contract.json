@@ -229,6 +229,13 @@
       "widget_reporter"
     ]
   },
+  "pinKind": {
+    "values": [
+      "issue",
+      "session",
+      "action"
+    ]
+  },
   "issueEventType": {
     "values": [
       "status_changed",

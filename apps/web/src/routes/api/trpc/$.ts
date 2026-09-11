@@ -35,6 +35,7 @@ import { widgetsRouter } from "@/lib/trpc/widgets"
 import { helpdeskRouter } from "@/lib/trpc/helpdesk"
 import { mcpGrantsRouter } from "@/lib/trpc/mcp-grants"
 import { mcpServersRouter } from "@/lib/trpc/mcp-servers"
+import { pinsRouter } from "@/lib/trpc/pins"
 
 export const appRouter = router({
   teams: teamsRouter,
@@ -68,6 +69,7 @@ export const appRouter = router({
   helpdesk: helpdeskRouter,
   mcpGrants: mcpGrantsRouter,
   mcpServers: mcpServersRouter,
+  pins: pinsRouter,
 })
 
 export type AppRouter = typeof appRouter

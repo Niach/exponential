@@ -22,6 +22,7 @@ import {
   codingSessionBlockedKindValues,
   codingSessionBlockedWindowValues,
   subscriberSourceValues,
+  pinKindValues,
   issueEventTypeValues,
   issueRelationTypeValues,
   issueRelationSourceValues,
@@ -204,6 +205,10 @@ describe(`domain-contract parity`, () => {
     expect([...subscriberSourceValues]).toEqual([
       ...contract.subscriberSource.values,
     ])
+  })
+
+  it(`pin kind values match the contract`, () => {
+    expect([...pinKindValues]).toEqual([...contract.pinKind.values])
   })
 
   it(`issue event type values match the contract`, () => {

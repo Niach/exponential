@@ -13,6 +13,7 @@ import { Route as attachmentsRoute } from "@/routes/api/shapes/attachments"
 import { Route as codingSessionsRoute } from "@/routes/api/shapes/coding-sessions"
 import { Route as automationsRoute } from "@/routes/api/shapes/automations"
 import { Route as notificationsRoute } from "@/routes/api/shapes/notifications"
+import { Route as pinsRoute } from "@/routes/api/shapes/pins"
 import { Route as actionsRoute } from "@/routes/api/shapes/actions"
 import { Route as issueStatusesRoute } from "@/routes/api/shapes/issue-statuses"
 import { Route as devicesRoute } from "@/routes/api/shapes/devices"
@@ -802,6 +803,41 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
     expect(columns).not.toContain(`emailed_at`)
   })
 
+  // EXP-778: the pins shape — the caller's own rows, static per user, no
+  // trash mirror (clients resolve the target from the scoped shapes).
+  it(`pins clause is fully static per user and never anonymous`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+    prepareElectricUrl.mockReturnValue(originUrl)
+
+    await shapeHandler(pinsRoute)({
+      request: new Request(`https://example.com/api/shapes/pins`, {
+        headers: { authorization: `Bearer t` },
+      }),
+    })
+
+    expect(originUrl.searchParams.get(`where`)).toBe(`"user_id" = 'user-1'`)
+    expect(membership.getUserTeamIds).not.toHaveBeenCalled()
+    expect(originUrl.searchParams.get(`columns`)?.split(`,`)).toEqual([
+      `id`,
+      `user_id`,
+      `team_id`,
+      `kind`,
+      `issue_id`,
+      `session_id`,
+      `action_id`,
+      `sort_order`,
+      `created_at`,
+      `updated_at`,
+    ])
+
+    resolveSession.mockResolvedValue(null)
+    const anon = await shapeHandler(pinsRoute)({
+      request: new Request(`https://example.com/api/shapes/pins`),
+    })
+    expect(anon.status).toBe(401)
+  })
+
   // EXP-481: the devices shape — own rows + team-shared SERVER rows.
   it(`devices: own rows plus sorted shared-team server arm; anonymous is 401`, async () => {
     const originUrl = new URL(`https://electric.example/v1/shape`)
@@ -911,7 +947,7 @@ describe(`every shape proxy pins a columns allowlist (REV-49)`, () => {
     proxyElectricRequest.mockResolvedValue(new Response(`ok`))
   })
 
-  // ALL 20 shape routes (the file list in routes/api/shapes/ IS the list).
+  // ALL 21 shape routes (the file list in routes/api/shapes/ IS the list).
   // The pin is what makes adding a server-only column to a synced table safe
   // — an unpinned proxy would stream it to every client on the next deploy
   // with no code change and no test failure. A new route added without a
@@ -934,6 +970,7 @@ describe(`every shape proxy pins a columns allowlist (REV-49)`, () => {
     [`issues`, issuesRoute],
     [`labels`, labelsRoute],
     [`notifications`, notificationsRoute],
+    [`pins`, pinsRoute],
     [`team-invites`, teamInvitesRoute],
     [`team-members`, teamMembersRoute],
     [`teams`, teamsRoute],
