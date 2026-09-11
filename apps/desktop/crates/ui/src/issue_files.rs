@@ -53,7 +53,8 @@ pub(crate) fn is_inline_media(content_type: Option<&str>) -> bool {
 /// once there are any; seconds floor, never round up past the real length).
 /// Mirrors the web/iOS/Android formatter byte for byte.
 pub(crate) fn format_duration(duration_ms: i64) -> String {
-    let total_seconds = duration_ms.max(0) / 1000;
+    // Nearest second, like web `formatDuration` and iOS `MediaDuration`.
+    let total_seconds = (duration_ms.max(0) + 500) / 1000;
     let hours = total_seconds / 3600;
     let minutes = (total_seconds % 3600) / 60;
     let seconds = total_seconds % 60;
@@ -356,7 +357,8 @@ mod tests {
     fn duration_chips_format_like_the_other_clients() {
         assert_eq!(format_duration(0), "0:00");
         assert_eq!(format_duration(7_000), "0:07");
-        assert_eq!(format_duration(7_999), "0:07");
+        assert_eq!(format_duration(7_499), "0:07");
+        assert_eq!(format_duration(7_500), "0:08");
         assert_eq!(format_duration(154_000), "2:34");
         assert_eq!(format_duration(3_723_000), "1:02:03");
         assert_eq!(format_duration(36_000_000), "10:00:00");
