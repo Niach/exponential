@@ -248,6 +248,7 @@ export async function getAttachmentTeamContext(attachmentId: string) {
       issueId: attachments.issueId,
       commentId: attachments.commentId,
       storageKey: attachments.storageKey,
+      posterStorageKey: attachments.posterStorageKey,
       teamId: boards.teamId,
       boardId: issues.boardId,
       contentType: attachments.contentType,

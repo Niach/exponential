@@ -1,6 +1,7 @@
 import { inArray } from "drizzle-orm"
 import { attachments, sessionAttachments } from "@/db/schema"
 import type { db as Database } from "@/db/connection"
+import { collectAttachmentStorageKeys } from "@/lib/storage/issue-attachments"
 
 // Works over the root db or a transaction — structurally typed so callers
 // can collect inside their own delete transaction.
@@ -20,7 +21,10 @@ export async function collectTeamStorageKeys(
   if (teamIds.length === 0) return []
   const [issueRows, sessionRows] = await Promise.all([
     tx
-      .select({ storageKey: attachments.storageKey })
+      .select({
+        storageKey: attachments.storageKey,
+        posterStorageKey: attachments.posterStorageKey,
+      })
       .from(attachments)
       .where(inArray(attachments.teamId, teamIds)),
     tx
@@ -28,7 +32,6 @@ export async function collectTeamStorageKeys(
       .from(sessionAttachments)
       .where(inArray(sessionAttachments.teamId, teamIds)),
   ])
-  return [
-    ...new Set([...issueRows, ...sessionRows].map((row) => row.storageKey)),
-  ]
+  // EXP-824: video rows own a poster blob too — collected by the helper.
+  return collectAttachmentStorageKeys([...issueRows, ...sessionRows])
 }

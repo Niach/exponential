@@ -5,6 +5,7 @@ import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { attachments, comments, issues } from "@/db/schema"
 import { assertTeamMember, assertTeamOwner } from "@/lib/team-membership"
 import {
+  collectAttachmentStorageKeys,
   collectReferencedAttachmentIds,
   isAcceptedImageContentType,
 } from "@/lib/storage/issue-attachments"
@@ -111,6 +112,7 @@ export const attachmentsRouter = router({
             id: attachments.id,
             filename: attachments.filename,
             storageKey: attachments.storageKey,
+            posterStorageKey: attachments.posterStorageKey,
             teamId: attachments.teamId,
           })
           .from(attachments)
@@ -132,11 +134,11 @@ export const attachmentsRouter = router({
 
         await tx.delete(attachments).where(eq(attachments.id, input.id))
 
-        return { txId, storageKey: row.storageKey }
+        return { txId, storageKeys: collectAttachmentStorageKeys([row]) }
       })
 
       // Blob reclamation happens only after the row is really gone.
-      await deleteStorageObjects([result.storageKey])
+      await deleteStorageObjects(result.storageKeys)
 
       return { txId: result.txId }
     }),
@@ -207,6 +209,7 @@ export const attachmentsRouter = router({
             contentType: attachments.contentType,
             sizeBytes: attachments.sizeBytes,
             storageKey: attachments.storageKey,
+            posterStorageKey: attachments.posterStorageKey,
             createdAt: attachments.createdAt,
           })
           .from(attachments)
@@ -244,7 +247,7 @@ export const attachmentsRouter = router({
         return { txId, deleted, skippedRecentCount }
       })
 
-      await deleteStorageObjects(result.deleted.map((row) => row.storageKey))
+      await deleteStorageObjects(collectAttachmentStorageKeys(result.deleted))
 
       return {
         txId: result.txId,

@@ -22,6 +22,10 @@ const ATTACHMENT_COLUMNS = [
   `url`,
   `width`,
   `height`,
+  // EXP-824: inline media. Clients render a player for `video/*` rows with
+  // the duration chip and `?poster=1` when `poster_storage_key` is set.
+  `duration_ms`,
+  `poster_storage_key`,
   `created_at`,
   `updated_at`,
 ]

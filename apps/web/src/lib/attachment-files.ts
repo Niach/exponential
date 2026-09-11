@@ -9,16 +9,45 @@ import {
   FilePlay,
   type LucideIcon,
 } from "lucide-react"
-import { isAcceptedImageContentType } from "@/lib/storage/issue-attachments"
+import {
+  isAcceptedImageContentType,
+  isAudioContentType,
+  isVideoContentType,
+} from "@/lib/storage/issue-attachments"
 
 /**
  * EXP-297 classification rule, shared by every client: a row is an INLINE
  * IMAGE iff its content type is one of the five accepted raster types (they
  * ride the `![](…)` markdown pipeline). Everything else — including other
- * `image/*` types like tiff — belongs in the Files section.
+ * `image/*` types like tiff — belongs in the Files section, except the
+ * EXP-824 inline media classes below.
  */
 export function isInlineImageAttachment(contentType: string) {
   return isAcceptedImageContentType(contentType)
+}
+
+/**
+ * EXP-824: a `video/*` row is an INLINE VIDEO — embedded as a plain link
+ * `[clip.mp4](/api/attachments/{id})` and rendered as a player (poster +
+ * controls). Mirrored ×4 like isInlineImageAttachment.
+ */
+export function isInlineVideoAttachment(contentType: string) {
+  return isVideoContentType(contentType)
+}
+
+/** `audio/*` rides the same link form and renders as an audio player. */
+export function isInlineAudioAttachment(contentType: string) {
+  return isAudioContentType(contentType)
+}
+
+/** Third class beside inline image and file: rows that render inline media. */
+export function isInlineMediaAttachment(contentType: string) {
+  return isInlineVideoAttachment(contentType) || isInlineAudioAttachment(contentType)
+}
+
+/** True for rows that belong in the Files rail (neither inline image nor media). */
+export function isFileAttachment(contentType: string) {
+  return !isInlineImageAttachment(contentType) && !isInlineMediaAttachment(contentType)
 }
 
 const archiveTypes = new Set([
