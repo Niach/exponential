@@ -367,17 +367,7 @@ impl BoardDetailPane {
         board: &domain::rows::Board,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
-        let label: SharedString = match (&board.repository_id, &self.repos) {
-            (Some(repo_id), RepoLoad::Ready(repos)) => repos
-                .iter()
-                .find(|repo| &repo.id == repo_id)
-                .map(|repo| SharedString::from(repo.full_name.clone()))
-                // Linked, but the list doesn't know it (yet) — never claim
-                // "No repository" for a linked board.
-                .unwrap_or_else(|| "Repository".into()),
-            (Some(_), _) => "Repository".into(),
-            (None, _) => crate::board_form::NO_REPOSITORY.into(),
-        };
+        let label = repo_picker_label(board.repository_id.as_deref(), &self.repos);
 
         let button = Button::new(row_id("board-detail-repo", &board.id))
             .outline()
@@ -737,4 +727,66 @@ impl Render for BoardDetailPane {
 
 fn row_id(kind: &str, id: &str) -> ElementId {
     ElementId::Name(SharedString::from(format!("{kind}-{id}")))
+}
+
+/// FEED-32 (web `board-repo-field.tsx` `triggerLabel`): the Repository
+/// select's label is NEVER blank and never claims "No repository" for a
+/// linked board. A linked repo the list doesn't know reads "Loading
+/// repository…" while the list is (re)fetching — `refresh_if_links_changed`
+/// re-lists once per unknown id — and "Repository unavailable" once the list
+/// came back (or failed) without it.
+fn repo_picker_label(repository_id: Option<&str>, repos: &RepoLoad) -> SharedString {
+    match (repository_id, repos) {
+        (None, _) => crate::board_form::NO_REPOSITORY.into(),
+        (Some(repo_id), RepoLoad::Ready(repos)) => repos
+            .iter()
+            .find(|repo| repo.id == repo_id)
+            .map(|repo| SharedString::from(repo.full_name.clone()))
+            .unwrap_or_else(|| "Repository unavailable".into()),
+        (Some(_), RepoLoad::Failed(_)) => "Repository unavailable".into(),
+        (Some(_), RepoLoad::Idle | RepoLoad::Loading) => "Loading repository\u{2026}".into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unlinked_board_reads_no_repository_in_every_load_state() {
+        for load in [
+            RepoLoad::Idle,
+            RepoLoad::Loading,
+            RepoLoad::Ready(Vec::new()),
+            RepoLoad::Failed("boom".into()),
+        ] {
+            assert_eq!(
+                repo_picker_label(None, &load).as_ref(),
+                crate::board_form::NO_REPOSITORY
+            );
+        }
+    }
+
+    /// FEED-32: a linked id the list can't resolve is never blank — loading
+    /// copy while a fetch is in flight, "unavailable" once it came back
+    /// (or failed) without the id.
+    #[test]
+    fn unknown_linked_repo_never_renders_blank() {
+        assert_eq!(
+            repo_picker_label(Some("repo-1"), &RepoLoad::Idle).as_ref(),
+            "Loading repository\u{2026}"
+        );
+        assert_eq!(
+            repo_picker_label(Some("repo-1"), &RepoLoad::Loading).as_ref(),
+            "Loading repository\u{2026}"
+        );
+        assert_eq!(
+            repo_picker_label(Some("repo-1"), &RepoLoad::Ready(Vec::new())).as_ref(),
+            "Repository unavailable"
+        );
+        assert_eq!(
+            repo_picker_label(Some("repo-1"), &RepoLoad::Failed("boom".into())).as_ref(),
+            "Repository unavailable"
+        );
+    }
 }

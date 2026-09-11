@@ -4,6 +4,7 @@ import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,10 +15,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -31,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -39,8 +43,12 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.GithubPickerRepo
 import com.exponential.app.data.api.GithubReposResult
+import com.exponential.app.domain.isRepoFullName
+import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.GlassPillDefaults
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassTextField
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
@@ -65,6 +73,13 @@ fun GithubRepoPickerSheet(
     val loading by viewModel.loading.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val connectError by viewModel.connectError.collectAsStateWithLifecycle()
+    val lookupBusy by viewModel.lookupBusy.collectAsStateWithLifecycle()
+    val lookupError by viewModel.lookupError.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+
+    // FEED-30: the footer's "Add by name" field, hoisted like the search so it
+    // survives recompositions of the rows.
+    var lookupName by remember { mutableStateOf("") }
 
     // Re-query on every resume so returning from the GitHub install Custom Tab
     // (new repos granted) refreshes without a manual tap. The first load isn't a
@@ -104,50 +119,91 @@ fun GithubRepoPickerSheet(
                         onConnectStarted = viewModel::clearConnectError,
                     )
                 }
-                // A suspended installation lists no repos AND cannot be fixed by
-                // a reconnect (REV2-29) — only unsuspending on GitHub can. Say
-                // so instead of nudging the wrong fix (EXP-365).
-                data.repos.isEmpty() && data.installations.any { it.suspended } -> item(key = "suspended") {
-                    SuspendedNotice(data)
+                else -> {
+                    when {
+                        // A suspended installation lists no repos AND cannot be fixed by
+                        // a reconnect (REV2-29) — only unsuspending on GitHub can. Say
+                        // so instead of nudging the wrong fix (EXP-365).
+                        data.repos.isEmpty() && data.installations.any { it.suspended } -> item(key = "suspended") {
+                            SuspendedNotice(data)
+                        }
+                        // Grant-scoped repos (see GithubInstallation): a pre-grant link —
+                        // or one whose grants were revoked — is `installed` but returns no
+                        // repos until the user re-runs the OAuth connect, so an empty list
+                        // gets the full reconnect prompt instead of a "No repositories"
+                        // dead-end. (`needsReauth` is viewer-scoped since EXP-557 — only
+                        // YOUR grant-less accounts nudge here; team-wide STALE accounts
+                        // get their Disconnect affordance in settings instead.) When SOME
+                        // repos are granted but another account needs reauth, the list
+                        // stays usable and the reconnect notice rides above it as a banner.
+                        data.repos.isEmpty() && data.installations.any { it.needsReauth && !it.suspended } -> item(key = "reconnect") {
+                            ConnectPrompt(
+                                data = data,
+                                message = "Reconnect GitHub to load the repositories you can access" +
+                                    reauthAccountSuffix(data) + ".",
+                                buttonLabel = "Reconnect GitHub",
+                                buttonIcon = ExpIcons.uiRefresh,
+                                // The reconnect hop returns here and re-queries by itself;
+                                // only the not-installed state keeps a manual escape hatch.
+                                onRefresh = null,
+                                onConnectStarted = viewModel::clearConnectError,
+                            )
+                        }
+                        // Honestly empty: connected, granted, but no reachable repos.
+                        data.repos.isEmpty() -> item(key = "empty") {
+                            Text(
+                                "None of your connected GitHub accounts grants a repository yet.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                                modifier = Modifier.padding(vertical = 8.dp),
+                            )
+                        }
+                        else -> installedRepoItems(
+                            data = data,
+                            query = query,
+                            onQueryChange = { query = it },
+                            onPick = { onPick(it); onDismiss() },
+                            onConnectStarted = viewModel::clearConnectError,
+                        )
+                    }
+                    // FEED-30: the footer explains the list (the empty one too):
+                    // per-account GitHub configure links, Refresh, Install on
+                    // another account, the page-cap note and the by-name field.
+                    item(key = "footer") {
+                        PickerFooter(
+                            data = data,
+                            lookupName = lookupName,
+                            onLookupNameChange = {
+                                lookupName = it
+                                viewModel.clearLookupError()
+                            },
+                            lookupBusy = lookupBusy,
+                            lookupError = lookupError,
+                            // On OAuth instances the list IS the viewer's grant
+                            // snapshot, which only the re-auth (or the webhook)
+                            // rewrites — Refresh runs the re-auth hop there and a
+                            // forced re-list where there is no OAuth.
+                            onRefresh = {
+                                val connectUrl = data.connectUrl
+                                if (connectUrl != null) {
+                                    viewModel.clearConnectError()
+                                    CustomTabsIntent.Builder().build()
+                                        .launchUrl(context, android.net.Uri.parse(connectUrl))
+                                } else {
+                                    viewModel.load(accountId, teamId, refresh = true)
+                                }
+                            },
+                            onLookup = {
+                                viewModel.lookup(lookupName) { repo ->
+                                    lookupName = ""
+                                    onPick(repo)
+                                    onDismiss()
+                                }
+                            },
+                            onConnectStarted = viewModel::clearConnectError,
+                        )
+                    }
                 }
-                // Grant-scoped repos (see GithubInstallation): a pre-grant link —
-                // or one whose grants were revoked — is `installed` but returns no
-                // repos until the user re-runs the OAuth connect, so an empty list
-                // gets the full reconnect prompt instead of a "No repositories"
-                // dead-end. (`needsReauth` is viewer-scoped since EXP-557 — only
-                // YOUR grant-less accounts nudge here; team-wide STALE accounts
-                // get their Disconnect affordance in settings instead.) When SOME
-                // repos are granted but another account needs reauth, the list
-                // stays usable and the reconnect notice rides above it as a banner.
-                data.repos.isEmpty() && data.installations.any { it.needsReauth && !it.suspended } -> item(key = "reconnect") {
-                    ConnectPrompt(
-                        data = data,
-                        message = "Reconnect GitHub to load the repositories you can access" +
-                            reauthAccountSuffix(data) + ".",
-                        buttonLabel = "Reconnect GitHub",
-                        buttonIcon = ExpIcons.uiRefresh,
-                        // The reconnect hop returns here and re-queries by itself;
-                        // only the not-installed state keeps a manual escape hatch.
-                        onRefresh = null,
-                        onConnectStarted = viewModel::clearConnectError,
-                    )
-                }
-                // Honestly empty: connected, granted, but no reachable repos.
-                data.repos.isEmpty() -> item(key = "empty") {
-                    Text(
-                        "No repositories found for your connected GitHub accounts.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                        modifier = Modifier.padding(vertical = 8.dp),
-                    )
-                }
-                else -> installedRepoItems(
-                    data = data,
-                    query = query,
-                    onQueryChange = { query = it },
-                    onPick = { onPick(it); onDismiss() },
-                    onConnectStarted = viewModel::clearConnectError,
-                )
             }
             // A FAILED connect hop's outcome (EXP-390): the deep link's error
             // slug used to be dropped, making every failure a silent no-op.
@@ -224,6 +280,127 @@ private fun SuspendedNotice(data: GithubReposResult) {
         color = MaterialTheme.colorScheme.error,
         modifier = Modifier.padding(vertical = 8.dp),
     )
+}
+
+// FEED-30 (web github-repo-picker.tsx footer): the list explains itself. A
+// missing repo is (almost) always an installation whose repo selection doesn't
+// include it, or a repo on an account that isn't installed at all — say so,
+// link the exact GitHub page per account, offer the two fixes, and the by-name
+// escape hatch backed by integrations.github.lookupRepo (its error names the
+// real reason). Rendered in EVERY installed state, the empty one included.
+@Composable
+private fun PickerFooter(
+    data: GithubReposResult,
+    lookupName: String,
+    onLookupNameChange: (String) -> Unit,
+    lookupBusy: Boolean,
+    lookupError: String?,
+    onRefresh: () -> Unit,
+    onLookup: () -> Unit,
+    onConnectStarted: () -> Unit,
+) {
+    val context = LocalContext.current
+    val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+    val manageLinks = data.installations.filter { it.manageUrl.isNotEmpty() }
+    Column(
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .glassRow()
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Text(
+            "Only repositories your GitHub installation grants appear here. " +
+                "Missing one? Grant it on GitHub, then refresh.",
+            style = MaterialTheme.typography.bodySmall,
+            color = secondary,
+        )
+        if (manageLinks.isNotEmpty()) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                manageLinks.forEach { inst ->
+                    GlassPill(
+                        inst.accountLogin ?: "installation",
+                        size = PillSize.Sm,
+                        trailing = {
+                            Icon(
+                                ExpIcons.uiExternalLink,
+                                contentDescription = "Configure on GitHub",
+                                modifier = Modifier.size(GlassPillDefaults.SmGlyphSize),
+                            )
+                        },
+                        onClick = {
+                            CustomTabsIntent.Builder().build()
+                                .launchUrl(context, android.net.Uri.parse(inst.manageUrl))
+                        },
+                    )
+                }
+            }
+        }
+        if (data.hasMore) {
+            Text(
+                "Showing the first 500 repositories per account — use the field below for the rest.",
+                style = MaterialTheme.typography.bodySmall,
+                color = secondary,
+            )
+        }
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            GlassPill("Refresh", icon = ExpIcons.uiRefresh, onClick = onRefresh)
+            // GitHub's account picker (installations/new) — the ONLY way to a
+            // second account/org once one is linked (the OAuth hop just
+            // re-links what the viewer already controls).
+            val installUrl = data.installUrl
+            if (installUrl != null) {
+                GlassPill(
+                    "Install on another account",
+                    icon = ExpIcons.uiAdd,
+                    onClick = {
+                        onConnectStarted()
+                        CustomTabsIntent.Builder().build()
+                            .launchUrl(context, android.net.Uri.parse(installUrl))
+                    },
+                )
+            }
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            GlassTextField(
+                value = lookupName,
+                onValueChange = onLookupNameChange,
+                singleLine = true,
+                placeholder = "owner/name",
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.None,
+                    autoCorrectEnabled = false,
+                    imeAction = ImeAction.Go,
+                ),
+                keyboardActions = KeyboardActions(onGo = { onLookup() }),
+                textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
+                modifier = Modifier.weight(1f),
+            )
+            GlassPill(
+                "Look up",
+                enabled = isRepoFullName(lookupName.trim()) && !lookupBusy,
+                loading = lookupBusy,
+                onClick = onLookup,
+            )
+        }
+        if (lookupError != null) {
+            Text(
+                lookupError,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+    }
 }
 
 // Connect/reconnect prompt: not-installed and the needs-reauth/empty-grant

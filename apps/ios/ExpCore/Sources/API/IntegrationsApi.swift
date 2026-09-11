@@ -156,6 +156,24 @@ public final class IntegrationsApi: Sendable {
         )
     }
 
+    /// FEED-30: the Add-repository picker's "Add by name" escape hatch
+    /// (`integrations.github.lookupRepo`). Resolves an `owner/name` through
+    /// the connect path's own checks (linked installation, not suspended, the
+    /// actor's own grant on OAuth instances), so a failure's message names the
+    /// real reason and is shown verbatim. Read-only; the result is exactly a
+    /// picker row, so a hit is handled like a row pick.
+    public func lookupRepo(accountId: String, teamId: String, fullName: String) async throws -> GithubPickerRepo {
+        struct Input: Encodable {
+            let teamId: String
+            let fullName: String
+        }
+        return try await trpc.query(
+            accountId: accountId,
+            path: "integrations.github.lookupRepo",
+            input: Input(teamId: teamId, fullName: fullName)
+        )
+    }
+
     /// Disconnect a GitHub account (App installation) from the team
     /// (EXP-557). Server-enforced link-creator-or-owner; the primary surface
     /// is the STALE-account row (zero grants from anyone — a reconnect can

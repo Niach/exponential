@@ -34,6 +34,12 @@ struct BoardRepoField: View {
 
     @State private var repos: [TeamRepo]?
     @State private var loadError: String?
+    /// FEED-32: the one-shot re-list for a linked id the list doesn't know —
+    /// `reloadedForId` guards against looping on a genuinely unknown id (an
+    /// archived repo), `resolvingId` drives the "Loading repository…" label
+    /// while that re-list is in flight.
+    @State private var reloadedForId: String?
+    @State private var resolvingId: String?
     @State private var showOptions = false
     @State private var showPicker = false
     /// Set by the select's trailing action; the picker opens once the options
@@ -117,10 +123,10 @@ struct BoardRepoField: View {
             inlineBranch = branch ?? ""
         }
         // A repo connected through the picker isn't in the list yet — re-read
-        // the registry so the trigger and the branch field can resolve it.
-        .onChange(of: repositoryId) { _, id in
-            guard let id, repos?.contains(where: { $0.id == id }) == false else { return }
-            Task { await load() }
+        // the registry so the trigger and the branch field can resolve it
+        // (FEED-32: once per unknown id, never a loop).
+        .onChange(of: repositoryId) { _, _ in
+            resolveUnknownRepo()
         }
         .sheet(isPresented: $showOptions, onDismiss: {
             guard pendingConnect else { return }
@@ -190,9 +196,16 @@ struct BoardRepoField: View {
         inlineRepo?.`private` ?? selectedRepo?.isPrivate ?? false
     }
 
+    // FEED-32: never blank — a linked id the list can't resolve reads
+    // "Loading repository…" while the one-shot re-list runs and "Repository
+    // unavailable" once it came back without the id (web parity).
     private var triggerLabel: String {
-        if loading { return "Loading…" }
-        return selectedFullName ?? "No repository"
+        BoardRepoLabel.trigger(
+            selectedName: selectedFullName,
+            repositoryId: repositoryId,
+            loading: loading,
+            resolving: repositoryId != nil && resolvingId == repositoryId
+        )
     }
 
     @ViewBuilder
@@ -300,8 +313,27 @@ struct BoardRepoField: View {
             repos = try await deps.repositoriesApi.list(accountId: accountId, teamId: teamId)
             loadError = nil
         } catch {
-            repos = []
-            loadError = error.trpcUserMessage
+            // FEED-32: a failed list used to collapse silently — keep the
+            // last list and say why the selection can't be resolved.
+            repos = repos ?? []
+            loadError = "Couldn't load the team's repositories: \(error.trpcUserMessage)"
+        }
+        resolveUnknownRepo()
+    }
+
+    /// FEED-32: the host can point the board at a repo this list has never
+    /// seen — the settings sheet connects a new repo and the LIVE board row
+    /// flips `repositoryId` before this copy of `repositories.list` refreshed.
+    /// Re-list ONCE per unknown id (a genuinely unknown id must not loop) and
+    /// label the trigger explicitly meanwhile.
+    private func resolveUnknownRepo() {
+        guard let id = repositoryId, let repos, !repos.contains(where: { $0.id == id }) else { return }
+        guard reloadedForId != id else { return }
+        reloadedForId = id
+        resolvingId = id
+        Task {
+            await load()
+            if resolvingId == id { resolvingId = nil }
         }
     }
 }

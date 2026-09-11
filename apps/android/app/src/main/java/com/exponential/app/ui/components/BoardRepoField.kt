@@ -44,6 +44,7 @@ import com.exponential.app.data.api.BoardRepositoryChoice
 import com.exponential.app.data.api.RepositoriesApi
 import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.data.api.trpcErrorMessage
+import com.exponential.app.domain.BoardRepoLabel
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.onboarding.GithubRepoPickerSheet
 import com.exponential.app.ui.theme.GlassTokens
@@ -136,6 +137,10 @@ fun BoardRepoField(
     enabled: Boolean = true,
     error: String? = null,
     onRetry: (() -> Unit)? = null,
+    // FEED-32: the host's one-shot re-list for a Registry selection [repos]
+    // doesn't know is in flight — the field reads "Loading repository…"
+    // instead of "Repository unavailable" meanwhile.
+    resolving: Boolean = false,
     viewModel: BoardBranchesViewModel = hiltViewModel(),
 ) {
     val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
@@ -163,12 +168,16 @@ fun BoardRepoField(
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Repository", style = MaterialTheme.typography.labelMedium, color = secondary)
+            // FEED-32: never blank and never "No repository" for a linked
+            // board — an unresolved Registry id reads "Loading repository…"
+            // while a list is in flight, "Repository unavailable" after.
             SelectField(
-                value = when {
-                    loading -> "Loading…"
-                    selectedName != null -> selectedName
-                    else -> NO_REPOSITORY
-                },
+                value = BoardRepoLabel.trigger(
+                    selectedName = selectedName,
+                    repositoryId = (selection as? BoardRepositoryChoice.Registry)?.repositoryId,
+                    loading = loading,
+                    resolving = resolving,
+                ),
                 monospace = selectedName != null,
                 placeholder = selectedName == null,
                 enabled = enabled && !loading,

@@ -35,6 +35,12 @@ struct GithubRepoPicker: View {
     // belongs to the repos query and has its own lifecycle.
     @State private var connectError: String?
     @State private var installSession = InstallWebAuthSession()
+    // FEED-30: the footer's "Add by name" escape hatch — `owner/name`, looked
+    // up through integrations.github.lookupRepo (the connect path's own
+    // checks) and, on a hit, picked exactly like a row.
+    @State private var lookupName = ""
+    @State private var lookupBusy = false
+    @State private var lookupError: String?
 
     // Bottom-sheet presentation (EXP-390, Android parity): the shared glass
     // sheet chrome, content-fitted — a short state (connect prompt, empty
@@ -133,6 +139,8 @@ struct GithubRepoPicker: View {
         VStack(alignment: .leading, spacing: 8) {
             if data.repos.isEmpty {
                 emptyState(data)
+                // FEED-30: the footer explains the empty list too.
+                footer(data)
             } else {
                 if data.installations.contains(where: { $0.isSuspended }) {
                     suspendedNotice(data)
@@ -176,6 +184,118 @@ struct GithubRepoPicker: View {
                     }
                     .buttonStyle(.plain)
                 }
+
+                footer(data)
+            }
+        }
+    }
+
+    // FEED-30: the list explains itself. A missing repo is (almost) always an
+    // installation whose repo selection doesn't include it, or a repo on an
+    // account that isn't installed at all — say so, link the exact GitHub
+    // page per account, offer the two fixes, and the by-name escape hatch
+    // (its error names the real reason). Rendered in EVERY installed state.
+    @ViewBuilder private func footer(_ data: GithubReposResult) -> some View {
+        let manageLinks: [(label: String, url: URL)] = data.installations.compactMap { inst in
+            guard !inst.manageUrl.isEmpty, let url = URL(string: inst.manageUrl) else { return nil }
+            return (inst.accountLogin ?? "installation", url)
+        }
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Only repositories your GitHub installation grants appear here. Missing one? Grant it on GitHub, then refresh.")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            if !manageLinks.isEmpty {
+                FlowLayout(spacing: 6) {
+                    ForEach(Array(manageLinks.enumerated()), id: \.offset) { _, link in
+                        Link(destination: link.url) {
+                            GlassPill(link.label) {
+                                AppIcon(AppIcons.uiExternalLink, size: GlassPillTokens.glyphSm)
+                            }
+                            .contentShape(Capsule())
+                        }
+                    }
+                }
+            }
+            if data.hasMore {
+                Text("Showing the first 500 repositories per account — use the field below for the rest.")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            }
+            FlowLayout(spacing: 8) {
+                GlassPill("Refresh", icon: AppIcons.uiRefresh, mode: .action { refreshAccess(data) })
+                if data.installUrl != nil {
+                    GlassPill("Install on another account", icon: AppIcons.uiAdd, mode: .action {
+                        connectError = nil
+                        openInBrowser(data.installUrl)
+                    })
+                }
+            }
+            HStack(spacing: 8) {
+                GlassTextField("owner/name", text: $lookupName, horizontalPadding: 12, verticalPadding: 10) {
+                    EmptyView()
+                } trailing: {
+                    EmptyView()
+                }
+                .font(.subheadline.monospaced())
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                .onSubmit { Task { await lookup() } }
+                .onChange(of: lookupName) { _, _ in
+                    if lookupError != nil { lookupError = nil }
+                }
+                GlassPill(
+                    "Look up",
+                    mode: .action { Task { await lookup() } },
+                    enabled: RepoFullName.isValid(lookupName.trimmingCharacters(in: .whitespaces)) && !lookupBusy
+                )
+            }
+            if let lookupError {
+                Text(lookupError)
+                    .font(.caption)
+                    .foregroundStyle(.red.opacity(0.8))
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .glassRow()
+    }
+
+    // FEED-30: on OAuth instances the list IS the viewer's grant snapshot,
+    // which only the OAuth re-auth (or the installation_repositories webhook)
+    // rewrites — a bare cache refresh can't surface a repo granted since. So
+    // "Refresh" runs the re-auth hop there (its completion re-lists) and a
+    // plain forced re-list where there is no OAuth.
+    private func refreshAccess(_ data: GithubReposResult) {
+        if let connectUrl = data.connectUrl {
+            connectError = nil
+            openInBrowser(connectUrl)
+            return
+        }
+        Task { await load(refresh: true) }
+    }
+
+    // FEED-30: integrations.github.lookupRepo for the typed `owner/name`; a
+    // hit is picked exactly like a row, a miss shows the server's message
+    // inline (grant it, connect that account, or reconnect).
+    private func lookup() async {
+        let fullName = lookupName.trimmingCharacters(in: .whitespaces)
+        guard RepoFullName.isValid(fullName), !lookupBusy else { return }
+        await MainActor.run {
+            lookupBusy = true
+            lookupError = nil
+        }
+        do {
+            let repo = try await integrationsApi.lookupRepo(accountId: accountId, teamId: teamId, fullName: fullName)
+            await MainActor.run {
+                lookupName = ""
+                lookupBusy = false
+                onPick(repo)
+                dismiss()
+            }
+        } catch {
+            await MainActor.run {
+                lookupError = error.trpcUserMessage
+                lookupBusy = false
             }
         }
     }
@@ -200,7 +320,7 @@ struct GithubRepoPicker: View {
                 }
             }
         } else {
-            Text("No repositories found for your connected GitHub accounts.")
+            Text("None of your connected GitHub accounts grants a repository yet.")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
         }

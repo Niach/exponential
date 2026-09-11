@@ -222,8 +222,21 @@ struct TeamRepositoriesSection: View {
                 }
             }
         } message: {
-            Text("This removes \(disconnectTarget.map { installationLabel($0) } ?? "this account") from the team. Nobody's GitHub connection covers it, so no repositories are lost.")
+            Text(disconnectMessage)
         }
+    }
+
+    // FEED-31: the per-account row's ✕ reaches the same confirm as the stale
+    // row — a LIVE link gets honest copy (the server refuses while a connected
+    // repo still rides it) instead of the stale row's "nothing is lost".
+    private var disconnectMessage: String {
+        let label = disconnectTarget.map { installationLabel($0) } ?? "this account"
+        let stale = disconnectTarget.map { target in
+            staleAccounts.contains { $0.installationId == target.installationId }
+        } ?? false
+        return stale
+            ? "This removes \(label) from the team. Nobody's GitHub connection covers it, so no repositories are lost."
+            : "This disconnects \(label) from the team. Repositories connected through it must be removed first."
     }
 
     // MARK: - Row
@@ -318,31 +331,30 @@ struct TeamRepositoriesSection: View {
         let reauthInstalls = github.installations.filter {
             $0.needsReauth && !$0.isSuspended && !staleIds.contains($0.installationId)
         }
-        let needsReauth = suspended.isEmpty && !reauthInstalls.isEmpty
+        if github.configured, github.installed, suspended.isEmpty {
+            // FEED-31: a healthy installed state lists one row per account
+            // with its own actions.
+            installedAccountsBlock(github, reauthInstalls: reauthInstalls)
+        } else {
+            statusOneLiner(github, suspended: suspended)
+        }
+    }
+
+    // The one-line states: not configured, suspended, not installed.
+    @ViewBuilder
+    private func statusOneLiner(_ github: GithubReposResult, suspended: [GithubInstallation]) -> some View {
         let label: (GithubInstallation) -> String = { installationLabel($0) }
-        let logins = github.installations.map(label).joined(separator: ", ")
         let status: String = { () -> String in
             if !github.configured { return "GitHub isn't configured on this server." }
             if !suspended.isEmpty {
                 return "GitHub suspended the Exponential app for \(suspended.map(label).joined(separator: ", ")). Unsuspend it on GitHub."
             }
-            if needsReauth {
-                return "Reconnect GitHub to refresh which repositories you can access from \(reauthInstalls.map(label).joined(separator: ", "))."
-            }
-            if github.installations.isEmpty { return "No GitHub account connected" }
-            return "GitHub: \(logins)"
+            return "No GitHub account connected"
         }()
         HStack(spacing: 8) {
             if github.configured, !suspended.isEmpty {
                 AppIcon(AppIcons.uiWarning, size: AppIcon.Size.small)
                     .foregroundStyle(.red.opacity(0.8))
-            } else if github.configured, needsReauth {
-                AppIcon(AppIcons.uiWarning, size: AppIcon.Size.small)
-                    .foregroundStyle(.yellow.opacity(0.8))
-            } else if github.configured, !github.installations.isEmpty {
-                Circle()
-                    .fill(Color.green)
-                    .frame(width: 8, height: 8)
             }
             Text(status)
                 .font(.caption)
@@ -364,11 +376,15 @@ struct TeamRepositoriesSection: View {
                         }
                     }
                 } else if (github.connectUrl ?? github.installUrl) != nil {
-                    GlassPill(
-                        needsReauth ? "Reconnect" : (github.installations.isEmpty ? "Connect GitHub" : "Manage"),
-                        icon: needsReauth ? AppIcons.uiRefresh : AppIcons.uiGithub,
-                        mode: .action { openConnect(github) }
-                    )
+                    // Primary = the OAuth hop (finds installations the viewer
+                    // already controls; a zero-installation user is sent on to
+                    // GitHub's install page by the callback). The secondary
+                    // goes straight to the account picker — only worth a
+                    // second button when the two URLs differ (FEED-31).
+                    GlassPill("Connect GitHub", icon: AppIcons.uiGithub, mode: .action { openConnect(github) })
+                    if github.connectUrl != nil, github.installUrl != nil {
+                        GlassPill("Install on an account", mode: .action { openHop(github.installUrl) })
+                    }
                 } else if let url = webRepositoriesURL {
                     // The server mints no connect/install URL — the web
                     // repositories page explains and handles it.
@@ -379,6 +395,95 @@ struct TeamRepositoriesSection: View {
                                 .font(.caption.weight(.medium))
                         }
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .glassRow()
+    }
+
+    // FEED-31 (web GithubStatusLine, installed state): an installation is
+    // per GitHub account/organization, so list ONE ROW PER ACCOUNT — icon,
+    // login, a Configure link to that installation's GitHub settings page,
+    // the unlink ✕ — then the helper sentence and the two SEPARATE actions:
+    // "Connect another account" opens GitHub's account picker (installUrl,
+    // installations/new — the ONLY way to a second org once one is linked)
+    // and "Refresh access" the OAuth re-auth (connectUrl, which re-links what
+    // the viewer already controls and re-captures their grants). The
+    // needs-reauth nag keeps its own line below the actions.
+    @ViewBuilder
+    private func installedAccountsBlock(_ github: GithubReposResult, reauthInstalls: [GithubInstallation]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                if reauthInstalls.isEmpty {
+                    Circle()
+                        .fill(Color.green)
+                        .frame(width: 8, height: 8)
+                } else {
+                    AppIcon(AppIcons.uiWarning, size: AppIcon.Size.small)
+                        .foregroundStyle(.yellow.opacity(0.8))
+                }
+                Text("GitHub accounts connected to this team")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            }
+            ForEach(github.installations) { installation in
+                HStack(spacing: 8) {
+                    AppIcon(
+                        installation.accountType == "Organization" ? AppIcons.uiOrganization : AppIcons.uiAvatarPlaceholder,
+                        size: AppIcon.Size.small
+                    )
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    Text(installationLabel(installation))
+                        .font(.subheadline)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 8)
+                    if !installation.manageUrl.isEmpty, let url = URL(string: installation.manageUrl) {
+                        Link(destination: url) {
+                            HStack(spacing: 4) {
+                                Text("Configure")
+                                    .font(.caption.weight(.medium))
+                                AppIcon(AppIcons.uiExternalLink, size: 11)
+                            }
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        }
+                    }
+                    CircleIconButton(
+                        AppIcons.uiClose,
+                        accessibilityLabel: "Disconnect this GitHub account from the team",
+                        glyphSize: AppIcon.Size.small,
+                        tint: .white.opacity(TextOpacity.tertiary)
+                    ) {
+                        disconnectTarget = installation
+                    }
+                }
+            }
+            Text("An installation is per GitHub account or organization. Repositories come from the accounts listed here.")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            if github.installUrl != nil || github.connectUrl != nil {
+                FlowLayout(spacing: 8) {
+                    if github.installUrl != nil {
+                        GlassPill("Connect another account", icon: AppIcons.uiAdd, mode: .action { openHop(github.installUrl) })
+                    }
+                    if github.connectUrl != nil {
+                        GlassPill("Refresh access", icon: AppIcons.uiRefresh, mode: .action { openHop(github.connectUrl) })
+                    }
+                }
+            }
+            if !reauthInstalls.isEmpty {
+                HStack(spacing: 8) {
+                    Text("Reconnect GitHub to refresh which repositories you can access from \(reauthInstalls.map { installationLabel($0) }.joined(separator: ", ")).")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .lineLimit(3)
+                    Spacer()
+                    if (github.connectUrl ?? github.installUrl) != nil {
+                        GlassPill("Reconnect", icon: AppIcons.uiRefresh, mode: .action { openConnect(github) })
                     }
                 }
             }
@@ -446,8 +551,14 @@ struct TeamRepositoriesSection: View {
     // on callback AND manual dismissal, so re-query regardless. Shared by the
     // "Connect GitHub" button and the reconnect notice.
     private func openConnect(_ github: GithubReposResult) {
-        guard let urlString = github.connectUrl ?? github.installUrl,
-              let url = URL(string: urlString) else { return }
+        openHop(github.connectUrl ?? github.installUrl)
+    }
+
+    // FEED-31: the same in-app hop for an EXPLICIT URL — the install page
+    // (GitHub's account picker) for "Connect another account" / "Install on
+    // an account", the OAuth re-auth for "Refresh access".
+    private func openHop(_ urlString: String?) {
+        guard let urlString, let url = URL(string: urlString) else { return }
         connectError = nil
         connectSession.start(url: url) { errorSlug in
             connectError = errorSlug.map { GithubConnect.errorMessage(for: $0) }

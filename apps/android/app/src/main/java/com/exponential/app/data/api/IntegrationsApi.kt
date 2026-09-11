@@ -102,6 +102,14 @@ internal data class UnlinkInput(
     val installationId: Long,
 )
 
+// FEED-30: `integrations.github.lookupRepo` input — the picker's "Add by
+// name" field. Internal so the wire-format test can lock it.
+@Serializable
+internal data class LookupRepoInput(
+    val teamId: String,
+    val fullName: String,
+)
+
 @Singleton
 class IntegrationsApi @Inject constructor(private val trpc: TrpcClient) {
 
@@ -136,6 +144,23 @@ class IntegrationsApi @Inject constructor(private val trpc: TrpcClient) {
             ),
             inputSerializer = ReposInput.serializer(),
             outputSerializer = GithubReposResult.serializer(),
+        )
+
+    /**
+     * FEED-30: the Add-repository picker's "Add by name" escape hatch
+     * (`integrations.github.lookupRepo`). Resolves an `owner/name` through the
+     * connect path's own checks (linked installation, not suspended, the
+     * actor's own grant on OAuth instances), so a failure's message names the
+     * real reason and is shown verbatim. Read-only; the result is exactly a
+     * picker row, so a hit is handled like a row pick.
+     */
+    suspend fun lookupRepo(accountId: String, teamId: String, fullName: String): GithubPickerRepo =
+        trpc.query(
+            accountId,
+            path = "integrations.github.lookupRepo",
+            input = LookupRepoInput(teamId = teamId, fullName = fullName),
+            inputSerializer = LookupRepoInput.serializer(),
+            outputSerializer = GithubPickerRepo.serializer(),
         )
 
     /**
