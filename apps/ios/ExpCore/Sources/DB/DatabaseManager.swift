@@ -906,7 +906,11 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("agent_usage_at", .text)
                 t.column("active_sessions", .integer).notNull().defaults(to: 0)
                 t.column("last_seen_at", .text)
+                // Pre-FEED-33 single share; kept for old stores, never read.
                 t.column("shared_team_id", .text)
+                // FEED-33: the teams the machine is shared with (uuid[] on
+                // the wire, stored as JSON text).
+                t.column("shared_team_ids", .text)
                 t.column("update_requested_at", .text)
                 t.column("created_at", .text)
                 t.column("updated_at", .text)
@@ -1401,6 +1405,28 @@ public final class DatabaseManager: @unchecked Sendable {
                 index: "pins_user_team_idx", on: "pins", columns: ["user_id", "team_id"],
                 ifNotExists: true
             )
+        }
+
+        // v34 (FEED-33): a server can be shared with SEVERAL teams —
+        // `shared_team_ids` (uuid[] on the wire, stored as JSON text) replaces
+        // `shared_team_id`, which stays declared but unread (dropping a SQLite
+        // column is not worth it). Same additive-ALTER-then-refetch shape as
+        // v29; the shape key is `devices`.
+        migrator.registerMigration("v34_device_shared_team_ids") { db in
+            guard try db.tableExists("devices") else { return }
+            let existing = Set(try db.columns(in: "devices").map(\.name))
+            if !existing.contains("shared_team_ids") {
+                try db.alter(table: "devices") { t in
+                    t.add(column: "shared_team_ids", .text)
+                }
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'devices'
+                    """)
+            }
         }
 
         return migrator

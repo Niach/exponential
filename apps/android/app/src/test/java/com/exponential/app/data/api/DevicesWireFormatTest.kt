@@ -7,11 +7,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * EXP-481: wire-format locks for the device-settings mutations. The
- * high-stakes one is `devices.setShared` with a LITERAL `"teamId":null` —
- * the server input is required-and-nullable, and the shared Json's
- * explicitNulls=false would silently drop a synthesized null, turning "stop
- * sharing" into BAD_REQUEST.
+ * EXP-481: wire-format locks for the device-settings mutations. FEED-33:
+ * `devices.setShared` is the per-team toggle form (`shared` true/false), no
+ * nullable `teamId` any more.
  */
 class DevicesWireFormatTest {
 
@@ -23,14 +21,20 @@ class DevicesWireFormatTest {
     }
 
     @Test
-    fun `setShared clear emits a literal teamId null`() {
+    fun `setShared emits the per-team toggle form`() {
         assertEquals(
-            """{"deviceId":"dev-1","teamId":null}""",
-            setSharedInput("dev-1", null).toString(),
+            """{"deviceId":"dev-1","teamId":"team-1","shared":true}""",
+            json.encodeToString(
+                SetSharedInput.serializer(),
+                SetSharedInput(deviceId = "dev-1", teamId = "team-1", shared = true),
+            ),
         )
         assertEquals(
-            """{"deviceId":"dev-1","teamId":"team-1"}""",
-            setSharedInput("dev-1", "team-1").toString(),
+            """{"deviceId":"dev-1","teamId":"team-1","shared":false}""",
+            json.encodeToString(
+                SetSharedInput.serializer(),
+                SetSharedInput(deviceId = "dev-1", teamId = "team-1", shared = false),
+            ),
         )
     }
 

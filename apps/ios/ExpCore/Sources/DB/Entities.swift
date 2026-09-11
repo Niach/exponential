@@ -1668,7 +1668,10 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Se
     public let agentUsageAt: String?
     public let activeSessions: Int
     public let lastSeenAt: String?
-    public let sharedTeamId: String?
+    /// FEED-33: the teams this machine is shared with (`uuid[]`, sorted +
+    /// deduped server-side; empty = private). Stored as JSON text like
+    /// `agents`/`caps`; decoded from the wire's `{a,b}` literal too.
+    public let sharedTeamIds: [String]
     /// EXP-622: the ROW OWNER's default machine — the one every device picker
     /// prefills. Honoured only when `userId` is the signed-in user: a
     /// teammate's shared server carries THEIR preference, not ours.
@@ -1696,7 +1699,7 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Se
         agentUsageAt: String? = nil,
         activeSessions: Int = 0,
         lastSeenAt: String? = nil,
-        sharedTeamId: String? = nil,
+        sharedTeamIds: [String] = [],
         isDefault: Bool = false,
         updateRequestedAt: String? = nil,
         createdAt: String? = nil,
@@ -1720,7 +1723,7 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Se
         self.agentUsageAt = agentUsageAt
         self.activeSessions = activeSessions
         self.lastSeenAt = lastSeenAt
-        self.sharedTeamId = sharedTeamId
+        self.sharedTeamIds = sharedTeamIds
         self.isDefault = isDefault
         self.updateRequestedAt = updateRequestedAt
         self.createdAt = createdAt
@@ -1740,7 +1743,7 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Se
         case agentUsageAt = "agent_usage_at"
         case activeSessions = "active_sessions"
         case lastSeenAt = "last_seen_at"
-        case sharedTeamId = "shared_team_id"
+        case sharedTeamIds = "shared_team_ids"
         case isDefault = "is_default"
         case updateRequestedAt = "update_requested_at"
         case createdAt = "created_at"
@@ -1781,7 +1784,10 @@ extension DeviceEntity: Codable {
         // 0 rather than dropping the row (activeSessions only gates a badge).
         activeSessions = (try? c.decodeWireInt(forKey: .activeSessions)) ?? 0
         lastSeenAt = try c.decodeIfPresent(String.self, forKey: .lastSeenAt)
-        sharedTeamId = try c.decodeIfPresent(String.self, forKey: .sharedTeamId)
+        // FEED-33: `{a,b}` off the wire, `["a","b"]` back out of GRDB (a
+        // partial update stores the raw literal, a full row the JSON form) —
+        // both parse; absent on a pre-FEED-33 server = private.
+        sharedTeamIds = c.decodeWireStringList(forKey: .sharedTeamIds)
         isDefault = c.decodeWireBool(forKey: .isDefault, default: false)
         updateRequestedAt = try c.decodeIfPresent(String.self, forKey: .updateRequestedAt)
         createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt)
@@ -1795,7 +1801,7 @@ extension DeviceEntity: Codable {
 // device itself (powers resume offers + the device-settings worktree list,
 // from persisted data even while the machine is offline). `device_row_id`
 // references the devices ROW id (uuid), never the steer device-id string.
-// The server-side scoping mirrors (user_id/shared_team_id) stay out of the
+// The server-side scoping mirrors (user_id/shared_team_ids) stay out of the
 // allowlist and never reach this decoder.
 public struct DeviceWorktreeEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
     public static let databaseTableName = "device_worktrees"

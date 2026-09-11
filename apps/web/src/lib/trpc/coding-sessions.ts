@@ -77,13 +77,17 @@ async function resolveStartAttribution(
     })
   }
   const [device] = await db
-    .select({ kind: devices.kind, sharedTeamId: devices.sharedTeamId })
+    .select({ kind: devices.kind, sharedTeamIds: devices.sharedTeamIds })
     .from(devices)
     .where(
       and(eq(devices.userId, callerId), eq(devices.deviceId, input.deviceId))
     )
     .limit(1)
-  if (!device || device.kind !== `server` || device.sharedTeamId !== teamId) {
+  if (
+    !device ||
+    device.kind !== `server` ||
+    !(device.sharedTeamIds ?? []).includes(teamId)
+  ) {
     throw new TRPCError({
       code: `FORBIDDEN`,
       message: `This device is not shared with the session's team`,

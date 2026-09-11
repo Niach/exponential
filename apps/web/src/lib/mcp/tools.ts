@@ -3084,7 +3084,7 @@ export function registerExponentialTools(
             unauthedAgents: device.unauthedAgents,
             caps: device.caps,
             version: device.version,
-            sharedTeamId: device.sharedTeamId,
+            sharedTeamIds: device.sharedTeamIds,
             isDefault: device.isDefault,
             // EXP-484: per-agent sign-in status and usage windows as the
             // machine last probed them (absent on builds without the

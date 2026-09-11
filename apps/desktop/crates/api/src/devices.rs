@@ -258,9 +258,9 @@ pub struct DeviceEntry {
     /// persisted server copy when offline (older servers omit).
     #[serde(default)]
     pub launch_defaults: Option<serde_json::Value>,
-    /// EXP-432: the team this device is shared with (`None` = private).
+    /// FEED-33: every team this device is shared with (empty = private).
     #[serde(default)]
-    pub shared_team_id: Option<String>,
+    pub shared_team_ids: Vec<String>,
     /// EXP-622: the caller's default machine — always false on a teammate's
     /// shared row (that flag is its owner's preference).
     #[serde(default)]
@@ -333,21 +333,31 @@ pub fn request_update(trpc: &TrpcClient, device_id: &str, end_sessions: bool) ->
     Ok(())
 }
 
-/// `devices.setShared` (EXP-432) — share/unshare a SERVER device with a
-/// team. `team_id: None` clears the share and MUST serialize as an explicit
-/// JSON `null` (the server input is required-nullable) — no skip attribute.
+/// `devices.setShared` (EXP-432, FEED-33): toggle ONE team in or out of a
+/// SERVER device's share set. `shared: true` adds `team_id`, `false` removes
+/// it; the other teams in the set are untouched, so a device can be shared
+/// with several teams at once.
 pub fn set_shared(
     trpc: &TrpcClient,
     device_id: &str,
-    team_id: Option<&str>,
+    team_id: &str,
+    shared: bool,
 ) -> Result<(), ApiError> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
     struct Input<'a> {
         device_id: &'a str,
-        team_id: Option<&'a str>,
+        team_id: &'a str,
+        shared: bool,
     }
-    let _: OkResult = trpc.mutation("devices.setShared", &Input { device_id, team_id })?;
+    let _: OkResult = trpc.mutation(
+        "devices.setShared",
+        &Input {
+            device_id,
+            team_id,
+            shared,
+        },
+    )?;
     Ok(())
 }
 
@@ -967,19 +977,20 @@ mod tests {
         ));
     }
 
+    /// FEED-33: the toggle form. One team per call, `shared` says which way;
+    /// there is no clearing-null form any more.
     #[test]
-    fn set_shared_serializes_the_clearing_null_explicitly() {
+    fn set_shared_posts_the_per_team_toggle() {
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
-        set_shared(&client(&base), "dev-1", None).unwrap();
+        set_shared(&client(&base), "dev-1", "team-9", true).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/devices.setShared HTTP/1.1"));
-        // The server input is required-nullable: the key MUST be present.
-        assert!(request.ends_with(r#"{"deviceId":"dev-1","teamId":null}"#));
+        assert!(request.ends_with(r#"{"deviceId":"dev-1","teamId":"team-9","shared":true}"#));
 
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
-        set_shared(&client(&base), "dev-1", Some("team-9")).unwrap();
+        set_shared(&client(&base), "dev-1", "team-9", false).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.ends_with(r#"{"deviceId":"dev-1","teamId":"team-9"}"#));
+        assert!(request.ends_with(r#"{"deviceId":"dev-1","teamId":"team-9","shared":false}"#));
     }
 
     #[test]

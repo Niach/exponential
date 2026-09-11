@@ -412,7 +412,7 @@ private fun MachineRow(
                         modifier = Modifier.size(13.dp),
                     )
                 }
-                if (device.isMine && device.sharedTeamId != null) {
+                if (device.isMine && device.sharedTeamIds.isNotEmpty()) {
                     Spacer(Modifier.width(6.dp))
                     Text(
                         "Shared",

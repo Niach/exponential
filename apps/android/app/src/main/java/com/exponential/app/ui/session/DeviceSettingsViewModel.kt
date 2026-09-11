@@ -113,7 +113,7 @@ class DeviceSettingsViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** The caller's teams — the sharing picker's options. */
+    /** The caller's teams — one sharing switch each (FEED-33). */
     val teams: StateFlow<List<TeamEntity>> =
         dbFlow.scopedQuery(emptyList<TeamEntity>()) { it.teamDao().observeAll() }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -233,12 +233,13 @@ class DeviceSettingsViewModel @Inject constructor(
         _defaultsBusy.value = false
     }
 
-    fun setShared(deviceId: String, teamId: String?) {
+    /** FEED-33: toggle ONE team in or out of the machine's share set. */
+    fun setShared(deviceId: String, teamId: String, shared: Boolean) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             _shareBusy.value = true
             _shareError.value = null
-            runCatching { devicesApi.setShared(accountId, deviceId, teamId) }
+            runCatching { devicesApi.setShared(accountId, deviceId, teamId, shared) }
                 .onFailure { t ->
                     if (t is CancellationException) throw t
                     _shareError.value = trpcErrorMessage(t, "The share could not be changed")

@@ -52,7 +52,17 @@ const h = vi.hoisted(() => {
         return true
       }
       const key = camel(part.column)
-      return !(key in row) || row[key] === next.value
+      if (!(key in row)) return true
+      // FEED-33: `arrayContains(col, [x])` binds an ARRAY param — the row
+      // matches when it carries every bound element (Postgres `@>`).
+      if (Array.isArray(next.value)) {
+        const actual = row[key]
+        return (
+          Array.isArray(actual) &&
+          next.value.every((value) => actual.includes(value))
+        )
+      }
+      return row[key] === next.value
     })
   const makeChain = () => {
     let cond: unknown
@@ -1032,7 +1042,7 @@ function sharedDeviceRow(overrides: Record<string, unknown> = {}) {
   return {
     userId: `owner-1`,
     deviceId: SHARED_DEVICE,
-    sharedTeamId: `ws-1`,
+    sharedTeamIds: [`ws-1`],
     kind: `server`,
     agents: [`claude`, `codex`, `pi`],
     unauthedAgents: [],
@@ -1120,7 +1130,7 @@ describe(`steer.startSession — shared devices (EXP-432)`, () => {
   it(`does NOT resolve a device shared with a DIFFERENT team`, async () => {
     // The issue lives in ws-1; the share targets another team, so the
     // team-scoped lookup matches nothing and the start refuses.
-    queueSharedDevice({ sharedTeamId: `ws-OTHER` })
+    queueSharedDevice({ sharedTeamIds: [`ws-OTHER`] })
 
     const error = await rejectionOf(
       caller.startSession({ issueId: ISSUE_A, deviceId: SHARED_DEVICE })
@@ -1145,7 +1155,7 @@ describe(`steer.startSession — shared devices (EXP-432)`, () => {
     // The caller shared their own server device with the team — the own-row
     // select wins, so no startedBy rides. The shared row queued behind it is
     // left unconsumed: that second select never runs.
-    queueOwnDevice({ deviceId: SHARED_DEVICE, sharedTeamId: `ws-1` })
+    queueOwnDevice({ deviceId: SHARED_DEVICE, sharedTeamIds: [`ws-1`] })
     h.dbQueue.push([sharedDeviceRow()])
 
     await caller.startSession({ issueId: ISSUE_A, deviceId: SHARED_DEVICE })
@@ -1191,7 +1201,7 @@ describe(`steer.startSession — shared devices (EXP-432)`, () => {
   it(`routes a builtin start on a shared device with startedBy`, async () => {
     // EXP-639: only the agent list gates (EXP-825: plus the start-prompt
     // cap, since the builtin reads its request from the frame's prompt).
-    queueSharedDevice({ sharedTeamId: BUILTIN_TEAM_ID, caps: [`start-prompt`] })
+    queueSharedDevice({ sharedTeamIds: [BUILTIN_TEAM_ID], caps: [`start-prompt`] })
 
     await caller.startSession({
       actionId: BUILTIN_ID,

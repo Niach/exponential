@@ -143,7 +143,7 @@ async function assertDeviceUsable(
   const rows = await db
     .select({
       userId: devices.userId,
-      sharedTeamId: devices.sharedTeamId,
+      sharedTeamIds: devices.sharedTeamIds,
       kind: devices.kind,
       caps: devices.caps,
       agents: devices.agents,
@@ -153,7 +153,8 @@ async function assertDeviceUsable(
   let usableRows = rows.filter((row) => row.userId === callerUserId)
   if (usableRows.length === 0) {
     const shared = rows.filter(
-      (row) => row.sharedTeamId === teamId && row.kind === `server`
+      (row) =>
+        (row.sharedTeamIds ?? []).includes(teamId) && row.kind === `server`
     )
     if (shared.length > 0) {
       const members = await db

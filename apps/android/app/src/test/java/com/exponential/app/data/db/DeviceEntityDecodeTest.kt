@@ -42,7 +42,7 @@ class DeviceEntityDecodeTest {
               "launch_defaults_updated_at": "2026-08-10 10:00:00+00",
               "active_sessions": 2,
               "last_seen_at": "2026-08-11 10:00:00+00",
-              "shared_team_id": "team-1",
+              "shared_team_ids": "{team-1}",
               "update_requested_at": null,
               "created_at": "2026-08-01 10:00:00+00",
               "updated_at": "2026-08-11 10:00:00+00"
@@ -56,6 +56,8 @@ class DeviceEntityDecodeTest {
         assertTrue(entity.agents!!.contains("claude"))
         assertTrue(entity.launchDefaults!!.contains("defaultAgent"))
         assertNull(entity.updateRequestedAt)
+        // FEED-33: the uuid[] arrives as the Postgres text literal in a string.
+        assertEquals(listOf("team-1"), entity.sharedTeamIds)
     }
 
     @Test
@@ -67,13 +69,13 @@ class DeviceEntityDecodeTest {
               "deviceId": "dev-1",
               "label": "mac",
               "lastSeenAt": "2026-08-11T10:00:00Z",
-              "sharedTeamId": null
+              "sharedTeamIds": ["team-1", "team-2"]
             }
         """.trimIndent()
         val entity = json.decodeFromString(DeviceEntity.serializer(), row)
         assertEquals("dev-1", entity.deviceId)
         assertEquals("2026-08-11T10:00:00Z", entity.lastSeenAt)
-        assertNull(entity.sharedTeamId)
+        assertEquals(listOf("team-1", "team-2"), entity.sharedTeamIds)
     }
 
     @Test
@@ -87,6 +89,7 @@ class DeviceEntityDecodeTest {
         assertNull(entity.agents)
         assertNull(entity.launchDefaults)
         assertEquals(0, entity.activeSessions)
+        assertTrue(entity.sharedTeamIds.isEmpty())
     }
 
     @Test

@@ -111,7 +111,7 @@ final class AgentAccountsRowsTests: XCTestCase {
             deviceId: "dev-2",
             label: "Server",
             agentAccounts: #"{"claude":{"signedIn":true,"checkedAt":""}}"#,
-            sharedTeamId: "team-1"
+            sharedTeamIds: ["team-1"]
         )
         let shared = AgentAccountsRows.profileRows(devices: [theirs], currentUserId: "me", isOnline: { _ in false })
         XCTAssertEqual(shared.count, 1)

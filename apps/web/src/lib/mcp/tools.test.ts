@@ -3134,7 +3134,7 @@ describe(`exponential_devices_list`, () => {
     updateRequestedAt: null,
     activeSessions: 0,
     lastSeenAt: new Date(),
-    sharedTeamId: null,
+    sharedTeamIds: [],
     isDefault: true,
     ...over,
   })
@@ -3154,7 +3154,7 @@ describe(`exponential_devices_list`, () => {
         unauthedAgents: [],
         caps: [`actions`, `resume-run`],
         version: `1.2.3`,
-        sharedTeamId: null,
+        sharedTeamIds: [],
         isDefault: true,
         // EXP-484: null until the machine's collector reports.
         agentAccounts: null,

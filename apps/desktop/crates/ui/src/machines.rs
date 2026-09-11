@@ -274,7 +274,7 @@ impl MachinesSection {
                     && row.active_sessions.unwrap_or(0) > 0,
                 active_sessions: row.active_sessions.unwrap_or(0).max(0) as u32,
                 launch_defaults: row.launch_defaults.clone(),
-                shared_team_id: row.shared_team_id.clone(),
+                shared_team_ids: row.shared_team_ids.clone(),
                 // EXP-622: a teammate's flag is THEIR preference, never ours.
                 is_default: owned && row.is_default.unwrap_or(false),
                 owner,
@@ -338,7 +338,7 @@ impl MachinesSection {
         let server = device.is_server();
         // EXP-642: only an OWN row wears the chip — the Team machines section
         // is shared by definition.
-        let shared = device.owner.is_none() && device.shared_team_id.is_some();
+        let shared = device.owner.is_none() && !device.shared_team_ids.is_empty();
         let kind_icon = if server {
             registry::UI_SERVER
         } else {

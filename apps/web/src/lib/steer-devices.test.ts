@@ -191,11 +191,11 @@ describe(`ACP hosting (EXP-746)`, () => {
 describe(`deviceIsMine`, () => {
   it(`is true for own rows (owner absent) and false for shared rows`, () => {
     expect(deviceIsMine(server())).toBe(true)
-    expect(deviceIsMine(server({ sharedTeamId: `team-1` }))).toBe(true)
+    expect(deviceIsMine(server({ sharedTeamIds: [`team-1`] }))).toBe(true)
     expect(
       deviceIsMine(
         server({
-          sharedTeamId: `team-1`,
+          sharedTeamIds: [`team-1`],
           owner: { id: `owner-1`, name: `Tessa` },
         })
       )
@@ -236,7 +236,7 @@ function deviceRow(overrides: Partial<Device> = {}): Device {
     launchDefaults: null,
     launchDefaultsUpdatedAt: null,
     lastSeenAt: NOW,
-    sharedTeamId: null,
+    sharedTeamIds: [],
     isDefault: false,
     createdAt: NOW,
     updatedAt: NOW,
@@ -360,7 +360,7 @@ describe(`composeDeviceList`, () => {
         id: `r-shared`,
         deviceId: `d-shared`,
         userId: `them`,
-        sharedTeamId: `team-1`,
+        sharedTeamIds: [`team-1`],
       }),
       deviceRow({ id: `r-new`, deviceId: `d-new` }),
     ]
@@ -419,14 +419,14 @@ describe(`composeDeviceList`, () => {
         id: `r-other`,
         deviceId: `d-other`,
         userId: `them`,
-        sharedTeamId: `team-2`,
+        sharedTeamIds: [`team-2`],
       }),
       deviceRow({
         id: `r-desktop`,
         deviceId: `d-desktop`,
         userId: `them`,
         kind: `desktop`,
-        sharedTeamId: `team-1`,
+        sharedTeamIds: [`team-1`],
       }),
     ]
     expect(composeDeviceList(rows, users, NOW, `me`, `team-1`)).toEqual([])
@@ -437,7 +437,7 @@ describe(`composeDeviceList`, () => {
             id: `r-shared`,
             deviceId: `d-shared`,
             userId: `them`,
-            sharedTeamId: `team-1`,
+            sharedTeamIds: [`team-1`],
           }),
         ],
         users,

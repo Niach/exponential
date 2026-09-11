@@ -1265,7 +1265,7 @@ async function main() {
     version: DEMO_SERVER_VERSION,
     agents: [`claude`, `codex`],
     caps: [`actions`, `action-inputs`, `fix-conflicts`, `chat`, `automations`],
-    sharedTeamId: ws.id,
+    sharedTeamIds: [ws.id],
     lastSeenAt: hoursAgo(5),
     createdAt: daysAgo(45),
   })

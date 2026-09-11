@@ -1225,14 +1225,17 @@ export const devices = pgTable(
     lastSeenAt: timestamp(`last_seen_at`, { withTimezone: true })
       .notNull()
       .defaultNow(),
-    // EXP-432: the ONE team this device is shared with (server-kind only,
-    // router-enforced). Teammates of that team see the device in team-scoped
-    // devices.list and may remote-start sessions on it; the resulting rows
-    // are requester-owned with host_user_id = this row's owner. SET NULL on
-    // team delete; NULL = private (the default).
-    sharedTeamId: uuid(`shared_team_id`).references(() => teams.id, {
-      onDelete: `set null`,
-    }),
+    // EXP-432/FEED-33: the teams this device is shared with (server-kind
+    // only, router-enforced; sorted + deduped by `devices.setShared`).
+    // Teammates of any listed team see the device in that team's device
+    // list and may remote-start sessions on it; the resulting rows are
+    // requester-owned with host_user_id = this row's owner. `{}` = private
+    // (the default). An array carries no FK: trigger #16
+    // (unshare_deleted_team) strips a deleted team's id.
+    sharedTeamIds: uuid(`shared_team_ids`)
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
     // EXP-622: the OWNER's default machine — the one every device picker
     // prefills when several are candidates. At most one true row per user
     // (`devices.setDefault` clears the others in the same transaction).
@@ -1280,17 +1283,15 @@ export const devices = pgTable(
   (table) => [
     unique().on(table.userId, table.deviceId),
     index(`idx_devices_user`).on(table.userId),
-    // Serves the per-team shared listing; partial — most devices are private.
-    index(`idx_devices_shared_team`)
-      .on(table.sharedTeamId)
-      .where(sql`shared_team_id IS NOT NULL`),
+    // Serves the per-team shared listing (`&&` / `@>` on the array).
+    index(`idx_devices_shared_teams`).using(`gin`, table.sharedTeamIds),
   ]
 )
 
 // EXP-481: per-device worktree inventory, reported by the device
 // (devices.reportWorktrees, full current set diff-upserted server-side) —
 // powers resume offers, listing and prune even while the device is offline.
-// Synced shape #18. `user_id` + `shared_team_id` are trigger-maintained
+// Synced shape #18. `user_id` + `shared_team_ids` are trigger-maintained
 // mirrors of the owning devices row (populate_device_worktree_owner +
 // propagate_device_shared_team) so the shape's where clause stays
 // single-table and its identity rotates ONLY on team-membership changes
@@ -1306,9 +1307,10 @@ export const deviceWorktrees = pgTable(
     userId: text(`user_id`)
       .notNull()
       .references(() => users.id, { onDelete: `cascade` }),
-    sharedTeamId: uuid(`shared_team_id`).references(() => teams.id, {
-      onDelete: `set null`,
-    }),
+    sharedTeamIds: uuid(`shared_team_ids`)
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
     repoFullName: varchar(`repo_full_name`, { length: 255 }).notNull(),
     branch: varchar({ length: 255 }).notNull(),
     // `exp/<IDENTIFIER>` linkage as the DEVICE parsed it (the branch prefix
@@ -1331,10 +1333,10 @@ export const deviceWorktrees = pgTable(
   (table) => [
     unique().on(table.deviceRowId, table.repoFullName, table.branch),
     index(`idx_device_worktrees_user`).on(table.userId),
-    // Partial — most devices are private.
-    index(`idx_device_worktrees_shared_team`)
-      .on(table.sharedTeamId)
-      .where(sql`shared_team_id IS NOT NULL`),
+    index(`idx_device_worktrees_shared_teams`).using(
+      `gin`,
+      table.sharedTeamIds
+    ),
   ]
 )
 
@@ -2580,7 +2582,7 @@ export const selectDeviceWorktreeSchema = createSelectSchema(deviceWorktrees, {
 export const selectSyncedDeviceWorktreeSchema = selectDeviceWorktreeSchema.omit(
   {
     userId: true,
-    sharedTeamId: true,
+    sharedTeamIds: true,
   }
 )
 
@@ -2630,6 +2632,6 @@ export type Device = InferSelectModel<typeof devices>
 export type DeviceWorktree = InferSelectModel<typeof deviceWorktrees>
 export type SyncedDeviceWorktree = Omit<
   DeviceWorktree,
-  `userId` | `sharedTeamId`
+  `userId` | `sharedTeamIds`
 >
 export type DeviceCommand = InferSelectModel<typeof deviceCommands>

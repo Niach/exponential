@@ -27,13 +27,13 @@ final class DeviceEntityDecodingTests: XCTestCase {
         "launch_defaults":{"defaultAgent":"codex","agents":{"claude":{"model":"fable","ultracode":true}}},
         "launch_defaults_updated_at":"2026-08-10T10:00:00.000Z",
         "active_sessions":"2","last_seen_at":"2026-08-11T10:00:00.000Z",
-        "shared_team_id":"team-1","update_requested_at":null,
+        "shared_team_ids":"{team-1,team-2}","update_requested_at":null,
         "created_at":"2026-08-01T00:00:00Z","updated_at":"2026-08-11T10:00:00Z"}
         """)
         XCTAssertEqual(device.id, "row-1")
         XCTAssertEqual(device.deviceId, "dev-1")
         XCTAssertEqual(device.activeSessions, 2)
-        XCTAssertEqual(device.sharedTeamId, "team-1")
+        XCTAssertEqual(device.sharedTeamIds, ["team-1", "team-2"])
         XCTAssertNil(device.updateRequestedAt)
         // jsonb columns land as stored JSON text, type-faithfully — the
         // launchDefaults booleans must survive the round trip as real bools.
@@ -160,6 +160,46 @@ final class DeviceEntityDecodingTests: XCTestCase {
         XCTAssertEqual(
             SteerDevice(entity: wire, currentUserId: "u1").acpAgentIds, ["claude"]
         )
+    }
+
+    // FEED-33: `shared_team_ids` is a Postgres uuid[] — the Electric wire
+    // delivers its TEXT literal (`{a,b}`, `{}`, elements possibly quoted),
+    // fixtures/tRPC a JSON array, and a pre-FEED-33 server nothing at all.
+    // Every form lands as a plain id list; garbage is an empty one, never a
+    // dropped row.
+    func testDecodesSharedTeamIdsFromLiteralArrayNullAndGarbage() throws {
+        let base = #"{"id":"row-10","user_id":"u1","device_id":"dev-10","label":"box""#
+        let a = "7b62ba88-8dda-4166-9b8e-606acb5d1954"
+        let b = "9836918a-8de3-4299-a167-1dc987a99f2b"
+        XCTAssertEqual(try decodeDevice(base + #","shared_team_ids":"{}"}"#).sharedTeamIds, [])
+        XCTAssertEqual(
+            try decodeDevice(base + #","shared_team_ids":"{\#(a)}"}"#).sharedTeamIds, [a]
+        )
+        XCTAssertEqual(
+            try decodeDevice(base + #","shared_team_ids":"{\#(a),\#(b)}"}"#).sharedTeamIds, [a, b]
+        )
+        // Quoted elements + stray whitespace (Postgres quotes when it must).
+        XCTAssertEqual(
+            try decodeDevice(base + #","shared_team_ids":"{\"\#(a)\", \"\#(b)\"}"}"#).sharedTeamIds,
+            [a, b]
+        )
+        // JSON array (tRPC/fixtures) — and the pre-stringified JSON text GRDB
+        // hands back for a stored row.
+        XCTAssertEqual(
+            try decodeDevice(base + #","shared_team_ids":["\#(a)","\#(b)"]}"#).sharedTeamIds, [a, b]
+        )
+        XCTAssertEqual(
+            try decodeDevice(base + #","shared_team_ids":"[\"\#(a)\"]"}"#).sharedTeamIds, [a]
+        )
+        XCTAssertEqual(try decodeDevice(base + #","shared_team_ids":null}"#).sharedTeamIds, [])
+        XCTAssertEqual(try decodeDevice(base + "}").sharedTeamIds, [])
+        XCTAssertEqual(try decodeDevice(base + #","shared_team_ids":"garbage"}"#).sharedTeamIds, [])
+        XCTAssertEqual(try decodeDevice(base + #","shared_team_ids":42}"#).sharedTeamIds, [])
+        XCTAssertEqual(try decodeDevice(base + #","shared_team_ids":[1,2]}"#).sharedTeamIds, [])
+
+        // The mapping carries the set through unchanged.
+        let wire = try decodeDevice(base + #","kind":"server","shared_team_ids":"{\#(a)}"}"#)
+        XCTAssertEqual(SteerDevice(entity: wire, currentUserId: "u1").sharedTeamIds, [a])
     }
 
     func testDecodesWorktreeWithPostgresTextBool() throws {

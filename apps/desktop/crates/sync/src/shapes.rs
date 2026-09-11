@@ -508,7 +508,9 @@ pub const SHAPES: [ShapeSpec; 21] = [
             "agent_usage_at",
             "active_sessions",
             "last_seen_at",
-            "shared_team_id",
+            // FEED-33: `uuid[]`, every team the machine is shared with
+            // (`{}` = private); replaced the single `shared_team_id`.
+            "shared_team_ids",
             // EXP-622: the owner's default machine. It was missing from this
             // list (the proxy always served it), so `DeviceRow.is_default`
             // hydrated None on the desktop and every picker fell back to
@@ -525,7 +527,7 @@ pub const SHAPES: [ShapeSpec; 21] = [
         path: "/api/shapes/device-worktrees",
         // EXP-481: per-device worktree inventory (resume offers + the
         // device-settings worktree list). The trigger-maintained scoping
-        // mirrors (`user_id`/`shared_team_id`) are proxy-excluded and MUST
+        // mirrors (`user_id`/`shared_team_ids`) are proxy-excluded and MUST
         // NOT be modeled locally (the issue_subscribers email stance).
         columns: &[
             "id",
@@ -801,11 +803,13 @@ mod tests {
 
     #[test]
     fn device_worktrees_never_model_the_scoping_mirrors() {
-        // EXP-481: `user_id`/`shared_team_id` are server-side scoping
+        // EXP-481: `user_id`/`shared_team_ids` are server-side scoping
         // mirrors, proxy-excluded like issue_subscribers.email.
         let spec = shape_by_name("device_worktrees").unwrap();
         assert!(!spec.columns.contains(&"user_id"));
         assert!(!spec.columns.contains(&"shared_team_id"));
+        // FEED-33 widened the devices column; the worktree mirror stays out.
+        assert!(!spec.columns.contains(&"shared_team_ids"));
         assert!(spec.columns.contains(&"issue_identifier"));
         assert!(spec.columns.contains(&"busy"));
     }

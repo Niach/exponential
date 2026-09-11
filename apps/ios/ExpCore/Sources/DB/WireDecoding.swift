@@ -79,3 +79,44 @@ public extension KeyedDecodingContainer {
         return String(data: data, encoding: .utf8)
     }
 }
+
+// FEED-33: a Postgres `uuid[]` column (`devices.shared_team_ids`) reaches the
+// client in three shapes — the Electric wire's text literal (`{a,b}`, `{}`,
+// elements possibly double-quoted), a JSON string array (tRPC fixtures, and
+// GRDB's own JSON encoding of the stored `[String]`), or nothing at all on a
+// pre-FEED-33 server. All of them read as a plain id list; anything else is
+// an empty one, never a dropped row.
+public enum PgTextArray {
+    public static func parse(_ raw: String) -> [String] {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("[") {
+            let list = (try? JSONDecoder().decode([String].self, from: Data(trimmed.utf8))) ?? []
+            return clean(list)
+        }
+        guard trimmed.hasPrefix("{"), trimmed.hasSuffix("}") else { return [] }
+        let inner = trimmed.dropFirst().dropLast()
+        return clean(inner.split(separator: ",").map(String.init))
+    }
+
+    private static func clean(_ items: [String]) -> [String] {
+        let strip = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\""))
+        return items
+            .map { $0.trimmingCharacters(in: strip) }
+            .filter { !$0.isEmpty }
+    }
+}
+
+public extension KeyedDecodingContainer {
+    /// A Postgres text-array / JSON string-array column as `[String]` (see
+    /// `PgTextArray`). Non-throwing: absent, null or garbage → `[]`.
+    func decodeWireStringList(forKey key: Key) -> [String] {
+        guard contains(key) else { return [] }
+        if let text = try? decode(String.self, forKey: key) {
+            return PgTextArray.parse(text)
+        }
+        if let list = try? decode([String].self, forKey: key) {
+            return list.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        }
+        return []
+    }
+}

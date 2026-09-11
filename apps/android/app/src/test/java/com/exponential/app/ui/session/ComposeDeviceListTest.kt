@@ -24,7 +24,7 @@ class ComposeDeviceListTest {
         userId: String,
         lastSeen: String,
         kind: String = "server",
-        sharedTeamId: String? = null,
+        sharedTeamIds: List<String> = emptyList(),
     ) = DeviceEntity(
         id = id,
         userId = userId,
@@ -32,7 +32,7 @@ class ComposeDeviceListTest {
         label = id,
         kind = kind,
         lastSeenAt = lastSeen,
-        sharedTeamId = sharedTeamId,
+        sharedTeamIds = sharedTeamIds,
     )
 
     private val users = listOf(
@@ -66,25 +66,31 @@ class ComposeDeviceListTest {
         val rows = listOf(
             device("old-mine", "me", "2026-08-01T10:00:00Z"),
             device("new-mine", "me", "2026-08-11T10:00:00Z"),
-            device("shared", "them", "2026-08-11T09:00:00Z", sharedTeamId = "team-1"),
-            device("other-team", "them", "2026-08-11T09:00:00Z", sharedTeamId = "team-2"),
+            device("shared", "them", "2026-08-11T09:00:00Z", sharedTeamIds = listOf("team-1")),
+            device("other-team", "them", "2026-08-11T09:00:00Z", sharedTeamIds = listOf("team-2")),
+            // FEED-33: shared with several teams — shows up in each of them.
+            device("multi", "them", "2026-08-11T08:00:00Z", sharedTeamIds = listOf("team-2", "team-1")),
             // A desktop share must never scope in (server-kind only).
-            device("shared-desktop", "them", "2026-08-11T09:00:00Z", kind = "desktop", sharedTeamId = "team-1"),
+            device("shared-desktop", "them", "2026-08-11T09:00:00Z", kind = "desktop", sharedTeamIds = listOf("team-1")),
         )
         val list = composeDeviceList(rows, users, "team-1", "me", nowMs)
         assertEquals(
-            listOf("steer-new-mine", "steer-old-mine", "steer-shared"),
+            listOf("steer-new-mine", "steer-old-mine", "steer-multi", "steer-shared"),
             list.map { it.deviceId },
         )
         assertEquals("Danny", list.last().owner?.name)
         assertTrue(list.first().isMine)
+        assertEquals(
+            listOf("steer-new-mine", "steer-old-mine", "steer-multi", "steer-other-team"),
+            composeDeviceList(rows, users, "team-2", "me", nowMs).map { it.deviceId },
+        )
     }
 
     @Test
     fun `no selected team lists only own rows and signed out lists nothing`() {
         val rows = listOf(
             device("mine", "me", "2026-08-11T10:00:00Z"),
-            device("shared", "them", "2026-08-11T09:00:00Z", sharedTeamId = "team-1"),
+            device("shared", "them", "2026-08-11T09:00:00Z", sharedTeamIds = listOf("team-1")),
         )
         assertEquals(
             listOf("steer-mine"),

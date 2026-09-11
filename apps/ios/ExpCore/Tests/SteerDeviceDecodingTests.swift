@@ -137,7 +137,7 @@ final class SteerDeviceDecodingTests: XCTestCase {
         let result = try decode("""
         {"devices":[{"deviceId":"d3","deviceLabel":"old-desktop","kind":"desktop",
         "platform":null,"agents":["claude"],"caps":[],"online":true,"lastSeenAt":null,
-        "registered":false,"version":null,"updateRequested":false,"sharedTeamId":null}]}
+        "registered":false,"version":null,"updateRequested":false,"sharedTeamIds":null}]}
         """)
         let device = try XCTUnwrap(result.devices.first)
         XCTAssertTrue(device.isOnline)
@@ -145,34 +145,36 @@ final class SteerDeviceDecodingTests: XCTestCase {
         XCTAssertNil(device.lastSeenAt)
         XCTAssertNil(device.version)
         XCTAssertFalse(device.isRegistered)
-        XCTAssertNil(device.sharedTeamId)
+        XCTAssertEqual(device.sharedTeamIds, [])
         XCTAssertTrue(device.isMine)
     }
 
-    /// EXP-432: teammates' shared servers ride along after the caller's own
-    /// rows. `owner` is the whole tell — own rows never
-    /// carry it — while `sharedTeamId` rides own rows too, so it must never be
-    /// read as "somebody else's machine".
+    /// EXP-432/FEED-33: teammates' shared servers ride along after the
+    /// caller's own rows. `owner` is the whole tell — own rows never
+    /// carry it — while `sharedTeamIds` rides own rows too, so it must never
+    /// be read as "somebody else's machine". A JSON array (tRPC form) and the
+    /// Postgres text literal both decode.
     func testDecodesTeamSharedDevice() throws {
         let teamId = "11111111-1111-1111-1111-111111111111"
+        let otherTeam = "22222222-2222-2222-2222-222222222222"
         let result = try decode("""
         {"devices":[{"deviceId":"own","deviceLabel":"my-box","kind":"server",
         "agents":["claude"],"caps":["actions"],"online":true,"registered":true,
-        "sharedTeamId":"\(teamId)"},
+        "sharedTeamIds":["\(teamId)","\(otherTeam)"]},
         {"deviceId":"mate","deviceLabel":"buildbox","kind":"server",
         "agents":["claude"],"caps":["actions"],"online":true,"registered":true,
-        "sharedTeamId":"\(teamId)","owner":{"id":"u2","name":"Danny"}}]}
+        "sharedTeamIds":"{\(teamId)}","owner":{"id":"u2","name":"Danny"}}]}
         """)
         let own = try XCTUnwrap(result.devices.first)
         XCTAssertTrue(own.isMine)  // shared out, but still the caller's machine
         XCTAssertNil(own.owner)
-        XCTAssertEqual(own.sharedTeamId, teamId)
+        XCTAssertEqual(own.sharedTeamIds, [teamId, otherTeam])
 
         let shared = result.devices[1]
         XCTAssertFalse(shared.isMine)
         XCTAssertEqual(shared.owner?.id, "u2")
         XCTAssertEqual(shared.owner?.name, "Danny")
-        XCTAssertEqual(shared.sharedTeamId, teamId)
+        XCTAssertEqual(shared.sharedTeamIds, [teamId])
         // A teammate's shared server is a start target like any other.
         XCTAssertTrue(shared.isOnline)
         XCTAssertTrue(shared.hasRunnableAgent)
@@ -325,7 +327,7 @@ final class SteerDeviceDecodingTests: XCTestCase {
         "agents":["claude"],"caps":[],"online":true,"registered":true}]}
         """)
         let device = try XCTUnwrap(result.devices.first)
-        XCTAssertNil(device.sharedTeamId)
+        XCTAssertEqual(device.sharedTeamIds, [])
         XCTAssertNil(device.owner)
         XCTAssertTrue(device.isMine)
     }

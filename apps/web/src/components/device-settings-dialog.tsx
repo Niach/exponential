@@ -64,9 +64,6 @@ const PruneIcon = conceptIcon(`ui-clean`)
 const RemoveIcon = conceptIcon(`ui-delete`)
 const OfflineIcon = conceptIcon(`ui-device-offline`)
 
-// Radix Select forbids empty item values — "Not shared" rides a sentinel.
-const NOT_SHARED = `not-shared`
-
 // EXP-490 autosave cadence. Defaults debounce longer than the name: every
 // setLaunchDefaults call nudges the device over the relay, so coalescing a
 // burst of toggles into ONE write matters more than instant persistence.
@@ -298,10 +295,13 @@ export function DeviceSettingsDialog({
     }
   }
 
-  const setShared = (teamId: string | null) =>
+  // FEED-33: one switch per team, written straight through like the default
+  // toggle (the switches render off the LIVE row, so the server's sorted set
+  // streams back on its own). Each write moves ONE team in or out.
+  const setShared = (teamId: string, shared: boolean) =>
     runSection(`sharing`, async () => {
       if (!deviceId) return
-      await trpc.devices.setShared.mutate({ deviceId, teamId })
+      await trpc.devices.setShared.mutate({ deviceId, teamId, shared })
     })
 
   // EXP-622: a single toggle — written straight through, no debounce. The
@@ -669,28 +669,32 @@ export function DeviceSettingsDialog({
               </p>
             )}
 
-            {/* ── Sharing (server machines only, EXP-432) ───────────────── */}
+            {/* ── Sharing (server machines only, EXP-432/FEED-33) ───────── */}
             {kind === `server` && (
               <>
-                <GlassGroup>
-                  <GlassPickerRow
-                    label="Shared with"
-                    value={row?.sharedTeamId ?? NOT_SHARED}
-                    onValueChange={(value) =>
-                      void setShared(value === NOT_SHARED ? null : value)
-                    }
-                    disabled={busySection !== null}
-                    options={[
-                      { value: NOT_SHARED, label: `Not shared` },
-                      ...teams.map((team) => ({
-                        value: team.id,
-                        label: team.name,
-                      })),
-                    ]}
-                  />
-                </GlassGroup>
+                <GlassSectionHeader label="Sharing" />
+                {teams.length > 0 ? (
+                  <GlassGroup>
+                    {teams.map((team) => (
+                      <GlassToggleRow
+                        key={team.id}
+                        id={`device-settings-share-${team.id}`}
+                        label={team.name}
+                        checked={row?.sharedTeamIds?.includes(team.id) ?? false}
+                        onCheckedChange={(checked) =>
+                          void setShared(team.id, checked)
+                        }
+                        disabled={busySection !== null}
+                      />
+                    ))}
+                  </GlassGroup>
+                ) : (
+                  <p className="px-1 text-xs text-muted-foreground">
+                    Join a team to share this machine.
+                  </p>
+                )}
                 <p className="px-1 text-xs text-muted-foreground">
-                  Teammates of the shared team can start coding sessions on this
+                  Teammates of a shared team can start coding sessions on this
                   machine.
                 </p>
                 {sectionErrors.sharing && (

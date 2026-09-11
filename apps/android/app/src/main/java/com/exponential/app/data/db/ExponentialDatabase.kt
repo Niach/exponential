@@ -2,6 +2,7 @@ package com.exponential.app.data.db
 
 import androidx.room.Database
 import androidx.room.RoomDatabase
+import androidx.room.TypeConverters
 
 @Database(
     entities = [
@@ -239,11 +240,16 @@ import androidx.room.RoomDatabase
     // v52 (EXP-778): pins table — the caller's personal pins (issue / coding
     //      session / action), the 21st Electric shape, static per user. New
     //      table, so the destructive fallback wipes + resyncs.
+    // v53: devices.shared_team_id (one team) → shared_team_ids (FEED-33, a
+    //      uuid[] stored as JSON array text via StringListConverters). The
+    //      old column is gone from the shape; destructive fallback wipes +
+    //      resyncs.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 52,
+    version = 53,
     exportSchema = false,
 )
+@TypeConverters(StringListConverters::class)
 abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun teamDao(): TeamDao
     abstract fun boardDao(): BoardDao

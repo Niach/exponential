@@ -200,8 +200,8 @@ private data class ActionIdInput(val id: String)
  * "cleared" — exactly what the web dialog sends. The router applies a key only
  * when it is `!== undefined`, so an OMITTED key means "keep", and the shared
  * Json (`explicitNulls = false`) would drop a null property from a
- * `@Serializable` class outright — hence the hand-built object with [JsonNull],
- * the [setSharedInput] pattern. `inputs` and `sortOrder` are deliberately
+ * `@Serializable` class outright — hence the hand-built object with [JsonNull].
+ * `inputs` and `sortOrder` are deliberately
  * absent: mobile edits neither, and an omitted key leaves the stored value
  * alone. EXP-825: [promptPlaceholder] (the composer hint) follows the
  * description's rule — null clears.

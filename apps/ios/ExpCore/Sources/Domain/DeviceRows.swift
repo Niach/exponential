@@ -112,7 +112,7 @@ public extension SteerDevice {
             version: entity.version,
             updateRequested: entity.updateRequestedAt != nil,
             updateBlocked: entity.updateRequestedAt != nil && entity.activeSessions > 0,
-            sharedTeamId: entity.sharedTeamId,
+            sharedTeamIds: entity.sharedTeamIds,
             owner: mine ? nil : DeviceOwner(id: entity.userId, name: ownerName ?? entity.userId),
             // EXP-622: a default belongs to the row's OWNER — never surface a
             // teammate's shared server as the caller's default.
@@ -225,7 +225,8 @@ public enum DeviceQueries {
         let shared = rows
             .filter { row in
                 guard row.userId != userId, let teamId else { return false }
-                return row.sharedTeamId == teamId
+                // FEED-33: shared with several teams — this one among them.
+                return row.kind == "server" && row.sharedTeamIds.contains(teamId)
             }
             .sorted(by: stableOrder)
         return own.map(mapped) + shared.map(mapped)

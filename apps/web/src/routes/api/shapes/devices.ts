@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router"
 import {
   andClauses,
-  buildWhereClause,
+  buildArrayOverlapClause,
   getUserTeamIds,
   orClauses,
   sqlStringLiteral,
@@ -42,7 +42,8 @@ const DEVICE_COLUMNS = [
   `agent_usage_at`,
   `active_sessions`,
   `last_seen_at`,
-  `shared_team_id`,
+  // FEED-33: uuid[] — every team the server is shared with (`{}` = private).
+  `shared_team_ids`,
   `is_default`,
   `update_requested_at`,
   `created_at`,
@@ -56,6 +57,8 @@ const DEVICE_COLUMNS = [
 // rotates ONLY on the caller's team-membership changes (REV2-5 legitimacy
 // class, same as the teams shape). Individual share/unshare moves rows
 // in/out incrementally via the column, never a where-clause rewrite.
+// FEED-33: the share is a uuid[] (several teams), so the arm is an array
+// overlap (`&&`, the users-shape `team_ids` precedent) instead of an IN.
 export const Route = createFileRoute(`/api/shapes/devices`)({
   server: {
     handlers: {
@@ -69,7 +72,7 @@ export const Route = createFileRoute(`/api/shapes/devices`)({
           return orClauses(
             `"user_id" = ${sqlStringLiteral(userId)}`,
             andClauses(
-              buildWhereClause(`shared_team_id`, teamIds),
+              buildArrayOverlapClause(`shared_team_ids`, teamIds),
               `"kind" = 'server'`
             )
           )

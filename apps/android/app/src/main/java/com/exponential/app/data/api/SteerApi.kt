@@ -206,13 +206,13 @@ data class SteerDevice(
      * the daemon applies it once they close ("Update queued", no spinner).
      */
     @SerialName("updateBlocked") val updateBlocked: Boolean = false,
-    // ── Team sharing (EXP-432) ───────────────────────────────────────────────
+    // ── Team sharing (EXP-432, FEED-33) ──────────────────────────────────────
     /**
-     * The team this machine is shared with, null when private. Carried on the
-     * caller's OWN rows too. Since EXP-481 the share toggle lives in the
-     * device-settings sheet here as well as on the web.
+     * The teams this machine is shared with, empty when private. Carried on
+     * the caller's OWN rows too. Since EXP-481 the per-team share toggles
+     * live in the device-settings sheet here as well as on the web.
      */
-    @SerialName("sharedTeamId") val sharedTeamId: String? = null,
+    @SerialName("sharedTeamIds") val sharedTeamIds: List<String> = emptyList(),
     /** Set only on a TEAMMATE's shared machine — never on the caller's own. */
     @SerialName("owner") val owner: DeviceOwner? = null,
     /**
