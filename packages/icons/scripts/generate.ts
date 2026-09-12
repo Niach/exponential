@@ -234,7 +234,7 @@ const customIcons = registry.custom ?? {}
 const customNames = Object.keys(customIcons).sort()
 // A custom name shadowing a real Lucide icon (or a hand-maintained desktop
 // brand mark) would make the shipped art ambiguous — refuse loudly.
-const BRAND_MARKS = [`claude`, `codex`, `pi`, `logo`, `apple`, `google`]
+const BRAND_MARKS = [`claude`, `codex`, `logo`, `apple`, `google`]
 for (const name of customNames) {
   if (existsSync(join(LUCIDE_ICONS_DIR, `${name}.js`))) {
     throw new Error(

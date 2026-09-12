@@ -260,7 +260,7 @@
     "values": ["user", "reference"]
   },
   "codingAgent": {
-    "values": ["claude", "codex", "pi"]
+    "values": ["claude", "codex"]
   },
   "codingModel": {
     "values": ["fable", "opus", "sonnet"]
@@ -273,20 +273,6 @@
   },
   "codexEffort": {
     "values": ["minimal", "low", "medium", "high", "xhigh"]
-  },
-  "piModel": {
-    "values": [
-      "fable",
-      "opus",
-      "sonnet",
-      "gpt-5.6-sol",
-      "gpt-5.6-terra",
-      "gpt-5.6-luna",
-      "grok-4.5"
-    ]
-  },
-  "piThinking": {
-    "values": ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
   },
   "actionInputType": {
     "values": ["repo", "board", "pr", "icon"]
@@ -333,16 +319,574 @@
         "name": "compact",
         "description": "Compact the conversation context",
         "argHint": "instructions",
-        "agents": ["claude", "codex", "pi"],
+        "agents": ["claude", "codex"],
         "confirm": false
       },
       {
         "name": "clear",
         "description": "Start a fresh conversation (context is discarded)",
         "argHint": "",
-        "agents": ["claude", "codex", "pi"],
+        "agents": ["claude", "codex"],
         "confirm": true
       }
     ]
+  },
+  "expToolDisplay": {
+    "prefix": "exponential_",
+    "resultKinds": [
+      "none",
+      "issue",
+      "pr",
+      "comment",
+      "session",
+      "board",
+      "action",
+      "automation",
+      "list"
+    ],
+    "tools": [
+      {
+        "name": "actions_create",
+        "progressive": "Creating action",
+        "done": "Created action",
+        "subjectKey": "name",
+        "result": "action"
+      },
+      {
+        "name": "actions_delete",
+        "progressive": "Deleting action",
+        "done": "Deleted action",
+        "subjectKey": "id",
+        "result": "none"
+      },
+      {
+        "name": "actions_list",
+        "progressive": "Listing actions",
+        "done": "Listed actions",
+        "subjectKey": "",
+        "result": "list"
+      },
+      {
+        "name": "actions_update",
+        "progressive": "Updating action",
+        "done": "Updated action",
+        "subjectKey": "id",
+        "result": "action"
+      },
+      {
+        "name": "attachments_delete",
+        "progressive": "Deleting attachment",
+        "done": "Deleted attachment",
+        "subjectKey": "id",
+        "result": "none"
+      },
+      {
+        "name": "attachments_get",
+        "progressive": "Reading attachment",
+        "done": "Read attachment",
+        "subjectKey": "id",
+        "result": "none"
+      },
+      {
+        "name": "attachments_upload",
+        "progressive": "Uploading attachment",
+        "done": "Uploaded attachment",
+        "subjectKey": "filename",
+        "result": "none"
+      },
+      {
+        "name": "automations_create",
+        "progressive": "Creating automation",
+        "done": "Created automation",
+        "subjectKey": "name",
+        "result": "automation"
+      },
+      {
+        "name": "automations_delete",
+        "progressive": "Deleting automation",
+        "done": "Deleted automation",
+        "subjectKey": "id",
+        "result": "none"
+      },
+      {
+        "name": "automations_list",
+        "progressive": "Listing automations",
+        "done": "Listed automations",
+        "subjectKey": "",
+        "result": "list"
+      },
+      {
+        "name": "automations_toggle",
+        "progressive": "Toggling automation",
+        "done": "Toggled automation",
+        "subjectKey": "id",
+        "result": "automation"
+      },
+      {
+        "name": "automations_update",
+        "progressive": "Updating automation",
+        "done": "Updated automation",
+        "subjectKey": "id",
+        "result": "automation"
+      },
+      {
+        "name": "boards_create",
+        "progressive": "Creating board",
+        "done": "Created board",
+        "subjectKey": "name",
+        "result": "board"
+      },
+      {
+        "name": "boards_delete",
+        "progressive": "Deleting board",
+        "done": "Deleted board",
+        "subjectKey": "id",
+        "result": "none"
+      },
+      {
+        "name": "boards_get",
+        "progressive": "Reading board",
+        "done": "Read board",
+        "subjectKey": "id",
+        "result": "board"
+      },
+      {
+        "name": "boards_list",
+        "progressive": "Listing boards",
+        "done": "Listed boards",
+        "subjectKey": "",
+        "result": "list"
+      },
+      {
+        "name": "boards_set_repository",
+        "progressive": "Linking repository to board",
+        "done": "Linked repository to board",
+        "subjectKey": "id",
+        "result": "board"
+      },
+      {
+        "name": "boards_update",
+        "progressive": "Updating board",
+        "done": "Updated board",
+        "subjectKey": "id",
+        "result": "board"
+      },
+      {
+        "name": "comments_create",
+        "progressive": "Commenting on issue",
+        "done": "Commented on issue",
+        "subjectKey": "issueId",
+        "result": "comment"
+      },
+      {
+        "name": "comments_delete",
+        "progressive": "Deleting comment",
+        "done": "Deleted comment",
+        "subjectKey": "id",
+        "result": "none"
+      },
+      {
+        "name": "comments_list",
+        "progressive": "Reading comments",
+        "done": "Read comments",
+        "subjectKey": "issueId",
+        "result": "list"
+      },
+      {
+        "name": "comments_update",
+        "progressive": "Updating comment",
+        "done": "Updated comment",
+        "subjectKey": "id",
+        "result": "comment"
+      },
+      {
+        "name": "devices_list",
+        "progressive": "Listing machines",
+        "done": "Listed machines",
+        "subjectKey": "",
+        "result": "list"
+      },
+      {
+        "name": "helpdesk_close",
+        "progressive": "Closing support thread",
+        "done": "Closed support thread",
+        "subjectKey": "id",
+        "result": "none"
+      },
+      {
+        "name": "helpdesk_escalate",
+        "progressive": "Escalating support thread",
+        "done": "Escalated support thread",
+        "subjectKey": "id",
+        "result": "issue"
+      },
+      {
+        "name": "helpdesk_note",
+        "progressive": "Adding support note",
+        "done": "Added support note",
+        "subjectKey": "id",
+        "result": "none"
+      },
+      {
+        "name": "helpdesk_reopen",
+        "progressive": "Reopening support thread",
+        "done": "Reopened support thread",
+        "subjectKey": "id",
+        "result": "none"
+      },
+      {
+        "name": "helpdesk_reply",
+        "progressive": "Replying to support thread",
+        "done": "Replied to support thread",
+        "subjectKey": "id",
+        "result": "none"
+      },
+      {
+        "name": "helpdesk_threads_get",
+        "progressive": "Reading support thread",
+        "done": "Read support thread",
+        "subjectKey": "id",
+        "result": "none"
+      },
+      {
+        "name": "helpdesk_threads_list",
+        "progressive": "Listing support threads",
+        "done": "Listed support threads",
+        "subjectKey": "",
+        "result": "list"
+      },
+      {
+        "name": "invites_create",
+        "progressive": "Creating invite",
+        "done": "Created invite",
+        "subjectKey": "email",
+        "result": "none"
+      },
+      {
+        "name": "invites_list",
+        "progressive": "Listing invites",
+        "done": "Listed invites",
+        "subjectKey": "",
+        "result": "list"
+      },
+      {
+        "name": "invites_revoke",
+        "progressive": "Revoking invite",
+        "done": "Revoked invite",
+        "subjectKey": "id",
+        "result": "none"
+      },
+      {
+        "name": "issue_labels_add",
+        "progressive": "Adding labels",
+        "done": "Added labels",
+        "subjectKey": "issueId",
+        "result": "issue"
+      },
+      {
+        "name": "issue_labels_remove",
+        "progressive": "Removing labels",
+        "done": "Removed labels",
+        "subjectKey": "issueId",
+        "result": "issue"
+      },
+      {
+        "name": "issue_relations_add",
+        "progressive": "Linking issues",
+        "done": "Linked issues",
+        "subjectKey": "issueId",
+        "result": "issue"
+      },
+      {
+        "name": "issue_relations_remove",
+        "progressive": "Unlinking issues",
+        "done": "Unlinked issues",
+        "subjectKey": "issueId",
+        "result": "issue"
+      },
+      {
+        "name": "issues_create",
+        "progressive": "Creating issue",
+        "done": "Created issue",
+        "subjectKey": "title",
+        "result": "issue"
+      },
+      {
+        "name": "issues_delete",
+        "progressive": "Deleting issue",
+        "done": "Deleted issue",
+        "subjectKey": "id",
+        "result": "none"
+      },
+      {
+        "name": "issues_get",
+        "progressive": "Reading issue",
+        "done": "Read issue",
+        "subjectKey": "id",
+        "result": "issue"
+      },
+      {
+        "name": "issues_list",
+        "progressive": "Listing issues",
+        "done": "Listed issues",
+        "subjectKey": "",
+        "result": "list"
+      },
+      {
+        "name": "issues_pr_files",
+        "progressive": "Reading PR files",
+        "done": "Read PR files",
+        "subjectKey": "id",
+        "result": "none"
+      },
+      {
+        "name": "issues_subscribe",
+        "progressive": "Subscribing to issue",
+        "done": "Subscribed to issue",
+        "subjectKey": "id",
+        "result": "issue"
+      },
+      {
+        "name": "issues_unsubscribe",
+        "progressive": "Unsubscribing from issue",
+        "done": "Unsubscribed from issue",
+        "subjectKey": "id",
+        "result": "issue"
+      },
+      {
+        "name": "issues_update",
+        "progressive": "Updating issue",
+        "done": "Updated issue",
+        "subjectKey": "id",
+        "result": "issue"
+      },
+      {
+        "name": "issues_update_status",
+        "progressive": "Updating issue status",
+        "done": "Updated issue status",
+        "subjectKey": "id",
+        "result": "issue"
+      },
+      {
+        "name": "labels_create",
+        "progressive": "Creating label",
+        "done": "Created label",
+        "subjectKey": "name",
+        "result": "none"
+      },
+      {
+        "name": "labels_delete",
+        "progressive": "Deleting label",
+        "done": "Deleted label",
+        "subjectKey": "id",
+        "result": "none"
+      },
+      {
+        "name": "labels_get",
+        "progressive": "Reading label",
+        "done": "Read label",
+        "subjectKey": "id",
+        "result": "none"
+      },
+      {
+        "name": "labels_list",
+        "progressive": "Listing labels",
+        "done": "Listed labels",
+        "subjectKey": "",
+        "result": "list"
+      },
+      {
+        "name": "labels_update",
+        "progressive": "Updating label",
+        "done": "Updated label",
+        "subjectKey": "id",
+        "result": "none"
+      },
+      {
+        "name": "members_list",
+        "progressive": "Listing members",
+        "done": "Listed members",
+        "subjectKey": "",
+        "result": "list"
+      },
+      {
+        "name": "notifications_list",
+        "progressive": "Reading notifications",
+        "done": "Read notifications",
+        "subjectKey": "",
+        "result": "list"
+      },
+      {
+        "name": "notifications_mark_read",
+        "progressive": "Marking notifications read",
+        "done": "Marked notifications read",
+        "subjectKey": "",
+        "result": "none"
+      },
+      {
+        "name": "notifications_send",
+        "progressive": "Sending notification",
+        "done": "Sent notification",
+        "subjectKey": "title",
+        "result": "none"
+      },
+      {
+        "name": "pr_merge",
+        "progressive": "Merging pull request",
+        "done": "Merged pull request",
+        "subjectKey": "issueId",
+        "result": "pr"
+      },
+      {
+        "name": "pr_open",
+        "progressive": "Opening pull request",
+        "done": "Opened pull request",
+        "subjectKey": "title",
+        "result": "pr"
+      },
+      {
+        "name": "pr_retarget",
+        "progressive": "Retargeting pull request",
+        "done": "Retargeted pull request",
+        "subjectKey": "issueId",
+        "result": "pr"
+      },
+      {
+        "name": "report_bug",
+        "progressive": "Reporting bug to Exponential",
+        "done": "Reported bug to Exponential",
+        "subjectKey": "title",
+        "result": "none"
+      },
+      {
+        "name": "repositories_add",
+        "progressive": "Adding repository",
+        "done": "Added repository",
+        "subjectKey": "fullName",
+        "result": "none"
+      },
+      {
+        "name": "repositories_branch_diff",
+        "progressive": "Reading branch diff",
+        "done": "Read branch diff",
+        "subjectKey": "",
+        "result": "none"
+      },
+      {
+        "name": "repositories_list",
+        "progressive": "Listing repositories",
+        "done": "Listed repositories",
+        "subjectKey": "",
+        "result": "list"
+      },
+      {
+        "name": "sessions_ask_parent",
+        "progressive": "Asking parent session",
+        "done": "Asked parent session",
+        "subjectKey": "question",
+        "result": "none"
+      },
+      {
+        "name": "sessions_end",
+        "progressive": "Ending session",
+        "done": "Ended session",
+        "subjectKey": "",
+        "result": "none"
+      },
+      {
+        "name": "sessions_get",
+        "progressive": "Reading session",
+        "done": "Read session",
+        "subjectKey": "id",
+        "result": "session"
+      },
+      {
+        "name": "sessions_kill",
+        "progressive": "Killing session",
+        "done": "Killed session",
+        "subjectKey": "id",
+        "result": "none"
+      },
+      {
+        "name": "sessions_list",
+        "progressive": "Listing sessions",
+        "done": "Listed sessions",
+        "subjectKey": "",
+        "result": "list"
+      },
+      {
+        "name": "sessions_message",
+        "progressive": "Messaging session",
+        "done": "Messaged session",
+        "subjectKey": "id",
+        "result": "session"
+      },
+      {
+        "name": "sessions_start",
+        "progressive": "Starting session",
+        "done": "Started session",
+        "subjectKey": "issueId",
+        "result": "session"
+      },
+      {
+        "name": "statuses_create",
+        "progressive": "Creating status",
+        "done": "Created status",
+        "subjectKey": "name",
+        "result": "none"
+      },
+      {
+        "name": "statuses_delete",
+        "progressive": "Deleting status",
+        "done": "Deleted status",
+        "subjectKey": "id",
+        "result": "none"
+      },
+      {
+        "name": "statuses_list",
+        "progressive": "Listing statuses",
+        "done": "Listed statuses",
+        "subjectKey": "",
+        "result": "list"
+      },
+      {
+        "name": "statuses_update",
+        "progressive": "Updating status",
+        "done": "Updated status",
+        "subjectKey": "id",
+        "result": "none"
+      },
+      {
+        "name": "teams_create",
+        "progressive": "Creating team",
+        "done": "Created team",
+        "subjectKey": "name",
+        "result": "none"
+      },
+      {
+        "name": "teams_get",
+        "progressive": "Reading team",
+        "done": "Read team",
+        "subjectKey": "id",
+        "result": "none"
+      },
+      {
+        "name": "teams_list",
+        "progressive": "Listing teams",
+        "done": "Listed teams",
+        "subjectKey": "",
+        "result": "list"
+      },
+      {
+        "name": "teams_update",
+        "progressive": "Updating team",
+        "done": "Updated team",
+        "subjectKey": "id",
+        "result": "none"
+      }
+    ]
+  },
+  "turnState": {
+    "values": ["started", "ended"]
   }
 }
